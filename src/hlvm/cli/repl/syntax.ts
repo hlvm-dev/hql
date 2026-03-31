@@ -4,8 +4,6 @@
  */
 
 import ts from "typescript";
-import { ANSI_COLORS } from "../ansi.ts";
-import { getSyntaxAnsi } from "../theme/index.ts";
 import {
   KERNEL_PRIMITIVES,
   BINDING_KEYWORDS,
@@ -17,8 +15,7 @@ import {
   MACRO_SET as BASE_MACRO_SET,
 } from "../../../common/known-identifiers.ts";
 import type { ComposerLanguage } from "./composer-language.ts";
-
-const { BOLD, RESET } = ANSI_COLORS;
+import { LRUCache } from "../../../common/lru-cache.ts";
 
 // ============================================================
 // Token Types
@@ -280,37 +277,14 @@ function classifySymbol(value: string): TokenType {
 // Tokenization Memoization
 // ============================================================
 
-const TOKENIZE_CACHE_LIMIT = 32;
-const tokenizeCache = new Map<string, Token[]>();
-
-function getTokenizeCacheEntry(input: string): Token[] | null {
-  const cached = tokenizeCache.get(input);
-  if (!cached) return null;
-  tokenizeCache.delete(input);
-  tokenizeCache.set(input, cached);
-  return cached;
-}
-
-function setTokenizeCacheEntry(input: string, tokens: Token[]): Token[] {
-  if (tokenizeCache.has(input)) {
-    tokenizeCache.delete(input);
-  }
-  tokenizeCache.set(input, tokens);
-  if (tokenizeCache.size > TOKENIZE_CACHE_LIMIT) {
-    const oldestKey = tokenizeCache.keys().next().value;
-    if (oldestKey !== undefined) {
-      tokenizeCache.delete(oldestKey);
-    }
-  }
-  return tokens;
-}
+const tokenizeCache = new LRUCache<string, Token[]>(32);
 
 function tokenizeCached(input: string): Token[] {
-  const cached = getTokenizeCacheEntry(input);
-  if (cached) {
-    return cached;
-  }
-  return setTokenizeCacheEntry(input, tokenize(input));
+  const cached = tokenizeCache.get(input);
+  if (cached) return cached;
+  const tokens = tokenize(input);
+  tokenizeCache.set(input, tokens);
+  return tokens;
 }
 
 export function __resetTokenizeCacheForTest(): void {
@@ -324,36 +298,6 @@ export function __getTokenizeCacheKeysForTest(): string[] {
 // ============================================================
 // Syntax Highlighter
 // ============================================================
-
-/**
- * Theme-aware token color map. Called per highlight() invocation
- * so colors update when the user switches themes at runtime.
- * hexCache in theme/index.ts makes hex->ANSI O(1) after first call.
- */
-function getTokenColors(): Partial<Record<TokenType, string>> & {
-  functionCall: string;
-  regex: string;
-} {
-  const sc = getSyntaxAnsi();
-  return {
-    string: sc.string,
-    number: sc.number,
-    keyword: sc.keyword,
-    macro: sc.macro,
-    operator: sc.operator,
-    comment: sc.comment,
-    boolean: sc.boolean,
-    nil: sc.nil,
-    "open-paren": sc.delimiter,
-    "close-paren": sc.delimiter,
-    "open-bracket": sc.delimiter,
-    "close-bracket": sc.delimiter,
-    "open-brace": sc.delimiter,
-    "close-brace": sc.delimiter,
-    functionCall: sc.functionCall,
-    regex: sc.regex,
-  };
-}
 
 function getFunctionPositionTokens(tokens: readonly Token[]): ReadonlySet<number> {
   const functionPositionTokens = new Set<number>();
@@ -583,40 +527,6 @@ export function getComposerHighlightSegments(
     return getJsTsHighlightSegments(input, bracketPositions);
   }
   return getHighlightSegments(input, bracketPositions);
-}
-
-/**
- * Highlight input string with ANSI colors.
- * Uses context-aware highlighting for function position detection.
- *
- * @param input - Raw input string
- * @param bracketPositions - Optional position(s) of brackets to highlight (single number or array for pairs)
- * @returns ANSI-colored string
- */
-export function highlight(input: string, bracketPositions: number | number[] | null = null): string {
-  if (input.length === 0) return "";
-
-  const parts: string[] = [];
-  const tokenColors = getTokenColors();
-  for (const segment of getHighlightSegments(input, bracketPositions)) {
-    const color = segment.colorKey ? tokenColors[segment.colorKey] : undefined;
-    if (segment.bold) {
-      if (color) {
-        parts.push(BOLD, color, segment.value, RESET);
-      } else {
-        parts.push(BOLD, segment.value, RESET);
-      }
-      continue;
-    }
-
-    if (color) {
-      parts.push(color, segment.value, RESET);
-    } else {
-      parts.push(segment.value);
-    }
-  }
-
-  return parts.join("");
 }
 
 // ============================================================

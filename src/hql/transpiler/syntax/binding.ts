@@ -4,7 +4,6 @@
 import * as IR from "../type/hql_ir.ts";
 import type { ListNode, LiteralNode, SymbolNode } from "../type/hql_ast.ts";
 import { ValidationError } from "../../../common/error.ts";
-import {} from "../../../common/utils.ts";
 import { extractAndNormalizeType } from "../tokenizer/type-tokenizer.ts";
 import { transformIf } from "./conditional.ts";
 import {

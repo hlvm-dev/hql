@@ -181,7 +181,36 @@ function validateDelegateArgs(
   return { agent: profile.name, task, record, profile };
 }
 
-/** Run the delegate child loop (shared by sync and background paths). */
+/** SHA-256 hash a string for lightweight conflict detection (avoids storing full file contents). */
+export async function hashContent(content: string): Promise<string> {
+  const data = TEXT_ENCODER.encode(content);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/** Walk a workspace directory tree, calling visitor for each file. Skips .hlvm-child and .git dirs. */
+async function walkWorkspace(
+  rootDir: string,
+  visitor: (filePath: string, relPath: string) => Promise<void>,
+): Promise<void> {
+  const platform = getPlatform();
+  async function walkDir(dir: string, rel: string): Promise<void> {
+    for await (const entry of platform.fs.readDir(dir)) {
+      const fullPath = platform.path.join(dir, entry.name);
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory) {
+        if (entry.name.startsWith(CHILD_WORKSPACE_PREFIX) || entry.name === ".git") continue;
+        await walkDir(fullPath, relPath);
+      } else if (entry.isFile) {
+        try {
+          await visitor(fullPath, relPath);
+        } catch { /* best-effort */ }
+      }
+    }
+  }
+  await walkDir(rootDir, "");
+}
 
 /**
  * Generate a unified diff of changes between child and parent workspace.
@@ -195,68 +224,32 @@ export async function generateChildDiff(
   const modified: string[] = [];
   const diffLines: string[] = [];
 
-  async function walkDir(dir: string, rel: string): Promise<void> {
-    for await (const entry of platform.fs.readDir(dir)) {
-      const childPath = platform.path.join(dir, entry.name);
-      const relPath = rel ? `${rel}/${entry.name}` : entry.name;
-
-      if (entry.isDirectory) {
-        // Skip nested .hlvm-child dirs
-        if (
-          entry.name.startsWith(CHILD_WORKSPACE_PREFIX) || entry.name === ".git"
-        ) {
-          continue;
-        }
-        await walkDir(childPath, relPath);
-      } else if (entry.isFile) {
-        const parentPath = platform.path.join(parentWorkspace, relPath);
-        try {
-          const childContent = await platform.fs.readTextFile(childPath);
-          let parentContent: string;
-          try {
-            parentContent = await platform.fs.readTextFile(parentPath);
-          } catch {
-            // New file in child
-            parentContent = "";
-          }
-          if (childContent !== parentContent) {
-            modified.push(relPath);
-            diffLines.push(`--- a/${relPath}`);
-            diffLines.push(`+++ b/${relPath}`);
-            if (!parentContent) {
-              diffLines.push("@@ new file @@");
-              for (const line of childContent.split("\n")) {
-                diffLines.push(`+${line}`);
-              }
-            } else {
-              // Simple line-by-line diff
-              const parentLines = parentContent.split("\n");
-              const childLines = childContent.split("\n");
-              diffLines.push(
-                `@@ -1,${parentLines.length} +1,${childLines.length} @@`,
-              );
-              for (const line of parentLines) diffLines.push(`-${line}`);
-              for (const line of childLines) diffLines.push(`+${line}`);
-            }
-          }
-        } catch {
-          // Skip unreadable files
-        }
-      }
+  await walkWorkspace(childWorkspace, async (childPath, relPath) => {
+    const parentPath = platform.path.join(parentWorkspace, relPath);
+    const childContent = await platform.fs.readTextFile(childPath);
+    let parentContent: string;
+    try {
+      parentContent = await platform.fs.readTextFile(parentPath);
+    } catch {
+      parentContent = "";
     }
-  }
+    if (childContent === parentContent) return;
+    modified.push(relPath);
+    diffLines.push(`--- a/${relPath}`, `+++ b/${relPath}`);
+    if (!parentContent) {
+      diffLines.push("@@ new file @@");
+      for (const line of childContent.split("\n")) diffLines.push(`+${line}`);
+    } else {
+      const parentLines = parentContent.split("\n");
+      const childLines = childContent.split("\n");
+      diffLines.push(`@@ -1,${parentLines.length} +1,${childLines.length} @@`);
+      for (const line of parentLines) diffLines.push(`-${line}`);
+      for (const line of childLines) diffLines.push(`+${line}`);
+    }
+  });
 
-  await walkDir(childWorkspace, "");
   if (modified.length === 0) return null;
   return { diff: diffLines.join("\n"), filesModified: modified };
-}
-
-/** SHA-256 hash a string for lightweight conflict detection (avoids storing full file contents). */
-export async function hashContent(content: string): Promise<string> {
-  const data = TEXT_ENCODER.encode(content);
-  const buf = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 /**
@@ -280,19 +273,12 @@ export async function applyChildChanges(
     try {
       const childContent = await platform.fs.readTextFile(childPath);
 
-      // Real conflict detection: if we have a snapshot (hash) of the parent at
-      // spawn time, hash the current parent and compare. If parent changed
-      // since spawn, it's a true conflict (someone else modified the same file).
       if (parentSnapshots) {
         const spawnHash = parentSnapshots.get(relPath);
         try {
           const currentParent = await platform.fs.readTextFile(parentPath);
           const currentHash = await hashContent(currentParent);
-          if (
-            (spawnHash === undefined && currentParent.length >= 0) ||
-            (spawnHash !== undefined && currentHash !== spawnHash)
-          ) {
-            // Parent file changed since child was spawned — conflict
+          if (spawnHash === undefined || currentHash !== spawnHash) {
             conflicts.push(relPath);
             continue;
           }
@@ -301,10 +287,8 @@ export async function applyChildChanges(
         }
       }
 
-      // Ensure parent directory exists
       const parentDir = platform.path.dirname(parentPath);
       await platform.fs.mkdir(parentDir, { recursive: true });
-
       await platform.fs.writeTextFile(parentPath, childContent);
       applied.push(relPath);
     } catch {
@@ -322,33 +306,11 @@ export async function applyChildChanges(
 export async function snapshotWorkspaceFiles(
   parentWorkspace: string,
 ): Promise<Map<string, string>> {
-  const platform = getPlatform();
   const snapshots = new Map<string, string>();
-
-  async function walkDir(dir: string, rel: string): Promise<void> {
-    for await (const entry of platform.fs.readDir(dir)) {
-      const childPath = platform.path.join(dir, entry.name);
-      const relPath = rel ? `${rel}/${entry.name}` : entry.name;
-      if (entry.isDirectory) {
-        if (
-          entry.name.startsWith(CHILD_WORKSPACE_PREFIX) || entry.name === ".git"
-        ) {
-          continue;
-        }
-        await walkDir(childPath, relPath);
-        continue;
-      }
-      if (!entry.isFile) continue;
-      try {
-        const content = await platform.fs.readTextFile(childPath);
-        snapshots.set(relPath, await hashContent(content));
-      } catch {
-        // Best-effort snapshot only
-      }
-    }
-  }
-
-  await walkDir(parentWorkspace, "");
+  await walkWorkspace(parentWorkspace, async (filePath, relPath) => {
+    const content = await getPlatform().fs.readTextFile(filePath);
+    snapshots.set(relPath, await hashContent(content));
+  });
   return snapshots;
 }
 

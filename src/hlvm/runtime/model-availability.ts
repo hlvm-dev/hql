@@ -29,18 +29,11 @@ function createCloudAccessFailure(status: string): {
   status: string;
   error?: string;
 } {
-  switch (status) {
-    case "signin_failed":
-      return { ok: false, status, error: "Cloud sign-in failed." };
-    case "verification_failed":
-      return {
-        ok: false,
-        status,
-        error: "Cloud sign-in was not completed.",
-      };
-    default:
-      return { ok: false, status, error: "Cloud access is unavailable." };
-  }
+  const messages: Record<string, string> = {
+    signin_failed: "Cloud sign-in failed.",
+    verification_failed: "Cloud sign-in was not completed.",
+  };
+  return { ok: false, status, error: messages[status] ?? "Cloud access is unavailable." };
 }
 
 export async function getRuntimeModelAvailability(

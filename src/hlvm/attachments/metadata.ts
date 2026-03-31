@@ -4,7 +4,7 @@ import type {
   ConversationAttachmentKind,
 } from "./types.ts";
 
-export const ATTACHMENT_EXT_TO_MIME: Record<string, string> = {
+const ATTACHMENT_EXT_TO_MIME: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".png": "image/png",
@@ -82,7 +82,7 @@ const MIME_TO_KIND: Record<string, AttachmentKind> = Object.fromEntries(
   }),
 );
 
-export const ATTACHMENT_SIZE_LIMITS: Record<AttachmentKind, number> = {
+const ATTACHMENT_SIZE_LIMITS: Record<AttachmentKind, number> = {
   image: 20 * 1024 * 1024,
   video: 100 * 1024 * 1024,
   audio: 50 * 1024 * 1024,

@@ -75,16 +75,7 @@ const USER_IMPLICIT_PATTERNS: ExtractPattern[] = [
     build: (match) => `Decision: ${cleanValue(match[1] ?? "")}`,
   },
   {
-    pattern: /\blet'?s use\s+([^.!?\n]+?)\s+instead of\s+([^.!?\n]+)/gi,
-    category: "Decisions",
-    source: "conversation_implicit",
-    build: (match) =>
-      `Decision: use ${cleanValue(match[1] ?? "")} instead of ${
-        cleanValue(match[2] ?? "")
-      }`,
-  },
-  {
-    pattern: /\buse\s+([^.!?\n]+?)\s+instead of\s+([^.!?\n]+)/gi,
+    pattern: /\b(?:let'?s )?use\s+([^.!?\n]+?)\s+instead of\s+([^.!?\n]+)/gi,
     category: "Decisions",
     source: "conversation_implicit",
     build: (match) =>
@@ -246,37 +237,21 @@ export function extractConversationFacts(options: {
   const facts: ExtractedMemoryFact[] = [];
   const seen = new Set<string>();
 
-  for (const fact of extractExplicitMemoryRequests(options.userMessage)) {
-    const key = normalizeFactKey(fact);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    facts.push(fact);
-  }
-
-  for (
-    const fact of collectPatternFacts(
-      options.userMessage,
-      USER_IMPLICIT_PATTERNS,
-    )
-  ) {
-    const key = normalizeFactKey(fact);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    facts.push(fact);
-  }
-
-  if (options.assistantMessage) {
-    for (
-      const fact of collectPatternFacts(
-        options.assistantMessage,
-        ASSISTANT_OUTCOME_PATTERNS,
-      )
-    ) {
+  const addUnique = (source: Iterable<ExtractedMemoryFact>) => {
+    for (const fact of source) {
       const key = normalizeFactKey(fact);
       if (seen.has(key)) continue;
       seen.add(key);
       facts.push(fact);
     }
+  };
+
+  addUnique(extractExplicitMemoryRequests(options.userMessage));
+  addUnique(collectPatternFacts(options.userMessage, USER_IMPLICIT_PATTERNS));
+  if (options.assistantMessage) {
+    addUnique(
+      collectPatternFacts(options.assistantMessage, ASSISTANT_OUTCOME_PATTERNS),
+    );
   }
 
   return facts;

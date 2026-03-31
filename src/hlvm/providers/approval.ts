@@ -1,12 +1,7 @@
 import { parseModelString } from "./index.ts";
+import { providerDisplayName } from "./common.ts";
 
 const PAID_PROVIDERS = new Set(["openai", "anthropic", "google"]);
-
-const PROVIDER_LABELS: Record<string, string> = {
-  openai: "OpenAI",
-  anthropic: "Anthropic",
-  google: "Google",
-};
 
 /** Extract provider prefix from a model ID like "openai/gpt-4o". */
 export function extractProvider(modelId: string): string | null {
@@ -37,9 +32,7 @@ export function evaluateProviderApproval(
   approvedProviders: readonly string[] | undefined,
 ): ProviderApprovalDecision {
   const provider = extractProvider(modelId);
-  const label = provider
-    ? (PROVIDER_LABELS[provider] ?? provider)
-    : null;
+  const label = provider ? providerDisplayName(provider) : null;
 
   if (!provider || !PAID_PROVIDERS.has(provider)) {
     return {

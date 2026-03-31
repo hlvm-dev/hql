@@ -35,10 +35,6 @@ export function getLegacyHistoryPath(): string {
 }
 
 // Internal helpers (not exported)
-function pathExists(path: string): Promise<boolean> {
-  return getPlatform().fs.exists(path);
-}
-
 function getLegacyRuntimeDir(): string {
   return join(getLegacyHqlDir(), ".runtime");
 }
@@ -53,11 +49,11 @@ function getLegacyRuntimeOllamaPath(): string {
 
 export async function findLegacyRuntimeEngine(): Promise<string | null> {
   const enginePath = getLegacyRuntimeEnginePath();
-  if (await pathExists(enginePath)) {
+  if (await getPlatform().fs.exists(enginePath)) {
     return enginePath;
   }
   const ollamaPath = getLegacyRuntimeOllamaPath();
-  if (await pathExists(ollamaPath)) {
+  if (await getPlatform().fs.exists(ollamaPath)) {
     return ollamaPath;
   }
   return null;

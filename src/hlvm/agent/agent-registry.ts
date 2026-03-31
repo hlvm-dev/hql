@@ -290,8 +290,8 @@ export function getAgentProfile(
   profiles: readonly AgentProfile[] = AGENT_PROFILES,
 ): AgentProfile | null {
   const normalized = name.trim().toLowerCase();
-  // Try exact match first, then alias
+  const aliased = PROFILE_ALIASES[normalized];
   return profiles.find((p) => p.name === normalized)
-    ?? profiles.find((p) => p.name === (PROFILE_ALIASES[normalized] ?? normalized))
+    ?? (aliased ? profiles.find((p) => p.name === aliased) : null)
     ?? null;
 }

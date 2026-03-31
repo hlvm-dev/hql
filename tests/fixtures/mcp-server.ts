@@ -18,7 +18,8 @@
  * Env vars:
  *   MCP_REPLY_PREFIX - prefix for echo tool responses
  *   MCP_TEST_MODE    - comma-separated: resources,prompts,logging,sampling,
- *                      elicitation,paginated,old_protocol,progress
+ *                      elicitation,paginated,old_protocol,progress,
+ *                      semantic_audio,semantic_computer,semantic_structured
  */
 
 import { getPlatform } from "../../src/platform/platform.ts";
@@ -231,23 +232,76 @@ function handleRequest(request: {
       return;
     }
 
+    // Build tool list based on test modes
+    const tools: unknown[] = [
+      {
+        name: "echo",
+        description: "Echo back the input",
+        inputSchema: {
+          type: "object",
+          properties: {
+            message: { type: "string", description: "Message to echo" },
+          },
+        },
+      },
+    ];
+
+    if (testMode.includes("semantic_audio")) {
+      tools.push({
+        name: "audio_transcribe",
+        description: "Transcribe audio content to text",
+        inputSchema: {
+          type: "object",
+          properties: {
+            audio_data: { type: "string", description: "Base64-encoded audio data" },
+            format: { type: "string", description: "Audio format (mp3, wav, etc.)" },
+          },
+        },
+        _meta: {
+          hlvmSemanticCapabilities: ["audio.analyze"],
+        },
+      });
+    }
+
+    if (testMode.includes("semantic_computer")) {
+      tools.push({
+        name: "browser_interact",
+        description: "Interact with browser elements via click, type, or read",
+        inputSchema: {
+          type: "object",
+          properties: {
+            action: { type: "string", description: "click | type | read" },
+            selector: { type: "string", description: "CSS selector" },
+            value: { type: "string", description: "Value for type actions" },
+          },
+        },
+        _meta: {
+          hlvmSemanticCapabilities: ["computer.use"],
+        },
+      });
+    }
+
+    if (testMode.includes("semantic_structured")) {
+      tools.push({
+        name: "structured_generate",
+        description: "Generate structured JSON output matching a given schema",
+        inputSchema: {
+          type: "object",
+          properties: {
+            schema: { type: "object", description: "JSON Schema for the output" },
+            prompt: { type: "string", description: "Prompt for generation" },
+          },
+        },
+        _meta: {
+          hlvmSemanticCapabilities: ["structured.output"],
+        },
+      });
+    }
+
     write({
       jsonrpc: "2.0",
       id: request.id,
-      result: {
-        tools: [
-          {
-            name: "echo",
-            description: "Echo back the input",
-            inputSchema: {
-              type: "object",
-              properties: {
-                message: { type: "string", description: "Message to echo" },
-              },
-            },
-          },
-        ],
-      },
+      result: { tools },
     });
     return;
   }
@@ -256,6 +310,75 @@ function handleRequest(request: {
     const params = request.params as Record<string, unknown> | undefined;
     const toolName = params?.name as string | undefined;
     const args = params?.arguments as Record<string, unknown> | undefined;
+
+    if (toolName === "audio_transcribe") {
+      const format = (args?.format as string) ?? "unknown";
+      const response = {
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          content: [{ type: "text", text: `Transcription: [test content — format: ${format}]` }],
+        },
+      };
+      if (toolDelayMs > 0) {
+        setTimeout(() => write(response), toolDelayMs);
+      } else {
+        write(response);
+      }
+      return;
+    }
+
+    if (toolName === "browser_interact") {
+      const action = (args?.action as string) ?? "unknown";
+      const selector = (args?.selector as string) ?? "unknown";
+      const response = {
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          content: [{ type: "text", text: `Action completed: ${action} on '${selector}'` }],
+        },
+      };
+      if (toolDelayMs > 0) {
+        setTimeout(() => write(response), toolDelayMs);
+      } else {
+        write(response);
+      }
+      return;
+    }
+
+    if (toolName === "structured_generate") {
+      // Generate response using schema keys (proves input reaches handler)
+      const schema = args?.schema as Record<string, unknown> | undefined;
+      const properties = schema?.properties as Record<string, Record<string, unknown>> | undefined;
+      const result: Record<string, unknown> = {};
+      if (properties) {
+        for (const [key, propSchema] of Object.entries(properties)) {
+          const t = propSchema?.type as string | undefined;
+          if (t === "string") result[key] = "test";
+          else if (t === "number" || t === "integer") result[key] = 25;
+          else if (t === "boolean") result[key] = true;
+          else if (t === "array") result[key] = [];
+          else result[key] = null;
+        }
+      } else {
+        // Fallback for missing schema
+        result.name = "test";
+        result.age = 25;
+      }
+      const response = {
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          content: [{ type: "text", text: JSON.stringify(result) }],
+        },
+      };
+      if (toolDelayMs > 0) {
+        setTimeout(() => write(response), toolDelayMs);
+      } else {
+        write(response);
+      }
+      return;
+    }
 
     if (toolName === "reverse") {
       const text = (args?.text as string) ?? "";

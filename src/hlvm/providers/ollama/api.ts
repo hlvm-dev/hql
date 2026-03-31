@@ -101,14 +101,12 @@ async function* streamRequest<T>(
   let buffer = "";
   let searchFrom = 0;
 
-  const abortError = createAbortError;
-
   const handleAbort = () => {
     reader.cancel().catch(() => {});
   };
 
   if (signal?.aborted) {
-    throw abortError();
+    throw createAbortError();
   }
 
   signal?.addEventListener("abort", handleAbort, { once: true });
@@ -116,14 +114,14 @@ async function* streamRequest<T>(
   try {
     while (true) {
       if (signal?.aborted) {
-        throw abortError();
+        throw createAbortError();
       }
 
       const { done, value } = await reader.read();
       if (done) break;
 
       if (signal?.aborted) {
-        throw abortError();
+        throw createAbortError();
       }
 
       buffer += decoder.decode(value, { stream: true });
@@ -145,7 +143,7 @@ async function* streamRequest<T>(
     }
 
     if (signal?.aborted) {
-      throw abortError();
+      throw createAbortError();
     }
 
     // Process remaining buffer

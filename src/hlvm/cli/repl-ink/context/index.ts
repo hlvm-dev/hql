@@ -4,5 +4,4 @@
 export {
   ReplProvider,
   useReplContext,
-  type ReplContextValue,
 } from "./ReplContext.tsx";

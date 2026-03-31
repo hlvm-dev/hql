@@ -61,8 +61,14 @@ export interface RoutingEvalCase {
   visionAttachmentCount?: number;
   /** Whether a local vision-capable model is installed */
   localVisionAvailable?: boolean;
+  /** The local vision model ID (e.g. "ollama/llava:latest") for reasoning selector */
+  localVisionModelId?: string;
   /** MCP candidates to inject for testing MCP fallback routing */
   mcpCandidates?: Partial<Record<import("./execution-surface.ts").RoutedCapabilityId, import("./execution-surface.ts").McpExecutionPathCandidate[]>>;
+  /** Response shape context for structured.output testing */
+  responseShapeContext?: { requested: boolean; source: string; topLevelKeys: string[] };
+  /** Whether the provider supports native structured output */
+  providerNativeStructuredOutputAvailable?: boolean;
   /** Expectations to validate against the surface */
   expectations: RoutingExpectation[];
 }

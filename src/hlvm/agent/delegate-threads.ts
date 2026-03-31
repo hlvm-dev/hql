@@ -116,11 +116,9 @@ const completedQueueSet = new Set<string>();
 
 function removeQueuedCompletion(threadId: string): void {
   completedQueueSet.delete(threadId);
-  for (let index = completedQueue.length - 1; index >= 0; index--) {
-    if (completedQueue[index] === threadId) {
-      completedQueue.splice(index, 1);
-    }
-  }
+  // completedQueueSet prevents duplicates, so at most one entry exists.
+  const index = completedQueue.indexOf(threadId);
+  if (index >= 0) completedQueue.splice(index, 1);
 }
 
 /** DRY helper: look up a thread and apply a mutation if it exists. */

@@ -565,24 +565,3 @@ export function fuzzyFilter<T>(
   return results;
 }
 
-/**
- * Binary search to find insertion index in a descending-sorted array.
- * Returns the index where `score` should be inserted to maintain descending order.
- */
-export function binarySearchInsertIdx<T>(
-  results: readonly T[],
-  score: number,
-  getScore: (item: T) => number,
-): number {
-  let lo = 0;
-  let hi = results.length;
-  while (lo < hi) {
-    const mid = Math.floor((lo + hi) / 2);
-    if (getScore(results[mid]) >= score) {
-      lo = mid + 1;
-    } else {
-      hi = mid;
-    }
-  }
-  return lo;
-}

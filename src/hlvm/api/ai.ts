@@ -157,7 +157,7 @@ function createAiApi(): AiApi {
     // Single SSOT model resolution for ALL paths
     const modelString = await resolveModelString(options?.model);
 
-    // Structured output path: use AI SDK native constrained decoding
+    // Structured output path: provider-native constrained decoding → prompt-based fallback
     if (options?.schema != null) {
       const { descriptorToJsonSchema } = await import(
         "./schema-to-json-schema.ts"
@@ -169,13 +169,29 @@ function createAiApi(): AiApi {
         "../agent/engine-sdk.ts"
       );
       const spec = toSdkRuntimeModelSpec(resolveSdkModelSpec(modelString));
+      const jsonSchema = descriptorToJsonSchema(options.schema) as Record<string, unknown>;
+      const sdkOpts = { signal: options.signal, temperature: options.temperature };
 
-      return await generateStructuredWithSdk(
-        spec,
-        buildMessages(prompt, options),
-        descriptorToJsonSchema(options.schema) as Record<string, unknown>,
-        { signal: options.signal, temperature: options.temperature },
-      );
+      // Tier 1: provider-native constrained decoding
+      try {
+        return await generateStructuredWithSdk(
+          spec,
+          buildMessages(prompt, options),
+          jsonSchema,
+          sdkOpts,
+        );
+      } catch {
+        // Tier 3: hlvm-local prompt-based fallback
+        const { generateStructuredWithPromptFallback } = await import(
+          "../providers/structured-output-fallback.ts"
+        );
+        return await generateStructuredWithPromptFallback(
+          spec,
+          buildMessages(prompt, options),
+          jsonSchema,
+          sdkOpts,
+        );
+      }
     }
 
     // Plain text path: use provider.chat() with the same SSOT model
@@ -285,4 +301,3 @@ function createAiApi(): AiApi {
 // ============================================================================
 
 export const ai: AiApi = createAiApi();
-export default ai;

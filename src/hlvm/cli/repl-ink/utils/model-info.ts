@@ -18,11 +18,7 @@ import { LRUCache } from "../../../../common/lru-cache.ts";
 
 // Re-export for backwards compatibility
 export type { ModelInfo, ProviderCapability };
-export {
-  capabilitiesToFlags,
-  formatCapabilityTags,
-  type ModelCapabilityFlags,
-} from "../../../providers/types.ts";
+export { formatCapabilityTags } from "../../../providers/types.ts";
 
 // ============================================================
 // Cache

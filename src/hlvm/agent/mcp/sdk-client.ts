@@ -209,6 +209,9 @@ export class SdkMcpClient {
       annotations: isObjectValue((t as Record<string, unknown>).annotations)
         ? (t as Record<string, unknown>).annotations as Record<string, unknown>
         : undefined,
+      _meta: isObjectValue((t as Record<string, unknown>)._meta)
+        ? (t as Record<string, unknown>)._meta as Record<string, unknown>
+        : undefined,
     }));
   }
 

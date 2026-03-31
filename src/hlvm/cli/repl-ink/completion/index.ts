@@ -65,8 +65,6 @@ export type {
 
 export {
   ATTACHMENT_PLACEHOLDER,
-  STRING_PLACEHOLDER_FUNCTIONS,
-  TYPE_ICONS,
 } from "./types.ts";
 
 // ============================================================

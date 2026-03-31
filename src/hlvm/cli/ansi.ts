@@ -16,9 +16,6 @@ export const ANSI_COLORS = {
   RESET: "\x1b[0m",
 } as const;
 
-// Re-export only what's needed for ANSI terminal output
-export { getThemedAnsi } from "./theme/index.ts";
-
 function getTerminalClearSequence(
   options: { clearScrollback?: boolean } = {},
 ): string {

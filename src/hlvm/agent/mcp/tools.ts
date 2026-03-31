@@ -189,10 +189,11 @@ function buildToolEntry(
 }
 
 function resolveMcpSemanticCapabilities(
-  tool: Pick<McpToolInfo, "metadata" | "annotations">,
+  tool: Pick<McpToolInfo, "metadata" | "annotations" | "_meta">,
 ): SemanticCapabilityId[] | undefined {
   return readSemanticCapabilitiesFromMetadata(tool.metadata) ??
-    readSemanticCapabilitiesFromMetadata(tool.annotations);
+    readSemanticCapabilitiesFromMetadata(tool.annotations) ??
+    readSemanticCapabilitiesFromMetadata(tool._meta);
 }
 
 // ============================================================

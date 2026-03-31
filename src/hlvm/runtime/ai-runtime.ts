@@ -257,10 +257,8 @@ async function waitForAIEngineReady(): Promise<boolean> {
 }
 
 async function startAIEngine(platform = getPlatform()): Promise<void> {
-  const embeddedEnginePath = await resolveEmbeddedEnginePath(platform);
-  const enginePath = embeddedEnginePath
-    ? embeddedEnginePath
-    : SYSTEM_AI_ENGINE;
+  const enginePath = await resolveEmbeddedEnginePath(platform) ??
+    SYSTEM_AI_ENGINE;
 
   // Guard against recursive self-execution
   if (enginePath !== SYSTEM_AI_ENGINE) {
@@ -276,6 +274,10 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
     }
   }
 
+  const killProcess = (proc: PlatformCommandProcess | null) => {
+    try { proc?.kill?.("SIGTERM"); } catch { /* best-effort */ }
+  };
+
   let aiProcess: PlatformCommandProcess | null = null;
   try {
     aiProcess = platform.command.run({
@@ -289,11 +291,7 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
       log.debug?.(`AI engine started successfully (${enginePath})`);
       return;
     }
-    try {
-      aiProcess.kill?.("SIGTERM");
-    } catch {
-      // Best-effort cleanup only.
-    }
+    killProcess(aiProcess);
     throw new RuntimeError("AI engine failed to start", {
       code: HLVMErrorCode.AI_ENGINE_STARTUP_FAILED,
     });
@@ -303,11 +301,7 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
       log.debug?.("AI engine already running (port in use but responsive)");
       return;
     }
-    try {
-      aiProcess?.kill?.("SIGTERM");
-    } catch {
-      // Best-effort cleanup only.
-    }
+    killProcess(aiProcess);
     log.warn(`AI features unavailable: ${(error as Error).message}`);
     throw error;
   }

@@ -1,5 +1,5 @@
 /**
- * Routing Eval Tests — runs 35 deterministic eval cases against buildExecutionSurface
+ * Routing Eval Tests — runs 37 deterministic eval cases against buildExecutionSurface
  */
 
 import { assertEquals } from "jsr:@std/assert";
@@ -171,8 +171,10 @@ function buildSurfaceForEval(evalCase: RoutingEvalCase) {
     providerExecutionPlan: plan,
     constraints: evalCase.constraints,
     taskCapabilityContext,
+    responseShapeContext: evalCase.responseShapeContext,
     turnContext,
     computerUseRequested: evalCase.computerUseRequested,
+    providerNativeStructuredOutputAvailable: evalCase.providerNativeStructuredOutputAvailable,
     directVisionKinds,
     directAudioKinds,
     localCodeExecAvailable: true,
@@ -187,6 +189,9 @@ function buildSurfaceForEval(evalCase: RoutingEvalCase) {
       .filter((p) => p.available)
       .map((p) => p.providerName);
 
+    const localVisionModelId = evalCase.localVisionModelId ??
+      (evalCase.localVisionAvailable ? "ollama/llava:latest" : undefined);
+
     const selection = selectReasoningPathForTurn({
       pinnedModelId: evalCase.pinnedModelId,
       pinnedProviderName: evalCase.pinnedProviderName,
@@ -194,6 +199,7 @@ function buildSurfaceForEval(evalCase: RoutingEvalCase) {
       availableProviders,
       turnContext,
       computerUseRequested: evalCase.computerUseRequested,
+      localVisionModelId,
     });
 
     if (selection) {
@@ -224,8 +230,8 @@ for (const evalCase of ROUTING_EVAL_CASES) {
 }
 
 // Summary test
-Deno.test("routing eval: all 35 cases defined and structured", () => {
-  assertEquals(ROUTING_EVAL_CASES.length, 35);
+Deno.test("routing eval: all 40 cases defined and structured", () => {
+  assertEquals(ROUTING_EVAL_CASES.length, 40);
 
   // Verify all 7 dimensions are covered
   const dimensions = new Set(ROUTING_EVAL_CASES.map((c) => c.dimension));

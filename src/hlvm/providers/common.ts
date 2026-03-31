@@ -104,7 +104,7 @@ export function extractProviderErrorMessage(text: string): string | null {
   return null;
 }
 
-function providerDisplayName(providerName: string): string {
+export function providerDisplayName(providerName: string): string {
   switch (providerName) {
     case "claude-code":
       return "Claude Code";

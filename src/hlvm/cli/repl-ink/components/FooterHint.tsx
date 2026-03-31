@@ -14,8 +14,7 @@ import {
   type StreamingState,
   StreamingState as ConversationStreamingState,
 } from "../types.ts";
-import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
-import { STATUS_GLYPHS } from "../ui-constants.ts";
+import { DEFAULT_TERMINAL_WIDTH, STATUS_GLYPHS } from "../ui-constants.ts";
 import { getShellContentWidth } from "../utils/layout-tokens.ts";
 
 import { truncate } from "../../../../common/utils.ts";

@@ -1,6 +1,7 @@
 import { delay } from "@std/async";
 import { http } from "../../common/http-client.ts";
 import { RuntimeError } from "../../common/error.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import {
   HLVMErrorCode,
   parseErrorCodeFromMessage,
@@ -61,6 +62,18 @@ const RUNTIME_SHUTDOWN_POLL_ATTEMPTS = 30;
 const RUNTIME_START_LOCK_WAIT_ATTEMPTS = 120;
 const RUNTIME_START_LOCK_STALE_MS = 30_000;
 
+function parseNdjsonLine<T>(line: string): T {
+  try {
+    return JSON.parse(line) as T;
+  } catch (error) {
+    throw createRuntimeHostError(
+      "Failed to parse runtime host stream event",
+      error instanceof Error ? error : undefined,
+      HLVMErrorCode.STREAM_ERROR,
+    );
+  }
+}
+
 /**
  * Parse newline-delimited JSON from a ReadableStream.
  * Yields one parsed object per line, handling partial chunks and trailing data.
@@ -81,15 +94,7 @@ async function* readNdjsonStream<T>(
         const line = pending.slice(0, newlineIndex).trim();
         pending = pending.slice(newlineIndex + 1);
         if (line.length > 0) {
-          try {
-            yield JSON.parse(line) as T;
-          } catch (error) {
-            throw createRuntimeHostError(
-              "Failed to parse runtime host stream event",
-              error instanceof Error ? error : undefined,
-              HLVMErrorCode.STREAM_ERROR,
-            );
-          }
+          yield parseNdjsonLine<T>(line);
         }
         newlineIndex = pending.indexOf("\n");
       }
@@ -97,15 +102,7 @@ async function* readNdjsonStream<T>(
 
     const trailing = pending.trim();
     if (trailing.length > 0) {
-      try {
-        yield JSON.parse(trailing) as T;
-      } catch (error) {
-        throw createRuntimeHostError(
-          "Failed to parse runtime host stream event",
-          error instanceof Error ? error : undefined,
-          HLVMErrorCode.STREAM_ERROR,
-        );
-      }
+      yield parseNdjsonLine<T>(trailing);
     }
   } finally {
     reader.releaseLock();
@@ -265,10 +262,6 @@ function getHostErrorCodeFromStatus(
   return HLVMErrorCode.REQUEST_FAILED;
 }
 
-function getHostClientErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 async function cancelResponseBody(response: Response): Promise<void> {
   try {
     await response.body?.cancel();
@@ -277,8 +270,19 @@ async function cancelResponseBody(response: Response): Promise<void> {
   }
 }
 
+function rethrowAsRuntimeHostError(error: unknown): never {
+  if (error instanceof RuntimeError) {
+    throw error;
+  }
+  throw createRuntimeHostError(
+    getErrorMessage(error),
+    error instanceof Error ? error : undefined,
+    isHostTransportError(error) ? HLVMErrorCode.TRANSPORT_ERROR : undefined,
+  );
+}
+
 function isRetryableHostChatStreamError(error: unknown): boolean {
-  const message = getHostClientErrorMessage(error).toLowerCase();
+  const message = getErrorMessage(error).toLowerCase();
   return message.includes("error reading a body from connection") ||
     message.includes("connection closed before message completed") ||
     message.includes("connection reset") ||
@@ -1396,14 +1400,7 @@ async function runChatViaHostAttempt(
     if (shouldRetry) {
       return await runChatViaHostAttempt(options, attempt + 1);
     }
-    if (error instanceof RuntimeError) {
-      throw error;
-    }
-    throw createRuntimeHostError(
-      getHostClientErrorMessage(error),
-      error instanceof Error ? error : undefined,
-      isHostTransportError(error) ? HLVMErrorCode.TRANSPORT_ERROR : undefined,
-    );
+    rethrowAsRuntimeHostError(error);
   }
 
   if (!response.ok) {
@@ -1531,14 +1528,7 @@ async function runChatViaHostAttempt(
       await cancel();
       return await runChatViaHostAttempt(options, attempt + 1);
     }
-    if (error instanceof RuntimeError) {
-      throw error;
-    }
-    throw createRuntimeHostError(
-      getHostClientErrorMessage(error),
-      error instanceof Error ? error : undefined,
-      isHostTransportError(error) ? HLVMErrorCode.TRANSPORT_ERROR : undefined,
-    );
+    rethrowAsRuntimeHostError(error);
   }
 
   return { text, structuredResult, stats, sessionVersion, duplicateMessage };

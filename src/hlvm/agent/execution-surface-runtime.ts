@@ -164,12 +164,15 @@ function supportsProviderNativeStructuredOutput(
   }
 }
 
-async function hasLocalVisionModel(): Promise<boolean> {
+async function getLocalVisionModelId(): Promise<string | null> {
   try {
     const installed = await listInstalledModels();
-    return installed.some((m) => m.capabilities?.includes("vision"));
+    const visionModel = installed.find((m) =>
+      m.capabilities?.includes("vision")
+    );
+    return visionModel ? `ollama/${visionModel.name}` : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -338,11 +341,12 @@ export async function resolveExecutionSurfaceState(options: {
       inspectMcpServersForCapabilities(),
       tryGetModelInfo(activeModelId),
     ]);
-  const [directVisionKinds, directAudioKinds, localVisionAvailable] = await Promise.all([
+  const [directVisionKinds, directAudioKinds, localVisionModelId] = await Promise.all([
     resolveDirectVisionKinds({ activeModelId, modelInfo }),
     resolveDirectAudioKinds({ activeModelId, modelInfo }),
-    hasLocalVisionModel(),
+    getLocalVisionModelId(),
   ]);
+  const localVisionAvailable = localVisionModelId !== null;
   const providerNativeStructuredOutputAvailable =
     supportsProviderNativeStructuredOutput(activeModelId, options.fixturePath);
 
@@ -381,6 +385,7 @@ export async function resolveExecutionSurfaceState(options: {
       availableProviders,
       turnContext: options.turnContext,
       computerUseRequested: options.computerUseRequested,
+      localVisionModelId: localVisionModelId ?? undefined,
     });
 
     if (selection) {

@@ -97,23 +97,18 @@ export function createCloudProvider(
     };
 
     async function getModel(options?: GenerateOptions): Promise<string> {
-      let model: string;
-      if (options?.model) {
-        model = options.model;
-      } else if (configuredModel) {
-        model = configuredModel;
-      } else if (resolvedDefault) {
-        model = resolvedDefault;
-      } else {
-        const list = await models.list();
-        if (list.length > 0) {
-          resolvedDefault = list[0].name;
-          model = resolvedDefault;
-        } else {
-          throw new RuntimeError(spec.noModelsError);
-        }
+      const model = options?.model ?? configuredModel ?? resolvedDefault;
+      if (model) {
+        return spec.transformModel ? spec.transformModel(model) : model;
       }
-      return spec.transformModel ? spec.transformModel(model) : model;
+      const list = await models.list();
+      if (list.length === 0) {
+        throw new RuntimeError(spec.noModelsError);
+      }
+      resolvedDefault = list[0].name;
+      return spec.transformModel
+        ? spec.transformModel(resolvedDefault)
+        : resolvedDefault;
     }
 
     function buildSpec(modelId: string): SdkModelSpec {

@@ -160,6 +160,60 @@ Deno.test("reasoning selector: returns null for local models when only basic cha
   assertEquals(result, null);
 });
 
+Deno.test("reasoning selector: switches to local vision model when pinned is Ollama non-vision", () => {
+  const surface = buildSurfaceForSelector({
+    pinnedProviderName: "ollama",
+    runtimeMode: "auto",
+  });
+
+  const result = selectReasoningPathForTurn({
+    pinnedModelId: "ollama/llama3.1:8b",
+    pinnedProviderName: "ollama",
+    surface,
+    availableProviders: ["ollama", "google", "anthropic"],
+    turnContext: {
+      attachmentCount: 1,
+      attachmentKinds: ["image"],
+      visionEligibleAttachmentCount: 1,
+      visionEligibleKinds: ["image"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
+    },
+    localVisionModelId: "ollama/llava:latest",
+  });
+
+  assertEquals(result?.selectedModelId, "ollama/llava:latest");
+  assertEquals(result?.selectedProviderName, "ollama");
+  assertEquals(result?.switchedFromPinned, true);
+});
+
+Deno.test("reasoning selector: falls back to cloud when no local vision model and pinned is Ollama", () => {
+  const surface = buildSurfaceForSelector({
+    pinnedProviderName: "ollama",
+    runtimeMode: "auto",
+  });
+
+  const result = selectReasoningPathForTurn({
+    pinnedModelId: "ollama/llama3.1:8b",
+    pinnedProviderName: "ollama",
+    surface,
+    availableProviders: ["ollama", "google", "anthropic"],
+    turnContext: {
+      attachmentCount: 1,
+      attachmentKinds: ["image"],
+      visionEligibleAttachmentCount: 1,
+      visionEligibleKinds: ["image"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
+    },
+    // No localVisionModelId — should fall back to cloud
+  });
+
+  // Should switch to a cloud provider (Google is cheapest)
+  assertEquals(result?.switchedFromPinned, true);
+  assertEquals(result?.selectedProviderName !== "ollama", true);
+});
+
 Deno.test("reasoning selector: getProviderProfiles reads capabilities from registry", () => {
   const profiles = getProviderProfiles();
 

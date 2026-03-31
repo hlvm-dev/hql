@@ -6,6 +6,7 @@ import {
 import { getPlatform } from "../../platform/platform.ts";
 import type {
   AttachmentRecord,
+  ConversationAttachmentKind,
   ConversationAttachmentMaterializationOptions,
 } from "./types.ts";
 import {
@@ -341,30 +342,20 @@ async function extractDocumentText(
 
 function shouldExtractTextForConversation(
   record: AttachmentRecord,
-  materializationOptions?: ConversationAttachmentMaterializationOptions,
+  preferTextKinds: readonly Exclude<ConversationAttachmentKind, "text">[],
 ): boolean {
-  const { preferTextKinds } = normalizeConversationMaterializationOptions(
-    materializationOptions,
-  );
   if (
     record.kind === "text" || record.kind === "document" ||
     record.kind === "file"
   ) {
     return true;
   }
-  const conversationKind = record.kind === "pdf"
-    ? "pdf"
-    : record.kind === "image"
-    ? "image"
-    : record.kind === "audio"
-    ? "audio"
-    : record.kind === "video"
-    ? "video"
-    : record.kind === "text"
-    ? "text"
-    : null;
-  return conversationKind !== null && conversationKind !== "text" &&
-    preferTextKinds.includes(conversationKind);
+  // Remaining kinds (pdf, image, audio, video) are eligible when listed in preferTextKinds.
+  const kind = record.kind;
+  return kind === "pdf" || kind === "image" || kind === "audio" ||
+    kind === "video"
+    ? preferTextKinds.includes(kind)
+    : false;
 }
 
 export async function extractAttachmentText(
@@ -372,13 +363,12 @@ export async function extractAttachmentText(
   bytes: Uint8Array,
   materializationOptions?: ConversationAttachmentMaterializationOptions,
 ): Promise<string | null> {
-  if (!shouldExtractTextForConversation(record, materializationOptions)) {
+  const { providerProfile, preferTextKinds } =
+    normalizeConversationMaterializationOptions(materializationOptions);
+  if (!shouldExtractTextForConversation(record, preferTextKinds)) {
     return null;
   }
 
-  const { providerProfile } = normalizeConversationMaterializationOptions(
-    materializationOptions,
-  );
   const cached = await readExtractedTextCache(record, providerProfile);
   if (cached) {
     return cached;

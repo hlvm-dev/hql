@@ -118,7 +118,7 @@ function getMostRecentConversationSession() {
   return sessions[0] ?? null;
 }
 
-export async function closeActiveConversationSession(): Promise<void> {
+export function closeActiveConversationSession(): void {
   activeSessionId = null;
 }
 

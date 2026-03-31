@@ -9,14 +9,12 @@
 export type {
   TaskStatus,
   TaskType,
-  PullProgress,
   EvalProgress,
   Task,
   ModelPullTask,
   EvalTask,
   DelegateTask,
   TaskEvent,
-  TaskEventListener,
 } from "./types.ts";
 
 export {

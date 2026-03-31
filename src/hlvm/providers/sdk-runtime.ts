@@ -611,10 +611,6 @@ async function appendGoogleFileTrace(
   });
 }
 
-function decodeAttachmentData(data: string): Uint8Array {
-  return decodeBase64(data);
-}
-
 function getGoogleHttpOptions(
   spec: SdkModelSpec,
 ): { baseUrl?: string; apiVersion?: string } | undefined {
@@ -746,7 +742,7 @@ async function uploadGoogleAttachment(
 
   await appendGoogleFileTrace(spec, attachment, "google_file_upload_started");
 
-  const bytes = decodeAttachmentData(attachment.data);
+  const bytes = decodeBase64(attachment.data);
   const file = await ai.files.upload({
     file: new Blob([bytes], { type: attachment.mimeType }),
     config: {
@@ -1136,9 +1132,7 @@ export function convertToSdkMessages(
     if (pendingIndex < 0) {
       continue;
     }
-    pendingToolCalls = pendingToolCalls.filter((call) =>
-      call.id !== toolCallId
-    );
+    pendingToolCalls.splice(pendingIndex, 1);
 
     const toolResultPart = {
       type: "tool-result" as const,

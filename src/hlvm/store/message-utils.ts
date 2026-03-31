@@ -28,17 +28,17 @@ export function parseStoredStringArray(
 
 export function loadAllMessages(sessionId: string): MessageRow[] {
   const allMessages: MessageRow[] = [];
-  let offset = 0;
+  let cursor: number | undefined;
   const pageSize = 200;
   for (let page = 0; page < MAX_PAGES; page++) {
     const result = getMessages(sessionId, {
       limit: pageSize,
-      offset,
       sort: "asc",
+      ...(cursor !== undefined ? { after_order: cursor } : {}),
     });
     allMessages.push(...result.messages);
-    if (!result.has_more) break;
-    offset += pageSize;
+    if (!result.has_more || result.messages.length === 0) break;
+    cursor = result.messages[result.messages.length - 1].order;
   }
   return allMessages;
 }

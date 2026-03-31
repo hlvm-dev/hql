@@ -60,7 +60,7 @@ export type Message = ProviderMessage;
 // Tool Calling Types
 // ============================================================================
 
-export interface ToolFunctionDefinition {
+interface ToolFunctionDefinition {
   name: string;
   description?: string;
   parameters: Record<string, unknown>;

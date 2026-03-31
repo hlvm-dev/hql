@@ -31,10 +31,6 @@ import {
   withLexicalScope,
 } from "../utils/binding-resolution.ts";
 
-interface MemberExpressionOptions {
-  guard?: boolean;
-}
-
 // Pre-compiled regex patterns for hot paths (avoid compilation per call)
 /** Matches non-identifier characters that require computed property access */
 const SPECIAL_CHAR_REGEX = /[^a-zA-Z0-9_$]/;
@@ -50,19 +46,12 @@ const EXPR_WRAPPER_TYPES = new Set([
   IR.IRNodeType.UnaryExpression,
 ]);
 
-function needsExpressionWrapper(node: IR.IRNode): boolean {
-  return EXPR_WRAPPER_TYPES.has(node.type);
-}
-
 /**
  * Wrap an IR node in an ExpressionStatement if needed.
  * Returns the node as-is if it's already a statement.
  */
 function wrapIfNeeded(node: IR.IRNode): IR.IRNode {
-  if (needsExpressionWrapper(node)) {
-    return createExprStmt(node);
-  }
-  return node;
+  return EXPR_WRAPPER_TYPES.has(node.type) ? createExprStmt(node) : node;
 }
 
 /**

@@ -61,7 +61,7 @@ export interface TranscriptState {
   currentTurnStartedAt?: number;
   pendingTurnStats?: PendingTurnStats;
   turnCounter: number;
-  seenCapabilityRouteKeys: string[];
+  seenCapabilityRouteKeys: Set<string>;
 }
 
 export type TranscriptInput =
@@ -94,24 +94,24 @@ export function createTranscriptState(): TranscriptState {
     nextId: 0,
     completedPlanStepIds: [],
     turnCounter: 0,
-    seenCapabilityRouteKeys: [],
+    seenCapabilityRouteKeys: new Set(),
   };
 }
 
 function getCapabilityRouteEventKey(
   event: Extract<AgentUIEvent, { type: "capability_routed" }>,
 ): string {
-  return JSON.stringify({
-    capabilityId: event.capabilityId,
-    selectedBackendKind: event.selectedBackendKind ?? null,
-    selectedToolName: event.selectedToolName ?? null,
-    selectedServerName: event.selectedServerName ?? null,
-    fallbackReason: event.fallbackReason ?? null,
-    failedBackendKind: event.failedBackendKind ?? null,
-    failedToolName: event.failedToolName ?? null,
-    failedServerName: event.failedServerName ?? null,
-    failureReason: event.failureReason ?? null,
-  });
+  return [
+    event.capabilityId,
+    event.selectedBackendKind ?? "",
+    event.selectedToolName ?? "",
+    event.selectedServerName ?? "",
+    event.fallbackReason ?? "",
+    event.failedBackendKind ?? "",
+    event.failedToolName ?? "",
+    event.failedServerName ?? "",
+    event.failureReason ?? "",
+  ].join("\0");
 }
 
 function getVisibleTodoState(
@@ -705,17 +705,16 @@ export function reduceTranscriptState(
           };
         case "capability_routed": {
           const routeKey = getCapabilityRouteEventKey(event);
-          if (state.seenCapabilityRouteKeys.includes(routeKey)) {
+          if (state.seenCapabilityRouteKeys.has(routeKey)) {
             return state;
           }
+          const nextRouteKeys = new Set(state.seenCapabilityRouteKeys);
+          nextRouteKeys.add(routeKey);
           return appendInfoItem(
             {
               ...state,
               items: removeTransientInfoItems(state.items),
-              seenCapabilityRouteKeys: [
-                ...state.seenCapabilityRouteKeys,
-                routeKey,
-              ],
+              seenCapabilityRouteKeys: nextRouteKeys,
             },
             event.summary,
           );
@@ -1244,7 +1243,7 @@ export function reduceTranscriptState(
         currentTurnStartedAt: startTurn
           ? Date.now()
           : state.currentTurnStartedAt,
-        seenCapabilityRouteKeys: startTurn ? [] : state.seenCapabilityRouteKeys,
+        seenCapabilityRouteKeys: startTurn ? new Set() : state.seenCapabilityRouteKeys,
       };
 
       // Generate a new turnId when starting a new turn

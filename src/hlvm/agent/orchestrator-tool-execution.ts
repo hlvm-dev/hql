@@ -12,7 +12,6 @@ import {
   type ToolExecutionOptions,
   type ToolFunction,
 } from "./registry.ts";
-import type { ModelTier } from "./constants.ts";
 import { checkToolSafety, isMutatingTool } from "./security/safety.ts";
 import { classifyShellCommand } from "./security/shell-classifier.ts";
 import { DEFAULT_TIMEOUTS, RATE_LIMITS } from "./constants.ts";
@@ -25,7 +24,6 @@ import {
 } from "../../common/utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { getAgentLogger } from "./logger.ts";
-import type { AgentPolicy } from "./policy.ts";
 import { isPlanExecutionMode } from "./execution-mode.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import type { ToolCall } from "./tool-call.ts";
@@ -158,6 +156,40 @@ function buildDelegateResumeArgs(
   };
 }
 
+/** DRY: Delegate via config.delegate, build outputs, emit success, or return error. */
+async function delegateAndBuildResult(
+  config: OrchestratorConfig,
+  toolCall: ToolCall,
+  delegateArgs: Record<string, unknown>,
+  coercedArgs: Record<string, unknown>,
+  startedAt: number,
+): Promise<ToolExecutionResult> {
+  try {
+    const result = await config.delegate!(delegateArgs, config);
+    const { llmContent, summaryDisplay, returnDisplay } =
+      buildToolResultOutputs(toolCall.toolName, result, config);
+    emitToolSuccess(
+      config,
+      toolCall.toolName,
+      toolCall.id,
+      llmContent,
+      summaryDisplay,
+      returnDisplay,
+      startedAt,
+      coercedArgs,
+    );
+    return { success: true, result, llmContent, summaryDisplay, returnDisplay };
+  } catch (error) {
+    return buildToolErrorResult(
+      toolCall.toolName,
+      getErrorMessage(error),
+      startedAt,
+      config,
+      toolCall.id,
+    );
+  }
+}
+
 async function coerceBatchRows(
   args: Record<string, unknown>,
   workspace: string,
@@ -193,50 +225,37 @@ async function coerceBatchRows(
     );
 }
 
+/** Options for executeToolWithTimeout — collapses 27 positional params into a single object. */
+interface ToolTimeoutOptions {
+  toolFn: ToolFunction;
+  args: unknown;
+  config: OrchestratorConfig;
+  timeout: number;
+  toolAllowlist?: string[];
+  toolDenylist?: string[];
+  providerExecutionPlan?: ResolvedProviderExecutionPlan;
+}
+
 /**
  * Execute tool with timeout
  */
 async function executeToolWithTimeout(
-  toolFn: ToolFunction,
-  args: unknown,
-  workspace: string,
-  timeout: number,
-  policy?: AgentPolicy | null,
-  onInteraction?: OrchestratorConfig["onInteraction"],
-  toolOwnerId?: string,
-  ensureMcpLoaded?: () => Promise<void>,
-  todoState?: OrchestratorConfig["todoState"],
-  modelId?: string,
-  modelTier?: ModelTier,
-  parentSignal?: AbortSignal,
-  teamRuntime?: OrchestratorConfig["teamRuntime"],
-  teamMemberId?: string,
-  teamLeadMemberId?: string,
-  delegateOwnerId?: string,
-  sessionId?: string,
-  currentUserRequest?: string,
-  toolAllowlist?: string[],
-  toolDenylist?: string[],
-  providerExecutionPlan?: ResolvedProviderExecutionPlan,
-  executionSurface?: ExecutionSurface,
-  hookRuntime?: OrchestratorConfig["hookRuntime"],
-  onAgentEvent?: OrchestratorConfig["onAgentEvent"],
-  agentProfiles?: OrchestratorConfig["agentProfiles"],
-  instructions?: OrchestratorConfig["instructions"],
-  permissionMode?: OrchestratorConfig["permissionMode"],
+  opts: ToolTimeoutOptions,
 ): Promise<unknown> {
+  const { toolFn, args, config, timeout, toolAllowlist, toolDenylist, providerExecutionPlan } = opts;
+  const { executionSurface } = config;
   return await withTimeout(
     async (signal) => {
       const toolOptions: ToolExecutionOptions = {
         signal,
-        modelId,
-        modelTier,
-        policy,
-        onInteraction,
-        toolOwnerId,
-        delegateOwnerId,
-        ensureMcpLoaded,
-        todoState,
+        modelId: config.modelId,
+        modelTier: config.modelTier,
+        policy: config.policy ?? null,
+        onInteraction: config.onInteraction,
+        toolOwnerId: config.toolOwnerId,
+        delegateOwnerId: config.delegateOwnerId,
+        ensureMcpLoaded: config.ensureMcpLoaded,
+        todoState: config.todoState,
         searchTools: (query, options) =>
           (() => {
             const rawResults = searchTools(query, {
@@ -247,7 +266,7 @@ async function executeToolWithTimeout(
               denylist: normalizeWebCapabilitySelectors(
                 options?.denylist ?? toolDenylist,
               ),
-              ownerId: options?.ownerId ?? toolOwnerId,
+              ownerId: options?.ownerId ?? config.toolOwnerId,
             });
             const projected = projectNamedToolListForExecutionSurface(
               projectToolSearchResultsForWebCapabilities(
@@ -276,26 +295,26 @@ async function executeToolWithTimeout(
             }
             return [...restoredByName.values()];
           })(),
-        teamRuntime,
-        teamMemberId,
-        teamLeadMemberId,
-        sessionId,
-        currentUserRequest,
-        hookRuntime,
-        onAgentEvent,
-        agentProfiles,
-        instructions,
-        permissionMode,
+        teamRuntime: config.teamRuntime,
+        teamMemberId: config.teamMemberId,
+        teamLeadMemberId: config.teamLeadMemberId,
+        sessionId: config.sessionId,
+        currentUserRequest: config.currentUserRequest,
+        hookRuntime: config.hookRuntime,
+        onAgentEvent: config.onAgentEvent,
+        agentProfiles: config.agentProfiles,
+        instructions: config.instructions,
+        permissionMode: config.permissionMode,
         toolAllowlist,
         toolDenylist,
       };
-      const result = await toolFn(args, workspace, toolOptions);
+      const result = await toolFn(args, config.workspace, toolOptions);
       if (signal.aborted) {
         throw new RuntimeError("Tool execution aborted");
       }
       return result;
     },
-    { timeoutMs: timeout, label: "Tool execution", signal: parentSignal },
+    { timeoutMs: timeout, label: "Tool execution", signal: config.signal },
   );
 }
 
@@ -750,45 +769,19 @@ export async function executeToolCall(
       } catch {
         // Cancellation is expected here.
       }
-      try {
-        const result = await config.delegate(
-          buildDelegateResumeArgs(
-            config,
-            thread.agent,
-            interruptPrompt,
-            thread.childSessionId,
-            interruptThreadId,
-          ),
+      return await delegateAndBuildResult(
+        config,
+        toolCall,
+        buildDelegateResumeArgs(
           config,
-        );
-        const { llmContent, summaryDisplay, returnDisplay } =
-          buildToolResultOutputs(toolCall.toolName, result, config);
-        emitToolSuccess(
-          config,
-          toolCall.toolName,
-          toolCall.id,
-          llmContent,
-          summaryDisplay,
-          returnDisplay,
-          startedAt,
-          coercedArgs,
-        );
-        return {
-          success: true,
-          result,
-          llmContent,
-          summaryDisplay,
-          returnDisplay,
-        };
-      } catch (error) {
-        return buildToolErrorResult(
-          toolCall.toolName,
-          getErrorMessage(error),
-          startedAt,
-          config,
-          toolCall.id,
-        );
-      }
+          thread.agent,
+          interruptPrompt,
+          thread.childSessionId,
+          interruptThreadId,
+        ),
+        coercedArgs as Record<string, unknown>,
+        startedAt,
+      );
     }
 
     // resume_agent: validate thread, then route through config.delegate with _resume flag
@@ -822,47 +815,21 @@ export async function executeToolCall(
           toolCall.id,
         );
       }
-      try {
-        // Route through delegate handler with _resume marker.
-        // The handler detects _resumeSessionId and calls resumeDelegateChild.
-        const result = await config.delegate(
-          buildDelegateResumeArgs(
-            config,
-            thread.agent,
-            resumePrompt,
-            thread.childSessionId!,
-            resumeThreadId,
-          ),
+      // Route through delegate handler with _resume marker.
+      // The handler detects _resumeSessionId and calls resumeDelegateChild.
+      return await delegateAndBuildResult(
+        config,
+        toolCall,
+        buildDelegateResumeArgs(
           config,
-        );
-        const { llmContent, summaryDisplay, returnDisplay } =
-          buildToolResultOutputs(toolCall.toolName, result, config);
-        emitToolSuccess(
-          config,
-          toolCall.toolName,
-          toolCall.id,
-          llmContent,
-          summaryDisplay,
-          returnDisplay,
-          startedAt,
-          coercedArgs,
-        );
-        return {
-          success: true,
-          result,
-          llmContent,
-          summaryDisplay,
-          returnDisplay,
-        };
-      } catch (error) {
-        return buildToolErrorResult(
-          toolCall.toolName,
-          getErrorMessage(error),
-          startedAt,
-          config,
-          toolCall.id,
-        );
-      }
+          thread.agent,
+          resumePrompt,
+          thread.childSessionId!,
+          resumeThreadId,
+        ),
+        coercedArgs as Record<string, unknown>,
+        startedAt,
+      );
     }
 
     // batch_delegate: fan-out delegation to multiple agents
@@ -1011,35 +978,15 @@ export async function executeToolCall(
         denylist: currentToolDenylist,
       });
     const runTool = (args: unknown = coercedArgs) =>
-      executeToolWithTimeout(
-        tool.fn,
+      executeToolWithTimeout({
+        toolFn: tool.fn,
         args,
-        config.workspace,
-        toolTimeout,
-        config.policy ?? null,
-        config.onInteraction,
-        config.toolOwnerId,
-        config.ensureMcpLoaded,
-        config.todoState,
-        config.modelId,
-        config.modelTier,
-        config.signal,
-        config.teamRuntime,
-        config.teamMemberId,
-        config.teamLeadMemberId,
-        config.delegateOwnerId,
-        config.sessionId,
-        config.currentUserRequest,
-        currentToolAllowlist,
-        currentToolDenylist,
+        config,
+        timeout: toolTimeout,
+        toolAllowlist: currentToolAllowlist,
+        toolDenylist: currentToolDenylist,
         providerExecutionPlan,
-        config.executionSurface,
-        config.hookRuntime,
-        config.onAgentEvent,
-        config.agentProfiles,
-        config.instructions,
-        config.permissionMode,
-      );
+      });
     let result: unknown;
     try {
       result = await runTool();

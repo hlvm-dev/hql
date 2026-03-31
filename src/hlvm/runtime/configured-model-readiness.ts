@@ -28,18 +28,11 @@ export async function getModelReadiness(
 ): Promise<ConfiguredModelReadiness> {
   const target = resolveModelAvailabilityTarget(modelId);
 
-  let providerStatus;
+  let providerStatus: { available: boolean; error?: string };
   try {
     providerStatus = await getRuntimeProviderStatus(target.providerName);
   } catch (error) {
-    return {
-      ...target,
-      providerAvailable: false,
-      modelAvailable: false,
-      requiresLocalInstall: target.supportsLocalInstall,
-      state: "unavailable",
-      error: getErrorMessage(error),
-    };
+    providerStatus = { available: false, error: getErrorMessage(error) };
   }
 
   if (!providerStatus.available) {

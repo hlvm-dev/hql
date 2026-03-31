@@ -544,6 +544,19 @@ function selectCandidate(
   return undefined;
 }
 
+/**
+ * If no backend was selected and no fallback reason was set by the routing
+ * engine, inject the unavailable reason as a default explanation.
+ */
+function applyUnavailableFallbackReason(
+  decision: CapabilityRoutingDecision,
+  unavailableReason: string,
+): CapabilityRoutingDecision {
+  return !decision.selectedBackendKind && !decision.fallbackReason
+    ? { ...decision, fallbackReason: unavailableReason }
+    : decision;
+}
+
 function buildConstraintFallbackReason(
   constraints: RoutingConstraintSet,
 ): string | undefined {
@@ -852,9 +865,7 @@ function buildVisionDecision(options: {
     fallbackState: options.fallbackState,
     providerName: options.plan.providerName,
   });
-  return !decision.selectedBackendKind && !decision.fallbackReason
-    ? { ...decision, fallbackReason: unavailableReason }
-    : decision;
+  return applyUnavailableFallbackReason(decision, unavailableReason);
 }
 
 function buildAudioUnavailableReason(options: {
@@ -912,7 +923,7 @@ function buildAudioDecision(options: {
       reachable: false,
       allowed: false,
       selected: false,
-      reason: "hlvm-local audio.analyze is future work — requires Whisper or equivalent local transcription",
+      reason: "hlvm-local audio.analyze defers to provider-native (Google) or MCP — local transcription requires a dedicated engine (e.g. Whisper) not bundled in HLVM",
     }),
   ];
   const decision = finalizeRoutingDecision({
@@ -922,9 +933,7 @@ function buildAudioDecision(options: {
     fallbackState: options.fallbackState,
     providerName: options.plan.providerName,
   });
-  return !decision.selectedBackendKind && !decision.fallbackReason
-    ? { ...decision, fallbackReason: unavailableReason }
-    : decision;
+  return applyUnavailableFallbackReason(decision, unavailableReason);
 }
 
 function buildComputerUseUnavailableReason(options: {
@@ -976,7 +985,7 @@ function buildComputerUseDecision(options: {
       reachable: false,
       allowed: false,
       selected: false,
-      reason: "hlvm-local computer.use is a permanent non-goal — desktop automation requires provider-native (Anthropic) or MCP (puppeteer)",
+      reason: "hlvm-local computer.use defers to provider-native (Anthropic) or MCP — desktop automation requires external tooling not bundled in HLVM",
     }),
   ];
   const decision = finalizeRoutingDecision({
@@ -986,9 +995,7 @@ function buildComputerUseDecision(options: {
     fallbackState: options.fallbackState,
     providerName: options.plan.providerName,
   });
-  return !decision.selectedBackendKind && !decision.fallbackReason
-    ? { ...decision, fallbackReason: unavailableReason }
-    : decision;
+  return applyUnavailableFallbackReason(decision, unavailableReason);
 }
 
 function buildCodeExecUnavailableReason(options: {
@@ -1063,9 +1070,7 @@ function buildCodeExecDecision(options: {
     fallbackState: options.fallbackState,
     providerName: options.plan.providerName,
   });
-  return !decision.selectedBackendKind && !decision.fallbackReason
-    ? { ...decision, fallbackReason: unavailableReason }
-    : decision;
+  return applyUnavailableFallbackReason(decision, unavailableReason);
 }
 
 function buildStructuredOutputUnavailableReason(options: {
@@ -1092,11 +1097,13 @@ function buildStructuredOutputDecision(options: {
   responseShapeContext: ExecutionResponseShapeContext;
   fallbackState: ExecutionFallbackState;
   providerNativeAvailable: boolean;
+  mcpCandidates: McpExecutionPathCandidate[];
 }): CapabilityRoutingDecision {
   const requested = options.responseShapeContext.requested;
   const providerNativeReachable = options.runtimeMode === "auto" &&
     requested &&
     options.providerNativeAvailable;
+  const hlvmLocalReachable = options.runtimeMode === "auto" && requested;
   const unavailableReason = buildStructuredOutputUnavailableReason({
     runtimeMode: options.runtimeMode,
     responseShapeContext: options.responseShapeContext,
@@ -1111,19 +1118,17 @@ function buildStructuredOutputDecision(options: {
       selected: false,
       reason: providerNativeReachable ? undefined : unavailableReason,
     }),
-    buildCandidate("structured", "structured.output", "mcp", {
-      label: "MCP structured final response",
-      reachable: false,
-      allowed: false,
-      selected: false,
-      reason: "MCP structured.output is a permanent non-goal — inherently provider-native",
-    }),
+    ...buildMcpCandidates("structured.output", options.mcpCandidates),
     buildCandidate("structured", "structured.output", "hlvm-local", {
-      label: "HLVM local structured final response",
-      reachable: false,
-      allowed: false,
+      label: "HLVM local structured output (prompt-based extraction)",
+      reachable: hlvmLocalReachable,
+      allowed: hlvmLocalReachable,
       selected: false,
-      reason: "hlvm-local structured.output is a permanent non-goal — inherently provider-native",
+      reason: hlvmLocalReachable
+        ? undefined
+        : !requested
+        ? "structured.output not requested"
+        : "structured.output is auto-mode only",
     }),
   ];
   const decision = finalizeRoutingDecision({
@@ -1133,9 +1138,7 @@ function buildStructuredOutputDecision(options: {
     fallbackState: options.fallbackState,
     providerName: options.plan.providerName,
   });
-  return !decision.selectedBackendKind && !decision.fallbackReason
-    ? { ...decision, fallbackReason: unavailableReason }
-    : decision;
+  return applyUnavailableFallbackReason(decision, unavailableReason);
 }
 
 export function getExecutionSurfaceSignature(surface: Pick<
@@ -1261,6 +1264,7 @@ export function buildExecutionSurface(options: {
       fallbackState,
       providerNativeAvailable:
         options.providerNativeStructuredOutputAvailable === true,
+      mcpCandidates: sortMcpCandidates(options.mcpCandidates?.["structured.output"]),
     }),
     "audio.analyze": buildAudioDecision({
       runtimeMode: options.runtimeMode,
@@ -1456,7 +1460,7 @@ export function getCapabilityUnlockHint(
       return "Enable local_code_execute, connect an MCP code runner, or use a provider with hosted code execution.";
 
     case "structured.output":
-      return "Ensure the request includes a response schema and the provider supports structured output.";
+      return "Ensure the request includes a response schema. Provider-native constrained decoding is preferred; prompt-based extraction is available as hlvm-local fallback.";
 
     default:
       return null;

@@ -43,22 +43,23 @@ export interface AttachmentSupportCheck {
   validationError?: string;
 }
 
-function describeAttachmentKindForInput(
-  kind: ConversationAttachmentKind,
+function describeAttachmentKind(
+  kind: ConversationAttachmentKind | undefined,
+  plural = false,
 ): string {
   switch (kind) {
     case "image":
-      return "images";
+      return plural ? "images" : "image";
     case "pdf":
-      return "PDF files";
+      return plural ? "PDF files" : "PDF";
     case "audio":
-      return "audio files";
+      return plural ? "audio files" : "audio";
     case "video":
-      return "video files";
+      return plural ? "video files" : "video";
     case "text":
-      return "text files";
+      return plural ? "text files" : "text";
     default:
-      return "attachments";
+      return plural ? "attachments" : "attachment";
   }
 }
 
@@ -181,7 +182,7 @@ export function getSupportedAttachmentKindsForModel(
 export function describeSupportedAttachmentInputs(
   kinds: readonly ConversationAttachmentKind[] = DEFAULT_MODEL_ATTACHMENT_KINDS,
 ): string {
-  return formatList(kinds.map(describeAttachmentKindForInput));
+  return formatList(kinds.map((k) => describeAttachmentKind(k, true)));
 }
 
 export function describeConversationAttachmentMimeTypeError(
@@ -307,7 +308,7 @@ export function describeAttachmentFailure(
 
   if (check.unsupportedKind) {
     const kindLabel = describeAttachmentKind(check.unsupportedKind);
-    const supported = check.supportedKinds.map(describeAttachmentKind).join(
+    const supported = check.supportedKinds.map((k) => describeAttachmentKind(k)).join(
       ", ",
     );
     return `${modelName} does not support ${kindLabel} attachments. Supported: ${supported}.`;
@@ -320,21 +321,3 @@ export function describeAttachmentFailure(
   return `${modelName} does not support this attachment type.`;
 }
 
-function describeAttachmentKind(
-  kind: ConversationAttachmentKind | undefined,
-): string {
-  switch (kind) {
-    case "image":
-      return "image";
-    case "pdf":
-      return "PDF";
-    case "audio":
-      return "audio";
-    case "video":
-      return "video";
-    case "text":
-      return "text";
-    default:
-      return "attachment";
-  }
-}

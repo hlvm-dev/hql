@@ -327,13 +327,6 @@ export const OUTPUT_RESERVE_TOKENS = 4096;
 export const DEFAULT_CONTEXT_WINDOW = 32_000;
 
 // ============================================================
-// Context Compaction
-// ============================================================
-
-/** Trigger LLM-powered context compaction at this fraction of maxTokens */
-const COMPACTION_THRESHOLD = 0.8;
-
-// ============================================================
 // Context Defaults + Engine Profiles
 // ============================================================
 
@@ -351,7 +344,7 @@ export const DEFAULT_CONTEXT_CONFIG = {
   overflowStrategy: "summarize",
   summaryMaxChars: 1200,
   summaryKeepRecent: 4,
-  compactionThreshold: COMPACTION_THRESHOLD,
+  compactionThreshold: 0.8,
 } as const;
 
 /**

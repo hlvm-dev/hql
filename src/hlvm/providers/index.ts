@@ -105,39 +105,31 @@ export function initializeProviders(config?: {
 }): void {
   if (config?.ollama) {
     registerProvider("ollama", createOllamaProvider, {
-      endpoint: config.ollama.endpoint,
-      defaultModel: config.ollama.defaultModel,
+      ...config.ollama,
       isDefault: true,
     });
   }
   if (config?.openai) {
     registerProvider("openai", createOpenAIProvider, {
-      endpoint: config.openai.endpoint,
-      defaultModel: config.openai.defaultModel,
-      apiKey: config.openai.apiKey,
+      ...config.openai,
       capabilities: createOpenAIProvider.specCapabilities,
     });
   }
   if (config?.anthropic) {
     registerProvider("anthropic", createAnthropicProvider, {
-      endpoint: config.anthropic.endpoint,
-      defaultModel: config.anthropic.defaultModel,
-      apiKey: config.anthropic.apiKey,
+      ...config.anthropic,
       capabilities: createAnthropicProvider.specCapabilities,
     });
   }
   if (config?.google) {
     registerProvider("google", createGoogleProvider, {
-      endpoint: config.google.endpoint,
-      defaultModel: config.google.defaultModel,
-      apiKey: config.google.apiKey,
+      ...config.google,
       capabilities: createGoogleProvider.specCapabilities,
     });
   }
   if (config?.claudeCode) {
     registerProvider("claude-code", createClaudeCodeProvider, {
-      endpoint: config.claudeCode.endpoint,
-      defaultModel: config.claudeCode.defaultModel,
+      ...config.claudeCode,
       capabilities: createClaudeCodeProvider.specCapabilities,
     });
   }

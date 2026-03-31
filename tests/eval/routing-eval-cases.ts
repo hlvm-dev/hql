@@ -1,5 +1,5 @@
 /**
- * Routing Eval Cases — 35 cases across 7 dimensions
+ * Routing Eval Cases — 40 cases across 7 dimensions
  *
  * Dimensions: privacy, locality, capability-fit, quality, cost, availability, mcp-fallback
  */
@@ -168,19 +168,20 @@ const localityCases: RoutingEvalCase[] = [
   },
   {
     id: "locality-2",
-    name: "local-only does not block hlvm-local tools",
+    name: "local-only allows hlvm-local structured output",
     dimension: "locality",
-    scenario: "local-only should not prevent use of HLVM's own local tools",
+    scenario: "local-only should not prevent use of HLVM's own local tools including prompt-based structured output",
     constraints: LOCAL_ONLY,
     pinnedModelId: "ollama/llama3.1:8b",
     pinnedProviderName: "ollama",
     runtimeMode: "auto",
+    responseShapeContext: { requested: true, source: "task-text", topLevelKeys: ["name"] },
     expectations: [
       {
         capabilityId: "structured.output",
-        expectFallback: true, // structured.output is provider-native, so local models don't get it
+        expectedBackendKind: "hlvm-local",
         dimension: "locality",
-        description: "structured.output unavailable for local model (no provider-native support)",
+        description: "structured.output routes to hlvm-local prompt-based extraction under local-only",
       },
     ],
   },
@@ -374,6 +375,26 @@ const capabilityFitCases: RoutingEvalCase[] = [
         expectedBackendKind: "hlvm-local",
         dimension: "capability-fit",
         description: "vision.analyze routes to hlvm-local when local vision model installed",
+      },
+    ],
+  },
+  {
+    id: "capfit-9",
+    name: "Ollama non-vision + local vision model → reasoning switch to local vision",
+    dimension: "capability-fit",
+    scenario: "User pins ollama/llama3.1:8b (non-vision), has llava installed, sends image",
+    pinnedModelId: "ollama/llama3.1:8b",
+    pinnedProviderName: "ollama",
+    runtimeMode: "auto",
+    visionAttachmentCount: 1,
+    localVisionAvailable: true,
+    localVisionModelId: "ollama/llava:latest",
+    constraints: NO_CONSTRAINTS,
+    expectations: [
+      {
+        dimension: "capability-fit",
+        description: "reasoning selector switches to local Ollama vision model (not cloud)",
+        expectReasoningSwitch: true,
       },
     ],
   },
@@ -771,6 +792,33 @@ const mcpFallbackCases: RoutingEvalCase[] = [
     ],
   },
   {
+    id: "mcp-fallback-5",
+    name: "MCP whisper-server as audio.analyze fallback for OpenAI",
+    dimension: "mcp-fallback",
+    scenario: "OpenAI pinned (no native audio), MCP whisper-server available → MCP selected",
+    constraints: NO_CONSTRAINTS,
+    pinnedModelId: "openai/gpt-4o",
+    pinnedProviderName: "openai",
+    runtimeMode: "auto",
+    audioAttachmentCount: 1,
+    mcpCandidates: {
+      "audio.analyze": [{
+        capabilityId: "audio.analyze",
+        serverName: "whisper",
+        toolName: "mcp_audio_transcribe",
+        label: "MCP audio analysis via whisper",
+      }],
+    },
+    expectations: [
+      {
+        capabilityId: "audio.analyze",
+        expectedBackendKind: "mcp",
+        dimension: "mcp-fallback",
+        description: "MCP whisper-server selected when OpenAI lacks native audio analysis",
+      },
+    ],
+  },
+  {
     id: "mcp-cascade-1",
     name: "all tiers available, quality preference keeps provider-native",
     dimension: "mcp-fallback",
@@ -822,10 +870,86 @@ const mcpFallbackCases: RoutingEvalCase[] = [
       },
     ],
   },
+  {
+    id: "mcp-fallback-6",
+    name: "MCP structured-proxy as structured.output fallback for Ollama",
+    dimension: "mcp-fallback",
+    scenario: "Ollama pinned (no native structured output), MCP structured-proxy available → MCP selected",
+    constraints: NO_CONSTRAINTS,
+    pinnedModelId: "ollama/llama3.1:8b",
+    pinnedProviderName: "ollama",
+    runtimeMode: "auto",
+    responseShapeContext: { requested: true, source: "task-text", topLevelKeys: ["name", "age"] },
+    providerNativeStructuredOutputAvailable: false,
+    mcpCandidates: {
+      "structured.output": [{
+        capabilityId: "structured.output",
+        serverName: "structured-proxy",
+        toolName: "mcp_structured_generate",
+        label: "MCP structured output via structured-proxy",
+      }],
+    },
+    expectations: [
+      {
+        capabilityId: "structured.output",
+        expectedBackendKind: "mcp",
+        dimension: "mcp-fallback",
+        description: "MCP structured-proxy selected when provider-native structured output unavailable",
+      },
+    ],
+  },
+  {
+    id: "mcp-fallback-7",
+    name: "hlvm-local structured output when no MCP and no native",
+    dimension: "mcp-fallback",
+    scenario: "Ollama pinned (no native structured output), no MCP → hlvm-local prompt-based extraction",
+    constraints: NO_CONSTRAINTS,
+    pinnedModelId: "ollama/llama3.1:8b",
+    pinnedProviderName: "ollama",
+    runtimeMode: "auto",
+    responseShapeContext: { requested: true, source: "task-text", topLevelKeys: ["name"] },
+    providerNativeStructuredOutputAvailable: false,
+    expectations: [
+      {
+        capabilityId: "structured.output",
+        expectedBackendKind: "hlvm-local",
+        dimension: "mcp-fallback",
+        description: "hlvm-local prompt-based extraction selected when no native and no MCP",
+      },
+    ],
+  },
+  {
+    id: "mcp-cascade-3",
+    name: "provider-native structured output preferred over MCP when available",
+    dimension: "mcp-fallback",
+    scenario: "OpenAI pinned (native structured output available), MCP also available → provider-native wins",
+    constraints: NO_CONSTRAINTS,
+    pinnedModelId: "openai/gpt-4o",
+    pinnedProviderName: "openai",
+    runtimeMode: "auto",
+    responseShapeContext: { requested: true, source: "task-text", topLevelKeys: ["result"] },
+    providerNativeStructuredOutputAvailable: true,
+    mcpCandidates: {
+      "structured.output": [{
+        capabilityId: "structured.output",
+        serverName: "structured-proxy",
+        toolName: "mcp_structured_generate",
+        label: "MCP structured output via structured-proxy",
+      }],
+    },
+    expectations: [
+      {
+        capabilityId: "structured.output",
+        expectedBackendKind: "provider-native",
+        dimension: "mcp-fallback",
+        description: "provider-native structured output preferred when available despite MCP",
+      },
+    ],
+  },
 ];
 
 // ============================================================================
-// Exported: all 35 eval cases
+// Exported: all 40 eval cases
 // ============================================================================
 
 export const ROUTING_EVAL_CASES: RoutingEvalCase[] = [

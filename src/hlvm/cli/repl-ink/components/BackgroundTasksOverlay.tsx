@@ -111,25 +111,51 @@ export interface UnifiedTaskItem {
 
 const PADDING = BACKGROUND_TASKS_OVERLAY_SPEC.padding;
 
-interface TaskSummaryCounts {
+interface TaskSummary {
   pending: number;
   inProgress: number;
   completed: number;
   failed: number;
+  totalReal: number;
+  localAgentCount: number;
+  teamCount: number;
+  evalCount: number;
+  localAgents: LocalAgentEntry[];
 }
 
-function getTaskSummaryCounts(items: UnifiedTaskItem[]): TaskSummaryCounts {
-  return items.reduce<TaskSummaryCounts>(
-    (counts, item) => {
-      if (item.kind === "section") return counts;
-      if (item.status === "pending" || item.status === "blocked") counts.pending++;
-      else if (item.status === "in_progress" || item.status === "running") counts.inProgress++;
-      else if (item.status === "completed") counts.completed++;
-      else if (item.status === "failed") counts.failed++;
-      return counts;
-    },
-    { pending: 0, inProgress: 0, completed: 0, failed: 0 },
-  );
+function summarizeTaskItems(items: UnifiedTaskItem[]): TaskSummary {
+  const summary: TaskSummary = {
+    pending: 0, inProgress: 0, completed: 0, failed: 0,
+    totalReal: 0, localAgentCount: 0, teamCount: 0, evalCount: 0,
+    localAgents: [],
+  };
+  for (const item of items) {
+    if (item.kind === "section") continue;
+    summary.totalReal++;
+    if (item.kind === "local_agent") {
+      summary.localAgentCount++;
+      summary.localAgents.push(item.localAgent ?? {
+        id: item.id,
+        kind: "delegate" as const,
+        name: item.label,
+        label: item.label,
+        status: item.status as LocalAgentEntry["status"],
+        statusLabel: item.statusText,
+        interruptible: false,
+        overlayTarget: "background-tasks" as const,
+        overlayItemId: item.id,
+      });
+    } else if (item.kind === "team") {
+      summary.teamCount++;
+    } else if (item.kind === "eval") {
+      summary.evalCount++;
+    }
+    if (item.status === "pending" || item.status === "blocked") summary.pending++;
+    else if (item.status === "in_progress" || item.status === "running") summary.inProgress++;
+    else if (item.status === "completed") summary.completed++;
+    else if (item.status === "failed") summary.failed++;
+  }
+  return summary;
 }
 
 export function buildBackgroundTasksSummaryRows(
@@ -168,41 +194,21 @@ export function buildBackgroundTasksSummaryRows(
     ];
   }
 
-  const counts = getTaskSummaryCounts(items);
-  const totalReal = items.filter((i) => i.kind !== "section").length;
-  const localAgentCount = items.filter((item) => item.kind === "local_agent")
-    .length;
-  if (localAgentCount > 0) {
-    const teamItemCount = items.filter((item) => item.kind === "team").length;
-    const evalItemCount = items.filter((item) => item.kind === "eval").length;
-    const localAgents = items.flatMap((item) =>
-      item.kind === "local_agent"
-        ? [item.localAgent ?? {
-          id: item.id,
-          kind: "delegate" as const,
-          name: item.label,
-          label: item.label,
-          status: item.status as LocalAgentEntry["status"],
-          statusLabel: item.statusText,
-          interruptible: false,
-          overlayTarget: "background-tasks" as const,
-          overlayItemId: item.id,
-        }]
-        : []
-    );
+  const s = summarizeTaskItems(items);
+  if (s.localAgentCount > 0) {
     const primary = buildBalancedTextRow(
       contentWidth,
-      localAgentCount === 1 ? "1 local agent" : `${localAgentCount} local agents`,
-      summarizeLocalAgentFleet(localAgents),
+      s.localAgentCount === 1 ? "1 local agent" : `${s.localAgentCount} local agents`,
+      summarizeLocalAgentFleet(s.localAgents),
     );
     const secondary = buildBalancedTextRow(
       contentWidth,
-      teamItemCount > 0
+      s.teamCount > 0
         ? "Agents above · shared tasks below"
-        : evalItemCount > 0
+        : s.evalCount > 0
         ? "Agents above · evals below"
         : "Agent manager",
-      totalReal > 0 ? `${selectedIndex + 1}/${totalReal}` : "empty",
+      s.totalReal > 0 ? `${selectedIndex + 1}/${s.totalReal}` : "empty",
     );
     return [
       primary.leftText + " ".repeat(primary.gapWidth) + primary.rightText,
@@ -211,13 +217,13 @@ export function buildBackgroundTasksSummaryRows(
   }
   const primary = buildBalancedTextRow(
     contentWidth,
-    `Pending ${counts.pending} \u00B7 Active ${counts.inProgress} \u00B7 Done ${counts.completed}`,
-    counts.failed > 0 ? `Failed ${counts.failed}` : "",
+    `Pending ${s.pending} \u00B7 Active ${s.inProgress} \u00B7 Done ${s.completed}`,
+    s.failed > 0 ? `Failed ${s.failed}` : "",
   );
   const secondary = buildBalancedTextRow(
     contentWidth,
     "Task list",
-    totalReal > 0 ? `${selectedIndex + 1}/${totalReal}` : "empty",
+    s.totalReal > 0 ? `${selectedIndex + 1}/${s.totalReal}` : "empty",
   );
   return [
     primary.leftText + " ".repeat(primary.gapWidth) + primary.rightText,

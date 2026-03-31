@@ -232,13 +232,6 @@ export function addConversationTurn(
   return turn;
 }
 
-/**
- * Get all conversation turns
- */
-export function getConversation(): readonly ConversationTurn[] {
-  return conversation;
-}
-
 // ============================================================================
 // Context Management
 // ============================================================================

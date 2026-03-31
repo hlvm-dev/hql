@@ -43,6 +43,8 @@ export interface McpToolInfo {
   inputSchema?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
   annotations?: Record<string, unknown>;
+  /** MCP spec `_meta` — free-form record that survives SDK Zod validation. */
+  _meta?: Record<string, unknown>;
 }
 
 // ============================================================

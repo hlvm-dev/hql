@@ -181,50 +181,62 @@ class Runtime implements AgentHookRuntime {
     }
   }
 
-  private async runSingleHandler(
+  /** DRY helper: resolve cwd, spawn process, write payload, and collect output. */
+  private spawnHookProcess(
     name: AgentHookName,
     handler: AgentHookHandler,
     envelope: unknown,
-  ): Promise<void> {
+  ): { process: ReturnType<ReturnType<typeof getPlatform>["command"]["run"]>; payloadBytes: Uint8Array } | null {
     const platform = getPlatform();
     const cwd = handler.cwd
       ? platform.path.isAbsolute(handler.cwd)
         ? handler.cwd
         : platform.path.join(this.workspace, handler.cwd)
       : this.workspace;
-    const payloadText = `${safeStringify(envelope, 0)}\n`;
 
-    let process;
     try {
-      process = platform.command.run({
-        cmd: handler.command,
-        cwd,
-        env: {
-          ...platform.env.toObject(),
-          ...(handler.env ?? {}),
-          HLVM_AGENT_HOOK: name,
-          HLVM_AGENT_WORKSPACE: this.workspace,
-        },
-        stdin: "piped",
-        stdout: "piped",
-        stderr: "piped",
-      });
+      return {
+        process: platform.command.run({
+          cmd: handler.command,
+          cwd,
+          env: {
+            ...platform.env.toObject(),
+            ...(handler.env ?? {}),
+            HLVM_AGENT_HOOK: name,
+            HLVM_AGENT_WORKSPACE: this.workspace,
+          },
+          stdin: "piped",
+          stdout: "piped",
+          stderr: "piped",
+        }),
+        payloadBytes: new TextEncoder().encode(`${safeStringify(envelope, 0)}\n`),
+      };
     } catch (error) {
       this.logFailure(
         name,
         handler.command,
         `spawn failed: ${error instanceof Error ? error.message : String(error)}`,
       );
-      return;
+      return null;
     }
+  }
 
-    const abortHandler = createProcessAbortHandler(process, platform.build.os);
+  private async runSingleHandler(
+    name: AgentHookName,
+    handler: AgentHookHandler,
+    envelope: unknown,
+  ): Promise<void> {
+    const spawned = this.spawnHookProcess(name, handler, envelope);
+    if (!spawned) return;
+    const { process, payloadBytes } = spawned;
+
+    const abortHandler = createProcessAbortHandler(process, getPlatform().build.os);
     try {
       await withTimeout(async (signal) => {
         const onAbort = (): void => abortHandler.abort();
         signal.addEventListener("abort", onAbort, { once: true });
         try {
-          await writeToProcessStdin(process.stdin, new TextEncoder().encode(payloadText));
+          await writeToProcessStdin(process.stdin, payloadBytes);
           await closeProcessStdin(process.stdin);
           const [stdoutBytes, stderrBytes, status] = await Promise.all([
             readProcessStream(process.stdout, signal),
@@ -271,39 +283,17 @@ class Runtime implements AgentHookRuntime {
     }
   }
 
-  /**
-   * Variant of runSingleHandler that returns exit code + stdout for feedback hooks.
-   * Used by dispatchWithFeedback for TeammateIdle/TaskCompleted (exit code 2 = block).
-   */
   private async runSingleHandlerWithResult(
     name: AgentHookName,
     handler: AgentHookHandler,
     envelope: unknown,
   ): Promise<{ exitCode: number; stdout: string }> {
-    const platform = getPlatform();
-    const cwd = handler.cwd
-      ? platform.path.isAbsolute(handler.cwd)
-        ? handler.cwd
-        : platform.path.join(this.workspace, handler.cwd)
-      : this.workspace;
-    const payloadText = `${safeStringify(envelope, 0)}\n`;
+    const spawned = this.spawnHookProcess(name, handler, envelope);
+    if (!spawned) return { exitCode: 1, stdout: "" };
+    const { process, payloadBytes } = spawned;
 
     try {
-      const process = platform.command.run({
-        cmd: handler.command,
-        cwd,
-        env: {
-          ...platform.env.toObject(),
-          ...(handler.env ?? {}),
-          HLVM_AGENT_HOOK: name,
-          HLVM_AGENT_WORKSPACE: this.workspace,
-        },
-        stdin: "piped",
-        stdout: "piped",
-        stderr: "piped",
-      });
-
-      await writeToProcessStdin(process.stdin, new TextEncoder().encode(payloadText));
+      await writeToProcessStdin(process.stdin, payloadBytes);
       await closeProcessStdin(process.stdin);
 
       const [stdoutBytes, , status] = await Promise.all([

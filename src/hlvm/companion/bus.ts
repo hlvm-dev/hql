@@ -16,6 +16,11 @@ export class ObservationBus {
     this.maxSize = maxSize;
   }
 
+  private flushWaiters(): void {
+    const pending = this.waiters.splice(0);
+    for (const resolve of pending) resolve();
+  }
+
   append(obs: Observation): boolean {
     if (this.closed) return false;
     this.queue.push(obs);
@@ -23,16 +28,13 @@ export class ObservationBus {
     if (this.queue.length > this.maxSize) {
       this.queue.shift();
     }
-    // Wake up any waiting async iterators
-    const pending = this.waiters.splice(0);
-    for (const resolve of pending) resolve();
+    this.flushWaiters();
     return true;
   }
 
   close(): void {
     this.closed = true;
-    const pending = this.waiters.splice(0);
-    for (const resolve of pending) resolve();
+    this.flushWaiters();
   }
 
   get size(): number {

@@ -174,12 +174,9 @@ async function publishToRegistry(
   );
 
   try {
-    // publishOptions argument must be type PublishOptions, not a new object
-    const publishOptions = options;
-
     return registry === "jsr"
-      ? await publishJSR(config, publishOptions) // Pass config here
-      : await publishNpm(config, publishOptions); // Pass config here
+      ? await publishJSR(config, options)
+      : await publishNpm(config, options);
   } catch (error) {
     return buildFailureSummary(registry, metadataType, options.version, error);
   }

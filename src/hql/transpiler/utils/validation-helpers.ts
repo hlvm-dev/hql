@@ -414,42 +414,6 @@ export function arityError(
 }
 
 /**
- * Create a type mismatch error.
- * 
- * @param context - Where the error occurred (e.g., "if condition", "let binding")
- * @param expected - What type was expected (e.g., "symbol", "list", "expression")
- * @param actual - What was actually received
- * @param position - Optional source position
- * @returns ValidationError with consistent formatting
- * 
- * @example
- * // Before:
- * throw new ValidationError(
- *   `Expected symbol for binding name, got ${node.type}`,
- *   "let binding",
- *   "symbol",
- *   node.type
- * );
- * 
- * // After:
- * throw typeError("let binding", "symbol", node.type, position);
- */
-export function typeError(
-  context: string,
-  expected: string,
-  actual: string,
-  position?: IR.SourcePosition,
-): ValidationError {
-  return new ValidationError(
-    `${context}: expected ${expected}, got ${actual}`,
-    context,
-    expected,
-    actual,
-    position,
-  );
-}
-
-/**
  * Create a syntax error for invalid syntax structure.
  * 
  * @param context - Where the error occurred

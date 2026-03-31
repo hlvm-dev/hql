@@ -7,7 +7,6 @@
 
 export {
   ansi,
-  bg,
   clearOverlay,
   drawOverlayFrame,
   fg,

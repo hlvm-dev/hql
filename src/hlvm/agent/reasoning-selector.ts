@@ -90,34 +90,21 @@ export function deriveRequiredCapabilities(
   turnContext?: ExecutionTurnContext,
   computerUseRequested?: boolean,
 ): ProviderCapability[] {
-  const required: ProviderCapability[] = [];
-
-  // Always need chat
-  required.push("chat");
-
   // NOTE: We deliberately do NOT derive required capabilities from the surface
   // capability fallback reasons. The surface always populates fallback reasons
   // for ALL capabilities (even those not needed for this turn), which would
   // cause false positives. Instead, we only consider turn-specific signals
   // below (audio/vision attachments, computerUseRequested).
+  const required: ProviderCapability[] = ["chat"];
 
-  // Turn context may indicate capabilities needed even if not yet routed
   if (turnContext && hasVisionRelevantTurnContext(turnContext)) {
-    if (!required.includes("vision")) {
-      required.push("vision");
-    }
+    required.push("vision");
   }
-
   if (turnContext && hasAudioRelevantTurnContext(turnContext)) {
-    if (!required.includes("media.audioInput")) {
-      required.push("media.audioInput");
-    }
+    required.push("media.audioInput");
   }
-
   if (computerUseRequested) {
-    if (!required.includes("hosted.computerUse")) {
-      required.push("hosted.computerUse");
-    }
+    required.push("hosted.computerUse");
   }
 
   return required;
@@ -130,7 +117,8 @@ function canSatisfy(
   profile: ProviderProfile,
   required: ProviderCapability[],
 ): boolean {
-  return required.every((cap) => profile.capabilities.includes(cap));
+  const available = new Set(profile.capabilities);
+  return required.every((cap) => available.has(cap));
 }
 
 /**
@@ -153,6 +141,7 @@ export function selectReasoningPathForTurn(options: {
   availableProviders: string[];
   turnContext?: ExecutionTurnContext;
   computerUseRequested?: boolean;
+  localVisionModelId?: string;
 }): ReasoningSelectionResult | null {
   const {
     pinnedModelId,
@@ -161,6 +150,7 @@ export function selectReasoningPathForTurn(options: {
     availableProviders,
     turnContext,
     computerUseRequested,
+    localVisionModelId,
   } = options;
 
   // Manual mode never triggers selection
@@ -198,6 +188,32 @@ export function selectReasoningPathForTurn(options: {
   });
 
   if (unsatisfied.length === 0) return null;
+
+  // If pinned provider is local (ollama) and vision is needed, prefer switching
+  // to a local vision model over cloud — respects the user's intent to stay local.
+  if (
+    localVisionModelId &&
+    unsatisfied.includes("vision") &&
+    !pinnedProfile // Ollama has no profile in REPRESENTATIVE_MODELS
+  ) {
+    return {
+      selectedModelId: localVisionModelId,
+      selectedProviderName: "ollama",
+      reason: `Pinned model ${pinnedModelId} lacks vision. ` +
+        `Switching to local vision model ${localVisionModelId} for this turn.`,
+      switchedFromPinned: true,
+      unsatisfiedCapabilities: unsatisfied.flatMap((cap): RoutedCapabilityId[] => {
+        switch (cap) {
+          case "vision": return ["vision.analyze"];
+          case "hosted.webSearch": return ["web.search"];
+          case "hosted.codeExecution": return ["code.exec"];
+          case "media.audioInput": return ["audio.analyze"];
+          case "hosted.computerUse": return ["computer.use"];
+          default: return [];
+        }
+      }),
+    };
+  }
 
   // Find the cheapest available alternative that satisfies all requirements
   // Priority: keep cost low — prefer Google > OpenAI > Anthropic for general tasks

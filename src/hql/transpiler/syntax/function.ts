@@ -78,13 +78,6 @@ const fnFunctionRegistry = new LRUCache<string, IR.IRFnFunctionDeclaration>(
   5000,
 );
 
-function withFunctionScope<T>(
-  bindingContext: BindingResolutionContext,
-  fn: () => T,
-): T {
-  return withLexicalScope(bindingContext, fn);
-}
-
 // Pre-compiled regex for extracting generic type parameters from names
 // e.g., "identity<T>" -> name="identity", typeParameters=["T"]
 // Exported for use by class.ts (single source of truth)
@@ -589,7 +582,7 @@ function transformMultiArityFn(
   const switchCases: IR.IRSwitchCase[] = [];
 
   for (const arityInfo of arities) {
-    const caseBody = withFunctionScope(
+    const caseBody = withLexicalScope(
       bindingContext,
       () => {
         const body: IR.IRNode[] = [];
@@ -798,7 +791,7 @@ function transformNamedFn(
   copyPosition(funcNameNode, funcId);
   copyEndPosition(list, funcId);
 
-  return withFunctionScope(bindingContext, () => {
+  return withLexicalScope(bindingContext, () => {
     registerBindingAlias(
       bindingContext,
       funcName,
@@ -872,7 +865,7 @@ function transformAnonymousFn(
     );
   }
   const paramList = paramListNode as ListNode;
-  return withFunctionScope(bindingContext, () => {
+  return withLexicalScope(bindingContext, () => {
     const { params } = parseFunctionParameters(
       paramList,
       currentDir,
@@ -1489,9 +1482,6 @@ function parseParameters(
         }
       }
 
-      const paramIdName = (restMode || isRestParam)
-        ? `...${sanitizeIdentifier(paramNameWithoutType)}`
-        : sanitizeIdentifier(paramNameWithoutType);
       const bindingRecord = registerLexicalBinding(
         bindingContext,
         paramNameWithoutType,
