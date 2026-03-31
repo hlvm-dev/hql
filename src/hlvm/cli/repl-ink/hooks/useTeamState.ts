@@ -148,12 +148,13 @@ function upsertByField<T>(
   return next;
 }
 
+/** Ensures member exists in snapshot, returns the member reference for O(1) access. */
 function ensureMember(
   snapshot: TeamRuntimeSnapshot,
   memberId: string,
   ts: number,
-): void {
-  upsertByField(snapshot.members, "id", memberId, (existing) =>
+): TeamRuntimeSnapshot["members"][number] {
+  return upsertByField(snapshot.members, "id", memberId, (existing) =>
     existing
       ? { ...existing, updatedAt: Math.max(existing.updatedAt, ts) }
       : {
@@ -166,7 +167,16 @@ function ensureMember(
       });
 }
 
-function syncMemberTask(snapshot: TeamRuntimeSnapshot, task: TeamTask): void {
+/** Build O(1) member lookup index from snapshot.members array */
+function buildMemberIndex(snapshot: TeamRuntimeSnapshot): Map<string, TeamRuntimeSnapshot["members"][number]> {
+  return new Map(snapshot.members.map((m) => [m.id, m]));
+}
+
+function syncMemberTask(
+  snapshot: TeamRuntimeSnapshot,
+  task: TeamTask,
+  memberIndex: Map<string, TeamRuntimeSnapshot["members"][number]>,
+): void {
   for (const member of snapshot.members) {
     if (member.currentTaskId === task.id && member.id !== task.assigneeMemberId) {
       member.currentTaskId = undefined;
@@ -178,13 +188,13 @@ function syncMemberTask(snapshot: TeamRuntimeSnapshot, task: TeamTask): void {
     task.status !== "cancelled" &&
     task.status !== "errored"
   ) {
-    const member = snapshot.members.find((entry) => entry.id === task.assigneeMemberId);
+    const member = memberIndex.get(task.assigneeMemberId);
     if (member) {
       member.currentTaskId = task.id;
       member.updatedAt = Math.max(member.updatedAt, task.updatedAt);
     }
   } else if (task.assigneeMemberId) {
-    const member = snapshot.members.find((entry) => entry.id === task.assigneeMemberId);
+    const member = memberIndex.get(task.assigneeMemberId);
     if (member?.currentTaskId === task.id) {
       member.currentTaskId = undefined;
     }
@@ -235,7 +245,7 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
               createdAt: ts,
               updatedAt: ts,
             });
-        syncMemberTask(snapshot, nextTask);
+        syncMemberTask(snapshot, nextTask, buildMemberIndex(snapshot));
         break;
       }
       case "team_message":
@@ -255,12 +265,8 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
         });
         break;
       case "team_member_activity": {
-        ensureMember(snapshot, item.memberId, ts);
-        const member = snapshot.members.find((entry) => entry.id === item.memberId);
-        if (member) {
-          member.updatedAt = Math.max(member.updatedAt, ts);
-          if (item.threadId) member.threadId = item.threadId;
-        }
+        const member = ensureMember(snapshot, item.memberId, ts);
+        if (item.threadId) member.threadId = item.threadId;
         break;
       }
       case "team_plan_review": {
@@ -289,7 +295,7 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
         break;
       }
       case "team_shutdown": {
-        ensureMember(snapshot, item.memberId, ts);
+        const shutdownMember = ensureMember(snapshot, item.memberId, ts);
         ensureMember(snapshot, item.requestedByMemberId, ts);
         upsertByField(snapshot.shutdowns, "id", item.requestId, (existing) =>
           existing
@@ -309,15 +315,12 @@ function applyStructuredTeamItems(items: ConversationItem[]): TeamRuntimeSnapsho
               updatedAt: ts,
             });
 
-        const member = snapshot.members.find((entry) => entry.id === item.memberId);
-        if (member) {
-          member.status = item.status === "requested"
-            ? "shutdown_requested"
-            : item.status === "acknowledged"
-            ? "shutting_down"
-            : "terminated";
-          member.updatedAt = Math.max(member.updatedAt, ts);
-        }
+        shutdownMember.status = item.status === "requested"
+          ? "shutdown_requested"
+          : item.status === "acknowledged"
+          ? "shutting_down"
+          : "terminated";
+        shutdownMember.updatedAt = Math.max(shutdownMember.updatedAt, ts);
         break;
       }
     }
@@ -527,11 +530,16 @@ export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboa
     }
   }
 
+  /** O(1) task goal lookup for approvals and member current-task display */
+  const taskGoalIndex = new Map(
+    (snapshot?.tasks ?? []).map((task) => [task.id, task.goal]),
+  );
+
   const pendingApprovals = (snapshot?.approvals ?? [])
     .slice()
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .map((approval) => {
-      const taskGoal = snapshot?.tasks.find((task) => task.id === approval.taskId)?.goal;
+      const taskGoal = taskGoalIndex.get(approval.taskId);
       if (approval.status === "pending") {
         attentionItems.push({
           id: `approval-${approval.id}`,
@@ -578,7 +586,7 @@ export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboa
     .sort((a, b) => a.role.localeCompare(b.role) || a.id.localeCompare(b.id))
     .map((member) => {
       const currentTaskGoal = member.currentTaskId
-        ? snapshot?.tasks.find((task) => task.id === member.currentTaskId)?.goal
+        ? taskGoalIndex.get(member.currentTaskId)
         : undefined;
       return {
         id: member.id,

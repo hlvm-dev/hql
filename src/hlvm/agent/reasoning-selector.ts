@@ -54,6 +54,9 @@ const REPRESENTATIVE_MODELS: Record<string, string> = {
 /** Cost-preference order: cheapest first */
 const COST_PREFERENCE_ORDER = ["google", "openai", "anthropic", "claude-code"];
 
+/** O(1) index lookup for sort comparator (avoids O(k) indexOf per comparison) */
+const COST_INDEX = new Map(COST_PREFERENCE_ORDER.map((v, i) => [v, i]));
+
 /**
  * Build provider profiles dynamically from the registry.
  * Falls back gracefully for providers without registered capabilities.
@@ -64,9 +67,9 @@ export function getProviderProfiles(): ProviderProfile[] {
 
   // Sort by cost preference order, then append any unknown providers
   const ordered = [...registered].sort((a, b) => {
-    const aIdx = COST_PREFERENCE_ORDER.indexOf(a);
-    const bIdx = COST_PREFERENCE_ORDER.indexOf(b);
-    return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+    const aIdx = COST_INDEX.get(a) ?? 999;
+    const bIdx = COST_INDEX.get(b) ?? 999;
+    return aIdx - bIdx;
   });
 
   for (const name of ordered) {

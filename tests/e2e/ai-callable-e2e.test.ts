@@ -123,6 +123,10 @@ e2e("ai(prompt, {schema}): returns parsed JSON object matching schema", async ()
     typeof obj.sentiment === "string",
     `sentiment should be string, got ${typeof obj.sentiment}`,
   );
+  assert(
+    typeof obj.confidence === "number",
+    `confidence should be number, got ${typeof obj.confidence}`,
+  );
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -167,8 +171,8 @@ e2e("ai(prompt, {schema}): returns array when schema specifies it", async () => 
   assertExists(obj.languages, "Should have languages field");
   assert(Array.isArray(obj.languages), `languages should be array, got ${typeof obj.languages}`);
   assert(
-    (obj.languages as unknown[]).length >= 2,
-    `Should have at least 2 languages, got ${(obj.languages as unknown[]).length}`,
+    (obj.languages as unknown[]).length === 3,
+    `Should have exactly 3 languages, got ${(obj.languages as unknown[]).length}`,
   );
 });
 
@@ -196,8 +200,8 @@ e2e("ai(prompt, {data, schema}): combines data injection with structured output"
   assertExists(obj.reviews, "Should have reviews field");
   assert(Array.isArray(obj.reviews), "reviews should be array");
   assert(
-    (obj.reviews as unknown[]).length >= 2,
-    `Should classify at least 2 reviews, got ${(obj.reviews as unknown[]).length}`,
+    (obj.reviews as unknown[]).length === reviews.length,
+    `Should classify all ${reviews.length} reviews, got ${(obj.reviews as unknown[]).length}`,
   );
 });
 

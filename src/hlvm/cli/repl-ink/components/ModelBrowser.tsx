@@ -190,6 +190,11 @@ const FILTER_CYCLE: readonly FilterMode[] = [
   "cloud",
 ];
 
+/** O(1) index lookup for filter cycling (avoids indexOf per Tab keypress) */
+const FILTER_CYCLE_INDEX: ReadonlyMap<FilterMode, number> = new Map(
+  FILTER_CYCLE.map((v, i) => [v, i]),
+);
+
 /** Filter display labels */
 const FILTER_LABELS: Record<FilterMode, string> = {
   all: "All",
@@ -1108,7 +1113,7 @@ export function ModelBrowser({
     // Use functional update to avoid stale closure issues
     if (key.tab && !key.shift) {
       setFilterMode((current: FilterMode) => {
-        const idx = FILTER_CYCLE.indexOf(current);
+        const idx = FILTER_CYCLE_INDEX.get(current) ?? 0;
         return FILTER_CYCLE[(idx + 1) % FILTER_CYCLE.length];
       });
       resetSelection();
@@ -1121,7 +1126,7 @@ export function ModelBrowser({
     // Use functional update to avoid stale closure issues
     if (key.tab && key.shift) {
       setFilterMode((current: FilterMode) => {
-        const idx = FILTER_CYCLE.indexOf(current);
+        const idx = FILTER_CYCLE_INDEX.get(current) ?? 0;
         return FILTER_CYCLE[
           (idx - 1 + FILTER_CYCLE.length) % FILTER_CYCLE.length
         ];
@@ -1280,7 +1285,7 @@ export function ModelBrowser({
   );
 
   // Calculate next filter for footer hint
-  const nextFilterIdx = (FILTER_CYCLE.indexOf(activeFilterMode) + 1) %
+  const nextFilterIdx = ((FILTER_CYCLE_INDEX.get(activeFilterMode) ?? 0) + 1) %
     FILTER_CYCLE.length;
   const nextFilter = FILTER_LABELS[FILTER_CYCLE[nextFilterIdx]];
   const selectedModel = displayModels[selection.index] ?? displayModels[0] ??

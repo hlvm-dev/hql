@@ -48,6 +48,11 @@ const LOCAL_AGENT_STATUS_ORDER: LocalAgentStatus[] = [
   "cancelled",
 ];
 
+/** O(1) priority lookup for status sorting (avoids indexOf per comparison) */
+const LOCAL_AGENT_STATUS_PRIORITY: ReadonlyMap<string, number> = new Map(
+  LOCAL_AGENT_STATUS_ORDER.map((v, i) => [v, i]),
+);
+
 const LOCAL_AGENT_STATUS_SUMMARY_LABEL: Record<LocalAgentStatus, string> = {
   waiting: "waiting",
   blocked: "blocked",
@@ -59,7 +64,7 @@ const LOCAL_AGENT_STATUS_SUMMARY_LABEL: Record<LocalAgentStatus, string> = {
 };
 
 function statusPriority(status: LocalAgentStatus): number {
-  return LOCAL_AGENT_STATUS_ORDER.indexOf(status);
+  return LOCAL_AGENT_STATUS_PRIORITY.get(status) ?? LOCAL_AGENT_STATUS_ORDER.length;
 }
 
 function getRecentActivity(

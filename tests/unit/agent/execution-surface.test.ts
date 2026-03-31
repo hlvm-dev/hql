@@ -88,6 +88,7 @@ Deno.test("execution surface: auto mode selects MCP web search when native searc
         webSearch: false,
         webPageRead: false,
         remoteCodeExecution: false,
+        computerUse: true,
       },
     }),
     mcpCandidates: {
@@ -557,7 +558,7 @@ Deno.test("execution surface: structured.output is unavailable when no response 
   );
 });
 
-Deno.test("execution surface: structured.output is unavailable when provider-native structured output is unsupported", () => {
+Deno.test("execution surface: structured.output falls back to hlvm-local when provider-native structured output is unsupported and no MCP route exists", () => {
   const surface = buildExecutionSurface({
     runtimeMode: "auto",
     activeModelId: "test-chat/plain",
@@ -581,17 +582,61 @@ Deno.test("execution surface: structured.output is unavailable when provider-nat
 
   assertEquals(
     surface.capabilities["structured.output"].selectedBackendKind,
-    undefined,
+    "hlvm-local",
   );
   assertEquals(
     surface.capabilities["structured.output"].fallbackReason,
-    "pinned model/provider lacks provider-native structured output for this turn",
+    "provider-native unavailable; no participating MCP route",
   );
   assertEquals(
     surface.capabilities["structured.output"].candidates.find((candidate) =>
-      candidate.backendKind === "mcp"
+      candidate.backendKind === "provider-native"
     )?.reason,
-    "MCP structured.output is a permanent non-goal — inherently provider-native",
+    "pinned model/provider lacks provider-native structured output for this turn",
+  );
+});
+
+Deno.test("execution surface: structured.output prefers MCP over hlvm-local when provider-native structured output is unsupported", () => {
+  const surface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "ollama/llama3.1:8b",
+    pinnedProviderName: "ollama",
+    providerExecutionPlan: resolveProviderExecutionPlan({
+      providerName: "ollama",
+      nativeCapabilities: {
+        webSearch: false,
+        webPageRead: false,
+        remoteCodeExecution: false,
+      },
+    }),
+    responseShapeContext: {
+      requested: true,
+      source: "request",
+      schemaSignature: "sig-structured-mcp",
+      topLevelKeys: ["name"],
+    },
+    providerNativeStructuredOutputAvailable: false,
+    mcpCandidates: {
+      "structured.output": [{
+        capabilityId: "structured.output",
+        serverName: "structured-proxy",
+        toolName: "mcp_structured_generate",
+        label: "MCP structured output via structured-proxy",
+      }],
+    },
+  });
+
+  assertEquals(
+    surface.capabilities["structured.output"].selectedBackendKind,
+    "mcp",
+  );
+  assertEquals(
+    surface.capabilities["structured.output"].selectedToolName,
+    "mcp_structured_generate",
+  );
+  assertEquals(
+    surface.capabilities["structured.output"].selectedServerName,
+    "structured-proxy",
   );
 });
 
@@ -606,6 +651,7 @@ Deno.test("execution surface: familyId is correct for web, vision, code, and str
         webSearch: false,
         webPageRead: false,
         remoteCodeExecution: false,
+        computerUse: true,
       },
     }),
     turnContext: {
@@ -637,6 +683,7 @@ Deno.test("execution surface: local-only constraint blocks vision provider-nativ
         webSearch: false,
         webPageRead: false,
         remoteCodeExecution: false,
+        computerUse: true,
       },
     }),
     turnContext: {
@@ -1212,6 +1259,7 @@ Deno.test("execution surface: computer.use selects provider-native on Anthropic 
         webSearch: false,
         webPageRead: false,
         remoteCodeExecution: false,
+        computerUse: true,
       },
     }),
     computerUseRequested: true,

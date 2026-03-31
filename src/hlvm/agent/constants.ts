@@ -409,8 +409,11 @@ export function isFrontierProvider(model?: string): boolean {
 const GROUNDING_MODES = ["off", "warn", "strict"] as const;
 export type GroundingMode = typeof GROUNDING_MODES[number];
 
+/** O(1) membership check for grounding mode validation */
+const GROUNDING_MODES_SET: ReadonlySet<string> = new Set(GROUNDING_MODES);
+
 export function isGroundingMode(value: unknown): value is GroundingMode {
-  return GROUNDING_MODES.includes(value as GroundingMode);
+  return typeof value === "string" && GROUNDING_MODES_SET.has(value);
 }
 
 export type ModelTier = "weak" | "mid" | "frontier";

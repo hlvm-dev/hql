@@ -1,11 +1,12 @@
 /**
- * Capability-Proof MCP E2E Tests
+ * MCP Plumbing + Runtime Assembly E2E Tests
  *
- * Proves the full MCP pipeline: discovery → routing → execution
- * for audio.analyze, computer.use, and structured.output semantic capabilities.
+ * This file intentionally separates two evidence layers:
+ *   1. Plumbing proof: local fixture server discovery → registration → execution
+ *   2. Runtime assembly proof: resolveExecutionSurfaceState() builds MCP routes
  *
- * No API keys required — uses local fixture MCP server with
- * deterministic responses.
+ * The fixture-backed tests are strong proof of MCP semantic plumbing, but they
+ * are still synthetic. They should not be cited as real external semantic proof.
  *
  * Run with:
  *   deno test --allow-all tests/e2e/mcp-capability-proof.test.ts
@@ -19,7 +20,9 @@ import { loadMcpTools } from "../../src/hlvm/agent/mcp/mod.ts";
 import { getTool, hasTool } from "../../src/hlvm/agent/registry.ts";
 import { buildExecutionSurface } from "../../src/hlvm/agent/execution-surface.ts";
 import type { McpExecutionPathCandidate } from "../../src/hlvm/agent/execution-surface.ts";
+import { resolveExecutionSurfaceState } from "../../src/hlvm/agent/execution-surface-runtime.ts";
 import type { SemanticCapabilityId } from "../../src/hlvm/agent/semantic-capabilities.ts";
+import { resolveProviderExecutionPlan } from "../../src/hlvm/agent/tool-capabilities.ts";
 import { withTempHlvmDir } from "../unit/helpers.ts";
 
 function fixturePath(): string {
@@ -69,55 +72,21 @@ function mcpText(result: unknown): string {
 
 /** Build a minimal provider execution plan for eval (OpenAI-like: no native audio/computer). */
 function buildMinimalPlan(providerName: string) {
-  return {
+  return resolveProviderExecutionPlan({
     providerName,
-    routingProfile: "conservative" as const,
-    web: {
-      providerName,
-      capabilities: {
-        web_search: {
-          id: "web_search",
-          selectors: [],
-          customToolName: "web_search",
-          implementation: "custom" as const,
-          activeToolName: "search_web",
-          citationBacked: false,
-          rawPayloadCitationEligible: false,
-        },
-        web_page_read: {
-          id: "web_page_read",
-          selectors: [],
-          customToolName: "web_page_read",
-          implementation: "custom" as const,
-          activeToolName: "web_fetch",
-          citationBacked: false,
-          rawPayloadCitationEligible: false,
-        },
-        raw_url_fetch: {
-          id: "raw_url_fetch",
-          selectors: [],
-          customToolName: "raw_url_fetch",
-          implementation: "disabled" as const,
-          citationBacked: false,
-          rawPayloadCitationEligible: false,
-        },
-      },
+    nativeCapabilities: {
+      webSearch: false,
+      webPageRead: false,
+      remoteCodeExecution: false,
+      computerUse: false,
     },
-    remoteCodeExecution: {
-      id: "remote_code_execution",
-      selectors: [],
-      customToolName: "code_exec",
-      nativeToolName: "",
-      implementation: "disabled" as const,
-      description: "Remote code execution",
-    },
-    computerUse: { available: false },
-  };
+  });
 }
 
 /**
- * Convert inspection results into McpExecutionPathCandidate map
- * (same logic as the private buildMcpExecutionCandidates in execution-surface-runtime.ts).
+ * Convert inspection results into McpExecutionPathCandidate map for local
+ * plumbing proof tests. Runtime assembly proof below goes through
+ * resolveExecutionSurfaceState() instead of this helper.
  */
 function buildCandidatesFromInspection(
   servers: Awaited<ReturnType<typeof inspectMcpServersForCapabilities>>,
@@ -147,7 +116,7 @@ function buildCandidatesFromInspection(
 // ============================================================================
 
 Deno.test({
-  name: "MCP capability proof: audio.analyze discovery → routing → execution",
+  name: "MCP plumbing proof: audio.analyze discovery → routing → execution",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -227,7 +196,7 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "MCP capability proof: computer.use discovery → routing → execution",
+  name: "MCP plumbing proof: computer.use discovery → routing → execution",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -307,7 +276,7 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "MCP capability proof: multi-capability discovery (audio + computer from one server)",
+  name: "MCP plumbing proof: multi-capability discovery (audio + computer from one server)",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -391,7 +360,7 @@ Deno.test({
 // ============================================================================
 
 Deno.test({
-  name: "MCP capability proof: structured.output discovery → routing → execution",
+  name: "MCP plumbing proof: structured.output discovery → routing → execution",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -424,7 +393,7 @@ Deno.test({
           providerExecutionPlan: buildMinimalPlan("ollama"),
           responseShapeContext: {
             requested: true,
-            source: "task-text",
+            source: "request",
             topLevelKeys: ["name", "age"],
           },
           providerNativeStructuredOutputAvailable: false,
@@ -470,6 +439,77 @@ Deno.test({
           await dispose();
         }
       });
+    });
+  },
+});
+
+// ============================================================================
+// Test 5: Runtime assembly proof through resolveExecutionSurfaceState()
+// ============================================================================
+
+Deno.test({
+  name: "MCP runtime assembly proof: resolveExecutionSurfaceState builds MCP routes for audio, computer, and structured output",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTempHlvmDir(async () => {
+      const server = fixtureServer(
+        "runtime-proof",
+        "semantic_audio,semantic_computer,semantic_structured",
+      );
+      await writeMcpConfig([server]);
+
+      const { executionSurface } = await resolveExecutionSurfaceState({
+        model: "openai/gpt-4o",
+        fixturePath: "test-fixture",
+        runtimeMode: "auto",
+        skipReasoningSelection: true,
+        computerUseRequested: true,
+        responseShapeContext: {
+          requested: true,
+          source: "request",
+          topLevelKeys: ["name", "age"],
+        },
+        turnContext: {
+          attachmentCount: 1,
+          attachmentKinds: ["audio"],
+          visionEligibleAttachmentCount: 0,
+          visionEligibleKinds: [],
+          audioEligibleAttachmentCount: 1,
+          audioEligibleKinds: ["audio"],
+        },
+      });
+
+      assert(
+        executionSurface.mcpServers.some((serverSummary) =>
+          serverSummary.name === "runtime-proof" && serverSummary.reachable
+        ),
+        "runtime-proof MCP server should be present in execution surface summary",
+      );
+      assertEquals(
+        executionSurface.capabilities["audio.analyze"].selectedBackendKind,
+        "mcp",
+      );
+      assertEquals(
+        executionSurface.capabilities["audio.analyze"].selectedServerName,
+        "runtime-proof",
+      );
+      assertEquals(
+        executionSurface.capabilities["computer.use"].selectedBackendKind,
+        "mcp",
+      );
+      assertEquals(
+        executionSurface.capabilities["computer.use"].selectedServerName,
+        "runtime-proof",
+      );
+      assertEquals(
+        executionSurface.capabilities["structured.output"].selectedBackendKind,
+        "mcp",
+      );
+      assertEquals(
+        executionSurface.capabilities["structured.output"].selectedServerName,
+        "runtime-proof",
+      );
     });
   },
 });

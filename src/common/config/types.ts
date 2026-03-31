@@ -66,6 +66,14 @@ export const PERMISSION_MODES: PermissionMode[] = [
   "dontAsk",
 ];
 
+/** O(1) membership check for permission mode validation */
+export const PERMISSION_MODES_SET: ReadonlySet<string> = new Set(PERMISSION_MODES);
+
+/** O(1) index lookup for permission mode cycling */
+export const PERMISSION_MODES_INDEX: ReadonlyMap<string, number> = new Map(
+  PERMISSION_MODES.map((v, i) => [v, i]),
+);
+
 /** Tool permissions for CLI control */
 export interface ToolPermissions {
   allowedTools: Set<string>;
@@ -330,7 +338,7 @@ export function validateValue(
 
     case "permissionMode":
       if (value === undefined) return { valid: true }; // optional field
-      if (!PERMISSION_MODES.includes(value as PermissionMode)) {
+      if (!PERMISSION_MODES_SET.has(value as string)) {
         return {
           valid: false,
           error: `permissionMode must be one of: ${

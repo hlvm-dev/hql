@@ -3,7 +3,7 @@ import { canonicalizeForSignature } from "./orchestrator-tool-formatting.ts";
 
 export interface ExecutionResponseShapeContext {
   requested: boolean;
-  source: "none" | "request";
+  source: "none" | "request" | "task-text";
   schemaSignature?: string;
   topLevelKeys: string[];
 }
@@ -47,7 +47,11 @@ export function normalizeExecutionResponseShapeContext(
 
   const record = value as Record<string, unknown>;
   const requested = record.requested === true;
-  const source = record.source === "request" ? "request" : "none";
+  const source = record.source === "request"
+    ? "request"
+    : record.source === "task-text"
+    ? "task-text"
+    : "none";
   const schemaSignature = typeof record.schemaSignature === "string" &&
       record.schemaSignature.trim().length > 0
     ? record.schemaSignature

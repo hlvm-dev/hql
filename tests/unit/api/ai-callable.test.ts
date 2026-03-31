@@ -1,5 +1,5 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert@1";
-import { ai } from "../../../src/hlvm/api/ai.ts";
+import { ai, __setStructuredGenerationDepsForTesting } from "../../../src/hlvm/api/ai.ts";
 import { registerProvider, setDefaultProvider } from "../../../src/hlvm/providers/registry.ts";
 import { setHlvmDirForTests, resetHlvmDirCacheForTests } from "../../../src/common/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
@@ -120,6 +120,49 @@ Deno.test({
       // Expected: mock provider is not an SDK provider
     }
     assertEquals(lastChatMessages.length, 0);
+  },
+});
+
+Deno.test({
+  name: "ai(prompt, {schema}): falls back to prompt-based structured extraction when native generation fails",
+  sanitizeResources: false,
+  async fn() {
+    resetMock("should not be called");
+    let sdkCalls = 0;
+    let fallbackCalls = 0;
+    let fallbackMessages: unknown[] = [];
+
+    __setStructuredGenerationDepsForTesting({
+      generateStructuredWithSdk: async () => {
+        sdkCalls++;
+        throw new Error("native structured generation failed");
+      },
+      generateStructuredWithPromptFallback: async (_spec, messages) => {
+        fallbackCalls++;
+        fallbackMessages = [...messages];
+        return { sentiment: "positive", confidence: 0.99 };
+      },
+    });
+
+    try {
+      const result = await ai("classify this sentiment", {
+        model: "ollama/llama3.1:8b",
+        system: "Return JSON.",
+        data: { text: "I love HLVM" },
+        schema: { sentiment: "string", confidence: "number" },
+      });
+
+      assertEquals(result, { sentiment: "positive", confidence: 0.99 });
+      assertEquals(sdkCalls, 1);
+      assertEquals(fallbackCalls, 1);
+      assertEquals(lastChatMessages.length, 0);
+      assertEquals((fallbackMessages as any[]).length, 2);
+      assertEquals((fallbackMessages as any[])[0].role, "system");
+      assertStringIncludes((fallbackMessages as any[])[1].content, "classify this sentiment");
+      assertStringIncludes((fallbackMessages as any[])[1].content, '"text": "I love HLVM"');
+    } finally {
+      __setStructuredGenerationDepsForTesting(null);
+    }
   },
 });
 

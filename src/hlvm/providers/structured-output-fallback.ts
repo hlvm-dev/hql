@@ -16,6 +16,32 @@ import type { SdkModelSpec, SdkConvertibleMessage } from "./sdk-runtime.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { ProviderErrorCode } from "../../common/error-codes.ts";
 
+type PromptFallbackDeps = {
+  createSdkLanguageModel: typeof import("./sdk-runtime.ts").createSdkLanguageModel;
+  convertToSdkMessages: typeof import("./sdk-runtime.ts").convertToSdkMessages;
+  generateText: typeof import("ai").generateText;
+};
+
+let promptFallbackDepsForTesting: Partial<PromptFallbackDeps> | null = null;
+
+async function getPromptFallbackDeps(): Promise<PromptFallbackDeps> {
+  const sdkRuntime = await import("./sdk-runtime.ts");
+  const aiSdk = await import("ai");
+  return {
+    createSdkLanguageModel: promptFallbackDepsForTesting?.createSdkLanguageModel ??
+      sdkRuntime.createSdkLanguageModel,
+    convertToSdkMessages: promptFallbackDepsForTesting?.convertToSdkMessages ??
+      sdkRuntime.convertToSdkMessages,
+    generateText: promptFallbackDepsForTesting?.generateText ?? aiSdk.generateText,
+  };
+}
+
+export function __setStructuredOutputFallbackDepsForTesting(
+  overrides: Partial<PromptFallbackDeps> | null,
+): void {
+  promptFallbackDepsForTesting = overrides;
+}
+
 // ============================================================================
 // JSON extraction from free-form text
 // ============================================================================
@@ -158,8 +184,7 @@ export async function generateStructuredWithPromptFallback(
   schema: Record<string, unknown>,
   options?: { signal?: AbortSignal; temperature?: number; maxRetries?: number },
 ): Promise<unknown> {
-  const { createSdkLanguageModel, convertToSdkMessages } = await import("./sdk-runtime.ts");
-  const { generateText } = await import("ai");
+  const deps = await getPromptFallbackDeps();
 
   const maxRetries = options?.maxRetries ?? 1;
   const schemaText = JSON.stringify(schema, null, 2);
@@ -178,7 +203,7 @@ export async function generateStructuredWithPromptFallback(
   let lastError: string | undefined;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const model = await createSdkLanguageModel(spec);
+    const model = await deps.createSdkLanguageModel(spec);
 
     // On retry, append the validation error as feedback
     const retryMessages = attempt === 0
@@ -191,8 +216,8 @@ export async function generateStructuredWithPromptFallback(
         },
       ];
 
-    const sdkMessages = convertToSdkMessages(retryMessages);
-    const { text } = await generateText({
+    const sdkMessages = deps.convertToSdkMessages(retryMessages);
+    const { text } = await deps.generateText({
       model,
       messages: sdkMessages,
       ...(options?.temperature != null && { temperature: options.temperature }),

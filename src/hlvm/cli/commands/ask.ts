@@ -36,7 +36,7 @@ import {
   verifyOllamaCloudAccess,
 } from "../../runtime/ollama-cloud-access.ts";
 import type { ChatResultStats } from "../../runtime/chat-protocol.ts";
-import { PERMISSION_MODES, type PermissionMode } from "../../../common/config/types.ts";
+import { PERMISSION_MODES, PERMISSION_MODES_SET, type PermissionMode } from "../../../common/config/types.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
@@ -470,10 +470,10 @@ export async function askCommand(args: string[]): Promise<void> {
 
   const verbose = parsed.verbose;
   const outputFormat = (parsed["output-format"] as string) ?? "text";
-  const VALID_OUTPUT_FORMATS = ["text", "json", "stream-json"] as const;
-  if (!VALID_OUTPUT_FORMATS.includes(outputFormat as typeof VALID_OUTPUT_FORMATS[number])) {
+  const VALID_OUTPUT_FORMATS = new Set(["text", "json", "stream-json"]);
+  if (!VALID_OUTPUT_FORMATS.has(outputFormat)) {
     throw new ValidationError(
-      `Invalid output format: "${outputFormat}". Valid formats: ${VALID_OUTPUT_FORMATS.join(", ")}`,
+      `Invalid output format: "${outputFormat}". Valid formats: ${[...VALID_OUTPUT_FORMATS].join(", ")}`,
       "ask",
     );
   }
@@ -492,7 +492,7 @@ export async function askCommand(args: string[]): Promise<void> {
 
   if (parsed["permission-mode"]) {
     const mode = parsed["permission-mode"] as PermissionMode;
-    if (!PERMISSION_MODES.includes(mode)) {
+    if (!PERMISSION_MODES_SET.has(mode)) {
       throw new ValidationError(
         `Invalid permission mode: "${parsed["permission-mode"]}". Valid modes: ${PERMISSION_MODES.join(", ")}`,
         "ask",

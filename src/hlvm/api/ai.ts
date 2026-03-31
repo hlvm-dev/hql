@@ -75,6 +75,45 @@ export type AiApi = {
 /** Default max output tokens for the simple `ai()` callable (Anthropic requires max_tokens). */
 const DEFAULT_AI_MAX_TOKENS = 4096;
 
+type StructuredGenerationDeps = {
+  generateStructuredWithSdk: (
+    spec: import("../providers/sdk-runtime.ts").SdkModelSpec,
+    messages: Message[],
+    schema: Record<string, unknown>,
+    options?: { signal?: AbortSignal; temperature?: number },
+  ) => Promise<unknown>;
+  generateStructuredWithPromptFallback: (
+    spec: import("../providers/sdk-runtime.ts").SdkModelSpec,
+    messages: Message[],
+    schema: Record<string, unknown>,
+    options?: { signal?: AbortSignal; temperature?: number; maxRetries?: number },
+  ) => Promise<unknown>;
+};
+
+let structuredGenerationDepsForTesting: Partial<StructuredGenerationDeps> | null =
+  null;
+
+async function getStructuredGenerationDeps(): Promise<StructuredGenerationDeps> {
+  const sdkRuntime = await import("../providers/sdk-runtime.ts");
+  const promptFallback = await import(
+    "../providers/structured-output-fallback.ts"
+  );
+  return {
+    generateStructuredWithSdk: structuredGenerationDepsForTesting
+        ?.generateStructuredWithSdk ??
+      sdkRuntime.generateStructuredWithSdk,
+    generateStructuredWithPromptFallback: structuredGenerationDepsForTesting
+        ?.generateStructuredWithPromptFallback ??
+      promptFallback.generateStructuredWithPromptFallback,
+  };
+}
+
+export function __setStructuredGenerationDepsForTesting(
+  overrides: Partial<StructuredGenerationDeps> | null,
+): void {
+  structuredGenerationDepsForTesting = overrides;
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -162,19 +201,17 @@ function createAiApi(): AiApi {
       const { descriptorToJsonSchema } = await import(
         "./schema-to-json-schema.ts"
       );
-      const { generateStructuredWithSdk } = await import(
-        "../providers/sdk-runtime.ts"
-      );
       const { resolveSdkModelSpec, toSdkRuntimeModelSpec } = await import(
         "../agent/engine-sdk.ts"
       );
+      const deps = await getStructuredGenerationDeps();
       const spec = toSdkRuntimeModelSpec(resolveSdkModelSpec(modelString));
       const jsonSchema = descriptorToJsonSchema(options.schema) as Record<string, unknown>;
       const sdkOpts = { signal: options.signal, temperature: options.temperature };
 
       // Tier 1: provider-native constrained decoding
       try {
-        return await generateStructuredWithSdk(
+        return await deps.generateStructuredWithSdk(
           spec,
           buildMessages(prompt, options),
           jsonSchema,
@@ -182,10 +219,7 @@ function createAiApi(): AiApi {
         );
       } catch {
         // Tier 3: hlvm-local prompt-based fallback
-        const { generateStructuredWithPromptFallback } = await import(
-          "../providers/structured-output-fallback.ts"
-        );
-        return await generateStructuredWithPromptFallback(
+        return await deps.generateStructuredWithPromptFallback(
           spec,
           buildMessages(prompt, options),
           jsonSchema,

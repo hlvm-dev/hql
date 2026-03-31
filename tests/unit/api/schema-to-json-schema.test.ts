@@ -63,6 +63,44 @@ Deno.test("[] → {type: array} (no items)", () => {
   assertEquals(descriptorToJsonSchema([]), { type: "array" });
 });
 
+Deno.test('"array of strings, exactly 3 items" → array schema with bounds', () => {
+  assertEquals(descriptorToJsonSchema("array of strings, exactly 3 items"), {
+    type: "array",
+    items: { type: "string" },
+    minItems: 3,
+    maxItems: 3,
+  });
+});
+
+Deno.test('"array of 3 strings" → array schema with bounds', () => {
+  assertEquals(descriptorToJsonSchema("array of 3 strings"), {
+    type: "array",
+    items: { type: "string" },
+    minItems: 3,
+    maxItems: 3,
+  });
+});
+
+Deno.test('"array of objects with fields: ..." → array of inline object schema', () => {
+  assertEquals(
+    descriptorToJsonSchema(
+      "array of objects with fields: text (string), sentiment (positive|negative|neutral)",
+    ),
+    {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          text: { type: "string" },
+          sentiment: { type: "string", enum: ["positive", "negative", "neutral"] },
+        },
+        required: ["text", "sentiment"],
+        additionalProperties: false,
+      },
+    },
+  );
+});
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Object descriptors
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

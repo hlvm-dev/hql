@@ -1501,7 +1501,7 @@ Platform journey
   [done]     sixth capability family: computer.use (explicit-request, 6th family bucket)
   [done]     strengthen provider/model capability modeling
   [done]     reasoning model/provider auto-selection (auto-mode, configured-first)
-  [done]     eval/hardening for judgment quality (37 eval cases, 7 dimensions)
+  [done]     eval/hardening for judgment quality (40 eval cases, 7 dimensions)
   [done]     trusted-default posture (/surface hints, /doctor, validation board green)
 ```
 
@@ -1513,13 +1513,46 @@ web.search             yes           yes                     pass (opt-in Google
 web.read               yes           yes                     pass (opt-in Google smoke)
 vision.analyze         yes           yes                     pass (opt-in Google smoke)
 code.exec              yes           yes                     pass (opt-in Google smoke)
-structured.output      yes           yes                     pass (opt-in Google smoke)
-audio.analyze          yes           yes                     pass (opt-in Google smoke; MCP capability-proof)
-computer.use           yes           yes                     pass (opt-in Anthropic routing smoke; MCP capability-proof)
+structured.output      yes           yes                     pass (real Ollama ai() schema E2E; opt-in Google smoke)
+audio.analyze          yes           yes                     pass (opt-in Google smoke; MCP plumbing + runtime assembly proof)
+computer.use           yes           yes                     pass (opt-in Anthropic routing smoke; MCP plumbing + runtime assembly proof)
 mixed-turn coherence   yes           yes                     pass (opt-in Google smoke)
 fallback               yes           yes                     pass (deterministic runtime proof)
 reasoning selector     yes           yes                     pass (opt-in cross-provider smoke)
 ```
+
+Evidence labels for completion claims:
+
+- `live-validated`: real provider-backed or external-system smoke proof
+- `integration-validated`: deterministic runtime-path or isolated integration proof
+- `fixture / plumbing proof`: local fixture-backed discovery / registration / execution proof
+
+Status-reporting rules:
+
+- do not cite fixture or plumbing proof alone as if it were live semantic execution
+- when claiming a capability is proven, name the strongest evidence level actually available
+- keep routed-only proof separate from semantic execution proof
+
+Post-investigation verification (2026-03-31, targeted reruns):
+
+```text
+tests/unit/api/schema-to-json-schema.test.ts               15/15 pass
+tests/unit/providers/structured-output-fallback.test.ts    19/19 pass
+tests/unit/api/ai-callable.test.ts                         17/17 pass
+tests/unit/agent/execution-surface.test.ts                 42/42 pass
+tests/e2e/mcp-capability-proof.test.ts                      5/5 pass
+tests/e2e/ai-callable-e2e.test.ts                          21/21 pass
+```
+
+Important result from that pass:
+
+- a real product bug was found and fixed in `src/hlvm/api/schema-to-json-schema.ts`
+- inline descriptors such as `"array of strings"`, `"array of 3 strings"`, and
+  `"array of objects with fields: ..."` were previously converted incorrectly in
+  object fields
+- that bug, not mere test flakiness, was the reason the live Ollama structured-output
+  E2Es were failing before the fix
+- fixture-backed MCP proof still does **not** count as real external MCP semantics
 
 Routing subsystem completeness:
 
@@ -1534,7 +1567,7 @@ Routing subsystem completeness:
 - Privacy model: local-only constraint correctly allows local MCP servers
   (stdio transport or localhost HTTP) while blocking remote MCP and provider-native
 - TUI visibility: all routing events surfaced — `capability_routed`, `reasoning_routed`
-- E2E coverage: audio routing, computer.use routing, structured.output routing, MCP fallback, reasoning selector smoke tests, MCP capability-proof tests
+- E2E coverage: audio routing, computer.use routing, structured.output routing, MCP fallback, reasoning selector smoke tests, MCP plumbing-proof tests, runtime assembly proof, real Ollama `ai()` structured-output E2E
 
 Current scope and future work:
 
@@ -1564,14 +1597,15 @@ done
 
 done (latest)
   trusted-default posture (/surface hints, /doctor health check)
-  eval/hardening for judgment quality (37 cases, 7 dimensions)
+  eval/hardening for judgment quality (40 cases, 7 dimensions)
   reasoning model/provider auto-selection
   provider/model capability modeling
   reasoning selector live model switching (GAP 1)
   computer.use real provider-native tool wiring (GAP 2)
   local-only privacy model for local MCP servers (GAP 3)
   reasoning_routed TUI + chat stream visibility (GAP 4)
-  E2E smoke tests: audio, computer.use, MCP fallback, reasoning, MCP capability-proof
+  E2E smoke tests: audio, computer.use, MCP fallback, reasoning, MCP plumbing proof
+  post-investigation verification pass: targeted reruns green, stale unit coverage reconciled, real structured-output schema conversion bug fixed
 ```
 
 Fallback trust flow:
@@ -1589,7 +1623,8 @@ Rough maturity snapshot:
 Routing DECISION layer (judgment quality)  [####################] 100%
   - 40 deterministic eval cases across 7 dimensions, all passing
   - 3 opt-in routing-proof smokes (audio, computer.use, reasoning-switch)
-  - 4 local MCP capability-proof E2Es (audio, computer.use, multi-capability discovery, structured.output)
+  - 4 local MCP plumbing-proof E2Es (audio, computer.use, multi-capability discovery, structured.output)
+  - runtime assembly proof through resolveExecutionSurfaceState()
 
 Backend EXECUTION layer (accepted scope)   [####################] 100%
   - web.search: ✅ DuckDuckGo (search_web)
@@ -1599,6 +1634,14 @@ Backend EXECUTION layer (accepted scope)   [####################] 100%
   - audio:      ✅ MCP path (e.g. whisper-server); provider-native (Google)
   - computer:   ✅ MCP path (e.g. puppeteer); provider-native (Anthropic)
   - structured: ✅ provider-native > MCP > hlvm-local (prompt-based extraction)
+
+Post-investigation reruns (2026-03-31)
+  - schema-to-json-schema: 15/15 green
+  - execution-surface: 42/42 green
+  - ai-callable unit: 17/17 green
+  - structured-output-fallback unit: 19/19 green
+  - MCP plumbing + runtime assembly E2E: 5/5 green
+  - ai-callable real Ollama E2E: 21/21 green
 ```
 
 Current staircase position:
@@ -1902,7 +1945,7 @@ NOW (all complete)
   broader family coverage complete (audio.analyze, computer.use)
   provider/model capability modeling done
   reasoning model/provider auto-selection done (configured-first, auto-mode only)
-  eval/hardening done (37 eval cases, 7 dimensions)
+  eval/hardening done (40 eval cases, 7 dimensions)
   trusted-default posture reached
   /surface shows guidance hints for unlocking capabilities
   /doctor for environment-level health checks
@@ -2384,7 +2427,7 @@ Built since original writing:
 All complete:
 
 - ~~reasoning model/provider auto-selection~~ (done — configured-first, auto-mode only)
-- ~~eval/hardening for judgment quality~~ (done — 37 eval cases, 7 dimensions)
+- ~~eval/hardening for judgment quality~~ (done — 40 eval cases, 7 dimensions)
 - ~~trusted-default posture~~ (done — /surface hints, /doctor health check)
 
 The routing decision layer is complete. Backend execution is 2/7 implemented (web.search, web.read), with 5 intentional stubs.
@@ -2495,7 +2538,7 @@ staircase items below are all resolved:
 2. ~~Add broader capability families (audio.analyze, computer.use)~~ done
 3. ~~Strengthen provider/model capability modeling~~ done
 4. ~~Add reasoning model/provider auto-selection (configured-first, auto-mode)~~ done
-5. ~~Eval/hardening for judgment quality~~ done (37 cases, 7 dimensions)
+5. ~~Eval/hardening for judgment quality~~ done (40 cases, 7 dimensions)
 6. ~~Reach trusted-default posture~~ done (/surface hints, /doctor)
 
 All routing decision milestones reached. Backend execution: 7/7 executable (4 bundled/local + 2 MCP-backed + 1 prompt-based fallback), 0 freezes.
@@ -2634,14 +2677,14 @@ Updated: 2026-03-31
 │  │ audio.analyze              [done]                               │   │
 │  │   backends: provider-native (Google) → MCP (e.g. whisper)      │   │
 │  │   activation: audio attachments present (attachment-driven)     │   │
-│  │   live proof: GREEN (Google smoke + MCP capability-proof)       │   │
+│  │   live proof: GREEN (Google smoke + MCP plumbing/runtime proof) │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │ computer.use              [done]                                │   │
 │  │   backends: provider-native (Anthropic) → MCP (e.g. puppeteer) │   │
 │  │   activation: explicit ChatRequest.computer_use=true            │   │
-│  │   live proof: GREEN (Anthropic smoke + MCP capability-proof)    │   │
+│  │   live proof: GREEN (Anthropic smoke + MCP plumbing/runtime proof)│  │
 │  └──────────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────┬──────────────────────────────────────────┘
                                │
@@ -2951,7 +2994,7 @@ Group C: architectural shift — brain routing        (separate session)
   #6 reasoning auto-selection
 
 Group D: iterative, needs real usage feedback        (done)
-  #7 judgment quality eval                           (done — 37 cases, 7 dimensions)
+  #7 judgment quality eval                           (done — 40 cases, 7 dimensions)
   #8 trusted-default posture                         (done — /surface hints, /doctor)
 ```
 
@@ -2991,7 +3034,7 @@ Provider tools:
   native-web-tools.ts            provider-native tool factory
 
 Eval:
-  routing-eval.ts                eval framework, 37 cases across 7 dimensions
+  routing-eval.ts                eval framework, 40 cases across 7 dimensions
   mcp/tools.ts                   MCP capability inspection and semantic routing
   mcp/sdk-client.ts              MCP SDK adapter preserving `_meta` metadata
   mcp/types.ts                   MCP tool `_meta` support in typed surface

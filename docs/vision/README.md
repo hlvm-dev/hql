@@ -1,7 +1,7 @@
 # HLVM Vision: The AI Capability Platform
 
 **Status**: Vision / PMF Definition
-**Date**: 2026-03-30
+**Date**: 2026-03-31
 **Audience**: Contributors, GenAI agents, future collaborators
 
 ---
@@ -14,12 +14,14 @@ any human or AI reader.
 
 | Document | Contents |
 |----------|----------|
-| [00-platform-thesis.md](./00-platform-thesis.md) | HLVM Platform Thesis: the "LLVM for LLM" analogy, architecture layers (moved from hlvm-platform/) |
+| [00-platform-thesis.md](./00-platform-thesis.md) | HLVM Platform Thesis: the "LLVM for LLM" analogy, architecture layers (moved from llvm-for-llm/) |
 | [01-story.md](./01-story.md) | The full story: why this exists, what it becomes, why it matters |
 | [02-module-system.md](./02-module-system.md) | ESM modules as AI capabilities: architecture, authoring, composition |
 | [03-module-store.md](./03-module-store.md) | The central registry: design, requirements, trust model, flywheel |
 | [04-user-journeys.md](./04-user-journeys.md) | End-to-end flows for authors, consumers, and AI-authored modules |
 | [05-competitive-analysis.md](./05-competitive-analysis.md) | Landscape analysis: what exists, what doesn't, where HLVM fits |
+| [06-beyond-llvm-for-llm.md](./06-beyond-llvm-for-llm.md) | TODO / next-layer vision: beyond capability routing toward objective compilation, team synthesis, and mission runtime |
+| [07-daily-driver-scenarios.md](./07-daily-driver-scenarios.md) | Concrete use cases: the abstraction ladder from parameterized function to zero-param binding to keyboard shortcut to composed pipeline |
 
 ---
 
@@ -62,3 +64,15 @@ ALL logic here                        ZERO logic here
 The macOS app (`~/dev/HLVM`) is a thin SwiftUI client. The hlvm binary
 (this project, `~/dev/hql`) is the core that does everything. The Module Store
 follows this same pattern: CLI commands in the binary, beautiful GUI in the app.
+
+## Status Note
+
+The current LLVM-for-LLM milestone is already completed under the thesis in:
+
+- [`../llvm-for-llm/README.md`](../llvm-for-llm/README.md)
+
+The broader "one prompt -> synthesize the right agents, teams, delegation, and
+execution structure" idea is a larger future vision and is documented as TODO
+in:
+
+- [`./06-beyond-llvm-for-llm.md`](./06-beyond-llvm-for-llm.md)

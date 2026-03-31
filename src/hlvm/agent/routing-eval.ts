@@ -7,6 +7,7 @@
 
 import type { CapabilityRoutingDecision, ExecutionSurface, RoutedCapabilityId } from "./execution-surface.ts";
 import type { RoutingConstraintSet } from "./routing-constraints.ts";
+import type { ExecutionResponseShapeContext } from "./response-shape-context.ts";
 
 /** A single evaluation dimension */
 export type RoutingEvalDimension =
@@ -66,7 +67,7 @@ export interface RoutingEvalCase {
   /** MCP candidates to inject for testing MCP fallback routing */
   mcpCandidates?: Partial<Record<import("./execution-surface.ts").RoutedCapabilityId, import("./execution-surface.ts").McpExecutionPathCandidate[]>>;
   /** Response shape context for structured.output testing */
-  responseShapeContext?: { requested: boolean; source: string; topLevelKeys: string[] };
+  responseShapeContext?: ExecutionResponseShapeContext;
   /** Whether the provider supports native structured output */
   providerNativeStructuredOutputAvailable?: boolean;
   /** Expectations to validate against the surface */

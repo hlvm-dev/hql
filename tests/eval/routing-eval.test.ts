@@ -1,5 +1,5 @@
 /**
- * Routing Eval Tests — runs 37 deterministic eval cases against buildExecutionSurface
+ * Routing Eval Tests — runs 40 deterministic eval cases against buildExecutionSurface
  */
 
 import { assertEquals } from "jsr:@std/assert";

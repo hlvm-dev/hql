@@ -1,5 +1,6 @@
 import {
   PERMISSION_MODES,
+  PERMISSION_MODES_INDEX,
   type PermissionMode,
 } from "../../common/config/types.ts";
 import type { PlanningMode } from "./planning.ts";
@@ -23,7 +24,7 @@ export function toAgentExecutionMode(
 export function cycleReplAgentExecutionMode(
   current: AgentExecutionMode,
 ): PermissionMode {
-  const currentIndex = PERMISSION_MODES.indexOf(current);
+  const currentIndex = PERMISSION_MODES_INDEX.get(current) ?? -1;
   const safeIndex = currentIndex >= 0 ? currentIndex : 0;
   return PERMISSION_MODES[(safeIndex + 1) % PERMISSION_MODES.length];
 }

@@ -5,9 +5,11 @@
  * No LLM calls — these are pure function tests.
  */
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
+  __setStructuredOutputFallbackDepsForTesting,
   extractJsonFromResponse,
+  generateStructuredWithPromptFallback,
   repairJson,
   validateAgainstSchema,
 } from "../../../src/hlvm/providers/structured-output-fallback.ts";
@@ -156,4 +158,47 @@ Deno.test("repairJson: multiple missing closers", () => {
   const broken = '{"a": [1, {"b": 2';
   const repaired = repairJson(broken);
   assertEquals(JSON.parse(repaired), { a: [1, { b: 2 }] });
+});
+
+// ============================================================================
+// generateStructuredWithPromptFallback
+// ============================================================================
+
+Deno.test("generateStructuredWithPromptFallback: retries with validation feedback", async () => {
+  const generateCalls: Array<Array<{ role: string; content: string }>> = [];
+  __setStructuredOutputFallbackDepsForTesting({
+    createSdkLanguageModel: async () => ({}) as never,
+    convertToSdkMessages: (messages) => messages as never,
+    generateText: async (input) => {
+      generateCalls.push(input.messages as Array<{ role: string; content: string }>);
+      return {
+        text: generateCalls.length === 1
+          ? '```json\n{"name": 123}\n```'
+          : '```json\n{"name": "Alice"}\n```',
+      } as never;
+    },
+  });
+
+  try {
+    const result = await generateStructuredWithPromptFallback(
+      { providerName: "ollama", modelId: "llama3.1:8b" },
+      [{ role: "user", content: "Return a person object." }],
+      {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+        },
+        required: ["name"],
+      },
+    );
+
+    assertEquals(result, { name: "Alice" });
+    assertEquals(generateCalls.length, 2);
+    assertStringIncludes(
+      generateCalls[1][generateCalls[1].length - 1].content,
+      'Key "name": expected string, got number',
+    );
+  } finally {
+    __setStructuredOutputFallbackDepsForTesting(null);
+  }
 });

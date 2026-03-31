@@ -73,11 +73,12 @@ export function computeSegmentedProgressCells(
     distributeOrder.push(distributeOrder.shift()!);
   }
 
+  const byKey = Object.fromEntries(entries.map((entry) => [entry.key, entry.whole]));
   return {
-    success: entries.find((entry) => entry.key === "success")?.whole ?? 0,
-    error: entries.find((entry) => entry.key === "error")?.whole ?? 0,
-    running: entries.find((entry) => entry.key === "running")?.whole ?? 0,
-    pending: entries.find((entry) => entry.key === "pending")?.whole ?? 0,
+    success: byKey.success ?? 0,
+    error: byKey.error ?? 0,
+    running: byKey.running ?? 0,
+    pending: byKey.pending ?? 0,
   };
 }
 
