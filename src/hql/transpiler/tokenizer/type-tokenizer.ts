@@ -72,9 +72,9 @@ function countDepth(text: string, open: string, close: string): number {
 
 /** Count angle bracket depth: positive if more '<' than '>' */
 export const countAngleBracketDepth = (text: string): number => countDepth(text, "<", ">");
-const countBraceDepth = (text: string): number => countDepth(text, "{", "}");
-const countBracketDepth = (text: string): number => countDepth(text, "[", "]");
-const countParenDepth = (text: string): number => countDepth(text, "(", ")");
+export const countBraceDepth = (text: string): number => countDepth(text, "{", "}");
+export const countBracketDepth = (text: string): number => countDepth(text, "[", "]");
+export const countParenDepth = (text: string): number => countDepth(text, "(", ")");
 
 // ============================================================================
 // TYPE PARAMETER SPLITTING

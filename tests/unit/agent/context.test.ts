@@ -1,4 +1,8 @@
-import { assertEquals, assertThrows } from "jsr:@std/assert";
+import {
+  assertEquals,
+  assertStringIncludes,
+  assertThrows,
+} from "jsr:@std/assert";
 import {
   ContextManager,
   ContextOverflowError,
@@ -245,4 +249,234 @@ Deno.test("context: default config, getConfig, and updateConfig stay coherent", 
   assertEquals(afterConfig.maxTokens, 500);
   assertEquals(afterConfig.maxResultLength, 1000);
   assertEquals(configurable.getMessages().length < beforeCount, true);
+});
+
+Deno.test("context: LLM compaction microcompacts stale tool results but preserves recent rounds intact", async () => {
+  let compactedInput: Message[] = [];
+  const context = new ContextManager({
+    maxTokens: 120,
+    overflowStrategy: "summarize",
+    summaryKeepRecent: 6,
+    minMessages: 1,
+    llmSummarize: async (messages) => {
+      compactedInput = messages;
+      return "dense summary";
+    },
+  });
+
+  context.addMessage({ role: "user", content: "Investigate compaction behavior." });
+  context.addMessages([
+    {
+      role: "assistant",
+      content: "",
+      roundId: "round-1",
+      toolCalls: [{
+        id: "tool-1",
+        function: { name: "read_file", arguments: { path: "src/a.ts" } },
+      }],
+    },
+    {
+      role: "tool",
+      content: "old tool result",
+      toolName: "read_file",
+      toolCallId: "tool-1",
+      roundId: "round-1",
+    },
+    {
+      role: "assistant",
+      content: "",
+      roundId: "round-2",
+      toolCalls: [{
+        id: "tool-2",
+        function: { name: "run_custom", arguments: {} },
+      }],
+    },
+    {
+      role: "tool",
+      content: "non-compactable result",
+      toolName: "custom_tool",
+      toolCallId: "tool-2",
+      roundId: "round-2",
+    },
+    {
+      role: "assistant",
+      content: "",
+      roundId: "round-3",
+      toolCalls: [{
+        id: "tool-3",
+        function: { name: "read_file", arguments: { path: "src/b.ts" } },
+      }],
+    },
+    {
+      role: "tool",
+      content: "recent result 3",
+      toolName: "read_file",
+      toolCallId: "tool-3",
+      roundId: "round-3",
+    },
+    {
+      role: "assistant",
+      content: "",
+      roundId: "round-4",
+      toolCalls: [{
+        id: "tool-4",
+        function: { name: "read_file", arguments: { path: "src/c.ts" } },
+      }],
+    },
+    {
+      role: "tool",
+      content: "recent result 4",
+      toolName: "read_file",
+      toolCallId: "tool-4",
+      roundId: "round-4",
+    },
+    {
+      role: "assistant",
+      content: "",
+      roundId: "round-5",
+      toolCalls: [{
+        id: "tool-5",
+        function: { name: "read_file", arguments: { path: "src/d.ts" } },
+      }],
+    },
+    {
+      role: "tool",
+      content: "recent result 5",
+      toolName: "read_file",
+      toolCallId: "tool-5",
+      roundId: "round-5",
+    },
+  ]);
+
+  context.requestCompaction();
+  await context.compactIfNeeded();
+
+  assertEquals(
+    compactedInput.some((message) =>
+      message.role === "tool" && message.content === "[Tool result cleared — compacted]"
+    ),
+    true,
+  );
+  assertEquals(
+    compactedInput.some((message) =>
+      message.role === "tool" && message.content === "non-compactable result"
+    ),
+    true,
+  );
+
+  const messages = context.getMessages();
+  assertEquals(messages.some((message) => message.content === "recent result 3"), true);
+  assertEquals(messages.some((message) => message.content === "recent result 4"), true);
+  assertEquals(messages.some((message) => message.content === "recent result 5"), true);
+});
+
+Deno.test("context: compaction appends restoration hints within preserved message ordering", async () => {
+  const context = new ContextManager({
+    maxTokens: 80,
+    overflowStrategy: "summarize",
+    summaryKeepRecent: 1,
+    minMessages: 1,
+    llmSummarize: async () => "dense summary",
+    buildRestorationHints: () => [
+      {
+        path: "src/main.ts",
+        content: "export const value = 42;",
+        estimatedTokens: 20,
+        readTimestamp: 1,
+      },
+    ],
+  });
+
+  context.addMessage({ role: "user", content: "Need a compact summary." });
+  context.addMessage({ role: "assistant", content: "a".repeat(200) });
+  context.addMessage({ role: "user", content: "b".repeat(200) });
+
+  await context.compactIfNeeded();
+
+  const messages = context.getMessages();
+  assertStringIncludes(messages[0]?.content ?? "", "Summary of earlier context:");
+  assertStringIncludes(messages[1]?.content ?? "", "Restored file context: src/main.ts");
+  assertStringIncludes(messages[1]?.content ?? "", "export const value = 42;");
+});
+
+Deno.test("context: roundId boundaries stay intact when taking recent grouped messages", () => {
+  const messages: Message[] = [
+    { role: "user", content: "old" },
+    { role: "assistant", content: "", roundId: "round-a" },
+    { role: "tool", content: "tool-a", roundId: "round-a", toolName: "read_file" },
+    { role: "assistant", content: "", roundId: "round-b" },
+    { role: "tool", content: "tool-b", roundId: "round-b", toolName: "read_file" },
+  ];
+
+  const recent = takeLastMessageGroups(messages, 1);
+
+  assertEquals(recent.map((message) => message.roundId), ["round-b", "round-b"]);
+  assertEquals(recent.map((message) => message.content), ["", "tool-b"]);
+});
+
+Deno.test("context: compaction keeps mixed roundId and tool-call groups intact without orphaning tool results", async () => {
+  const context = new ContextManager({
+    maxTokens: 1000,
+    overflowStrategy: "summarize",
+    summaryKeepRecent: 4,
+    minMessages: 1,
+    llmSummarize: async () => "mixed summary",
+  });
+
+  context.addMessage({ role: "user", content: "older standalone " + "x".repeat(240) });
+  context.addMessage({
+    role: "assistant",
+    content: "",
+    roundId: "round-a",
+    toolCalls: [{
+      id: "call-round-a",
+      function: { name: "read_file", arguments: { path: "src/a.ts" } },
+    }],
+  });
+  context.addMessage({
+    role: "tool",
+    content: "round-a result",
+    toolName: "read_file",
+    toolCallId: "call-round-a",
+    roundId: "round-a",
+  });
+  context.addMessage({
+    role: "assistant",
+    content: "",
+    toolCalls: [{
+      id: "call-b",
+      function: { name: "search_web", arguments: { query: "grouping" } },
+    }],
+  });
+  context.addMessage({
+    role: "tool",
+    content: "group-b result",
+    toolName: "search_web",
+    toolCallId: "call-b",
+  });
+  context.addMessage({ role: "user", content: "latest request " + "y".repeat(240) });
+
+  context.requestCompaction();
+  await context.compactIfNeeded();
+
+  const messages = context.getMessages();
+  assertEquals(
+    messages.map((message) => message.role),
+    ["assistant", "assistant", "tool", "assistant", "tool", "user"],
+  );
+  assertEquals(messages[1]?.roundId, "round-a");
+  assertEquals(messages[2]?.roundId, "round-a");
+  assertEquals(messages[2]?.toolCallId, "call-round-a");
+  assertEquals(messages[3]?.toolCalls?.[0]?.id, "call-b");
+  assertEquals(messages[4]?.toolCallId, "call-b");
+  assertEquals(
+    messages.every((message, index, all) =>
+      message.role !== "tool" ||
+      (all[index - 1]?.role === "assistant" &&
+        (message.roundId
+          ? all[index - 1]?.roundId === message.roundId
+          : all[index - 1]?.toolCalls?.some((toolCall) => toolCall.id === message.toolCallId)))
+    ),
+    true,
+  );
 });

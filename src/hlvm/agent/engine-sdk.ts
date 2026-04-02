@@ -15,6 +15,7 @@ import {
   type ModelMessage,
   NoSuchToolError,
   streamText,
+  type SystemModelMessage,
   type ToolCallRepairFunction,
   type ToolSet,
 } from "ai";
@@ -23,7 +24,11 @@ import type { LanguageModel } from "ai";
 import type { AgentEngine, AgentLLMConfig, ToolFilterState } from "./engine.ts";
 import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
-import type { LLMResponse, ToolCall } from "./tool-call.ts";
+import type {
+  LLMCompletionState,
+  LLMResponse,
+  ToolCall,
+} from "./tool-call.ts";
 import { buildToolDefinitions } from "./llm-integration.ts";
 import {
   projectNamedToolMapForExecutionSurface,
@@ -42,12 +47,13 @@ import {
   resolveProviderExecutionPlan,
 } from "./tool-capabilities.ts";
 import { canonicalizeForSignature } from "./orchestrator-tool-formatting.ts";
-import { getToolRegistryGeneration } from "./registry.ts";
+import { getToolRegistryGeneration, resolveTools } from "./registry.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../common/ai-messages.ts";
 import { ProviderErrorCode } from "../../common/error-codes.ts";
+import { buildCompactionPrompt } from "./compaction-template.ts";
 import {
   getDefaultProvider,
   getProviderDefaultConfig,
@@ -327,6 +333,7 @@ type ProviderOptionJson =
 /** Provider options value type — must be JSON-serializable for the SDK. */
 type ProviderOptionValue = { [key: string]: ProviderOptionJson };
 type ProviderOptionsMap = Record<string, ProviderOptionValue>;
+type SystemPromptValue = string | SystemModelMessage[];
 
 const ANTHROPIC_EPHEMERAL_CACHE: ProviderOptionsMap = {
   anthropic: { cacheControl: { type: "ephemeral" } },
@@ -412,17 +419,102 @@ function buildStableSignature(value: unknown): string {
 
 function buildOpenAIPromptCacheKey(
   spec: ResolvedModelSpec,
-  systemPrompt: string,
+  stablePromptSignature: readonly string[],
   toolSchemaSignature: string,
   toolFilterSignature: string,
 ): string {
   return buildStableSignature([
     spec.providerName,
     spec.modelId,
-    systemPrompt,
+    stablePromptSignature,
     toolSchemaSignature,
     toolFilterSignature,
   ]);
+}
+
+function flattenSystemPrompt(system: SystemPromptValue | undefined): string {
+  if (!system) return "";
+  if (typeof system === "string") return system;
+  return system.map((message) => message.content).join("\n\n");
+}
+
+function buildSystemPromptValue(
+  messages: AgentMessage[],
+  compiledPrompt: AgentLLMConfig["compiledPrompt"],
+): {
+  system?: SystemPromptValue;
+  messages: ModelMessage[];
+} {
+  const systemMessages = messages.filter((message) => message.role === "system")
+    .filter((message) => message.content.length > 0);
+  const nonSystemMessages = messages.filter((message) => message.role !== "system");
+  const sdkMessages = convertToSdkMessages(nonSystemMessages);
+
+  if (systemMessages.length === 0) {
+    return { messages: sdkMessages };
+  }
+
+  const system: SystemModelMessage[] = [];
+  let expandedCompiledPrompt = false;
+
+  for (const message of systemMessages) {
+    if (
+      !expandedCompiledPrompt &&
+      compiledPrompt &&
+      message.content === compiledPrompt.text &&
+      compiledPrompt.cacheSegments.length > 0
+    ) {
+      for (const segment of compiledPrompt.cacheSegments) {
+        system.push({
+          role: "system",
+          content: segment.text,
+        });
+      }
+      expandedCompiledPrompt = true;
+      continue;
+    }
+    system.push({ role: "system", content: message.content });
+  }
+
+  if (!expandedCompiledPrompt && system.length === 1) {
+    return { system: system[0].content, messages: sdkMessages };
+  }
+
+  return { system, messages: sdkMessages };
+}
+
+function withAnthropicSystemCacheBreakpoints(
+  system: SystemPromptValue | undefined,
+  compiledPrompt: AgentLLMConfig["compiledPrompt"],
+): SystemPromptValue | undefined {
+  if (!system) return undefined;
+
+  const stableSegmentCount = compiledPrompt?.cacheSegments.filter((segment) =>
+    segment.stability !== "turn"
+  ).length ?? 0;
+  const systemMessages = typeof system === "string"
+    ? [{ role: "system", content: system } satisfies SystemModelMessage]
+    : system.slice();
+  const decorateCount = stableSegmentCount > 0 ? stableSegmentCount : 1;
+
+  return systemMessages.map((message, index) =>
+    index < decorateCount
+      ? withProviderOptions(message, ANTHROPIC_EPHEMERAL_CACHE)
+      : message
+  );
+}
+
+function buildStablePromptSignature(
+  compiledPrompt: AgentLLMConfig["compiledPrompt"],
+  system: SystemPromptValue | undefined,
+): readonly string[] {
+  const stableHashes = compiledPrompt?.cacheSegments.filter((segment) =>
+    segment.stability !== "turn"
+  ).map((segment) => segment.contentHash) ?? [];
+  if (stableHashes.length > 0) {
+    return stableHashes;
+  }
+  return [flattenSystemPrompt(system)];
 }
 
 function googleThinkingBudgetForLevel(
@@ -441,16 +533,20 @@ function googleThinkingBudgetForLevel(
 
 export function applyPromptCaching(
   spec: ResolvedModelSpec,
+  system: SystemPromptValue | undefined,
   messages: ModelMessage[],
   tools: ToolSet,
   providerOptions: ProviderOptionsMap | undefined,
+  compiledPrompt: AgentLLMConfig["compiledPrompt"],
   toolSchemaSignature: string,
   toolFilterSignature: string,
 ): {
+  system?: SystemPromptValue;
   messages: ModelMessage[];
   tools: ToolSet;
   providerOptions?: ProviderOptionsMap;
 } {
+  let decoratedSystem = system;
   let decoratedMessages = messages;
   let decoratedTools = tools;
   let decoratedProviderOptions = providerOptions;
@@ -458,10 +554,11 @@ export function applyPromptCaching(
   if (
     spec.providerName === "anthropic" || spec.providerName === "claude-code"
   ) {
+    decoratedSystem = withAnthropicSystemCacheBreakpoints(
+      system,
+      compiledPrompt,
+    );
     decoratedMessages = messages.slice();
-    if (decoratedMessages[0]?.role === "system") {
-      decoratedMessages[0] = withAnthropicCacheBreakpoint(decoratedMessages[0]);
-    }
     if (decoratedMessages.length > 0) {
       const lastIndex = decoratedMessages.length - 1;
       decoratedMessages[lastIndex] = withAnthropicCacheBreakpoint(
@@ -483,15 +580,11 @@ export function applyPromptCaching(
   }
 
   if (spec.providerName === "openai") {
-    const systemPrompt = decoratedMessages[0]?.role === "system" &&
-        typeof decoratedMessages[0].content === "string"
-      ? decoratedMessages[0].content
-      : "";
     decoratedProviderOptions = mergeProviderOptions(decoratedProviderOptions, {
       openai: {
         promptCacheKey: buildOpenAIPromptCacheKey(
           spec,
-          systemPrompt,
+          buildStablePromptSignature(compiledPrompt, decoratedSystem),
           toolSchemaSignature,
           toolFilterSignature,
         ),
@@ -500,6 +593,7 @@ export function applyPromptCaching(
   }
 
   return {
+    system: decoratedSystem,
     messages: decoratedMessages,
     tools: decoratedTools,
     providerOptions: decoratedProviderOptions,
@@ -688,6 +782,23 @@ export function extractReasoningText(reasoning: unknown): string | undefined {
   return joined.length > 0 ? joined : undefined;
 }
 
+function mapFinishReasonToCompletionState(
+  finishReason: unknown,
+  toolCalls: readonly ToolCall[],
+): LLMCompletionState {
+  if (toolCalls.length > 0) return "tool_calls";
+  switch (finishReason) {
+    case "length":
+      return "truncated_max_tokens";
+    case "tool-calls":
+      return "tool_calls";
+    case "error":
+      return "error";
+    default:
+      return "complete";
+  }
+}
+
 export class SdkAgentEngine implements AgentEngine {
   createLLM(config: AgentLLMConfig): LLMFunction {
     // Hoisted: resolved once per createLLM() call (same config → same spec)
@@ -722,6 +833,7 @@ export class SdkAgentEngine implements AgentEngine {
     return async (
       messages: AgentMessage[],
       signal?: AbortSignal,
+      callOptions?: import("./orchestrator-llm.ts").LLMCallOptions,
     ): Promise<LLMResponse> => {
       if (shouldCacheModel && !cachedModel) {
         const bundle = await getSdkProviderBundleFromSpec(spec);
@@ -740,6 +852,7 @@ export class SdkAgentEngine implements AgentEngine {
 
       const generation = getToolRegistryGeneration();
       const toolFilters = resolveToolFilters();
+      const disableTools = callOptions?.disableTools === true;
       const toolFilterSignature = serializeToolFilters(toolFilters);
       const normalizedAllowlist = normalizeWebCapabilitySelectors(
         toolFilters.allowlist,
@@ -774,31 +887,50 @@ export class SdkAgentEngine implements AgentEngine {
         const attemptMessages = retryNotices.length > 0
           ? [...messages, ...retryNotices]
           : messages;
-        const sdkMessages = convertToSdkMessages(attemptMessages);
-        const providerExecutionPlan = config.providerExecutionPlan ??
+        const promptPayload = buildSystemPromptValue(
+          attemptMessages,
+          config.compiledPrompt,
+        );
+        const providerExecutionPlan = disableTools
+          ? (config.providerExecutionPlan ??
+            resolveProviderExecutionPlan({
+              providerName: spec.providerName,
+              allowlist: [],
+              denylist: Object.keys(
+                resolveTools({ ownerId: config.toolOwnerId }),
+              ),
+              nativeCapabilities,
+            }))
+          : config.providerExecutionPlan ??
           resolveProviderExecutionPlan({
             providerName: spec.providerName,
             allowlist: toolFilters.allowlist,
             denylist: toolFilters.denylist,
             nativeCapabilities,
           });
-        const sdkTools = mergeSdkWebCapabilityTools(
-          cachedCustomSdkTools,
-          nativeTools,
-          providerExecutionPlan,
-          config.executionSurface,
-        );
-        const forcedToolChoice = resolveForcedProviderNativeToolChoice({
-          allowlist: toolFilters.allowlist,
-          executionSurface: config.executionSurface,
-          availableToolNames: Object.keys(sdkTools),
-        });
+        const sdkTools = disableTools
+          ? {}
+          : mergeSdkWebCapabilityTools(
+            cachedCustomSdkTools,
+            nativeTools,
+            providerExecutionPlan,
+            config.executionSurface,
+          );
+        const forcedToolChoice = disableTools
+          ? undefined
+          : resolveForcedProviderNativeToolChoice({
+            allowlist: toolFilters.allowlist,
+            executionSurface: config.executionSurface,
+            availableToolNames: Object.keys(sdkTools),
+          });
 
         const cacheDecorated = applyPromptCaching(
           spec,
-          sdkMessages,
+          promptPayload.system,
+          promptPayload.messages,
           sdkTools,
           buildProviderOptions(spec, config),
+          config.compiledPrompt,
           buildStableSignature({
             tools: lastToolSchemaSignature,
             activeWebTools: Object.keys(sdkTools).filter(isWebCapabilityToolName)
@@ -811,8 +943,9 @@ export class SdkAgentEngine implements AgentEngine {
         );
         const commonOpts = {
           model,
+          ...(cacheDecorated.system ? { system: cacheDecorated.system } : {}),
           messages: cacheDecorated.messages,
-          tools: cacheDecorated.tools,
+          ...(disableTools ? {} : { tools: cacheDecorated.tools }),
           ...(config.options?.temperature != null &&
             { temperature: config.options.temperature }),
           maxTokens: config.options?.maxTokens,
@@ -826,7 +959,8 @@ export class SdkAgentEngine implements AgentEngine {
         let streamError: unknown = null;
 
         try {
-          if (config.onToken) {
+          const tokenSink = callOptions?.onToken ?? config.onToken;
+          if (tokenSink) {
             // Streaming path
             const result = streamText({
               ...commonOpts,
@@ -839,7 +973,7 @@ export class SdkAgentEngine implements AgentEngine {
             const chunks: string[] = [];
             for await (const chunk of result.textStream) {
               chunks.push(chunk);
-              config.onToken(chunk);
+              tokenSink(chunk);
             }
 
             // streamText properties are PromiseLike — await them
@@ -851,6 +985,7 @@ export class SdkAgentEngine implements AgentEngine {
               providerMetadata,
               reasoning,
               response,
+              finishReason,
             ] = await Promise.all([
               result.toolCalls,
               result.usage,
@@ -859,13 +994,19 @@ export class SdkAgentEngine implements AgentEngine {
               result.providerMetadata,
               result.reasoning,
               result.response,
+              result.finishReason,
             ]);
+            const mappedToolCalls = filterLocallyExecutableToolCalls(
+              mapSdkToolCalls(toolCalls),
+              providerExecutionPlan,
+            );
 
             return {
               content: chunks.join("") || text || "",
-              toolCalls: filterLocallyExecutableToolCalls(
-                mapSdkToolCalls(toolCalls),
-                providerExecutionPlan,
+              toolCalls: mappedToolCalls,
+              completionState: mapFinishReasonToCompletionState(
+                finishReason,
+                mappedToolCalls,
               ),
               usage: mapSdkUsage(usage),
               sources: mapSdkSources(sources),
@@ -877,11 +1018,16 @@ export class SdkAgentEngine implements AgentEngine {
 
           // Non-streaming path — generateText returns resolved values directly
           const result = await generateText(commonOpts);
+          const mappedToolCalls = filterLocallyExecutableToolCalls(
+            mapSdkToolCalls(result.toolCalls),
+            providerExecutionPlan,
+          );
           return {
             content: result.text || "",
-            toolCalls: filterLocallyExecutableToolCalls(
-              mapSdkToolCalls(result.toolCalls),
-              providerExecutionPlan,
+            toolCalls: mappedToolCalls,
+            completionState: mapFinishReasonToCompletionState(
+              result.finishReason,
+              mappedToolCalls,
             ),
             usage: mapSdkUsage(result.usage),
             sources: mapSdkSources(result.sources),
@@ -957,13 +1103,18 @@ export class SdkAgentEngine implements AgentEngine {
             if (fallbackText.length === 0 && fallbackCalls.length === 0) {
               fallbackText = AI_NO_OUTPUT_FALLBACK_TEXT;
             }
-            if (config.onToken && fallbackText.length > 0) {
-              config.onToken(fallbackText);
+            const tokenSink = callOptions?.onToken ?? config.onToken;
+            if (tokenSink && fallbackText.length > 0) {
+              tokenSink(fallbackText);
             }
 
             return {
               content: fallbackText,
               toolCalls: fallbackCalls,
+              completionState: mapFinishReasonToCompletionState(
+                "complete",
+                fallbackCalls,
+              ),
               usage: fallbackUsage,
               sources: fallbackSources,
               providerMetadata: fallbackProviderMetadata,
@@ -983,13 +1134,7 @@ export class SdkAgentEngine implements AgentEngine {
   createSummarizer(model?: string) {
     return async (messages: AgentMessage[]): Promise<string> => {
       const sdkModel = await getSdkModel(model);
-
-      const formatted = messages
-        .map((m) => `${m.role}: ${m.content.slice(0, 500)}`)
-        .join("\n");
-
-      const prompt =
-        `Summarize this conversation in 2-3 sentences. Focus on: what was asked, what tools were used, what results were found. Be concise.\n\nConversation:\n${formatted}`;
+      const prompt = buildCompactionPrompt(messages);
 
       const result = await generateText({
         model: sdkModel,

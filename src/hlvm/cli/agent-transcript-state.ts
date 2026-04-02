@@ -44,6 +44,11 @@ interface PendingTurnStats {
   inputTokens?: number;
   outputTokens?: number;
   modelId?: string;
+  costUsd?: number;
+  costEstimated?: boolean;
+  continuedThisTurn?: boolean;
+  continuationCount?: number;
+  compactionReason?: "proactive_pressure" | "overflow_retry";
 }
 
 export interface TranscriptState {
@@ -259,6 +264,11 @@ function appendCommittedTurnStats(
     inputTokens: state.pendingTurnStats?.inputTokens,
     outputTokens: state.pendingTurnStats?.outputTokens,
     modelId: state.pendingTurnStats?.modelId,
+    costUsd: state.pendingTurnStats?.costUsd,
+    costEstimated: state.pendingTurnStats?.costEstimated,
+    continuedThisTurn: state.pendingTurnStats?.continuedThisTurn,
+    continuationCount: state.pendingTurnStats?.continuationCount,
+    compactionReason: state.pendingTurnStats?.compactionReason,
     status,
     summary: summarizeTurnCompletion(turnItems),
     activityTrail: getRecentTurnActivityTrail(turnItems, 2),
@@ -400,9 +410,16 @@ function upsertThinkingItem(
 
 function findMatchingRunningToolIndex(
   tools: ToolCallDisplay[],
+  toolCallId: string | undefined,
   name: string,
   argsSummary: string,
 ): number {
+  if (toolCallId) {
+    const byToolCallId = tools.findIndex((tool) =>
+      tool.status === "running" && tool.toolCallId === toolCallId
+    );
+    if (byToolCallId >= 0) return byToolCallId;
+  }
   const exactIdx = tools.findIndex((tool) =>
     tool.status === "running" &&
     tool.name === name &&
@@ -759,6 +776,7 @@ export function reduceTranscriptState(
           if (event.name.startsWith("memory_")) return state;
           const tool: ToolCallDisplay = {
             id: `ci-${state.nextId + 1}`,
+            toolCallId: event.toolCallId,
             name: event.name,
             argsSummary: event.argsSummary,
             status: "running",
@@ -815,6 +833,7 @@ export function reduceTranscriptState(
             item.type === "tool_group" &&
             findMatchingRunningToolIndex(
                 item.tools,
+                event.toolCallId,
                 event.name,
                 event.argsSummary,
               ) >= 0
@@ -824,6 +843,7 @@ export function reduceTranscriptState(
           if (groupItem.type !== "tool_group") return state;
           const resolvedIdx = findMatchingRunningToolIndex(
             groupItem.tools,
+            event.toolCallId,
             event.name,
             event.argsSummary,
           );
@@ -861,7 +881,10 @@ export function reduceTranscriptState(
             );
             if (entryIdx >= 0) {
               const nextEntries = [...item.entries];
-              nextEntries[entryIdx] = { ...nextEntries[entryIdx], status: "running" };
+              nextEntries[entryIdx] = {
+                ...nextEntries[entryIdx],
+                status: "running",
+              };
               const nextItems = [...state.items];
               nextItems[i] = { ...item, entries: nextEntries };
               return { ...state, items: nextItems };
@@ -914,7 +937,10 @@ export function reduceTranscriptState(
             };
             return {
               ...groupIdState,
-              items: insertBeforePendingAssistant(groupIdState.items, groupItem),
+              items: insertBeforePendingAssistant(
+                groupIdState.items,
+                groupItem,
+              ),
             };
           }
           // Non-batched → individual DelegateItem (unchanged)
@@ -942,7 +968,8 @@ export function reduceTranscriptState(
               event.threadId,
             );
             if (match) {
-              const group = endBaseState.items[match.groupIdx] as DelegateGroupItem;
+              const group = endBaseState
+                .items[match.groupIdx] as DelegateGroupItem;
               const isCancelled = !event.success &&
                 event.error?.toLowerCase().includes("abort");
               const nextEntries = [...group.entries];
@@ -1202,6 +1229,11 @@ export function reduceTranscriptState(
               inputTokens: event.inputTokens,
               outputTokens: event.outputTokens,
               modelId: event.modelId,
+              costUsd: event.costUsd,
+              costEstimated: event.costEstimated,
+              continuedThisTurn: event.continuedThisTurn,
+              continuationCount: event.continuationCount,
+              compactionReason: event.compactionReason,
             },
           };
         }
@@ -1243,7 +1275,9 @@ export function reduceTranscriptState(
         currentTurnStartedAt: startTurn
           ? Date.now()
           : state.currentTurnStartedAt,
-        seenCapabilityRouteKeys: startTurn ? new Set() : state.seenCapabilityRouteKeys,
+        seenCapabilityRouteKeys: startTurn
+          ? new Set()
+          : state.seenCapabilityRouteKeys,
       };
 
       // Generate a new turnId when starting a new turn

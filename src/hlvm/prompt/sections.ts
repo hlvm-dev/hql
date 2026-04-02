@@ -24,6 +24,7 @@ import type {
   InstructionHierarchy,
   PromptCompilerInput,
   PromptSection,
+  PromptSectionStability,
 } from "./types.ts";
 import { type RuntimeMode } from "../agent/runtime-mode.ts";
 import { summarizeRoutingConstraints } from "../agent/routing-constraints.ts";
@@ -41,11 +42,40 @@ const CATEGORY_LABELS: Record<string, string> = {
   shell: "Shell commands",
 };
 
+type RawPromptSection = Omit<PromptSection, "stability">;
+
+const SECTION_STABILITY: Record<string, PromptSectionStability> = {
+  role: "static",
+  chat_role: "static",
+  chat_no_tools: "static",
+  critical_rules: "static",
+  instructions: "static",
+  examples: "static",
+  tips: "static",
+  footer: "static",
+  routing: "session",
+  web_guidance: "session",
+  remote_exec_guidance: "session",
+  permissions: "session",
+  environment: "session",
+  custom: "session",
+  delegation: "session",
+  team_coordination: "session",
+  auto_execution: "turn",
+};
+
+function annotateSection(section: RawPromptSection): PromptSection {
+  return {
+    ...section,
+    stability: SECTION_STABILITY[section.id] ?? "session",
+  };
+}
+
 // ============================================================
 // Section Renderers
 // ============================================================
 
-function renderRole(): PromptSection {
+function renderRole(): RawPromptSection {
   return {
     id: "role",
     content:
@@ -54,7 +84,7 @@ function renderRole(): PromptSection {
   };
 }
 
-function renderChatRole(): PromptSection {
+function renderChatRole(): RawPromptSection {
   return {
     id: "chat_role",
     content:
@@ -63,7 +93,7 @@ function renderChatRole(): PromptSection {
   };
 }
 
-function renderChatNoToolsRule(): PromptSection {
+function renderChatNoToolsRule(): RawPromptSection {
   return {
     id: "chat_no_tools",
     content:
@@ -74,7 +104,7 @@ function renderChatNoToolsRule(): PromptSection {
 
 function renderCriticalRules(
   tools: Record<string, ToolMetadata>,
-): PromptSection {
+): RawPromptSection {
   const memoryToolsAvailable = Object.keys(MEMORY_TOOLS).some((k) =>
     k in tools
   );
@@ -95,7 +125,7 @@ Use tools whenever accuracy depends on repository state, local files, command ou
   };
 }
 
-function renderInstructions(tier: ModelTier): PromptSection {
+function renderInstructions(tier: ModelTier): RawPromptSection {
   const base = [
     "- Be direct and concise. No preamble, no filler.",
     "- If you need a tool, call it immediately; do not narrate that you are about to search, fetch, inspect, or check something.",
@@ -131,7 +161,7 @@ function renderInstructions(tier: ModelTier): PromptSection {
  */
 function renderToolRouting(
   tools: Record<string, ToolMetadata>,
-): PromptSection {
+): RawPromptSection {
   const groups = new Map<string, { tools: string[]; replaces: string[] }>();
   for (const [name, meta] of Object.entries(tools)) {
     if (!meta.replaces) continue;
@@ -165,7 +195,7 @@ function renderToolRouting(
 function renderAutoExecutionGuidance(
   runtimeMode: RuntimeMode | undefined,
   input: PromptCompilerInput,
-): PromptSection {
+): RawPromptSection {
   if (runtimeMode !== "auto") {
     return { id: "auto_execution", content: "", minTier: "weak" };
   }
@@ -318,7 +348,7 @@ function renderAutoExecutionGuidance(
  */
 function renderPermissionTiers(
   tools: Record<string, ToolMetadata>,
-): PromptSection {
+): RawPromptSection {
   const tiers: Record<string, string[]> = { L0: [], L1: [], L2: [] };
   for (const [name, meta] of Object.entries(tools)) {
     const level = meta.safetyLevel ?? "L0";
@@ -345,7 +375,7 @@ function renderPermissionTiers(
 function renderWebToolGuidance(
   tools: Record<string, ToolMetadata>,
   plan?: ResolvedProviderExecutionPlan,
-): PromptSection {
+): RawPromptSection {
   const webPlan = getResolvedWebCapabilityPlan(plan);
   const hasCustomSearch = CUSTOM_WEB_SEARCH_TOOL_NAME in tools;
   const hasNativeSearch = NATIVE_WEB_SEARCH_TOOL_NAME in tools;
@@ -400,7 +430,7 @@ function renderWebToolGuidance(
 
 function renderRemoteExecutionGuidance(
   tools: Record<string, ToolMetadata>,
-): PromptSection {
+): RawPromptSection {
   if (!(REMOTE_CODE_EXECUTE_TOOL_NAME in tools)) {
     return { id: "remote_exec_guidance", content: "", minTier: "weak" };
   }
@@ -415,7 +445,7 @@ function renderRemoteExecutionGuidance(
   };
 }
 
-function renderEnvironment(): PromptSection {
+function renderEnvironment(): RawPromptSection {
   const platform = getPlatform();
   const homePath = platform.env.get("HOME") ?? "unknown";
   return {
@@ -428,7 +458,7 @@ function renderEnvironment(): PromptSection {
 
 function renderCustomInstructions(
   hierarchy: InstructionHierarchy,
-): PromptSection {
+): RawPromptSection {
   // Delegate filtering, ordering, and cap to the SSOT mergeInstructions.
   const merged = mergeInstructions(hierarchy);
   if (!merged) return { id: "custom", content: "", minTier: "weak" };
@@ -443,7 +473,7 @@ function renderDelegation(
   tools: Record<string, ToolMetadata>,
   tier: ModelTier,
   agentProfiles?: readonly AgentProfile[],
-): PromptSection {
+): RawPromptSection {
   if (!("delegate_agent" in tools)) {
     return { id: "delegation", content: "", minTier: "weak" };
   }
@@ -513,7 +543,7 @@ function renderDelegation(
 function renderTeamCoordination(
   tools: Record<string, ToolMetadata>,
   tier: ModelTier,
-): PromptSection {
+): RawPromptSection {
   const hasNewTools = "Teammate" in tools && "SendMessage" in tools;
 
   if (!hasNewTools) {
@@ -579,7 +609,7 @@ function renderTeamCoordination(
   };
 }
 
-function renderExamples(): PromptSection {
+function renderExamples(): RawPromptSection {
   return {
     id: "examples",
     content: `# Examples
@@ -592,7 +622,7 @@ Bad: shell_exec({command:"grep -r handleError src/"}) — shell for search`,
   };
 }
 
-function renderTips(): PromptSection {
+function renderTips(): RawPromptSection {
   return {
     id: "tips",
     content: `# Tips
@@ -606,7 +636,7 @@ function renderTips(): PromptSection {
   };
 }
 
-function renderFooter(): PromptSection {
+function renderFooter(): RawPromptSection {
   return {
     id: "footer",
     content:
@@ -630,7 +660,7 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
     return [
       renderChatRole(),
       renderChatNoToolsRule(),
-    ];
+    ].map(annotateSection);
   }
 
   // Agent mode — full section set
@@ -643,7 +673,7 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
     runtimeMode,
   } = input;
 
-  const sections: PromptSection[] = [
+  const sections: RawPromptSection[] = [
     renderRole(),
     renderCriticalRules(tools),
     renderInstructions(tier),
@@ -667,5 +697,5 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
   sections.push(renderTips());
   sections.push(renderFooter());
 
-  return sections;
+  return sections.map(annotateSection);
 }

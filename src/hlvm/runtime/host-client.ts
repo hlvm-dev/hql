@@ -165,6 +165,8 @@ interface HostBackedChatOptions {
   messages: ChatRequestMessage[];
   model?: string;
   fixturePath?: string;
+  /** Internal runtime-host seam used by tests to force short provider outputs. */
+  maxTokens?: number;
   contextWindow?: number;
   skipSessionHistory?: boolean;
   disablePersistentMemory?: boolean;
@@ -886,6 +888,14 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         iteration: event.iteration,
         toolCount: event.tool_count,
         durationMs: event.duration_ms ?? 0,
+        inputTokens: event.input_tokens,
+        outputTokens: event.output_tokens,
+        modelId: event.model_id,
+        costUsd: event.cost_usd,
+        costEstimated: event.cost_estimated,
+        continuedThisTurn: event.continued_this_turn,
+        continuationCount: event.continuation_count,
+        compactionReason: event.compaction_reason,
       };
     default:
       return null;
@@ -1370,6 +1380,7 @@ async function runChatViaHostAttempt(
     expected_version: options.expectedVersion,
     model: options.model,
     fixture_path: options.fixturePath,
+    max_tokens: options.maxTokens,
     context_window: options.contextWindow,
     permission_mode: options.permissionMode,
     runtime_mode: options.runtimeMode,

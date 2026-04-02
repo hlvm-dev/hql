@@ -5,6 +5,7 @@
 
 import {
   getTool,
+  isToolConcurrencySafe,
   normalizeToolName,
   prepareToolArgsForExecution,
   searchTools,
@@ -31,7 +32,11 @@ import {
   ensurePlaywrightChromium,
   isPlaywrightMissingError,
 } from "./playwright-support.ts";
-import type { AgentUIEvent, MemoryActivityEntry, OrchestratorConfig } from "./orchestrator.ts";
+import type {
+  AgentUIEvent,
+  MemoryActivityEntry,
+  OrchestratorConfig,
+} from "./orchestrator.ts";
 import type { ToolExecutionResult } from "./orchestrator-state.ts";
 import { createRateLimiter } from "./orchestrator-state.ts";
 import {
@@ -73,8 +78,8 @@ import {
   resolveProviderExecutionPlan,
 } from "./tool-capabilities.ts";
 import {
-  projectNamedToolListForExecutionSurface,
   type ExecutionSurface,
+  projectNamedToolListForExecutionSurface,
 } from "./execution-surface.ts";
 
 const CHECKPOINT_SUPPORTED_MUTATION_TOOLS = new Set([
@@ -166,19 +171,16 @@ async function delegateAndBuildResult(
 ): Promise<ToolExecutionResult> {
   try {
     const result = await config.delegate!(delegateArgs, config);
-    const { llmContent, summaryDisplay, returnDisplay } =
-      buildToolResultOutputs(toolCall.toolName, result, config);
+    const outputs = buildToolResultOutputs(toolCall.toolName, result, config);
     emitToolSuccess(
       config,
       toolCall.toolName,
       toolCall.id,
-      llmContent,
-      summaryDisplay,
-      returnDisplay,
+      outputs,
       startedAt,
       coercedArgs,
     );
-    return { success: true, result, llmContent, summaryDisplay, returnDisplay };
+    return { success: true, result, ...outputs };
   } catch (error) {
     return buildToolErrorResult(
       toolCall.toolName,
@@ -242,7 +244,15 @@ interface ToolTimeoutOptions {
 async function executeToolWithTimeout(
   opts: ToolTimeoutOptions,
 ): Promise<unknown> {
-  const { toolFn, args, config, timeout, toolAllowlist, toolDenylist, providerExecutionPlan } = opts;
+  const {
+    toolFn,
+    args,
+    config,
+    timeout,
+    toolAllowlist,
+    toolDenylist,
+    providerExecutionPlan,
+  } = opts;
   const { executionSurface } = config;
   return await withTimeout(
     async (signal) => {
@@ -256,6 +266,7 @@ async function executeToolWithTimeout(
         delegateOwnerId: config.delegateOwnerId,
         ensureMcpLoaded: config.ensureMcpLoaded,
         todoState: config.todoState,
+        fileStateCache: config.fileStateCache,
         searchTools: (query, options) =>
           (() => {
             const rawResults = searchTools(query, {
@@ -278,9 +289,9 @@ async function executeToolWithTimeout(
             if (executionSurface?.runtimeMode !== "auto") {
               return projected;
             }
-            const restoredByName = new Map(projected.map((result) =>
-              [result.name, result]
-            ));
+            const restoredByName = new Map(
+              projected.map((result) => [result.name, result]),
+            );
             for (const route of Object.values(executionSurface.capabilities)) {
               const selectedToolName = route.selectedToolName;
               if (!selectedToolName || restoredByName.has(selectedToolName)) {
@@ -425,10 +436,12 @@ export async function executeToolCall(
   const toolExists = preparedArgs !== undefined;
   const coercedArgs = preparedArgs?.coercedArgs ?? normalizedArgs;
   await config.hookRuntime?.dispatch("pre_tool", {
+    workspace: config.workspace,
     toolName: toolCall.toolName,
     toolCallId: toolCall.id,
     modelId: config.modelId,
     sessionId: config.sessionId,
+    turnId: config.turnId,
     args: coercedArgs,
     argsSummary: generateArgsSummary(toolCall.toolName, coercedArgs),
     toolIndex,
@@ -444,6 +457,7 @@ export async function executeToolCall(
   config.onAgentEvent?.({
     type: "tool_start",
     name: toolCall.toolName,
+    toolCallId: toolCall.id,
     argsSummary: generateArgsSummary(toolCall.toolName, coercedArgs),
     toolIndex,
     toolTotal,
@@ -569,8 +583,12 @@ export async function executeToolCall(
     // Check safety
     const permissionMode = config.permissionMode ?? "default";
     const toolPermissions = {
-      allowedTools: config.toolAllowlist ? new Set(config.toolAllowlist) : new Set<string>(),
-      deniedTools: config.toolDenylist ? new Set(config.toolDenylist) : new Set<string>(),
+      allowedTools: config.toolAllowlist
+        ? new Set(config.toolAllowlist)
+        : new Set<string>(),
+      deniedTools: config.toolDenylist
+        ? new Set(config.toolDenylist)
+        : new Set<string>(),
     };
     const approved = await checkToolSafety(
       toolCall.toolName,
@@ -642,8 +660,7 @@ export async function executeToolCall(
           ...(teamMemberId ? { _teamMemberId: teamMemberId } : {}),
         };
         const result = await config.delegate(delegateArgs, config);
-        const { llmContent, summaryDisplay, returnDisplay } =
-          buildToolResultOutputs(toolCall.toolName, result, config);
+        const outputs = buildToolResultOutputs(toolCall.toolName, result, config);
 
         if (isBackground && result && typeof result === "object") {
           // Background delegate: handler returned immediately with threadId.
@@ -673,7 +690,7 @@ export async function executeToolCall(
             agent: delegateAgent,
             task: delegateTask,
             success: true,
-            summary: summaryDisplay,
+            summary: outputs.summaryDisplay,
             durationMs: Date.now() - startedAt,
             snapshot,
             childSessionId: snapshot?.childSessionId,
@@ -684,9 +701,7 @@ export async function executeToolCall(
           config,
           toolCall.toolName,
           toolCall.id,
-          llmContent,
-          summaryDisplay,
-          returnDisplay,
+          outputs,
           startedAt,
           coercedArgs,
           result,
@@ -694,9 +709,7 @@ export async function executeToolCall(
         return {
           success: true,
           result,
-          llmContent,
-          summaryDisplay,
-          returnDisplay,
+          ...outputs,
         };
       } catch (error) {
         const errorSnapshot = getDelegateTranscriptSnapshot(error);
@@ -942,15 +955,16 @@ export async function executeToolCall(
         status: "running",
       };
       emitDelegateBatchProgress(config, snapshot);
-      const { llmContent, summaryDisplay, returnDisplay } =
-        buildToolResultOutputs(toolCall.toolName, batchResult, config);
+      const outputs = buildToolResultOutputs(
+        toolCall.toolName,
+        batchResult,
+        config,
+      );
       emitToolSuccess(
         config,
         toolCall.toolName,
         toolCall.id,
-        llmContent,
-        summaryDisplay,
-        returnDisplay,
+        outputs,
         startedAt,
         coercedArgs,
         batchResult,
@@ -958,9 +972,7 @@ export async function executeToolCall(
       return {
         success: true,
         result: batchResult,
-        llmContent,
-        summaryDisplay,
-        returnDisplay,
+        ...outputs,
       };
     }
 
@@ -1046,12 +1058,11 @@ export async function executeToolCall(
       }
     }
 
-    const { llmContent, summaryDisplay, returnDisplay } =
-      buildToolResultOutputs(
-        toolCall.toolName,
-        result,
-        config,
-      );
+    const outputs = buildToolResultOutputs(
+      toolCall.toolName,
+      result,
+      config,
+    );
     if (
       toolCall.toolName === "report_result" &&
       config.coordinationBoard &&
@@ -1119,9 +1130,7 @@ export async function executeToolCall(
       config,
       toolCall.toolName,
       toolCall.id,
-      llmContent,
-      summaryDisplay,
-      returnDisplay,
+      outputs,
       startedAt,
       executedArgs,
       result,
@@ -1145,9 +1154,7 @@ export async function executeToolCall(
     return {
       success: true,
       result,
-      llmContent,
-      summaryDisplay,
-      returnDisplay,
+      ...outputs,
       recovery,
     };
   } catch (error) {
@@ -1375,17 +1382,35 @@ function buildMemoryActivityEvent(
   toolCall: ToolCall,
   result: unknown,
 ): Extract<AgentUIEvent, { type: "memory_activity" }> | null {
-  if (toolCall.toolName === "memory_write" && result && typeof result === "object") {
+  if (
+    toolCall.toolName === "memory_write" && result && typeof result === "object"
+  ) {
     const r = result as Record<string, unknown>;
     const text = truncate(String(r.content ?? r.message ?? ""), 120);
     const factId = typeof r.factId === "number" ? r.factId : undefined;
-    return { type: "memory_activity", recalled: [], written: [{ text, factId }] };
+    return {
+      type: "memory_activity",
+      recalled: [],
+      written: [{ text, factId }],
+    };
   }
-  if (toolCall.toolName === "memory_search" && result && typeof result === "object") {
+  if (
+    toolCall.toolName === "memory_search" && result &&
+    typeof result === "object"
+  ) {
     const r = result as Record<string, unknown>;
     const query = String(r.query ?? toolCall.args?.query ?? "");
-    const count = typeof r.count === "number" ? r.count : Array.isArray(r.results) ? r.results.length : 0;
-    return { type: "memory_activity", recalled: [], written: [], searched: { query, count } };
+    const count = typeof r.count === "number"
+      ? r.count
+      : Array.isArray(r.results)
+      ? r.results.length
+      : 0;
+    return {
+      type: "memory_activity",
+      recalled: [],
+      written: [],
+      searched: { query, count },
+    };
   }
   return null;
 }
@@ -1393,7 +1418,8 @@ function buildMemoryActivityEvent(
 /**
  * Execute multiple tool calls
  *
- * Default: parallel execution via Promise.all for better performance.
+ * Default: run consecutive concurrency-safe calls in parallel batches while
+ * serializing mutating or otherwise unsafe calls.
  * When continueOnError is false, uses sequential execution to stop on first error.
  */
 export async function executeToolCalls(
@@ -1443,11 +1469,97 @@ export async function executeToolCalls(
     return results;
   }
 
-  // Parallel execution (default): run all calls concurrently
-  const promises = toolCalls.map((call, i): Promise<ToolExecutionResult> => {
+  type ToolExecutionBatch =
+    | {
+      kind: "parallel";
+      startIndex: number;
+      calls: ToolCall[];
+    }
+    | {
+      kind: "serial";
+      startIndex: number;
+      calls: [ToolCall];
+    };
+
+  const partitionToolCalls = (): ToolExecutionBatch[] => {
+    const batches: ToolExecutionBatch[] = [];
+    let safeBatchStart = -1;
+    let safeBatchCalls: ToolCall[] = [];
+
+    const flushSafeBatch = (): void => {
+      if (safeBatchCalls.length === 0 || safeBatchStart < 0) return;
+      batches.push({
+        kind: "parallel",
+        startIndex: safeBatchStart,
+        calls: safeBatchCalls,
+      });
+      safeBatchStart = -1;
+      safeBatchCalls = [];
+    };
+
+    for (let i = 0; i < toolCalls.length; i++) {
+      const call = toolCalls[i];
+      const resolvedName =
+        normalizeToolName(call.toolName, config.toolOwnerId) ??
+          call.toolName;
+      let concurrencySafe = false;
+      try {
+        concurrencySafe = isToolConcurrencySafe(
+          resolvedName,
+          config.toolOwnerId,
+        );
+      } catch {
+        concurrencySafe = false;
+      }
+      if (concurrencySafe) {
+        if (safeBatchCalls.length === 0) {
+          safeBatchStart = i;
+        }
+        safeBatchCalls.push(call);
+        continue;
+      }
+      flushSafeBatch();
+      batches.push({
+        kind: "serial",
+        startIndex: i,
+        calls: [call],
+      });
+    }
+
+    flushSafeBatch();
+    return batches;
+  };
+
+  const results = new Array<ToolExecutionResult>(toolCalls.length);
+  for (const batch of partitionToolCalls()) {
+    if (batch.kind === "parallel") {
+      const batchResults = await Promise.all(
+        batch.calls.map((call, offset): Promise<ToolExecutionResult> => {
+          const rateLimited = checkRateLimit();
+          if (rateLimited) return Promise.resolve(rateLimited);
+          return executeToolCall(
+            call,
+            config,
+            batch.startIndex + offset,
+            total,
+          );
+        }),
+      );
+      for (let offset = 0; offset < batchResults.length; offset++) {
+        results[batch.startIndex + offset] = batchResults[offset];
+      }
+      continue;
+    }
+
     const rateLimited = checkRateLimit();
-    if (rateLimited) return Promise.resolve(rateLimited);
-    return executeToolCall(call, config, i, total);
-  });
-  return Promise.all(promises);
+    results[batch.startIndex] = rateLimited ??
+      await executeToolCall(
+        batch.calls[0],
+        config,
+        batch.startIndex,
+        total,
+      );
+  }
+
+  return results;
 }

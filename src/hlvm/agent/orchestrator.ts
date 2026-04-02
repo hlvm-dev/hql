@@ -20,12 +20,22 @@ import {
   type InteractionRequestEvent,
   type InteractionResponse,
   resolveTools,
+  type ToolPresentationKind,
 } from "./registry.ts";
 import type { ThinkingState, ToolFilterState } from "./engine.ts";
-import { type ContextManager, ContextOverflowError } from "./context.ts";
-import type { GroundingMode, ModelTier } from "./constants.ts";
+import { type ContextManager, ContextOverflowError, type Message } from "./context.ts";
+import {
+  CONTEXT_PRESSURE_SOFT_THRESHOLD,
+  RESPONSE_CONTINUATION_MAX_HOPS,
+  type GroundingMode,
+  type ModelTier,
+} from "./constants.ts";
 import { getErrorMessage, truncate } from "../../common/utils.ts";
 import { classifyError } from "./error-taxonomy.ts";
+import {
+  looksLikeToolCallJsonAnywhere,
+  looksLikeToolCallTextEnvelope,
+} from "./model-compat.ts";
 import {
   type RateLimitConfig,
   RateLimitError,
@@ -75,13 +85,14 @@ import { recordBudgetUsage } from "./delegate-token-budget.ts";
 import { resolveThinkingProfile } from "./thinking-profile.ts";
 import type { AgentHookRuntime } from "./hooks.ts";
 import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
+import type { FileStateCache } from "./file-state-cache.ts";
 import type { ResolvedProviderExecutionPlan } from "./tool-capabilities.ts";
 import type {
   CapabilityFamilyId,
   ExecutionBackendKind,
-  ExecutionSurface,
   ExecutionPathCandidate,
   ExecutionSelectionStrategy,
+  ExecutionSurface,
   RoutedCapabilityId,
 } from "./execution-surface.ts";
 import type { RuntimeMode } from "./runtime-mode.ts";
@@ -167,6 +178,14 @@ export type TraceEvent =
   }
   | { type: "context_overflow"; maxTokens: number; estimatedTokens: number }
   | {
+    type: "context_pressure";
+    estimatedTokens: number;
+    maxTokens: number;
+    percent: number;
+    thresholdPercent: number;
+    level: "normal" | "soft" | "urgent";
+  }
+  | {
     type: "grounding_check";
     mode: GroundingMode;
     grounded: boolean;
@@ -209,6 +228,24 @@ export type TraceEvent =
     type: "context_overflow_retry";
     newBudget: number;
     overflowRetryCount: number;
+    reason?: "overflow_retry";
+  }
+  | {
+    type: "context_compaction";
+    reason: "proactive_pressure";
+    estimatedTokensBefore: number;
+    estimatedTokensAfter: number;
+    maxTokens: number;
+  }
+  | {
+    type: "response_continuation";
+    status: "starting" | "completed" | "skipped";
+    continuationCount: number;
+    reason:
+      | "truncated_max_tokens"
+      | "tool_call_guard"
+      | "hop_limit"
+      | "completed";
   }
   | {
     type: "mcp_progress";
@@ -223,6 +260,7 @@ export type TraceEvent =
     mode: import("../prompt/types.ts").PromptMode;
     tier: import("./constants.ts").ModelTier;
     sections: import("../prompt/types.ts").SectionManifestEntry[];
+    cacheSegments: import("../prompt/types.ts").PromptCacheSegment[];
     instructionSources: import("../prompt/types.ts").InstructionSource[];
     signatureHash: string;
   }
@@ -272,6 +310,13 @@ export interface WebSearchToolEventMeta {
 }
 
 export interface ToolEventMeta {
+  presentation?: {
+    kind: ToolPresentationKind;
+  };
+  truncation?: {
+    llm: boolean;
+    transcript: boolean;
+  };
   webSearch?: WebSearchToolEventMeta;
 }
 
@@ -329,6 +374,7 @@ export type AgentUIEvent =
   | {
     type: "tool_start";
     name: string;
+    toolCallId?: string;
     argsSummary: string;
     toolIndex: number;
     toolTotal: number;
@@ -336,6 +382,7 @@ export type AgentUIEvent =
   | {
     type: "tool_end";
     name: string;
+    toolCallId?: string;
     success: boolean;
     content: string;
     summary?: string;
@@ -360,6 +407,11 @@ export type AgentUIEvent =
     inputTokens?: number;
     outputTokens?: number;
     modelId?: string;
+    costUsd?: number;
+    costEstimated?: boolean;
+    continuedThisTurn?: boolean;
+    continuationCount?: number;
+    compactionReason?: "proactive_pressure" | "overflow_retry";
   }
   | {
     type: "delegate_start";
@@ -470,7 +522,8 @@ export type AgentUIEvent =
     selectedProviderName: string;
     reason: string;
     switchedFromPinned: boolean;
-    unsatisfiedCapabilities: import("./execution-surface.ts").RoutedCapabilityId[];
+    unsatisfiedCapabilities:
+      import("./execution-surface.ts").RoutedCapabilityId[];
   }
   | InteractionRequestEvent;
 
@@ -491,6 +544,7 @@ export interface OrchestratorConfig {
   onTrace?: (event: TraceEvent) => void;
   onAgentEvent?: (event: AgentUIEvent) => void;
   onFinalResponseMeta?: (meta: FinalResponseMeta) => void;
+  onToken?: (text: string) => void;
   llmTimeout?: number;
   toolTimeout?: number;
   maxRetries?: number;
@@ -546,12 +600,15 @@ export interface OrchestratorConfig {
   delegateInbox?: DelegateInbox;
   modelId?: string;
   sessionId?: string;
+  turnId?: string;
   currentUserRequest?: string;
   signal?: AbortSignal;
   /** Enable one-time automatic memory recall for this user turn. */
   autoMemoryRecall?: boolean;
   /** Session-scoped todo state used by todo_read/todo_write. */
   todoState?: TodoState;
+  /** Session-scoped file coordination cache for edits/restoration. */
+  fileStateCache?: FileStateCache;
   /** Session-scoped LSP diagnostics runtime for post-write verification. */
   lspDiagnostics?: LspDiagnosticsRuntime;
   /** Optional lifecycle hook runtime loaded from .hlvm/hooks.json. */
@@ -751,11 +808,6 @@ export function applyAdaptiveToolPhase(
     return phase;
   }
 
-  // Non-weak models handle tool selection well on their own; skip phase filtering.
-  if ((config.modelTier ?? "mid") !== "weak") {
-    return phase;
-  }
-
   if (!config.toolFilterState) {
     return phase;
   }
@@ -773,14 +825,6 @@ export function applyAdaptiveToolPhase(
   const scoped = Object.entries(availableTools)
     .filter(([, meta]) => !meta.category || categories.has(meta.category))
     .map(([name]) => name);
-  const phaseAllowlist = uniqueToolList([
-    ...ALWAYS_AVAILABLE_RUNTIME_TOOLS.filter((name) => name in availableTools),
-    ...scoped,
-  ]);
-  const nextAllowlist = intersectToolLists(
-    phaseAllowlist,
-    Object.keys(availableTools),
-  );
 
   const loopDenylist: string[] = [];
   for (const [toolName, remainingTurns] of state.temporaryToolDenylist) {
@@ -795,6 +839,40 @@ export function applyAdaptiveToolPhase(
       state.temporaryToolDenylist.set(toolName, remainingTurns - 1);
     }
   }
+
+  // Mid/frontier tiers keep their normal allowlist, but still benefit from
+  // targeted denylist pruning once the loop is clearly in edit/verify mode.
+  if ((config.modelTier ?? "mid") !== "weak") {
+    const currentAllowlist = config.toolFilterState.allowlist ??
+      config.toolAllowlist;
+    const phaseDenylist = phase === "editing" || phase === "verifying" ||
+        phase === "completing"
+      ? Object.entries(availableTools)
+        .filter(([, meta]) => meta.category === "web")
+        .map(([name]) => name)
+      : [];
+    const nextDenylist = uniqueToolList([
+      ...(baselineDenylist ?? []),
+      ...phaseDenylist,
+      ...loopDenylist,
+    ]);
+    config.toolFilterState.allowlist = cloneToolList(currentAllowlist);
+    config.toolFilterState.denylist = nextDenylist.length > 0
+      ? nextDenylist
+      : undefined;
+    config.toolAllowlist = cloneToolList(currentAllowlist);
+    config.toolDenylist = nextDenylist.length > 0 ? nextDenylist : undefined;
+    return phase;
+  }
+
+  const phaseAllowlist = uniqueToolList([
+    ...ALWAYS_AVAILABLE_RUNTIME_TOOLS.filter((name) => name in availableTools),
+    ...scoped,
+  ]);
+  const nextAllowlist = intersectToolLists(
+    phaseAllowlist,
+    Object.keys(availableTools),
+  );
 
   const nextDenylist = uniqueToolList([
     ...(baselineDenylist ?? []),
@@ -1019,6 +1097,202 @@ function buildLimitStopMessage(
     buildProgressSummary(state),
     "Re-run without --no-session-persistence to continue from current context.",
   ].join("\n");
+}
+
+const CONTINUATION_PROMPT =
+  "[System] The previous assistant response was truncated because it hit the output token limit. Continue exactly from the next token. Do not repeat prior text. Do not add a preamble, apology, or explanation. Continue the same answer only.";
+const CONTINUATION_MAX_OVERLAP_CHARS = 400;
+const CONTINUATION_MIN_OVERLAP_CHARS = 24;
+
+function calculateContextPercent(
+  estimatedTokens: number,
+  maxTokens: number,
+): number {
+  return Math.max(
+    0,
+    Math.min(100, Math.round((estimatedTokens / Math.max(1, maxTokens)) * 100)),
+  );
+}
+
+function classifyContextPressureLevel(
+  percent: number,
+  urgentThresholdPercent: number,
+): "normal" | "soft" | "urgent" {
+  if (percent >= urgentThresholdPercent) return "urgent";
+  if (percent >= CONTEXT_PRESSURE_SOFT_THRESHOLD * 100) return "soft";
+  return "normal";
+}
+
+function buildContinuationMessages(
+  messages: Message[],
+  assistantText: string,
+): Message[] {
+  return [
+    ...messages,
+    { role: "assistant", content: assistantText },
+    { role: "user", content: CONTINUATION_PROMPT },
+  ];
+}
+
+function mergeContinuationText(previous: string, next: string): string {
+  if (!previous || !next) return previous + next;
+  const maxOverlap = Math.min(
+    CONTINUATION_MAX_OVERLAP_CHARS,
+    previous.length,
+    next.length,
+  );
+  for (let overlap = maxOverlap; overlap >= CONTINUATION_MIN_OVERLAP_CHARS; overlap--) {
+    const previousSuffix = previous.slice(-overlap);
+    if (next.startsWith(previousSuffix)) {
+      return previous + next.slice(overlap);
+    }
+  }
+  return previous + next;
+}
+
+function shouldAutoContinueResponse(response: {
+  completionState?: string;
+  toolCalls?: { length: number };
+  content?: string;
+}): {
+  continue: boolean;
+  reason?: "tool_call_guard";
+} {
+  if (response.completionState !== "truncated_max_tokens") {
+    return { continue: false };
+  }
+  if ((response.toolCalls?.length ?? 0) > 0) {
+    return { continue: false, reason: "tool_call_guard" };
+  }
+  const content = response.content ?? "";
+  if (
+    looksLikeToolCallTextEnvelope(content) ||
+    looksLikeToolCallJsonAnywhere(content)
+  ) {
+    return { continue: false, reason: "tool_call_guard" };
+  }
+  return { continue: true };
+}
+
+async function runLlmResponsePass(
+  messages: Message[],
+  state: LoopState,
+  lc: LoopConfig,
+  config: OrchestratorConfig,
+  llmFunction: LLMFunction,
+  runtimePhase: RuntimeToolPhase,
+  callOptions?: import("./orchestrator-llm.ts").LLMCallOptions,
+): Promise<{
+  agentResponse: import("./tool-call.ts").LLMResponse;
+  usage: TokenUsage;
+}> {
+  const onTrace = config.onTrace;
+  await config.hookRuntime?.dispatch("pre_llm", {
+    workspace: config.workspace,
+    iteration: state.iterations,
+    modelId: config.modelId,
+    sessionId: config.sessionId,
+    turnId: config.turnId,
+    phase: runtimePhase,
+    messageCount: messages.length,
+    continuedThisTurn: state.continuedThisTurn,
+    continuationCount: state.continuationCount,
+    compactionReason: state.compactionReason,
+  });
+  onTrace?.({ type: "llm_call", messageCount: messages.length });
+
+  const agentResponse = await callLLMWithRetry(
+    llmFunction,
+    messages,
+    {
+      timeout: lc.llmTimeout,
+      maxRetries: lc.maxRetries,
+      signal: config.signal,
+      callOptions,
+      onContextOverflowRetry: () => {
+        state.compactionReason = "overflow_retry";
+      },
+    },
+    onTrace,
+    config.context,
+  );
+
+  const responseText = agentResponse.content ?? "";
+  const usage = agentResponse.usage
+    ? toTokenUsage(agentResponse.usage)
+    : estimateUsage(messages, responseText, config.modelId);
+  state.usageTracker.record(usage);
+  if (agentResponse.usage) {
+    observeTokenUsage(
+      getMessageCharCount(messages),
+      agentResponse.usage.inputTokens,
+      config.modelId,
+    );
+    observeTokenUsage(
+      responseText.length,
+      agentResponse.usage.outputTokens,
+      config.modelId,
+    );
+  }
+  onTrace?.({ type: "llm_usage", usage });
+
+  if (config.delegateTokenBudget) {
+    const totalTokens = (usage.promptTokens ?? 0) +
+      (usage.completionTokens ?? 0);
+    if (recordBudgetUsage(config.delegateTokenBudget, totalTokens)) {
+      addContextMessage(config, {
+        role: "user",
+        content:
+          "[System] Token budget exceeded. Wrap up your current work and provide a final summary.",
+      });
+    }
+  }
+
+  onTrace?.({
+    type: "llm_response",
+    length: responseText.length,
+    truncated: truncate(responseText, 200),
+    content: responseText,
+    toolCalls: agentResponse.toolCalls?.length ?? 0,
+  });
+  await config.hookRuntime?.dispatch("post_llm", {
+    workspace: config.workspace,
+    iteration: state.iterations,
+    modelId: config.modelId,
+    sessionId: config.sessionId,
+    turnId: config.turnId,
+    phase: runtimePhase,
+    content: responseText,
+    reasoning: agentResponse.reasoning,
+    toolCalls: agentResponse.toolCalls?.length ?? 0,
+    completionState: agentResponse.completionState ?? "complete",
+    continuedThisTurn: state.continuedThisTurn,
+    continuationCount: state.continuationCount,
+    compactionReason: state.compactionReason,
+  });
+
+  if (agentResponse.reasoning) {
+    config.onAgentEvent?.({
+      type: "reasoning_update",
+      iteration: state.iterations,
+      summary: truncate(agentResponse.reasoning, 500),
+    });
+  }
+
+  if (
+    !agentResponse.reasoning &&
+    (agentResponse.toolCalls?.length ?? 0) > 0 &&
+    responseText.trim() &&
+    config.planModeState?.phase !== "executing"
+  ) {
+    config.onAgentEvent?.({
+      type: "planning_update",
+      iteration: state.iterations,
+      summary: truncate(responseText, 300),
+    });
+  }
+
+  return { agentResponse, usage };
 }
 
 // ============================================================
@@ -1301,12 +1575,37 @@ export async function runReActLoop(
       }
       maybeInjectDelegationHint(state, userRequest, config);
 
-      // Pre-compaction memory flush: give model a turn to save context before compaction.
-      // When flush is first injected, SKIP compaction this iteration so the model
-      // gets a chance to call memory_write. Compaction runs on the next iteration.
+      const urgentThresholdPercent = Math.round(
+        context.getConfig().compactionThreshold * 100,
+      );
+      const emitContextPressure = (estimatedTokens: number) => {
+        const percent = calculateContextPercent(
+          estimatedTokens,
+          context.getMaxTokens(),
+        );
+        onTrace?.({
+          type: "context_pressure",
+          estimatedTokens,
+          maxTokens: context.getMaxTokens(),
+          percent,
+          thresholdPercent: urgentThresholdPercent,
+          level: classifyContextPressureLevel(percent, urgentThresholdPercent),
+        });
+        return percent;
+      };
+
+      const preCompactionStats = context.getStats();
+      const preCompactionPercent = emitContextPressure(
+        preCompactionStats.estimatedTokens,
+      );
+
+      // Pre-compaction memory flush: give model a turn to save context before
+      // compaction when pressure is already urgent. When flush is first injected,
+      // skip compaction this iteration so the model can call memory_write.
       let skipCompaction = false;
       if (
         context.isPendingCompaction &&
+        preCompactionPercent >= urgentThresholdPercent &&
         !state.memoryFlushedThisCycle &&
         memoryWriteAvailable(config)
       ) {
@@ -1319,17 +1618,35 @@ export async function runReActLoop(
         });
       }
 
-      if (!skipCompaction) {
-        const wasPending = context.isPendingCompaction;
+      if (
+        !skipCompaction &&
+        context.isPendingCompaction &&
+        preCompactionPercent >= urgentThresholdPercent &&
+        state.lastProactiveCompactionMessageRevision !==
+          context.getMessageRevision()
+      ) {
+        const beforeTokens = preCompactionStats.estimatedTokens;
         await context.compactIfNeeded();
-        // Reset flush flag after compaction completes so it can trigger again
-        if (wasPending && !context.isPendingCompaction) {
+        const afterTokens = context.getStats().estimatedTokens;
+        if (afterTokens < beforeTokens) {
           state.memoryFlushedThisCycle = false;
+          state.compactionReason = "proactive_pressure";
+          state.lastProactiveCompactionMessageRevision =
+            context.getMessageRevision();
+          onTrace?.({
+            type: "context_compaction",
+            reason: "proactive_pressure",
+            estimatedTokensBefore: beforeTokens,
+            estimatedTokensAfter: afterTokens,
+            maxTokens: context.getMaxTokens(),
+          });
+          emitContextPressure(afterTokens);
         }
       }
+
       const runtimePhase = applyAdaptiveToolPhase(state, config, userRequest);
+      const contextStats = context.getStats();
       if (config.thinkingState) {
-        const stats = context.getStats();
         config.thinkingState.iteration = state.iterations;
         config.thinkingState.recentToolCalls = state.lastToolNames.length;
         config.thinkingState.consecutiveFailures =
@@ -1337,7 +1654,7 @@ export async function runReActLoop(
         config.thinkingState.phase = runtimePhase;
         config.thinkingState.remainingContextBudget = Math.max(
           0,
-          context.getMaxTokens() - stats.estimatedTokens,
+          context.getMaxTokens() - contextStats.estimatedTokens,
         );
         if (config.thinkingCapable) {
           const thinkingProfile = resolveThinkingProfile({
@@ -1359,103 +1676,101 @@ export async function runReActLoop(
           });
         }
       }
-      const messages = context.getMessages();
-      await config.hookRuntime?.dispatch("pre_llm", {
-        iteration: state.iterations,
-        modelId: config.modelId,
-        sessionId: config.sessionId,
-        phase: runtimePhase,
-        messageCount: messages.length,
-      });
-      onTrace?.({ type: "llm_call", messageCount: messages.length });
-
-      const agentResponse = await callLLMWithRetry(
+      const baseMessages = context.getMessages();
+      let { agentResponse, usage } = await runLlmResponsePass(
+        baseMessages,
+        state,
+        lc,
+        config,
         llmFunction,
-        messages,
-        {
-          timeout: lc.llmTimeout,
-          maxRetries: lc.maxRetries,
-          signal: config.signal,
-        },
-        onTrace,
-        context,
+        runtimePhase,
       );
+      let aggregatedPromptTokens = usage.promptTokens ?? 0;
+      let aggregatedCompletionTokens = usage.completionTokens ?? 0;
 
-      // Reset transient retry counter on successful LLM call
+      while (true) {
+        const continuationDecision = shouldAutoContinueResponse(agentResponse);
+        if (!continuationDecision.continue) {
+          if (continuationDecision.reason) {
+            onTrace?.({
+              type: "response_continuation",
+              status: "skipped",
+              continuationCount: state.continuationCount,
+              reason: continuationDecision.reason,
+            });
+          }
+          break;
+        }
+        if (state.continuationCount >= RESPONSE_CONTINUATION_MAX_HOPS) {
+          onTrace?.({
+            type: "response_continuation",
+            status: "skipped",
+            continuationCount: state.continuationCount,
+            reason: "hop_limit",
+          });
+          break;
+        }
+
+        onTrace?.({
+          type: "response_continuation",
+          status: "starting",
+          continuationCount: state.continuationCount + 1,
+          reason: "truncated_max_tokens",
+        });
+
+        const previousText = agentResponse.content ?? "";
+        state.continuedThisTurn = true;
+        state.continuationCount += 1;
+        const continuationResult = await runLlmResponsePass(
+          buildContinuationMessages(baseMessages, previousText),
+          state,
+          lc,
+          config,
+          llmFunction,
+          runtimePhase,
+          {
+            disableTools: true,
+            onToken: () => {},
+          },
+        );
+        aggregatedPromptTokens += continuationResult.usage.promptTokens ?? 0;
+        aggregatedCompletionTokens +=
+          continuationResult.usage.completionTokens ?? 0;
+
+        const continuationText = continuationResult.agentResponse.content ?? "";
+        const mergedText = mergeContinuationText(previousText, continuationText);
+        const suffix = mergedText.slice(previousText.length);
+        if (suffix) {
+          config.onToken?.(suffix);
+        }
+        agentResponse = {
+          ...continuationResult.agentResponse,
+          content: mergedText,
+        };
+        usage = {
+          promptTokens: aggregatedPromptTokens,
+          completionTokens: aggregatedCompletionTokens,
+          totalTokens: aggregatedPromptTokens + aggregatedCompletionTokens,
+          source: continuationResult.usage.source,
+        };
+        if (mergedText) {
+          state.lastResponse = mergedText;
+        }
+        onTrace?.({
+          type: "response_continuation",
+          status: "completed",
+          continuationCount: state.continuationCount,
+          reason: agentResponse.completionState === "truncated_max_tokens"
+            ? "truncated_max_tokens"
+            : "completed",
+        });
+      }
+
+      // Reset transient retry counter on successful LLM call chain
       state.consecutiveTransientRetries = 0;
 
       const responseText = agentResponse.content ?? "";
       if (responseText) state.lastResponse = responseText;
-
-      const usage = agentResponse.usage
-        ? toTokenUsage(agentResponse.usage)
-        : estimateUsage(messages, responseText, config.modelId);
-      state.usageTracker.record(usage);
-      if (agentResponse.usage) {
-        observeTokenUsage(
-          getMessageCharCount(messages),
-          agentResponse.usage.inputTokens,
-          config.modelId,
-        );
-        observeTokenUsage(
-          responseText.length,
-          agentResponse.usage.outputTokens,
-          config.modelId,
-        );
-      }
-      onTrace?.({ type: "llm_usage", usage });
-
-      // Check delegate token budget
-      if (config.delegateTokenBudget) {
-        const totalTokens = (usage.promptTokens ?? 0) +
-          (usage.completionTokens ?? 0);
-        if (recordBudgetUsage(config.delegateTokenBudget, totalTokens)) {
-          addContextMessage(config, {
-            role: "user",
-            content:
-              "[System] Token budget exceeded. Wrap up your current work and provide a final summary.",
-          });
-        }
-      }
-
-      onTrace?.({
-        type: "llm_response",
-        length: responseText.length,
-        truncated: truncate(responseText, 200),
-        content: responseText,
-        toolCalls: agentResponse.toolCalls?.length ?? 0,
-      });
-      await config.hookRuntime?.dispatch("post_llm", {
-        iteration: state.iterations,
-        modelId: config.modelId,
-        sessionId: config.sessionId,
-        phase: runtimePhase,
-        content: responseText,
-        reasoning: agentResponse.reasoning,
-        toolCalls: agentResponse.toolCalls?.length ?? 0,
-      });
-
-      // Surface provider-native reasoning separately from generic planning text.
-      if (agentResponse.reasoning) {
-        config.onAgentEvent?.({
-          type: "reasoning_update",
-          iteration: state.iterations,
-          summary: truncate(agentResponse.reasoning, 500),
-        });
-      }
-
-      if (
-        !agentResponse.reasoning &&
-        (agentResponse.toolCalls?.length ?? 0) > 0 &&
-        responseText.trim() &&
-        config.planModeState?.phase !== "executing"
-      ) {
-        config.onAgentEvent?.({
-          type: "planning_update",
-          iteration: state.iterations,
-          summary: truncate(responseText, 300),
-        });
-      }
 
       const textResult = handleTextOnlyResponse(
         agentResponse,
@@ -1472,15 +1787,23 @@ export async function runReActLoop(
         config,
         lc.toolRateLimiter,
       );
+      const usageSnapshot = state.usageTracker.snapshot(config.modelId);
 
       config.onAgentEvent?.({
         type: "turn_stats",
         iteration: state.iterations,
         toolCount: result.toolCallsMade,
         durationMs: Date.now() - iterationStart,
-        inputTokens: usage.promptTokens || undefined,
-        outputTokens: usage.completionTokens || undefined,
+        inputTokens: aggregatedPromptTokens || undefined,
+        outputTokens: aggregatedCompletionTokens || undefined,
         modelId: config.modelId,
+        costUsd: usageSnapshot.totalCostUsd,
+        costEstimated: usageSnapshot.costSource === "estimated"
+          ? true
+          : undefined,
+        continuedThisTurn: state.continuedThisTurn || undefined,
+        continuationCount: state.continuationCount || undefined,
+        compactionReason: state.compactionReason,
       });
 
       if (!result.shouldContinue) {

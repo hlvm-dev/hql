@@ -266,6 +266,8 @@ export const MAX_RETRIES = 3;
  * - cli/ask.ts: default max-calls
  */
 export const DEFAULT_MAX_TOOL_CALLS = 50;
+export const RESPONSE_CONTINUATION_MAX_HOPS = 2;
+export const CONTEXT_PRESSURE_SOFT_THRESHOLD = 0.75;
 
 // ============================================================
 // Resource Limits
@@ -298,6 +300,9 @@ export const RESOURCE_LIMITS = {
 
   /** Max total tool result bytes per run (default: 2MB) */
   maxTotalToolResultBytes: 2 * 1024 * 1024,
+
+  /** Max model-facing tool observation bytes to add from one LLM tool batch */
+  maxToolObservationBytesPerTurn: 24 * 1024,
 } as const;
 
 // ============================================================
@@ -344,7 +349,7 @@ export const DEFAULT_CONTEXT_CONFIG = {
   overflowStrategy: "summarize",
   summaryMaxChars: 1200,
   summaryKeepRecent: 4,
-  compactionThreshold: 0.8,
+  compactionThreshold: 0.9,
 } as const;
 
 /**

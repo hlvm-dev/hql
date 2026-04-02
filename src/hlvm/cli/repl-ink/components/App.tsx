@@ -30,10 +30,7 @@ import {
   LocalAgentsBar,
   shouldRenderLocalAgentsBar,
 } from "./LocalAgentsBar.tsx";
-import {
-  getLocalAgentsStatusPanelRowCount,
-  LocalAgentsStatusPanel,
-} from "./LocalAgentsStatusPanel.tsx";
+import { ActivityRail, buildActivityRailRows } from "./ActivityRail.tsx";
 import {
   ComposerSurface,
   type ComposerSurfaceHandle,
@@ -1630,9 +1627,54 @@ function AppContent(
       Boolean(pendingInteraction),
     hasLocalAgents: localAgentEntries.length > 0,
   });
-  const localAgentsPanelRows = getLocalAgentsStatusPanelRowCount(
-    localAgentEntries.length,
-  );
+  const currentTurnRailItem = useMemo(() => {
+    if (!hasConversationContext) return undefined;
+    if (pendingInteraction?.mode === "permission") {
+      return {
+        text: pendingInteraction.sourceLabel
+          ? `approval needed · ${pendingInteraction.sourceLabel}`
+          : "approval needed",
+        tone: "warning" as const,
+      };
+    }
+    if (pendingInteraction?.mode === "question") {
+      return {
+        text: pendingInteraction.sourceLabel
+          ? `reply needed · ${pendingInteraction.sourceLabel}`
+          : "reply needed",
+        tone: "warning" as const,
+      };
+    }
+    if (isConversationTaskRunning && footerStatusMessage?.trim()) {
+      return {
+        text: footerStatusMessage.trim(),
+        tone: "active" as const,
+      };
+    }
+    return undefined;
+  }, [
+    hasConversationContext,
+    pendingInteraction,
+    isConversationTaskRunning,
+    footerStatusMessage,
+  ]);
+  const activityRailRows = buildActivityRailRows({
+    currentTurn: currentTurnRailItem,
+    localAgents: localAgentEntries,
+    memberActivity: teamState.memberActivity,
+    teamState,
+    width: shellContentWidth,
+  });
+  const activityRailRowCount = activityRailRows
+    ? activityRailRows.rows.length + (activityRailRows.overflow ? 1 : 0)
+    : 0;
+  const localAgentsBarRows = localAgentsFocused && shouldRenderLocalAgentsBar(
+      localAgentEntries,
+      localAgentsFocused,
+      teamWorkerSummary,
+    )
+    ? 1
+    : 0;
   const transcriptReservedRows = 10 +
     SHELL_LAYOUT.transcriptToComposerGap +
     composerShellState.queuePreviewRows +
@@ -1641,7 +1683,8 @@ function AppContent(
         (conversation.liveItems.length > 0 || liveTodoCount > 0)
       ? Math.min(conversation.liveItems.length + liveTodoCount + 2, 12)
       : 0) +
-    localAgentsPanelRows;
+    activityRailRowCount +
+    localAgentsBarRows;
   return (
     <Box
       flexDirection="column"
@@ -1829,13 +1872,6 @@ function AppContent(
               </RenderErrorBoundary>
             </>
           )}
-          {localAgentEntries.length > 0 && (
-            <LocalAgentsStatusPanel
-              entries={localAgentEntries}
-              memberActivity={teamState.memberActivity}
-              width={shellContentWidth}
-            />
-          )}
         </Box>
       )}
 
@@ -1881,7 +1917,17 @@ function AppContent(
           />
         )}
 
-      {shouldRenderLocalAgentsBar(
+      {activityRailRows && (
+        <ActivityRail
+          currentTurn={currentTurnRailItem}
+          localAgents={localAgentEntries}
+          memberActivity={teamState.memberActivity}
+          teamState={teamState}
+          width={shellContentWidth}
+        />
+      )}
+
+      {localAgentsFocused && shouldRenderLocalAgentsBar(
         localAgentEntries,
         localAgentsFocused,
         teamWorkerSummary,

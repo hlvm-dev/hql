@@ -6,6 +6,7 @@ import {
   loadMcpConfig,
   loadMcpTools,
 } from "../../../src/hlvm/agent/mcp/mod.ts";
+import { SdkMcpClient } from "../../../src/hlvm/agent/mcp/sdk-client.ts";
 import {
   getTool,
   hasTool,
@@ -15,10 +16,12 @@ import {
   sanitizeToolName,
   validateToolSchema,
 } from "../../../src/hlvm/agent/tool-schema.ts";
-import { withTempHlvmDir } from "../helpers.ts";
+import { withTempDir, withTempHlvmDir } from "../helpers.ts";
 
 type FixtureServerOptions = {
   allowEnv?: string[];
+  allowRead?: string[];
+  allowWrite?: string[];
   env?: Record<string, string>;
   disabled_tools?: string[];
   connection_timeout_ms?: number;
@@ -32,10 +35,16 @@ function fixtureServer(name: string, options: FixtureServerOptions = {}) {
   const allowEnv = options.allowEnv?.length
     ? [`--allow-env=${options.allowEnv.join(",")}`]
     : [];
+  const allowRead = options.allowRead?.length
+    ? [`--allow-read=${options.allowRead.join(",")}`]
+    : [];
+  const allowWrite = options.allowWrite?.length
+    ? [`--allow-write=${options.allowWrite.join(",")}`]
+    : [];
 
   return {
     name,
-    command: ["deno", "run", ...allowEnv, fixturePath()],
+    command: ["deno", "run", ...allowEnv, ...allowRead, ...allowWrite, fixturePath()],
     ...(options.env ? { env: options.env } : {}),
     ...(options.disabled_tools
       ? { disabled_tools: options.disabled_tools }
@@ -87,6 +96,15 @@ async function waitFor(
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+}
+
+async function withFixtureStatePath(
+  fn: (statePath: string) => Promise<void>,
+): Promise<void> {
+  await withTempDir(async (tempDir) => {
+    const statePath = getPlatform().path.join(tempDir, "mcp-state.json");
+    await fn(statePath);
+  });
 }
 
 Deno.test("MCP: loadMcpConfig returns null when no config exists", async () => {
@@ -399,6 +417,95 @@ Deno.test({
       } finally {
         await dispose();
       }
+    });
+  },
+});
+
+Deno.test({
+  name: "MCP: stdio disconnect_once triggers a real reconnect and retries listTools",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withFixtureStatePath(async (statePath) => {
+      const stateDir = getPlatform().path.dirname(statePath);
+      const client = new SdkMcpClient(
+        fixtureServer("reconnect", {
+          allowEnv: ["MCP_TEST_MODE", "MCP_STATE_PATH"],
+          allowRead: [stateDir],
+          allowWrite: [stateDir],
+          env: {
+            MCP_TEST_MODE: "disconnect_once",
+            MCP_STATE_PATH: statePath,
+          },
+        }),
+      );
+      const reconnectEvents: number[] = [];
+      client.onReconnect(() => reconnectEvents.push(Date.now()));
+
+      try {
+        await client.start();
+        const tools = await client.listTools();
+        assertEquals(tools.map((tool) => tool.name), ["echo"]);
+        assertEquals(reconnectEvents.length, 1);
+      } finally {
+        await client.close();
+      }
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "MCP: reconnect refresh updates registered tools after server restart",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTempHlvmDir(async () => {
+      await withWorkspace(async (workspace) => {
+        await withFixtureStatePath(async (statePath) => {
+          const stateDir = getPlatform().path.dirname(statePath);
+          const { tools, dispose, ownerId } = await loadMcpTools(workspace, [
+            fixtureServer("dynamic", {
+              allowEnv: ["MCP_TEST_MODE", "MCP_STATE_PATH"],
+              allowRead: [stateDir],
+              allowWrite: [stateDir],
+              env: {
+                MCP_TEST_MODE: "disconnect_once,dynamic_tools",
+                MCP_STATE_PATH: statePath,
+              },
+            }),
+          ]);
+
+          try {
+            assertEquals(tools.includes("mcp_dynamic_echo"), true);
+            assertEquals(tools.includes("mcp_dynamic_stable_echo"), true);
+            assertEquals(tools.includes("mcp_dynamic_reverse"), false);
+
+            const stable = getTool("mcp_dynamic_stable_echo", ownerId);
+            assertEquals(
+              mcpText(await stable.fn({ message: "hello" }, workspace)),
+              "gen2:hello",
+            );
+
+            await waitFor(() =>
+              hasTool("mcp_dynamic_reverse", ownerId) &&
+              !hasTool("mcp_dynamic_echo", ownerId)
+            );
+
+            assertEquals(hasTool("mcp_dynamic_stable_echo", ownerId), true);
+            const reverse = getTool("mcp_dynamic_reverse", ownerId);
+            assertEquals(
+              mcpText(await reverse.fn({ text: "stressed" }, workspace)),
+              "desserts",
+            );
+          } finally {
+            await dispose();
+          }
+
+          assertEquals(hasTool("mcp_dynamic_reverse", ownerId), false);
+          assertEquals(hasTool("mcp_dynamic_stable_echo", ownerId), false);
+        });
+      });
     });
   },
 });

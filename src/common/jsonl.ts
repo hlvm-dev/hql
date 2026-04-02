@@ -7,6 +7,7 @@
 
 import { getPlatform } from "../platform/platform.ts";
 import { isFileNotFoundError, LINE_SPLIT_REGEX } from "./utils.ts";
+export { atomicWriteTextFile } from "./atomic-file.ts";
 
 export type JsonlMapper<T> = (value: unknown) => T | undefined;
 
@@ -109,34 +110,5 @@ export async function appendJsonLines(
       recursive: true,
     });
     await platform.fs.writeTextFile(filePath, payload);
-  }
-}
-
-/**
- * Atomic text write (temp file + rename).
- */
-export async function atomicWriteTextFile(
-  filePath: string,
-  content: string,
-): Promise<void> {
-  const platform = getPlatform();
-  const randomSuffix = typeof crypto?.randomUUID === "function"
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2);
-  const tempPath = `${filePath}.tmp.${Date.now()}.${randomSuffix}`;
-
-  try {
-    await platform.fs.mkdir(platform.path.dirname(filePath), {
-      recursive: true,
-    });
-    await platform.fs.writeTextFile(tempPath, content);
-    await platform.fs.rename(tempPath, filePath);
-  } catch (error) {
-    try {
-      await platform.fs.remove(tempPath);
-    } catch {
-      // Ignore cleanup errors.
-    }
-    throw error;
   }
 }

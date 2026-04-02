@@ -8,6 +8,7 @@
 
 import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
+import type { CompiledPrompt } from "../prompt/mod.ts";
 import type {
   ExecutionBackendKind,
   ExecutionSurface,
@@ -52,6 +53,11 @@ export interface AgentLLMConfig {
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
   /** Session execution surface reused across prompt/tool routing. */
   executionSurface?: ExecutionSurface;
+  /** Compiled system prompt metadata used for cache-boundary-aware emission. */
+  compiledPrompt?: Pick<
+    CompiledPrompt,
+    "text" | "cacheSegments" | "signatureHash"
+  >;
   /** Auto-mode only: allow one narrow route downgrade retry on provider capability rejection. */
   onProviderNativeRouteFailure?: (options: {
     capabilityId: RoutedCapabilityId;

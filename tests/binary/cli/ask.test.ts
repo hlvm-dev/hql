@@ -132,7 +132,7 @@ binaryTest(
       const output = normalizeCliOutput(result.stdout + result.stderr);
       assertEquals(result.success, true, output);
       assertOrderedSubstrings(output, [
-        "[Team Task] in_progress Review parser change",
+        "[Team Task] pending Review parser change",
         "[Team Plan Review] requested for task task-1",
         "Result:\nTeam coordination complete",
       ]);

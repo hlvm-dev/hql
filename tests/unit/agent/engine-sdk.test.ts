@@ -11,6 +11,7 @@ import {
   resolveProviderNativeRouteFailureFromError,
   SdkAgentEngine,
 } from "../../../src/hlvm/agent/engine-sdk.ts";
+import { compileSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
 import { buildExecutionSurface } from "../../../src/hlvm/agent/execution-surface.ts";
 import {
   REMOTE_CODE_EXECUTE_TOOL_NAME,
@@ -25,6 +26,42 @@ import {
 import type { Message } from "../../../src/hlvm/agent/context.ts";
 import type { ToolDefinition } from "../../../src/hlvm/agent/llm-integration.ts";
 import { InvalidToolInputError, NoSuchToolError } from "ai";
+
+function buildAutoExecutionPromptState() {
+  const providerExecutionPlan = resolveProviderExecutionPlan({
+    providerName: "google",
+    nativeCapabilities: {
+      webSearch: true,
+      webPageRead: true,
+      remoteCodeExecution: true,
+    },
+    autoRequestedRemoteCodeExecution: true,
+  });
+  const executionSurface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "google/gemini-2.5-pro",
+    pinnedProviderName: "google",
+    providerExecutionPlan,
+    taskCapabilityContext: {
+      requestedCapabilities: ["code.exec"],
+      source: "task-text",
+      matchedCueLabels: ["calculate"],
+    },
+  });
+  return {
+    providerExecutionPlan,
+    executionSurface,
+    compiledPrompt: compileSystemPrompt({
+      runtimeMode: "auto",
+      executionSurface,
+      providerExecutionPlan,
+    }),
+  };
+}
+
+function buildAutoExecutionPrompt() {
+  return buildAutoExecutionPromptState().compiledPrompt;
+}
 
 Deno.test("engine sdk: convertToSdkMessages preserves basic roles and assistant text", () => {
   const messages: Message[] = [
@@ -592,9 +629,9 @@ Deno.test("engine sdk: getSdkModel rejects unsupported provider prefixes", async
   );
 });
 
-Deno.test("engine sdk: applyPromptCaching decorates anthropic system, last message, and last tool", () => {
+Deno.test("engine sdk: applyPromptCaching decorates anthropic stable prompt segments, last message, and last tool", () => {
+  const compiledPrompt = buildAutoExecutionPrompt();
   const messages = convertToSdkMessages([
-    { role: "system", content: "You are helpful." },
     { role: "user", content: "Read src/app.ts" },
   ]);
   const defs: ToolDefinition[] = [
@@ -630,27 +667,46 @@ Deno.test("engine sdk: applyPromptCaching decorates anthropic system, last messa
       modelId: "claude-sonnet",
       providerConfig: null,
     },
+    compiledPrompt.cacheSegments.map((segment) => ({
+      role: "system" as const,
+      content: segment.text,
+    })),
     messages,
     tools,
     { anthropic: { thinking: { type: "enabled", budgetTokens: 1000 } } },
+    {
+      text: compiledPrompt.text,
+      cacheSegments: compiledPrompt.cacheSegments,
+      signatureHash: compiledPrompt.signatureHash,
+    },
     "tool-schema-signature",
     "tool-filter-signature",
   );
 
-  const systemProviderOptions =
-    (decorated.messages[0] as Record<string, unknown>)
-      .providerOptions as Record<string, unknown>;
-  const lastMessageContent = (decorated.messages[1] as Record<string, unknown>)
+  const decoratedSystem = decorated.system as Array<Record<string, unknown>>;
+  const staticSegmentProviderOptions =
+    decoratedSystem[0].providerOptions as Record<string, unknown>;
+  const sessionSegmentProviderOptions =
+    decoratedSystem[1].providerOptions as Record<string, unknown>;
+  const turnSegmentProviderOptions = decoratedSystem[2]
+    .providerOptions as Record<string, unknown> | undefined;
+  const lastMessageContent = (decorated.messages[0] as Record<string, unknown>)
     .content as Array<Record<string, unknown>>;
   const lastMessagePartOptions = lastMessageContent[0]
     .providerOptions as Record<string, unknown>;
   const lastTool = decorated.tools.edit_file as Record<string, unknown>;
 
   assertEquals(
-    ((systemProviderOptions.anthropic as Record<string, unknown>)
+    ((staticSegmentProviderOptions.anthropic as Record<string, unknown>)
       .cacheControl as Record<string, unknown>).type,
     "ephemeral",
   );
+  assertEquals(
+    ((sessionSegmentProviderOptions.anthropic as Record<string, unknown>)
+      .cacheControl as Record<string, unknown>).type,
+    "ephemeral",
+  );
+  assertEquals(turnSegmentProviderOptions, undefined);
   assertEquals(
     ((lastMessagePartOptions.anthropic as Record<string, unknown>)
       .cacheControl as Record<string, unknown>).type,
@@ -672,8 +728,8 @@ Deno.test("engine sdk: applyPromptCaching decorates anthropic system, last messa
 });
 
 Deno.test("engine sdk: applyPromptCaching adds stable openai promptCacheKey and preserves provider options", () => {
+  const compiledPrompt = buildAutoExecutionPrompt();
   const messages = convertToSdkMessages([
-    { role: "system", content: "System prompt" },
     { role: "user", content: "Hello" },
   ]);
   const defs: ToolDefinition[] = [
@@ -694,17 +750,35 @@ Deno.test("engine sdk: applyPromptCaching adds stable openai promptCacheKey and 
 
   const first = applyPromptCaching(
     { providerName: "openai", modelId: "gpt-5", providerConfig: null },
+    compiledPrompt.cacheSegments.map((segment) => ({
+      role: "system" as const,
+      content: segment.text,
+    })),
     messages,
     tools,
     { openai: { reasoningEffort: "high" } },
+    {
+      text: compiledPrompt.text,
+      cacheSegments: compiledPrompt.cacheSegments,
+      signatureHash: compiledPrompt.signatureHash,
+    },
     "tool-schema-signature",
     "tool-filter-signature",
   );
   const second = applyPromptCaching(
     { providerName: "openai", modelId: "gpt-5", providerConfig: null },
+    compiledPrompt.cacheSegments.map((segment) => ({
+      role: "system" as const,
+      content: segment.text,
+    })),
     messages,
     tools,
     { openai: { reasoningEffort: "high" } },
+    {
+      text: compiledPrompt.text,
+      cacheSegments: compiledPrompt.cacheSegments,
+      signatureHash: compiledPrompt.signatureHash,
+    },
     "tool-schema-signature",
     "tool-filter-signature",
   );
@@ -716,6 +790,113 @@ Deno.test("engine sdk: applyPromptCaching adds stable openai promptCacheKey and 
   >;
   assertEquals(firstOpenAI.promptCacheKey, secondOpenAI.promptCacheKey);
   assertEquals(firstOpenAI.reasoningEffort, "high");
+});
+
+Deno.test("engine sdk: openai promptCacheKey stays stable across turn-only prompt changes", () => {
+  const state = buildAutoExecutionPromptState();
+  const withTurn = state.compiledPrompt;
+  const withoutTurn = compileSystemPrompt({
+    executionSurface: state.executionSurface,
+    providerExecutionPlan: state.providerExecutionPlan,
+  });
+  const messages = convertToSdkMessages([
+    { role: "user", content: "Hello" },
+  ]);
+
+  const first = applyPromptCaching(
+    { providerName: "openai", modelId: "gpt-5", providerConfig: null },
+    withTurn.cacheSegments.map((segment) => ({
+      role: "system" as const,
+      content: segment.text,
+    })),
+    messages,
+    {},
+    undefined,
+    {
+      text: withTurn.text,
+      cacheSegments: withTurn.cacheSegments,
+      signatureHash: withTurn.signatureHash,
+    },
+    "tool-schema-signature",
+    "tool-filter-signature",
+  );
+  const second = applyPromptCaching(
+    { providerName: "openai", modelId: "gpt-5", providerConfig: null },
+    withoutTurn.cacheSegments.map((segment) => ({
+      role: "system" as const,
+      content: segment.text,
+    })),
+    messages,
+    {},
+    undefined,
+    {
+      text: withoutTurn.text,
+      cacheSegments: withoutTurn.cacheSegments,
+      signatureHash: withoutTurn.signatureHash,
+    },
+    "tool-schema-signature",
+    "tool-filter-signature",
+  );
+
+  const firstOpenAI = first.providerOptions?.openai as Record<string, unknown>;
+  const secondOpenAI =
+    second.providerOptions?.openai as Record<string, unknown>;
+  assertEquals(firstOpenAI.promptCacheKey, secondOpenAI.promptCacheKey);
+});
+
+Deno.test("engine sdk: openai promptCacheKey changes when session-stable prompt content changes", () => {
+  const firstPrompt = compileSystemPrompt({
+    instructions: { global: "Use TypeScript.", project: "", trusted: false },
+  });
+  const secondPrompt = compileSystemPrompt({
+    instructions: { global: "Use Deno.", project: "", trusted: false },
+  });
+  const messages = convertToSdkMessages([
+    { role: "user", content: "Hello" },
+  ]);
+
+  const first = applyPromptCaching(
+    { providerName: "openai", modelId: "gpt-5", providerConfig: null },
+    firstPrompt.cacheSegments.map((segment) => ({
+      role: "system" as const,
+      content: segment.text,
+    })),
+    messages,
+    {},
+    undefined,
+    {
+      text: firstPrompt.text,
+      cacheSegments: firstPrompt.cacheSegments,
+      signatureHash: firstPrompt.signatureHash,
+    },
+    "tool-schema-signature",
+    "tool-filter-signature",
+  );
+  const second = applyPromptCaching(
+    { providerName: "openai", modelId: "gpt-5", providerConfig: null },
+    secondPrompt.cacheSegments.map((segment) => ({
+      role: "system" as const,
+      content: segment.text,
+    })),
+    messages,
+    {},
+    undefined,
+    {
+      text: secondPrompt.text,
+      cacheSegments: secondPrompt.cacheSegments,
+      signatureHash: secondPrompt.signatureHash,
+    },
+    "tool-schema-signature",
+    "tool-filter-signature",
+  );
+
+  const firstOpenAI = first.providerOptions?.openai as Record<string, unknown>;
+  const secondOpenAI =
+    second.providerOptions?.openai as Record<string, unknown>;
+  assertEquals(
+    firstOpenAI.promptCacheKey === secondOpenAI.promptCacheKey,
+    false,
+  );
 });
 
 Deno.test("engine sdk: malformed tool-call repair unwraps wrapped JSON args", () => {

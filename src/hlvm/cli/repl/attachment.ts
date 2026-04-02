@@ -5,7 +5,7 @@
  * while the canonical attachment bytes/metadata live in src/hlvm/attachments/.
  */
 
-import { countLines } from "../../../common/utils.ts";
+import { countLines, truncate } from "../../../common/utils.ts";
 import { formatBytes } from "../../../common/limits.ts";
 import {
   detectAttachmentMimeType,
@@ -172,6 +172,37 @@ export function getTextDisplayName(id: number, lineCount: number): string {
   return getTextAttachmentDisplayName(id, lineCount);
 }
 
+function buildPastedTextPreview(content: string): string {
+  const flattened = content
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!flattened) return "";
+  if (flattened.length <= 48) {
+    return flattened;
+  }
+  const head = flattened.slice(0, 28).trimEnd();
+  const tail = flattened.slice(-16).trimStart();
+  return `${head} ... ${tail}`;
+}
+
+export function getPastedTextPreviewLabel(
+  id: number,
+  content: string,
+  lineCount = countLines(content),
+): string {
+  const preview = buildPastedTextPreview(content);
+  const lineSuffix = lineCount > 1 ? ` +${lineCount} lines` : "";
+  if (!preview) {
+    return getTextDisplayName(id, lineCount);
+  }
+  return truncate(
+    `[Pasted text #${id}: ${preview}${lineSuffix}]`,
+    96,
+  );
+}
+
 export async function createTextAttachment(
   content: string,
   id: number,
@@ -183,7 +214,7 @@ export async function createTextAttachment(
       id,
       attachmentId: record.id,
       type: "text",
-      displayName: getTextDisplayName(id, lineCount),
+      displayName: getPastedTextPreviewLabel(id, content, lineCount),
       content,
       lineCount,
       size: record.size,

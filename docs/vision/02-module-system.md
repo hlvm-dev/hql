@@ -348,11 +348,10 @@ is JavaScript — which is none.
 │  3. DEPLOY                                                      │
 │     ┌──────┴───────┐                                            │
 │     │ hlvm deploy  │  One command:                               │
-│     │              │  → uploads main.js to author's hosting      │
-│     │              │    (GitHub releases, JSR, npm, any URL)     │
-│     │              │  → PRs JSON metadata to hlvm/registry       │
-│     │              │    (Git repo, Homebrew model)               │
-│     │              │  → searchable once PR merged                │
+│     │              │  (default) install locally                   │
+│     │              │  --jsr → publish to JSR                     │
+│     │              │  --npm → publish to npm                     │
+│     │              │  No custom registry needed                   │
 │     └──────┬───────┘                                            │
 │            │                                                    │
 │  4. DISCOVER                                                    │
@@ -365,7 +364,7 @@ is JavaScript — which is none.
 │  5. INSTALL                                                     │
 │     ┌──────┴───────┐                                            │
 │     │ Click        │  GUI: "Install" button                     │
-│     │ Install      │  CLI: hlvm install @jane/sentiment         │
+│     │ Install      │  CLI: hlvm install jsr:@jane/sentiment     │
 │     │              │  → downloads main.js from author's hosting  │
 │     │              │  → stores in ~/.hlvm/modules/              │
 │     │              │  → reads __hlvm_meta from the module       │

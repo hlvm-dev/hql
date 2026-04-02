@@ -13,7 +13,11 @@ import { ValidationError } from "../../common/error.ts";
 import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
 import { throwIfAborted } from "../../common/timeout-utils.ts";
 import type { Message as AgentMessage } from "./context.ts";
-import type { LLMResponse, ToolCall } from "./tool-call.ts";
+import type {
+  LLMCompletionState,
+  LLMResponse,
+  ToolCall,
+} from "./tool-call.ts";
 
 // ============================================================
 // Types
@@ -39,6 +43,8 @@ interface FixtureStep {
   reasoning?: string;
   /** Optional structured tool calls */
   toolCalls?: ToolCall[];
+  /** Optional normalized completion state for this response. */
+  completionState?: LLMCompletionState;
   /** Optional expectations against input messages */
   expect?: FixtureStepExpect;
 }
@@ -156,6 +162,9 @@ function normalizeSteps(input: unknown): FixtureStep[] | null {
         isObjectValue(call) && typeof call.toolName === "string"
       ) as ToolCall[]
       : undefined;
+    const completionState = isFixtureCompletionState(entry.completionState)
+      ? entry.completionState
+      : undefined;
     if (
       !response && !content && !reasoning &&
       (!toolCalls || toolCalls.length === 0)
@@ -164,7 +173,14 @@ function normalizeSteps(input: unknown): FixtureStep[] | null {
     }
 
     const expect = normalizeExpect(entry.expect);
-    steps.push({ response, content, reasoning, toolCalls, expect });
+    steps.push({
+      response,
+      content,
+      reasoning,
+      toolCalls,
+      completionState,
+      expect,
+    });
   }
 
   return steps.length > 0 ? steps : null;
@@ -212,6 +228,16 @@ function normalizeExpect(input: unknown): FixtureStepExpect | undefined {
   };
 }
 
+function isFixtureCompletionState(
+  value: unknown,
+): value is LLMCompletionState {
+  return value === "complete" ||
+    value === "truncated_max_tokens" ||
+    value === "context_overflow" ||
+    value === "tool_calls" ||
+    value === "error";
+}
+
 // ============================================================
 // Fixture LLM
 // ============================================================
@@ -249,6 +275,8 @@ export function createFixtureLLM(
     return Promise.resolve({
       content: step.content ?? step.response ?? "",
       toolCalls: step.toolCalls ?? [],
+      completionState: step.completionState ??
+        ((step.toolCalls?.length ?? 0) > 0 ? "tool_calls" : "complete"),
       reasoning: step.reasoning,
     });
   };

@@ -33,6 +33,7 @@ import type { ModelTier } from "./constants.ts";
 import type { TeamRuntime } from "./team-runtime.ts";
 import type { AgentHookRuntime } from "./hooks.ts";
 import type { AgentProfile } from "./agent-registry.ts";
+import type { FileStateCache } from "./file-state-cache.ts";
 import {
   buildToolJsonSchema,
   coerceArgsToSchema,
@@ -101,6 +102,8 @@ export interface ToolExecutionOptions {
   ensureMcpLoaded?: () => Promise<void>;
   /** Session-scoped todo state used by todo_read/todo_write. */
   todoState?: TodoState;
+  /** Session-scoped file coordination cache for read/write/edit integrity. */
+  fileStateCache?: FileStateCache;
   /** Optional registry-backed tool search callback used by tool_search. */
   searchTools?: (
     query: string,
@@ -156,12 +159,31 @@ export interface FormattedToolResult {
   llmContent?: string;
 }
 
+export type ToolPresentationKind =
+  | "read"
+  | "search"
+  | "web"
+  | "shell"
+  | "edit"
+  | "diff"
+  | "meta";
+
 export interface ToolMetadata {
   fn: ToolFunction;
   description: string;
   args: Record<string, string>;
+  /** Internal execution traits used by the orchestrator. */
+  execution?: {
+    /** Read-only/shared-safe tools may run concurrently within a batch. */
+    concurrencySafe?: boolean;
+  };
+  /** Internal transcript/render hints consumed by the agent + REPL. */
+  presentation?: {
+    kind?: ToolPresentationKind;
+  };
   /** Semantic capabilities this concrete tool can fulfill. */
-  semanticCapabilities?: import("./semantic-capabilities.ts").SemanticCapabilityId[];
+  semanticCapabilities?:
+    import("./semantic-capabilities.ts").SemanticCapabilityId[];
   /** Optional arg alias map applied before coercion/validation. */
   argAliases?: Record<string, string>;
   returns?: Record<string, string>;
@@ -247,7 +269,106 @@ interface ToolArgsPreparationResult {
  * - Shell tools: Shell command execution
  * - Data tools: Generic aggregation/filtering/transformation
  */
-export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
+const CONCURRENCY_SAFE_BUILTIN_TOOLS = new Set<string>([
+  "read_file",
+  "list_files",
+  "open_path",
+  "search_code",
+  "find_symbol",
+  "get_structure",
+  "search_web",
+  "fetch_url",
+  "web_fetch",
+  "memory_search",
+  "recent_activity",
+  "git_status",
+  "git_diff",
+  "git_log",
+  "tool_search",
+  "todo_read",
+  "aggregate_entries",
+  "filter_entries",
+  "transform_entries",
+  "compute",
+  "TaskGet",
+  "TaskList",
+  "TeamStatus",
+]);
+
+const BUILTIN_PRESENTATION_KIND = new Map<string, ToolPresentationKind>([
+  ["read_file", "read"],
+  ["list_files", "read"],
+  ["open_path", "read"],
+  ["get_structure", "read"],
+  ["recent_activity", "read"],
+  ["search_code", "search"],
+  ["find_symbol", "search"],
+  ["search_web", "web"],
+  ["fetch_url", "web"],
+  ["web_fetch", "web"],
+  ["shell_exec", "shell"],
+  ["shell_script", "shell"],
+  ["edit_file", "edit"],
+  ["write_file", "edit"],
+  ["archive_files", "edit"],
+  ["git_diff", "diff"],
+  ["git_status", "meta"],
+  ["git_log", "meta"],
+  ["delegate_agent", "meta"],
+  ["batch_delegate", "meta"],
+  ["tool_search", "meta"],
+  ["todo_read", "meta"],
+  ["todo_write", "meta"],
+]);
+
+function inferToolPresentationKind(
+  name: string,
+  tool: Pick<ToolMetadata, "category" | "presentation">,
+): ToolPresentationKind {
+  const explicit = tool.presentation?.kind;
+  if (explicit) return explicit;
+  const byName = BUILTIN_PRESENTATION_KIND.get(name);
+  if (byName) return byName;
+  switch (tool.category) {
+    case "read":
+      return "read";
+    case "search":
+      return "search";
+    case "web":
+      return "web";
+    case "shell":
+      return "shell";
+    case "write":
+      return "edit";
+    default:
+      return "meta";
+  }
+}
+
+function applyBuiltInMetadataDefaults(
+  tools: Record<string, ToolMetadata>,
+): Record<string, ToolMetadata> {
+  const next: Record<string, ToolMetadata> = {};
+  for (const [name, tool] of Object.entries(tools)) {
+    const concurrencySafe = CONCURRENCY_SAFE_BUILTIN_TOOLS.has(name);
+    next[name] = {
+      ...tool,
+      execution: concurrencySafe
+        ? {
+          ...tool.execution,
+          concurrencySafe: true,
+        }
+        : tool.execution,
+      presentation: {
+        ...tool.presentation,
+        kind: inferToolPresentationKind(name, tool),
+      },
+    };
+  }
+  return next;
+}
+
+const BUILTIN_TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...FILE_TOOLS,
   ...CODE_TOOLS,
   ...SHELL_TOOLS,
@@ -337,6 +458,9 @@ export const TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...ACTIVITY_TOOLS,
   ...AGENT_TEAM_TOOLS,
 } as Record<string, ToolMetadata>;
+
+export const TOOL_REGISTRY: Record<string, ToolMetadata> =
+  applyBuiltInMetadataDefaults(BUILTIN_TOOL_REGISTRY);
 
 /**
  * Dynamic registry for external tools (e.g., MCP)
@@ -495,6 +619,25 @@ export function getTool(name: string, ownerId?: string): ToolMetadata {
   }
 
   return tool;
+}
+
+export function isToolConcurrencySafe(
+  name: string,
+  ownerId?: string,
+): boolean {
+  return getTool(name, ownerId).execution?.concurrencySafe === true;
+}
+
+export function getToolPresentationKind(
+  name: string,
+  ownerId?: string,
+): ToolPresentationKind {
+  try {
+    const tool = getTool(name, ownerId);
+    return inferToolPresentationKind(name, tool);
+  } catch {
+    return BUILTIN_PRESENTATION_KIND.get(name) ?? "meta";
+  }
 }
 
 /**
@@ -786,16 +929,17 @@ export function validateToolArgs(
   ownerId?: string,
 ): ValidationResult {
   const tool = getTool(name, ownerId);
+  const normalizedArgs = normalizeArgsForTool(args, tool);
   if (tool.skipValidation) {
     return { valid: true };
   }
-  if (!isToolArgsObject(args)) {
+  if (!isToolArgsObject(normalizedArgs)) {
     return { valid: false, errors: ["Arguments must be a plain object"] };
   }
 
   const schema = buildToolJsonSchema(tool);
-  const normalizedArgs = normalizeArgsForTool(args, tool);
-  const errors = validateArgsAgainstSchema(normalizedArgs, schema);
+  const coercedArgs = coerceArgsToSchema(normalizedArgs, schema);
+  const errors = validateArgsAgainstSchema(coercedArgs, schema);
 
   return {
     valid: errors.length === 0,
@@ -815,16 +959,17 @@ export function prepareToolArgsForExecution(
   ownerId?: string,
 ): ToolArgsPreparationResult {
   const tool = getTool(name, ownerId);
+  const normalizedArgs = normalizeArgsForTool(args, tool);
   if (tool.skipValidation) {
     return {
-      coercedArgs: args,
+      coercedArgs: normalizedArgs,
       validation: { valid: true },
     };
   }
 
-  if (!isToolArgsObject(args)) {
+  if (!isToolArgsObject(normalizedArgs)) {
     return {
-      coercedArgs: args,
+      coercedArgs: normalizedArgs,
       validation: {
         valid: false,
         errors: ["Arguments must be a plain object"],
@@ -833,7 +978,6 @@ export function prepareToolArgsForExecution(
   }
 
   const schema = buildToolJsonSchema(tool);
-  const normalizedArgs = normalizeArgsForTool(args, tool);
   const coercedArgs = coerceArgsToSchema(normalizedArgs, schema);
   const errors = validateArgsAgainstSchema(coercedArgs, schema);
   return {

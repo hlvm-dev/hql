@@ -13,6 +13,7 @@ import {
   writeFile,
   type WriteFileArgs,
 } from "../../../src/hlvm/agent/tools/file-tools.ts";
+import { FileStateCache } from "../../../src/hlvm/agent/file-state-cache.ts";
 import { getPlatform, setPlatform } from "../../../src/platform/platform.ts";
 import {
   cleanupWorkspaceDir,
@@ -330,5 +331,118 @@ Deno.test("file tools: open_path tolerates Unicode whitespace variants in existi
     } finally {
       setPlatform(originalPlatform);
     }
+  });
+});
+
+Deno.test("file tools: read_file records full-view state when a file cache is supplied", async () => {
+  await withWorkspace(async () => {
+    await writeWorkspaceFile("tracked.ts", "export const tracked = true;\n");
+    const cache = new FileStateCache();
+
+    const result = await readFile(
+      { path: "tracked.ts" } as ReadFileArgs,
+      TEST_WORKSPACE,
+      { fileStateCache: cache },
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(cache.get(`${TEST_WORKSPACE}/tracked.ts`)?.isPartialView, false);
+    assertEquals(
+      cache.requireFullView(`${TEST_WORKSPACE}/tracked.ts`).ok,
+      true,
+    );
+  });
+});
+
+Deno.test("file tools: partial-view cache entries block edit_file until the file is fully re-read", async () => {
+  await withWorkspace(async () => {
+    await writeWorkspaceFile("partial.ts", "const value = 1;\n");
+    const cache = new FileStateCache();
+    cache.trackRead({
+      path: `${TEST_WORKSPACE}/partial.ts`,
+      content: "const value = 1;\n",
+      isPartialView: true,
+    });
+
+    const result = await editFile(
+      {
+        path: "partial.ts",
+        find: "1",
+        replace: "2",
+      } as EditFileArgs,
+      TEST_WORKSPACE,
+      { fileStateCache: cache },
+    );
+
+    assertEquals(result.success, false);
+    assertStringIncludes(result.message || "", "only partially viewed");
+  });
+});
+
+Deno.test("file tools: overwriting a changed file requires a re-read in the same session", async () => {
+  await withWorkspace(async () => {
+    await writeWorkspaceFile("changed.ts", "export const value = 1;\n");
+    const cache = new FileStateCache();
+
+    await readFile(
+      { path: "changed.ts" } as ReadFileArgs,
+      TEST_WORKSPACE,
+      { fileStateCache: cache },
+    );
+    await writeWorkspaceFile("changed.ts", "export const value = 2;\n");
+
+    const result = await writeFile(
+      {
+        path: "changed.ts",
+        content: "export const value = 3;\n",
+      } as WriteFileArgs,
+      TEST_WORKSPACE,
+      { fileStateCache: cache },
+    );
+
+    assertEquals(result.success, false);
+    assertStringIncludes(result.message || "", "Re-read before");
+  });
+});
+
+Deno.test("file tools: successful write and edit invalidate stale cached state", async () => {
+  await withWorkspace(async () => {
+    await writeWorkspaceFile("cached.ts", "const value = 1;\n");
+    const writeCache = new FileStateCache();
+    const editCache = new FileStateCache();
+
+    await readFile(
+      { path: "cached.ts" } as ReadFileArgs,
+      TEST_WORKSPACE,
+      { fileStateCache: writeCache },
+    );
+    const writeResult = await writeFile(
+      {
+        path: "cached.ts",
+        content: "const value = 2;\n",
+      } as WriteFileArgs,
+      TEST_WORKSPACE,
+      { fileStateCache: writeCache },
+    );
+
+    await readFile(
+      { path: "cached.ts" } as ReadFileArgs,
+      TEST_WORKSPACE,
+      { fileStateCache: editCache },
+    );
+    const editResult = await editFile(
+      {
+        path: "cached.ts",
+        find: "2",
+        replace: "3",
+      } as EditFileArgs,
+      TEST_WORKSPACE,
+      { fileStateCache: editCache },
+    );
+
+    assertEquals(writeResult.success, true);
+    assertEquals(editResult.success, true);
+    assertEquals(writeCache.get(`${TEST_WORKSPACE}/cached.ts`), undefined);
+    assertEquals(editCache.get(`${TEST_WORKSPACE}/cached.ts`), undefined);
   });
 });

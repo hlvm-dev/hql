@@ -90,6 +90,7 @@ function statToFileInfo(stat: fs.Stats): PlatformFileInfo {
     isSymlink: stat.isSymbolicLink(),
     size: stat.size,
     mtimeMs: stat.mtimeMs,
+    mode: stat.mode,
   };
 }
 
@@ -295,6 +296,9 @@ const NodeFs: PlatformFs = {
     fsp.copyFile(src, dest),
   rename: (oldPath: string, newPath: string): Promise<void> =>
     fsp.rename(oldPath, newPath),
+  renameSync: (oldPath: string, newPath: string): void => {
+    fs.renameSync(oldPath, newPath);
+  },
   chmod: (path: string, mode: number): Promise<void> => fsp.chmod(path, mode),
   chmodSync: (path: string, mode: number): void => fs.chmodSync(path, mode),
 
@@ -387,6 +391,7 @@ const NodeEnv: PlatformEnv = {
 
 const NodeProcess: PlatformProcess = {
   cwd: (): string => nodeProcess.cwd(),
+  pid: (): number => nodeProcess.pid,
   execPath: (): string => nodeProcess.execPath,
   args: (): string[] => nodeProcess.argv.slice(2),
   exit: (code: number): never => nodeProcess.exit(code),

@@ -13,7 +13,7 @@
  */
 
 import { ValidationError } from "../../../common/error.ts";
-import { atomicWriteTextFile } from "../../../common/jsonl.ts";
+import { atomicWriteTextFile } from "../../../common/atomic-file.ts";
 import { getMcpOAuthPath } from "../../../common/paths.ts";
 import { http } from "../../../common/http-client.ts";
 import { normalizeServerName } from "./config.ts";
@@ -43,7 +43,7 @@ import type {
 
 const MCP_OAUTH_STORE_VERSION = 1;
 const MCP_OAUTH_REDIRECT_URI = "http://127.0.0.1:35017/hlvm/oauth/callback";
-const ACCESS_TOKEN_SKEW_MS = 60_000;
+const ACCESS_TOKEN_SKEW_MS = 300_000;
 const OAUTH_CALLBACK_WAIT_TIMEOUT_MS = 120_000;
 
 /**

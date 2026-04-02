@@ -10,13 +10,127 @@ import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { ToolCallItem } from "./ToolCallItem.tsx";
 import type { ToolCallDisplay } from "../../types.ts";
-import { resolveCollapsedToolList } from "./layout.ts";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 
 interface ToolGroupProps {
   tools: ToolCallDisplay[];
   width: number;
   isToolExpanded?: (toolId: string) => boolean;
+}
+
+type CollapsedToolEntry =
+  | { kind: "tool"; tool: ToolCallDisplay }
+  | { kind: "summary"; key: string; text: string };
+
+function isCollapsibleSemanticKind(
+  kind: string | undefined,
+): kind is "read" | "search" | "web" {
+  return kind === "read" || kind === "search" || kind === "web";
+}
+
+function isSemanticCollapseCandidate(tool: ToolCallDisplay): boolean {
+  return tool.status === "success" &&
+    isCollapsibleSemanticKind(tool.resultMeta?.presentation?.kind);
+}
+
+function extractSummaryCount(tool: ToolCallDisplay): number | undefined {
+  const summary = tool.resultSummaryText ?? tool.resultText ?? "";
+  const match = /(\d+)\s+(match|result|symbol|entry|item)/i.exec(summary);
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function summarizeCollapsedTools(tools: ToolCallDisplay[]): string {
+  const firstKind = tools[0]?.resultMeta?.presentation?.kind;
+  const distinctTargets = new Set(
+    tools.map((tool) => tool.argsSummary.trim() || tool.name).filter(Boolean),
+  ).size;
+  const count = tools.length;
+  const activityLabel = firstKind === "read"
+    ? `file read${count === 1 ? "" : "s"}`
+    : firstKind === "search"
+    ? `search${count === 1 ? "" : "es"}`
+    : `web lookup${count === 1 ? "" : "s"}`;
+  const parts = [`... ${count} ${activityLabel}`];
+
+  if (distinctTargets > 0) {
+    const targetNoun = firstKind === "read"
+      ? "file"
+      : firstKind === "web"
+      ? "query"
+      : "target";
+    const suffix = distinctTargets === 1
+      ? targetNoun
+      : targetNoun === "query"
+      ? "queries"
+      : `${targetNoun}s`;
+    parts.push(`${distinctTargets} ${suffix}`);
+  }
+
+  if (firstKind === "web") {
+    const totalResults = tools.reduce((sum, tool) =>
+      sum +
+        (tool.resultMeta?.webSearch?.sourceGuard?.resultCount ??
+          extractSummaryCount(tool) ?? 0)
+    , 0);
+    if (totalResults > 0) {
+      parts.push(`${totalResults} results`);
+    }
+  } else if (firstKind === "search") {
+    const totalMatches = tools.reduce((sum, tool) =>
+      sum + (extractSummaryCount(tool) ?? 0)
+    , 0);
+    if (totalMatches > 0) {
+      parts.push(`${totalMatches} matches`);
+    }
+  }
+
+  return parts.join(" · ");
+}
+
+function buildCollapsedEntries(
+  tools: ToolCallDisplay[],
+): CollapsedToolEntry[] {
+  const items: CollapsedToolEntry[] = [];
+  let index = 0;
+
+  while (index < tools.length) {
+    const tool = tools[index];
+    if (!isSemanticCollapseCandidate(tool)) {
+      items.push({ kind: "tool", tool });
+      index += 1;
+      continue;
+    }
+
+    let runEnd = index + 1;
+    const runKind = tool.resultMeta?.presentation?.kind;
+    while (
+      runEnd < tools.length &&
+      isSemanticCollapseCandidate(tools[runEnd]) &&
+      tools[runEnd]?.resultMeta?.presentation?.kind === runKind
+    ) {
+      runEnd += 1;
+    }
+
+    const run = tools.slice(index, runEnd);
+    if (run.length === 1) {
+      items.push({ kind: "tool", tool });
+      index = runEnd;
+      continue;
+    }
+
+    const hiddenTools = run.slice(0, -1);
+    items.push({
+      kind: "summary",
+      key: `collapsed-${hiddenTools[0]?.id ?? index}`,
+      text: summarizeCollapsedTools(hiddenTools),
+    });
+    items.push({ kind: "tool", tool: run[run.length - 1] });
+    index = runEnd;
+  }
+
+  return items;
 }
 
 export const ToolGroup = React.memo(function ToolGroup({
@@ -31,11 +145,7 @@ export const ToolGroup = React.memo(function ToolGroup({
 
   const toolElements = useMemo(() => {
     const anyExpanded = tools.some((t) => isToolExpanded?.(t.id));
-    const collapsed = anyExpanded
-      ? null
-      : resolveCollapsedToolList(tools);
-
-    if (!collapsed) {
+    if (anyExpanded) {
       return tools.map((tool) => (
         <Box key={tool.id}>
           <ToolCallItem
@@ -48,35 +158,24 @@ export const ToolGroup = React.memo(function ToolGroup({
       ));
     }
 
-    const visibleSet = new Set(collapsed.visibleTools);
-    const items: React.ReactElement[] = [];
-    let collapseSummaryInserted = false;
-
-    for (let i = 0; i < tools.length; i++) {
-      if (visibleSet.has(i)) {
-        items.push(
-          <Box key={tools[i].id}>
+    return buildCollapsedEntries(tools).map((entry) =>
+      entry.kind === "tool"
+        ? (
+          <Box key={entry.tool.id}>
             <ToolCallItem
-              tool={tools[i]}
+              tool={entry.tool}
               width={innerWidth}
               expanded={false}
-              animateStatusIcon={tools[i].id === activeRunningToolId}
+              animateStatusIcon={entry.tool.id === activeRunningToolId}
             />
-          </Box>,
-        );
-      } else if (!collapseSummaryInserted) {
-        collapseSummaryInserted = true;
-        items.push(
-          <Box key="__collapsed__" marginLeft={2}>
-            <Text color={sc.text.muted}>
-              … {collapsed.hiddenCount} more tool
-              {collapsed.hiddenCount === 1 ? "" : "s"}
-            </Text>
-          </Box>,
-        );
-      }
-    }
-    return items;
+          </Box>
+        )
+        : (
+          <Box key={entry.key} marginLeft={2}>
+            <Text color={sc.text.muted}>{entry.text}</Text>
+          </Box>
+        )
+    );
   }, [tools, isToolExpanded, activeRunningToolId, sc, innerWidth]);
 
   return (

@@ -131,3 +131,88 @@ Deno.test("deriveTeamDashboardState keeps teammate activity history from worker 
   assertEquals(worker?.threadId, "thread-1");
   assertEquals(state.memberActivity["worker-1"]?.[0]?.summary, "Tool TaskList: listed tasks");
 });
+
+Deno.test("deriveTeamDashboardState keeps only the latest 6 activity items per member", () => {
+  const items: ConversationItem[] = Array.from({ length: 7 }, (_, index) => ({
+    type: "info",
+    id: `activity-${index + 1}`,
+    teamEventType: "team_member_activity",
+    text: `activity ${index + 1}`,
+    memberId: "worker-1",
+    memberLabel: "worker-1",
+    threadId: "thread-1",
+    activityKind: "tool_end",
+    status: "success",
+    summary: `activity ${index + 1}`,
+    ts: index + 1,
+  }));
+
+  const state = deriveTeamDashboardState(items);
+
+  assertEquals(state.memberActivity["worker-1"]?.length, 6);
+  assertEquals(
+    state.memberActivity["worker-1"]?.map((entry) => entry.summary),
+    [
+      "activity 7",
+      "activity 6",
+      "activity 5",
+      "activity 4",
+      "activity 3",
+      "activity 2",
+    ],
+  );
+});
+
+Deno.test("deriveTeamDashboardState keeps approval and shutdown attention visible for the rail", () => {
+  const items: ConversationItem[] = [{
+    type: "info",
+    id: "snapshot-1",
+    teamEventType: "team_runtime_snapshot",
+    text: "Restored team state",
+    ts: 1,
+    snapshot: {
+      teamId: "team-1",
+      leadMemberId: "lead",
+      policy: createDefaultTeamPolicy(),
+      members: [{
+        id: "lead",
+        agent: "general",
+        role: "lead",
+        status: "active",
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+      tasks: [],
+      messages: [],
+      approvals: [{
+        id: "approval-1",
+        taskId: "task-1",
+        submittedByMemberId: "worker-1",
+        status: "pending",
+        plan: {
+          goal: "Review patch",
+          steps: [{ id: "step-1", title: "Inspect changes" }],
+        },
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+      shutdowns: [{
+        id: "shutdown-1",
+        memberId: "worker-1",
+        requestedByMemberId: "lead",
+        status: "requested",
+        createdAt: 2,
+        updatedAt: 2,
+      }],
+    },
+  }];
+
+  const state = deriveTeamDashboardState(items);
+
+  assertEquals(state.pendingApprovals.length, 1);
+  assertEquals(state.shutdowns[0]?.status, "requested");
+  assertEquals(
+    state.attentionItems.some((item) => item.kind === "shutdown_requested"),
+    true,
+  );
+});

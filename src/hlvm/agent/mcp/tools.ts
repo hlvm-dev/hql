@@ -15,6 +15,7 @@ import {
   registerTools,
   type ToolExecutionOptions,
   type ToolMetadata,
+  type ToolPresentationKind,
   unregisterTool,
 } from "../registry.ts";
 import {
@@ -72,6 +73,13 @@ function inferMcpSafetyReason(level: "L0" | "L1" | "L2"): string {
 
 const MCP_L0_SAFETY = inferMcpSafetyReason("L0");
 const MCP_CONNECT_WARNING_MAX_CHARS = 240;
+const MCP_SIMPLE_SCHEMA_TYPES = new Set([
+  "string",
+  "number",
+  "boolean",
+  "integer",
+  "null",
+]);
 
 // Process-lifetime de-duplication for noisy startup/connect warnings.
 const seenMcpConnectWarnings = new Set<string>();
@@ -101,7 +109,13 @@ function buildArgsSchema(
         : "any (optional) - MCP tool argument";
       continue;
     }
-    const type = typeof value.type === "string" ? value.type : "any";
+    const type = typeof value.type === "string"
+      ? value.type === "array" &&
+          isObjectValue(value.items) &&
+          typeof value.items.type === "string"
+        ? `${value.items.type}[]`
+        : value.type
+      : "any";
     const description = typeof value.description === "string"
       ? value.description
       : "MCP tool argument";
@@ -110,6 +124,82 @@ function buildArgsSchema(
       : `${type} (optional) - ${description}`;
   }
   return args;
+}
+
+function isRepresentableMcpPropertySchema(
+  value: Record<string, unknown>,
+): boolean {
+  if (
+    "oneOf" in value || "anyOf" in value || "allOf" in value ||
+    "patternProperties" in value || "not" in value
+  ) {
+    return false;
+  }
+  const type = typeof value.type === "string" ? value.type : undefined;
+  if (!type) return false;
+  if (MCP_SIMPLE_SCHEMA_TYPES.has(type)) {
+    return true;
+  }
+  if (type === "array") {
+    if (!value.items) return true;
+    if (!isObjectValue(value.items)) return false;
+    const itemType = typeof value.items.type === "string"
+      ? value.items.type
+      : undefined;
+    return Boolean(itemType && MCP_SIMPLE_SCHEMA_TYPES.has(itemType));
+  }
+  if (type === "object") {
+    return !("properties" in value) && !("additionalProperties" in value);
+  }
+  return false;
+}
+
+function supportsStrictMcpValidation(schema?: Record<string, unknown>): boolean {
+  if (!schema || !isObjectValue(schema)) return false;
+  if (
+    schema.type !== "object" ||
+    "oneOf" in schema ||
+    "anyOf" in schema ||
+    "allOf" in schema ||
+    "patternProperties" in schema ||
+    "not" in schema ||
+    schema.additionalProperties === true
+  ) {
+    return false;
+  }
+  const properties = isObjectValue(schema.properties)
+    ? schema.properties as Record<string, unknown>
+    : null;
+  if (!properties) return false;
+  return Object.values(properties).every((value) =>
+    isObjectValue(value) && isRepresentableMcpPropertySchema(value)
+  );
+}
+
+function inferMcpPresentationKind(
+  toolName: string,
+  description?: string,
+): ToolPresentationKind {
+  const text = `${toolName} ${description ?? ""}`
+    .toLowerCase()
+    .replace(/[_/.-]+/g, " ");
+  if (/\b(diff|patch)\b/.test(text)) return "diff";
+  if (/\b(edit|write|create|update|delete|remove|modify|click|type|press|submit)\b/.test(text)) {
+    return "edit";
+  }
+  if (/\b(shell|terminal|command|exec|run)\b/.test(text)) {
+    return "shell";
+  }
+  if (/\b(web|browser|url|page|render|screenshot|navigate)\b/.test(text)) {
+    return "web";
+  }
+  if (/\b(search|find|query|grep|lookup)\b/.test(text)) {
+    return "search";
+  }
+  if (/\b(read|list|get|fetch|inspect|describe|status)\b/.test(text)) {
+    return "read";
+  }
+  return "meta";
 }
 
 /** Format prompt messages into a readable string for tool results */
@@ -160,9 +250,14 @@ function buildToolEntry(
   tool: McpToolInfo,
 ): ToolMetadata {
   const argsSchema = buildArgsSchema(tool.inputSchema);
-  const skipValidation = Object.keys(argsSchema).length === 0;
+  const skipValidation = Object.keys(argsSchema).length === 0 ||
+    !supportsStrictMcpValidation(tool.inputSchema);
   const safetyLevel = inferMcpSafetyLevel(tool.name, tool.description);
   const semanticCapabilities = resolveMcpSemanticCapabilities(tool);
+  const presentationKind = inferMcpPresentationKind(
+    tool.name,
+    tool.description,
+  );
 
   return {
     fn: async (
@@ -182,6 +277,8 @@ function buildToolEntry(
     description: tool.description ?? `MCP tool ${tool.name}`,
     args: argsSchema,
     skipValidation,
+    execution: safetyLevel === "L0" ? { concurrencySafe: true } : undefined,
+    presentation: { kind: presentationKind },
     safetyLevel,
     safety: inferMcpSafetyReason(safetyLevel),
     semanticCapabilities,
@@ -207,35 +304,41 @@ function registerNotificationHandlers(
   currentToolNames: Set<string>,
   disabledSet: Set<string> | null,
 ): void {
+  const refreshRegisteredTools = async (): Promise<void> => {
+    try {
+      const allTools = await client.listTools();
+      const newTools = disabledSet
+        ? allTools.filter((t) => !disabledSet.has(t.name))
+        : allTools;
+      const entries: Record<string, ToolMetadata> = {};
+      const newNames = new Set<string>();
+      for (const tool of newTools) {
+        const name = sanitizeToolName(`mcp_${server.name}_${tool.name}`);
+        entries[name] = buildToolEntry(client, tool);
+        newNames.add(name);
+      }
+      for (const old of currentToolNames) {
+        if (!newNames.has(old)) {
+          unregisterTool(old, registrationOwnerId);
+        }
+      }
+      registerTools(entries, registrationOwnerId);
+      currentToolNames.clear();
+      for (const n of newNames) currentToolNames.add(n);
+    } catch {
+      // Best-effort refresh.
+    }
+  };
+
+  client.onReconnect(() => {
+    void refreshRegisteredTools();
+  });
+
   // tools/list_changed → re-list tools, unregister removed ones
   client.onNotification(
     "notifications/tools/list_changed",
-    async () => {
-      try {
-        const allTools = await client.listTools();
-        const newTools = disabledSet
-          ? allTools.filter((t) => !disabledSet.has(t.name))
-          : allTools;
-        const entries: Record<string, ToolMetadata> = {};
-        const newNames = new Set<string>();
-        for (const tool of newTools) {
-          const name = sanitizeToolName(`mcp_${server.name}_${tool.name}`);
-          entries[name] = buildToolEntry(client, tool);
-          newNames.add(name);
-        }
-        // Unregister tools that were removed from the server
-        for (const old of currentToolNames) {
-          if (!newNames.has(old)) {
-            unregisterTool(old, registrationOwnerId);
-          }
-        }
-        registerTools(entries, registrationOwnerId);
-        // Update tracked names
-        currentToolNames.clear();
-        for (const n of newNames) currentToolNames.add(n);
-      } catch {
-        // Best-effort re-list
-      }
+    () => {
+      void refreshRegisteredTools();
     },
   );
 
@@ -351,6 +454,7 @@ async function connectWithTimeout(
 interface ServerRegistration {
   client: SdkMcpClient;
   names: string[];
+  dynamicToolNames: Set<string>;
   connected: McpConnectedServer;
 }
 
@@ -510,6 +614,7 @@ async function connectAndRegisterServer(
     return {
       client,
       names,
+      dynamicToolNames: serverToolNames,
       connected: { name: server.name, toolCount: names.length },
     };
   } catch (error) {
@@ -548,6 +653,7 @@ export async function loadMcpTools(
 
   const clients: SdkMcpClient[] = [];
   const registered: string[] = [];
+  const dynamicToolSets: Set<string>[] = [];
   const connectedServers: McpConnectedServer[] = [];
 
   // Connect servers with bounded concurrency and per-server timeout
@@ -560,6 +666,7 @@ export async function loadMcpTools(
     if (result) {
       clients.push(result.client);
       registered.push(...result.names);
+      dynamicToolSets.push(result.dynamicToolNames);
       connectedServers.push(result.connected);
     }
   }
@@ -612,6 +719,9 @@ export async function loadMcpTools(
     connectedServers,
     dispose: async () => {
       for (const name of registered) unregisterTool(name, registrationOwnerId);
+      for (const names of dynamicToolSets) {
+        for (const name of names) unregisterTool(name, registrationOwnerId);
+      }
       for (const client of clients) await client.close();
     },
     setHandlers,

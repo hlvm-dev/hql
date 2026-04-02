@@ -321,6 +321,10 @@ function buildTranscriptItemLines(
       return lines;
     }
   }
+  return [{
+    text: firstNonEmptyLine("Unsupported transcript item"),
+    color: colors.meta,
+  }];
 }
 
 function buildTranscriptOverlayLines(

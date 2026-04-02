@@ -14,11 +14,15 @@ import type { RuntimeMode } from "../agent/runtime-mode.ts";
 /** Prompt assembly mode — determines which sections are included. */
 export type PromptMode = "chat" | "agent";
 
+/** Prompt section stability — determines cache invalidation boundaries. */
+export type PromptSectionStability = "static" | "session" | "turn";
+
 /** A single prompt section with tier gating. */
 export interface PromptSection {
   id: string;
   content: string;
   minTier: ModelTier;
+  stability: PromptSectionStability;
 }
 
 /** Instruction file hierarchy — global + optional project-level. */
@@ -62,6 +66,19 @@ export interface PromptCompilerInput {
 export interface SectionManifestEntry {
   id: string;
   charCount: number;
+  stability: PromptSectionStability;
+  contentHash: string;
+  cacheEligible: boolean;
+}
+
+/** Cache-aware contiguous prompt segment built from filtered sections. */
+export interface PromptCacheSegment {
+  id: string;
+  stability: PromptSectionStability;
+  sectionIds: string[];
+  charCount: number;
+  contentHash: string;
+  text: string;
 }
 
 /** Instruction source metadata for observability. */
@@ -77,6 +94,7 @@ export interface CompiledPrompt {
   mode: PromptMode;
   tier: ModelTier;
   sections: SectionManifestEntry[];
+  cacheSegments: PromptCacheSegment[];
   instructionSources: InstructionSource[];
   signatureHash: string;
 }

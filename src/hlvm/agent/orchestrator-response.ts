@@ -4,10 +4,15 @@
  */
 
 import { ContextOverflowError, type Message } from "./context.ts";
-import { DEFAULT_MAX_TOOL_CALLS, TOOL_RESULT_LIMITS } from "./constants.ts";
+import {
+  DEFAULT_MAX_TOOL_CALLS,
+  RESOURCE_LIMITS,
+  TOOL_RESULT_LIMITS,
+} from "./constants.ts";
 import { SlidingWindowRateLimiter } from "../../common/rate-limiter.ts";
 import {
   areListsEqual,
+  generateUUID,
   getErrorMessage,
   isObjectValue,
   TEXT_ENCODER,
@@ -62,12 +67,14 @@ import {
   buildToolObservation,
   buildToolRequiredMessage,
   buildToolSignature,
+  generateArgsSummary,
   stringifyToolResult,
 } from "./orchestrator-tool-formatting.ts";
 import { executeToolCalls } from "./orchestrator-tool-execution.ts";
 import { callLLMWithRetry, type LLMFunction } from "./orchestrator-llm.ts";
 import type { ToolUse } from "./grounding.ts";
 import { isWebCapabilityToolName } from "./tool-capabilities.ts";
+import { isMutatingTool } from "./security/safety.ts";
 
 /** DRY: Append citation sources to the passage index with bounded size. */
 function mergePassageIndex(
@@ -149,6 +156,66 @@ export function addContextMessage(
   }
 }
 
+function canDegradeObservationToSummary(
+  toolCall: ToolCall,
+  toolResult: ToolExecutionResult,
+  ownerId?: string,
+): boolean {
+  if (!toolResult.success) return false;
+  if (
+    isMutatingTool(
+      toolCall.toolName,
+      ownerId,
+      isObjectValue(toolCall.args) ? toolCall.args : undefined,
+    )
+  ) {
+    return false;
+  }
+  return toolResult.presentationKind !== "edit";
+}
+
+function resolveContextObservation(
+  toolCall: ToolCall,
+  toolResult: ToolExecutionResult,
+  remainingObservationBytes: number,
+  ownerId?: string,
+): {
+  observation: string;
+  resultText: string;
+  toolName: string;
+  observationBytes: number;
+  observationMode: "full" | "summary";
+} {
+  const fullObservation = toolResult.llmContent ??
+    stringifyToolResult(toolResult.result);
+  const summaryObservation = toolResult.summaryDisplay ?? fullObservation;
+  const fullBytes = TEXT_ENCODER.encode(fullObservation).length;
+  const summaryBytes = TEXT_ENCODER.encode(summaryObservation).length;
+  const shouldUseSummary = canDegradeObservationToSummary(
+      toolCall,
+      toolResult,
+      ownerId,
+    ) &&
+    (
+      remainingObservationBytes <= 0 ||
+      (fullBytes > remainingObservationBytes && summaryBytes < fullBytes)
+    );
+  const built = buildToolObservation(
+    toolCall,
+    toolResult,
+    shouldUseSummary ? summaryObservation : fullObservation,
+  );
+  const observationBytes = TEXT_ENCODER.encode(built.observation).length;
+  return {
+    observation: built.observation,
+    resultText: built.resultText,
+    toolName: built.toolName,
+    observationBytes,
+    observationMode:
+      shouldUseSummary && built.usedRequestedObservation ? "summary" : "full",
+  };
+}
+
 /**
  * Process agent response and execute tool calls
  */
@@ -214,10 +281,12 @@ export async function processAgentResponse(
   if (completeTaskPreemptIndex >= 0) {
     limitedCalls = [limitedCalls[completeTaskPreemptIndex]];
   }
+  const roundId = `round:${generateUUID()}`;
 
   addContextMessage(config, {
     role: "assistant",
     content: content || "",
+    roundId,
     toolCalls: limitedCalls.map((tc) => ({
       id: tc.id,
       function: { name: tc.toolName, arguments: tc.args },
@@ -229,25 +298,53 @@ export async function processAgentResponse(
 
   const toolUses: ToolUse[] = [];
   let toolBytes = 0;
+  let remainingObservationBytes = RESOURCE_LIMITS.maxToolObservationBytesPerTurn;
   for (let i = 0; i < results.length; i++) {
     const call = limitedCalls[i];
     const result = results[i];
-    const { observation, resultText, toolName } = buildToolObservation(
+    const {
+      observation,
+      resultText,
+      toolName,
+      observationBytes,
+      observationMode,
+    } = resolveContextObservation(
       call,
       result,
+      remainingObservationBytes,
+      config.toolOwnerId,
     );
 
     addContextMessage(config, {
       role: "tool",
       content: observation,
+      roundId,
       toolName,
       toolCallId: call.id,
+    });
+    remainingObservationBytes -= observationBytes;
+    await config.hookRuntime?.dispatch("post_tool", {
+      workspace: config.workspace,
+      sessionId: config.sessionId,
+      turnId: config.turnId,
+      modelId: config.modelId,
+      toolName: call.toolName,
+      toolCallId: call.id,
+      success: result.success,
+      summary: result.summaryDisplay,
+      content: result.returnDisplay,
+      llmObservation: observation,
+      observationMode,
+      presentationKind: result.presentationKind,
+      truncatedForLlm: result.truncatedForLlm === true,
+      truncatedForTranscript: result.truncatedForTranscript === true,
+      argsSummary: generateArgsSummary(call.toolName, call.args),
     });
     toolUses.push({
       toolName: call.toolName,
       result: resultText ?? "",
     });
-    toolBytes += TEXT_ENCODER.encode(resultText ?? "").length;
+    toolBytes += observationBytes;
   }
 
   let finalResponse: string | undefined;

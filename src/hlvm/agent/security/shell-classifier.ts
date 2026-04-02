@@ -18,9 +18,62 @@ export interface ShellCommandClassification {
 }
 
 const SHELL_METACHAR = /[;|&`<>]|\$\(/;
+const ANALYSIS_WHITESPACE = /[\u00a0\u1680\u180e\u2000-\u200b\u2028\u2029\u202f\u205f\u3000\ufeff]/g;
+const CONTROL_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+
+function normalizeCommandForClassification(command: string): string {
+  return command
+    .replace(/\r\n?/g, "\n")
+    .replace(ANALYSIS_WHITESPACE, " ")
+    .replace(CONTROL_CHARS, "")
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/ *\n+ */g, "\n")
+    .trim();
+}
+
+function detectEscalatingShellConstruct(normalized: string): string | null {
+  if (!normalized) return null;
+
+  if (/(^|\s)(IFS|BASH_ENV|ENV|SHELLOPTS|PROMPT_COMMAND|CDPATH)=/i.test(normalized)) {
+    return "Shell parser environment mutation detected";
+  }
+  if (/`[^`]*`|\$\(|<\(|>\(/.test(normalized)) {
+    return "Shell command/process substitution detected";
+  }
+  if (
+    /\b(?:env\s+(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)*)?(?:sh|bash|zsh)\s+-c\b/i
+      .test(normalized)
+  ) {
+    return "Shell trampoline detected";
+  }
+  if (normalized.includes("\n") || /<<<?|<<-/.test(normalized)) {
+    return "Multiline shell script or heredoc detected";
+  }
+  if (
+    /\bfind\b[\s\S]*\s-(?:exec|execdir|ok|okdir)\b|\bxargs\b|\bparallel\b/i
+      .test(normalized)
+  ) {
+    return "Executor indirection detected";
+  }
+  if (/\b(?:curl|wget)\b[\s\S]*\|\s*(?:sh|bash|zsh)\b/i.test(normalized)) {
+    return "Remote install/exec pipeline detected";
+  }
+  if (/\bssh\b[\s\S]*['"][^'"]*['"]/.test(normalized)) {
+    return "Remote shell execution detected";
+  }
+  return null;
+}
 
 export function classifyShellCommand(command: string): ShellCommandClassification {
-  const trimmed = command.trim();
+  const trimmed = normalizeCommandForClassification(command);
+
+  const escalatingReason = detectEscalatingShellConstruct(trimmed);
+  if (escalatingReason) {
+    return {
+      level: "L2",
+      reason: `${escalatingReason}: ${trimmed}`,
+    };
+  }
 
   // Shell metacharacters bypass allowlist — always require confirmation
   if (SHELL_METACHAR.test(trimmed)) {
@@ -135,13 +188,20 @@ function classifyBaseCommand(command: string): ShellCommandClassification {
 
 /** Classify a command that may contain pipes, analyzing each segment */
 export function classifyShellPipeline(command: string): ShellCommandClassification {
-  const trimmed = command.trim();
+  const trimmed = normalizeCommandForClassification(command);
+  const escalatingReason = detectEscalatingShellConstruct(trimmed);
+  if (escalatingReason) {
+    return {
+      level: "L2",
+      reason: `${escalatingReason}: ${trimmed}`,
+    };
+  }
   // No metacharacters → fast path via existing classifier
   if (!SHELL_METACHAR.test(trimmed)) {
     return classifyShellCommand(trimmed);
   }
-  // Chaining (;, &&, ||) or subshells ($()) → L2 (too complex to analyze)
-  if (/[;&]|`|\$\(/.test(trimmed)) {
+  // Chaining (;, &&, ||) remains too complex to analyze safely.
+  if (/[;&]/.test(trimmed)) {
     return { level: "L2", reason: "Shell chaining/subshells detected" };
   }
   // Pipeline: split by pipe, classify each segment

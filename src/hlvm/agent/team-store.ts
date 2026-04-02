@@ -13,6 +13,10 @@
 
 import { getPlatform } from "../../platform/platform.ts";
 import {
+  atomicWriteTextFile,
+  atomicWriteTextFileSync,
+} from "../../common/atomic-file.ts";
+import {
   ensureTeamDirs,
   getTeamConfigPath,
   getTeamDir,
@@ -115,11 +119,11 @@ function readJsonSync<T>(filePath: string): T | null {
 }
 
 async function writeJson(filePath: string, data: unknown): Promise<void> {
-  await fs().writeTextFile(filePath, JSON.stringify(data, null, 2) + "\n");
+  await atomicWriteTextFile(filePath, JSON.stringify(data, null, 2) + "\n");
 }
 
 function writeJsonSync(filePath: string, data: unknown): void {
-  fs().writeTextFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
+  atomicWriteTextFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
 }
 
 // ── Task ID counter (file-backed highwatermark) ──────────────────────
@@ -159,7 +163,7 @@ class TaskIdCounter {
 
   private _persist(): void {
     try {
-      fs().writeTextFileSync(
+      atomicWriteTextFileSync(
         getTeamHighwatermarkPath(this._teamName),
         String(this._value),
       );
@@ -190,6 +194,7 @@ export interface TeamStore {
 
   // Tasks (Claude Code API: TaskCreate/Get/Update/List)
   createTask(input: {
+    id?: string;
     subject: string;
     description: string;
     activeForm?: string;
@@ -362,7 +367,9 @@ export async function createTeamStore(
     },
 
     async createTask(input): Promise<TaskFile> {
-      const id = taskIdCounter.next();
+      const id = typeof input.id === "string" && input.id.trim().length > 0
+        ? input.id.trim()
+        : taskIdCounter.next();
       const now = Date.now();
       const task: TaskFile = {
         id,

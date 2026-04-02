@@ -361,8 +361,8 @@ export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboa
     if (!memberId) return;
     if (!memberActivity[memberId]) memberActivity[memberId] = [];
     memberActivity[memberId]!.unshift(entry);
-    if (memberActivity[memberId]!.length > 8) {
-      memberActivity[memberId] = memberActivity[memberId]!.slice(0, 8);
+    if (memberActivity[memberId]!.length > 6) {
+      memberActivity[memberId] = memberActivity[memberId]!.slice(0, 6);
     }
   };
 

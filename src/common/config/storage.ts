@@ -21,7 +21,13 @@ import {
 import { getConfigPath, getHlvmDir } from "../paths.ts";
 import { getLegacyConfigPath } from "../legacy-migration.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import { atomicWriteTextFile } from "../atomic-file.ts";
 import { isFileNotFoundError } from "../utils.ts";
+import {
+  CURRENT_CONFIG_VERSION,
+  migrateConfig,
+  stampCurrentConfigVersion,
+} from "./migrations.ts";
 
 // SSOT: Use platform layer for all file/path operations
 const fs = () => getPlatform().fs;
@@ -282,7 +288,10 @@ function mergeConfigs(
   current: Partial<HlvmConfig> | null,
   legacy: Partial<HlvmConfig> | null,
 ): { config: HlvmConfig; usedLegacy: boolean } {
-  const merged: HlvmConfig = { ...DEFAULT_CONFIG };
+  const merged: HlvmConfig = {
+    ...DEFAULT_CONFIG,
+    version: CURRENT_CONFIG_VERSION,
+  };
   const mergedByKey = merged as Record<ConfigKey, HlvmConfig[ConfigKey]>;
   let usedLegacy = false;
 
@@ -307,12 +316,7 @@ function mergeConfigs(
     }
   }
 
-  if (current?.version !== undefined) {
-    merged.version = current.version;
-  } else if (legacy?.version !== undefined) {
-    merged.version = legacy.version;
-    usedLegacy = true;
-  }
+  merged.version = CURRENT_CONFIG_VERSION;
 
   const currentKeybindings = current?.keybindings;
   const legacyKeybindings = legacy?.keybindings;
@@ -326,6 +330,22 @@ function mergeConfigs(
   }
 
   return { config: merged, usedLegacy };
+}
+
+function mergeUnknownConfigFields(
+  config: HlvmConfig,
+  raw: Record<string, unknown> | null,
+): HlvmConfig {
+  if (!raw) return config;
+  const knownKeys = new Set<string>(["version", ...CONFIG_KEYS]);
+  const extras = Object.fromEntries(
+    Object.entries(raw).filter(([key]) => !knownKeys.has(key)),
+  );
+  return {
+    ...extras,
+    ...config,
+    version: CURRENT_CONFIG_VERSION,
+  } as HlvmConfig;
 }
 
 /**
@@ -349,16 +369,29 @@ export async function loadConfig(): Promise<HlvmConfig> {
     log.warn("Warning: legacy config.json is corrupted, ignoring");
   }
 
-  const currentConfig = normalizeConfigInput(currentResult.data);
+  const migratedCurrent = migrateConfig(currentResult.data);
+  const migratedLegacy = migrateConfig(legacyResult.data);
+
+  const currentConfig = normalizeConfigInput(migratedCurrent.config);
   const legacyConfig = canUseLegacy
-    ? normalizeConfigInput(legacyResult.data)
+    ? normalizeConfigInput(migratedLegacy.config)
     : null;
 
-  const { config, usedLegacy } = mergeConfigs(currentConfig, legacyConfig);
+  const { config: mergedConfig, usedLegacy } = mergeConfigs(
+    currentConfig,
+    legacyConfig,
+  );
+  const config = mergeUnknownConfigFields(
+    mergedConfig,
+    migratedCurrent.config ?? (canUseLegacy ? migratedLegacy.config : null),
+  );
 
   const shouldPersistLegacy = usedLegacy && canUseLegacy &&
     isDefaultLikeConfig(currentConfig);
-  if (shouldPersistLegacy) {
+  const shouldPersistMigratedCurrent = migratedCurrent.migrated &&
+    currentResult.exists &&
+    !currentResult.error;
+  if (shouldPersistLegacy || shouldPersistMigratedCurrent) {
     try {
       await saveConfig(config);
     } catch (error) {
@@ -377,18 +410,11 @@ export async function loadConfig(): Promise<HlvmConfig> {
  * Save config to disk using atomic write (temp file + rename)
  */
 export async function saveConfig(config: HlvmConfig): Promise<void> {
-  const dir = getHlvmDir();
   const path = getConfigPath();
-  const tempPath = `${path}.tmp`;
-
-  await fs().ensureDir(dir);
-
-  // Write to temp file first
-  const content = JSON.stringify(config, null, 2) + "\n";
-  await fs().writeTextFile(tempPath, content);
-
-  // Atomic rename
-  await fs().rename(tempPath, path);
+  await fs().ensureDir(getHlvmDir());
+  const content = JSON.stringify(stampCurrentConfigVersion(config), null, 2) +
+    "\n";
+  await atomicWriteTextFile(path, content);
 }
 
 // ============================================================
@@ -413,7 +439,7 @@ export function isConfigKey(key: string): key is ConfigKey {
  * Reset config to defaults and save
  */
 export async function resetConfig(): Promise<HlvmConfig> {
-  const config = { ...DEFAULT_CONFIG };
+  const config = stampCurrentConfigVersion({ ...DEFAULT_CONFIG });
   await saveConfig(config);
   return config;
 }

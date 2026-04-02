@@ -1519,12 +1519,16 @@ computer.use           yes           yes                     pass (opt-in Anthro
 mixed-turn coherence   yes           yes                     pass (opt-in Google smoke)
 fallback               yes           yes                     pass (deterministic runtime proof)
 reasoning selector     yes           yes                     pass (opt-in cross-provider smoke)
+agent.continuation     yes           yes                     pass (opt-in runtime-host resilience smoke)
+agent.compaction       yes           yes                     pass (opt-in runtime-host resilience smoke)
+shell.hardening        yes           yes                     pass (opt-in host-backed resilience smoke)
 ```
 
 Evidence labels for completion claims:
 
 - `live-validated`: real provider-backed or external-system smoke proof
 - `integration-validated`: deterministic runtime-path or isolated integration proof
+- `manual-soak`: repeatable long-session/provider-matrix runbook proof beyond the automated smoke layer
 - `fixture / plumbing proof`: local fixture-backed discovery / registration / execution proof
 
 Status-reporting rules:
@@ -1532,6 +1536,7 @@ Status-reporting rules:
 - do not cite fixture or plumbing proof alone as if it were live semantic execution
 - when claiming a capability is proven, name the strongest evidence level actually available
 - keep routed-only proof separate from semantic execution proof
+- keep manual soak coverage separate from the default gate; it is a release-confidence checklist, not a default test run
 
 Post-investigation verification (2026-03-31, targeted reruns):
 
@@ -2106,12 +2111,35 @@ HLVM_E2E_NATIVE_STRUCTURED_OUTPUT=1 deno test --allow-all tests/e2e/native-struc
 deno test --allow-all tests/unit/agent/orchestrator-response.test.ts --filter 'plain-text function-style tool call'
 ```
 
+Additional resilience-proof commands:
+
+```text
+deno test --allow-all tests/unit/runtime/host-client.test.ts --filter 'forwards agent max_tokens'
+deno test --allow-all tests/e2e/agent-runtime-shell.test.ts --filter 'continuation metadata through the local runtime host'
+deno test --allow-all tests/integration/http-server.test.ts --filter 'proactively compacted prompt'
+HLVM_E2E_AGENT_RESILIENCE=1 HLVM_LIVE_AGENT_MODEL=<model> deno test --allow-all tests/e2e/agent-resilience-smoke.test.ts --filter 'auto-continues truncated assistant output'
+HLVM_E2E_AGENT_RESILIENCE=1 HLVM_LIVE_AGENT_MODEL=<model> deno test --allow-all tests/e2e/agent-resilience-smoke.test.ts --filter 'proactively compacts urgent context'
+HLVM_E2E_AGENT_RESILIENCE=1 deno test --allow-all tests/e2e/agent-resilience-smoke.test.ts --filter 'shell hardening'
+```
+
 Experimental follow-up commands for currently open live-proof gaps:
 
 ```text
 HLVM_E2E_NATIVE_WEB_SEARCH=1 deno test --allow-all tests/e2e/native-web-search-smoke.test.ts
 HLVM_E2E_NATIVE_GOOGLE_WEB_SEARCH=1 deno test --allow-all tests/e2e/native-google-web-search-smoke.test.ts
 HLVM_E2E_NATIVE_MIXED_PLATFORM=1 deno test --allow-all tests/e2e/native-mixed-platform-smoke.test.ts
+```
+
+Manual long-session validation now lives in:
+
+```text
+docs/llvm-for-llm/live-validation-runbook.md
+```
+
+Latest recorded live evidence:
+
+```text
+docs/llvm-for-llm/live-validation-evidence-2026-04-02.md
 ```
 
 #### Recommended Next Phase: Close Remaining Live-Proof Gaps

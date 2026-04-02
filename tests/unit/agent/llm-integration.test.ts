@@ -6,6 +6,7 @@ import {
 import {
   buildToolDefinitions,
   clearToolDefCache,
+  compileSystemPrompt,
   generateSystemPrompt,
 } from "../../../src/hlvm/agent/llm-integration.ts";
 import {
@@ -170,6 +171,29 @@ Deno.test("LLM integration: custom instructions are included and truncated", () 
 
   assertStringIncludes(prompt, "# Custom Instructions");
   assertEquals(prompt.includes("x".repeat(2001)), false);
+});
+
+Deno.test("LLM integration: compileSystemPrompt exposes cache-segment metadata without dropping content", () => {
+  const compiled = compileSystemPrompt();
+
+  assertEquals(compiled.cacheSegments.length >= 2, true);
+  assertEquals(
+    compiled.cacheSegments.map((segment) => segment.text).join("\n\n"),
+    compiled.text,
+  );
+  assertEquals(
+    compiled.sections.every((section) =>
+      ["static", "session", "turn"].includes(section.stability)
+    ),
+    true,
+  );
+});
+
+Deno.test("LLM integration: generateSystemPrompt remains a text-only compatibility wrapper", () => {
+  const compiled = compileSystemPrompt();
+  const generated = generateSystemPrompt();
+
+  assertEquals(generated, compiled.text);
 });
 
 Deno.test("LLM integration: model tiers classify and compare correctly", () => {

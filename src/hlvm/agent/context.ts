@@ -18,6 +18,7 @@ import { DEFAULT_CONTEXT_CONFIG } from "./constants.ts";
 import { estimateTokensFromCharCount } from "../../common/token-utils.ts";
 import { truncate, truncateMiddle } from "../../common/utils.ts";
 import type { ConversationAttachmentPayload } from "../attachments/types.ts";
+import type { FileRestorationHint } from "./file-state-cache.ts";
 // ============================================================
 // Types
 // ============================================================
@@ -29,6 +30,8 @@ export type MessageRole = "system" | "user" | "assistant" | "tool";
 export interface Message {
   role: MessageRole;
   content: string;
+  /** Assistant/tool API round boundary used for compaction/orphan prevention. */
+  roundId?: string;
   timestamp?: number;
   /**
    * Internal marker for session persistence.
@@ -96,6 +99,30 @@ function getAssistantToolCallIds(message: Message): Set<string> {
   );
 }
 
+const COMPACTED_TOOL_RESULT_SENTINEL = "[Tool result cleared — compacted]";
+const MICROCOMPACTABLE_TOOL_NAMES = new Set([
+  "read_file",
+  "list_files",
+  "search_code",
+  "find_symbol",
+  "get_structure",
+  "web_search",
+  "web_fetch",
+  "shell_exec",
+  "shell_script",
+  "write_file",
+  "edit_file",
+]);
+
+function isMicrocompactableToolMessage(message: Message): boolean {
+  if (message.role !== "tool") return false;
+  if (message.content.includes(COMPACTED_TOOL_RESULT_SENTINEL)) return false;
+  const toolName = message.toolName?.toLowerCase();
+  if (!toolName) return false;
+  return MICROCOMPACTABLE_TOOL_NAMES.has(toolName) ||
+    toolName.startsWith("mcp_");
+}
+
 interface MessageGroup {
   messages: Message[];
   messageCount: number;
@@ -121,8 +148,14 @@ function buildMessageGroups(
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i];
     const groupMessages: Message[] = [message];
+    const roundId = message.roundId;
 
-    if (hasAssistantToolCalls(message)) {
+    if (roundId) {
+      while (i + 1 < messages.length && messages[i + 1].roundId === roundId) {
+        groupMessages.push(messages[i + 1]);
+        i++;
+      }
+    } else if (hasAssistantToolCalls(message)) {
       const toolCallIds = getAssistantToolCallIds(message);
       while (i + 1 < messages.length && messages[i + 1].role === "tool") {
         const next = messages[i + 1];
@@ -217,6 +250,10 @@ interface ContextConfig {
   compactionThreshold: number;
   /** Optional model key for model-scoped token estimation calibration */
   modelKey?: string;
+  /** Optional recent full-file restoration hints appended after compaction. */
+  buildRestorationHints?: (
+    maxContextTokens: number,
+  ) => FileRestorationHint[];
 }
 
 /** Error thrown when context exceeds maxTokens in fail mode */
@@ -267,6 +304,8 @@ export class ContextManager {
   private messages: Message[] = [];
   private config: ContextConfig;
   private pendingCompaction = false;
+  private compactionRevision = 0;
+  private messageRevision = 0;
   /** Running tallies for O(1) getStats() */
   private roleCounts = { system: 0, user: 0, assistant: 0, tool: 0 };
   /** Cached total character count for O(1) estimateTokens() */
@@ -282,6 +321,14 @@ export class ContextManager {
   /** Whether LLM-powered compaction is pending (context nearing limit). */
   get isPendingCompaction(): boolean {
     return this.pendingCompaction;
+  }
+
+  getCompactionRevision(): number {
+    return this.compactionRevision;
+  }
+
+  getMessageRevision(): number {
+    return this.messageRevision;
   }
 
   /**
@@ -317,6 +364,7 @@ export class ContextManager {
     this.messages.push(messageWithTimestamp);
     this.totalChars += messageWithTimestamp.content.length + toolCallChars;
     this.incrementRoleCount(messageWithTimestamp.role);
+    this.messageRevision++;
 
     // Proactive compaction at threshold (before overflow)
     if (
@@ -330,10 +378,6 @@ export class ContextManager {
 
     // Handle overflow if needed
     this.trimIfNeeded();
-    // If trimming resolved the overflow, clear pending compaction flag
-    if (this.pendingCompaction && !this.needsTrimming()) {
-      this.pendingCompaction = false;
-    }
   }
 
   /**
@@ -358,19 +402,22 @@ export class ContextManager {
       this.config.modelKey,
     );
     if (toSummarize.length === 0) return;
+    const compactedMessages = this.prepareMessagesForCompaction(toSummarize);
 
     try {
-      const summary = await this.config.llmSummarize(toSummarize);
+      const summary = await this.config.llmSummarize(compactedMessages);
       const summaryMessage: Message = {
         role: "assistant",
         content: `Summary of earlier context:\n${summary}`,
         timestamp: Date.now(),
       };
+      const restorationMessages = this.buildRestorationMessages();
 
+      this.compactionRevision++;
       this.setMessages(
         this.config.preserveSystem
-          ? [...system, summaryMessage, ...recentMessages]
-          : [summaryMessage, ...recentMessages],
+          ? [...system, summaryMessage, ...restorationMessages, ...recentMessages]
+          : [summaryMessage, ...restorationMessages, ...recentMessages],
       );
     } catch {
       // LLM summarization failed — re-arm so next addMessage triggers retry
@@ -425,6 +472,7 @@ export class ContextManager {
     this.messages = [];
     this.roleCounts = { system: 0, user: 0, assistant: 0, tool: 0 };
     this.totalChars = 0;
+    this.messageRevision++;
   }
 
   /**
@@ -451,6 +499,16 @@ export class ContextManager {
   /** Update the maxTokens budget (e.g., after learning actual context limit) */
   setMaxTokens(maxTokens: number): void {
     this.config.maxTokens = maxTokens;
+  }
+
+  /** Request an LLM-powered compaction pass before the next model call. */
+  requestCompaction(): void {
+    if (
+      this.config.overflowStrategy === "summarize" &&
+      this.config.llmSummarize
+    ) {
+      this.pendingCompaction = true;
+    }
   }
 
   /** Force context to fit within current maxTokens budget (e.g., after budget reduction from overflow). */
@@ -556,7 +614,9 @@ export class ContextManager {
       (systemTokens + nonSystemTokens) > this.config.maxTokens
     ) {
       const nextGroup = nonSystemGroups[startGroupIdx];
-      if (remainingMessages - nextGroup.messageCount < this.config.minMessages) {
+      if (
+        remainingMessages - nextGroup.messageCount < this.config.minMessages
+      ) {
         break;
       }
       nonSystemTokens -= nextGroup.estimatedTokens;
@@ -568,6 +628,7 @@ export class ContextManager {
       const trimmedMessages = flattenMessageGroups(
         nonSystemGroups.slice(startGroupIdx),
       );
+      this.compactionRevision++;
       this.setMessages(
         this.config.preserveSystem
           ? [...systemMessages, ...trimmedMessages]
@@ -605,17 +666,19 @@ export class ContextManager {
       return;
     }
 
-    const summary = this.buildSummary(toSummarize);
+    const summary = this.buildSummary(this.prepareMessagesForCompaction(toSummarize));
     const summaryMessage: Message = {
       role: "assistant",
       content: summary,
       timestamp: Date.now(),
     };
+    const restorationMessages = this.buildRestorationMessages();
 
+    this.compactionRevision++;
     this.setMessages(
       this.config.preserveSystem
-        ? [...system, summaryMessage, ...recentMessages]
-        : [summaryMessage, ...recentMessages],
+        ? [...system, summaryMessage, ...restorationMessages, ...recentMessages]
+        : [summaryMessage, ...restorationMessages, ...recentMessages],
     );
   }
 
@@ -632,6 +695,27 @@ export class ContextManager {
       summary = summary.slice(0, this.config.summaryMaxChars) + "...";
     }
     return summary;
+  }
+
+  private prepareMessagesForCompaction(messages: Message[]): Message[] {
+    return messages.map((message) => {
+      if (!isMicrocompactableToolMessage(message)) return message;
+      return {
+        ...message,
+        content: COMPACTED_TOOL_RESULT_SENTINEL,
+      };
+    });
+  }
+
+  private buildRestorationMessages(): Message[] {
+    const hints = this.config.buildRestorationHints?.(this.config.maxTokens) ??
+      [];
+    return hints.map((hint) => ({
+      role: "assistant" as const,
+      content:
+        `Restored file context: ${hint.path}\n\n${truncateMiddle(hint.content, hint.estimatedTokens * 4)}`,
+      timestamp: Date.now(),
+    }));
   }
 
   /** Split messages into system and non-system (DRY helper) */
@@ -653,6 +737,7 @@ export class ContextManager {
     this.messages = newMessages;
     this.roleCounts = { system: 0, user: 0, assistant: 0, tool: 0 };
     this.totalChars = 0;
+    this.messageRevision++;
     for (const m of newMessages) {
       this.incrementRoleCount(m.role);
       this.totalChars += m.content.length + estimateToolCallChars(m);

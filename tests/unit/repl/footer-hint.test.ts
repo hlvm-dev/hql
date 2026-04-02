@@ -271,9 +271,9 @@ Deno.test("buildFooterRightState includes model metadata with context mini-bar",
 
   assertEquals(
     state.infoText,
-    "[█░░░░░░░] 12% \u00B7 claude-sonnet-4-6",
+    "[█░░░░░░░] 12% ctx \u00B7 claude-sonnet-4-6",
   );
-  assertEquals(state.infoParts, ["[█░░░░░░░] 12%", "claude-sonnet-4-6"]);
+  assertEquals(state.infoParts, ["[█░░░░░░░] 12% ctx", "claude-sonnet-4-6"]);
 });
 
 Deno.test("buildFooterRightState shows model name only when no metadata is present", () => {

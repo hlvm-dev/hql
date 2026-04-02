@@ -20,7 +20,7 @@ import {
   isSafeCommand,
   parseShellCommand,
 } from "../../../common/shell-parser.ts";
-import { classifyShellCommand as classifyShellCommandWithReason } from "../security/shell-classifier.ts";
+import { classifyShellPipeline } from "../security/shell-classifier.ts";
 import { getNetworkPolicyDeniedUrl } from "../policy.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import type { SemanticCapabilityId } from "../semantic-capabilities.ts";
@@ -139,7 +139,7 @@ function buildInlineCodeCommand(
  * Use classifyShellCommandWithReason for detailed reasons.
  */
 export function classifyShellCommand(command: string): "L0" | "L1" | "L2" {
-  return classifyShellCommandWithReason(command).level;
+  return classifyShellPipeline(command).level;
 }
 
 const DETACHED_LAUNCH_GRACE_MS = 75;

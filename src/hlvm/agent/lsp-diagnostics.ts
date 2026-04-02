@@ -30,7 +30,7 @@ const textDecoder = new TextDecoder();
 const INITIALIZE_TIMEOUT_MS = 5000;
 const DIAGNOSTICS_TIMEOUT_MS = 2500;
 const DIAGNOSTICS_SETTLE_MS = 150;
-const EMPTY_DIAGNOSTICS_SETTLE_MS = 700;
+const EMPTY_DIAGNOSTICS_SETTLE_MS = 1500;
 const SHUTDOWN_TIMEOUT_MS = 750;
 const MAX_DIAGNOSTICS_TEXT = 1400;
 const MAX_DIAGNOSTIC_COUNT = 8;
@@ -771,6 +771,12 @@ class LspSession {
             },
             reject: (error) => {
               if (finished) return;
+              if (latest !== null) {
+                finished = true;
+                waiter.cleanup();
+                resolve(latest);
+                return;
+              }
               finished = true;
               waiter.cleanup();
               reject(error);

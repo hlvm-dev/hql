@@ -3,8 +3,11 @@ import { Box, Text } from "ink";
 import { marked, type Token, type Tokens } from "marked";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { CodeBlock } from "./CodeBlock.tsx";
-import { InlineTokens, InlineMarkdown } from "./InlineMarkdown.tsx";
-import { scanBlockBoundaryIncremental, type BlockBoundaryScanState } from "../../utils/markdown-split.ts";
+import { InlineMarkdown, InlineTokens } from "./InlineMarkdown.tsx";
+import {
+  type BlockBoundaryScanState,
+  scanBlockBoundaryIncremental,
+} from "../../utils/markdown-split.ts";
 
 type Alignment = "left" | "center" | "right";
 
@@ -121,7 +124,11 @@ const TableBlock = memo(function TableBlock(
           <React.Fragment key={ci}>
             {leftPad > 0 && <Text>{" ".repeat(leftPad)}</Text>}
             {bold
-              ? <Text bold><InlineTokens tokens={cell.tokens} /></Text>
+              ? (
+                <Text bold>
+                  <InlineTokens tokens={cell.tokens} />
+                </Text>
+              )
               : <InlineTokens tokens={cell.tokens} />}
             {rightPad > 0 && <Text>{" ".repeat(rightPad)}</Text>}
             {ci < colWidths.length - 1 && <Text>{"  "}</Text>}
@@ -178,7 +185,12 @@ function renderBlock(
       const t = token as Tokens.Code;
       return (
         <Box marginY={1}>
-          <CodeBlock code={t.text} language={t.lang} width={width} isPending={isPending} />
+          <CodeBlock
+            code={t.text}
+            language={t.lang}
+            width={width}
+            isPending={isPending}
+          />
         </Box>
       );
     }
@@ -244,7 +256,7 @@ function renderBlock(
 
             return (
               <Box key={i}>
-                <Text color={sc.text.muted}>{bullet} </Text>
+                <Text color={sc.text.muted}>{bullet}</Text>
                 {hasBlockContent
                   ? (
                     <Box flexDirection="column">
@@ -254,7 +266,11 @@ function renderBlock(
                           <React.Fragment key={si}>
                             {subToken.type === "text" && "tokens" in subToken &&
                                 Array.isArray((subToken as Tokens.Text).tokens)
-                              ? <InlineTokens tokens={(subToken as Tokens.Text).tokens!} />
+                              ? (
+                                <InlineTokens
+                                  tokens={(subToken as Tokens.Text).tokens!}
+                                />
+                              )
                               : renderBlock(subToken, width, sc, isPending)}
                           </React.Fragment>
                         ))}
@@ -283,7 +299,7 @@ function renderBlock(
               const lines = para.text.split("\n");
               return lines.map((line: string, li: number) => (
                 <Box key={`${i}-${li}`}>
-                  <Text color={sc.text.secondary}>│ </Text>
+                  <Text color={sc.text.secondary}>│</Text>
                   <Box flexShrink={1}>
                     <InlineMarkdown text={line} />
                   </Box>
@@ -291,14 +307,16 @@ function renderBlock(
               ));
             }
             // Other block tokens get one prefix per block
-            return [(
-              <Box key={i}>
-                <Text color={sc.text.secondary}>│ </Text>
-                <Box flexShrink={1}>
-                  {renderBlock(subToken, width - 2, sc, isPending)}
+            return [
+              (
+                <Box key={i}>
+                  <Text color={sc.text.secondary}>│</Text>
+                  <Box flexShrink={1}>
+                    {renderBlock(subToken, width - 2, sc, isPending)}
+                  </Box>
                 </Box>
-              </Box>
-            )];
+              ),
+            ];
           })}
         </Box>
       );
@@ -329,34 +347,43 @@ export const MarkdownDisplay = memo(function MarkdownDisplay(
 
   // Incremental block-level parsing: during streaming, only re-parse the unstable tail.
   // Finalized blocks (before the last \n\n outside code fences) are cached across renders.
-  const blocksRef = useRef<{ finalizedTokens: Token[]; lastStableOffset: number }>({
+  const blocksRef = useRef<
+    { finalizedTokens: Token[]; lastStableOffset: number }
+  >({
     finalizedTokens: [],
     lastStableOffset: 0,
   });
   const scanStateRef = useRef<BlockBoundaryScanState | undefined>(undefined);
+  const previousTextRef = useRef("");
 
   const tokens = useMemo(() => {
     if (!isPending) {
       // Final render: parse everything fresh, clear cache
       blocksRef.current = { finalizedTokens: [], lastStableOffset: 0 };
       scanStateRef.current = undefined;
+      previousTextRef.current = text;
       return marked.lexer(text);
     }
 
     const prev = blocksRef.current;
 
     // Detect text replacement (not append) — reset cache
-    if (text.length < prev.lastStableOffset) {
+    if (
+      text.length < prev.lastStableOffset ||
+      (previousTextRef.current.length > 0 &&
+        !text.startsWith(previousTextRef.current))
+    ) {
       prev.finalizedTokens = [];
       prev.lastStableOffset = 0;
       scanStateRef.current = undefined;
     }
 
     // Find last stable block boundary (incremental: O(delta) per flush)
-    const { boundary: stableEnd, state: nextScanState } = scanBlockBoundaryIncremental(
-      text,
-      scanStateRef.current,
-    );
+    const { boundary: stableEnd, state: nextScanState } =
+      scanBlockBoundaryIncremental(
+        text,
+        scanStateRef.current,
+      );
     scanStateRef.current = nextScanState;
 
     if (stableEnd > prev.lastStableOffset) {
@@ -370,6 +397,7 @@ export const MarkdownDisplay = memo(function MarkdownDisplay(
     // Parse only the unstable tail
     const tail = text.slice(stableEnd);
     const tailTokens = tail ? marked.lexer(tail) : [];
+    previousTextRef.current = text;
 
     return [...prev.finalizedTokens, ...tailTokens];
   }, [text, isPending]);

@@ -306,6 +306,11 @@ export type ChatStreamEvent =
     input_tokens?: number;
     output_tokens?: number;
     model_id?: string;
+    cost_usd?: number;
+    cost_estimated?: boolean;
+    continued_this_turn?: boolean;
+    continuation_count?: number;
+    compaction_reason?: "proactive_pressure" | "overflow_retry";
   }
   | { event: "trace"; trace: TraceEvent }
   | { event: "final_response_meta"; meta: FinalResponseMeta }

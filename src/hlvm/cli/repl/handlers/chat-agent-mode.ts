@@ -130,6 +130,7 @@ export async function handleAgentMode(
     toolAllowlist,
     toolDenylist: effectiveToolDenylist,
     workspace: workingDirectory,
+    maxOutputTokens: body.max_tokens,
     contextWindow: body.context_window,
     fixturePath,
     skipSessionHistory: body.skip_session_history === true,
@@ -404,6 +405,11 @@ export async function handleAgentMode(
               input_tokens: event.inputTokens,
               output_tokens: event.outputTokens,
               model_id: event.modelId,
+              cost_usd: event.costUsd,
+              cost_estimated: event.costEstimated,
+              continued_this_turn: event.continuedThisTurn,
+              continuation_count: event.continuationCount,
+              compaction_reason: event.compactionReason,
             });
             break;
           case "interaction_request":

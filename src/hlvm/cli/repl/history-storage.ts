@@ -22,11 +22,11 @@ import {
 import { getLegacyHistoryPath } from "../../../common/legacy-migration.ts";
 import {
   appendJsonLines,
-  atomicWriteTextFile,
   parseJsonLines,
   readJsonLines,
   serializeJsonLines,
 } from "../../../common/jsonl.ts";
+import { atomicWriteTextFile } from "../../../common/atomic-file.ts";
 import { isFileNotFoundError } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
@@ -117,7 +117,7 @@ async function writeHistoryEntries(
 ): Promise<void> {
   await ensureHlvmDir();
   const content = serializeJsonLines(entries);
-  await getPlatform().fs.writeTextFile(path, content);
+  await atomicWriteTextFile(path, content);
 }
 
 async function ensureLegacyHistoryMerged(maxEntries: number): Promise<void> {

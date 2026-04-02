@@ -43,6 +43,7 @@ import {
   truncate,
 } from "../../../common/utils.ts";
 import { getMimeTypeForExtension } from "../../../common/file-kinds.ts";
+import { atomicWriteTextFile } from "../../../common/atomic-file.ts";
 
 // ============================================================
 // Types
@@ -249,6 +250,15 @@ export async function readFile(
     // Read file contents
     const content = await platform.fs.readTextFile(validPath);
 
+    const isPartialView = args.maxBytes !== undefined && args.maxBytes > 0 &&
+      content.length > args.maxBytes;
+    options?.fileStateCache?.trackRead({
+      path: validPath,
+      content,
+      mtimeMs: stat.mtimeMs,
+      isPartialView,
+    });
+
     // User-specified maxBytes: truncate content (not reject)
     const userMax = args.maxBytes;
     if (userMax !== undefined && userMax > 0 && content.length > userMax) {
@@ -315,11 +325,13 @@ export async function writeFile(
       workspace,
       options?.policy ?? null,
     );
+    const parentDir = platform.path.dirname(validPath);
 
     // Create parent directories if requested
     if (args.createDirs) {
-      const parentDir = platform.path.dirname(validPath);
       await platform.fs.mkdir(parentDir, { recursive: true });
+    } else if (!await platform.fs.exists(parentDir)) {
+      return failTool(`Parent directory does not exist: ${platform.path.dirname(args.path)}`);
     }
 
     // Enforce size limit (bytes)
@@ -330,8 +342,21 @@ export async function writeFile(
     );
     assertMaxBytes("write_file size", byteLength, maxBytes);
 
-    // Write file
-    await platform.fs.writeTextFile(validPath, args.content);
+    const fileExists = await platform.fs.exists(validPath);
+    if (fileExists && options?.fileStateCache) {
+      const currentStat = await platform.fs.stat(validPath);
+      const currentContent = await platform.fs.readTextFile(validPath);
+      const conflict = options.fileStateCache.checkConflict(validPath, {
+        content: currentContent,
+        mtimeMs: currentStat.mtimeMs,
+      });
+      if (!conflict.ok) {
+        return failTool(conflict.reason ?? "File changed. Re-read before overwriting.");
+      }
+    }
+
+    await atomicWriteTextFile(validPath, args.content);
+    options?.fileStateCache?.invalidate(validPath);
 
     return okTool({
       message: `Wrote ${args.content.length} bytes to ${args.path}`,
@@ -395,9 +420,23 @@ export async function editFile(
     );
     assertMaxBytes("edit_file read size", stat.size ?? 0, maxReadBytes);
 
+    const editableView = options?.fileStateCache?.requireFullView(validPath);
+    if (editableView && !editableView.ok) {
+      return failTool(editableView.reason ?? "File must be re-read before editing.");
+    }
+
     // Read existing content
     const content = await platform.fs.readTextFile(validPath);
     throwIfAborted(options?.signal);
+    if (options?.fileStateCache) {
+      const conflict = options.fileStateCache.checkConflict(validPath, {
+        content,
+        mtimeMs: stat.mtimeMs,
+      });
+      if (!conflict.ok) {
+        return failTool(conflict.reason ?? "File changed. Re-read before editing.");
+      }
+    }
 
     // Validate find string is non-empty (empty string splits every character)
     if (!args.find) {
@@ -441,8 +480,8 @@ export async function editFile(
     );
     assertMaxBytes("edit_file write size", byteLength, maxWriteBytes);
 
-    // Write updated content
-    await platform.fs.writeTextFile(validPath, newContent);
+    await atomicWriteTextFile(validPath, newContent);
+    options?.fileStateCache?.invalidate(validPath);
 
     // Generate preview (first 200 chars of changes)
     const preview = truncate(newContent, 200);

@@ -3,6 +3,7 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
+import { atomicWriteTextFile } from "../../../common/atomic-file.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getAgentLogger } from "../logger.ts";
 import {
@@ -244,7 +245,7 @@ async function saveMcpConfig(path: string, config: McpConfig): Promise<void> {
   const platform = getPlatform();
   const dir = platform.path.dirname(path);
   await platform.fs.mkdir(dir, { recursive: true });
-  await platform.fs.writeTextFile(path, JSON.stringify(config, null, 2) + "\n");
+  await atomicWriteTextFile(path, JSON.stringify(config, null, 2) + "\n");
 }
 
 export async function addServerToConfig(

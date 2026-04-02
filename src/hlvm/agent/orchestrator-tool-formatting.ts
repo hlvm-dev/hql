@@ -3,7 +3,12 @@
  * Extracted from orchestrator.ts for modularity.
  */
 
-import { getTool, hasTool } from "./registry.ts";
+import {
+  getTool,
+  getToolPresentationKind,
+  hasTool,
+  type ToolPresentationKind,
+} from "./registry.ts";
 import { TOOL_RESULT_LIMITS } from "./constants.ts";
 import { isObjectValue, truncate } from "../../common/utils.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
@@ -30,11 +35,236 @@ export function stringifyToolResult(result: unknown): string {
   return safeStringify(result, 2);
 }
 
+export interface ToolResultOutputs {
+  llmContent: string;
+  summaryDisplay: string;
+  returnDisplay: string;
+  presentationKind: ToolPresentationKind;
+  truncatedForLlm: boolean;
+  truncatedForTranscript: boolean;
+}
+
+const TOOL_PRESENTATION_LIMITS: Record<
+  ToolPresentationKind,
+  { summaryChars: number; transcriptChars: number; llmChars: number }
+> = {
+  read: { summaryChars: 160, transcriptChars: 18_000, llmChars: 8_000 },
+  search: { summaryChars: 180, transcriptChars: 16_000, llmChars: 7_000 },
+  web: { summaryChars: 180, transcriptChars: 14_000, llmChars: 6_000 },
+  shell: { summaryChars: 180, transcriptChars: 14_000, llmChars: 6_000 },
+  edit: { summaryChars: 180, transcriptChars: 8_000, llmChars: 6_000 },
+  diff: { summaryChars: 180, transcriptChars: 16_000, llmChars: 7_000 },
+  meta: { summaryChars: 180, transcriptChars: 10_000, llmChars: 6_000 },
+};
+
+function truncateWithNotice(
+  text: string,
+  maxChars: number,
+  strategy: "headtail" | "tail" = "tail",
+): { text: string; truncated: boolean } {
+  if (text.length <= maxChars) {
+    return { text, truncated: false };
+  }
+  if (maxChars <= 80) {
+    return { text: truncate(text, maxChars), truncated: true };
+  }
+  if (strategy === "tail") {
+    const notice = "\n\n... [output truncated] ...";
+    return {
+      text: text.slice(0, Math.max(0, maxChars - notice.length)) + notice,
+      truncated: true,
+    };
+  }
+
+  const notice = "\n\n... [middle omitted] ...\n\n";
+  const available = Math.max(0, maxChars - notice.length);
+  const head = Math.ceil(available * 0.65);
+  const tail = Math.max(0, available - head);
+  return {
+    text: text.slice(0, head) + notice + text.slice(-tail),
+    truncated: true,
+  };
+}
+
+function keepHeadTailLines(
+  text: string,
+  headLines: number,
+  tailLines: number,
+): { text: string; truncated: boolean } {
+  const lines = text.split("\n");
+  if (lines.length <= headLines + tailLines + 1) {
+    return { text, truncated: false };
+  }
+  const omitted = lines.length - headLines - tailLines;
+  return {
+    text: [
+      ...lines.slice(0, headLines),
+      "",
+      `... (${omitted} lines omitted) ...`,
+      "",
+      ...lines.slice(-tailLines),
+    ].join("\n"),
+    truncated: true,
+  };
+}
+
+function extractStructuredBody(
+  kind: ToolPresentationKind,
+  result: unknown,
+): string | undefined {
+  if (!isObjectValue(result)) return undefined;
+
+  if (kind === "diff" && typeof result.diff === "string") {
+    return result.diff;
+  }
+
+  if (kind === "edit") {
+    const parts: string[] = [];
+    const message = typeof result.message === "string" && result.message.trim()
+      ? result.message.trim()
+      : undefined;
+    const preview = typeof result.preview === "string" && result.preview.trim()
+      ? result.preview.trim()
+      : undefined;
+    const verificationDiagnostics =
+      isObjectValue(result.verification) &&
+        typeof result.verification.diagnostics === "string" &&
+        result.verification.diagnostics.trim()
+        ? result.verification.diagnostics.trim()
+        : undefined;
+
+    if (message) parts.push(message);
+    if (preview && preview !== message) parts.push(preview);
+    if (verificationDiagnostics) parts.push(verificationDiagnostics);
+    if (parts.length > 0) {
+      return parts.join("\n\n");
+    }
+  }
+
+  if (
+    kind === "shell" &&
+    typeof result.stdout === "string" &&
+    typeof result.stderr === "string" &&
+    typeof result.exitCode === "number"
+  ) {
+    const parts: string[] = [`exit ${result.exitCode}`];
+    if (result.stdout.trim()) {
+      parts.push(`stdout:\n${result.stdout.trimEnd()}`);
+    }
+    if (result.stderr.trim()) {
+      parts.push(`stderr:\n${result.stderr.trimEnd()}`);
+    }
+    return parts.join("\n\n");
+  }
+
+  if (typeof result.message === "string" && result.message.trim()) {
+    return result.message.trim();
+  }
+
+  return undefined;
+}
+
+function summarizeShellResult(result: unknown): string | undefined {
+  if (!isObjectValue(result) || typeof result.exitCode !== "number") {
+    return undefined;
+  }
+  const stdout = typeof result.stdout === "string" ? result.stdout : "";
+  const stderr = typeof result.stderr === "string" ? result.stderr : "";
+  const stdoutLines = stdout.trim() ? stdout.trim().split("\n").length : 0;
+  const stderrLines = stderr.trim() ? stderr.trim().split("\n").length : 0;
+  const parts = [`exit ${result.exitCode}`];
+  if (stdoutLines > 0) {
+    parts.push(`${stdoutLines} stdout line${stdoutLines === 1 ? "" : "s"}`);
+  }
+  if (stderrLines > 0) {
+    parts.push(`${stderrLines} stderr line${stderrLines === 1 ? "" : "s"}`);
+  }
+  return parts.join(" · ");
+}
+
+function summarizeDiffBody(result: unknown, body: string): string | undefined {
+  const fileCount = isObjectValue(result) && typeof result.fileCount === "number"
+    ? result.fileCount
+    : (body.match(/^diff --git /gm) ?? []).length;
+  if (body.trim().length === 0) {
+    return "No differences found";
+  }
+  const hunkCount = (body.match(/^@@ /gm) ?? []).length;
+  const added = (body.match(/^\+(?!\+\+)/gm) ?? []).length;
+  const removed = (body.match(/^-(?!---)/gm) ?? []).length;
+  const parts = [`${fileCount || 1} file${fileCount === 1 ? "" : "s"} changed`];
+  if (hunkCount > 0) parts.push(`${hunkCount} hunk${hunkCount === 1 ? "" : "s"}`);
+  if (added > 0 || removed > 0) parts.push(`+${added} -${removed}`);
+  return parts.join(" · ");
+}
+
+function buildStructuredSummary(
+  kind: ToolPresentationKind,
+  result: unknown,
+  transcriptBody: string,
+): string | undefined {
+  if (!isObjectValue(result)) return undefined;
+  if (kind === "shell") {
+    return summarizeShellResult(result);
+  }
+  if (kind === "diff") {
+    return summarizeDiffBody(result, transcriptBody);
+  }
+  if (typeof result.message === "string" && result.message.trim()) {
+    return result.message.trim();
+  }
+  return undefined;
+}
+
+function shapeTranscriptBody(
+  kind: ToolPresentationKind,
+  body: string,
+): { text: string; truncated: boolean } {
+  switch (kind) {
+    case "read":
+      return keepHeadTailLines(body, 100, 40);
+    case "search":
+      return keepHeadTailLines(body, 80, 30);
+    case "shell":
+      return keepHeadTailLines(body, 30, 30);
+    case "diff":
+      return truncateWithNotice(body, TOOL_PRESENTATION_LIMITS[kind].transcriptChars, "headtail");
+    case "web":
+    case "edit":
+    case "meta":
+    default:
+      return truncateWithNotice(body, TOOL_PRESENTATION_LIMITS[kind].transcriptChars, "headtail");
+  }
+}
+
+export function compressForLLM(
+  kind: ToolPresentationKind,
+  result: string,
+): string {
+  switch (kind) {
+    case "read":
+      return compressFileContent(result);
+    case "search":
+      return keepHeadTailLines(result, 60, 20).text;
+    case "shell":
+      return compressShellOutput(result);
+    case "diff":
+      return compressDiffOutput(result);
+    case "web":
+      return truncateWithNotice(result, TOOL_PRESENTATION_LIMITS[kind].llmChars, "headtail").text;
+    case "edit":
+    case "meta":
+    default:
+      return result;
+  }
+}
+
 export function buildToolResultOutputs(
   toolName: string,
   result: unknown,
   config: OrchestratorConfig,
-): { llmContent: string; summaryDisplay: string; returnDisplay: string } {
+): ToolResultOutputs {
+  const presentationKind = getToolPresentationKind(toolName, config.toolOwnerId);
   let formatted: FormattedToolResult | null = null;
   try {
     const tool = hasTool(toolName, config.toolOwnerId)
@@ -45,45 +275,46 @@ export function buildToolResultOutputs(
     formatted = null;
   }
 
-  if (formatted && formatted.returnDisplay) {
-    const summaryDisplay = formatted.summaryDisplay ??
-      summarizeToolResult(toolName, result, formatted.returnDisplay);
-    const returnDisplay = formatted.returnDisplay;
-    // Smart per-tool compression BEFORE the blunt truncateMiddle safety net.
-    const rawLlmContent = formatted.llmContent ?? returnDisplay;
-    const compressed = compressForLLM(toolName, rawLlmContent);
-    const llmContent = config.context.truncateResult(compressed);
-    return { llmContent, summaryDisplay, returnDisplay };
-  }
+  const fallbackBody = stringifyToolResult(result);
+  const rawBody = formatted?.returnDisplay ??
+    extractStructuredBody(presentationKind, result) ??
+    fallbackBody;
+  const rawSummary = formatted?.summaryDisplay ??
+    buildStructuredSummary(presentationKind, result, rawBody) ??
+    summarizeToolResult(toolName, result, rawBody);
+  const rawLlmContent = formatted?.llmContent ?? rawBody;
 
-  const returnDisplay = stringifyToolResult(result);
-  const summaryDisplay = summarizeToolResult(toolName, result, returnDisplay);
-  const compressed = compressForLLM(toolName, returnDisplay);
-  const llmContent = config.context.truncateResult(compressed);
-  return { llmContent, summaryDisplay, returnDisplay };
+  const transcriptSummary = truncate(
+    rawSummary,
+    TOOL_PRESENTATION_LIMITS[presentationKind].summaryChars,
+  );
+  const transcriptBodyResult = shapeTranscriptBody(presentationKind, rawBody);
+  const compressedLlm = compressForLLM(presentationKind, rawLlmContent);
+  const llmContent = config.context.truncateResult(
+    truncateWithNotice(
+      compressedLlm,
+      TOOL_PRESENTATION_LIMITS[presentationKind].llmChars,
+      presentationKind === "diff" || presentationKind === "read"
+        ? "headtail"
+        : "tail",
+    ).text,
+  );
+
+  return {
+    llmContent,
+    summaryDisplay: transcriptSummary,
+    returnDisplay: transcriptBodyResult.text,
+    presentationKind,
+    truncatedForLlm: llmContent !== rawLlmContent,
+    truncatedForTranscript:
+      transcriptBodyResult.truncated || transcriptSummary !== rawSummary,
+  };
 }
 
 // ============================================================
 // Smart per-tool compression — keeps signal, drops noise.
 // truncateResult() remains the safety net after this.
 // ============================================================
-
-/** Smart per-tool compression. Small results pass through unchanged. */
-export function compressForLLM(toolName: string, result: string): string {
-  if (result.length <= 4000) return result;
-
-  switch (toolName) {
-    case "read_file":
-      return compressFileContent(result);
-    case "shell_exec":
-    case "shell_script":
-      return compressShellOutput(result);
-    case "git_diff":
-      return compressDiffOutput(result);
-    default:
-      return result; // let truncateResult handle it
-  }
-}
 
 /** read_file: keep first 80 + last 30 lines — head+tail is more useful than blind truncation. */
 function compressFileContent(result: string): string {
@@ -165,17 +396,36 @@ function isToolResultFailure(content: string): boolean {
 export function buildToolObservation(
   toolCall: ToolCall,
   toolResult: ToolExecutionResult,
-): { observation: string; resultText: string; toolName: string } {
+  requestedObservation?: string,
+): {
+  observation: string;
+  resultText: string;
+  toolName: string;
+  usedRequestedObservation: boolean;
+} {
   if (toolResult.success) {
-    const resultText = toolResult.llmContent ??
+    const fullResultText = toolResult.llmContent ??
       stringifyToolResult(toolResult.result);
-    // Detect tools that return error-as-data (success but content says failure)
-    if (isToolResultFailure(resultText)) {
-      const hint = getRecoveryHint(resultText);
-      const observation = hint ? `${resultText}\nHint: ${hint}` : resultText;
-      return { observation, resultText, toolName: toolCall.toolName };
+    if (isToolResultFailure(fullResultText)) {
+      const hint = getRecoveryHint(fullResultText);
+      const observation = hint
+        ? `${fullResultText}\nHint: ${hint}`
+        : fullResultText;
+      return {
+        observation,
+        resultText: observation,
+        toolName: toolCall.toolName,
+        usedRequestedObservation: false,
+      };
     }
-    return { observation: resultText, resultText, toolName: toolCall.toolName };
+    const observation = requestedObservation ?? fullResultText;
+    return {
+      observation,
+      resultText: observation,
+      toolName: toolCall.toolName,
+      usedRequestedObservation: requestedObservation === undefined ||
+        observation === requestedObservation,
+    };
   }
 
   const errorText = toolResult.error ?? "Unknown error";
@@ -188,9 +438,9 @@ export function buildToolObservation(
     observation,
     resultText: `ERROR: ${errorText}`,
     toolName: toolCall.toolName,
+    usedRequestedObservation: false,
   };
 }
-
 
 /**
  * Canonicalize arbitrary values for stable JSON signatures.
@@ -303,7 +553,9 @@ export function generateArgsSummary(
       const agentType = readStringField(a, "agent_type", "agentType");
       switch (operation) {
         case "spawnTeam":
-          return teamName ? `spawn team ${truncate(teamName, 48)}` : "spawn team";
+          return teamName
+            ? `spawn team ${truncate(teamName, 48)}`
+            : "spawn team";
         case "spawnAgent":
           return name
             ? `spawn ${truncate(name, 40)}${
@@ -375,12 +627,20 @@ export function buildToolErrorResult(
   config: OrchestratorConfig,
   toolCallId?: string,
 ): ToolExecutionResult {
+  const presentationKind = getToolPresentationKind(toolName, config.toolOwnerId);
   const result: ToolExecutionResult = {
     success: false,
     error,
     llmContent: error,
     summaryDisplay: error,
     returnDisplay: error,
+    presentationKind,
+    truncatedForLlm: false,
+    truncatedForTranscript: false,
+  };
+  const meta: ToolEventMeta = {
+    presentation: { kind: presentationKind },
+    truncation: { llm: false, transcript: false },
   };
 
   config.onTrace?.({
@@ -394,11 +654,13 @@ export function buildToolErrorResult(
   config.onAgentEvent?.({
     type: "tool_end",
     name: toolName,
+    toolCallId,
     success: false,
     content: error,
     summary: error,
     durationMs: Date.now() - startedAt,
     argsSummary: "",
+    meta,
   });
 
   return result;
@@ -516,13 +778,22 @@ function extractWebSearchEventMeta(
 function extractToolEventMeta(
   toolName: string,
   result: unknown,
+  outputs: Pick<
+    ToolResultOutputs,
+    "presentationKind" | "truncatedForLlm" | "truncatedForTranscript"
+  >,
 ): ToolEventMeta | undefined {
-  if (!(toolName === "search_web" || toolName.endsWith("_search_web"))) {
-    return undefined;
-  }
-  const webSearch = extractWebSearchEventMeta(result);
-  if (!webSearch) return undefined;
-  return { webSearch };
+  const webSearch = (toolName === "search_web" || toolName.endsWith("_search_web"))
+    ? extractWebSearchEventMeta(result)
+    : undefined;
+  return {
+    presentation: { kind: outputs.presentationKind },
+    truncation: {
+      llm: outputs.truncatedForLlm,
+      transcript: outputs.truncatedForTranscript,
+    },
+    ...(webSearch ? { webSearch } : {}),
+  };
 }
 
 /** Build a simple tool-allowed predicate from allow/deny lists */
@@ -651,28 +922,27 @@ export function emitToolSuccess(
   config: OrchestratorConfig,
   toolName: string,
   toolCallId: string | undefined,
-  llmContent: string,
-  summaryDisplay: string,
-  returnDisplay: string,
+  outputs: ToolResultOutputs,
   startedAt: number,
   args?: unknown,
   rawResult?: unknown,
 ): void {
-  const meta = extractToolEventMeta(toolName, rawResult);
+  const meta = extractToolEventMeta(toolName, rawResult, outputs);
   config.onTrace?.({
     type: "tool_result",
     toolName,
     toolCallId,
     success: true,
-    result: llmContent,
-    display: returnDisplay,
+    result: outputs.llmContent,
+    display: outputs.returnDisplay,
   });
   config.onAgentEvent?.({
     type: "tool_end",
     name: toolName,
+    toolCallId,
     success: true,
-    content: returnDisplay,
-    summary: summaryDisplay,
+    content: outputs.returnDisplay,
+    summary: outputs.summaryDisplay,
     durationMs: Date.now() - startedAt,
     argsSummary: generateArgsSummary(toolName, args),
     meta,

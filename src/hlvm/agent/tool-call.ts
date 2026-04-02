@@ -20,6 +20,13 @@ interface LLMUsage {
   outputTokens: number;
 }
 
+export type LLMCompletionState =
+  | "complete"
+  | "truncated_max_tokens"
+  | "context_overflow"
+  | "tool_calls"
+  | "error";
+
 /** Provider-native source metadata surfaced by the model runtime. */
 export interface LLMSource {
   id: string;
@@ -35,6 +42,7 @@ export interface LLMSource {
 export interface LLMResponse {
   content: string;
   toolCalls: ToolCall[];
+  completionState?: LLMCompletionState;
   /** Provider-reported token usage (if available) */
   usage?: LLMUsage;
   /** Provider-native sources returned by the model runtime. */

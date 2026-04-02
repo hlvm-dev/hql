@@ -64,6 +64,7 @@
               "id": "team_task_1",
               "toolName": "TaskCreate",
               "args": {
+                "id": "task-1",
                 "subject": "Review parser change",
                 "description": "Review the parser change for correctness"
               }
@@ -132,6 +133,7 @@
               "id": "team_task_1",
               "toolName": "TaskCreate",
               "args": {
+                "id": "task-review",
                 "subject": "Review parser patch",
                 "description": "Review parser patch for correctness"
               }

@@ -15,6 +15,7 @@ import { OPEN_LATEST_SOURCE_HINT } from "../../ui-constants.ts";
 import { createIncrementalSanitizer } from "../../utils/sanitize-ansi.ts";
 import { getLiveConversationSpacing } from "./message-spacing.ts";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
+import { truncateTranscriptBlock } from "../../utils/transcript-truncation.ts";
 
 /** Shown while waiting for the first token from the model.
  *  Uses static marker — no spinner avoids terminal redraws that break text selection.
@@ -194,9 +195,10 @@ export const AssistantMessage = React.memo(function AssistantMessage(
     compactSourceLines: string[];
   }>(() => {
     const sanitizedText = sanitizeRef.current(text);
-    const displayText = sanitizedText.length > MAX_DISPLAY_CHARS
-      ? "..." + sanitizedText.slice(-MAX_DISPLAY_CHARS)
-      : sanitizedText;
+    const displayText = truncateTranscriptBlock(
+      sanitizedText,
+      MAX_DISPLAY_CHARS,
+    );
     const citationView = buildCitationRenderView(displayText, citations ?? []);
     const sources = citationView.sources.slice(0, 3);
     const sourceOverflow = Math.max(

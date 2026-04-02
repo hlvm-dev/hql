@@ -78,6 +78,7 @@ function toPlatformFileInfo(info: Deno.FileInfo): PlatformFileInfo {
     isSymlink: info.isSymlink,
     size: info.size ?? 0,
     mtimeMs: info.mtime?.getTime(),
+    mode: info.mode ?? undefined,
   };
 }
 
@@ -217,6 +218,9 @@ const DenoFs: PlatformFs = {
     Deno.copyFile(src, dest),
   rename: (oldPath: string, newPath: string): Promise<void> =>
     Deno.rename(oldPath, newPath),
+  renameSync: (oldPath: string, newPath: string): void => {
+    Deno.renameSync(oldPath, newPath);
+  },
   chmod: (path: string, mode: number): Promise<void> => Deno.chmod(path, mode),
   chmodSync: (path: string, mode: number): void => Deno.chmodSync(path, mode),
 
@@ -260,6 +264,7 @@ const DenoEnv: PlatformEnv = {
 
 const DenoProcess: PlatformProcess = {
   cwd: (): string => Deno.cwd(),
+  pid: (): number => Deno.pid,
   execPath: (): string => Deno.execPath(),
   args: (): string[] => Deno.args,
   exit: (code: number): never => Deno.exit(code),

@@ -24,6 +24,7 @@ import type { OrchestratorConfig } from "./orchestrator.ts";
 import type { CitationSourceEntry } from "./tools/web/citation-spans.ts";
 import type { EditFileRecovery } from "./error-taxonomy.ts";
 import type { RuntimeToolPhase } from "./orchestrator.ts";
+import type { ToolPresentationKind } from "./registry.ts";
 
 /** Result of tool execution */
 export interface ToolExecutionResult {
@@ -32,6 +33,9 @@ export interface ToolExecutionResult {
   llmContent?: string;
   summaryDisplay?: string;
   returnDisplay?: string;
+  presentationKind?: ToolPresentationKind;
+  truncatedForLlm?: boolean;
+  truncatedForTranscript?: boolean;
   error?: string;
   stopReason?: "plan_review_cancelled";
   recovery?: EditFileRecovery;
@@ -82,6 +86,14 @@ export interface LoopState {
   loopRecoverySignature?: string;
   /** Temporary per-tool denylist with remaining-turn TTLs. */
   temporaryToolDenylist: Map<string, number>;
+  /** Whether this turn required automatic output continuation. */
+  continuedThisTurn: boolean;
+  /** Number of continuation hops used in this turn. */
+  continuationCount: number;
+  /** Most recent compaction reason observed in this turn. */
+  compactionReason?: "proactive_pressure" | "overflow_retry";
+  /** Message revision at the last proactive compaction boundary. */
+  lastProactiveCompactionMessageRevision?: number;
 }
 
 /** Resolved constants from OrchestratorConfig, computed once at loop start.
@@ -157,6 +169,8 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     lastToolNames: [],
     loopRecoveryStep: 0,
     temporaryToolDenylist: new Map(),
+    continuedThisTurn: false,
+    continuationCount: 0,
   };
 }
 

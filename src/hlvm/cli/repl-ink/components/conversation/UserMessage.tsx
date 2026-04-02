@@ -12,6 +12,9 @@ import type { ConversationAttachmentRef } from "../../types.ts";
 import { getLiveConversationSpacing } from "./message-spacing.ts";
 import { ChromeChip } from "../ChromeChip.tsx";
 import { TranscriptDivider } from "./TranscriptDivider.tsx";
+import { truncateTranscriptInline } from "../../utils/transcript-truncation.ts";
+
+const MAX_USER_MESSAGE_CHARS = 800;
 
 interface UserMessageProps {
   text: string;
@@ -32,6 +35,7 @@ export const UserMessage = React.memo(function UserMessage(
 ): React.ReactElement {
   const sc = useSemanticColors();
   const spacing = getLiveConversationSpacing(compactSpacing);
+  const displayText = truncateTranscriptInline(text, MAX_USER_MESSAGE_CHARS);
   const attachmentText = attachments && attachments.length > 0
     ? attachments.map((attachment) => attachment.label).join(" ")
     : "";
@@ -46,7 +50,7 @@ export const UserMessage = React.memo(function UserMessage(
         flexDirection="column"
       >
         <Box>
-          <ChromeChip text={text} tone="neutral" />
+          <ChromeChip text={displayText} tone="neutral" />
         </Box>
         {attachmentText && (
           <Text color={sc.text.secondary} wrap="wrap">

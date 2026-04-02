@@ -15,6 +15,7 @@ export interface PlatformFileInfo {
   isSymlink: boolean;
   size: number;
   mtimeMs?: number;
+  mode?: number;
 }
 
 export interface PlatformDirEntry {
@@ -156,6 +157,7 @@ export interface PlatformFs {
   removeSync(path: string, options?: PlatformRemoveOptions): void;
   copyFile(src: string, dest: string): Promise<void>;
   rename(oldPath: string, newPath: string): Promise<void>;
+  renameSync(oldPath: string, newPath: string): void;
   chmod(path: string, mode: number): Promise<void>;
   chmodSync(path: string, mode: number): void;
 
@@ -201,6 +203,7 @@ export type SignalType = "SIGINT" | "SIGTERM" | "SIGHUP" | "SIGQUIT";
 
 export interface PlatformProcess {
   cwd(): string;
+  pid(): number;
   execPath(): string;
   args(): string[];
   exit(code: number): never;

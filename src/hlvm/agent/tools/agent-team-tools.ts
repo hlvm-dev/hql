@@ -584,6 +584,7 @@ export const taskCreate: ToolMetadata = {
     }
     const a = args as Record<string, unknown>;
     const { store, runtime } = resolveBackend("TaskCreate", options);
+    const id = optionalString(a, "id");
     const subject = requireString(a, "subject", "TaskCreate");
     const description = requireString(a, "description", "TaskCreate");
     const activeForm = optionalString(a, "activeForm");
@@ -592,7 +593,13 @@ export const taskCreate: ToolMetadata = {
       : undefined;
 
     if (store) {
-      const task = await store.createTask({ subject, description, activeForm, metadata });
+      const task = await store.createTask({
+        id,
+        subject,
+        description,
+        activeForm,
+        metadata,
+      });
       return {
         id: task.id,
         subject: task.subject,
@@ -604,6 +611,7 @@ export const taskCreate: ToolMetadata = {
     // Runtime-only mode
     const memberId = getMemberId(options, runtime);
     const task = runtime.ensureTask({
+      id,
       goal: subject,
       status: "pending",
       assigneeMemberId: memberId,
@@ -623,6 +631,7 @@ export const taskCreate: ToolMetadata = {
     "Create a task in the team's shared task list. Tasks help track progress and coordinate work across teammates.",
   category: "meta",
   args: {
+    id: "string (optional) - Explicit task ID for deterministic workflows",
     subject: "string (required) - Brief, actionable task title",
     description:
       "string (required) - Detailed description of what needs to be done",

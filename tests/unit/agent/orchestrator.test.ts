@@ -8,6 +8,7 @@ import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import {
   executeToolCall,
   executeToolCalls,
+  type AgentUIEvent,
   type LLMResponse,
   type LoopConfig,
   type LoopState,
@@ -53,8 +54,9 @@ function resetApprovals(): void {
 function makeResponse(
   content: string,
   toolCalls: ToolCall[] = [],
+  completionState?: LLMResponse["completionState"],
 ): LLMResponse {
-  return { content, toolCalls };
+  return { content, toolCalls, completionState };
 }
 
 function uniqueToolName(label: string): string {
@@ -125,6 +127,8 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     lastToolNames: [],
     loopRecoveryStep: 0,
     temporaryToolDenylist: new Map(),
+    continuedThisTurn: false,
+    continuationCount: 0,
     ...overrides,
   };
 }
@@ -2063,13 +2067,15 @@ Deno.test({
   async fn() {
     resetApprovals();
     const context = new ContextManager({
-      maxTokens: 3000,
-      overflowStrategy: "trim",
+      maxTokens: 10_000,
+      overflowStrategy: "summarize",
       minMessages: 1,
+      llmSummarize: async (messages) => `summary(${messages.length})`,
+      summaryKeepRecent: 1,
     });
     context.addMessage({ role: "system", content: "sys" });
-    for (let i = 0; i < 4; i++) {
-      context.addMessage({ role: "user", content: "x".repeat(2000) });
+    for (let i = 0; i < 5; i++) {
+      context.addMessage({ role: "user", content: `m${i}` });
     }
 
     const seenMessageCounts: number[] = [];
@@ -2096,6 +2102,171 @@ Deno.test({
     assertEquals(seenMessageCounts.length, 2);
     assertEquals(seenMessageCounts[0] > seenMessageCounts[1], true);
     assertEquals(seenMessageCounts[1] <= 4, true);
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: runReActLoop auto-continues truncated assistant text and reports continuation stats",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const overlap = " repeated-overlap-segment ".repeat(2);
+    const first = `The answer starts here.${overlap}`;
+    const second = `${overlap}and finishes cleanly.`;
+    const callOptionsSeen: Array<{ disableTools?: boolean }> = [];
+    const turnStats: Array<Extract<AgentUIEvent, { type: "turn_stats" }>> = [];
+    let llmCalls = 0;
+
+    const result = await runReActLoop(
+      "Continue the long answer",
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "bypassPermissions",
+        onAgentEvent: (event) => {
+          if (event.type === "turn_stats") {
+            turnStats.push(event);
+          }
+        },
+      },
+      async (_messages, _signal, callOptions) => {
+        llmCalls += 1;
+        callOptionsSeen.push({ disableTools: callOptions?.disableTools });
+        if (llmCalls === 1) {
+          return makeResponse(first, [], "truncated_max_tokens");
+        }
+        return makeResponse(second, [], "complete");
+      },
+    );
+
+    assertEquals(result, `${first}and finishes cleanly.`);
+    assertEquals(llmCalls, 2);
+    assertEquals(callOptionsSeen[0]?.disableTools, undefined);
+    assertEquals(callOptionsSeen[1]?.disableTools, true);
+    assertEquals(turnStats.at(-1)?.continuedThisTurn, true);
+    assertEquals(turnStats.at(-1)?.continuationCount, 1);
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: runReActLoop stops continuation after two hops",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const overlapA = " overlap-a-segment ".repeat(2);
+    const overlapB = " overlap-b-segment ".repeat(2);
+    let llmCalls = 0;
+
+    const result = await runReActLoop(
+      "Keep going",
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "bypassPermissions",
+      },
+      async () => {
+        llmCalls += 1;
+        if (llmCalls === 1) {
+          return makeResponse(`Alpha${overlapA}`, [], "truncated_max_tokens");
+        }
+        if (llmCalls === 2) {
+          return makeResponse(
+            `${overlapA}${overlapB}`,
+            [],
+            "truncated_max_tokens",
+          );
+        }
+        return makeResponse(`${overlapB}Omega`, [], "truncated_max_tokens");
+      },
+    );
+
+    assertEquals(result, `Alpha${overlapA}${overlapB}Omega`);
+    assertEquals(llmCalls, 3);
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: runReActLoop does not auto-continue truncated tool-call text",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    let llmCalls = 0;
+    const callOptionsSeen: Array<{ disableTools?: boolean }> = [];
+
+    const result = await runReActLoop(
+      "Do not replay tool-call text",
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "bypassPermissions",
+      },
+      async (_messages, _signal, callOptions) => {
+        llmCalls += 1;
+        callOptionsSeen.push({ disableTools: callOptions?.disableTools });
+        return makeResponse(
+          'read_file({"path":"demo.txt"})',
+          [],
+          "truncated_max_tokens",
+        );
+      },
+    );
+
+    assertStringIncludes(result, "Tool call loop detected");
+    assertEquals(callOptionsSeen.some((entry) => entry.disableTools === true), false);
+    assertEquals(llmCalls > 0, true);
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: runReActLoop proactively compacts urgent context before the next LLM call",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager({
+      maxTokens: 320,
+      overflowStrategy: "summarize",
+      llmSummarize: async (messages) => `summary(${messages.length})`,
+      summaryKeepRecent: 1,
+      minMessages: 1,
+    });
+    context.addMessage({ role: "system", content: "sys" });
+    context.addMessage({ role: "user", content: "A".repeat(390) });
+    context.addMessage({ role: "assistant", content: "B".repeat(390) });
+    context.addMessage({ role: "user", content: "C".repeat(390) });
+
+    const traces: string[] = [];
+    const turnStats: Array<Extract<AgentUIEvent, { type: "turn_stats" }>> = [];
+    const seenSummaryFlags: boolean[] = [];
+
+    const result = await runReActLoop(
+      "Summarize now",
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "bypassPermissions",
+        toolDenylist: ["memory_write"],
+        onTrace: (event) => traces.push(event.type),
+        onAgentEvent: (event) => {
+          if (event.type === "turn_stats") {
+            turnStats.push(event);
+          }
+        },
+      },
+      async (messages) => {
+        seenSummaryFlags.push(messages.some((message) =>
+          message.content.includes("Summary of earlier context:")
+        ));
+        return makeResponse("ok", [], "complete");
+      },
+    );
+
+    assertEquals(result, "ok");
+    assertEquals(seenSummaryFlags[0], true);
+    assertEquals(traces.includes("context_compaction"), true);
+    assertEquals(turnStats.at(-1)?.compactionReason, "proactive_pressure");
   },
 });
 
@@ -2337,8 +2508,8 @@ Deno.test(
           true,
           `llmContent should be ≤8000 chars but was ${llmContent.length}`,
         );
-        // returnDisplay is preserved for UI (not sent to LLM)
-        assertEquals(returnDisplay.length, 50_000);
+        // Transcript shaping now bounds returnDisplay separately from llmContent.
+        assertEquals(returnDisplay.length <= 10_000, true);
       },
     );
   },

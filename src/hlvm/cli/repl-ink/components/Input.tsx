@@ -55,6 +55,7 @@ import {
   detectMimeType,
   getAttachmentType,
   getDisplayName,
+  getPastedTextPreviewLabel,
   isAttachment,
   isSupportedConversationAttachmentPath,
   shouldCollapseText,
@@ -3076,7 +3077,7 @@ export function Input({
         // Check for large text paste that should collapse
         if (shouldCollapseText(normalizedText)) {
           const id = reserveNextId();
-          const displayName = getDisplayName("text", id);
+          const displayName = getPastedTextPreviewLabel(id, normalizedText);
           insertAt(displayName + " ");
           pendingAttachmentOpsRef.current += 1;
           void addTextAttachmentWithId(normalizedText, id).then((

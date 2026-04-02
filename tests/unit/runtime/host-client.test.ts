@@ -27,11 +27,13 @@ import {
   pullRuntimeModelViaHost,
   registerRuntimeAttachmentPath,
   removeRuntimeMcpServer,
+  runChatViaHost,
   runAgentQueryViaHost,
   runDirectChatViaHost,
   runRuntimeOllamaSignin,
   uploadRuntimeAttachment,
 } from "../../../src/hlvm/runtime/host-client.ts";
+import type { AgentUIEvent } from "../../../src/hlvm/agent/orchestrator.ts";
 import type { AttachmentRecord } from "../../../src/hlvm/attachments/types.ts";
 import { withRuntimePortOverrideForTests } from "../../../src/hlvm/runtime/host-config.ts";
 import { getPlatform, setPlatform } from "../../../src/platform/platform.ts";
@@ -288,6 +290,92 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       );
       assertEquals(capturedInteractionBody?.request_id, "interaction-1");
       assertEquals(capturedInteractionBody?.approved, true);
+    });
+  } finally {
+    await handle.shutdown();
+    await handle.finished;
+  }
+});
+
+Deno.test("runChatViaHost forwards agent max_tokens and maps continuation-aware turn stats", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+  let capturedChatBody: Record<string, unknown> | null = null;
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
+    }
+
+    if (url.pathname === "/api/chat") {
+      capturedChatBody = await req.json();
+      const stream = new ReadableStream({
+        start(controller) {
+          const emit = (obj: unknown) =>
+            controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+          emit({ event: "start", request_id: "req-agent-max" });
+          emit({ event: "token", text: "merged-response" });
+          emit({
+            event: "turn_stats",
+            iteration: 1,
+            tool_count: 0,
+            continued_this_turn: true,
+            continuation_count: 1,
+            compaction_reason: "proactive_pressure",
+          });
+          emit({
+            event: "complete",
+            request_id: "req-agent-max",
+            session_version: 1,
+          });
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "X-Request-ID": "req-agent-max",
+        },
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const events: AgentUIEvent[] = [];
+      const result = await runChatViaHost({
+        mode: "agent",
+        model: "ollama/test-fixture",
+        maxTokens: 64,
+        messages: [{
+          role: "user",
+          content: "continue the answer",
+        }],
+        callbacks: {
+          onAgentEvent: (event) => events.push(event),
+        },
+      });
+
+      assertEquals(capturedChatBody?.mode, "agent");
+      assertEquals(capturedChatBody?.max_tokens, 64);
+      assertEquals(result.text, "merged-response");
+
+      const turnStats = events.find((event) => event.type === "turn_stats");
+      assertEquals(turnStats?.type, "turn_stats");
+      if (turnStats?.type === "turn_stats") {
+        assertEquals(turnStats.continuedThisTurn, true);
+        assertEquals(turnStats.continuationCount, 1);
+        assertEquals(turnStats.compactionReason, "proactive_pressure");
+      }
     });
   } finally {
     await handle.shutdown();

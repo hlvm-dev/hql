@@ -7,6 +7,10 @@ import { collectSections } from "../../../src/hlvm/prompt/sections.ts";
 import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
 import { EMPTY_INSTRUCTIONS } from "../../../src/hlvm/prompt/types.ts";
 import type { InstructionHierarchy, PromptCompilerInput } from "../../../src/hlvm/prompt/types.ts";
+import {
+  resolveProviderExecutionPlan,
+} from "../../../src/hlvm/agent/tool-capabilities.ts";
+import { buildExecutionSurface } from "../../../src/hlvm/agent/execution-surface.ts";
 
 /** Build a simple agent-mode input with no tools. */
 function agentInput(
@@ -19,6 +23,46 @@ function agentInput(
     instructions: EMPTY_INSTRUCTIONS,
     ...overrides,
   };
+}
+
+function autoExecutionInput(
+  overrides: Partial<PromptCompilerInput> = {},
+): PromptCompilerInput {
+  const providerExecutionPlan = resolveProviderExecutionPlan({
+    providerName: "google",
+    nativeCapabilities: {
+      webSearch: true,
+      webPageRead: true,
+      remoteCodeExecution: true,
+    },
+    autoRequestedRemoteCodeExecution: true,
+  });
+  const executionSurface = buildExecutionSurface({
+    runtimeMode: "auto",
+    activeModelId: "google/gemini-2.5-pro",
+    pinnedProviderName: "google",
+    providerExecutionPlan,
+    taskCapabilityContext: {
+      requestedCapabilities: ["code.exec"],
+      source: "task-text",
+      matchedCueLabels: ["calculate"],
+    },
+  });
+  return agentInput({
+    runtimeMode: "auto",
+    providerExecutionPlan,
+    executionSurface,
+    ...overrides,
+  });
+}
+
+function segmentHash(
+  input: PromptCompilerInput,
+  stability: "static" | "session" | "turn",
+): string | undefined {
+  return compilePrompt(input).cacheSegments.find((segment) =>
+    segment.stability === stability
+  )?.contentHash;
 }
 
 // ============================================================
@@ -172,6 +216,8 @@ Deno.test("compiler: section manifest has correct ids and positive charCounts", 
     assertEquals(typeof entry.id, "string");
     assertEquals(entry.id.length > 0, true);
     assertEquals(entry.charCount > 0, true);
+    assertEquals(["static", "session", "turn"].includes(entry.stability), true);
+    assertEquals(/^[0-9a-f]{8}$/.test(entry.contentHash), true);
   }
 });
 
@@ -325,5 +371,69 @@ Deno.test("compiler: collectSections returns PromptSection[] with id, content, m
       ["weak", "mid", "frontier"].includes(section.minTier),
       true,
     );
+    assertEquals(["static", "session", "turn"].includes(section.stability), true);
   }
+});
+
+Deno.test("compiler: compilePrompt emits sections in static then session then turn order", () => {
+  const result = compilePrompt(autoExecutionInput());
+  const stabilities = result.sections.map((section) => section.stability);
+
+  assertEquals(stabilities.includes("turn"), true);
+  assertEquals(
+    stabilities.join(","),
+    [
+      ...stabilities.filter((stability) => stability === "static"),
+      ...stabilities.filter((stability) => stability === "session"),
+      ...stabilities.filter((stability) => stability === "turn"),
+    ].join(","),
+  );
+});
+
+Deno.test("compiler: cacheSegments collapse adjacent sections with the same stability", () => {
+  const result = compilePrompt(autoExecutionInput());
+
+  assertEquals(result.cacheSegments.map((segment) => segment.stability), [
+    "static",
+    "session",
+    "turn",
+  ]);
+  assertEquals(
+    result.cacheSegments.map((segment) => segment.text).join("\n\n"),
+    result.text,
+  );
+});
+
+Deno.test("compiler: turn-only changes affect only the turn cache segment hash", () => {
+  const base = autoExecutionInput();
+  const withoutTurn = agentInput({
+    providerExecutionPlan: base.providerExecutionPlan,
+    executionSurface: base.executionSurface,
+  });
+
+  assertEquals(segmentHash(base, "static"), segmentHash(withoutTurn, "static"));
+  assertEquals(
+    segmentHash(base, "session"),
+    segmentHash(withoutTurn, "session"),
+  );
+  assertEquals(segmentHash(base, "turn") === segmentHash(withoutTurn, "turn"), false);
+});
+
+Deno.test("compiler: session-stable changes do not churn the static cache segment hash", () => {
+  const first = agentInput({
+    instructions: { global: "Use TypeScript.", project: "", trusted: false },
+  });
+  const second = agentInput({
+    instructions: { global: "Use Deno.", project: "", trusted: false },
+  });
+
+  assertEquals(segmentHash(first, "static"), segmentHash(second, "static"));
+  assertEquals(segmentHash(first, "session") === segmentHash(second, "session"), false);
+});
+
+Deno.test("compiler: tier changes churn the static cache segment hash", () => {
+  const weak = agentInput({ tier: "weak" });
+  const mid = agentInput({ tier: "mid" });
+
+  assertEquals(segmentHash(weak, "static") === segmentHash(mid, "static"), false);
 });

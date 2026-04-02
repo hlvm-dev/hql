@@ -24,6 +24,7 @@ import type {
 /** Display state for a single tool call within a tool group */
 export interface ToolCallDisplay {
   id: string;
+  toolCallId?: string;
   name: string;
   argsSummary: string;
   status: "pending" | "running" | "success" | "error";
@@ -111,6 +112,11 @@ export interface TurnStatsItem {
   inputTokens?: number;
   outputTokens?: number;
   modelId?: string;
+  costUsd?: number;
+  costEstimated?: boolean;
+  continuedThisTurn?: boolean;
+  continuationCount?: number;
+  compactionReason?: "proactive_pressure" | "overflow_retry";
   status: TurnCompletionStatus;
   summary?: string;
   activityTrail?: string[];

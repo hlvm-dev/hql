@@ -255,3 +255,81 @@ Deno.test({
     });
   },
 });
+
+Deno.test({
+  name: "MCP OAuth: proactive refresh triggers inside the 5 minute skew window",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    await withServePermissionGuard(async () => {
+      await withOauthStorePath(async (storePath) => {
+        const oauth = await startOAuthServer({ initialExpiresIn: 299 });
+        const server = {
+          name: "oauth-proactive-refresh",
+          url: `http://127.0.0.1:${oauth.port}/mcp`,
+        };
+
+        let authUrl = "";
+        await loginMcpHttpServer(server, {
+          output: () => {},
+          storePath,
+          openBrowser: (url) => {
+            authUrl = url;
+            return Promise.resolve();
+          },
+          promptInput: () => {
+            const state = new URL(authUrl).searchParams.get("state") ?? "";
+            return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=abc123&state=${
+              encodeURIComponent(state)
+            }`);
+          },
+        });
+
+        const header = await getMcpOAuthAuthorizationHeader(server, { storePath });
+        assertEquals(header, "Bearer refreshed-token");
+        assertEquals(oauth.tokenRequestBodies.length, 2);
+
+        await oauth.server.shutdown();
+      });
+    });
+  },
+});
+
+Deno.test({
+  name: "MCP OAuth: tokens outside the 5 minute skew do not refresh early",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    await withServePermissionGuard(async () => {
+      await withOauthStorePath(async (storePath) => {
+        const oauth = await startOAuthServer({ initialExpiresIn: 301 });
+        const server = {
+          name: "oauth-no-proactive-refresh",
+          url: `http://127.0.0.1:${oauth.port}/mcp`,
+        };
+
+        let authUrl = "";
+        await loginMcpHttpServer(server, {
+          output: () => {},
+          storePath,
+          openBrowser: (url) => {
+            authUrl = url;
+            return Promise.resolve();
+          },
+          promptInput: () => {
+            const state = new URL(authUrl).searchParams.get("state") ?? "";
+            return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=abc123&state=${
+              encodeURIComponent(state)
+            }`);
+          },
+        });
+
+        const header = await getMcpOAuthAuthorizationHeader(server, { storePath });
+        assertEquals(header, "Bearer initial-token");
+        assertEquals(oauth.tokenRequestBodies.length, 1);
+
+        await oauth.server.shutdown();
+      });
+    });
+  },
+});

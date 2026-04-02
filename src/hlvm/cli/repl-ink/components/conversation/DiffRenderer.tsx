@@ -59,12 +59,11 @@ export function parseDiffLines(diffContent: string): DiffLine[] {
   let inHunk = false;
 
   for (const line of rawLines) {
-    // New file section header (section boundary only; keep renderer concise by
-    // skipping this metadata line itself).
     if (line.startsWith("diff --git ")) {
       inHunk = false;
       oldLine = 0;
       newLine = 0;
+      result.push({ type: "file-header", content: line });
       continue;
     }
 
@@ -79,7 +78,11 @@ export function parseDiffLines(diffContent: string): DiffLine[] {
     }
 
     // File headers + metadata (before first hunk in a section)
-    if (!inHunk && ((line.startsWith("---") || line.startsWith("+++")) || isDiffMetadataLine(line))) {
+    if (
+      !inHunk &&
+      ((line.startsWith("---") || line.startsWith("+++")) ||
+        isDiffMetadataLine(line))
+    ) {
       result.push({ type: "file-header", content: line });
       continue;
     }
@@ -181,10 +184,36 @@ function renderHunkHeader(
 function renderFileHeader(
   line: DiffLine,
   key: React.Key,
+  addedColor: string,
+  removedColor: string,
+  mutedColor: string,
 ): React.ReactElement {
+  if (line.content.startsWith("diff --git ")) {
+    const match = line.content.match(/^diff --git a\/(.+?) b\/(.+)$/);
+    const label = match?.[2] ?? match?.[1] ?? line.content;
+    return (
+      <Box key={key}>
+        <Text bold color={mutedColor}>{`File ${label}`}</Text>
+      </Box>
+    );
+  }
+  if (line.content.startsWith("+++ ")) {
+    return (
+      <Box key={key}>
+        <Text color={addedColor}>{line.content}</Text>
+      </Box>
+    );
+  }
+  if (line.content.startsWith("--- ")) {
+    return (
+      <Box key={key}>
+        <Text color={removedColor}>{line.content}</Text>
+      </Box>
+    );
+  }
   return (
     <Box key={key}>
-      <Text bold>{line.content}</Text>
+      <Text bold color={mutedColor}>{line.content}</Text>
     </Box>
   );
 }
@@ -203,10 +232,9 @@ function renderGutterLine(
   const newStr = padNum(line.newLineNum, gutterWidth);
   const gutterTotal = gutterWidth * 2 + 6;
   const contentWidth = Math.max(1, width - gutterTotal);
-  const truncatedContent =
-    line.content.length > contentWidth
-      ? line.content.slice(0, contentWidth - 1) + "\u2026"
-      : line.content;
+  const truncatedContent = line.content.length > contentWidth
+    ? line.content.slice(0, contentWidth - 1) + "\u2026"
+    : line.content;
 
   let lineColor: string;
   let prefix: string;
@@ -245,10 +273,9 @@ function renderNewFileLine(
   width: number,
 ): React.ReactElement {
   const contentWidth = Math.max(1, width - 2);
-  const truncatedContent =
-    line.content.length > contentWidth
-      ? line.content.slice(0, contentWidth - 1) + "\u2026"
-      : line.content;
+  const truncatedContent = line.content.length > contentWidth
+    ? line.content.slice(0, contentWidth - 1) + "\u2026"
+    : line.content;
 
   return (
     <Box key={key}>
@@ -263,9 +290,32 @@ function renderGapMarker(
 ): React.ReactElement {
   return (
     <Box key={key}>
-      <Text color={mutedColor}>  \u22EF</Text>
+      <Text color={mutedColor}>\u22EF</Text>
     </Box>
   );
+}
+
+function summarizeDiff(
+  lines: DiffLine[],
+): { fileCount: number; additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  const files = new Set<string>();
+
+  for (const line of lines) {
+    if (line.type === "add") additions++;
+    if (line.type === "del") deletions++;
+    if (!line.content.startsWith("diff --git ")) continue;
+    const match = line.content.match(/^diff --git a\/(.+?) b\/(.+)$/);
+    const label = match?.[2] ?? match?.[1];
+    if (label) files.add(label);
+  }
+
+  return {
+    fileCount: files.size,
+    additions,
+    deletions,
+  };
 }
 
 // ============================================================
@@ -291,6 +341,7 @@ const DiffRenderer = memo(function DiffRenderer({
   const newFile = isNewFile(lines);
   const maxNum = getMaxLineNum(lines);
   const gutterWidth = Math.max(String(maxNum).length, 3);
+  const summary = summarizeDiff(lines);
 
   // Apply height constraint
   let visibleLines = lines;
@@ -303,11 +354,33 @@ const DiffRenderer = memo(function DiffRenderer({
   const elements: React.ReactElement[] = [];
   let prevType: DiffLine["type"] | null = null;
 
+  if (summary.fileCount > 0 || summary.additions > 0 || summary.deletions > 0) {
+    const changeLabel = summary.fileCount > 0
+      ? summary.fileCount === 1
+        ? "1 file changed"
+        : `${summary.fileCount} files changed`
+      : "Changes";
+    elements.push(
+      <Box key="summary">
+        <Text color={sc.text.muted}>{changeLabel}</Text>
+        <Text color={sc.text.muted}>{"· "}</Text>
+        <Text color={sc.background.diff.added}>{`+${summary.additions}`}</Text>
+        <Text color={sc.text.muted}>{" "}</Text>
+        <Text color={sc.background.diff.removed}>
+          {`-${summary.deletions}`}
+        </Text>
+      </Box>,
+    );
+  }
+
   for (let i = 0; i < visibleLines.length; i++) {
     const line = visibleLines[i];
 
     // Insert gap marker between non-contiguous hunks (not the first one)
-    if (line.type === "hunk-header" && prevType !== null && prevType !== "file-header") {
+    if (
+      line.type === "hunk-header" && prevType !== null &&
+      prevType !== "file-header"
+    ) {
       elements.push(renderGapMarker(`gap-${i}`, sc.text.muted));
     }
 
@@ -316,7 +389,15 @@ const DiffRenderer = memo(function DiffRenderer({
         elements.push(renderHunkHeader(line, i, sc.text.muted));
         break;
       case "file-header":
-        elements.push(renderFileHeader(line, i));
+        elements.push(
+          renderFileHeader(
+            line,
+            i,
+            sc.background.diff.added,
+            sc.background.diff.removed,
+            sc.text.muted,
+          ),
+        );
         break;
       default:
         if (newFile && line.type === "add") {

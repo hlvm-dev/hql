@@ -36,7 +36,11 @@ import {
   verifyOllamaCloudAccess,
 } from "../../runtime/ollama-cloud-access.ts";
 import type { ChatResultStats } from "../../runtime/chat-protocol.ts";
-import { PERMISSION_MODES, PERMISSION_MODES_SET, type PermissionMode } from "../../../common/config/types.ts";
+import {
+  PERMISSION_MODES,
+  PERMISSION_MODES_SET,
+  type PermissionMode,
+} from "../../../common/config/types.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
 import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
@@ -49,9 +53,7 @@ import {
   type DelegateTranscriptSnapshot,
   listDelegateTranscriptLines,
 } from "../../agent/delegate-transcript.ts";
-import {
-  formatDelegateGroupForCli,
-} from "../delegate-group-format.ts";
+import { formatDelegateGroupForCli } from "../delegate-group-format.ts";
 import type { DelegateGroupEntry } from "../repl-ink/types.ts";
 import { formatPlanForContext } from "../../agent/planning.ts";
 import {
@@ -135,10 +137,10 @@ PERMISSION MODES:
 
 async function promptRuntimeInteraction(
   event: {
-  mode: "permission" | "question";
-  toolName?: string;
-  toolArgs?: string;
-  question?: string;
+    mode: "permission" | "question";
+    toolName?: string;
+    toolArgs?: string;
+    question?: string;
   },
   permissionMode: PermissionMode,
 ): Promise<{ approved?: boolean; userInput?: string }> {
@@ -149,7 +151,9 @@ async function promptRuntimeInteraction(
           ? { approved: true, userInput: "approve:auto" }
           : { approved: true };
       }
-      if (permissionMode === "acceptEdits" && event.toolName === "plan_review") {
+      if (
+        permissionMode === "acceptEdits" && event.toolName === "plan_review"
+      ) {
         return { approved: true };
       }
     }
@@ -407,7 +411,12 @@ export async function attemptCloudAuthRecovery(
   let { executionError, streamedTokens } = state;
   const { resolvedModel } = state;
 
-  const notHandled = { handled: false, recovered: false, executionError, streamedTokens } as const;
+  const notHandled = {
+    handled: false,
+    recovered: false,
+    executionError,
+    streamedTokens,
+  } as const;
   if (!(executionError instanceof Error)) return notHandled;
   if (!deps.isCloudModelId(resolvedModel)) return notHandled;
   if (!deps.isInteractiveTerminal()) return notHandled;
@@ -454,8 +463,21 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   const parsed = parseArgs(args, {
-    boolean: ["verbose", "usage", "no-session-persistence", "print", "dangerously-skip-permissions"],
-    string: ["permission-mode", "allowedTools", "disallowedTools", "model", "attach", "output-format"],
+    boolean: [
+      "verbose",
+      "usage",
+      "no-session-persistence",
+      "print",
+      "dangerously-skip-permissions",
+    ],
+    string: [
+      "permission-mode",
+      "allowedTools",
+      "disallowedTools",
+      "model",
+      "attach",
+      "output-format",
+    ],
     alias: {
       p: "print",
     },
@@ -473,7 +495,9 @@ export async function askCommand(args: string[]): Promise<void> {
   const VALID_OUTPUT_FORMATS = new Set(["text", "json", "stream-json"]);
   if (!VALID_OUTPUT_FORMATS.has(outputFormat)) {
     throw new ValidationError(
-      `Invalid output format: "${outputFormat}". Valid formats: ${[...VALID_OUTPUT_FORMATS].join(", ")}`,
+      `Invalid output format: "${outputFormat}". Valid formats: ${
+        [...VALID_OUTPUT_FORMATS].join(", ")
+      }`,
       "ask",
     );
   }
@@ -484,7 +508,9 @@ export async function askCommand(args: string[]): Promise<void> {
   let modelOverride: string | undefined = parsed.model || undefined;
   const attachmentArgs: string[] = (parsed.attach as string[]) ?? [];
   const allowedTools = new Set<string>((parsed.allowedTools as string[]) ?? []);
-  const deniedTools = new Set<string>((parsed.disallowedTools as string[]) ?? []);
+  const deniedTools = new Set<string>(
+    (parsed.disallowedTools as string[]) ?? [],
+  );
 
   // Resolve permission mode from flags
   let permissionModeOverride: PermissionMode | undefined;
@@ -494,7 +520,9 @@ export async function askCommand(args: string[]): Promise<void> {
     const mode = parsed["permission-mode"] as PermissionMode;
     if (!PERMISSION_MODES_SET.has(mode)) {
       throw new ValidationError(
-        `Invalid permission mode: "${parsed["permission-mode"]}". Valid modes: ${PERMISSION_MODES.join(", ")}`,
+        `Invalid permission mode: "${
+          parsed["permission-mode"]
+        }". Valid modes: ${PERMISSION_MODES.join(", ")}`,
         "ask",
       );
     }
@@ -729,9 +757,7 @@ export async function askCommand(args: string[]): Promise<void> {
               `\n${formatDelegateGroupForCli(entries, true)}\n`,
             );
           } else {
-            const label = event.success
-              ? "Delegate Result"
-              : "Delegate Error";
+            const label = event.success ? "Delegate Result" : "Delegate Error";
             const body = event.success
               ? event.summary ?? "Delegation complete."
               : event.error ?? "Delegation failed.";
@@ -902,7 +928,9 @@ export async function askCommand(args: string[]): Promise<void> {
           });
           activeDelegateGroups.set(event.batchId, entries);
           log.raw.write(
-            `${CLEAR_LINE}  ${DIM}${formatDelegateGroupForCli(entries, false)}${RESET}`,
+            `${CLEAR_LINE}  ${DIM}${
+              formatDelegateGroupForCli(entries, false)
+            }${RESET}`,
           );
           toolInProgress = true;
         } else {
@@ -922,7 +950,9 @@ export async function askCommand(args: string[]): Promise<void> {
           if (match) {
             match.status = "running";
             log.raw.write(
-              `${CLEAR_LINE}  ${DIM}${formatDelegateGroupForCli(entries, false)}${RESET}`,
+              `${CLEAR_LINE}  ${DIM}${
+                formatDelegateGroupForCli(entries, false)
+              }${RESET}`,
             );
             break;
           }
@@ -957,7 +987,9 @@ export async function askCommand(args: string[]): Promise<void> {
           log.raw.write(
             `${CLEAR_LINE}  ${
               allDone
-                ? entries.some((e) => e.status === "error" || e.status === "cancelled")
+                ? entries.some((e) =>
+                    e.status === "error" || e.status === "cancelled"
+                  )
                   ? `${RED}\u2717${RESET}`
                   : `${GREEN}\u2713${RESET}`
                 : DIM
@@ -1010,10 +1042,29 @@ export async function askCommand(args: string[]): Promise<void> {
         const dur = event.durationMs
           ? `${(event.durationMs / 1000).toFixed(1)}s`
           : "";
+        const cost = typeof event.costUsd === "number"
+          ? ` · $${
+            event.costUsd >= 0.01
+              ? event.costUsd.toFixed(3)
+              : event.costUsd.toFixed(4)
+          } est`
+          : "";
+        const continuation = event.continuationCount
+          ? ` · ${event.continuationCount} continuation${
+            event.continuationCount === 1 ? "" : "s"
+          }`
+          : "";
+        const compaction = event.compactionReason
+          ? ` · ${
+            event.compactionReason === "proactive_pressure"
+              ? "compacted"
+              : "overflow retry"
+          }`
+          : "";
         log.raw.log(
           `\n${DIM}\u2500\u2500\u2500 ${event.toolCount} tool${
             event.toolCount !== 1 ? "s" : ""
-          } \u00b7 ${dur} \u2500\u2500\u2500${RESET}\n`,
+          } \u00b7 ${dur}${cost}${continuation}${compaction} \u2500\u2500\u2500${RESET}\n`,
         );
         break;
       }
@@ -1038,7 +1089,9 @@ export async function askCommand(args: string[]): Promise<void> {
       contextWindow,
       stateless,
       permissionMode: effectivePermissionMode,
-      toolAllowlist: allowedTools.size > 0 ? Array.from(allowedTools) : undefined,
+      toolAllowlist: allowedTools.size > 0
+        ? Array.from(allowedTools)
+        : undefined,
       toolDenylist: deniedTools.size > 0 ? Array.from(deniedTools) : undefined,
       callbacks: {
         onToken,

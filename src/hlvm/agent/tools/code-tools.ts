@@ -205,6 +205,12 @@ export async function searchCode(
 
         // Read file content
         const content = await platform.fs.readTextFile(entry.fullPath);
+        options?.fileStateCache?.trackRead({
+          path: entry.fullPath,
+          content,
+          mtimeMs: stat.mtimeMs,
+          isPartialView: true,
+        });
         const lines = content.split("\n");
 
         // Search each line
@@ -362,6 +368,12 @@ export async function findSymbol(
         const stat = await platform.fs.stat(filePath);
         assertMaxBytes("find_symbol file size", stat.size ?? 0, maxFileBytes);
         const content = await platform.fs.readTextFile(filePath);
+        options?.fileStateCache?.trackRead({
+          path: filePath,
+          content,
+          mtimeMs: stat.mtimeMs,
+          isPartialView: true,
+        });
         throwIfAborted(options?.signal);
         const lines = content.split("\n");
 

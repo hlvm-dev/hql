@@ -59,7 +59,7 @@ const NOTIFICATION_SCHEMAS: Record<string, any> = {
 // ============================================================
 
 export class SdkMcpClient {
-  private readonly client: Client;
+  private client: Client;
   private readonly serverConfig: McpServerConfig;
   private transport:
     | InstanceType<typeof StdioClientTransport>
@@ -67,6 +67,20 @@ export class SdkMcpClient {
     | null = null;
   private closed = false;
   private pendingAbortController = new AbortController();
+  private readonly requestHandlers = new Map<
+    string,
+    (params: unknown) => Promise<unknown>
+  >();
+  private readonly notificationHandlers = new Map<
+    string,
+    (params: unknown) => void
+  >();
+  private readonly reconnectListeners = new Set<() => void>();
+  private connectionState = {
+    connected: false,
+    reconnectAttempts: 0,
+    terminalErrorCount: 0,
+  };
 
   /**
    * Queue for server-initiated requests that arrive before handlers are
@@ -75,15 +89,18 @@ export class SdkMcpClient {
    * then replay them when the real handler is wired via onRequest().
    */
   // deno-lint-ignore no-explicit-any
-  private readonly pendingRequests = new Map<
+  private pendingRequests = new Map<
     string,
     Array<{ params: unknown; resolve: (v: any) => void; reject: (e: unknown) => void }>
   >();
-  private readonly registeredHandlers = new Set<string>();
 
   constructor(serverConfig: McpServerConfig) {
     this.serverConfig = serverConfig;
-    this.client = new Client(
+    this.client = this.createClient();
+  }
+
+  private createClient(): Client {
+    const client = new Client(
       { name: "hlvm", version: "0.1.0" },
       {
         capabilities: {
@@ -94,15 +111,35 @@ export class SdkMcpClient {
       },
     );
 
-    // Pre-register stub handlers for deferrable server requests so the SDK
-    // doesn't reject them if they arrive before onRequest() is called.
     for (const method of ["sampling/createMessage", "elicitation/create", "roots/list"]) {
-      this.installQueuingHandler(method);
+      const handler = this.requestHandlers.get(method);
+      if (handler) {
+        this.applyRequestHandler(client, method, handler);
+      } else {
+        this.installQueuingHandler(client, method);
+      }
     }
+    for (const [method, handler] of this.requestHandlers) {
+      if (
+        method !== "sampling/createMessage" &&
+        method !== "elicitation/create" &&
+        method !== "roots/list"
+      ) {
+        this.applyRequestHandler(client, method, handler);
+      }
+    }
+    for (const [method, handler] of this.notificationHandlers) {
+      this.applyNotificationHandler(client, method, handler);
+    }
+    return client;
   }
 
   /** Connect to the server and perform the initialize handshake */
   async start(): Promise<void> {
+    await this.connectClient();
+  }
+
+  private async connectClient(): Promise<void> {
     if (this.serverConfig.url || this.serverConfig.transport === "http") {
       // HTTP transport
       const url = new URL(this.serverConfig.url!);
@@ -123,18 +160,136 @@ export class SdkMcpClient {
     }
 
     await this.client.connect(this.transport);
+    this.connectionState.connected = true;
+    this.connectionState.reconnectAttempts = 0;
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     this.cancelAllPending("MCP client closed");
     this.closed = true;
+    this.connectionState.connected = false;
     try {
       await this.client.close();
     } catch (error) {
       getAgentLogger().debug(
         `MCP close error (${this.serverConfig.name}): ${getErrorMessage(error)}`,
       );
+    }
+  }
+
+  private extractStatusCode(error: unknown): number | undefined {
+    if (!isObjectValue(error)) return undefined;
+    const direct = typeof error.status === "number" ? error.status : undefined;
+    if (direct !== undefined) return direct;
+    const response = isObjectValue(error.response)
+      ? error.response as Record<string, unknown>
+      : undefined;
+    return typeof response?.status === "number" ? response.status : undefined;
+  }
+
+  private extractJsonRpcCode(error: unknown): number | undefined {
+    if (!isObjectValue(error)) return undefined;
+    const direct = typeof error.code === "number" ? error.code : undefined;
+    if (direct !== undefined) return direct;
+    const nested = isObjectValue(error.error)
+      ? error.error as Record<string, unknown>
+      : undefined;
+    return typeof nested?.code === "number" ? nested.code : undefined;
+  }
+
+  private classifyError(
+    error: unknown,
+  ): "session_expired" | "terminal" | "transient" | "other" {
+    const message = getErrorMessage(error).toLowerCase();
+    const statusCode = this.extractStatusCode(error);
+    const jsonRpcCode = this.extractJsonRpcCode(error);
+    if (
+      statusCode === 404 ||
+      jsonRpcCode === -32001 ||
+      message.includes("session expired")
+    ) {
+      return "session_expired";
+    }
+    if (statusCode === 401 || statusCode === 403) {
+      return "terminal";
+    }
+    if (
+      message.includes("econnreset") ||
+      message.includes("etimedout") ||
+      message.includes("epipe") ||
+      message.includes("socket hang up") ||
+      message.includes("connection closed") ||
+      message.includes("error reading a body from connection") ||
+      message.includes("network")
+    ) {
+      return "transient";
+    }
+    return "other";
+  }
+
+  private async delayReconnect(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async reconnectWithBackoff(): Promise<void> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      this.connectionState.reconnectAttempts = attempt;
+      try {
+        this.cancelAllPending("MCP reconnect");
+        try {
+          await this.client.close();
+        } catch {
+          // Best-effort close before rebuilding transport/client.
+        }
+        this.client = this.createClient();
+        await this.connectClient();
+        this.connectionState.terminalErrorCount = 0;
+        for (const listener of this.reconnectListeners) listener();
+        return;
+      } catch (error) {
+        lastError = error;
+        this.connectionState.connected = false;
+        const delayMs = Math.min(30_000, 1000 * (2 ** (attempt - 1)));
+        if (attempt < 5) {
+          await this.delayReconnect(delayMs);
+        }
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("MCP reconnect exhausted");
+  }
+
+  private async withReconnect<T>(
+    run: (signal?: AbortSignal) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    if (this.connectionState.terminalErrorCount >= 3) {
+      throw new Error(
+        `MCP terminal error budget exceeded for '${this.serverConfig.name}'`,
+      );
+    }
+    try {
+      return await run(signal);
+    } catch (error) {
+      const kind = this.classifyError(error);
+      if (kind === "terminal") {
+        this.connectionState.terminalErrorCount += 1;
+        if (this.connectionState.terminalErrorCount >= 3) {
+          getAgentLogger().warn(
+            `MCP '${this.serverConfig.name}' reached terminal error budget`,
+          );
+        }
+        throw error;
+      }
+      if (kind !== "session_expired" && kind !== "transient") {
+        throw error;
+      }
+      if (this.closed) throw error;
+      await this.reconnectWithBackoff();
+      return await run(signal);
     }
   }
 
@@ -187,16 +342,47 @@ export class SdkMcpClient {
     signal?: AbortSignal,
   ): Promise<T> {
     const { options, cleanup } = this.buildRequestOptions(signal);
+    const abortSignal = options.signal;
+    const abortError = () => {
+      const reason = abortSignal.reason;
+      if (reason instanceof Error) return reason;
+      const error = new Error(
+        typeof reason === "string" && reason.length > 0
+          ? reason
+          : "MCP request aborted",
+      );
+      error.name = "AbortError";
+      return error;
+    };
+
+    if (abortSignal.aborted) {
+      cleanup();
+      throw abortError();
+    }
+
+    let removeAbortListener = () => {};
+    const abortPromise = new Promise<T>((_, reject) => {
+      const onAbort = () => reject(abortError());
+      abortSignal.addEventListener("abort", onAbort, { once: true });
+      removeAbortListener = () =>
+        abortSignal.removeEventListener("abort", onAbort);
+    });
+
     try {
-      return await run(options);
+      return await Promise.race([run(options), abortPromise]);
     } finally {
+      removeAbortListener();
       cleanup();
     }
   }
 
   async listTools(signal?: AbortSignal): Promise<McpToolInfo[]> {
-    const result = await this.withRequestOptions(
-      (options) => this.client.listTools(undefined, options),
+    const result = await this.withReconnect(
+      (requestSignal) =>
+        this.withRequestOptions(
+          (options) => this.client.listTools(undefined, options),
+          requestSignal,
+        ),
       signal,
     );
     return result.tools.map((t) => ({
@@ -220,12 +406,16 @@ export class SdkMcpClient {
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<unknown> {
-    return await this.withRequestOptions(
-      (options) =>
-        this.client.callTool(
-          { name, arguments: args },
-          undefined,
-          options,
+    return await this.withReconnect(
+      (requestSignal) =>
+        this.withRequestOptions(
+          (options) =>
+            this.client.callTool(
+              { name, arguments: args },
+              undefined,
+              options,
+            ),
+          requestSignal,
         ),
       signal,
     );
@@ -236,8 +426,12 @@ export class SdkMcpClient {
   // ============================================================
 
   async listResources(signal?: AbortSignal): Promise<McpResourceInfo[]> {
-    const result = await this.withRequestOptions(
-      (options) => this.client.listResources(undefined, options),
+    const result = await this.withReconnect(
+      (requestSignal) =>
+        this.withRequestOptions(
+          (options) => this.client.listResources(undefined, options),
+          requestSignal,
+        ),
       signal,
     );
     return result.resources.map((r) => ({
@@ -252,8 +446,12 @@ export class SdkMcpClient {
     uri: string,
     signal?: AbortSignal,
   ): Promise<McpResourceContent[]> {
-    const result = await this.withRequestOptions(
-      (options) => this.client.readResource({ uri }, options),
+    const result = await this.withReconnect(
+      (requestSignal) =>
+        this.withRequestOptions(
+          (options) => this.client.readResource({ uri }, options),
+          requestSignal,
+        ),
       signal,
     );
     return result.contents.map((c) => ({
@@ -267,8 +465,12 @@ export class SdkMcpClient {
   async listResourceTemplates(
     signal?: AbortSignal,
   ): Promise<McpResourceTemplate[]> {
-    const result = await this.withRequestOptions(
-      (options) => this.client.listResourceTemplates(undefined, options),
+    const result = await this.withReconnect(
+      (requestSignal) =>
+        this.withRequestOptions(
+          (options) => this.client.listResourceTemplates(undefined, options),
+          requestSignal,
+        ),
       signal,
     );
     return result.resourceTemplates.map((t) => ({
@@ -280,15 +482,23 @@ export class SdkMcpClient {
   }
 
   async subscribeResource(uri: string, signal?: AbortSignal): Promise<void> {
-    await this.withRequestOptions(
-      (options) => this.client.subscribeResource({ uri }, options),
+    await this.withReconnect(
+      (requestSignal) =>
+        this.withRequestOptions(
+          (options) => this.client.subscribeResource({ uri }, options),
+          requestSignal,
+        ),
       signal,
     );
   }
 
   async unsubscribeResource(uri: string, signal?: AbortSignal): Promise<void> {
-    await this.withRequestOptions(
-      (options) => this.client.unsubscribeResource({ uri }, options),
+    await this.withReconnect(
+      (requestSignal) =>
+        this.withRequestOptions(
+          (options) => this.client.unsubscribeResource({ uri }, options),
+          requestSignal,
+        ),
       signal,
     );
   }
@@ -298,8 +508,12 @@ export class SdkMcpClient {
   // ============================================================
 
   async listPrompts(signal?: AbortSignal): Promise<McpPromptInfo[]> {
-    const result = await this.withRequestOptions(
-      (options) => this.client.listPrompts(undefined, options),
+    const result = await this.withReconnect(
+      (requestSignal) =>
+        this.withRequestOptions(
+          (options) => this.client.listPrompts(undefined, options),
+          requestSignal,
+        ),
       signal,
     );
     return result.prompts.map((p) => ({
@@ -318,8 +532,12 @@ export class SdkMcpClient {
     args?: Record<string, string>,
     signal?: AbortSignal,
   ): Promise<McpPromptMessage[]> {
-    const result = await this.withRequestOptions(
-      (options) => this.client.getPrompt({ name, arguments: args }, options),
+    const result = await this.withReconnect(
+      (requestSignal) =>
+        this.withRequestOptions(
+          (options) => this.client.getPrompt({ name, arguments: args }, options),
+          requestSignal,
+        ),
       signal,
     );
     return result.messages as McpPromptMessage[];
@@ -336,8 +554,12 @@ export class SdkMcpClient {
     argument: { name: string; value: string },
     signal?: AbortSignal,
   ): Promise<string[]> {
-    const result = await this.withRequestOptions(
-      (options) => this.client.complete({ ref, argument }, options),
+    const result = await this.withReconnect(
+      (requestSignal) =>
+        this.withRequestOptions(
+          (options) => this.client.complete({ ref, argument }, options),
+          requestSignal,
+        ),
       signal,
     );
     return result.completion.values;
@@ -348,17 +570,21 @@ export class SdkMcpClient {
   // ============================================================
 
   async setLogLevel(level: string, signal?: AbortSignal): Promise<void> {
-    await this.withRequestOptions(
-      (options) =>
-        this.client.setLoggingLevel(level as
-          | "debug"
-          | "info"
-          | "notice"
-          | "warning"
-          | "error"
-          | "critical"
-          | "alert"
-          | "emergency", options),
+    await this.withReconnect(
+      (requestSignal) =>
+        this.withRequestOptions(
+          (options) =>
+            this.client.setLoggingLevel(level as
+              | "debug"
+              | "info"
+              | "notice"
+              | "warning"
+              | "error"
+              | "critical"
+              | "alert"
+              | "emergency", options),
+          requestSignal,
+        ),
       signal,
     );
   }
@@ -368,8 +594,12 @@ export class SdkMcpClient {
   // ============================================================
 
   async ping(signal?: AbortSignal): Promise<void> {
-    await this.withRequestOptions(
-      (options) => this.client.ping(options),
+    await this.withReconnect(
+      (requestSignal) =>
+        this.withRequestOptions(
+          (options) => this.client.ping(options),
+          requestSignal,
+        ),
       signal,
     );
   }
@@ -384,6 +614,10 @@ export class SdkMcpClient {
     return name in caps;
   }
 
+  onReconnect(listener: () => void): void {
+    this.reconnectListeners.add(listener);
+  }
+
   // ============================================================
   // Request / Notification handlers (bidirectional protocol)
   // ============================================================
@@ -392,10 +626,10 @@ export class SdkMcpClient {
    * Install a queuing stub handler for a deferrable server request method.
    * Captures requests that arrive before the real handler is registered.
    */
-  private installQueuingHandler(method: string): void {
+  private installQueuingHandler(client: Client, method: string): void {
     const schema = REQUEST_SCHEMAS[method];
     if (!schema) return;
-    this.client.setRequestHandler(schema, (request) => {
+    client.setRequestHandler(schema, (request) => {
       return new Promise((resolve, reject) => {
         if (!this.pendingRequests.has(method)) {
           this.pendingRequests.set(method, []);
@@ -411,6 +645,36 @@ export class SdkMcpClient {
     });
   }
 
+  private applyRequestHandler(
+    client: Client,
+    method: string,
+    handler: (params: unknown) => Promise<unknown>,
+  ): void {
+    const schema = REQUEST_SCHEMAS[method];
+    if (!schema) {
+      getAgentLogger().debug(`No SDK schema for request method: ${method}`);
+      return;
+    }
+    client.setRequestHandler(schema, async (request) => {
+      return await handler(request.params) as Record<string, unknown>;
+    });
+  }
+
+  private applyNotificationHandler(
+    client: Client,
+    method: string,
+    handler: (params: unknown) => void,
+  ): void {
+    const schema = NOTIFICATION_SCHEMAS[method];
+    if (!schema) {
+      getAgentLogger().debug(`No SDK schema for notification method: ${method}`);
+      return;
+    }
+    client.setNotificationHandler(schema, (notification) => {
+      handler(notification.params);
+    });
+  }
+
   /**
    * Register a handler for server-initiated requests.
    * Maps method strings to SDK Zod schemas for type-safe handler registration.
@@ -420,17 +684,8 @@ export class SdkMcpClient {
     method: string,
     handler: (params: unknown) => Promise<unknown>,
   ): void {
-    const schema = REQUEST_SCHEMAS[method];
-    if (!schema) {
-      getAgentLogger().debug(`No SDK schema for request method: ${method}`);
-      return;
-    }
-    this.registeredHandlers.add(method);
-
-    // Replace the queuing stub with the real handler
-    this.client.setRequestHandler(schema, async (request) => {
-      return await handler(request.params) as Record<string, unknown>;
-    });
+    this.requestHandlers.set(method, handler);
+    this.applyRequestHandler(this.client, method, handler);
 
     // Replay any requests that were queued while waiting for this handler
     const queued = this.pendingRequests.get(method);
@@ -452,14 +707,8 @@ export class SdkMcpClient {
     method: string,
     handler: (params: unknown) => void,
   ): void {
-    const schema = NOTIFICATION_SCHEMAS[method];
-    if (!schema) {
-      getAgentLogger().debug(`No SDK schema for notification method: ${method}`);
-      return;
-    }
-    this.client.setNotificationHandler(schema, (notification) => {
-      handler(notification.params);
-    });
+    this.notificationHandlers.set(method, handler);
+    this.applyNotificationHandler(this.client, method, handler);
   }
 
   // ============================================================

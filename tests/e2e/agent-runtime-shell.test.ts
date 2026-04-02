@@ -1,7 +1,18 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { getPlatform } from "../../src/platform/platform.ts";
-import { createSerializedQueue, findFreePort, normalizeCliOutput } from "../shared/light-helpers.ts";
-import { shutdownRuntimeHostIfPresent } from "../shared/runtime-host-test-helpers.ts";
+import {
+  createSerializedQueue,
+  normalizeCliOutput,
+} from "../shared/light-helpers.ts";
+import {
+  createMonotonicPortAllocator,
+  createRuntimeHostLifecycleProbe,
+  formatRuntimeHostLifecycleDiagnostics,
+  shutdownRuntimeHostIfPresent,
+  waitForRuntimeHostShutdown,
+  type RuntimeHostLifecycleDiagnostics,
+  type RuntimeHostLifecycleProbe,
+} from "../shared/runtime-host-test-helpers.ts";
 
 const platform = getPlatform();
 const FIXTURE_PATH = platform.path.fromFileUrl(
@@ -16,6 +27,8 @@ const HOOK_RECORDER_PATH = platform.path.fromFileUrl(
 const LIVE_MODEL = platform.env.get("HLVM_LIVE_AGENT_MODEL")?.trim() || "";
 const withSerializedLocalAsk = createSerializedQueue();
 const withSerializedLocalAskTest = createSerializedQueue();
+const allocateRuntimeShellPort = createMonotonicPortAllocator();
+const LOCAL_ASK_AUTO_SHUTDOWN_GRACE_MS = 250;
 
 interface LocalAskTestDefinition {
   name: string;
@@ -42,8 +55,16 @@ async function runLocalAsk(
   args: string[],
   env: Record<string, string>,
   cwd?: string,
-): Promise<{ success: boolean; stdout: string; stderr: string; code: number }> {
+  runtimeProbe?: RuntimeHostLifecycleProbe,
+): Promise<{
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  code: number;
+  lifecycle?: RuntimeHostLifecycleDiagnostics;
+}> {
   return await withSerializedLocalAsk(async () => {
+    const baseUrl = `http://127.0.0.1:${port}`;
     const cmd = ["deno", "run", "-A", CLI_PATH, "ask", ...args];
     const output = await platform.command.output({
       cmd,
@@ -56,13 +77,37 @@ async function runLocalAsk(
       stdout: "piped",
       stderr: "piped",
     });
+    const shutdownObserved = await waitForRuntimeHostShutdown(baseUrl, 5_000);
+    if (shutdownObserved) {
+      runtimeProbe?.noteShutdownObserved();
+      await new Promise((resolve) =>
+        setTimeout(resolve, LOCAL_ASK_AUTO_SHUTDOWN_GRACE_MS)
+      );
+    }
     return {
       success: output.success,
       code: output.code,
       stdout: new TextDecoder().decode(output.stdout),
       stderr: new TextDecoder().decode(output.stderr),
+      lifecycle: runtimeProbe?.snapshot(
+        new TextDecoder().decode(output.stdout) +
+          new TextDecoder().decode(output.stderr),
+      ),
     };
   });
+}
+
+function describeLocalAskResult(
+  result: {
+    stdout: string;
+    stderr: string;
+    lifecycle?: RuntimeHostLifecycleDiagnostics;
+  },
+): string {
+  const output = normalizeCliOutput(result.stdout + result.stderr);
+  if (!result.lifecycle) return output;
+  const diagnostics = formatRuntimeHostLifecycleDiagnostics(result.lifecycle);
+  return output.trim().length > 0 ? `${output}\n\n${diagnostics}` : diagnostics;
 }
 
 async function detectNonDenoTypeScriptLspLabel(): Promise<string | null> {
@@ -407,6 +452,44 @@ async function createAiLoopEnhancementFixture(
         ],
       },
       {
+        name: "continuation-metadata",
+        match: { contains: ["continuation metadata enhancement smoke"] },
+        steps: [
+          {
+            response:
+              "RESILIENCE-CONTINUATION-HEADER\n1. fruit-1\n2. fruit-2\n3. fruit-3\n4. fruit-4\n",
+            completionState: "truncated_max_tokens",
+          },
+          {
+            response:
+              "4. fruit-4\n5. fruit-5\n6. fruit-6\n",
+          },
+        ],
+      },
+      {
+        name: "proactive-compaction-metadata",
+        match: { contains: ["proactive compaction metadata enhancement smoke"] },
+        steps: [
+          {
+            toolCalls: [{
+              id: "compaction_read_1",
+              toolName: "read_file",
+              args: { path: "large.txt" },
+            }],
+          },
+          {
+            expect: { contains: ["Summary of earlier context:"] },
+            response: "Compaction metadata enhancement complete",
+          },
+          {
+            response: "Compaction metadata enhancement complete",
+          },
+          {
+            response: "Compaction metadata enhancement complete",
+          },
+        ],
+      },
+      {
         name: "adaptive-thinking",
         match: { contains: ["fix adaptive thinking enhancement smoke"] },
         steps: [
@@ -538,12 +621,14 @@ async function withAiLoopEnhancementWorkspace(
       port: number;
       baseUrl: string;
       fixturePath: string;
+      runtimeProbe: RuntimeHostLifecycleProbe;
     },
   ) => Promise<void>,
 ): Promise<void> {
   const hlvmDir = await platform.fs.makeTempDir({ prefix });
-  const port = await findFreePort();
+  const port = await allocateRuntimeShellPort();
   const baseUrl = `http://127.0.0.1:${port}`;
+  const runtimeProbe = createRuntimeHostLifecycleProbe(baseUrl, port);
   const externalTypeScriptLspLabel = await detectNonDenoTypeScriptLspLabel();
   const fixturePath = await createAiLoopEnhancementFixture(
     hlvmDir,
@@ -551,9 +636,10 @@ async function withAiLoopEnhancementWorkspace(
   );
 
   try {
-    await fn({ hlvmDir, port, baseUrl, fixturePath });
+    await fn({ hlvmDir, port, baseUrl, fixturePath, runtimeProbe });
   } finally {
-    await shutdownRuntimeHostIfPresent(baseUrl);
+    await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
+    await runtimeProbe.stop();
     await platform.fs.remove(hlvmDir, { recursive: true });
   }
 }
@@ -562,11 +648,12 @@ localAskTest({
   name:
     "local ask command self-starts the runtime host and renders system-managed delegation",
   fn: async () => {
-    const port = await findFreePort();
+    const port = await allocateRuntimeShellPort();
     const hlvmDir = await platform.fs.makeTempDir({
       prefix: "hlvm-shell-e2e-",
     });
     const baseUrl = `http://127.0.0.1:${port}`;
+    const runtimeProbe = createRuntimeHostLifecycleProbe(baseUrl, port);
 
     try {
       const result = await runLocalAsk(
@@ -582,9 +669,11 @@ localAskTest({
           HLVM_DIR: hlvmDir,
           HLVM_ASK_FIXTURE_PATH: FIXTURE_PATH,
         },
+        undefined,
+        runtimeProbe,
       );
 
-      const output = normalizeCliOutput(result.stdout + result.stderr);
+      const output = describeLocalAskResult(result);
       assertEquals(result.success, true, output);
       assertStringIncludes(output, "[Delegate] code");
       assertStringIncludes(output, "[Team Task] pending Review parser patch");
@@ -597,7 +686,8 @@ localAskTest({
         "Result:\nMulti-agent parser coordination complete",
       );
     } finally {
-      await shutdownRuntimeHostIfPresent(baseUrl);
+      await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
+      await runtimeProbe.stop();
       await platform.fs.remove(hlvmDir, { recursive: true });
     }
   },
@@ -607,11 +697,12 @@ localAskTest({
   name:
     "local ask command forwards multimodal attachments through the runtime host",
   fn: async () => {
-    const port = await findFreePort();
+    const port = await allocateRuntimeShellPort();
     const hlvmDir = await platform.fs.makeTempDir({
       prefix: "hlvm-multimodal-ask-",
     });
     const baseUrl = `http://127.0.0.1:${port}`;
+    const runtimeProbe = createRuntimeHostLifecycleProbe(baseUrl, port);
 
     try {
       const { fixturePath, imagePath, pdfPath } =
@@ -635,16 +726,19 @@ localAskTest({
           HLVM_DIR: hlvmDir,
           HLVM_ASK_FIXTURE_PATH: fixturePath,
         },
+        undefined,
+        runtimeProbe,
       );
 
-      const output = normalizeCliOutput(result.stdout + result.stderr);
+      const output = describeLocalAskResult(result);
       assertEquals(result.success, true, output);
       assertStringIncludes(
         output,
         "Result:\nMultimodal attachment receipt confirmed",
       );
     } finally {
-      await shutdownRuntimeHostIfPresent(baseUrl);
+      await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
+      await runtimeProbe.stop();
       await platform.fs.remove(hlvmDir, { recursive: true });
     }
   },
@@ -654,11 +748,12 @@ localAskTest({
   name:
     "delegation heuristic injects system hint for multi-file concurrent request",
   fn: async () => {
-    const port = await findFreePort();
+    const port = await allocateRuntimeShellPort();
     const hlvmDir = await platform.fs.makeTempDir({
       prefix: "hlvm-heuristic-e2e-",
     });
     const baseUrl = `http://127.0.0.1:${port}`;
+    const runtimeProbe = createRuntimeHostLifecycleProbe(baseUrl, port);
 
     try {
       const result = await runLocalAsk(
@@ -674,9 +769,11 @@ localAskTest({
           HLVM_DIR: hlvmDir,
           HLVM_ASK_FIXTURE_PATH: FIXTURE_PATH,
         },
+        undefined,
+        runtimeProbe,
       );
 
-      const output = normalizeCliOutput(result.stdout + result.stderr);
+      const output = describeLocalAskResult(result);
       // If the fixture expect passes (it checks for [System hint] and fan-out
       // in the messages fed to the LLM), the process exits successfully.
       // A fixture expect mismatch would cause a non-zero exit code.
@@ -691,7 +788,8 @@ localAskTest({
         "Result:\nDelegation heuristic test complete",
       );
     } finally {
-      await shutdownRuntimeHostIfPresent(baseUrl);
+      await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
+      await runtimeProbe.stop();
       await platform.fs.remove(hlvmDir, { recursive: true });
     }
   },
@@ -703,7 +801,7 @@ localAskTest({
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-reasoning-",
-      async ({ hlvmDir, port, fixturePath }) => {
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
         const result = await runLocalAsk(
           port,
           [
@@ -718,9 +816,10 @@ localAskTest({
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
+          runtimeProbe,
         );
 
-        const output = normalizeCliOutput(result.stdout + result.stderr);
+        const output = describeLocalAskResult(result);
         assertEquals(result.success, true, output);
         assertStringIncludes(
           output,
@@ -738,7 +837,7 @@ localAskTest({
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-compression-",
-      async ({ hlvmDir, port, fixturePath }) => {
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
         const result = await runLocalAsk(
           port,
           [
@@ -752,9 +851,10 @@ localAskTest({
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
+          runtimeProbe,
         );
 
-        const output = normalizeCliOutput(result.stdout + result.stderr);
+        const output = describeLocalAskResult(result);
         // The second fixture step asserts the exact compression markers
         // present in the messages fed back to the model. A mismatch makes
         // the CLI exit non-zero.
@@ -771,7 +871,7 @@ localAskTest({
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-verify-pass-",
-      async ({ hlvmDir, port, fixturePath }) => {
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
         const externalTypeScriptLspLabel = await detectNonDenoTypeScriptLspLabel();
         const result = await runLocalAsk(
           port,
@@ -788,9 +888,10 @@ localAskTest({
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
+          runtimeProbe,
         );
 
-        const output = normalizeCliOutput(result.stdout + result.stderr);
+        const output = describeLocalAskResult(result);
         assertEquals(result.success, true, output);
         assertStringIncludes(
           output,
@@ -811,7 +912,7 @@ localAskTest({
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-verify-fail-",
-      async ({ hlvmDir, port, fixturePath }) => {
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
         const externalTypeScriptLspLabel = await detectNonDenoTypeScriptLspLabel();
         const result = await runLocalAsk(
           port,
@@ -828,9 +929,10 @@ localAskTest({
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
+          runtimeProbe,
         );
 
-        const output = normalizeCliOutput(result.stdout + result.stderr);
+        const output = describeLocalAskResult(result);
         assertEquals(result.success, true, output);
         assertStringIncludes(
           output,
@@ -851,7 +953,7 @@ localAskTest({
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-lsp-verify-pass-",
-      async ({ hlvmDir, port, fixturePath }) => {
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
         await platform.fs.writeTextFile(
           platform.path.join(hlvmDir, "deno.json"),
           "{}\n",
@@ -872,9 +974,10 @@ localAskTest({
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
+          runtimeProbe,
         );
 
-        const output = normalizeCliOutput(result.stdout + result.stderr);
+        const output = describeLocalAskResult(result);
         assertEquals(result.success, true, output);
         assertStringIncludes(output, "LSP diagnostics passed via deno lsp.");
         assertStringIncludes(
@@ -892,7 +995,7 @@ localAskTest({
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-lsp-verify-fail-",
-      async ({ hlvmDir, port, fixturePath }) => {
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
         await platform.fs.writeTextFile(
           platform.path.join(hlvmDir, "deno.json"),
           "{}\n",
@@ -913,9 +1016,10 @@ localAskTest({
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
+          runtimeProbe,
         );
 
-        const output = normalizeCliOutput(result.stdout + result.stderr);
+        const output = describeLocalAskResult(result);
         assertEquals(result.success, true, output);
         assertStringIncludes(
           output,
@@ -936,11 +1040,83 @@ localAskTest({
 
 localAskTest({
   name:
+    "raw ./hlvm ask keeps the local runtime host stable across sequential deno LSP pass then fail checks",
+  fn: async () => {
+    await withAiLoopEnhancementWorkspace(
+      "hlvm-ai-loop-lsp-sequential-",
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
+        await platform.fs.writeTextFile(
+          platform.path.join(hlvmDir, "deno.json"),
+          "{}\n",
+        );
+
+        const passResult = await runLocalAsk(
+          port,
+          [
+            "--no-session-persistence",
+            "--permission-mode", "acceptEdits",
+            "--verbose",
+            "--model",
+            "ollama/test-fixture",
+            "write lsp verify pass enhancement smoke",
+          ],
+          {
+            HLVM_DIR: hlvmDir,
+            HLVM_ASK_FIXTURE_PATH: fixturePath,
+          },
+          hlvmDir,
+          runtimeProbe,
+        );
+
+        const passOutput = describeLocalAskResult(passResult);
+        assertEquals(passResult.success, true, passOutput);
+        assertStringIncludes(passOutput, "LSP diagnostics passed via deno lsp.");
+
+        const failResult = await runLocalAsk(
+          port,
+          [
+            "--no-session-persistence",
+            "--permission-mode", "acceptEdits",
+            "--verbose",
+            "--model",
+            "ollama/test-fixture",
+            "write lsp verify fail enhancement smoke",
+          ],
+          {
+            HLVM_DIR: hlvmDir,
+            HLVM_ASK_FIXTURE_PATH: fixturePath,
+          },
+          hlvmDir,
+          runtimeProbe,
+        );
+
+        const failOutput = describeLocalAskResult(failResult);
+        assertEquals(failResult.success, true, failOutput);
+        assertStringIncludes(
+          failOutput,
+          "LSP diagnostics via deno lsp found 1 error.",
+        );
+        assertStringIncludes(
+          failOutput,
+          "Type 'string' is not assignable to type 'number'.",
+        );
+        assertEquals(
+          failOutput.includes("[HLVM5009]"),
+          false,
+          failOutput,
+        );
+      },
+    );
+  },
+});
+
+localAskTest({
+  name:
     "raw ./hlvm ask executes project lifecycle hooks and records tool/final events",
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-hooks-",
-      async ({ hlvmDir, port, fixturePath }) => {
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
         const hookLogPath = platform.path.join(hlvmDir, "hook-log.jsonl");
         await writeProjectHooksConfig(hlvmDir, {
           pre_tool: [{
@@ -968,9 +1144,10 @@ localAskTest({
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
+          runtimeProbe,
         );
 
-        const output = normalizeCliOutput(result.stdout + result.stderr);
+        const output = describeLocalAskResult(result);
         assertEquals(result.success, true, output);
         assertStringIncludes(output, "Result:\nHooks enhancement complete");
 
@@ -984,7 +1161,94 @@ localAskTest({
           ["pre_tool", "post_tool", "final_response"],
         );
         assertEquals(events[0]?.payload?.toolName, "read_file");
+        assertEquals(typeof events[0]?.payload?.toolCallId, "string");
+        assertEquals(events[1]?.payload?.toolName, "read_file");
+        assertEquals(events[1]?.payload?.presentationKind, "read");
+        assertEquals(typeof events[2]?.payload?.turnId, "string");
         assertEquals(events[2]?.payload?.text, "Hooks enhancement complete");
+      },
+    );
+  },
+});
+
+localAskTest({
+  name:
+    "raw ./hlvm ask stream-json reports continuation metadata through the local runtime host",
+  fn: async () => {
+    await withAiLoopEnhancementWorkspace(
+      "hlvm-ai-loop-runtime-metadata-",
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
+        const hookLogPath = platform.path.join(
+          hlvmDir,
+          "runtime-metadata-hook-log.jsonl",
+        );
+        await writeProjectHooksConfig(hlvmDir, {
+          final_response: [{
+            command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, hookLogPath],
+          }],
+        });
+
+        const continuationResult = await runLocalAsk(
+          port,
+          [
+            "--no-session-persistence",
+            "--output-format", "stream-json",
+            "--model",
+            "ollama/test-fixture",
+            "continuation metadata enhancement smoke",
+          ],
+          {
+            HLVM_DIR: hlvmDir,
+            HLVM_ASK_FIXTURE_PATH: fixturePath,
+          },
+          hlvmDir,
+          runtimeProbe,
+        );
+
+        const continuationOutput = normalizeCliOutput(
+          continuationResult.stdout + continuationResult.stderr,
+        ).trim();
+        assertEquals(continuationResult.success, true, continuationOutput);
+
+        const continuationLines = continuationOutput
+          .split("\n")
+          .filter(Boolean)
+          .map((line) =>
+            JSON.parse(line) as {
+              type: string;
+              event?: {
+                type?: string;
+                continuedThisTurn?: boolean;
+                continuationCount?: number;
+              };
+              text?: string;
+            }
+          );
+        const continuationFinal = continuationLines.find((line) =>
+          line.type === "final"
+        );
+        const continuationStats = continuationLines.find((line) =>
+          line.type === "agent_event" && line.event?.type === "turn_stats"
+        );
+        assertEquals(typeof continuationFinal?.text, "string");
+        assertEquals(continuationStats?.event?.continuedThisTurn, true);
+        assertEquals(continuationStats?.event?.continuationCount, 1);
+
+        const hookEvents = parseJsonLines(
+          await platform.fs.readTextFile(hookLogPath),
+        ) as Array<{
+          hook: string;
+          payload?: Record<string, unknown>;
+        }>;
+        const continuationFinalHook = hookEvents.find((event) =>
+          event.hook === "final_response"
+        );
+        const mergedText = String(continuationFinalHook?.payload?.text ?? "");
+        assertStringIncludes(mergedText, "RESILIENCE-CONTINUATION-HEADER");
+        assertEquals(
+          mergedText.split("RESILIENCE-CONTINUATION-HEADER").length - 1,
+          1,
+        );
       },
     );
   },
@@ -999,7 +1263,7 @@ localAskTest({
 
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-external-lsp-",
-      async ({ hlvmDir, port, fixturePath }) => {
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
         await platform.fs.writeTextFile(
           platform.path.join(hlvmDir, "tsconfig.json"),
           "{\n  \"compilerOptions\": {\n    \"strict\": true\n  }\n}\n",
@@ -1020,9 +1284,10 @@ localAskTest({
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
+          runtimeProbe,
         );
 
-        const passOutput = normalizeCliOutput(passResult.stdout + passResult.stderr);
+        const passOutput = describeLocalAskResult(passResult);
         assertEquals(passResult.success, true, passOutput);
         assertStringIncludes(passOutput, `LSP diagnostics passed via ${lspLabel}.`);
         assertStringIncludes(
@@ -1045,9 +1310,10 @@ localAskTest({
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
+          runtimeProbe,
         );
 
-        const failOutput = normalizeCliOutput(failResult.stdout + failResult.stderr);
+        const failOutput = describeLocalAskResult(failResult);
         assertEquals(failResult.success, true, failOutput);
         assertStringIncludes(
           failOutput,
@@ -1071,7 +1337,7 @@ localAskTest({
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-thinking-",
-      async ({ hlvmDir, port, fixturePath }) => {
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
         const result = await runLocalAsk(
           port,
           [
@@ -1086,9 +1352,10 @@ localAskTest({
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
+          runtimeProbe,
         );
 
-        const output = normalizeCliOutput(result.stdout + result.stderr);
+        const output = describeLocalAskResult(result);
         assertEquals(result.success, true, output);
         assertStringIncludes(
           output,
@@ -1113,7 +1380,7 @@ localAskTest({
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-phase-pruning-",
-      async ({ hlvmDir, port, fixturePath }) => {
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
         const result = await runLocalAsk(
           port,
           [
@@ -1129,9 +1396,10 @@ localAskTest({
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
+          runtimeProbe,
         );
 
-        const output = normalizeCliOutput(result.stdout + result.stderr);
+        const output = describeLocalAskResult(result);
         assertEquals(result.success, true, output);
         assertStringIncludes(
           output,
@@ -1151,7 +1419,7 @@ localAskTest({
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-recovery-",
-      async ({ hlvmDir, port, fixturePath }) => {
+      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
         const result = await runLocalAsk(
           port,
           [
@@ -1166,9 +1434,10 @@ localAskTest({
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
+          runtimeProbe,
         );
 
-        const output = normalizeCliOutput(result.stdout + result.stderr);
+        const output = describeLocalAskResult(result);
         assertEquals(result.success, true, output);
         assertStringIncludes(
           output,
@@ -1184,11 +1453,12 @@ localAskTest({
     "live local ask smoke test uses natural language to trigger delegation and team coordination",
   ignore: LIVE_MODEL.length === 0,
   fn: async () => {
-    const port = await findFreePort();
+    const port = await allocateRuntimeShellPort();
     const hlvmDir = await platform.fs.makeTempDir({
       prefix: "hlvm-live-agent-",
     });
     const baseUrl = `http://127.0.0.1:${port}`;
+    const runtimeProbe = createRuntimeHostLifecycleProbe(baseUrl, port);
 
     try {
       const result = await runLocalAsk(
@@ -1203,9 +1473,11 @@ localAskTest({
         {
           HLVM_DIR: hlvmDir,
         },
+        undefined,
+        runtimeProbe,
       );
 
-      const output = normalizeCliOutput(result.stdout + result.stderr);
+      const output = describeLocalAskResult(result);
       assertEquals(result.success, true, output);
       assertEquals(
         output.includes("[Delegate]") || output.includes("delegate "),
@@ -1219,7 +1491,8 @@ localAskTest({
       );
       assertEquals(output.includes("Result:\n"), true, output);
     } finally {
-      await shutdownRuntimeHostIfPresent(baseUrl);
+      await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
+      await runtimeProbe.stop();
       await platform.fs.remove(hlvmDir, { recursive: true });
     }
   },

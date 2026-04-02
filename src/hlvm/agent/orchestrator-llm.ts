@@ -5,17 +5,27 @@
 
 import { type ContextManager } from "./context.ts";
 import type { Message } from "./context.ts";
-import { createAbortError, throwIfAborted, withTimeout } from "../../common/timeout-utils.ts";
+import {
+  createAbortError,
+  throwIfAborted,
+  withTimeout,
+} from "../../common/timeout-utils.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { classifyError } from "./error-taxonomy.ts";
 import { getAgentLogger } from "./logger.ts";
 import type { LLMResponse } from "./tool-call.ts";
 import type { TraceEvent } from "./orchestrator.ts";
 
+export interface LLMCallOptions {
+  onToken?: (text: string) => void;
+  disableTools?: boolean;
+}
+
 /** LLM function signature used by orchestrator */
 export type LLMFunction = (
   messages: Message[],
   signal?: AbortSignal,
+  options?: LLMCallOptions,
 ) => Promise<LLMResponse>;
 
 async function sleepWithAbort(
@@ -54,10 +64,11 @@ async function callLLMWithTimeout(
   messages: Message[],
   timeout: number,
   parentSignal?: AbortSignal,
+  callOptions?: LLMCallOptions,
 ): Promise<LLMResponse> {
   return await withTimeout(
     async (signal) => {
-      const response = await llmFn(messages, signal);
+      const response = await llmFn(messages, signal, callOptions);
       if (signal.aborted) {
         throw new RuntimeError("LLM call aborted");
       }
@@ -76,7 +87,13 @@ async function callLLMWithTimeout(
 export async function callLLMWithRetry(
   llmFn: LLMFunction,
   initialMessages: Message[],
-  config: { timeout: number; maxRetries: number; signal?: AbortSignal },
+  config: {
+    timeout: number;
+    maxRetries: number;
+    signal?: AbortSignal;
+    callOptions?: LLMCallOptions;
+    onContextOverflowRetry?: () => void;
+  },
   onTrace?: (event: TraceEvent) => void,
   overflowContext?: ContextManager,
 ): Promise<LLMResponse> {
@@ -91,6 +108,7 @@ export async function callLLMWithRetry(
         messages,
         config.timeout,
         config.signal,
+        config.callOptions,
       );
     } catch (error) {
       lastError = error as Error;
@@ -105,23 +123,27 @@ export async function callLLMWithRetry(
         error: classified.message,
       });
 
-      // Handle context overflow: halve budget, trim, retry once
+      // Handle context overflow: run one reactive compaction pass, then retry.
       if (classified.class === "context_overflow") {
         if (overflowContext && !overflowRetried) {
           overflowRetried = true;
           const currentBudget = overflowContext.getMaxTokens();
-          const newBudget = Math.floor(currentBudget / 2);
-          overflowContext.setMaxTokens(newBudget);
-          overflowContext.trimToFit();
+          overflowContext.requestCompaction();
+          await overflowContext.compactIfNeeded();
+          if (overflowContext.needsTrimming()) {
+            overflowContext.trimToFit();
+          }
           messages = overflowContext.getMessages();
           getAgentLogger().debug?.(
-            `Context overflow: halved budget ${currentBudget} → ${newBudget}`,
+            `Context overflow: compacted and retried within ${currentBudget} token budget`,
           );
           onTrace?.({
             type: "context_overflow_retry",
-            newBudget,
+            newBudget: currentBudget,
             overflowRetryCount: 1,
+            reason: "overflow_retry",
           } as TraceEvent);
+          config.onContextOverflowRetry?.();
           continue;
         }
         // Already retried or no context — throw immediately

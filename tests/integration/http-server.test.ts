@@ -694,6 +694,88 @@ Deno.test({
 
 Deno.test({
   name:
+    "http server: agent mode survives a proactively compacted prompt through the runtime stream",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const platform = getPlatform();
+      const fixtureDir = await platform.fs.makeTempDir({
+        prefix: "hlvm-integration-agent-compaction-",
+      });
+      try {
+        const fixturePath = platform.path.join(
+          fixtureDir,
+          "compaction-fixture.json",
+        );
+        await platform.fs.writeTextFile(
+          fixturePath,
+          JSON.stringify({
+            version: 1,
+            name: "integration compaction fixture",
+            cases: [
+              {
+                name: "default",
+                match: {
+                  contains: ["integration compaction smoke"],
+                },
+                steps: [
+                  {
+                    expect: {
+                      contains: ["Summary of earlier context:"],
+                    },
+                    response: "integration-compaction-ok",
+                  },
+                  {
+                    response: "integration-compaction-ok",
+                  },
+                  {
+                    response: "integration-compaction-ok",
+                  },
+                ],
+              },
+            ],
+          }, null, 2),
+        );
+
+        const repeatedA = "alpha ".repeat(220);
+        const repeatedB = "beta ".repeat(220);
+        const repeatedC = "gamma ".repeat(220);
+        const repeatedD = "delta ".repeat(220);
+        const result = await postChatNdjson({
+          mode: "agent",
+          model: "ollama/test-fixture",
+          fixture_path: fixturePath,
+          context_window: 320,
+          trace: true,
+          messages: [
+            { role: "user", content: `history-a ${repeatedA}` },
+            { role: "assistant", content: `history-b ${repeatedB}` },
+            { role: "user", content: `history-c ${repeatedC}` },
+            { role: "assistant", content: `history-d ${repeatedD}` },
+            { role: "user", content: "integration compaction smoke" },
+          ],
+        });
+
+        assertEquals(result.status, 200);
+        const streamedText = result.events
+          .filter((event) => event.event === "token")
+          .map((event) => String(event.text ?? ""))
+          .join("");
+        const turnStats = result.events.find((event) =>
+          event.event === "turn_stats"
+        );
+        assertStringIncludes(streamedText, "integration-compaction-ok");
+        assertEquals(turnStats !== undefined, true);
+      } finally {
+        await platform.fs.remove(fixtureDir, { recursive: true });
+      }
+    });
+  },
+});
+
+Deno.test({
+  name:
     "http server: chat honors explicit request messages including system context",
   sanitizeResources: false,
   sanitizeOps: false,

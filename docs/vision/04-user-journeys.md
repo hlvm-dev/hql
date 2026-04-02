@@ -11,8 +11,8 @@ HLVM installed on her Mac.
 
 ### Step 1: Browse the Registry
 
-Sarah opens the HLVM app and clicks Browse. The app searches the Git registry
-(`hlvm/registry` on GitHub) for available modules.
+Sarah opens the HLVM app and clicks Browse. The app searches JSR and npm for
+available HLVM modules (any ESM module with `__hlvm_meta`).
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -242,32 +242,21 @@ $ hlvm run ./index.hql --file-path ./test.ts
 
 ### Step 3: Deploy
 
-There is no central server. `hlvm deploy` compiles the module, uploads the code
-to the author's own hosting (GitHub Releases by default), and opens a PR to the
-Git registry (`hlvm/registry` on GitHub, like Homebrew).
+`hlvm deploy --jsr` compiles the module and publishes it to JSR in one step.
 
 ```
-$ hlvm deploy
+$ hlvm deploy --jsr
 
-  Step 1/4: Compiling
-  index.hql → dist/main.js ........................ done
+  Step 1/2: Compiling
+  index.hql → main.js ........................ done
   Effect detected: ai (uses ai() calls)
   Permissions detected: network, filesystem
 
-  Step 2/4: Uploading code
-  Creating GitHub release @jake/code-reviewer@1.0.0  done
-  Uploaded: main.js (3.1 KB, code + __hlvm_meta bundled)
-  URL: github.com/jake/hlvm-modules/releases/tag/code-reviewer-1.0.0
+  Step 2/2: Publishing to JSR
+  Publishing jsr:@jake/code-reviewer@1.0.0 .... done
 
-  Step 3/4: Updating registry
-  Forking hlvm/registry ........................... done
-  Adding entry: modules/j/jake/code-reviewer.json . done
-  Creating PR #2041 ............................... done
-
-  Step 4/4: Confirm
-  ✓ Code uploaded to your GitHub.
-  ✓ Registry PR created: github.com/hlvm/registry/pull/2041
-  ✓ Once merged, searchable via `hlvm search code-reviewer`.
+  Deployed locally + published to JSR.
+  Others can install: hlvm install jsr:@jake/code-reviewer
 ```
 
 ### Step 4: Watch It Grow
@@ -293,14 +282,12 @@ $ hlvm stats @jake/code-reviewer
 Jake improves his module based on feedback:
 
 ```
-$ hlvm deploy
+$ hlvm deploy --jsr
 
-  Compiling index.hql → dist/main.js .............. done
-  Uploading @jake/code-reviewer@1.1.0 ............. done
-  Registry PR #2098 ............................... created
+  Compiling index.hql → main.js .............. done
+  Published jsr:@jake/code-reviewer@1.1.0 .... done
 
-  ✓ @jake/code-reviewer@1.1.0 uploaded.
-  ✓ Users with auto-update will receive this version once PR merges.
+  Users with auto-update will receive this version.
 ```
 
 ---
@@ -364,19 +351,17 @@ is already usable from Launchpad immediately.
 One click to run. The module that AI built is indistinguishable from a
 human-authored module. Same format, same execution, same GUI.
 
-### Step 4: (Optional) Deploy to Registry
+### Step 4: (Optional) Deploy to JSR
 
-If the module is useful, the user can deploy it for others via the Git registry:
+If the module is useful, the user can publish it for others:
 
 ```
-$ hlvm deploy ~/competitor-monitor/
+$ hlvm deploy --jsr
 
-  Compiling index.hql → dist/main.js .............. done
-  Uploading to GitHub Releases .................... done
-  Registry PR #2105 ............................... created
+  Compiling index.hql → main.js .............. done
+  Published jsr:@sarah/competitor-monitor@1.0.0 .. done
 
-  ✓ @sarah/competitor-monitor@1.0.0 uploaded.
-  ✓ Available to all HLVM users once PR merges.
+  Available to all HLVM users via: hlvm install jsr:@sarah/competitor-monitor
 ```
 
 **The loop: AI builds a capability → user uses it → user shares it →

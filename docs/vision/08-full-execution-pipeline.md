@@ -4,13 +4,18 @@
 possible execution channel. Every arrow, every HTTP call, every runtime path.
 The definitive reference.**
 
+* it is not final version. you can always raise a question and any contradiction or something off.
+  it can be always wrong and incorrectly written and review may have not spotted on any mismatchs that don't make sense at all.
+  you can always suggest better approach or architecture or ask questions to clarify - it is now being made - not fully completed.
 ---
 
 ## Terminology
 
 ```
 Potion    = An HLVM module. A compiled ESM JavaScript module, transpiled from
-            HQL source. The atomic unit of the platform.
+            HQL source. The atomic unit of the platform. 
+            It is nothing but ESM JS module that means it can be written directly in JS.
+            It does not have to be written in HQL.
 
 index.hql = The single source file for a potion. Contains both metadata
             (via the (module ...) form) and code. One file = one module.
@@ -20,21 +25,29 @@ __hlvm_meta = The metadata export embedded in the compiled ESM JavaScript.
               Contains name, description, effect, permissions, params, etc.
               GUI and tooling read THIS — no separate JSON file.
 
-Registry  = A Git repository (hlvm/registry on GitHub). Contains JSON
-            metadata pointing to author-hosted code. No server. Like
-            Homebrew — MIT licensed, community-maintained, PRs to add.
+Registry  = JSR (jsr.io) and npm (npmjs.com). HLVM does NOT have its own
+            custom registry. Authors publish to existing ecosystems.
+            Consumers install from JSR or npm. No custom server.
 
 Launchpad = The full inventory view. Grid of ALL installed potions (superset).
-            Every installed potion appears here.
+            Every installed potion appears here. 
+            You can think of it exactly same as macOS LaunchPad UI, 
+            having Portions (ESM Modules), not apps in UI
 
 Hotbar    = The quick-access bar in the macOS GUI. A SUBSET of Launchpad —
             only potions the user has pinned or assigned shortcuts to.
             Store → Install → Launchpad → pin/shortcut → Hotbar.
+            It is also exact same UI as HotBar macOS that appears when you press option + tab 
 
-Spotlight = The system-wide REPL/search panel. Think → evaluate → see result.
+Spotlight = The system-wide REPL/search panel. Think → evaluate → see result. 
+            It normally operate like really Spotlight like Apple but it can also play a role in
+            input for eval and prompt to ask to AI. the main role of this is to help get non-developer users onboard 
+            and get into HLVM system in the form of GUI helping them no need to know all programming knowledge to use
+            HLVM systgem as a whole.
 
 Shell     = Any UI surface: macOS GUI, CLI, future Windows/Linux clients.
-            The hlvm binary is the core. Shells are thin wrappers.
+            The hlvm binary is the core. Shells are thin wrappers. 
+            Currently macOS is in development. Other platforms will be coming soon. 
 ```
 
 ---
@@ -247,40 +260,64 @@ What happens when the user builds:
 
 ---
 
-## ACT 2: DEPLOY — User Publishes to Registry (Homebrew Model)
+## ACT 2: DEPLOY — Build + Deliver
 
-**There is no central server.** The HLVM registry is a Git repository on GitHub
-(`hlvm/registry`), just like Homebrew. Code is hosted by the author on their own
-GitHub releases, JSR, npm, or any HTTP endpoint. The registry only stores
-metadata (JSON pointers to where the code lives).
+Three verbs. That is the entire CLI model:
 
-What the user sees in terminal:
+```
+hlvm run    — just works (auto-compiles if needed)
+hlvm build  — compile only (inspect/debug)
+hlvm deploy — build + deliver (default: local, --jsr, --npm)
+```
+
+`hlvm deploy` is the unified command. No flags = local install. Flags add
+remote publishing on top of local install. Remote deploy ALWAYS includes
+local install too.
+
+**Deploy locally (default — no flags):**
 
 ```
 ┌─── Terminal ────────────────────────────────────────────────────────────┐
 │                                                                         │
-│  $ cd ~/modules/commit                                                  │
 │  $ hlvm deploy                                                          │
 │                                                                         │
-│    Step 1/4: Compiling                                                  │
-│    index.hql → dist/main.js ...................... done                 │
-│    Effect detected: agent (uses agent() calls)                          │
-│    Permissions detected: shell, git, filesystem                         │
+│    Compiling index.hql → main.js .............. done                   │
+│    Effect detected: agent                                               │
+│    Deployed locally to ~/.hlvm/modules/@local/commit/                   │
 │                                                                         │
-│    Step 2/4: Uploading code                                             │
-│    Creating GitHub release @seoksoon/commit@1.0.0 . done               │
-│    Uploaded: main.js (4.2 KB, code + metadata bundled)                  │
-│    URL: github.com/seoksoon/hlvm-modules/releases/tag/commit-1.0.0     │
+│    Ready to use through all execution channels.                         │
 │                                                                         │
-│    Step 3/4: Updating registry                                          │
-│    Forking hlvm/registry ......................... done                 │
-│    Adding entry: modules/s/seoksoon/commit.json .. done                │
-│    Creating PR #1847 ............................. done                 │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Deploy to JSR (also installs locally):**
+
+```
+┌─── Terminal ────────────────────────────────────────────────────────────┐
 │                                                                         │
-│    Step 4/4: Confirm                                                    │
-│    ✓ Code uploaded to your GitHub.                                      │
-│    ✓ Registry PR created: github.com/hlvm/registry/pull/1847           │
-│    ✓ Once merged, searchable via `hlvm search commit`.                 │
+│  $ hlvm deploy --jsr                                                    │
+│                                                                         │
+│    Compiling index.hql → main.js .............. done                   │
+│    Deployed locally to ~/.hlvm/modules/@local/commit/                   │
+│    Published to jsr.io/@seoksoon/commit@1.0.0                          │
+│                                                                         │
+│    Others can install: hlvm install jsr:@seoksoon/commit               │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Deploy to npm (also installs locally):**
+
+```
+┌─── Terminal ────────────────────────────────────────────────────────────┐
+│                                                                         │
+│  $ hlvm deploy --npm                                                    │
+│                                                                         │
+│    Compiling index.hql → main.js .............. done                   │
+│    Deployed locally to ~/.hlvm/modules/@local/commit/                   │
+│    Published to npmjs.com/@seoksoon/commit@1.0.0                       │
+│                                                                         │
+│    Others can install: hlvm install npm:@seoksoon/commit               │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -288,84 +325,39 @@ What the user sees in terminal:
 What happens inside the binary:
 
 ```
-$ hlvm deploy
+$ hlvm deploy [--jsr | --npm]
       │
       ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                                                                          │
-│  1. COMPILE (same 7-stage pipeline as `hlvm build`)                     │
+│  Step 1: COMPILE (same 7-stage pipeline as `hlvm build`)                │
 │     index.hql → dist/main.js (code + __hlvm_meta bundled)               │
 │     Effect checker → auto-detects effect + permissions                   │
 │                                                                          │
-│  2. UPLOAD CODE (to AUTHOR'S OWN hosting)                               │
-│     The author controls where the code lives:                            │
+│  Step 2: DELIVER (destination varies by flag)                            │
 │                                                                          │
-│     ┌─── Hosting Options ──────────────────────────────────────────┐    │
-│     │                                                               │    │
-│     │  Option A: GitHub Releases (default)                         │    │
-│     │    gh release create commit-1.0.0 dist/main.js               │    │
-│     │    URL: github.com/seoksoon/hlvm-modules/releases/...        │    │
-│     │                                                               │    │
-│     │  Option B: JSR (Deno registry)                               │    │
-│     │    deno publish → jsr:@seoksoon/commit                       │    │
-│     │    URL: jsr.io/@seoksoon/commit                              │    │
-│     │                                                               │    │
-│     │  Option C: npm                                               │    │
-│     │    npm publish → @seoksoon/commit                            │    │
-│     │    URL: npmjs.com/package/@seoksoon/commit                   │    │
-│     │                                                               │    │
-│     │  Option D: Any HTTP URL                                      │    │
-│     │    Upload to any CDN / server / S3 bucket                    │    │
-│     │    URL: cdn.example.com/modules/commit/1.0.0/main.js         │    │
-│     │                                                               │    │
-│     └───────────────────────────────────────────────────────────────┘    │
+│     ┌─── Delivery Targets ───────────────────────────────────────────┐  │
+│     │                                                                 │  │
+│     │  (no flag):  local only                                        │  │
+│     │    Save to ~/.hlvm/modules/@local/<name>/                      │  │
+│     │    Register in local module index                              │  │
+│     │    Add to Launchpad                                            │  │
+│     │                                                                 │  │
+│     │  --jsr:  local + JSR                                           │  │
+│     │    All of the above, PLUS:                                     │  │
+│     │    Publish to jsr.io/@<author>/<name>                          │  │
+│     │                                                                 │  │
+│     │  --npm:  local + npm                                           │  │
+│     │    All of the above, PLUS:                                     │  │
+│     │    Publish to npmjs.com/@<author>/<name>                       │  │
+│     │                                                                 │  │
+│     └─────────────────────────────────────────────────────────────────┘  │
 │                                                                          │
-│  3. REGISTER IN REGISTRY (Git PR, like Homebrew)                        │
-│                                                                          │
-│     The registry is: github.com/hlvm/registry                            │
-│     It contains ONLY JSON metadata files, NOT code:                      │
-│                                                                          │
-│     hlvm/registry/                                                       │
-│     └── modules/                                                         │
-│         └── s/seoksoon/                                                  │
-│             └── commit.json ← pointer to author's code                   │
-│                                                                          │
-│     commit.json:                                                         │
-│     {                                                                    │
-│       "name": "Multi-Repo Commit",                                       │
-│       "author": "seoksoon",                                              │
-│       "description": "AI-powered commit across multiple repos",          │
-│       "versions": {                                                      │
-│         "1.0.0": {                                                       │
-│           "url": "github.com/seoksoon/hlvm-modules/releases/.../main.js"│
-│           "sha256": "a1b2c3d4...",                                       │
-│           "size": 4200                                                   │
-│         }                                                                │
-│       },                                                                 │
-│       "latest": "1.0.0"                                                  │
-│     }                                                                    │
-│                                                                          │
-│     hlvm deploy:                                                         │
-│     a. Forks hlvm/registry (if not already forked)                       │
-│     b. Adds/updates modules/s/seoksoon/commit.json                       │
-│     c. Opens PR to hlvm/registry                                         │
-│     d. CI validates: URL is reachable, sha256 matches, __hlvm_meta valid │
-│     e. Maintainers merge (or auto-merge if checks pass)                  │
-│                                                                          │
-│  4. CONFIRM                                                              │
-│     PR URL returned. Module searchable once PR is merged.                │
-│                                                                          │
-│  ┌── WHY THIS MODEL ─────────────────────────────────────────────────┐  │
-│  │                                                                    │  │
-│  │  - Zero server to maintain (Git is the database)                   │  │
-│  │  - Code stays with the author (their GitHub, their control)        │  │
-│  │  - Registry is MIT licensed, community-maintained                  │  │
-│  │  - Anyone can audit the registry (it's a public Git repo)          │  │
-│  │  - Works offline (clone the registry, have all metadata)           │  │
-│  │  - PRs for quality control (CI validates, humans approve)          │  │
-│  │  - Exactly like Homebrew: github.com/Homebrew/homebrew-core        │  │
-│  │                                                                    │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
+│  KEY DESIGN DECISIONS:                                                   │
+│  - No custom hlvm/registry. Use existing ecosystems (JSR, npm).          │
+│  - Remote publish ALWAYS includes local install.                         │
+│  - `hlvm deploy` with no flags replaces the old `hlvm install --local`. │
+│  - The compiled dist/main.js is standard ESM. Not proprietary.           │
 │                                                                          │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -375,32 +367,17 @@ with metadata baked in. Not proprietary. Not HLVM-specific bytecode. Just
 JavaScript with a `__hlvm_meta` export. This is what makes every execution
 channel in Act 4 possible.
 
-**For local-only modules (never published):**
+Local modules live in:
 
 ```
-┌─── Local Install (no registry, no deploy) ───────────────────────────────┐
-│                                                                           │
-│  $ hlvm install --local ~/modules/commit                                  │
-│                                                                           │
-│    Compiling index.hql → dist/main.js ........... done                   │
-│    Registered locally as @local/commit                                    │
-│    Added to Launchpad.                                                    │
-│                                                                           │
-│  This skips steps 2-3 entirely. No upload. No PR. No internet.            │
-│  The module is compiled, registered in the local index, and ready         │
-│  to use through ALL 8 execution channels.                                 │
-│                                                                           │
-│  Local modules live in:                                                   │
-│  ~/.hlvm/modules/@local/commit/                                           │
-│    └── main.js        (compiled ESM — code + __hlvm_meta bundled)        │
-│                                                                           │
-│  Perfect for:                                                             │
-│  - Personal automation (my-commit, my-deploy, etc.)                       │
-│  - Work in progress (test locally before publishing)                      │
-│  - Private/proprietary modules (company internal tools)                   │
-│                                                                           │
-└───────────────────────────────────────────────────────────────────────────┘
+~/.hlvm/modules/@local/commit/
+  └── main.js        (compiled ESM — code + __hlvm_meta bundled)
 ```
+
+Perfect for:
+- Personal automation (my-commit, my-deploy, etc.)
+- Work in progress (test locally before publishing)
+- Private/proprietary modules (company internal tools)
 
 ---
 
@@ -465,7 +442,7 @@ User clicks "Install"
       ▼
 ┌─── macOS GUI (Swift) ──────────────────────────────────────────────────┐
 │                                                                         │
-│  1. Swift shows permission dialog (rendered from registry metadata)     │
+│  1. Swift shows permission dialog (rendered from module metadata)       │
 │     "Multi-Repo Commit needs: shell, git, filesystem access."          │
 │  2. User clicks "Allow"                                                 │
 │  3. Swift sends HTTP request:                                           │
@@ -479,17 +456,13 @@ User clicks "Install"
                                ▼
 ┌─── hlvm binary (Deno) ────────────────────────────────────────────────┐
 │                                                                        │
-│  1. RESOLVE from registry                                              │
-│     Read local clone of hlvm/registry                                  │
-│     (or fetch raw JSON from GitHub API)                                │
-│     → modules/s/seoksoon/commit.json                                   │
-│     → url: "github.com/seoksoon/hlvm-modules/releases/.../main.js"    │
-│     → sha256: "a1b2c3d4..."                                           │
+│  1. RESOLVE from JSR or npm                                            │
+│     Query jsr.io or npmjs.com for the package                          │
+│     → resolve version, download URL, integrity hash                    │
 │                                                                        │
-│  2. DOWNLOAD from AUTHOR'S hosting (NOT a central server)             │
-│     GET github.com/seoksoon/hlvm-modules/releases/download/...        │
-│     → receives main.js (code + __hlvm_meta bundled in ONE file)       │
-│     → verify sha256 hash                                               │
+│  2. DOWNLOAD from JSR/npm                                              │
+│     Fetch main.js (code + __hlvm_meta bundled in ONE file)             │
+│     → verify integrity hash                                            │
 │                                                                        │
 │  3. SAVE to local module directory                                     │
 │     ~/.hlvm/modules/@seoksoon/commit/1.0.0/                            │
@@ -513,29 +486,32 @@ CLI install (no GUI needed):
 ```
 ┌─── Terminal ────────────────────────────────────────────────────────────┐
 │                                                                         │
-│  // Install from registry                                               │
-│  $ hlvm install @seoksoon/commit                                       │
+│  // Install from JSR                                                    │
+│  $ hlvm install jsr:@seoksoon/commit                                   │
 │                                                                         │
-│    Resolving @seoksoon/commit@latest ............. 1.0.0               │
-│    Downloading from github.com/seoksoon/... ...... done (4.2 KB)      │
-│    Verifying sha256 .............................. match               │
-│    Reading __hlvm_meta ........................... done                 │
+│    Resolving jsr:@seoksoon/commit@latest ......... 1.0.0              │
+│    Downloading from jsr.io ...................... done (4.2 KB)        │
+│    Verifying integrity .......................... match                │
+│    Reading __hlvm_meta .......................... done                  │
 │    Installed to ~/.hlvm/modules/@seoksoon/commit/1.0.0/               │
 │    Added to Launchpad.                                                 │
 │                                                                         │
-│  // Install a specific version                                          │
-│  $ hlvm install @seoksoon/commit@1.0.0                                 │
+│  // Install from npm                                                    │
+│  $ hlvm install npm:@seoksoon/commit                                   │
 │                                                                         │
-│  // Search the registry                                                 │
+│  // Install a specific version                                          │
+│  $ hlvm install jsr:@seoksoon/commit@1.0.0                             │
+│                                                                         │
+│  // Search JSR/npm                                                      │
 │  $ hlvm search commit                                                  │
 │    @seoksoon/commit    "AI-powered commit across repos"    v1.0.0     │
 │    @devtools/commit    "Single repo AI commit"             v2.3.1     │
 │                                                                         │
 │  // Update all modules                                                  │
 │  $ hlvm update                                                          │
-│    Checking registry for updates...                                     │
+│    Checking JSR/npm for updates...                                      │
 │    @seoksoon/commit: 1.0.0 → 1.1.0 .............. updated            │
-│    @local/my-commit: local (no updates)                                │
+│    my-commit: local (deploy to update)                                 │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1180,19 +1156,20 @@ What the user does: Creates a SINGLE file that wraps the first module.
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-Install locally (no registry needed for personal modules):
+Deploy locally (no registry needed for personal modules):
 
 ```
 ┌─── Terminal ────────────────────────────────────────────────────────────┐
 │                                                                         │
-│  $ hlvm install --local ~/modules/my-commit                            │
+│  $ cd ~/modules/my-commit                                               │
+│  $ hlvm deploy                                                          │
 │                                                                         │
-│    Compiling index.hql → dist/main.js .............. done              │
+│    Compiling index.hql → main.js .............. done                   │
 │    Effect detected: agent (follows import chain)                        │
-│    Registered locally as @local/my-commit                               │
+│    Deployed locally as my-commit                                        │
 │    Added to Launchpad.                                                  │
 │                                                                         │
-│    ✓ Installed. Click to run — no parameters needed.                    │
+│    Ready. Click to run — no parameters needed.                          │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1210,7 +1187,7 @@ Install locally (no registry needed for personal modules):
 ├─── AFTER (my-commit, zero params) ─────────────────────────────────────┤
 │                                                                         │
 │  GUI:         NO FORM. Click = immediate execute.                       │
-│  CLI:         hlvm run @local/my-commit                                │
+│  CLI:         hlvm run my-commit                                       │
 │  REPL:        (my-commit)                                               │
 │  Global Eval: select "(my-commit)" → Cmd+Enter → done                  │
 │                                                                         │
@@ -1237,7 +1214,7 @@ Install locally (no registry needed for personal modules):
 │  Saved to ~/.hlvm/shortcuts.json                                      │
 │  Automatically pinned to Hotbar.                                      │
 │                                                                       │
-│  Swift GUI registers global hotkey Cmd+Shift+C → @local/my-commit    │
+│  Swift GUI registers global hotkey Cmd+Shift+C → my-commit           │
 │  KeyboardManager (AppKit global event monitor) captures it anywhere.  │
 │                                                                       │
 │  FLOW SUMMARY:                                                        │
@@ -1385,11 +1362,11 @@ Beyond user-triggered eval, the Companion mode observes and suggests:
 │                                                                       │
 │  macOS captures global hotkey → HLVM app activates                    │
 │  Hotkey handler looks up Cmd+Shift+C in ~/.hlvm/shortcuts.json       │
-│  Maps to: @local/my-commit                                            │
+│  Maps to: my-commit                                                   │
 │  Reads __hlvm_meta: params:[] → no form needed                        │
 │                                                                       │
 │  POST http://127.0.0.1:11435/api/modules/run                        │
-│  { "module": "@local/my-commit", "args": {} }                       │
+│  { "module": "my-commit", "args": {} }                               │
 │                                                                       │
 │  Time: 0.1s → ~15s                                                    │
 │                                                                       │
@@ -1441,9 +1418,9 @@ Beyond user-triggered eval, the Companion mode observes and suggests:
 │  #!/bin/bash                                                            │
 │                                                                         │
 │  # End-of-day automation script                                         │
-│  hlvm run @local/my-commit                                             │
-│  hlvm run @local/my-push                                               │
-│  hlvm run @local/my-notify --message "EOD deploy complete"             │
+│  hlvm run my-commit                                                    │
+│  hlvm run my-push                                                      │
+│  hlvm run my-notify --message "EOD deploy complete"                    │
 │                                                                         │
 │  # Or as a single HQL expression:                                       │
 │  hlvm run '(do (my-commit) (my-push) (my-notify "EOD deploy"))'       │
@@ -1569,7 +1546,7 @@ Beyond user-triggered eval, the Companion mode observes and suggests:
 │  OTHER SPECIFIER FORMATS:                                             │
 │                                                                       │
 │  "hlvm:@seoksoon/commit@1.0.0"   → specific version                 │
-│  "hlvm:@local/my-commit"         → local-only module                 │
+│  "hlvm:my-commit"                → local module                      │
 │  "./main.js"                     → relative path (standard ESM)      │
 │  "npm:lodash"                    → npm package (via Deno)            │
 │  "jsr:@std/path"                 → JSR package (via Deno)            │
@@ -1737,92 +1714,73 @@ Beyond user-triggered eval, the Companion mode observes and suggests:
 
 ---
 
-## THE REGISTRY ARCHITECTURE — Homebrew Model
+## THE DISTRIBUTION MODEL — JSR + npm (No Custom Registry)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                                                                         │
 │                    ╔═══════════════════════════╗                         │
-│                    ║   github.com/hlvm/registry ║                        │
+│                    ║  EXISTING ECOSYSTEMS ONLY  ║                        │
 │                    ╚═══════════════════════════╝                         │
 │                                                                         │
-│  A Git repository. Contains ONLY JSON metadata. No code.                │
+│  HLVM does NOT maintain a custom registry. Authors publish to           │
+│  existing package ecosystems. Consumers install from them.              │
 │                                                                         │
-│  hlvm/registry/                                                         │
-│  ├── README.md                                                          │
-│  ├── modules/                                                           │
-│  │   ├── d/devtools/                                                    │
-│  │   │   └── commit.json        → points to @devtools's GitHub          │
-│  │   ├── s/seoksoon/                                                    │
-│  │   │   ├── commit.json        → points to @seoksoon's GitHub          │
-│  │   │   ├── standup.json       → points to @seoksoon's JSR             │
-│  │   │   └── push.json          → points to @seoksoon's npm             │
-│  │   └── ...                                                            │
-│  └── schema/                                                            │
-│      └── module.schema.json     → JSON Schema for validation            │
+│  ┌─── JSR (jsr.io) ─────────────────────────────────────────────────┐  │
+│  │  jsr.io/@seoksoon/commit                                          │  │
+│  │  jsr.io/@seoksoon/standup                                         │  │
+│  │  jsr.io/@devtools/commit                                          │  │
+│  │                                                                    │  │
+│  │  Publish: hlvm deploy --jsr                                       │  │
+│  │  Install: hlvm install jsr:@seoksoon/commit                       │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
 │                                                                         │
-│  Each module.json contains:                                              │
-│  {                                                                      │
-│    "name": "Multi-Repo Commit",                                         │
-│    "author": "seoksoon",                                                │
-│    "description": "...",                                                │
-│    "category": "developer-tools",                                       │
-│    "versions": {                                                        │
-│      "1.0.0": {                                                         │
-│        "url": "https://github.com/.../releases/.../main.js",           │
-│        "sha256": "a1b2c3d4e5f6...",                                    │
-│        "size": 4200                                                     │
-│      }                                                                  │
-│    },                                                                   │
-│    "latest": "1.0.0"                                                    │
-│  }                                                                      │
+│  ┌─── npm (npmjs.com) ──────────────────────────────────────────────┐  │
+│  │  npmjs.com/@seoksoon/commit                                       │  │
+│  │  npmjs.com/@seoksoon/push                                         │  │
+│  │                                                                    │  │
+│  │  Publish: hlvm deploy --npm                                       │  │
+│  │  Install: hlvm install npm:@seoksoon/commit                       │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
 │                                                                         │
-│  Note: The registry JSON is a POINTER to the code.                       │
-│  The module's full metadata (effect, permissions, params) comes from     │
-│  __hlvm_meta inside the compiled main.js itself — self-describing.       │
+│  Note: The module's full metadata (effect, permissions, params) comes   │
+│  from __hlvm_meta inside the compiled main.js itself — self-describing. │
+│  No separate manifest needed anywhere in the pipeline.                  │
 │                                                                         │
 │                                                                         │
 │  WORKFLOW:                                                              │
 │                                                                         │
-│  Author                            Registry                             │
-│  ──────                            ────────                             │
+│  Author                            Ecosystem                            │
+│  ──────                            ─────────                            │
 │  writes index.hql                                                       │
-│  runs hlvm deploy                                                       │
+│  runs hlvm deploy [--jsr | --npm]                                       │
 │    ├── compiles to main.js (code + __hlvm_meta bundled)                 │
-│    ├── uploads main.js to OWN hosting ─→ github.com/author/releases    │
-│    ├── forks hlvm/registry                                              │
-│    ├── adds/updates JSON entry     ──→ PR to hlvm/registry              │
-│    └── CI validates:                                                    │
-│        ├── URL reachable?                                               │
-│        ├── sha256 matches?                                              │
-│        └── __hlvm_meta present and valid?                               │
+│    ├── saves to ~/.hlvm/modules/@local/<name>/ (always)                 │
+│    └── publishes to JSR or npm (if flag given)                          │
 │                                                                         │
-│  Maintainers review + merge                                             │
-│  Module now discoverable via hlvm search / GUI Store                    │
+│  Module discoverable via hlvm search / GUI Store                        │
+│  (Store searches JSR and/or npm)                                        │
 │                                                                         │
 │                                                                         │
-│  Installer                          Author's Hosting                    │
-│  ─────────                          ───────────────                     │
-│  runs hlvm install @seoksoon/commit                                     │
-│    ├── reads registry JSON          ──→ github.com/hlvm/registry        │
-│    ├── resolves download URL                                            │
-│    ├── downloads main.js            ──→ github.com/author/releases      │
-│    ├── verifies sha256                                                  │
+│  Consumer                           JSR / npm                           │
+│  ────────                           ─────────                           │
+│  runs hlvm install jsr:@seoksoon/commit                                 │
+│    ├── resolves from jsr.io (or npmjs.com)                              │
+│    ├── downloads main.js                                                │
+│    ├── verifies integrity                                               │
 │    ├── reads __hlvm_meta from main.js (self-describing)                 │
 │    └── saves to ~/.hlvm/modules/                                        │
 │                                                                         │
 │                                                                         │
 │  WHY THIS MODEL:                                                        │
 │  ┌────────────────────────────────────────────────────────────────┐     │
-│  │ - Zero server cost (Git is free, GitHub is free)               │     │
-│  │ - Authors own their code (their repo, their control)           │     │
-│  │ - Registry is MIT, auditable, community-maintained             │     │
-│  │ - Works offline (clone registry = all metadata)                │     │
-│  │ - PRs for quality control (CI + human review)                  │     │
-│  │ - Proven at scale: Homebrew, CocoaPods, etc.                   │     │
-│  │ - No vendor lock-in. No central point of failure.              │     │
+│  │ - Zero infrastructure to maintain (use existing registries)    │     │
+│  │ - Proven at massive scale: JSR and npm already work            │     │
+│  │ - Standard tooling: authors already know npm/JSR publish       │     │
+│  │ - No vendor lock-in. No custom server. No custom protocol.     │     │
 │  │ - Module is SELF-DESCRIBING via __hlvm_meta — no separate      │     │
 │  │   manifest needed anywhere in the pipeline.                    │     │
+│  │ - Potions are standard ESM — they ARE npm/JSR packages.        │     │
 │  └────────────────────────────────────────────────────────────────┘     │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -1889,7 +1847,7 @@ Beyond user-triggered eval, the Companion mode observes and suggests:
 │   1. Potions are standard ESM → portable to any JS environment         │
 │   2. Single-file authoring → one index.hql, compiler does the rest     │
 │   3. Self-describing → __hlvm_meta baked into the JS, no manifest      │
-│   4. Git registry → no server, community-maintained, MIT licensed       │
+│   4. JSR + npm → no custom registry, use existing ecosystems            │
 │   5. Binary provides the runtime → agent(), ai(), tools                │
 │   6. GUI provides the UX → Launchpad, Hotbar, alerts, shortcuts        │
 │   7. Global eval provides the reach → any app, any text, Cmd+Enter     │
@@ -1969,19 +1927,19 @@ Beyond user-triggered eval, the Companion mode observes and suggests:
 │     Effect + permissions AUTO-DETECTED (never declared by user)         │
 │     No manifest. No JSON. Self-describing ESM.                          │
 │                                                                         │
-│  3. DEPLOY (optional) ──────────────────────────────────────────────    │
+│  3. DEPLOY ──────────────────────────────────────────────────────────    │
 │     hlvm deploy →                                                       │
 │       a. Compile (same as build)                                        │
-│       b. Upload main.js to author's hosting (GitHub/JSR/npm/CDN)        │
-│       c. PR to hlvm/registry (Git repo, like Homebrew)                  │
-│       d. CI validates, maintainers merge                                │
-│     OR: hlvm install --local (skip deploy entirely)                     │
+│       b. Install locally to ~/.hlvm/modules/                            │
+│     hlvm deploy --jsr → also publish to JSR                             │
+│     hlvm deploy --npm → also publish to npm                             │
+│     No custom registry. Use existing ecosystems (JSR, npm).             │
 │                                                                         │
 │  4. INSTALL ────────────────────────────────────────────────────────    │
-│     hlvm install @author/name →                                         │
-│       a. Read registry JSON (from Git repo / GitHub API)                │
-│       b. Download main.js from author's hosting                         │
-│       c. Verify sha256                                                  │
+│     hlvm install jsr:@author/name (or npm:@author/name) →              │
+│       a. Fetch from JSR or npm                                          │
+│       b. Download main.js                                               │
+│       c. Verify integrity                                               │
 │       d. Read __hlvm_meta from the module itself                        │
 │       e. Save to ~/.hlvm/modules/ + add to Launchpad                   │
 │     OR: GUI Store tab → search → click Install → same pipeline          │
@@ -1993,7 +1951,7 @@ Beyond user-triggered eval, the Companion mode observes and suggests:
 │                                                                         │
 │  6. BIND (optional) ────────────────────────────────────────────────    │
 │     Create a zero-param wrapper (another index.hql, 10 lines)           │
-│     hlvm install --local → appears in Launchpad as instant button       │
+│     hlvm deploy → appears in Launchpad as instant button                │
 │                                                                         │
 │  7. SHORTCUT (optional) ────────────────────────────────────────────    │
 │     Right-click in Launchpad → Assign Shortcut → Cmd+Shift+C           │

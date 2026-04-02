@@ -6,10 +6,13 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const HEADER_DELIMITER = encoder.encode("\r\n\r\n");
 
-let buffer = new Uint8Array();
+let buffer: Uint8Array<ArrayBufferLike> = new Uint8Array();
 let shouldExit = false;
 
-function appendBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+function appendBytes(
+  left: Uint8Array<ArrayBufferLike>,
+  right: Uint8Array<ArrayBufferLike>,
+): Uint8Array<ArrayBufferLike> {
   if (left.length === 0) return right;
   if (right.length === 0) return left;
   const merged = new Uint8Array(left.length + right.length);
@@ -18,7 +21,7 @@ function appendBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
   return merged;
 }
 
-function findHeaderBoundary(bytes: Uint8Array): number {
+function findHeaderBoundary(bytes: Uint8Array<ArrayBufferLike>): number {
   if (bytes.length < HEADER_DELIMITER.length) return -1;
   for (let i = 0; i <= bytes.length - HEADER_DELIMITER.length; i++) {
     let matched = true;

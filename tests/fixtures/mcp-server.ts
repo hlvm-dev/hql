@@ -19,7 +19,9 @@
  *   MCP_REPLY_PREFIX - prefix for echo tool responses
  *   MCP_TEST_MODE    - comma-separated: resources,prompts,logging,sampling,
  *                      elicitation,paginated,old_protocol,progress,
- *                      semantic_audio,semantic_computer,semantic_structured
+ *                      semantic_audio,semantic_computer,semantic_structured,
+ *                      disconnect_once,dynamic_tools
+ *   MCP_STATE_PATH   - persisted JSON state for reconnect-sensitive fixture modes
  */
 
 import { getPlatform } from "../../src/platform/platform.ts";
@@ -52,6 +54,86 @@ try {
 }
 
 let buffer = "";
+
+type FixtureState = {
+  generation: number;
+  disconnectDone?: boolean;
+};
+
+function hasMode(mode: string): boolean {
+  return testMode.split(",").map((entry) => entry.trim()).includes(mode);
+}
+
+function getStatePath(): string | null {
+  try {
+    return env.get("MCP_STATE_PATH") ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function readState(): FixtureState {
+  const statePath = getStatePath();
+  if (!statePath) return { generation: 0 };
+  try {
+    const raw = getPlatform().fs.readTextFileSync(statePath);
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      generation: typeof parsed.generation === "number"
+        ? parsed.generation
+        : 0,
+      disconnectDone: parsed.disconnectDone === true,
+    };
+  } catch {
+    return { generation: 0 };
+  }
+}
+
+function writeState(state: FixtureState): void {
+  const statePath = getStatePath();
+  if (!statePath) return;
+  const platform = getPlatform();
+  platform.fs.mkdirSync(platform.path.dirname(statePath), { recursive: true });
+  platform.fs.writeTextFileSync(
+    statePath,
+    JSON.stringify(state, null, 2) + "\n",
+  );
+}
+
+function initializeState(): FixtureState {
+  const state = readState();
+  const next = {
+    ...state,
+    generation: state.generation + 1,
+  };
+  writeState(next);
+  return next;
+}
+
+const fixtureState = initializeState();
+
+function currentDynamicToolNames(): string[] {
+  if (!hasMode("dynamic_tools")) return ["echo"];
+  if (fixtureState.generation <= 1) {
+    return ["echo", "stable_echo"];
+  }
+  return ["reverse", "stable_echo"];
+}
+
+function shouldDisconnect(requestMethod: string): boolean {
+  if (!hasMode("disconnect_once") || fixtureState.disconnectDone) return false;
+  if (hasMode("dynamic_tools")) {
+    return requestMethod === "tools/call";
+  }
+  return requestMethod === "tools/list";
+}
+
+function exitForDisconnect(): never {
+  const next = { ...fixtureState, disconnectDone: true };
+  fixtureState.disconnectDone = true;
+  writeState(next);
+  getPlatform().process.exit(0);
+}
 
 function write(message: unknown) {
   const data = encoder.encode(JSON.stringify(message) + "\n");
@@ -177,6 +259,10 @@ function handleRequest(request: {
   }
 
   if (request.method === "tools/list") {
+    if (shouldDisconnect(request.method)) {
+      exitForDisconnect();
+    }
+
     // Paginated mode: return tools in 2 pages
     if (testMode.includes("paginated")) {
       const cursor = (request.params as Record<string, unknown>)
@@ -233,18 +319,43 @@ function handleRequest(request: {
     }
 
     // Build tool list based on test modes
-    const tools: unknown[] = [
-      {
-        name: "echo",
-        description: "Echo back the input",
-        inputSchema: {
-          type: "object",
-          properties: {
-            message: { type: "string", description: "Message to echo" },
+    const tools: unknown[] = [];
+    for (const toolName of currentDynamicToolNames()) {
+      if (toolName === "echo") {
+        tools.push({
+          name: "echo",
+          description: "Echo back the input",
+          inputSchema: {
+            type: "object",
+            properties: {
+              message: { type: "string", description: "Message to echo" },
+            },
           },
-        },
-      },
-    ];
+        });
+      } else if (toolName === "reverse") {
+        tools.push({
+          name: "reverse",
+          description: "Reverse a string",
+          inputSchema: {
+            type: "object",
+            properties: {
+              text: { type: "string", description: "Text to reverse" },
+            },
+          },
+        });
+      } else if (toolName === "stable_echo") {
+        tools.push({
+          name: "stable_echo",
+          description: "Echo the active generation",
+          inputSchema: {
+            type: "object",
+            properties: {
+              message: { type: "string", description: "Message to echo" },
+            },
+          },
+        });
+      }
+    }
 
     if (testMode.includes("semantic_audio")) {
       tools.push({
@@ -307,9 +418,23 @@ function handleRequest(request: {
   }
 
   if (request.method === "tools/call") {
+    if (shouldDisconnect(request.method)) {
+      exitForDisconnect();
+    }
+
     const params = request.params as Record<string, unknown> | undefined;
     const toolName = params?.name as string | undefined;
     const args = params?.arguments as Record<string, unknown> | undefined;
+    const dynamicTools = new Set(currentDynamicToolNames());
+
+    if (hasMode("dynamic_tools") && !dynamicTools.has(toolName ?? "")) {
+      write({
+        jsonrpc: "2.0",
+        id: request.id,
+        error: { code: -32601, message: `Unknown tool: ${toolName}` },
+      });
+      return;
+    }
 
     if (toolName === "audio_transcribe") {
       const format = (args?.format as string) ?? "unknown";
@@ -386,6 +511,25 @@ function handleRequest(request: {
         jsonrpc: "2.0",
         id: request.id,
         result: { content: [{ type: "text", text: text.split("").reverse().join("") }] },
+      };
+      if (toolDelayMs > 0) {
+        setTimeout(() => write(response), toolDelayMs);
+      } else {
+        write(response);
+      }
+      return;
+    }
+
+    if (toolName === "stable_echo") {
+      const response = {
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          content: [{
+            type: "text",
+            text: `gen${fixtureState.generation}:${args?.message ?? ""}`,
+          }],
+        },
       };
       if (toolDelayMs > 0) {
         setTimeout(() => write(response), toolDelayMs);

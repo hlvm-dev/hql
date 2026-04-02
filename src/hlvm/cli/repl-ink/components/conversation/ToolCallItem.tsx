@@ -15,12 +15,36 @@ import type { ToolCallDisplay } from "../../types.ts";
 import { buildToolCallTextLayout } from "./layout.ts";
 import { getToolDurationTone } from "./conversation-chrome.ts";
 import { isProminentToolName } from "./turn-activity.ts";
+import type { ToolPresentationKind } from "../../../../agent/registry.ts";
 
 interface ToolCallItemProps {
   tool: ToolCallDisplay;
   width: number;
   expanded?: boolean;
   animateStatusIcon?: boolean;
+}
+
+function getPresentationBadge(
+  kind: ToolPresentationKind | undefined,
+): string | null {
+  switch (kind) {
+    case "read":
+      return "READ";
+    case "search":
+      return "SEARCH";
+    case "web":
+      return "WEB";
+    case "shell":
+      return "SHELL";
+    case "edit":
+      return "EDIT";
+    case "diff":
+      return "DIFF";
+    case "meta":
+      return "META";
+    default:
+      return null;
+  }
 }
 
 export function resolveToolResultText(
@@ -36,6 +60,8 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     ToolCallItemProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
+  const presentationKind = tool.resultMeta?.presentation?.kind;
+  const presentationBadge = getPresentationBadge(presentationKind);
   const layout = buildToolCallTextLayout(
     Math.max(0, width - 2),
     tool.name,
@@ -61,12 +87,25 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     ? sc.status.error
     : sc.text.muted;
   const shouldRenderResult = tool.status !== "running";
+  const resultMaxLines = tool.status === "error"
+    ? 12
+    : expanded
+    ? 8
+    : presentationKind === "edit" || presentationKind === "diff"
+    ? 2
+    : 1;
 
   return (
     <Box flexDirection="column">
       <Box>
         <ToolStatusIcon status={tool.status} animate={animateStatusIcon} />
         <Text></Text>
+        {presentationBadge && (
+          <>
+            <Text color={sc.chrome.sectionLabel}>{presentationBadge}</Text>
+            <Text color={sc.text.muted}> </Text>
+          </>
+        )}
         <Text color={nameColor}>{tool.name}</Text>
         {layout.argsText && (
           <Text color={argsColor}>
@@ -89,9 +128,12 @@ export const ToolCallItem = React.memo(function ToolCallItem(
             <ToolResult
               text={resolveToolResultText(tool, expanded)}
               width={Math.max(10, width - 5)}
-              maxLines={tool.status === "error" ? 12 : expanded ? 8 : 1}
+              maxLines={resultMaxLines}
               expanded={expanded}
               tone={tool.status === "error" ? "error" : "default"}
+              meta={tool.resultMeta}
+              toolName={tool.name}
+              argsSummary={tool.argsSummary}
             />
           </Box>
         </Box>

@@ -14,8 +14,10 @@ export type {
   CompiledPrompt,
   InstructionHierarchy,
   InstructionSource,
+  PromptCacheSegment,
   PromptCompilerInput,
   PromptMode,
   PromptSection,
+  PromptSectionStability,
   SectionManifestEntry,
 } from "./types.ts";

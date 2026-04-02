@@ -3,7 +3,7 @@ import {
   type AnyAttachment,
   type Attachment,
   getDisplayName,
-  getTextDisplayName,
+  getPastedTextPreviewLabel,
   type TextAttachment,
 } from "../../repl/attachment.ts";
 import { isShellCommandText } from "./submit-routing.ts";
@@ -66,7 +66,11 @@ function renameAttachment(
     const textAttachment: TextAttachment = {
       ...attachment,
       id,
-      displayName: getTextDisplayName(id, attachment.lineCount),
+      displayName: getPastedTextPreviewLabel(
+        id,
+        attachment.content,
+        attachment.lineCount,
+      ),
     };
     return textAttachment;
   }

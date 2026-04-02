@@ -40,6 +40,22 @@ async function createHookFixture(workspace: string): Promise<string> {
         match: { contains: ["hook text smoke"] },
         steps: [{ response: "Hook text response" }],
       },
+      {
+        name: "continuation-run",
+        match: { contains: ["hook continuation smoke"] },
+        steps: [
+          {
+            response:
+              "Leading answer segment repeated-overlap-segment repeated-overlap-segment ",
+            completionState: "truncated_max_tokens",
+          },
+          {
+            response:
+              "repeated-overlap-segment repeated-overlap-segment tail.",
+            completionState: "complete",
+          },
+        ],
+      },
     ],
   };
 
@@ -121,6 +137,8 @@ Deno.test({
         ],
       );
       assertEquals(events[2]?.payload?.toolName, "read_file");
+      assertEquals(events[1]?.payload?.completionState, "tool_calls");
+      assertEquals(events[5]?.payload?.completionState, "complete");
       assertEquals(events[6]?.payload?.text, "Hook tool response");
     } finally {
       await platform.fs.remove(workspace, { recursive: true });
@@ -166,6 +184,53 @@ Deno.test({
       const finalEvent = events.find((event) => event.hook === "final_response");
       assertExists(finalEvent);
       assertEquals(finalEvent.payload.text, "Hook text response");
+    } finally {
+      await platform.fs.remove(workspace, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "agent hooks: continuation metadata is included in post_llm and final_response payloads",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const workspace = await platform.fs.makeTempDir({
+      prefix: "hlvm-hooks-continuation-",
+    });
+    try {
+      const fixturePath = await createHookFixture(workspace);
+      const logPath = platform.path.join(workspace, "hook-continuation.jsonl");
+      await writeHooksConfig(workspace, {
+        post_llm: [{
+          command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath],
+        }],
+        final_response: [{
+          command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath],
+        }],
+      });
+
+      const result = await runAgentQuery({
+        query: "hook continuation smoke",
+        model: "ollama/test-fixture",
+        fixturePath,
+        workspace,
+        callbacks: {},
+      });
+
+      assertEquals(result.text.includes("tail."), true);
+      const hookLog = await platform.fs.readTextFile(logPath);
+      const events = parseJsonLines(hookLog);
+      const postLlmEvents = events.filter((event) => event.hook === "post_llm");
+      const finalEvent = events.find((event) => event.hook === "final_response");
+      assertEquals(postLlmEvents.length, 2);
+      assertEquals(postLlmEvents[0]?.payload?.completionState, "truncated_max_tokens");
+      assertEquals(postLlmEvents[1]?.payload?.continuedThisTurn, true);
+      assertEquals(postLlmEvents[1]?.payload?.continuationCount, 1);
+      assertExists(finalEvent);
+      assertEquals(finalEvent.payload.continuedThisTurn, true);
+      assertEquals(finalEvent.payload.continuationCount, 1);
     } finally {
       await platform.fs.remove(workspace, { recursive: true });
     }

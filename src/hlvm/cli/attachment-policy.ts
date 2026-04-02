@@ -311,7 +311,7 @@ export function describeAttachmentFailure(
     const supported = check.supportedKinds.map((k) => describeAttachmentKind(k)).join(
       ", ",
     );
-    return `${modelName} does not support ${kindLabel} attachments. Supported: ${supported}.`;
+    return `${modelName} does not support this attachment type (${kindLabel}). Supported: ${supported}.`;
   }
 
   if (check.unsupportedMimeType) {
@@ -320,4 +320,3 @@ export function describeAttachmentFailure(
 
   return `${modelName} does not support this attachment type.`;
 }
-

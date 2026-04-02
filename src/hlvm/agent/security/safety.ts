@@ -316,7 +316,7 @@ function classifyShellExec(args: unknown): SafetyClassification {
   }
 
   const command = (args as { command: string }).command;
-  const classification = classifyShellCommand(command);
+  const classification = classifyShellPipeline(command);
   return { level: classification.level, reason: classification.reason };
 }
 

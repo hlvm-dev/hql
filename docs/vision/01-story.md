@@ -77,9 +77,9 @@ consumed.**
 │   (3-10 lines)       Registry           macOS Launchpad     │
 │                      (1 command)        (1 click)           │
 │                                                             │
-│   Human or AI        Git registry       Native macOS        │
-│   can author         (Homebrew model)   GUI                 │
-│                      for all                                │
+│   Human or AI        JSR / npm          Native macOS        │
+│   can author         (existing          GUI                 │
+│                       registries)       for all             │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -311,7 +311,7 @@ The revolution is the **integration**. Nobody has combined ALL of these:
 │    + AI primitives as first-class (ai, agent)                │
 │    + Agent team orchestration built-in                       │
 │    + Compiles to standard portable format (ESM)              │
-│    + Git registry for sharing (Homebrew model)               │
+│    + JSR/npm for sharing (no custom registry)                │
 │    + Native macOS GUI for one-click execution                │
 │    + Full local system access (files, web, shell, git)       │
 │    + Effect system for safety classification                 │
@@ -351,9 +351,9 @@ TODAY (2026):                           HLVM:
 ## The Ecosystem Flywheel
 
 The Module Registry is not a "nice to have." It IS the product. Without it,
-HLVM is a local scripting tool. With it, HLVM is a platform. The Registry
-follows the Homebrew model: a Git repository (`hlvm/registry` on GitHub) with
-JSON pointers to author-hosted code. No central server.
+HLVM is a local scripting tool. With it, HLVM is a platform. Modules are
+published to existing registries (JSR, npm). No custom registry to build or
+maintain. HLVM piggybacks on ecosystems that already work.
 
 ```
 Local tool:     You write, you use.          Value = linear.
@@ -391,8 +391,8 @@ Docker          →   Docker Hub             Just another VM tool
 iOS             →   App Store              Just another phone
 VS Code         →   Extension Marketplace  Just another editor
 
-HLVM            →   Git Registry           Just another AI tool
-                    (Homebrew model)       (dead on arrival)
+HLVM            →   JSR + npm              Just another AI tool
+                    (existing ecosystems)  (dead on arrival)
 ```
 
 **NPM made Node.js. Not the other way around.** The registry is the moat.
@@ -434,7 +434,7 @@ shared through the Registry, executed on demand through the GUI.
 
 In priority order:
 
-### 1. The Module Registry (Git-Based, Homebrew Model)
+### 1. Module Publishing (JSR + npm)
 
 Without this, nothing else matters. No sharing = no ecosystem = no network
 effect = no PMF. This is the #1 priority.
@@ -452,8 +452,9 @@ and `agent()` as globals. No boilerplate.
 
 ### 4. The Deploy Pipeline
 
-`hlvm deploy` must be one command that handles everything: compile, publish,
-register. Zero friction for authors.
+`hlvm deploy` must be one command that handles everything: compile and deliver.
+`hlvm deploy` for local, `hlvm deploy --jsr` for JSR, `hlvm deploy --npm` for
+npm. Zero friction for authors.
 
 ### 5. Trust and Safety Model
 
@@ -486,8 +487,8 @@ EXISTS:
   ✓  Async HOFs (asyncMap, concurrentMap, asyncFilter, etc.)
 
 MISSING:
-  ✗  Module Registry (Git-based, Homebrew model) — THE critical missing piece
-  ✗  hlvm deploy command
+  ✗  hlvm deploy command (local + JSR/npm publishing)
+  ✗  Module discovery via JSR/npm search
   ✗  Registry browser GUI view in macOS app
   ✗  Module manifest via (module ...) form + __hlvm_meta
   ✗  Module → Launchpad → Hotbar pin pipeline

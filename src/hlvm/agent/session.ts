@@ -68,11 +68,14 @@ import {
 import { cloneToolList } from "./orchestrator-state.ts";
 import { releaseToolOwner } from "./registry.ts";
 import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "./runtime-mode.ts";
+import { FileStateCache } from "./file-state-cache.ts";
 
 interface AgentSessionOptions {
   workspace: string;
   model?: string;
   fixturePath?: string;
+  /** Optional output-token cap for a single provider response. */
+  maxOutputTokens?: number;
   engineProfile?: keyof typeof ENGINE_PROFILES;
   failOnContextOverflow?: boolean;
   toolAllowlist?: string[];
@@ -141,12 +144,19 @@ export interface AgentSession {
   mcpSetSignal?: (signal: AbortSignal) => void;
   /** Session-scoped todo state used by todo tools. */
   todoState: TodoState;
+  /** Session-scoped file coordination cache for edits/restoration. */
+  fileStateCache: FileStateCache;
   /** Session-scoped LSP diagnostics runtime for post-write verification. */
   lspDiagnostics?: LspDiagnosticsRuntime;
   /** Metadata from prompt compilation (for observability/tracing). */
   compiledPromptMeta?: Pick<
     CompiledPrompt,
-    "sections" | "instructionSources" | "signatureHash" | "mode" | "tier"
+    | "sections"
+    | "cacheSegments"
+    | "instructionSources"
+    | "signatureHash"
+    | "mode"
+    | "tier"
   >;
   /** Resolved instruction hierarchy — passed to child agents (delegation/team). */
   instructions?: InstructionHierarchy;
@@ -223,6 +233,7 @@ export async function createAgentSession(
   const lspDiagnostics = createLspDiagnosticsRuntime({
     workspace: options.workspace,
   });
+  const fileStateCache = new FileStateCache();
 
   // Lazy MCP loading: defer connection/registration until first MCP use.
   let loadedMcp: Awaited<ReturnType<typeof loadMcpTools>> | null = null;
@@ -314,6 +325,8 @@ export async function createAgentSession(
   if (!options.fixturePath && options.model) {
     contextConfig.llmSummarize = engine.createSummarizer(options.model);
   }
+  contextConfig.buildRestorationHints = (maxContextTokens: number) =>
+    fileStateCache.buildRestorationHints(maxContextTokens);
 
   const resolvedSurface = options.providerExecutionPlan && options.executionSurface
     ? {
@@ -370,6 +383,7 @@ export async function createAgentSession(
   context.addMessage({ role: "system", content: compiled.text });
   const compiledPromptMeta: AgentSession["compiledPromptMeta"] = {
     sections: compiled.sections,
+    cacheSegments: compiled.cacheSegments,
     instructionSources: compiled.instructionSources,
     signatureHash: compiled.signatureHash,
     mode: compiled.mode,
@@ -403,7 +417,9 @@ export async function createAgentSession(
           "agent_session",
         );
       })(),
-      options: {},
+      options: options.maxOutputTokens != null
+        ? { maxTokens: options.maxOutputTokens }
+        : {},
       contextBudget: resolved.budget,
       toolAllowlist: toolFilterState.allowlist,
       toolDenylist: toolFilterState.denylist,
@@ -415,6 +431,11 @@ export async function createAgentSession(
       runtimeMode,
       providerExecutionPlan,
       executionSurface,
+      compiledPrompt: {
+        text: compiled.text,
+        cacheSegments: compiled.cacheSegments,
+        signatureHash: compiled.signatureHash,
+      },
     };
   const llm = options.fixturePath
     ? createFixtureLLM(await loadLlmFixture(options.fixturePath))
@@ -465,6 +486,7 @@ export async function createAgentSession(
     mcpSetHandlers,
     mcpSetSignal,
     todoState: createTodoState(),
+    fileStateCache,
     lspDiagnostics,
     compiledPromptMeta,
     instructions: options.instructions,

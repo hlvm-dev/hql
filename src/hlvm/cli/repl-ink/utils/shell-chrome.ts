@@ -131,10 +131,14 @@ export function buildContextUsageMiniBar(
   label: string,
   barWidth = 8,
 ): string {
-  const match = label.match(/(\d+)%/);
+  const match = label.match(/^(.*?)(\d+)%\s*(.*)$/);
   if (!match) return label;
-  const pct = Math.max(0, Math.min(100, Number(match[1])));
-  return `[${formatProgressBar(pct, barWidth)}] ${pct}%`;
+  const prefix = match[1]?.trim();
+  const pct = Math.max(0, Math.min(100, Number(match[2])));
+  const suffix = match[3]?.trim();
+  return [prefix, `[${formatProgressBar(pct, barWidth)}] ${pct}%`, suffix]
+    .filter((part): part is string => Boolean(part && part.length > 0))
+    .join(" ");
 }
 
 export function buildQueuePreviewHintLine(

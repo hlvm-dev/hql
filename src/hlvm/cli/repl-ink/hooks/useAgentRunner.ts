@@ -19,6 +19,7 @@ import type {
   InteractionRequestEvent,
   InteractionResponse,
 } from "../../../agent/registry.ts";
+import type { TraceEvent } from "../../../agent/orchestrator.ts";
 import type {
   AssistantCitation,
   ConversationAttachmentRef,
@@ -58,6 +59,18 @@ const CONVERSATION_DELEGATE_TOOL_DENYLIST = [
   "interrupt_agent",
   "resume_agent",
 ] as const;
+
+type ContextPressureLevel =
+  Extract<TraceEvent, { type: "context_pressure" }>["level"];
+
+function formatContextPressureLabel(
+  percent: number,
+  level: ContextPressureLevel,
+): string {
+  if (level === "urgent") return `ctx ${percent}% !!`;
+  if (level === "soft") return `ctx ${percent}% ↑`;
+  return `ctx ${percent}%`;
+}
 
 export function getConversationToolDenylist(
   agentExecutionMode: AgentExecutionMode,
@@ -168,6 +181,7 @@ export function useAgentRunner(
   const pendingStreamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const contextPressureLevelRef = useRef<ContextPressureLevel>("normal");
 
   // Cleanup orphaned stream timer on unmount
   useEffect(() => () => {
@@ -218,6 +232,7 @@ export function useAgentRunner(
 
     setSurfacePanel("conversation");
     setFooterContextUsageLabel("");
+    contextPressureLevelRef.current = "normal";
 
     // Show user message and pending indicator immediately — before expensive
     // config/model init, unless the caller already seeded the transcript.
@@ -350,6 +365,62 @@ export function useAgentRunner(
               | AssistantCitation[]
               | undefined;
           },
+          onTrace: (event) => {
+            if (controller.signal.aborted || !isActiveConversationRun()) {
+              return;
+            }
+            if (event.type === "context_pressure") {
+              setFooterContextUsageLabel(
+                formatContextPressureLabel(event.percent, event.level),
+              );
+              const previousLevel = contextPressureLevelRef.current;
+              contextPressureLevelRef.current = event.level;
+              if (event.level === previousLevel) {
+                return;
+              }
+              if (event.level === "soft") {
+                conversationRef.current.addInfo(
+                  "Context pressure is rising; older context may compact soon.",
+                  { isTransient: true },
+                );
+                return;
+              }
+              if (event.level === "urgent") {
+                conversationRef.current.addInfo(
+                  "Context is nearly full; this turn may compact older messages.",
+                  { isTransient: true },
+                );
+              }
+              return;
+            }
+            if (event.type === "context_overflow_retry") {
+              contextPressureLevelRef.current = "normal";
+              setFooterContextUsageLabel("");
+              conversationRef.current.addInfo(
+                "Context was compacted and the turn retried.",
+                { isTransient: true },
+              );
+              return;
+            }
+            if (event.type === "context_compaction") {
+              contextPressureLevelRef.current = "normal";
+              setFooterContextUsageLabel("");
+              conversationRef.current.addInfo(
+                "Older context was compacted before the next model call.",
+                { isTransient: true },
+              );
+              return;
+            }
+            if (
+              event.type === "response_continuation" &&
+              event.status === "starting"
+            ) {
+              conversationRef.current.addInfo(
+                "Continuing truncated response...",
+                { isTransient: true },
+              );
+            }
+          },
         },
         onInteraction: (event) => {
           if (controller.signal.aborted || !isActiveConversationRun()) {
@@ -423,6 +494,7 @@ export function useAgentRunner(
       if (!isActiveConversationRun()) {
         return;
       }
+      contextPressureLevelRef.current = "normal";
 
       // Finalize assistant message
       const sanitizePlanModeFinalText = (text: string): string => {
@@ -492,6 +564,7 @@ export function useAgentRunner(
         interactionResolversRef.current.clear();
         setInteractionQueue([]);
         setIsEvaluating(false);
+        contextPressureLevelRef.current = "normal";
         conversationRef.current.finalize(finalizeStatus);
       }
     }
@@ -561,6 +634,7 @@ export function useAgentRunner(
       }
       setPendingConversationQueue([]);
       setFooterContextUsageLabel("");
+      contextPressureLevelRef.current = "normal";
       setActiveOverlay("none");
       setSurfacePanel("none");
     },
@@ -606,6 +680,7 @@ export function useAgentRunner(
     setInteractionQueue([]);
     setIsEvaluating(false);
     setFooterContextUsageLabel("");
+    contextPressureLevelRef.current = "normal";
     restoreComposerDraft(restoredDraft);
     if (options?.addCancelledInfo !== false) {
       conversationRef.current.addInfo("Cancelled");
