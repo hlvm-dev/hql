@@ -1,5 +1,6 @@
 import { encodeBase64 } from "@std/encoding/base64";
 import { appendJsonLine } from "../../common/jsonl.ts";
+import { sha256Hex } from "../../common/sha256.ts";
 import {
   ensureAttachmentDirs,
   getAttachmentBlobsDir,
@@ -133,13 +134,6 @@ async function appendAttachmentRecordTrace(
     metadata: record.metadata,
     ...extras,
   });
-}
-
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 function createUnsupportedAttachmentError(
@@ -620,21 +614,19 @@ export async function readAttachmentContent(
   }
 }
 
-async function getRequiredAttachmentRecords(
+export async function getRequiredAttachmentRecords(
   attachmentIds: readonly string[],
 ): Promise<AttachmentRecord[]> {
   const resolved = await Promise.all(
     attachmentIds.map((attachmentId) => getAttachmentRecord(attachmentId)),
   );
-  const missing = attachmentIds.filter((_attachmentId, index) =>
+  const missingAttachmentId = attachmentIds.find((_attachmentId, index) =>
     resolved[index] === null
   );
-  if (missing.length > 0) {
+  if (missingAttachmentId) {
     throw new AttachmentServiceError(
       "not_found",
-      missing.length === 1
-        ? `Attachment not found: ${missing[0]}`
-        : `Attachments not found: ${missing.join(", ")}`,
+      `Attachment not found: ${missingAttachmentId}`,
     );
   }
   return resolved.filter((record): record is AttachmentRecord =>

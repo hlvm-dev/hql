@@ -95,6 +95,7 @@ Deno.test("conversation store: insertMessage handles ordering, versioning, dedup
       session_id: session.id,
       role: "user",
       content: "Past message",
+      display_content: "[Pasted text #1 +2 lines]",
       created_at: "2024-01-15T10:30:00.000Z",
     });
 
@@ -103,6 +104,7 @@ Deno.test("conversation store: insertMessage handles ordering, versioning, dedup
     assertEquals(deduped.id, duplicateAgain.id);
     assertEquals(duplicateAgain.content, "Duplicate");
     assertEquals(customTs.created_at, "2024-01-15T10:30:00.000Z");
+    assertEquals(customTs.display_content, "[Pasted text #1 +2 lines]");
     assertEquals(getSession(session.id)?.message_count, 4);
     assertEquals(getSession(session.id)?.session_version, 4);
   });
@@ -169,18 +171,26 @@ Deno.test("conversation store: getMessage and getMessageByClientTurnId resolve s
   });
 });
 
-Deno.test("conversation store: updateMessage edits content, cancellation, and session version", async () => {
+Deno.test("conversation store: updateMessage edits content, display content, cancellation, and session version", async () => {
   await withDb(() => {
     const session = createSession("Update Msg");
     const message = insertMessage({
       session_id: session.id,
       role: "assistant",
       content: "Original",
+      display_content: "[Pasted text #1]",
     });
     assertEquals(getSession(session.id)?.session_version, 1);
 
-    updateMessage(message.id, { content: "Updated" });
+    updateMessage(message.id, {
+      content: "Updated",
+      display_content: "[Pasted text #1 +1 lines]",
+    });
     assertEquals(getMessage(message.id)?.content, "Updated");
+    assertEquals(
+      getMessage(message.id)?.display_content,
+      "[Pasted text #1 +1 lines]",
+    );
     assertEquals(getSession(session.id)?.session_version, 2);
 
     updateMessage(message.id, { cancelled: true });

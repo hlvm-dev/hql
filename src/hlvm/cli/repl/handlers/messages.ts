@@ -15,7 +15,7 @@ import {
 } from "../../../store/conversation-store.ts";
 import { getActiveConversationSessionId } from "../../../store/active-conversation.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
-import { getAttachmentRecords } from "../../../attachments/service.ts";
+import { getRequiredAttachmentRecords } from "../../../attachments/service.ts";
 import {
   toRuntimeSessionMessage,
   toRuntimeSessionMessagesResponse,
@@ -51,17 +51,15 @@ async function validateAttachmentIds(
   }
   if (attachmentIds.length === 0) return undefined;
 
-  const records = await getAttachmentRecords(attachmentIds);
-  if (records.length === attachmentIds.length) {
+  try {
+    await getRequiredAttachmentRecords(attachmentIds);
     return undefined;
+  } catch (error) {
+    return jsonError(
+      error instanceof Error ? error.message : "Attachment not found",
+      400,
+    );
   }
-
-  const knownIds = new Set(records.map((record) => record.id));
-  const missingAttachmentId = attachmentIds.find((id) => !knownIds.has(id));
-  return jsonError(
-    `Attachment not found: ${missingAttachmentId ?? "unknown"}`,
-    400,
-  );
 }
 
 function requireMessage(params: RouteParams, sessionId: string): { messageId: number } | Response {
@@ -233,6 +231,8 @@ export async function handleGetMessage(
  *                 enum: [system, user, assistant, tool]
  *               content:
  *                 type: string
+ *               display_content:
+ *                 type: string
  *               client_turn_id:
  *                 type: string
  *               sender_type:
@@ -272,14 +272,21 @@ export async function handleAddMessage(
   const parsed = await parseJsonBody<{
     role: "system" | "user" | "assistant" | "tool";
     content: string;
+    display_content?: string;
     client_turn_id?: string;
     sender_type?: string;
     attachment_ids?: string[];
   }>(req);
   if (!parsed.ok) return parsed.response;
 
-  const { role, content, client_turn_id, sender_type, attachment_ids } =
-    parsed.value;
+  const {
+    role,
+    content,
+    display_content,
+    client_turn_id,
+    sender_type,
+    attachment_ids,
+  } = parsed.value;
   if (!role || content === undefined) {
     return jsonError("role and content are required", 400);
   }
@@ -292,6 +299,7 @@ export async function handleAddMessage(
     session_id: session.sessionId,
     role,
     content,
+    display_content,
     client_turn_id,
     sender_type,
     attachment_ids,
@@ -333,6 +341,9 @@ export async function handleAddMessage(
  *             properties:
  *               content:
  *                 type: string
+ *               display_content:
+ *                 type: string
+ *                 nullable: true
  *               cancelled:
  *                 type: boolean
  *     responses:
@@ -365,11 +376,19 @@ export async function handleUpdateMessage(
   const msg = requireMessage(params, session.sessionId);
   if (msg instanceof Response) return msg;
 
-  const parsed = await parseJsonBody<{ content?: string; cancelled?: boolean }>(req);
+  const parsed = await parseJsonBody<{
+    content?: string;
+    display_content?: string | null;
+    cancelled?: boolean;
+  }>(req);
   if (!parsed.ok) return parsed.response;
 
   const patch = parsed.value;
-  if (patch.content === undefined && patch.cancelled === undefined) {
+  if (
+    patch.content === undefined &&
+    patch.display_content === undefined &&
+    patch.cancelled === undefined
+  ) {
     return jsonError("No fields to update", 400);
   }
 

@@ -7,8 +7,15 @@
  */
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import {
+  auth,
+  extractWWWAuthenticateParams,
+  UnauthorizedError,
+} from "@modelcontextprotocol/sdk/client/auth.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   CancelledNotificationSchema,
   CreateMessageRequestSchema,
@@ -25,6 +32,11 @@ import {
 import { getAgentLogger } from "../logger.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { http } from "../../../common/http-client.ts";
+import {
+  createMcpOAuthTransportAuthProvider,
+  type McpOAuthTransportAuthProvider,
+} from "./oauth.ts";
+import { capMcpDescription, sanitizeMcpText } from "./text-utils.ts";
 import type {
   McpPromptInfo,
   McpPromptMessage,
@@ -66,7 +78,7 @@ const NOTIFICATION_SCHEMAS: Record<string, any> = {
  */
 function wrapFetchWithTimeout(
   timeoutMs: number,
-): typeof globalThis.fetch {
+): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
   return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort("MCP HTTP request timeout"), timeoutMs);
@@ -101,10 +113,13 @@ export class SdkMcpClient {
   private static readonly MAX_PENDING_PER_METHOD = 100;
   private client: Client;
   private readonly serverConfig: McpServerConfig;
+  private readonly interactiveAuth: boolean;
   private transport:
+    | InstanceType<typeof SSEClientTransport>
     | InstanceType<typeof StdioClientTransport>
     | InstanceType<typeof StreamableHTTPClientTransport>
     | null = null;
+  private remoteAuthProvider: McpOAuthTransportAuthProvider | null = null;
   private closed = false;
   private pendingAbortController = new AbortController();
   private readonly requestHandlers = new Map<
@@ -134,8 +149,12 @@ export class SdkMcpClient {
     Array<{ params: unknown; resolve: (v: any) => void; reject: (e: unknown) => void }>
   >();
 
-  constructor(serverConfig: McpServerConfig) {
+  constructor(
+    serverConfig: McpServerConfig,
+    options: { interactiveAuth?: boolean } = {},
+  ) {
     this.serverConfig = serverConfig;
+    this.interactiveAuth = options.interactiveAuth !== false;
     this.client = this.createClient();
   }
 
@@ -179,36 +198,147 @@ export class SdkMcpClient {
     await this.connectClient();
   }
 
-  private async connectClient(): Promise<void> {
-    if (this.serverConfig.url || this.serverConfig.transport === "http") {
-      // HTTP transport — per-request timeout + Accept header
+  private createRemoteFetch(
+    fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  ): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
+    if (!this.remoteAuthProvider || !this.serverConfig.url) {
+      return fetchImpl;
+    }
+    const authProvider = this.remoteAuthProvider;
+    const serverUrl = this.serverConfig.url;
+    return async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const response = await fetchImpl(input, init);
+      if (response.status !== 403) return response;
+      const { resourceMetadataUrl, scope, error } =
+        extractWWWAuthenticateParams(response);
+      if (error !== "insufficient_scope") return response;
+      await response.body?.cancel().catch(() => undefined);
+      const result = await auth(authProvider, {
+        serverUrl,
+        resourceMetadataUrl,
+        scope,
+        fetchFn: fetchImpl as FetchLike,
+      });
+      if (result !== "AUTHORIZED") {
+        throw new UnauthorizedError(
+          "Authentication requires user authorization - redirect initiated",
+        );
+      }
+      return await fetchImpl(input, init);
+    };
+  }
+
+  private buildTransport():
+    | InstanceType<typeof SSEClientTransport>
+    | InstanceType<typeof StdioClientTransport>
+    | InstanceType<typeof StreamableHTTPClientTransport> {
+    const authOptions = this.interactiveAuth
+      ? {}
+      : {
+        openBrowser: async () => {
+          throw new Error(
+            `Interactive MCP OAuth disabled while inspecting '${this.serverConfig.name}'`,
+          );
+        },
+      };
+    if (this.serverConfig.transport === "sse") {
       const url = new URL(this.serverConfig.url!);
       const baseHeaders = this.serverConfig.headers ?? {};
-      this.transport = new StreamableHTTPClientTransport(url, {
+      this.remoteAuthProvider = createMcpOAuthTransportAuthProvider(
+        this.serverConfig,
+        authOptions,
+      );
+      const fetchImpl = this.createRemoteFetch(
+        // deno-lint-ignore no-explicit-any
+        wrapFetchWithTimeout(MCP_HTTP_REQUEST_TIMEOUT_MS) as any,
+      );
+      return new SSEClientTransport(url, {
+        authProvider: this.remoteAuthProvider,
+        requestInit: {
+          headers: baseHeaders,
+        },
+        // deno-lint-ignore no-explicit-any
+        fetch: fetchImpl as any,
+      });
+    }
+    if (this.serverConfig.url || this.serverConfig.transport === "http") {
+      const url = new URL(this.serverConfig.url!);
+      const baseHeaders = this.serverConfig.headers ?? {};
+      this.remoteAuthProvider = createMcpOAuthTransportAuthProvider(
+        this.serverConfig,
+        authOptions,
+      );
+      const fetchImpl = this.createRemoteFetch(
+        // deno-lint-ignore no-explicit-any
+        wrapFetchWithTimeout(MCP_HTTP_REQUEST_TIMEOUT_MS) as any,
+      );
+      return new StreamableHTTPClientTransport(url, {
+        authProvider: this.remoteAuthProvider,
         requestInit: {
           headers: {
             ...baseHeaders,
             Accept: "application/json, text/event-stream",
           },
         },
-        fetch: wrapFetchWithTimeout(MCP_HTTP_REQUEST_TIMEOUT_MS),
-      });
-    } else {
-      // Stdio transport
-      const [command, ...args] = this.serverConfig.command!;
-      this.transport = new StdioClientTransport({
-        command,
-        args,
-        env: this.serverConfig.env,
-        cwd: this.serverConfig.cwd,
+        // deno-lint-ignore no-explicit-any
+        fetch: fetchImpl as any,
       });
     }
+    this.remoteAuthProvider = null;
+    const [command, ...args] = this.serverConfig.command!;
+    return new StdioClientTransport({
+      command,
+      args,
+      env: this.serverConfig.env,
+      cwd: this.serverConfig.cwd,
+    });
+  }
 
-    await this.client.connect(this.transport);
-    this.connectionState.connected = true;
-    this.connectionState.reconnectAttempts = 0;
+  private async finishPendingAuthorization(error: unknown): Promise<boolean> {
+    if (!(error instanceof UnauthorizedError)) return false;
+    if (!this.interactiveAuth) return false;
+    if (
+      !this.remoteAuthProvider ||
+      !this.transport ||
+      !("finishAuth" in this.transport) ||
+      typeof this.transport.finishAuth !== "function" ||
+      !this.remoteAuthProvider.hasPendingAuthorization()
+    ) {
+      return false;
+    }
+    const authorizationCode =
+      await this.remoteAuthProvider.promptForAuthorizationCode();
+    await this.transport.finishAuth(authorizationCode);
+    return true;
+  }
 
-    // Capture stderr from stdio child processes for diagnostics
+  private async connectClient(): Promise<void> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      this.transport = this.buildTransport();
+      try {
+        await this.client.connect(this.transport);
+        this.connectionState.connected = true;
+        this.connectionState.reconnectAttempts = 0;
+        break;
+      } catch (error) {
+        lastError = error;
+        this.connectionState.connected = false;
+        const completedAuth = await this.finishPendingAuthorization(error);
+        await this.transport.close().catch(() => undefined);
+        if (!completedAuth || attempt > 0) {
+          throw error;
+        }
+        this.client = this.createClient();
+      }
+    }
+    if (!this.connectionState.connected && lastError) {
+      throw lastError;
+    }
+
     if (this.transport instanceof StdioClientTransport) {
       const stderr = (this.transport as unknown as { stderr?: { on?: (event: string, cb: (chunk: unknown) => void) => void } }).stderr;
       if (stderr?.on) {
@@ -227,9 +357,15 @@ export class SdkMcpClient {
     this.cancelAllPending("MCP client closed");
     this.closed = true;
     this.connectionState.connected = false;
+    const transport = this.transport;
+    this.transport = null;
+    this.remoteAuthProvider = null;
     try {
       await Promise.race([
-        this.client.close(),
+        Promise.allSettled([
+          this.client.close(),
+          transport?.close() ?? Promise.resolve(),
+        ]).then(() => undefined),
         new Promise<void>((_, reject) =>
           setTimeout(() => reject(new Error("MCP close timeout")), 5_000)
         ),
@@ -347,6 +483,14 @@ export class SdkMcpClient {
     try {
       return await run(signal);
     } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        const completedAuth = await this.finishPendingAuthorization(error);
+        if (!completedAuth) {
+          throw error;
+        }
+        await this.reconnectWithBackoff();
+        return await run(signal);
+      }
       const kind = this.classifyError(error);
       if (kind === "terminal") {
         this.connectionState.terminalErrorCount += 1;
@@ -460,7 +604,7 @@ export class SdkMcpClient {
     );
     return result.tools.map((t) => ({
       name: t.name,
-      description: t.description,
+      description: capMcpDescription(t.description),
       inputSchema: t.inputSchema as Record<string, unknown> | undefined,
       metadata: isObjectValue((t as Record<string, unknown>).metadata)
         ? (t as Record<string, unknown>).metadata as Record<string, unknown>
@@ -509,8 +653,8 @@ export class SdkMcpClient {
     );
     return result.resources.map((r) => ({
       uri: r.uri,
-      name: r.name,
-      description: r.description,
+      name: sanitizeMcpText(r.name),
+      description: capMcpDescription(r.description),
       mimeType: r.mimeType,
     }));
   }
@@ -530,7 +674,9 @@ export class SdkMcpClient {
     return result.contents.map((c) => ({
       uri: c.uri,
       mimeType: c.mimeType,
-      text: "text" in c ? c.text as string : undefined,
+      text: "text" in c && typeof c.text === "string"
+        ? sanitizeMcpText(c.text)
+        : undefined,
       blob: "blob" in c ? c.blob as string : undefined,
     }));
   }
@@ -548,8 +694,8 @@ export class SdkMcpClient {
     );
     return result.resourceTemplates.map((t) => ({
       uriTemplate: t.uriTemplate,
-      name: t.name,
-      description: t.description,
+      name: sanitizeMcpText(t.name),
+      description: capMcpDescription(t.description),
       mimeType: t.mimeType,
     }));
   }
@@ -590,11 +736,11 @@ export class SdkMcpClient {
       signal,
     );
     return result.prompts.map((p) => ({
-      name: p.name,
-      description: p.description,
+      name: sanitizeMcpText(p.name),
+      description: capMcpDescription(p.description),
       arguments: p.arguments?.map((a) => ({
-        name: a.name,
-        description: a.description,
+        name: sanitizeMcpText(a.name),
+        description: capMcpDescription(a.description),
         required: a.required,
       })),
     }));
@@ -613,7 +759,31 @@ export class SdkMcpClient {
         ),
       signal,
     );
-    return result.messages as McpPromptMessage[];
+    return (result.messages as McpPromptMessage[]).map((message) => {
+      const content = message.content;
+      if ("text" in content) {
+        return {
+          ...message,
+          content: {
+            ...content,
+            text: sanitizeMcpText(content.text),
+          },
+        };
+      }
+      if ("resource" in content && typeof content.resource.text === "string") {
+        return {
+          ...message,
+          content: {
+            ...content,
+            resource: {
+              ...content.resource,
+              text: sanitizeMcpText(content.resource.text),
+            },
+          },
+        };
+      }
+      return message;
+    });
   }
 
   // ============================================================
@@ -803,8 +973,31 @@ export class SdkMcpClient {
 /** Factory function — create and connect an SDK MCP client */
 export async function createSdkMcpClient(
   server: McpServerConfig,
+  signal?: AbortSignal,
+  options: { interactiveAuth?: boolean } = {},
 ): Promise<SdkMcpClient> {
-  const client = new SdkMcpClient(server);
-  await client.start();
-  return client;
+  const client = new SdkMcpClient(server, options);
+  let removeAbortListener = () => {};
+  try {
+    const startPromise = client.start().then(() => client);
+    if (!signal) {
+      return await startPromise;
+    }
+    const abortPromise = new Promise<never>((_, reject) => {
+      const onAbort = () =>
+        reject(signal.reason ?? new Error("MCP client start aborted"));
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+      removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+    });
+    return await Promise.race([startPromise, abortPromise]);
+  } catch (error) {
+    await client.close().catch(() => undefined);
+    throw error;
+  } finally {
+    removeAbortListener();
+  }
 }

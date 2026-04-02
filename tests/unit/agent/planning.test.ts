@@ -184,7 +184,7 @@ Deno.test({
   "steps": [
     {
       "description": "Insert a one-line code comment on line 1 (above the greet declaration) using edit_file. The existing line 1 shifts to line 2.",
-      "file": "/Users/seoksoonjang/Desktop/hlvm-plan-e2e-fixture.ts",
+      "file": "/tmp/hlvm-plan-e2e-fixture.ts",
       "tool": "edit_file"
     }
   ]

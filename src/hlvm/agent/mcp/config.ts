@@ -11,6 +11,7 @@ import {
   getMcpConfigPath,
 } from "../../../common/paths.ts";
 import type { McpConfig, McpServerConfig } from "./types.ts";
+import { expandMcpServerEnv } from "./env-expansion.ts";
 
 const DOT_MCP_FILE = ".mcp.json";
 
@@ -46,9 +47,10 @@ async function loadMcpConfigFromPath(path: string): Promise<McpConfig | null> {
     return null;
   }
 
-  const servers = Array.isArray(parsed.servers)
+  const rawServers = Array.isArray(parsed.servers)
     ? parsed.servers.filter(isMcpServerConfig)
     : [];
+  const servers = expandServersWithWarnings(rawServers, path);
 
   if (servers.length === 0) return null;
   return { version: 1, servers };
@@ -112,10 +114,30 @@ function parseClaudeCodeServerEntry(
       entry.connection_timeout_ms > 0
       ? Math.floor(entry.connection_timeout_ms)
       : undefined;
+  const headers = isObjectValue(entry.headers)
+    ? Object.fromEntries(
+      Object.entries(entry.headers as Record<string, unknown>)
+        .filter(([, v]) => typeof v === "string")
+        .map(([k, v]) => [k, v as string]),
+    )
+    : undefined;
+  const transport = entry.type === "sse"
+    ? "sse"
+    : entry.type === "http"
+    ? "http"
+    : undefined;
 
   // HTTP / SSE transport
   if (typeof entry.url === "string") {
-    return { name, url: entry.url, env, disabled_tools, connection_timeout_ms };
+    return {
+      name,
+      url: entry.url,
+      ...(transport ? { transport } : {}),
+      ...(headers ? { headers } : {}),
+      ...(env ? { env } : {}),
+      ...(disabled_tools ? { disabled_tools } : {}),
+      ...(connection_timeout_ms ? { connection_timeout_ms } : {}),
+    };
   }
 
   // Stdio transport: command + args
@@ -224,7 +246,10 @@ async function loadClaudeCodeMcpServers(): Promise<McpServerConfig[]> {
     dirs.map(async (dirName) => {
       const mcpPath = platform.path.join(pluginsDir, dirName, DOT_MCP_FILE);
       const content = await platform.fs.readTextFile(mcpPath);
-      return parseClaudeCodeMcpJson(content, dirName);
+      return expandServersWithWarnings(
+        parseClaudeCodeMcpJson(content, dirName),
+        mcpPath,
+      );
     }),
   );
 
@@ -309,7 +334,7 @@ export function formatServerEntry(s: McpServerWithScope): {
   scopeLabel: string;
 } {
   return {
-    transport: s.url ? "http" : "stdio",
+    transport: s.url ? (s.transport ?? "http") : "stdio",
     target: s.url ?? (s.command?.join(" ") ?? ""),
     scopeLabel: s.scope === "claude-code" ? "Claude Code" : "user",
   };
@@ -318,6 +343,14 @@ export function formatServerEntry(s: McpServerWithScope): {
 export function isMcpServerConfig(value: unknown): value is McpServerConfig {
   if (!isObjectValue(value)) return false;
   if (typeof value.name !== "string") return false;
+  if (
+    value.transport !== undefined &&
+    value.transport !== "stdio" &&
+    value.transport !== "http" &&
+    value.transport !== "sse"
+  ) {
+    return false;
+  }
   // Stdio transport: requires command array of strings
   if (Array.isArray(value.command) && value.command.length > 0) {
     return value.command.every((c: unknown) => typeof c === "string");
@@ -325,4 +358,21 @@ export function isMcpServerConfig(value: unknown): value is McpServerConfig {
   // HTTP transport: requires url
   if (typeof value.url === "string" && value.url.length > 0) return true;
   return false;
+}
+
+function expandServersWithWarnings(
+  servers: readonly McpServerConfig[],
+  sourceLabel: string,
+): McpServerConfig[] {
+  return servers.map((server) => {
+    const expanded = expandMcpServerEnv(server);
+    if (expanded.missingVars.length > 0) {
+      getAgentLogger().warn(
+        `MCP config '${server.name}' in ${sourceLabel} references unset env vars: ${
+          expanded.missingVars.join(", ")
+        }`,
+      );
+    }
+    return expanded.server;
+  });
 }

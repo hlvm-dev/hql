@@ -5,7 +5,11 @@
  * All unit tests should import helper functions from here to avoid duplication.
  */
 import hql, { type RunOptions } from "../../mod.ts";
-import { resetHlvmDirCacheForTests, setHlvmDirForTests } from "../../src/common/paths.ts";
+import {
+  resetHlvmDirCacheForTests,
+  setClaudeCodeMcpDirForTests,
+  setHlvmDirForTests,
+} from "../../src/common/paths.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
 import { generateTypeScript } from "../../src/hql/transpiler/pipeline/ir-to-typescript.ts";
@@ -218,7 +222,6 @@ export async function withTempHlvmDir(
 ): Promise<void> {
   await withGlobalTestLock(async () => {
     const platform = getPlatform();
-    const previousHlvmDir = platform.env.get("HLVM_DIR");
     const tempDir = await platform.fs.makeTempDir({
       prefix: "hlvm-test-hlvmdir-",
     });
@@ -230,12 +233,23 @@ export async function withTempHlvmDir(
 
     resetHlvmRuntimeState();
     setHlvmDirForTests(tempDir);
+    setClaudeCodeMcpDirForTests(
+      join(
+        tempDir,
+        ".claude",
+        "plugins",
+        "marketplaces",
+        "claude-plugins-official",
+        "external_plugins",
+      ),
+    );
 
     try {
       await fn();
     } finally {
       resetHlvmRuntimeState();
       resetHlvmDirCacheForTests();
+      setClaudeCodeMcpDirForTests(null);
 
       try {
         await platform.fs.remove(tempDir, { recursive: true });

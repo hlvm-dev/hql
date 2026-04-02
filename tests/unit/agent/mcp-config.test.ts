@@ -1,4 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
+import { getMcpConfigPath } from "../../../src/common/paths.ts";
 import {
   addServerToConfig,
   dedupeServers,
@@ -8,6 +9,7 @@ import {
   parseClaudeCodeMcpJson,
   removeServerFromConfig,
 } from "../../../src/hlvm/agent/mcp/config.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 import { withTempHlvmDir } from "../helpers.ts";
 
 Deno.test("McpConfig: parseClaudeCodeMcpJson parses direct transport entries and normalizes optional fields", () => {
@@ -35,6 +37,33 @@ Deno.test("McpConfig: parseClaudeCodeMcpJson parses direct transport entries and
   assertEquals(servers[0].disabled_tools, ["browser_install"]);
   assertEquals(servers[0].connection_timeout_ms, 1234);
   assertEquals(servers[1].url, "https://api.githubcopilot.com/mcp/");
+});
+
+Deno.test("McpConfig: parseClaudeCodeMcpJson preserves SSE transport and headers", () => {
+  const servers = parseClaudeCodeMcpJson(
+    JSON.stringify({
+      mcpServers: {
+        figma: {
+          type: "sse",
+          url: "https://mcp.example.test/sse",
+          headers: {
+            Authorization: "Bearer ${FIGMA_TOKEN}",
+            BAD: 123,
+          },
+        },
+      },
+    }),
+    "figma",
+  );
+
+  assertEquals(servers, [{
+    name: "figma",
+    url: "https://mcp.example.test/sse",
+    transport: "sse",
+    headers: {
+      Authorization: "Bearer ${FIGMA_TOKEN}",
+    },
+  }]);
 });
 
 Deno.test("McpConfig: parseClaudeCodeMcpJson parses wrapped mcpServers entries and ignores unsupported data", () => {
@@ -102,6 +131,64 @@ Deno.test("McpConfig: removeServerFromConfig deletes persisted global entries by
   });
 });
 
+Deno.test("McpConfig: loadMcpConfig expands MCP env vars and preserves missing placeholders", async () => {
+  await withTempHlvmDir(async () => {
+    const platform = getPlatform();
+    const originalToken = platform.env.get("MCP_TEST_TOKEN");
+    const originalMissing = platform.env.get("MCP_TEST_MISSING");
+    try {
+      platform.env.set("MCP_TEST_TOKEN", "token-123");
+      platform.env.delete("MCP_TEST_MISSING");
+      await platform.fs.mkdir(platform.path.dirname(getMcpConfigPath()), {
+        recursive: true,
+      });
+      await platform.fs.writeTextFile(
+        getMcpConfigPath(),
+        JSON.stringify({
+          version: 1,
+          servers: [{
+            name: "expanded",
+            command: ["node", "${MCP_TEST_TOKEN}"],
+            cwd: "/tmp/${MCP_TEST_TOKEN}",
+            env: {
+              TOKEN: "${MCP_TEST_TOKEN}",
+              STILL_MISSING: "${MCP_TEST_MISSING}",
+            },
+            headers: {
+              Authorization: "Bearer ${MCP_TEST_TOKEN}",
+            },
+          }],
+        }),
+      );
+
+      const config = await loadMcpConfig();
+      assertEquals(config?.servers, [{
+        name: "expanded",
+        command: ["node", "token-123"],
+        cwd: "/tmp/token-123",
+        env: {
+          TOKEN: "token-123",
+          STILL_MISSING: "${MCP_TEST_MISSING}",
+        },
+        headers: {
+          Authorization: "Bearer token-123",
+        },
+      }]);
+    } finally {
+      if (originalToken === undefined) {
+        platform.env.delete("MCP_TEST_TOKEN");
+      } else {
+        platform.env.set("MCP_TEST_TOKEN", originalToken);
+      }
+      if (originalMissing === undefined) {
+        platform.env.delete("MCP_TEST_MISSING");
+      } else {
+        platform.env.set("MCP_TEST_MISSING", originalMissing);
+      }
+    }
+  });
+});
+
 Deno.test("McpConfig: formatServerEntry renders transport targets and scope labels", () => {
   const user = formatServerEntry({
     name: "test",
@@ -113,8 +200,15 @@ Deno.test("McpConfig: formatServerEntry renders transport targets and scope labe
     command: ["uvx", "serena"],
     scope: "claude-code",
   });
+  const sse = formatServerEntry({
+    name: "remote",
+    url: "https://mcp.example.test/sse",
+    transport: "sse",
+    scope: "user",
+  });
 
   assertEquals(user.scopeLabel, "user");
   assertEquals(user.transport, "stdio");
   assertEquals(claudeCode.scopeLabel, "Claude Code");
+  assertEquals(sse.transport, "sse");
 });

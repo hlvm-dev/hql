@@ -71,8 +71,8 @@ Deno.test("history search shell helpers keep hint text compact", () => {
 });
 
 Deno.test("buildContextUsageMiniBar renders percentage as block bar", () => {
-  assertEquals(buildContextUsageMiniBar("0% ctx"), "[░░░░░░░░] 0%");
-  assertEquals(buildContextUsageMiniBar("45% ctx"), "[████░░░░] 45%");
-  assertEquals(buildContextUsageMiniBar("100% ctx"), "[████████] 100%");
+  assertEquals(buildContextUsageMiniBar("0% ctx"), "[░░░░░░░░] 0% ctx");
+  assertEquals(buildContextUsageMiniBar("45% ctx"), "[████░░░░] 45% ctx");
+  assertEquals(buildContextUsageMiniBar("100% ctx"), "[████████] 100% ctx");
   assertEquals(buildContextUsageMiniBar("no percentage"), "no percentage");
 });

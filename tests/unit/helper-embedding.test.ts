@@ -11,8 +11,10 @@ import { transpile } from "../../mod.ts";
 import { assertEquals } from "jsr:@std/assert";
 import { getErrorMessage } from "../../src/common/utils.ts";
 
-Deno.test("Helper Embedding: __hql_deepFreeze is embedded when const is used", async () => {
-  const hqlCode = `(const x 42)`;
+Deno.test("Helper Embedding: __hql_deepFreeze is embedded when const is used with non-primitive", async () => {
+  // Primitives (numbers, strings, booleans) skip deepFreeze as an optimization.
+  // Use a non-primitive (array) to verify the helper is embedded.
+  const hqlCode = `(const x [1 2 3])`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
@@ -20,7 +22,7 @@ Deno.test("Helper Embedding: __hql_deepFreeze is embedded when const is used", a
   assertEquals(
     code.includes("__hql_deepFreeze"),
     true,
-    "Transpiled code must include __hql_deepFreeze when const is used"
+    "Transpiled code must include __hql_deepFreeze when const is used with non-primitive"
   );
 
   // Verify the function definition is present (not just a call)
@@ -41,8 +43,21 @@ Deno.test("Helper Embedding: __hql_deepFreeze is embedded when const is used", a
   }
 });
 
-Deno.test("Helper Embedding: __hql_deepFreeze is embedded with exports", async () => {
-  const hqlCode = `(const PI 3.14) (export [PI])`;
+Deno.test("Helper Embedding: __hql_deepFreeze is NOT embedded for primitive const", async () => {
+  // Primitives are already immutable — no need for deepFreeze
+  const hqlCode = `(const x 42)`;
+  const result = await transpile(hqlCode);
+  const code = typeof result === 'string' ? result : result.code || '';
+
+  assertEquals(
+    code.includes("__hql_deepFreeze"),
+    false,
+    "Transpiled code should NOT include __hql_deepFreeze for primitive const"
+  );
+});
+
+Deno.test("Helper Embedding: __hql_deepFreeze is embedded with exports for non-primitive", async () => {
+  const hqlCode = `(const data [3.14 2.71]) (export [data])`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
@@ -50,7 +65,7 @@ Deno.test("Helper Embedding: __hql_deepFreeze is embedded with exports", async (
   assertEquals(
     code.includes("__hql_deepFreeze"),
     true,
-    "Transpiled code with exports must include __hql_deepFreeze"
+    "Transpiled code with exports must include __hql_deepFreeze for non-primitive"
   );
 
   // Verify export statement is present
@@ -69,8 +84,8 @@ Deno.test("Helper Embedding: __hql_deepFreeze is embedded with exports", async (
   );
 });
 
-Deno.test("Helper Embedding: __hql_deepFreeze handles multiple const bindings", async () => {
-  const hqlCode = `(const a 1) (const b 2) (const c 3)`;
+Deno.test("Helper Embedding: __hql_deepFreeze handles multiple non-primitive const bindings", async () => {
+  const hqlCode = `(const a [1]) (const b [2]) (const c [3])`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 
@@ -78,7 +93,7 @@ Deno.test("Helper Embedding: __hql_deepFreeze handles multiple const bindings", 
   assertEquals(
     code.includes("__hql_deepFreeze"),
     true,
-    "Transpiled code must include __hql_deepFreeze for multiple const bindings"
+    "Transpiled code must include __hql_deepFreeze for multiple non-primitive const bindings"
   );
 
   // Verify all const bindings use __hql_deepFreeze
@@ -95,7 +110,7 @@ Deno.test("Helper Embedding: __hql_deepFreeze handles multiple const bindings", 
     fn();
   } catch (error) {
     throw new Error(
-      `Multiple let bindings failed standalone: ${getErrorMessage(error)}`
+      `Multiple const bindings failed standalone: ${getErrorMessage(error)}`
     );
   }
 });
@@ -170,7 +185,8 @@ Deno.test("Helper Embedding: Multiple helpers embedded when needed", async () =>
 });
 
 Deno.test("Helper Embedding: Verify single source of truth via function.toString()", async () => {
-  const hqlCode = `(const x 1)`;
+  // Use non-primitive to trigger deepFreeze embedding
+  const hqlCode = `(const x [1 2 3])`;
   const result = await transpile(hqlCode);
   const code = typeof result === 'string' ? result : result.code || '';
 

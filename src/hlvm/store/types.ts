@@ -21,6 +21,7 @@ export interface MessageRow {
   order: number;
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  display_content: string | null;
   client_turn_id: string | null;
   request_id: string | null;
   sender_type: string;
@@ -37,6 +38,7 @@ export interface InsertMessageOpts {
   session_id: string;
   role: MessageRow["role"];
   content: string;
+  display_content?: string | null;
   client_turn_id?: string;
   request_id?: string;
   sender_type?: string;

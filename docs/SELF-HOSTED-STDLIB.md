@@ -872,7 +872,7 @@ export function drop(n, coll) {
 
 ### C. Key Contacts & Resources
 
-- **Codebase**: /Users/seoksoonjang/Desktop/hlvm
+- **Codebase**: `<hlvm-repo>`
 - **Tests**: `deno task test:unit` (1846 tests)
 - **Main Files**:
   - `src/hql/lib/stdlib/stdlib.hql` - HQL source

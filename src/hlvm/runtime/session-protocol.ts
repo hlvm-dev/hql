@@ -46,6 +46,7 @@ export interface RuntimeSessionMessagesResponse
 export interface RuntimeSessionMessageInput {
   role: MessageRow["role"];
   content: string;
+  display_content?: string;
   client_turn_id?: string;
   sender_type?: string;
   attachment_ids?: string[];

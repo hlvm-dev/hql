@@ -84,6 +84,23 @@ Deno.test("attachment refs: filtering drops orphaned attachments after inline re
   assertEquals(filtered.map((attachment) => attachment.id), [1, 3]);
 });
 
+Deno.test("attachment refs: legacy [Text #N] labels still resolve during restore and pruning", () => {
+  const attachments = [
+    createTextAttachment(1, "[Text #1]", "legacy text body"),
+    createImageAttachment(2),
+  ];
+
+  const filtered = filterReferencedAttachments(
+    "keep [Text #1] only",
+    attachments,
+  );
+  const expanded = expandTextAttachmentReferences("before [Text #1] after", attachments);
+
+  assertEquals(filtered.map((attachment) => attachment.id), [1]);
+  assertEquals(expanded, "before legacy text body after");
+  assertEquals(filtered[0]?.displayName, "[Text #1]");
+});
+
 Deno.test("attachment refs: auto-attachable path requires an existing media file", async () => {
   await withTempDir(async (dir) => {
     const platform = getPlatform();

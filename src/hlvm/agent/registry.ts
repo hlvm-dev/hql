@@ -102,7 +102,7 @@ export interface ToolExecutionOptions {
   ensureMcpLoaded?: (signal?: AbortSignal) => Promise<void>;
   /** Session-scoped todo state used by todo_read/todo_write. */
   todoState?: TodoState;
-  /** Session-scoped file coordination cache for read/write/edit integrity. */
+  /** Per-session file integrity cache for read/write/edit guards. */
   fileStateCache?: FileStateCache;
   /** Optional registry-backed tool search callback used by tool_search. */
   searchTools?: (

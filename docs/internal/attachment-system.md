@@ -70,10 +70,10 @@ The attachment system is single-path by design. Different UX entry points may co
 
 | Layer | SSOT Entry Point | Location |
 |------|-------------------|----------|
-| GUI capture abstraction | `AttachmentInput` | `/Users/seoksoonjang/dev/HLVM/HLVM/REPL/Presentation/Chat/Protocol/ReplChatProtocols.swift` |
-| GUI draft resolution | `resolveDraftAttachments()` | `/Users/seoksoonjang/dev/HLVM/HLVM/REPL/Presentation/Chat/Controller/ReplChatController.swift` |
-| GUI binary bridge | `registerAttachment(_:)` | `/Users/seoksoonjang/dev/HLVM/HLVM/REPL/Presentation/Chat/Controller/ReplChatController.swift` |
-| GUI HTTP bridge | `registerAttachment(path:)`, `uploadAttachment(...)` | `/Users/seoksoonjang/dev/HLVM/HLVM/Shared/Infrastructure/Network/HTTP/HqlAPIClient.swift` |
+| GUI capture abstraction | `AttachmentInput` | `HLVM/HLVM/REPL/Presentation/Chat/Protocol/ReplChatProtocols.swift` |
+| GUI draft resolution | `resolveDraftAttachments()` | `HLVM/HLVM/REPL/Presentation/Chat/Controller/ReplChatController.swift` |
+| GUI binary bridge | `registerAttachment(_:)` | `HLVM/HLVM/REPL/Presentation/Chat/Controller/ReplChatController.swift` |
+| GUI HTTP bridge | `registerAttachment(path:)`, `uploadAttachment(...)` | `HLVM/HLVM/Shared/Infrastructure/Network/HTTP/HqlAPIClient.swift` |
 | Binary HTTP ingress | `handleRegisterAttachment()`, `handleUploadAttachment()` | `src/hlvm/cli/repl/handlers/attachments.ts` |
 | Binary storage + validation | `registerAttachmentBytes()` | `src/hlvm/attachments/service.ts` |
 | Binary chat ingress | `handleChat()` | `src/hlvm/cli/repl/handlers/chat.ts` |
@@ -902,8 +902,8 @@ The `buildChatProviderMessages()` → `resolveAttachments()` → `materializeCon
 
 | Component | File |
 |-----------|------|
-| GUI attachment abstraction | `/Users/seoksoonjang/dev/HLVM/HLVM/REPL/Presentation/Chat/Protocol/ReplChatProtocols.swift` |
-| GUI send + draft resolution | `/Users/seoksoonjang/dev/HLVM/HLVM/REPL/Presentation/Chat/Controller/ReplChatController.swift` |
-| GUI HTTP attachment client | `/Users/seoksoonjang/dev/HLVM/HLVM/Shared/Infrastructure/Network/HTTP/HqlAPIClient.swift` |
-| GUI screen recording | `/Users/seoksoonjang/dev/HLVM/HLVM/Manager/ScreenCaptureManager.swift` |
-| GUI capture controller | `/Users/seoksoonjang/dev/HLVM/HLVM/Shared/Presentation/Drawing/DrawingViewController.swift` |
+| GUI attachment abstraction | `HLVM/HLVM/REPL/Presentation/Chat/Protocol/ReplChatProtocols.swift` |
+| GUI send + draft resolution | `HLVM/HLVM/REPL/Presentation/Chat/Controller/ReplChatController.swift` |
+| GUI HTTP attachment client | `HLVM/HLVM/Shared/Infrastructure/Network/HTTP/HqlAPIClient.swift` |
+| GUI screen recording | `HLVM/HLVM/Manager/ScreenCaptureManager.swift` |
+| GUI capture controller | `HLVM/HLVM/Shared/Presentation/Drawing/DrawingViewController.swift` |

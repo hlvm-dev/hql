@@ -3,11 +3,13 @@ import {
   applyPromptCaching,
   buildLlmPerformanceSnapshot,
   buildToolCallRepairFunction,
+  clearGoogleCacheRegistry,
   filterLocallyExecutableToolCalls,
   getSdkModel,
   mapSdkToolCalls,
   mergeSdkWebCapabilityTools,
   repairMalformedToolCallInput,
+  resolveGoogleCachedContent,
   resolveForcedProviderNativeToolChoice,
   resolveProviderNativeRouteFailureFromError,
   SdkAgentEngine,
@@ -885,6 +887,85 @@ Deno.test("engine sdk: openai promptCacheKey changes when session-stable prompt 
     firstOpenAI.promptCacheKey === secondOpenAI.promptCacheKey,
     false,
   );
+});
+
+Deno.test("engine sdk: applyPromptCaching passes through google cachedContent from provider options", () => {
+  const compiledPrompt = buildAutoExecutionPrompt();
+  const messages = convertToSdkMessages([
+    { role: "user", content: "Hello" },
+  ]);
+
+  const decorated = applyPromptCaching(
+    { providerName: "google", modelId: "gemini-2.5-pro", providerConfig: null },
+    compiledPrompt.cacheSegments.map((segment) => ({
+      role: "system" as const,
+      content: segment.text,
+    })),
+    messages,
+    {},
+    { google: { cachedContent: "cachedContents/abc123", thinkingConfig: { thinkingBudget: 1024 } } },
+    toCompiledPromptMeta(compiledPrompt),
+    "tool-schema-signature",
+    "tool-filter-signature",
+  );
+
+  const googleOpts = decorated.providerOptions?.google as Record<string, unknown>;
+  assertEquals(googleOpts?.cachedContent, "cachedContents/abc123");
+  // Verify existing provider options (thinking) are preserved
+  assertEquals(
+    (googleOpts?.thinkingConfig as Record<string, unknown>)?.thinkingBudget,
+    1024,
+  );
+});
+
+Deno.test("engine sdk: applyPromptCaching omits google cachedContent when not provided", () => {
+  const compiledPrompt = buildAutoExecutionPrompt();
+  const messages = convertToSdkMessages([
+    { role: "user", content: "Hello" },
+  ]);
+
+  const decorated = applyPromptCaching(
+    { providerName: "google", modelId: "gemini-2.5-flash", providerConfig: null },
+    compiledPrompt.cacheSegments.map((segment) => ({
+      role: "system" as const,
+      content: segment.text,
+    })),
+    messages,
+    {},
+    { google: { thinkingConfig: { thinkingBudget: 512 } } },
+    toCompiledPromptMeta(compiledPrompt),
+    "tool-schema-signature",
+    "tool-filter-signature",
+  );
+
+  const googleOpts = decorated.providerOptions?.google as Record<string, unknown>;
+  // No cachedContent should be injected
+  assertEquals(googleOpts?.cachedContent, undefined);
+  // Existing options preserved
+  assertEquals(
+    (googleOpts?.thinkingConfig as Record<string, unknown>)?.thinkingBudget,
+    512,
+  );
+});
+
+Deno.test("engine sdk: resolveGoogleCachedContent returns undefined for non-google providers", async () => {
+  clearGoogleCacheRegistry();
+  const result = await resolveGoogleCachedContent(
+    { providerName: "anthropic", modelId: "claude-sonnet-4-20250514", providerConfig: null },
+    "A system prompt",
+    { stableSegmentCount: 1, stablePromptSignature: ["sig"], stableCacheSignatureHash: "hash1" },
+  );
+  assertEquals(result, undefined);
+});
+
+Deno.test("engine sdk: resolveGoogleCachedContent returns undefined for short prompts", async () => {
+  clearGoogleCacheRegistry();
+  const result = await resolveGoogleCachedContent(
+    { providerName: "google", modelId: "gemini-2.5-flash", providerConfig: null },
+    "Short system prompt",
+    { stableSegmentCount: 1, stablePromptSignature: ["sig"], stableCacheSignatureHash: "hash1" },
+  );
+  assertEquals(result, undefined);
 });
 
 Deno.test("engine sdk: performance snapshot carries provider timing, stable cache signature, and cache counters", () => {

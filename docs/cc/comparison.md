@@ -2,7 +2,7 @@
 
 > **Purpose**: This document captures a comprehensive reverse-engineering analysis of Claude Code's architecture (leaked via npm source maps, March 2026) compared to HLVM's architecture. It is written so that **any AI agent with zero prior context** can pick it up and understand both systems end-to-end — including where HLVM should adopt patterns from Claude Code, where HLVM is already ahead, and specific implementation details for each subsystem.
 >
-> **Source**: Claude Code source at `/Users/seoksoonjang/dev/ClaudeCode-main/` (extracted from npm source maps). HLVM source at `/Users/seoksoonjang/dev/hql/`.
+> **Source**: Claude Code source at `<local-claude-code-dir>/` (extracted from npm source maps). HLVM source at `<hlvm-repo>/`.
 >
 > **Date**: 2026-04-01
 
@@ -1440,7 +1440,7 @@ claude analysis into deep
 =============================================================
 
 
-Last login: Wed Apr 1 02:12:52 on ttys032 seoksoonjang@seoksoons-MacBook-Pro hql % claude ▗ ▗ ▖ ▖ Claude Code v2.1.32 Opus 4.6 · Claude Max ▘▘ ▝▝ ~/dev/hql ❯ /usage
+Last login: Wed Apr 1 02:12:52 on ttys032 user@hostname hql % claude ▗ ▗ ▖ ▖ Claude Code v2.1.32 Opus 4.6 ▘▘ ▝▝ ~/dev/hql ❯ /usage
 PASTED
 write full summarization here - that can take all gist without repetition - drawing core idea and things in ASCII visual - all inclusive and described but brief down to core
 3:56 AM

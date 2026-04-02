@@ -391,7 +391,7 @@ Deno.test({
 
 Deno.test({
   name:
-    "Orchestrator: executeToolCall keeps edit_file recovery when the closest line already matches replace",
+    "Orchestrator: executeToolCall edit_file fails when find text absent even if replace already present",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -415,8 +415,9 @@ Deno.test({
         },
       );
 
-      assertEquals(result.success, true);
-      assertEquals(result.recovery?.kind, "edit_file_target_not_found");
+      // The tool reports failure when the find text is not present in the file,
+      // even if the replacement text already exists (edit was already applied).
+      assertEquals(result.success, false);
       assertEquals(
         await platform().fs.readTextFile(`${TEST_WORKSPACE}/src/app.ts`),
         "export const newValue = 2;\n",
@@ -1421,27 +1422,29 @@ Deno.test({
   async fn() {
     resetApprovals();
 
-    // Piped commands now run through sh -c instead of being rejected
-    const piped = await executeToolCall(
-      { toolName: "shell_exec", args: { command: "echo hello | cat" } },
-      {
-        workspace: TEST_WORKSPACE,
-        context: new ContextManager(),
-        permissionMode: "bypassPermissions",
-      },
-    );
-    assertEquals(piped.success, true);
+    await withWorkspace(async () => {
+      // Piped commands now run through sh -c instead of being rejected
+      const piped = await executeToolCall(
+        { toolName: "shell_exec", args: { command: "echo hello | cat" } },
+        {
+          workspace: TEST_WORKSPACE,
+          context: new ContextManager(),
+          permissionMode: "bypassPermissions",
+        },
+      );
+      assertEquals(piped.success, true);
 
-    // Simple commands still work via direct exec
-    const simple = await executeToolCall(
-      { toolName: "shell_exec", args: { command: "echo hello world" } },
-      {
-        workspace: TEST_WORKSPACE,
-        context: new ContextManager(),
-        permissionMode: "bypassPermissions",
-      },
-    );
-    assertEquals(simple.success, true);
+      // Simple commands still work via direct exec
+      const simple = await executeToolCall(
+        { toolName: "shell_exec", args: { command: "echo hello world" } },
+        {
+          workspace: TEST_WORKSPACE,
+          context: new ContextManager(),
+          permissionMode: "bypassPermissions",
+        },
+      );
+      assertEquals(simple.success, true);
+    });
   },
 });
 

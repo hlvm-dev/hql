@@ -1,15 +1,15 @@
 Last login: Wed Apr  1 21:20:59 on ttys000
-seoksoonjang@seoksoons-MacBook-Pro ClaudeCode-main % claude
+user@hostname ClaudeCode-main % claude
 
 ╭─── Claude Code v2.1.32 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │                           │ Tips for getting started                                                                                               │
-│     Welcome back Jang!    │ Run /init to create a CLAUDE.md file with instructions for Claude                                                      │
+│     Welcome back, user!    │ Run /init to create a CLAUDE.md file with instructions for Claude                                                      │
 │                           │ ─────────────────────────────────────────────────────────────────                                                      │
 │                           │ Recent activity                                                                                                        │
 │         ▗ ▗   ▖ ▖         │ No recent activity                                                                                                     │
 │                           │                                                                                                                        │
 │           ▘▘ ▝▝           │                                                                                                                        │
-│   Opus 4.6 · Claude Max   │                                                                                                                        │
+│   Opus 4.6   │                                                                                                                        │
 │   ~/dev/ClaudeCode-main   │                                                                                                                        │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
@@ -19,7 +19,7 @@ seoksoonjang@seoksoons-MacBook-Pro ClaudeCode-main % claude
                                                                                                                                                       
 ⏺ Running 2 Explore agents… (ctrl+o to expand)                                                                                                        
    ├─ Explore ClaudeCode-main architecture · 7 tool uses · 36.7k tokens                                                                               
-⏺ 2 Exploresagents finishedseoksoonjang/dev/ClaudeCode-main -max…                                                                                     
+⏺ 2 Explore agents finished ClaudeCode-main analysis…                                                                                     
    ├─ Explore ClaudeCode-main architecture · 52 tool uses · 91.2k tokens
    │  ⎿  Done                                                                                                                                         
    └─ Explore hql project architecture · 38 tool uses · 92.7k tokens

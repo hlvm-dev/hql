@@ -793,8 +793,12 @@ function AppContent(
     conversationRef.current.clear();
   }, []);
 
-  const handleAppExit = useCallback(() => {
-    replState.flushHistorySync();
+  const handleAppExit = useCallback(async () => {
+    try {
+      await replState.flushHistory();
+    } finally {
+      replState.flushHistorySync();
+    }
     exit();
   }, [exit, replState]);
 
@@ -810,7 +814,7 @@ function AppContent(
       }
       return;
     }
-    handleAppExit();
+    await handleAppExit();
   }, [handleAppExit, restoreComposerDraft]);
 
   const handleBackground = useCallback(() => {

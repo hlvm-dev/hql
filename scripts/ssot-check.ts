@@ -96,6 +96,7 @@ const RULES: Rule[] = [
       /Symbol\.for\("Deno\./, // Symbol names
       /\/\/.*Deno\./, // Comments
       /\/\*[\s\S]*?Deno\.[\s\S]*?\*\//, // Multi-line comments
+      /^\s*\*.*Deno\./, // JSDoc content lines (start with *)
       /"[^"]*Deno\.[^"]*"/, // String literals
       /'[^']*Deno\.[^']*'/, // String literals
       /`[^`]*Deno\.[^`]*`/, // Template literals

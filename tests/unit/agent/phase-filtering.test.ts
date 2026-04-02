@@ -41,6 +41,8 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     lastToolNames: [],
     loopRecoveryStep: 0,
     temporaryToolDenylist: new Map(),
+    continuedThisTurn: false,
+    continuationCount: 0,
     ...overrides,
   };
 }

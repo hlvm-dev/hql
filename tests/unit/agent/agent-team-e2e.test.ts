@@ -1132,10 +1132,10 @@ Deno.test({
       assertEquals(mainTask!.status, "completed");
       assertEquals(mainTask!.owner, "alice");
 
-      // Verify events
+      // Verify events — tool_start/tool_end from teammates arrive as team_member_activity
       const eventTypes = capturedEvents.map((e) => e.type);
       assertEquals(eventTypes.includes("team_task_updated"), true);
-      assertEquals(eventTypes.includes("tool_start") || eventTypes.includes("tool_end"), true);
+      assertEquals(eventTypes.includes("team_member_activity"), true);
 
       // Feed events through REAL reducer
       let transcriptState = createTranscriptState();
@@ -1229,9 +1229,10 @@ Deno.test({
       assertEquals(task!.status, "completed");
       assertEquals(task!.owner, "writer");
 
+      // tool_start/tool_end from teammates arrive as team_member_activity via forwardChildAgentEvent
       assertExists(
-        capturedEvents.filter((e) => e.type === "tool_start").find((e) => (e as Record<string, unknown>).name === "write_file"),
-        "Should have tool_start event for write_file",
+        capturedEvents.find((e) => e.type === "team_member_activity"),
+        "Should have team_member_activity event from teammate tool execution",
       );
 
       await h.cleanupTeam();

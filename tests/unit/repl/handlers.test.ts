@@ -160,7 +160,7 @@ Deno.test("handlers: get message rejects invalid ids and wrong-session access", 
   });
 });
 
-Deno.test("handlers: update message applies content and cancelled patches and rejects invalid targets", async () => {
+Deno.test("handlers: update message applies content, display content, and cancelled patches and rejects invalid targets", async () => {
   await withDb(async () => {
     const owner = createSession("Owner");
     const other = createSession("Other");
@@ -171,14 +171,19 @@ Deno.test("handlers: update message applies content and cancelled patches and re
     });
 
     const editedResp = await handleUpdateMessage(
-      jsonRequest({ content: "Edited" }),
+      jsonRequest({
+        content: "Edited",
+        display_content: "[Pasted text #1 +2 lines]",
+      }),
       {
         id: owner.id,
         messageId: String(msg.id),
       },
     );
     assertEquals(editedResp.status, 200);
-    assertEquals((await editedResp.json()).content, "Edited");
+    const editedBody = await editedResp.json();
+    assertEquals(editedBody.content, "Edited");
+    assertEquals(editedBody.display_content, "[Pasted text #1 +2 lines]");
 
     const cancelledResp = await handleUpdateMessage(
       jsonRequest({ cancelled: true }),
@@ -307,6 +312,36 @@ Deno.test("handlers: buildEvalAttachments reconstructs pasted text and binary at
       assertEquals(image.attachmentId, imageRecord.id);
       assertEquals(image.fileName, "shot.png");
     }
+  });
+});
+
+Deno.test("handlers: buildEvalAttachments rejects missing attachment ids instead of silently dropping them", async () => {
+  assertEquals(await buildEvalAttachments([]), undefined);
+  let caught: Error | undefined;
+  try {
+    await buildEvalAttachments(["att_missing"]);
+  } catch (error) {
+    caught = error instanceof Error ? error : new Error(String(error));
+  }
+  assertExists(caught);
+  assertEquals(caught?.message, "Attachment not found: att_missing");
+});
+
+Deno.test("handlers: eval chat requests reject missing attachment ids before execution", async () => {
+  await withDb(async () => {
+    const response = await handleChat(
+      jsonRequest({
+        mode: "eval",
+        messages: [{
+          role: "user",
+          content: "(+ 1 2)",
+          attachment_ids: ["att_missing"],
+        }],
+      }),
+    );
+
+    assertEquals(response.status, 400);
+    assertEquals((await response.json()).error, "Attachment not found: att_missing");
   });
 });
 

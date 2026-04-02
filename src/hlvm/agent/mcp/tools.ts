@@ -4,15 +4,21 @@
  */
 
 import { pooledMap } from "@std/async";
+import { formatBytes } from "../../../common/limits.ts";
 import { ValidationError } from "../../../common/error.ts";
 import {
   generateUUID,
   getErrorMessage,
   isObjectValue,
 } from "../../../common/utils.ts";
+import {
+  getAttachmentDisplayName,
+} from "../../attachments/metadata.ts";
+import { registerUploadedAttachment } from "../../attachments/service.ts";
 import { getAgentLogger } from "../logger.ts";
 import {
   registerTools,
+  type FormattedToolResult,
   type ToolExecutionOptions,
   type ToolMetadata,
   type ToolPresentationKind,
@@ -31,7 +37,9 @@ import {
   type McpScope,
   type McpServerWithScope,
 } from "./config.ts";
+import { capMcpDescription, sanitizeMcpText } from "./text-utils.ts";
 import type {
+  McpAttachmentRef,
   McpConnectedServer,
   McpElicitationRequest,
   McpHandlers,
@@ -202,23 +210,6 @@ function inferMcpPresentationKind(
   return "meta";
 }
 
-/** Format prompt messages into a readable string for tool results */
-function formatPromptMessages(messages: McpPromptMessage[]): string {
-  return messages
-    .map((m) => {
-      const content = m.content;
-      if ("text" in content) return `[${m.role}] ${content.text}`;
-      if ("data" in content) return `[${m.role}] [image: ${content.mimeType}]`;
-      if ("resource" in content) {
-        return `[${m.role}] [resource: ${content.resource.uri}] ${
-          content.resource.text ?? "(binary)"
-        }`;
-      }
-      return `[${m.role}] (unknown content)`;
-    })
-    .join("\n");
-}
-
 function summarizeConnectError(error: unknown): string {
   const normalized = getErrorMessage(error).replace(/\s+/g, " ").trim();
   if (normalized.length <= MCP_CONNECT_WARNING_MAX_CHARS) return normalized;
@@ -249,27 +240,297 @@ const MCP_TOOL_TIMEOUT_MS = 60_000;
 const MCP_TOOL_PROGRESS_INTERVAL_MS = 30_000;
 const MCP_OUTPUT_MAX_TOKENS = 25_000;
 
-/** Format MCP content array into a single text string */
-function formatMcpContent(content: unknown): string {
-  if (typeof content === "string") return content;
+async function registerMcpAttachment(
+  source: McpAttachmentRef["source"],
+  index: number,
+  mimeType: string,
+  data: string,
+  resourceUri?: string,
+): Promise<McpAttachmentRef | null> {
+  try {
+    const bytes = Uint8Array.from(atob(data), (char) => char.charCodeAt(0));
+    const record = await registerUploadedAttachment({
+      fileName: `mcp-${source}-${index}`,
+      bytes,
+      mimeType,
+    });
+    return {
+      attachmentId: record.id,
+      fileName: record.fileName,
+      mimeType: record.mimeType,
+      kind: record.kind,
+      size: record.size,
+      source,
+      label: getAttachmentDisplayName(record.kind, index),
+      ...(resourceUri ? { resourceUri } : {}),
+    };
+  } catch (error) {
+    getAgentLogger().debug(
+      `MCP attachment materialization failed (${source}): ${
+        getErrorMessage(error)
+      }`,
+    );
+    return null;
+  }
+}
+
+function formatAttachmentSummary(ref: McpAttachmentRef): string {
+  return `${ref.label} ${ref.fileName} (${ref.mimeType}, ${
+    formatBytes(ref.size)
+  })`;
+}
+
+function nextAttachment(
+  attachments: readonly McpAttachmentRef[] | undefined,
+  cursor: { index: number },
+): McpAttachmentRef | null {
+  if (!attachments || cursor.index >= attachments.length) return null;
+  const attachment = attachments[cursor.index];
+  cursor.index += 1;
+  return attachment ?? null;
+}
+
+async function materializeMcpContent(
+  content: unknown,
+): Promise<{ text: string; attachments: McpAttachmentRef[] }> {
+  if (typeof content === "string") {
+    return { text: sanitizeMcpText(content), attachments: [] };
+  }
+  if (!Array.isArray(content)) {
+    return {
+      text: typeof content === "object" && content !== null
+        ? sanitizeMcpText(JSON.stringify(content))
+        : sanitizeMcpText(String(content ?? "")),
+      attachments: [],
+    };
+  }
+
+  const lines: string[] = [];
+  const attachments: McpAttachmentRef[] = [];
+  let attachmentIndex = 1;
+
+  for (const item of content) {
+    if (!isObjectValue(item)) {
+      lines.push(sanitizeMcpText(String(item)));
+      continue;
+    }
+    const part = item as Record<string, unknown>;
+    if (part.type === "text" && typeof part.text === "string") {
+      lines.push(sanitizeMcpText(part.text));
+      continue;
+    }
+    if (
+      (part.type === "image" || part.type === "audio") &&
+      typeof part.data === "string"
+    ) {
+      const mimeType = typeof part.mimeType === "string"
+        ? part.mimeType
+        : "application/octet-stream";
+      const ref = await registerMcpAttachment(
+        "tool",
+        attachmentIndex,
+        mimeType,
+        part.data,
+      );
+      attachmentIndex += 1;
+      if (ref) {
+        attachments.push(ref);
+        lines.push(formatAttachmentSummary(ref));
+      } else {
+        lines.push(`[attachment: ${mimeType}]`);
+      }
+      continue;
+    }
+    if (part.type === "resource") {
+      const resource = isObjectValue(part.resource)
+        ? part.resource as Record<string, unknown>
+        : null;
+      const uri = typeof resource?.uri === "string" ? resource.uri : "unknown";
+      const text = typeof resource?.text === "string"
+        ? sanitizeMcpText(resource.text)
+        : "";
+      const mimeType = typeof resource?.mimeType === "string"
+        ? resource.mimeType
+        : "application/octet-stream";
+      const blob = typeof resource?.blob === "string" ? resource.blob : null;
+      if (blob) {
+        const ref = await registerMcpAttachment(
+          "resource",
+          attachmentIndex,
+          mimeType,
+          blob,
+          uri,
+        );
+        attachmentIndex += 1;
+        if (ref) {
+          attachments.push(ref);
+          lines.push(`[resource: ${uri}] ${formatAttachmentSummary(ref)}`);
+        } else {
+          lines.push(`[resource: ${uri}] [attachment: ${mimeType}]`);
+        }
+      }
+      if (text) {
+        lines.push(`[resource: ${uri}] ${text}`);
+      } else if (!blob) {
+        lines.push(`[resource: ${uri}]`);
+      }
+      continue;
+    }
+    lines.push(sanitizeMcpText(JSON.stringify(part)));
+  }
+
+  return { text: lines.join("\n"), attachments };
+}
+
+function formatMcpContentPreview(
+  content: unknown,
+  attachments?: readonly McpAttachmentRef[],
+): string {
+  if (typeof content === "string") return sanitizeMcpText(content);
   if (!Array.isArray(content)) {
     return typeof content === "object" && content !== null
-      ? JSON.stringify(content)
-      : String(content ?? "");
+      ? sanitizeMcpText(JSON.stringify(content))
+      : sanitizeMcpText(String(content ?? ""));
   }
-  return content
-    .map((item) => {
-      if (!isObjectValue(item)) return String(item);
-      const part = item as Record<string, unknown>;
-      if (part.type === "text" && typeof part.text === "string") return part.text;
-      if (part.type === "image") return `[image: ${part.mimeType ?? "unknown"}]`;
-      if (part.type === "resource") {
-        const res = isObjectValue(part.resource)
-          ? part.resource as Record<string, unknown>
-          : null;
-        return `[resource: ${res?.uri ?? "unknown"}] ${res?.text ?? "(binary)"}`;
+  const cursor = { index: 0 };
+  return content.map((item) => {
+    if (!isObjectValue(item)) return sanitizeMcpText(String(item));
+    const part = item as Record<string, unknown>;
+    if (part.type === "text" && typeof part.text === "string") {
+      return sanitizeMcpText(part.text);
+    }
+    if (part.type === "image" || part.type === "audio") {
+      const ref = nextAttachment(attachments, cursor);
+      return ref
+        ? formatAttachmentSummary(ref)
+        : `[attachment: ${part.mimeType ?? "unknown"}]`;
+    }
+    if (part.type === "resource") {
+      const resource = isObjectValue(part.resource)
+        ? part.resource as Record<string, unknown>
+        : null;
+      const uri = typeof resource?.uri === "string" ? resource.uri : "unknown";
+      const text = typeof resource?.text === "string"
+        ? sanitizeMcpText(resource.text)
+        : "";
+      const blob = typeof resource?.blob === "string" ? resource.blob : null;
+      const ref = blob ? nextAttachment(attachments, cursor) : null;
+      const segments = [
+        `[resource: ${uri}]`,
+        ...(ref ? [formatAttachmentSummary(ref)] : []),
+        ...(text ? [text] : []),
+      ];
+      return segments.join(" ").trim();
+    }
+    return sanitizeMcpText(JSON.stringify(part));
+  }).join("\n");
+}
+
+async function materializeResourceContents(
+  contents: Array<{ uri: string; mimeType?: string; text?: string; blob?: string }>,
+): Promise<{
+  contents: Array<{ uri: string; mimeType?: string; text?: string; blob?: string }>;
+  attachments?: McpAttachmentRef[];
+}> {
+  const attachments: McpAttachmentRef[] = [];
+  let attachmentIndex = 1;
+  for (const content of contents) {
+    if (!content.blob) continue;
+    const ref = await registerMcpAttachment(
+      "resource",
+      attachmentIndex,
+      content.mimeType ?? "application/octet-stream",
+      content.blob,
+      content.uri,
+    );
+    attachmentIndex += 1;
+    if (ref) attachments.push(ref);
+  }
+  return {
+    contents,
+    ...(attachments.length > 0 ? { attachments } : {}),
+  };
+}
+
+async function materializePromptMessages(
+  messages: McpPromptMessage[],
+): Promise<{
+  messages: McpPromptMessage[];
+  attachments?: McpAttachmentRef[];
+}> {
+  const attachments: McpAttachmentRef[] = [];
+  let attachmentIndex = 1;
+  for (const message of messages) {
+    const content = message.content;
+    if (
+      ("data" in content) &&
+      (content.type === "image" || content.type === "audio")
+    ) {
+      const ref = await registerMcpAttachment(
+        "prompt",
+        attachmentIndex,
+        content.mimeType,
+        content.data,
+      );
+      attachmentIndex += 1;
+      if (ref) attachments.push(ref);
+      continue;
+    }
+    if ("resource" in content && typeof content.resource.blob === "string") {
+      const ref = await registerMcpAttachment(
+        "resource",
+        attachmentIndex,
+        content.resource.mimeType ?? "application/octet-stream",
+        content.resource.blob,
+        content.resource.uri,
+      );
+      attachmentIndex += 1;
+      if (ref) attachments.push(ref);
+    }
+  }
+  return {
+    messages,
+    ...(attachments.length > 0 ? { attachments } : {}),
+  };
+}
+
+function formatPromptMessages(
+  messages: McpPromptMessage[],
+  attachments?: readonly McpAttachmentRef[],
+): string {
+  const cursor = { index: 0 };
+  return messages
+    .map((message) => {
+      const content = message.content;
+      if ("text" in content) {
+        return `[${message.role}] ${sanitizeMcpText(content.text)}`;
       }
-      return JSON.stringify(part);
+      if (
+        ("data" in content) &&
+        (content.type === "image" || content.type === "audio")
+      ) {
+        const ref = nextAttachment(attachments, cursor);
+        return `[${message.role}] ${
+          ref
+            ? formatAttachmentSummary(ref)
+            : `[attachment: ${content.mimeType}]`
+        }`;
+      }
+      if ("resource" in content) {
+        const text = typeof content.resource.text === "string"
+          ? sanitizeMcpText(content.resource.text)
+          : "";
+        const ref = typeof content.resource.blob === "string"
+          ? nextAttachment(attachments, cursor)
+          : null;
+        const segments = [
+          `[${message.role}] [resource: ${content.resource.uri}]`,
+          ...(ref ? [formatAttachmentSummary(ref)] : []),
+          ...(text ? [text] : []),
+        ];
+        return segments.join(" ").trim();
+      }
+      return `[${message.role}] (unknown content)`;
     })
     .join("\n");
 }
@@ -315,17 +576,12 @@ async function callMcpToolWithTimeout(
       ),
     ]) as Record<string, unknown>;
 
-    const rawContent = formatMcpContent(result.content);
+    const materialized = await materializeMcpContent(result.content);
+    const rawContent = materialized.text;
     const content = truncateMcpOutput(rawContent);
-
-    // Truncate text content in the raw result too if needed
-    let raw: unknown = result;
-    if (rawContent !== content && Array.isArray(result.content)) {
-      raw = {
-        ...result,
-        content: [{ type: "text", text: content }],
-      };
-    }
+    const raw = materialized.attachments.length > 0
+      ? { ...result, attachments: materialized.attachments }
+      : result;
 
     return {
       content,
@@ -335,6 +591,97 @@ async function callMcpToolWithTimeout(
   } finally {
     clearInterval(progressInterval);
   }
+}
+
+function extractMcpAttachments(result: unknown): McpAttachmentRef[] | undefined {
+  if (!isObjectValue(result) || !Array.isArray(result.attachments)) {
+    return undefined;
+  }
+  return result.attachments.filter((attachment): attachment is McpAttachmentRef =>
+    isObjectValue(attachment) &&
+    typeof attachment.attachmentId === "string" &&
+    typeof attachment.fileName === "string" &&
+    typeof attachment.mimeType === "string" &&
+    typeof attachment.kind === "string" &&
+    typeof attachment.size === "number" &&
+    typeof attachment.source === "string" &&
+    typeof attachment.label === "string"
+  );
+}
+
+function summarizeMcpResult(
+  text: string,
+  attachments?: readonly McpAttachmentRef[],
+): string {
+  const firstLine = text.split("\n").map((line) => line.trim()).find(Boolean);
+  if (firstLine) return firstLine;
+  if (attachments?.length) {
+    return `MCP returned ${attachments.length} attachment(s).`;
+  }
+  return "MCP result";
+}
+
+function formatMcpToolExecutionResult(
+  result: unknown,
+): FormattedToolResult | null {
+  if (!isObjectValue(result) || !("content" in result)) return null;
+  const attachments = extractMcpAttachments(result);
+  const body = truncateMcpOutput(
+    formatMcpContentPreview(
+      (result as Record<string, unknown>).content,
+      attachments,
+    ),
+  );
+  return {
+    summaryDisplay: summarizeMcpResult(body, attachments),
+    returnDisplay: body,
+    llmContent: body,
+  };
+}
+
+function formatMcpReadResourceResult(
+  result: unknown,
+): FormattedToolResult | null {
+  if (!isObjectValue(result) || !Array.isArray(result.contents)) return null;
+  const attachments = extractMcpAttachments(result);
+  const body = truncateMcpOutput(
+    result.contents.map((content) => {
+      if (!isObjectValue(content)) return sanitizeMcpText(String(content));
+      const uri = typeof content.uri === "string" ? content.uri : "unknown";
+      const text = typeof content.text === "string"
+        ? sanitizeMcpText(content.text)
+        : "";
+      if (typeof content.blob === "string") {
+        const ref = attachments?.find((attachment) => attachment.resourceUri === uri);
+        return ref
+          ? `[resource: ${uri}] ${formatAttachmentSummary(ref)}${
+            text ? ` ${text}` : ""
+          }`
+          : `[resource: ${uri}]`;
+      }
+      return `[resource: ${uri}] ${text}`.trim();
+    }).join("\n"),
+  );
+  return {
+    summaryDisplay: summarizeMcpResult(body, attachments),
+    returnDisplay: body,
+    llmContent: body,
+  };
+}
+
+function formatMcpPromptResult(
+  result: unknown,
+): FormattedToolResult | null {
+  if (!isObjectValue(result) || !Array.isArray(result.messages)) return null;
+  const attachments = extractMcpAttachments(result);
+  const body = truncateMcpOutput(
+    formatPromptMessages(result.messages as McpPromptMessage[], attachments),
+  );
+  return {
+    summaryDisplay: summarizeMcpResult(body, attachments),
+    returnDisplay: body,
+    llmContent: body,
+  };
 }
 
 // ============================================================
@@ -378,7 +725,7 @@ function buildToolEntry(
       }
       return result.raw;
     },
-    description: tool.description ?? `MCP tool ${tool.name}`,
+    description: capMcpDescription(tool.description) ?? `MCP tool ${tool.name}`,
     args: argsSchema,
     skipValidation,
     execution: safetyLevel === "L0" ? { concurrencySafe: true } : undefined,
@@ -386,6 +733,7 @@ function buildToolEntry(
     safetyLevel,
     safety: inferMcpSafetyReason(safetyLevel),
     semanticCapabilities,
+    formatResult: formatMcpToolExecutionResult,
   };
 }
 
@@ -590,32 +938,63 @@ async function refreshServerToolRegistration(
 const MCP_CONNECT_TIMEOUT_MS = 5_000;
 const MCP_CONNECT_CONCURRENCY = 3;
 
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const reason = signal.reason;
+  if (reason instanceof Error) throw reason;
+  const error = new Error(
+    typeof reason === "string" && reason.length > 0
+      ? reason
+      : "MCP operation aborted",
+  );
+  error.name = "AbortError";
+  throw error;
+}
+
 /** Connect to an MCP server with a timeout. Returns null on timeout/error. */
 async function connectWithTimeout(
   server: McpServerConfig,
+  signal?: AbortSignal,
+  options: { interactiveAuth?: boolean } = {},
 ): Promise<SdkMcpClient | null> {
   const timeoutMs = server.connection_timeout_ms ?? MCP_CONNECT_TIMEOUT_MS;
-  const connectPromise = createSdkMcpClient(server);
+  throwIfAborted(signal);
+  const connectPromise = createSdkMcpClient(server, signal, options);
   let didTimeout = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let removeAbortListener = () => {};
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       didTimeout = true;
       reject(new Error(`MCP connect timeout (${timeoutMs}ms)`));
     }, timeoutMs);
   });
+  const abortPromise = new Promise<never>((_, reject) => {
+    if (!signal) return;
+    const onAbort = () => reject(signal.reason ?? new Error("MCP connect aborted"));
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+  });
 
   try {
-    return await Promise.race([connectPromise, timeoutPromise]);
+    return await Promise.race([connectPromise, timeoutPromise, abortPromise]);
   } catch (error) {
-    if (didTimeout) {
-      // If connect eventually succeeds after timeout, close immediately.
+    if (didTimeout || signal?.aborted) {
+      // If connect eventually succeeds after timeout/abort, close immediately.
       void connectPromise.then((client) => client.close()).catch(() => {});
+    }
+    if (signal?.aborted) {
+      throwIfAborted(signal);
     }
     warnMcpConnectSkip(server.name, error);
     return null;
   } finally {
     if (timer) clearTimeout(timer);
+    removeAbortListener();
   }
 }
 
@@ -637,7 +1016,7 @@ export interface McpCapabilityInspectionServer {
   name: string;
   scope: McpScope;
   scopeLabel: string;
-  transport: "http" | "stdio";
+  transport: "http" | "sse" | "stdio";
   target: string;
   reachable: boolean;
   toolCount: number;
@@ -649,18 +1028,24 @@ export interface McpCapabilityInspectionServer {
 async function connectAndRegisterServer(
   server: McpServerConfig,
   registrationOwnerId: string,
+  signal?: AbortSignal,
 ): Promise<ServerRegistration | null> {
-  const client = await connectWithTimeout(server);
+  const client = await connectWithTimeout(server, signal);
   if (!client) return null;
 
   try {
+    throwIfAborted(signal);
     const disabledSet = server.disabled_tools?.length
       ? new Set(server.disabled_tools)
       : null;
     const { entries, dynamicToolNames: serverToolNames } = buildMcpToolEntries(
       client,
       server,
-      listEnabledMcpTools(await client.listTools(), server, disabledSet),
+      listEnabledMcpTools(
+        await client.listTools(signal),
+        server,
+        disabledSet,
+      ),
     );
 
     registerNotificationHandlers(
@@ -703,12 +1088,13 @@ async function connectAndRegisterServer(
             throw new ValidationError("uri must be a string", "mcp");
           }
           const contents = await client.readResource(a.uri, options?.signal);
-          return { contents };
+          return await materializeResourceContents(contents);
         },
         description: `Read a resource by URI from MCP server '${server.name}'`,
         args: { uri: "string - Resource URI to read" },
         safetyLevel: "L0",
         safety: MCP_L0_SAFETY,
+        formatResult: formatMcpReadResourceResult,
       };
     }
 
@@ -753,7 +1139,7 @@ async function connectAndRegisterServer(
             Object.keys(promptArgs).length > 0 ? promptArgs : undefined,
             options?.signal,
           );
-          return { messages: formatPromptMessages(messages) };
+          return await materializePromptMessages(messages);
         },
         description:
           `Get a rendered prompt by name from MCP server '${server.name}'. Pass prompt arguments as additional fields.`,
@@ -761,9 +1147,11 @@ async function connectAndRegisterServer(
         skipValidation: true,
         safetyLevel: "L0",
         safety: MCP_L0_SAFETY,
+        formatResult: formatMcpPromptResult,
       };
     }
 
+    throwIfAborted(signal);
     const names = registerTools(entries, registrationOwnerId);
     return {
       client,
@@ -772,6 +1160,10 @@ async function connectAndRegisterServer(
       connected: { name: server.name, toolCount: names.length },
     };
   } catch (error) {
+    if (signal?.aborted) {
+      await client.close().catch(() => {});
+      throwIfAborted(signal);
+    }
     // Tool listing/registration failed after connect — clean up client
     await client.close().catch(() => {});
     warnMcpConnectSkip(server.name, error);
@@ -787,6 +1179,7 @@ export async function loadMcpTools(
   _workspace: string,
   extraServers?: McpServerConfig[],
   ownerId?: string,
+  signal?: AbortSignal,
 ): Promise<McpLoadResult> {
   const registrationOwnerId = ownerId ?? `mcp:${generateUUID()}`;
   const configServers = await loadMcpConfigMultiScope();
@@ -810,19 +1203,35 @@ export async function loadMcpTools(
   const dynamicToolSets: Set<string>[] = [];
   const connectedServers: McpConnectedServer[] = [];
 
-  // Connect servers with bounded concurrency and per-server timeout
-  const results = pooledMap(
-    MCP_CONNECT_CONCURRENCY,
-    servers,
-    (server) => connectAndRegisterServer(server, registrationOwnerId),
-  );
-  for await (const result of results) {
-    if (result) {
-      clients.push(result.client);
-      registered.push(...result.names);
-      dynamicToolSets.push(result.dynamicToolNames);
-      connectedServers.push(result.connected);
+  try {
+    throwIfAborted(signal);
+
+    // Connect servers with bounded concurrency and per-server timeout
+    const results = pooledMap(
+      MCP_CONNECT_CONCURRENCY,
+      servers,
+      (server) => connectAndRegisterServer(server, registrationOwnerId, signal),
+    );
+    for await (const result of results) {
+      throwIfAborted(signal);
+      if (result) {
+        clients.push(result.client);
+        registered.push(...result.names);
+        dynamicToolSets.push(result.dynamicToolNames);
+        connectedServers.push(result.connected);
+      }
     }
+  } catch (error) {
+    for (const name of registered) unregisterTool(name, registrationOwnerId);
+    for (const names of dynamicToolSets) {
+      for (const name of names) unregisterTool(name, registrationOwnerId);
+      names.clear();
+    }
+    for (const client of clients) {
+      await client.close().catch(() => undefined);
+    }
+    clients.length = 0;
+    throw error;
   }
 
   // Deferred handler setter for sampling, elicitation, roots
@@ -895,14 +1304,16 @@ async function inspectMcpServer(
     name: server.name,
     scope: server.scope,
     scopeLabel: entry.scopeLabel,
-    transport: server.url ? "http" : "stdio",
+    transport: server.url ? (server.transport ?? "http") : "stdio",
     target: entry.target,
     reachable: false,
     toolCount: 0,
     contributingTools: [],
     reason: "connection unavailable",
   };
-  const client = await connectWithTimeout(server);
+  const client = await connectWithTimeout(server, undefined, {
+    interactiveAuth: false,
+  });
   if (!client) return fallback;
 
   try {
@@ -927,7 +1338,7 @@ async function inspectMcpServer(
       name: server.name,
       scope: server.scope,
       scopeLabel: entry.scopeLabel,
-      transport: server.url ? "http" : "stdio",
+      transport: server.url ? (server.transport ?? "http") : "stdio",
       target: entry.target,
       reachable: true,
       toolCount: tools.length,

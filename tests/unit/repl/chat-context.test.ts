@@ -30,6 +30,7 @@ function createStoredMessage(
     order: id,
     role: "user",
     content: "",
+    display_content: null,
     client_turn_id: null,
     request_id: `request-${Math.ceil(id / 2)}`,
     sender_type: "user",
@@ -206,7 +207,29 @@ Deno.test("chat context: explicit request history persists only the new visible 
   );
 });
 
-Deno.test("chat context: mixed attachments survive replay for chat and agent builders", async () => {
+Deno.test("chat context: persistence keeps compact display text separate from submitted content", () => {
+  const toPersist = buildRequestMessagesToPersist({
+    requestMessages: [{
+      role: "user",
+      content: "expanded pasted body",
+      display_content: "[Pasted text #1 +3 lines]",
+      attachment_ids: ["att_text_1"],
+      client_turn_id: "turn-1",
+    }],
+    storedMessages: [],
+  });
+
+  assertEquals(toPersist, [{
+    role: "user",
+    content: "expanded pasted body",
+    displayContent: "[Pasted text #1 +3 lines]",
+    attachmentIds: ["att_text_1"],
+    clientTurnId: "turn-1",
+    senderType: "user",
+  }]);
+});
+
+Deno.test({ name: "chat context: mixed attachments survive replay for chat and agent builders", sanitizeOps: false, sanitizeResources: false, async fn() {
   await withTempHlvmDir(async () => {
     const platform = getPlatform();
     const tmpDir = await platform.fs.makeTempDir({ prefix: "chat-ctx-" });
@@ -302,9 +325,9 @@ Deno.test("chat context: mixed attachments survive replay for chat and agent bui
       await platform.fs.remove(tmpDir, { recursive: true });
     }
   });
-});
+} });
 
-Deno.test("chat context: PDF attachments fall back to extracted text for text-only models", async () => {
+Deno.test({ name: "chat context: PDF attachments fall back to extracted text for text-only models", sanitizeOps: false, sanitizeResources: false, async fn() {
   await withTempHlvmDir(async () => {
     const requestMessages: Array<{
       role: "system" | "user";
@@ -352,9 +375,9 @@ endobj
       await platform.fs.remove(tmpDir, { recursive: true });
     }
   });
-});
+} });
 
-Deno.test("chat context: disablePersistentMemory suppresses memory injection for plain chat", async () => {
+Deno.test({ name: "chat context: disablePersistentMemory suppresses memory injection for plain chat", sanitizeOps: false, sanitizeResources: false, async fn() {
   await withGlobalTestLock(async () => {
     const platform = getPlatform();
     const tmpDir = await platform.fs.makeTempDir({
@@ -402,9 +425,9 @@ Deno.test("chat context: disablePersistentMemory suppresses memory injection for
       await platform.fs.remove(tmpDir, { recursive: true });
     }
   });
-});
+} });
 
-Deno.test("chat context: query-matched relevant memory is injected for plain chat", async () => {
+Deno.test({ name: "chat context: query-matched relevant memory is injected for plain chat", sanitizeOps: false, sanitizeResources: false, async fn() {
   await withTempHlvmDir(async () => {
     insertFact({
       content: "User prefers Deno for all new projects",
@@ -429,7 +452,7 @@ Deno.test("chat context: query-matched relevant memory is injected for plain cha
       true,
     );
   });
-});
+} });
 
 Deno.test("chat context: agent replay reconstructs prior tool results and reorders them before the final assistant reply", async () => {
   const history = await buildAgentHistoryMessages({
@@ -498,7 +521,7 @@ Deno.test("chat context: resolves chat memory/context budget from model metadata
   assertEquals(resolved.source, "model_info");
 });
 
-Deno.test("chat context: trims by token budget instead of raw message count", () => {
+Deno.test({ name: "chat context: trims by token budget instead of raw message count", sanitizeOps: false, sanitizeResources: false, fn() {
   const trimmed = trimReplayMessages(
     [
       { role: "user", content: "a".repeat(500) },
@@ -518,4 +541,4 @@ Deno.test("chat context: trims by token budget instead of raw message count", ()
     false,
   );
   assertEquals(trimmed[trimmed.length - 1]?.content, "keep-me");
-});
+} });

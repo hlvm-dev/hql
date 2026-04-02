@@ -26,7 +26,7 @@ const TASK_CAPABILITY_CUE_SPECS: readonly TaskCapabilityCueSpec[] = [
   { label: "calculate", capabilityId: "code.exec", pattern: /\bcalculate\b/i },
   { label: "compute", capabilityId: "code.exec", pattern: /\bcompute\b/i },
   { label: "hash", capabilityId: "code.exec", pattern: /\bhash(?:ing)?\b/i },
-  { label: "sha", capabilityId: "code.exec", pattern: /\bsha\b/i },
+  { label: "sha", capabilityId: "code.exec", pattern: /\bsha\b(?!-?\d)/i },
   { label: "sha-256", capabilityId: "code.exec", pattern: /\bsha-?256\b/i },
   { label: "base64", capabilityId: "code.exec", pattern: /\bbase64\b/i },
   { label: "regex", capabilityId: "code.exec", pattern: /\bregex\b/i },

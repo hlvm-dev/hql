@@ -18,9 +18,9 @@ export interface McpServerConfig {
   env?: Record<string, string>;
   /** HTTP transport URL (mutually exclusive with command for stdio) */
   url?: string;
-  /** Transport type: "stdio" (default) or "http" */
-  transport?: "stdio" | "http";
-  /** Additional headers for HTTP transport */
+  /** Transport type: "stdio" (default), "http", or "sse" */
+  transport?: "stdio" | "http" | "sse";
+  /** Additional headers for remote HTTP/SSE transports */
   headers?: Record<string, string>;
   /** Raw MCP tool names to skip (not registered) */
   disabled_tools?: string[];
@@ -87,7 +87,29 @@ export interface McpPromptMessage {
   content:
     | { type: "text"; text: string }
     | { type: "image"; data: string; mimeType: string }
+    | { type: "audio"; data: string; mimeType: string }
     | { type: "resource"; resource: McpResourceContent };
+}
+
+export interface McpAttachmentRef {
+  attachmentId: string;
+  fileName: string;
+  mimeType: string;
+  kind:
+    | "image"
+    | "audio"
+    | "video"
+    | "pdf"
+    | "text"
+    | "document"
+    | "file";
+  size: number;
+  source:
+    | "tool"
+    | "prompt"
+    | "resource";
+  label: string;
+  resourceUri?: string;
 }
 
 // ============================================================

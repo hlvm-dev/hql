@@ -163,7 +163,7 @@ export interface AgentSession {
   mcpSetSignal?: (signal: AbortSignal) => void;
   /** Session-scoped todo state used by todo tools. */
   todoState: TodoState;
-  /** Session-scoped file coordination cache for edits/restoration. */
+  /** Per-session file integrity cache (read tracking, stale-edit detection, restoration hints). */
   fileStateCache: FileStateCache;
   /** Session-scoped LSP diagnostics runtime for post-write verification. */
   lspDiagnostics?: LspDiagnosticsRuntime;
@@ -429,6 +429,24 @@ export async function createAgentSession(
   const ensureMcpLoaded = async (signal?: AbortSignal): Promise<void> => {
     if (modelTier === "weak") return;
     if (signal?.aborted) throw new Error("MCP load aborted");
+    const waitForLoad = async (
+      promise: Promise<Awaited<ReturnType<typeof loadMcpTools>>>,
+    ): Promise<Awaited<ReturnType<typeof loadMcpTools>>> => {
+      if (!signal) return await promise;
+      if (signal.aborted) throw new Error("MCP load aborted");
+      let removeAbortListener = () => {};
+      try {
+        const abortPromise = new Promise<never>((_, reject) => {
+          const onAbort = () => reject(new Error("MCP load aborted"));
+          signal.addEventListener("abort", onAbort, { once: true });
+          removeAbortListener = () =>
+            signal.removeEventListener("abort", onAbort);
+        });
+        return await Promise.race([promise, abortPromise]);
+      } finally {
+        removeAbortListener();
+      }
+    };
     if (loadedMcp) {
       applyMcpBindings(loadedMcp);
       return;
@@ -438,6 +456,7 @@ export async function createAgentSession(
         options.workspace,
         undefined,
         toolOwnerId,
+        signal,
       ).then((mcp) => {
         loadedMcp = mcp;
         applyMcpBindings(mcp);
@@ -453,7 +472,7 @@ export async function createAgentSession(
         throw error;
       });
     }
-    const mcp = await loadingMcp;
+    const mcp = await waitForLoad(loadingMcp);
     applyMcpBindings(mcp);
   };
 

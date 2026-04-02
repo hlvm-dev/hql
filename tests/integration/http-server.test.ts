@@ -1163,7 +1163,7 @@ Deno.test({
         const userVersion = reopened.prepare("PRAGMA user_version").value<
           [number]
         >();
-        assertEquals(userVersion?.[0], 1);
+        assertEquals(userVersion?.[0], 2);
 
         const legacyMarker = reopened.prepare(
           "SELECT name FROM sqlite_master WHERE type='table' AND name='legacy_marker'",

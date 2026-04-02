@@ -15,7 +15,9 @@
 import { ValidationError } from "../../../common/error.ts";
 import { atomicWriteTextFile } from "../../../common/atomic-file.ts";
 import { getMcpOAuthPath } from "../../../common/paths.ts";
+import { releaseDirLock, tryAcquireDirLock } from "../../../common/dir-lock.ts";
 import { http } from "../../../common/http-client.ts";
+import { sha256HexSync } from "../../../common/sha256.ts";
 import { normalizeServerName } from "./config.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
@@ -23,8 +25,11 @@ import { getAgentLogger } from "../logger.ts";
 import type { McpServerConfig } from "./types.ts";
 
 import {
+  auth,
   discoverOAuthServerInfo,
   exchangeAuthorization,
+  type OAuthClientProvider,
+  type OAuthDiscoveryState,
   refreshAuthorization,
   registerClient,
   startAuthorization,
@@ -45,6 +50,9 @@ const MCP_OAUTH_STORE_VERSION = 1;
 const MCP_OAUTH_REDIRECT_URI = "http://127.0.0.1:35017/hlvm/oauth/callback";
 const ACCESS_TOKEN_SKEW_MS = 300_000;
 const OAUTH_CALLBACK_WAIT_TIMEOUT_MS = 120_000;
+const MCP_OAUTH_REFRESH_LOCK_STALE_MS = 30_000;
+const MCP_OAUTH_REFRESH_LOCK_WAIT_MS = 100;
+const MCP_OAUTH_REFRESH_LOCK_ATTEMPTS = 200;
 
 /**
  * SSOT fetch wrapper — SDK's FetchLike passes `(URL|string, RequestInit?)` but
@@ -91,6 +99,10 @@ interface McpOAuthRecord {
   refreshToken?: string;
   scope?: string;
   expiresAt?: string;
+  pendingScope?: string;
+  pendingResource?: string;
+  pendingStepUpAt?: string;
+  discoveryState?: OAuthDiscoveryState;
   updatedAt: string;
 }
 
@@ -157,7 +169,24 @@ function tokensToRecord(
     refreshToken: tokens.refresh_token ?? record.refreshToken,
     scope: tokens.scope ?? record.scope,
     expiresAt,
+    pendingScope: undefined,
+    pendingResource: undefined,
+    pendingStepUpAt: undefined,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+function recordToTokens(record: McpOAuthRecord): OAuthTokens {
+  const expiresAt = parseExpiresAt(record.expiresAt);
+  const expiresIn = expiresAt === null
+    ? undefined
+    : Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+  return {
+    access_token: record.accessToken,
+    token_type: record.tokenType ?? "Bearer",
+    ...(record.refreshToken ? { refresh_token: record.refreshToken } : {}),
+    ...(record.scope ? { scope: record.scope } : {}),
+    ...(expiresIn !== undefined ? { expires_in: expiresIn } : {}),
   };
 }
 
@@ -193,6 +222,31 @@ function getStorePath(storePath?: string): string {
   return getMcpOAuthPath();
 }
 
+function getRefreshLockPath(key: string, storePath?: string): string {
+  const platform = getPlatform();
+  const storeDir = platform.path.dirname(getStorePath(storePath));
+  return platform.path.join(
+    storeDir,
+    `.mcp-oauth-refresh-${sha256HexSync(key)}.lock`,
+  );
+}
+
+function redactSensitiveOAuthText(value: string): string {
+  return value
+    .replace(
+      /\b(Bearer)\s+[A-Za-z0-9._~+/=-]+\b/gi,
+      "$1 [REDACTED]",
+    )
+    .replace(
+      /([?&](?:access_token|refresh_token|client_secret|code|registration_access_token)=)[^&]+/gi,
+      "$1[REDACTED]",
+    )
+    .replace(
+      /\b(access_token|refresh_token|client_secret|code_verifier|registration_access_token)=([^&\s]+)/gi,
+      "$1=[REDACTED]",
+    );
+}
+
 async function loadStore(storePath?: string): Promise<McpOAuthStore> {
   const platform = getPlatform();
   try {
@@ -211,6 +265,12 @@ async function loadStore(storePath?: string): Promise<McpOAuthStore> {
           typeof record.tokenEndpoint === "string" &&
           typeof record.clientId === "string" &&
           typeof record.accessToken === "string" &&
+          (record.pendingScope === undefined ||
+            typeof record.pendingScope === "string") &&
+          (record.pendingResource === undefined ||
+            typeof record.pendingResource === "string") &&
+          (record.pendingStepUpAt === undefined ||
+            typeof record.pendingStepUpAt === "string") &&
           typeof record.updatedAt === "string";
       })
       : [];
@@ -267,6 +327,30 @@ async function removeRecordByKey(
   store.records = next;
   await saveStore(store, storePath);
   return true;
+}
+
+async function withRefreshLock<T>(
+  key: string,
+  storePath: string | undefined,
+  run: () => Promise<T>,
+): Promise<T> {
+  const lockPath = getRefreshLockPath(key, storePath);
+  for (let attempt = 0; attempt < MCP_OAUTH_REFRESH_LOCK_ATTEMPTS; attempt++) {
+    if (await tryAcquireDirLock(lockPath, MCP_OAUTH_REFRESH_LOCK_STALE_MS)) {
+      try {
+        return await run();
+      } finally {
+        await releaseDirLock(lockPath);
+      }
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, MCP_OAUTH_REFRESH_LOCK_WAIT_MS)
+    );
+  }
+  throw new ValidationError(
+    "Timed out waiting for MCP OAuth refresh lock",
+    "mcp_oauth",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -589,10 +673,294 @@ async function refreshAccessToken(
     const isTerminal = status === 401 || status === 403 ||
       msg.includes("invalid_grant") || msg.includes("invalid_client");
     getAgentLogger().warn(
-      `MCP OAuth refresh ${isTerminal ? "terminal" : "transient"} failure (${record.serverName}): ${msg}`,
+      `MCP OAuth refresh ${isTerminal ? "terminal" : "transient"} failure (${record.serverName}): ${
+        redactSensitiveOAuthText(msg)
+      }`,
     );
     return { ok: false, terminal: isTerminal, reason: msg };
   }
+}
+
+async function getActiveRecord(
+  server: McpServerConfig,
+  storePath?: string,
+): Promise<McpOAuthRecord | null> {
+  const initialStore = await loadStore(storePath);
+  const record = findRecord(initialStore, server);
+  if (!record) return null;
+  if (!tokenNeedsRefresh(record)) return record;
+  return await withRefreshLock(record.key, storePath, async () => {
+    const refreshedStore = await loadStore(storePath);
+    const latest = findRecord(refreshedStore, server);
+    if (!latest) return null;
+    if (!tokenNeedsRefresh(latest)) return latest;
+    const result = await refreshAccessToken(latest, storePath);
+    if (!result.ok) {
+      if (result.terminal) {
+        await removeRecordByKey(latest.key, storePath);
+      }
+      return null;
+    }
+    return result.record;
+  });
+}
+
+export class McpOAuthTransportAuthProvider implements OAuthClientProvider {
+  readonly redirectUrl = MCP_OAUTH_REDIRECT_URI;
+  readonly clientMetadata = HLVM_CLIENT_METADATA;
+  private pendingAuthorizationUrl: URL | null = null;
+  private pendingState: string | undefined;
+  private pendingCodeVerifier: string | null = null;
+  private pendingClientInformation: OAuthClientInformationMixed | undefined;
+  private pendingDiscoveryState: OAuthDiscoveryState | undefined;
+  private readonly output: (line: string) => void;
+  private readonly promptInput: (message: string) => Promise<string>;
+  private readonly openBrowser: (url: string) => Promise<void>;
+
+  constructor(
+    private readonly server: McpServerConfig & { url: string },
+    private readonly options: McpOAuthLoginOptions = {},
+  ) {
+    this.output = options.output ??
+      ((line: string) => getAgentLogger().info(line));
+    this.promptInput = options.promptInput ?? defaultPromptInput;
+    this.openBrowser = options.openBrowser ??
+      ((url: string) => getPlatform().openUrl(url));
+  }
+
+  private async loadExistingRecord(): Promise<McpOAuthRecord | null> {
+    return await getActiveRecord(this.server, this.options.storePath);
+  }
+
+  private buildRecordSkeleton(
+    clientInfo: OAuthClientInformationMixed,
+    discoveryState?: OAuthDiscoveryState,
+    existing?: McpOAuthRecord | null,
+  ): McpOAuthRecord {
+    const key = getServerKey(this.server);
+    if (!key) {
+      throw new ValidationError(
+        `Invalid MCP server URL: ${this.server.url}`,
+        "mcp_oauth",
+      );
+    }
+    const authServerUrl = discoveryState?.authorizationServerUrl ??
+      existing?.authorizationServer;
+    if (!authServerUrl) {
+      throw new ValidationError(
+        `OAuth discovery state missing for MCP server '${this.server.name}'`,
+        "mcp_oauth",
+      );
+    }
+    const metadata = discoveryState?.authorizationServerMetadata;
+    const pendingResource = existing?.pendingResource;
+    const resource = pendingResource ??
+      existing?.resource ??
+      (discoveryState?.resourceMetadata?.resource
+        ? String(discoveryState.resourceMetadata.resource)
+        : this.server.url);
+    return {
+      key,
+      serverName: this.server.name,
+      serverUrl: this.server.url,
+      resource,
+      authorizationServer: authServerUrl,
+      authorizationEndpoint: metadata?.authorization_endpoint
+        ? String(metadata.authorization_endpoint)
+        : existing?.authorizationEndpoint,
+      tokenEndpoint: metadata?.token_endpoint
+        ? String(metadata.token_endpoint)
+        : existing?.tokenEndpoint ?? `${authServerUrl}/token`,
+      registrationEndpoint: metadata?.registration_endpoint
+        ? String(metadata.registration_endpoint)
+        : existing?.registrationEndpoint,
+      clientId: clientInfo.client_id,
+      clientSecret: "client_secret" in clientInfo
+        ? clientInfo.client_secret
+        : existing?.clientSecret,
+      accessToken: existing?.accessToken ?? "",
+      tokenType: existing?.tokenType,
+      refreshToken: existing?.refreshToken,
+      scope: existing?.scope,
+      expiresAt: existing?.expiresAt,
+      discoveryState: discoveryState ?? existing?.discoveryState,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
+    const record = await this.loadExistingRecord();
+    return record ? recordToClientInfo(record) : this.pendingClientInformation;
+  }
+
+  async saveClientInformation(
+    clientInformation: OAuthClientInformationMixed,
+  ): Promise<void> {
+    this.pendingClientInformation = clientInformation;
+  }
+
+  async tokens(): Promise<OAuthTokens | undefined> {
+    const record = await this.loadExistingRecord();
+    return record?.accessToken ? recordToTokens(record) : undefined;
+  }
+
+  async saveTokens(tokens: OAuthTokens): Promise<void> {
+    const store = await loadStore(this.options.storePath);
+    const existing = findRecord(store, this.server);
+    const clientInfo = this.pendingClientInformation ??
+      (existing ? recordToClientInfo(existing) : undefined);
+    if (!clientInfo) {
+      throw new ValidationError(
+        `OAuth client registration missing for MCP server '${this.server.name}'`,
+        "mcp_oauth",
+      );
+    }
+    const baseRecord = this.buildRecordSkeleton(
+      clientInfo,
+      this.pendingDiscoveryState ?? existing?.discoveryState,
+      existing,
+    );
+    await upsertRecord(tokensToRecord(tokens, baseRecord), this.options.storePath);
+    this.pendingAuthorizationUrl = null;
+    this.pendingState = undefined;
+    this.pendingCodeVerifier = null;
+  }
+
+  async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
+    this.pendingAuthorizationUrl = new URL(authorizationUrl);
+    this.pendingState = authorizationUrl.searchParams.get("state") ?? undefined;
+    const store = await loadStore(this.options.storePath);
+    const existing = findRecord(store, this.server);
+    if (existing) {
+      await upsertRecord(
+        {
+          ...existing,
+          pendingScope: authorizationUrl.searchParams.get("scope") ??
+            existing.pendingScope,
+          pendingResource: authorizationUrl.searchParams.get("resource") ??
+            existing.pendingResource,
+          pendingStepUpAt: new Date().toISOString(),
+          discoveryState: this.pendingDiscoveryState ?? existing.discoveryState,
+          updatedAt: new Date().toISOString(),
+        },
+        this.options.storePath,
+      );
+    }
+    this.output(`Open this URL to authorize MCP server '${this.server.name}':`);
+    this.output(redactSensitiveOAuthText(authorizationUrl.toString()));
+    await this.openBrowser(authorizationUrl.toString());
+  }
+
+  async saveCodeVerifier(codeVerifier: string): Promise<void> {
+    this.pendingCodeVerifier = codeVerifier;
+  }
+
+  async codeVerifier(): Promise<string> {
+    if (!this.pendingCodeVerifier) {
+      throw new ValidationError(
+        `OAuth code verifier missing for MCP server '${this.server.name}'`,
+        "mcp_oauth",
+      );
+    }
+    return this.pendingCodeVerifier;
+  }
+
+  async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
+    this.pendingDiscoveryState = state;
+    const store = await loadStore(this.options.storePath);
+    const existing = findRecord(store, this.server);
+    if (existing) {
+      await upsertRecord(
+        {
+          ...existing,
+          discoveryState: state,
+          updatedAt: new Date().toISOString(),
+        },
+        this.options.storePath,
+      );
+    }
+  }
+
+  async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
+    if (this.pendingDiscoveryState) return this.pendingDiscoveryState;
+    const store = await loadStore(this.options.storePath);
+    return findRecord(store, this.server)?.discoveryState;
+  }
+
+  async invalidateCredentials(
+    scope: "all" | "client" | "tokens" | "verifier" | "discovery",
+  ): Promise<void> {
+    if (scope === "verifier" || scope === "all") {
+      this.pendingAuthorizationUrl = null;
+      this.pendingState = undefined;
+      this.pendingCodeVerifier = null;
+    }
+    if (scope === "client" || scope === "all") {
+      this.pendingClientInformation = undefined;
+    }
+    if (scope === "discovery" || scope === "all") {
+      this.pendingDiscoveryState = undefined;
+    }
+
+    const store = await loadStore(this.options.storePath);
+    const existing = findRecord(store, this.server);
+    if (!existing) return;
+
+    if (scope === "all" || scope === "client") {
+      await removeRecordByKey(existing.key, this.options.storePath);
+      return;
+    }
+
+    const next: McpOAuthRecord = { ...existing, updatedAt: new Date().toISOString() };
+    if (scope === "tokens") {
+      next.accessToken = "";
+      next.refreshToken = undefined;
+      next.tokenType = undefined;
+      next.expiresAt = undefined;
+    }
+    if (scope === "discovery") {
+      next.discoveryState = undefined;
+    }
+    await upsertRecord(next, this.options.storePath);
+  }
+
+  hasPendingAuthorization(): boolean {
+    return this.pendingAuthorizationUrl !== null;
+  }
+
+  async promptForAuthorizationCode(): Promise<string> {
+    if (!this.pendingAuthorizationUrl) {
+      throw new ValidationError(
+        `No pending OAuth authorization for MCP server '${this.server.name}'`,
+        "mcp_oauth",
+      );
+    }
+    const state = this.pendingState ?? "";
+    let callbackInput = "";
+    const receivedCallbackUrl = await waitForOAuthCallback(
+      this.redirectUrl,
+      state,
+      this.output,
+    );
+    if (receivedCallbackUrl) {
+      callbackInput = receivedCallbackUrl;
+      this.output("OAuth callback received.");
+    }
+    if (!callbackInput) {
+      callbackInput = await this.promptInput(
+        "Paste the full redirected callback URL (or paste just the `code` value)",
+      );
+    }
+    return parseAuthorizationCodeInput(callbackInput, state);
+  }
+}
+
+export function createMcpOAuthTransportAuthProvider(
+  server: McpServerConfig,
+  options: McpOAuthLoginOptions = {},
+): McpOAuthTransportAuthProvider {
+  ensureHttpServerConfig(server);
+  return new McpOAuthTransportAuthProvider(server, options);
 }
 
 // ---------------------------------------------------------------------------
@@ -661,13 +1029,24 @@ export async function loginMcpHttpServer(
 
   // 3. Build scope
   const scopesSupported = resourceMetadata?.scopes_supported ?? [];
-  const scope = scopesSupported.includes("offline_access")
-    ? "offline_access"
+  const requestedScopes = new Set<string>();
+  if (scopesSupported.includes("offline_access")) {
+    requestedScopes.add("offline_access");
+  }
+  for (const scopeEntry of (existing?.pendingScope ?? "").split(/\s+/)) {
+    if (scopeEntry.trim()) requestedScopes.add(scopeEntry.trim());
+  }
+  const scope = requestedScopes.size > 0
+    ? [...requestedScopes].join(" ")
     : undefined;
 
   // 4. Start authorization (PKCE + URL construction via SDK)
-  const resourceUrl = resourceMetadata?.resource
+  const resourceUrl = existing?.pendingResource
+    ? new URL(existing.pendingResource)
+    : resourceMetadata?.resource
     ? new URL(String(resourceMetadata.resource))
+    : existing?.resource
+    ? new URL(existing.resource)
     : new URL(server.url);
 
   const { authorizationUrl, codeVerifier } = await startAuthorization(
@@ -685,7 +1064,7 @@ export async function loginMcpHttpServer(
 
   // 5. Open browser + wait for callback
   output(`Open this URL to authorize MCP server '${server.name}':`);
-  output(authorizationUrl.toString());
+  output(redactSensitiveOAuthText(authorizationUrl.toString()));
   await openBrowser(authorizationUrl.toString());
 
   let callbackInput = "";
@@ -743,6 +1122,11 @@ export async function loginMcpHttpServer(
       ? clientInfo.client_secret
       : undefined,
     accessToken: tokens.access_token,
+    discoveryState: {
+      authorizationServerUrl: authServerUrl,
+      resourceMetadata,
+      authorizationServerMetadata: metadata,
+    },
     updatedAt: new Date().toISOString(),
   });
   await upsertRecord(finalRecord, options.storePath);
@@ -753,25 +1137,9 @@ export async function getMcpOAuthAuthorizationHeader(
   server: McpServerConfig,
   options: McpOAuthStoreOptions = {},
 ): Promise<string | null> {
-  const store = await loadStore(options.storePath);
-  const record = findRecord(store, server);
-  if (!record) return null;
-
-  let activeRecord = record;
-  if (tokenNeedsRefresh(record)) {
-    const result = await refreshAccessToken(record, options.storePath);
-    if (!result.ok) {
-      // Only delete token on terminal failure (401/403/invalid_grant).
-      // Transient failures (network errors) preserve the token for next attempt.
-      if (result.terminal) {
-        await removeRecordByKey(record.key, options.storePath);
-      }
-      return null;
-    }
-    activeRecord = result.record;
-  }
-
-  return buildBearerHeader(activeRecord);
+  const record = await getActiveRecord(server, options.storePath);
+  if (!record?.accessToken) return null;
+  return buildBearerHeader(record);
 }
 
 export async function recoverMcpOAuthFromUnauthorized(
@@ -786,10 +1154,30 @@ export async function recoverMcpOAuthFromUnauthorized(
   const record = findRecord(store, server);
   if (!record) return false;
 
+  if (challenge.params.error === "insufficient_scope") {
+    await upsertRecord(
+      {
+        ...record,
+        pendingScope: challenge.params.scope ?? record.pendingScope,
+        pendingResource: record.resource ?? record.pendingResource,
+        pendingStepUpAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      options.storePath,
+    );
+    return false;
+  }
+
   if (!record.refreshToken) {
     return false;
   }
-  const result = await refreshAccessToken(record, options.storePath);
+  const result = await withRefreshLock(record.key, options.storePath, async () => {
+    const latest = findRecord(await loadStore(options.storePath), server);
+    if (!latest?.refreshToken) {
+      return { ok: false, terminal: true, reason: "no refresh token" } satisfies RefreshResult;
+    }
+    return await refreshAccessToken(latest, options.storePath);
+  });
   if (!result.ok) {
     // Only delete token on terminal failure — preserve on transient errors
     if (result.terminal) {

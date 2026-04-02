@@ -82,6 +82,7 @@ interface BuildChatProviderMessagesResult {
 interface PersistableRequestMessage {
   role: "system" | "user" | "assistant";
   content: string;
+  displayContent?: string;
   attachmentIds?: string[];
   clientTurnId?: string;
   senderType: "system" | "user" | "llm";
@@ -412,6 +413,7 @@ function normalizeCurrentUserMessage(
   return {
     role: "user",
     content: message.content,
+    displayContent: message.display_content,
     attachmentIds: sanitizeAttachmentIds(message.attachment_ids),
     clientTurnId: message.client_turn_id ?? fallbackClientTurnId,
     senderType: "user",
@@ -437,6 +439,7 @@ function normalizeRequestMessagesForPersistence(
     persistable.push({
       role: message.role,
       content: message.content,
+      displayContent: message.display_content,
       attachmentIds,
       clientTurnId: message.client_turn_id ??
         (message.role === "user" && index === lastIndex
@@ -494,12 +497,14 @@ function appendStoredMessageForPersistence(
     parseAttachmentIds(message.attachment_ids),
   );
   const hasVisibleContent = message.content.length > 0 ||
+    (message.display_content?.length ?? 0) > 0 ||
     attachmentIds !== undefined;
   if (!hasVisibleContent) return;
 
   persistable.push({
     role: message.role,
     content: message.content,
+    displayContent: message.display_content ?? undefined,
     attachmentIds,
     clientTurnId: message.client_turn_id ?? undefined,
     senderType: getPersistedSenderType(message.role),
@@ -554,6 +559,7 @@ function persistableMessagesEqual(
   }
 
   return left.content === right.content &&
+    left.displayContent === right.displayContent &&
     attachmentIdListsEqual(left.attachmentIds, right.attachmentIds);
 }
 

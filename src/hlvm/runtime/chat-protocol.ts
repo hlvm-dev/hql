@@ -29,6 +29,7 @@ export type ChatMode =
 export interface ChatRequestMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  display_content?: string;
   attachment_ids?: string[];
   client_turn_id?: string;
 }

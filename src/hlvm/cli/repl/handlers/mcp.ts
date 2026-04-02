@@ -37,8 +37,15 @@ function resolveServerInput(
   return {
     name: server.name,
     ...(server.command ? { command: server.command } : {}),
+    ...(server.cwd ? { cwd: server.cwd } : {}),
+    ...(server.headers ? { headers: server.headers } : {}),
     ...(server.url ? { url: server.url } : {}),
     ...(server.env ? { env: server.env } : {}),
+    ...(server.transport ? { transport: server.transport } : {}),
+    ...(server.disabled_tools ? { disabled_tools: server.disabled_tools } : {}),
+    ...(server.connection_timeout_ms
+      ? { connection_timeout_ms: server.connection_timeout_ms }
+      : {}),
   };
 }
 
@@ -59,10 +66,12 @@ export async function handleListMcpServers(): Promise<Response> {
       return {
         name: server.name,
         command: server.command,
+        cwd: server.cwd,
+        headers: server.headers,
         url: server.url,
         env: server.env,
         scope: server.scope,
-        transport: server.url ? "http" : "stdio",
+        transport: server.url ? (server.transport ?? "http") : "stdio",
         target: entry.target,
         scopeLabel: entry.scopeLabel,
       };

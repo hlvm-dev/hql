@@ -626,7 +626,7 @@ export interface OrchestratorConfig {
   autoMemoryRecall?: boolean;
   /** Session-scoped todo state used by todo_read/todo_write. */
   todoState?: TodoState;
-  /** Session-scoped file coordination cache for edits/restoration. */
+  /** Per-session file integrity cache (read tracking, stale-edit detection, restoration hints). */
   fileStateCache?: FileStateCache;
   /** Session-scoped LSP diagnostics runtime for post-write verification. */
   lspDiagnostics?: LspDiagnosticsRuntime;

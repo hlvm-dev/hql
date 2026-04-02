@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals, assertRejects } from "jsr:@std/assert";
 import {
   getMcpOAuthAuthorizationHeader,
   loginMcpHttpServer,
@@ -6,12 +6,15 @@ import {
   parseBearerChallengeHeader,
   recoverMcpOAuthFromUnauthorized,
 } from "../../../src/hlvm/agent/mcp/oauth.ts";
+import { createSdkMcpClient } from "../../../src/hlvm/agent/mcp/sdk-client.ts";
+import { getPlatform, setPlatform } from "../../../src/platform/platform.ts";
 import type { PlatformHttpServerHandle } from "../../../src/platform/types.ts";
 import {
   serveWithRetry,
   withServePermissionGuard,
   withOAuthStorePath,
 } from "./oauth-test-helpers.ts";
+import { withTempHlvmDir } from "../helpers.ts";
 
 interface OAuthServerState {
   port: number;
@@ -20,7 +23,7 @@ interface OAuthServerState {
 }
 
 async function startOAuthServer(
-  options: { initialExpiresIn?: number } = {},
+  options: { initialExpiresIn?: number; protectMcp?: boolean } = {},
 ): Promise<OAuthServerState> {
   const state: OAuthServerState = {
     port: 0,
@@ -121,6 +124,22 @@ async function startOAuthServer(
         return new Response(
           JSON.stringify({ error: "unsupported_grant_type" }),
           { status: 400, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (options.protectMcp && url.pathname === "/mcp") {
+        if (req.method === "DELETE") {
+          return new Response(null, { status: 200 });
+        }
+        return new Response(
+          JSON.stringify({ error: "unauthorized" }),
+          {
+            status: 401,
+            headers: {
+              "Content-Type": "application/json",
+              "WWW-Authenticate":
+                `Bearer error="invalid_token", resource_metadata="http://127.0.0.1:${state.port}/.well-known/oauth-protected-resource"`,
+            },
+          },
         );
       }
       return new Response("Not Found", { status: 404 });
@@ -257,6 +276,47 @@ Deno.test({
 });
 
 Deno.test({
+  name: "MCP OAuth: non-interactive SDK inspection never opens the browser",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    await withServePermissionGuard(async () => {
+      await withTempHlvmDir(async () => {
+        const oauth = await startOAuthServer({ protectMcp: true });
+        const originalPlatform = getPlatform();
+        let openUrlCalls = 0;
+        setPlatform({
+          ...originalPlatform,
+          openUrl: async () => {
+            openUrlCalls++;
+          },
+        });
+
+        try {
+          await assertRejects(
+            () =>
+              createSdkMcpClient(
+                {
+                  name: "oauth-inspect",
+                  url: `http://127.0.0.1:${oauth.port}/mcp`,
+                },
+                undefined,
+                { interactiveAuth: false },
+              ),
+            Error,
+            "Interactive MCP OAuth disabled",
+          );
+          assertEquals(openUrlCalls, 0);
+        } finally {
+          setPlatform(originalPlatform);
+          await oauth.server.shutdown();
+        }
+      });
+    });
+  },
+});
+
+Deno.test({
   name: "MCP OAuth: proactive refresh triggers inside the 5 minute skew window",
   sanitizeOps: false,
   sanitizeResources: false,
@@ -327,6 +387,69 @@ Deno.test({
         const header = await getMcpOAuthAuthorizationHeader(server, { storePath });
         assertEquals(header, "Bearer initial-token");
         assertEquals(oauth.tokenRequestBodies.length, 1);
+
+        await oauth.server.shutdown();
+      });
+    });
+  },
+});
+
+Deno.test({
+  name: "MCP OAuth: insufficient_scope persists pending scope for next login",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    await withServePermissionGuard(async () => {
+      await withOauthStorePath(async (storePath) => {
+        const oauth = await startOAuthServer({ initialExpiresIn: 3600 });
+        const server = {
+          name: "oauth-step-up",
+          url: `http://127.0.0.1:${oauth.port}/mcp`,
+        };
+
+        let authUrl = "";
+        await loginMcpHttpServer(server, {
+          output: () => {},
+          storePath,
+          openBrowser: (url) => {
+            authUrl = url;
+            return Promise.resolve();
+          },
+          promptInput: () => {
+            const state = new URL(authUrl).searchParams.get("state") ?? "";
+            return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=init&state=${
+              encodeURIComponent(state)
+            }`);
+          },
+        });
+
+        const recovered = await recoverMcpOAuthFromUnauthorized(
+          server,
+          'Bearer error="insufficient_scope", scope="offline_access extra_scope"',
+          { storePath },
+        );
+        assertEquals(recovered, false);
+
+        let reauthUrl = "";
+        await loginMcpHttpServer(server, {
+          output: () => {},
+          storePath,
+          openBrowser: (url) => {
+            reauthUrl = url;
+            return Promise.resolve();
+          },
+          promptInput: () => {
+            const state = new URL(reauthUrl).searchParams.get("state") ?? "";
+            return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=reauth&state=${
+              encodeURIComponent(state)
+            }`);
+          },
+        });
+
+        assertEquals(
+          new URL(reauthUrl).searchParams.get("scope"),
+          "offline_access extra_scope",
+        );
 
         await oauth.server.shutdown();
       });

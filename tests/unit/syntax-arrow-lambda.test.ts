@@ -104,19 +104,24 @@ Deno.test("arrow lambda: supports real-world array operations", async () => {
   assertEquals(result, [[1, 2, 3, 5, 8, 9], 25, [3, 7], 50]);
 });
 
-Deno.test("arrow lambda: rejects invalid forms", async () => {
-  await assertRejects(
-    async () => await run("(=> 42)"),
-    Error,
-    "must use $0, $1, $2",
-  );
-  await assertRejects(
-    async () => await run("(=> (x y))"),
-    Error,
-  );
-  await assertRejects(
-    async () => await run("(=> $300)"),
-    Error,
-    "too many implicit parameters",
-  );
+Deno.test({
+  name: "arrow lambda: rejects invalid forms",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await assertRejects(
+      async () => await run("(=> 42)"),
+      Error,
+      "must use $0, $1, $2",
+    );
+    await assertRejects(
+      async () => await run("(=> (x y))"),
+      Error,
+    );
+    await assertRejects(
+      async () => await run("(=> $300)"),
+      Error,
+      "too many implicit parameters",
+    );
+  },
 });

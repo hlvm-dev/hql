@@ -36,7 +36,8 @@ Deno.test("measureCompletionPanelWidth fits to content instead of always stretch
     maxWidth: COMPLETION_PANEL_MAX_WIDTH,
   });
 
-  assertEquals(width, 51);
+  // helpText "Enter select • Tab next • Esc close • docs off" = 46 chars + 4 chrome = 50
+  assertEquals(width, 50);
 });
 
 Deno.test("measureCompletionPanelWidth respects narrow callers instead of forcing the minimum width", () => {

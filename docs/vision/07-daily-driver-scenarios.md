@@ -181,7 +181,7 @@ PRs are open, what issues are assigned to you, across all projects.
 (export (defn my-standup []
   (standup
     ["~/dev/HLVM" "~/dev/hql" "~/dev/infra"]
-    "seoksoonjang")))
+    "your-github-username")))
 ```
 
 ### Step 3: Keyboard Shortcut
@@ -315,7 +315,7 @@ GitHub, read the diff, understand context, write comments. Repeat N times.
 (export (defn my-review []
   (review-prs
     ["hlvm-org/hql" "hlvm-org/HLVM" "hlvm-org/infra"]
-    "seoksoonjang")))
+    "your-github-username")))
 ```
 
 The key insight: the agent prepares reviews but does NOT submit them. The GUI

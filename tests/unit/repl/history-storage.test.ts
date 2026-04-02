@@ -138,3 +138,74 @@ Deno.test("history storage round-trips attachment-backed entries with inline and
     }
   });
 });
+
+Deno.test("history storage sync flush preserves hashed pasted text storage", async () => {
+  await withTempHlvmDir(async () => {
+    const largeContent = Array.from({ length: 220 }, (_, index) =>
+      `line-${index}`
+    ).join("\n");
+    const largeText = await createTextAttachment(largeContent, 1);
+    assert("attachmentId" in largeText);
+
+    const storage = new HistoryStorage();
+    await storage.init();
+    storage.append(largeText.displayName, {
+      source: "conversation",
+      language: "chat",
+      attachments: [largeText],
+    });
+    storage.flushSync();
+
+    const rawHistory = await getPlatform().fs.readTextFile(getHistoryPath());
+    const persistedEntry = JSON.parse(rawHistory.trim()) as {
+      attachments?: Array<{ content?: string; contentHash?: string }>;
+    };
+    assertExists(persistedEntry.attachments?.[0]?.contentHash);
+    assertEquals(persistedEntry.attachments?.[0]?.content, undefined);
+    assertEquals(
+      await getPlatform().fs.readTextFile(
+        getPlatform().path.join(
+          getHistoryPasteStoreDir(),
+          `${persistedEntry.attachments?.[0]?.contentHash}.txt`,
+        ),
+      ),
+      largeContent,
+    );
+  });
+});
+
+Deno.test("history storage compaction preserves hashed pasted text storage", async () => {
+  await withTempHlvmDir(async () => {
+    const largeContent = Array.from({ length: 220 }, (_, index) =>
+      `line-${index}`
+    ).join("\n");
+    const largeText = await createTextAttachment(largeContent, 1);
+    assert("attachmentId" in largeText);
+
+    const storage = new HistoryStorage({ maxEntries: 1, saveDebounceMs: 0 });
+    await storage.init();
+    storage.append(largeText.displayName, {
+      source: "conversation",
+      language: "chat",
+      attachments: [largeText],
+    });
+    await storage.flush();
+    await storage.compact();
+
+    const rawHistory = await getPlatform().fs.readTextFile(getHistoryPath());
+    const persistedEntry = JSON.parse(rawHistory.trim()) as {
+      attachments?: Array<{ content?: string; contentHash?: string }>;
+    };
+    assertExists(persistedEntry.attachments?.[0]?.contentHash);
+    assertEquals(persistedEntry.attachments?.[0]?.content, undefined);
+
+    const reloaded = new HistoryStorage({ maxEntries: 1 });
+    await reloaded.init();
+    assertEquals(reloaded.getEntries()[0]?.attachments?.length, 1);
+    const restored = reloaded.getEntries()[0]?.attachments?.[0];
+    assertExists(restored);
+    if (restored && "content" in restored) {
+      assertEquals(restored.content, largeContent);
+    }
+  });
+});

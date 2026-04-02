@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "jsr:@std/assert";
+import { assert, assertEquals, assertRejects } from "jsr:@std/assert";
 import { getMcpConfigPath } from "../../../src/common/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import {
@@ -26,6 +26,9 @@ type FixtureServerOptions = {
   disabled_tools?: string[];
   connection_timeout_ms?: number;
 };
+
+const ONE_BY_ONE_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2Bt1kAAAAASUVORK5CYII=";
 
 function fixturePath(): string {
   return getPlatform().path.join("tests", "fixtures", "mcp-server.ts");
@@ -277,43 +280,117 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withWorkspace(async (workspace) => {
-      const { tools, dispose } = await loadMcpTools(workspace, [
-        fixtureServer("restest", {
-          allowEnv: ["MCP_TEST_MODE"],
-          env: { MCP_TEST_MODE: "resources" },
-        }),
-        fixtureServer("ptest", {
-          allowEnv: ["MCP_TEST_MODE"],
-          env: { MCP_TEST_MODE: "prompts" },
-        }),
-        fixtureServer("plain"),
-      ]);
+    await withTempHlvmDir(async () => {
+      await withWorkspace(async (workspace) => {
+        const { tools, dispose } = await loadMcpTools(workspace, [
+          fixtureServer("restest", {
+            allowEnv: ["MCP_TEST_MODE"],
+            env: { MCP_TEST_MODE: "resources" },
+          }),
+          fixtureServer("ptest", {
+            allowEnv: ["MCP_TEST_MODE"],
+            env: { MCP_TEST_MODE: "prompts" },
+          }),
+          fixtureServer("plain"),
+        ]);
 
-      try {
-        assertEquals(tools.includes("mcp_restest_list_resources"), true);
-        assertEquals(tools.includes("mcp_restest_read_resource"), true);
-        assertEquals(tools.includes("mcp_ptest_list_prompts"), true);
-        assertEquals(tools.includes("mcp_ptest_get_prompt"), true);
-        assertEquals(tools.includes("mcp_plain_list_resources"), false);
-        assertEquals(tools.includes("mcp_plain_get_prompt"), false);
+        try {
+          assertEquals(tools.includes("mcp_restest_list_resources"), true);
+          assertEquals(tools.includes("mcp_restest_read_resource"), true);
+          assertEquals(tools.includes("mcp_ptest_list_prompts"), true);
+          assertEquals(tools.includes("mcp_ptest_get_prompt"), true);
+          assertEquals(tools.includes("mcp_plain_list_resources"), false);
+          assertEquals(tools.includes("mcp_plain_get_prompt"), false);
 
-        const resources = await getTool("mcp_restest_list_resources").fn(
-          {},
-          workspace,
-        ) as {
-          resources: Array<{ uri: string }>;
-        };
-        assertEquals(resources.resources.length, 2);
+          const resources = await getTool("mcp_restest_list_resources").fn(
+            {},
+            workspace,
+          ) as {
+            resources: Array<{ uri: string }>;
+          };
+          assertEquals(resources.resources.length, 2);
 
         const prompt = await getTool("mcp_ptest_get_prompt").fn(
           { name: "summarize", text: "Hello world", style: "brief" },
           workspace,
-        ) as { messages: string };
-        assertEquals(prompt.messages.includes("Summarize: Hello world"), true);
+        ) as {
+          messages: Array<{
+            role: string;
+            content: { type: "text"; text: string };
+          }>;
+        };
+        assertEquals(prompt.messages[0]?.role, "user");
+        assertEquals(
+          prompt.messages[0]?.content.type === "text" &&
+            prompt.messages[0].content.text.includes("Summarize: Hello world"),
+          true,
+        );
       } finally {
         await dispose();
       }
+      });
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "MCP: attachment-backed results preserve raw shapes and expose compact formatter output",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTempHlvmDir(async () => {
+      await withWorkspace(async (workspace) => {
+        const { dispose, ownerId } = await loadMcpTools(workspace, [
+          fixtureServer("rich", {
+            allowEnv: ["MCP_TEST_MODE"],
+            env: {
+              MCP_TEST_MODE:
+                "resources,prompts,tool_binary,resource_blob,prompt_binary,long_description",
+            },
+          }),
+        ]);
+
+        try {
+          const toolMeta = getTool("mcp_rich_echo", ownerId);
+          const toolResult = await toolMeta.fn({ message: "hello" }, workspace) as {
+            content: unknown[];
+            attachments?: Array<{ attachmentId: string }>;
+          };
+          assertEquals(toolResult.attachments?.length, 1);
+          assertEquals(toolMeta.description.length <= 2048, true);
+          assertEquals(toolMeta.description.includes("\u0000"), false);
+          const formattedTool = toolMeta.formatResult?.(toolResult);
+          assert(formattedTool);
+          assertEquals(formattedTool.llmContent?.includes(ONE_BY_ONE_PNG_BASE64), false);
+          assertEquals(formattedTool.llmContent?.includes("[Image #1]"), true);
+
+          const resourceTool = getTool("mcp_rich_read_resource", ownerId);
+          const resourceResult = await resourceTool.fn(
+            { uri: "file:///test/config.json" },
+            workspace,
+          ) as {
+            contents: Array<{ blob?: string }>;
+            attachments?: Array<{ attachmentId: string }>;
+          };
+          assertEquals(typeof resourceResult.contents[0]?.blob, "string");
+          assertEquals(resourceResult.attachments?.length, 1);
+
+          const promptTool = getTool("mcp_rich_get_prompt", ownerId);
+          const promptResult = await promptTool.fn(
+            { name: "summarize", text: "Hello world" },
+            workspace,
+          ) as {
+            messages: Array<{ content: { type: string } }>;
+            attachments?: Array<{ attachmentId: string }>;
+          };
+          assertEquals(promptResult.messages.length, 2);
+          assertEquals(promptResult.messages[1]?.content.type, "image");
+          assertEquals(promptResult.attachments?.length, 1);
+        } finally {
+          await dispose();
+        }
+      });
     });
   },
 });
@@ -324,41 +401,43 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withWorkspace(async (workspace) => {
-      const result = await loadMcpTools(workspace, [
-        fixtureServer("interactive", {
-          allowEnv: ["MCP_TEST_MODE"],
-          env: { MCP_TEST_MODE: "sampling,elicitation" },
-        }),
-      ]);
+    await withTempHlvmDir(async () => {
+      await withWorkspace(async (workspace) => {
+        const result = await loadMcpTools(workspace, [
+          fixtureServer("interactive", {
+            allowEnv: ["MCP_TEST_MODE"],
+            env: { MCP_TEST_MODE: "sampling,elicitation" },
+          }),
+        ]);
 
-      let samplingCalled = false;
-      let elicitationMessage = "";
-      result.setHandlers({
-        onSampling: (request) => {
-          samplingCalled = Array.isArray(request.messages);
-          return Promise.resolve({
-            role: "assistant" as const,
-            content: { type: "text" as const, text: "The answer is 4" },
-            model: "test-model",
-          });
-        },
-        onElicitation: (request) => {
-          elicitationMessage = request.message;
-          return Promise.resolve({
-            action: "accept" as const,
-            content: { confirmed: true },
-          });
-        },
+        let samplingCalled = false;
+        let elicitationMessage = "";
+        result.setHandlers({
+          onSampling: (request) => {
+            samplingCalled = Array.isArray(request.messages);
+            return Promise.resolve({
+              role: "assistant" as const,
+              content: { type: "text" as const, text: "The answer is 4" },
+              model: "test-model",
+            });
+          },
+          onElicitation: (request) => {
+            elicitationMessage = request.message;
+            return Promise.resolve({
+              action: "accept" as const,
+              content: { confirmed: true },
+            });
+          },
+        });
+
+        try {
+          await waitFor(() => samplingCalled && elicitationMessage.length > 0);
+          assertEquals(samplingCalled, true);
+          assertEquals(elicitationMessage, "Please confirm deployment");
+        } finally {
+          await result.dispose();
+        }
       });
-
-      try {
-        await waitFor(() => samplingCalled && elicitationMessage.length > 0);
-        assertEquals(samplingCalled, true);
-        assertEquals(elicitationMessage, "Please confirm deployment");
-      } finally {
-        await result.dispose();
-      }
     });
   },
 });
@@ -368,34 +447,36 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withWorkspace(async (workspace) => {
-      const { dispose, ownerId, setSignal } = await loadMcpTools(workspace, [
-        fixtureServer("abortable", {
-          allowEnv: ["MCP_TOOL_DELAY_MS"],
-          env: { MCP_TOOL_DELAY_MS: "5000" },
-        }),
-      ]);
+    await withTempHlvmDir(async () => {
+      await withWorkspace(async (workspace) => {
+        const { dispose, ownerId, setSignal } = await loadMcpTools(workspace, [
+          fixtureServer("abortable", {
+            allowEnv: ["MCP_TOOL_DELAY_MS"],
+            env: { MCP_TOOL_DELAY_MS: "5000" },
+          }),
+        ]);
 
-      const controller = new AbortController();
-      setSignal(controller.signal);
+        const controller = new AbortController();
+        setSignal(controller.signal);
 
-      const tool = getTool("mcp_abortable_echo", ownerId);
-      const startedAt = Date.now();
-      const abortTimer = setTimeout(() => controller.abort(), 50);
-      try {
-        const error = await assertRejects(
-          () => tool.fn({ message: "hello" }, workspace),
-          Error,
-        );
-        const elapsed = Date.now() - startedAt;
-        const aborted = error.name === "AbortError" ||
-          error.message.toLowerCase().includes("abort");
-        assertEquals(aborted, true);
-        assertEquals(elapsed < 1500, true);
-      } finally {
-        clearTimeout(abortTimer);
-        await dispose();
-      }
+        const tool = getTool("mcp_abortable_echo", ownerId);
+        const startedAt = Date.now();
+        const abortTimer = setTimeout(() => controller.abort(), 50);
+        try {
+          const error = await assertRejects(
+            () => tool.fn({ message: "hello" }, workspace),
+            Error,
+          );
+          const elapsed = Date.now() - startedAt;
+          const aborted = error.name === "AbortError" ||
+            error.message.toLowerCase().includes("abort");
+          assertEquals(aborted, true);
+          assertEquals(elapsed < 1500, true);
+        } finally {
+          clearTimeout(abortTimer);
+          await dispose();
+        }
+      });
     });
   },
 });
@@ -406,17 +487,19 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    await withWorkspace(async (workspace) => {
-      const { tools, dispose } = await loadMcpTools(workspace, [
-        fixtureServer("filtered", { disabled_tools: ["echo"] }),
-      ]);
+    await withTempHlvmDir(async () => {
+      await withWorkspace(async (workspace) => {
+        const { tools, dispose } = await loadMcpTools(workspace, [
+          fixtureServer("filtered", { disabled_tools: ["echo"] }),
+        ]);
 
-      try {
-        assertEquals(tools.includes("mcp_filtered_echo"), false);
-        assertEquals(hasTool("mcp_filtered_echo"), false);
-      } finally {
-        await dispose();
-      }
+        try {
+          assertEquals(tools.includes("mcp_filtered_echo"), false);
+          assertEquals(hasTool("mcp_filtered_echo"), false);
+        } finally {
+          await dispose();
+        }
+      });
     });
   },
 });

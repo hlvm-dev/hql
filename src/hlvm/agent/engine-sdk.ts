@@ -341,6 +341,82 @@ const ANTHROPIC_EPHEMERAL_CACHE: ProviderOptionsMap = {
   anthropic: { cacheControl: { type: "ephemeral" } },
 };
 
+// ----------- Google explicit caching -----------
+// Google uses a fundamentally different caching model than Anthropic/OpenAI:
+//   Anthropic: hint-based ephemeral breakpoints on messages (synchronous decoration)
+//   OpenAI:    stable cache key as provider option (synchronous)
+//   Google:    explicit server-side cache object with TTL (async API call)
+// The cache is created lazily at session level and reused while the stable
+// prompt signature is unchanged.
+
+/** Minimum system prompt length (chars) to attempt Google explicit caching.
+ *  Google requires substantial content (~32K tokens) for caching to be accepted. */
+const GOOGLE_CACHE_MIN_CHARS = 32_000;
+
+/** Default TTL for Google cached content (1 hour). */
+const GOOGLE_CACHE_TTL = "3600s";
+
+/** Session-scoped Google cache registry. Maps modelId → cache name + signature. */
+const googleCacheRegistry = new Map<
+  string,
+  { name: string; signatureHash: string }
+>();
+
+/**
+ * Lazily creates or reuses a Google explicit cache for the stable system prompt.
+ * Returns the cache name to pass via `providerOptions.google.cachedContent`,
+ * or undefined if caching is not applicable or creation failed.
+ */
+export async function resolveGoogleCachedContent(
+  spec: ResolvedModelSpec,
+  system: SystemPromptValue | undefined,
+  cacheProfile: ResolvedPromptCacheProfile,
+): Promise<string | undefined> {
+  if (spec.providerName !== "google") return undefined;
+
+  // Reuse existing cache if stable signature hasn't changed
+  const existing = googleCacheRegistry.get(spec.modelId);
+  if (existing?.signatureHash === cacheProfile.stableCacheSignatureHash) {
+    return existing.name;
+  }
+
+  // Google explicit caching only makes sense for large prompts
+  const systemText = flattenSystemPrompt(system);
+  if (!systemText || systemText.length < GOOGLE_CACHE_MIN_CHARS) {
+    return undefined;
+  }
+
+  try {
+    const { GoogleGenAI } = await import("@google/genai");
+    const apiKey = spec.providerConfig?.apiKey ?? "";
+    const ai = new GoogleGenAI({ apiKey });
+
+    const cache = await ai.caches.create({
+      model: spec.modelId,
+      config: {
+        contents: [{ role: "user", parts: [{ text: systemText }] }],
+        ttl: GOOGLE_CACHE_TTL,
+      },
+    });
+
+    if (cache.name) {
+      googleCacheRegistry.set(spec.modelId, {
+        name: cache.name,
+        signatureHash: cacheProfile.stableCacheSignatureHash,
+      });
+      return cache.name;
+    }
+  } catch {
+    // Cache creation is best-effort — don't block LLM calls on failure
+  }
+  return undefined;
+}
+
+/** Clear Google cache registry (for testing). */
+export function clearGoogleCacheRegistry(): void {
+  googleCacheRegistry.clear();
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -604,6 +680,21 @@ export function applyPromptCaching(
         ),
       },
     });
+  }
+
+  if (spec.providerName === "google") {
+    // Google explicit caching is resolved at session level via
+    // resolveGoogleCachedContent() and injected into providerOptions by the
+    // caller. Preserve it through decoration so it reaches the SDK call.
+    const incomingGoogle = (providerOptions?.google ?? {}) as Record<
+      string,
+      unknown
+    >;
+    if (incomingGoogle.cachedContent) {
+      decoratedProviderOptions = mergeProviderOptions(decoratedProviderOptions, {
+        google: { cachedContent: incomingGoogle.cachedContent as string },
+      });
+    }
   }
 
   return {
@@ -985,12 +1076,32 @@ export class SdkAgentEngine implements AgentEngine {
             availableToolNames: Object.keys(sdkTools),
           });
 
+        // Resolve Google explicit cache (async, best-effort) and merge into
+        // provider options so applyPromptCaching() can preserve it.
+        let baseProviderOptions = buildProviderOptions(spec, config);
+        if (spec.providerName === "google") {
+          const cacheProfile = resolvePromptCacheProfile(
+            config.compiledPrompt,
+            promptPayload.system,
+          );
+          const googleCacheName = await resolveGoogleCachedContent(
+            spec,
+            promptPayload.system,
+            cacheProfile,
+          );
+          if (googleCacheName) {
+            baseProviderOptions = mergeProviderOptions(baseProviderOptions, {
+              google: { cachedContent: googleCacheName },
+            }) ?? baseProviderOptions;
+          }
+        }
+
         const cacheDecorated = applyPromptCaching(
           spec,
           promptPayload.system,
           promptPayload.messages,
           sdkTools,
-          buildProviderOptions(spec, config),
+          baseProviderOptions,
           config.compiledPrompt,
           buildStableSignature({
             tools: lastToolSchemaSignature,

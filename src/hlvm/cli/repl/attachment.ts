@@ -74,7 +74,7 @@ export interface AttachmentReferenceMatch {
 const TEXT_COLLAPSE_MIN_LINES = 5;
 const TEXT_COLLAPSE_MIN_CHARS = 300;
 const TEXT_ATTACHMENT_REFERENCE_PATTERN =
-  /\[Pasted text #(\d+)(?:: [^\]]*)?(?: \+\d+ lines)?\]/g;
+  /\[(?:Pasted text|Text) #(\d+)(?:: [^\]]*)?(?: \+\d+ lines)?\]/g;
 const BINARY_ATTACHMENT_REFERENCE_PATTERN =
   /\[(Image|Video|Audio|PDF|Document|File) #(\d+)\]/g;
 
@@ -99,8 +99,9 @@ export function isSupportedConversationMedia(path: string): boolean {
     "text";
 }
 
-export function isSupportedConversationAttachmentPath(_path: string): boolean {
-  return true;
+export function isSupportedConversationAttachmentPath(path: string): boolean {
+  return getConversationAttachmentKind(getConversationAttachmentMimeType(path)) !==
+    null;
 }
 
 export function isAutoAttachableConversationAttachmentPath(path: string): boolean {
@@ -133,7 +134,18 @@ export function getAttachmentType(mimeType: string): AttachmentType {
 }
 
 export function getDisplayName(type: AttachmentType, id: number): string {
-  return getAttachmentDisplayName(type, id);
+  return type === "text"
+    ? getTextDisplayName(id, 0)
+    : getAttachmentDisplayName(type, id);
+}
+
+function normalizeTextAttachmentDisplayName(
+  attachment: Pick<AnyAttachment, "id" | "displayName"> &
+    Partial<Pick<TextAttachment, "lineCount">>,
+): string {
+  return attachment.displayName.startsWith("[Pasted text #")
+    ? attachment.displayName
+    : getTextDisplayName(attachment.id, attachment.lineCount ?? 0);
 }
 
 function formatAttachmentError(
@@ -199,10 +211,16 @@ export function isAttachment(
 
 export function cloneAttachment(attachment: AnyAttachment): AnyAttachment {
   if ("content" in attachment) {
-    return { ...attachment };
+    return {
+      ...attachment,
+      displayName: normalizeTextAttachmentDisplayName(attachment),
+    };
   }
   return {
     ...attachment,
+    displayName: attachment.type === "text"
+      ? normalizeTextAttachmentDisplayName(attachment)
+      : attachment.displayName,
     metadata: attachment.metadata ? { ...attachment.metadata } : undefined,
   };
 }

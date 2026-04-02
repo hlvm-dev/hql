@@ -92,3 +92,16 @@ mod.js
 !website/**/*.jsx
 !website/**/*.mjs
 website/public/content/
+
+# Secrets / credentials (defensive — prevent accidental commits)
+.env*
+*.pem
+*.key
+*.cert
+*.p12
+*.pfx
+*.jks
+*.keystore
+.npmrc
+.pypirc
+service-account*.json

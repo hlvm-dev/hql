@@ -113,8 +113,10 @@ Deno.test("turn context: summarizeExecutionTurnContext formats correctly", () =>
       attachmentKinds: ["image", "pdf"],
       visionEligibleAttachmentCount: 2,
       visionEligibleKinds: ["image", "pdf"],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
     }),
-    "2 attachment(s) · kinds=image, pdf · vision-eligible=2 (image, pdf)",
+    "2 attachment(s) · kinds=image, pdf · vision-eligible=2 (image, pdf) · audio-eligible=0 (none)",
   );
 });
 
@@ -130,6 +132,8 @@ Deno.test("turn context: hasVisionRelevantTurnContext returns correct boolean", 
       attachmentKinds: ["text"],
       visionEligibleAttachmentCount: 0,
       visionEligibleKinds: [],
+      audioEligibleAttachmentCount: 0,
+      audioEligibleKinds: [],
     }),
     true,
   );

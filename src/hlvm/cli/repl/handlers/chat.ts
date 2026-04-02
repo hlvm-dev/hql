@@ -89,7 +89,7 @@ import {
 } from "../../attachment-policy.ts";
 import {
   appendAttachmentPipelineTrace,
-  getAttachmentRecords,
+  getRequiredAttachmentRecords,
   materializeConversationAttachment,
 } from "../../../attachments/service.ts";
 import { toRuntimeSessionMessage } from "../../../runtime/session-protocol.ts";
@@ -113,10 +113,7 @@ export async function buildEvalAttachments(
     return undefined;
   }
 
-  const records = await getAttachmentRecords(attachmentIds);
-  if (records.length === 0) {
-    return undefined;
-  }
+  const records = await getRequiredAttachmentRecords(attachmentIds);
 
   const attachments = await Promise.all(
     records.map(async (record, index) => {
@@ -299,6 +296,16 @@ export async function handleChat(req: Request): Promise<Response> {
     );
   }
   const isEvalMode = body.mode === "eval";
+  if (isEvalMode) {
+    try {
+      await getRequiredAttachmentRecords(getRequestAttachmentIds(body.messages));
+    } catch (error) {
+      return jsonError(
+        error instanceof Error ? error.message : "Attachment not found",
+        400,
+      );
+    }
+  }
   if (body.response_schema !== undefined) {
     if (
       !body.response_schema ||
@@ -470,6 +477,7 @@ export async function handleChat(req: Request): Promise<Response> {
       session_id: session.id,
       role: message.role,
       content: message.content,
+      display_content: message.displayContent ?? null,
       client_turn_id: message.clientTurnId,
       request_id: requestId,
       sender_type: isEvalMode && message.role !== "system"

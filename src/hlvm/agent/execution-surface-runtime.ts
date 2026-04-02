@@ -212,10 +212,10 @@ function buildMcpServerSummaries(
 
 /** Check whether an MCP server runs locally (stdio or localhost HTTP). */
 function isLocalMcpTransport(
-  server: { transport: "http" | "stdio"; target: string },
+  server: { transport: "http" | "sse" | "stdio"; target: string },
 ): boolean {
   if (server.transport === "stdio") return true;
-  if (server.transport === "http") {
+  if (server.transport === "http" || server.transport === "sse") {
     try {
       const url = new URL(server.target);
       const host = url.hostname;

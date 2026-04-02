@@ -53,6 +53,9 @@
  *           enum: [system, user, assistant, tool]
  *         content:
  *           type: string
+ *         display_content:
+ *           type: string
+ *           nullable: true
  *         client_turn_id:
  *           type: string
  *           nullable: true
@@ -192,6 +195,9 @@
  *           enum: [system, user, assistant, tool]
  *         content:
  *           type: string
+ *         display_content:
+ *           type: string
+ *           nullable: true
  *         client_turn_id:
  *           type: string
  *           nullable: true
@@ -279,6 +285,8 @@
  *                 type: string
  *                 enum: [system, user, assistant, tool]
  *               content:
+ *                 type: string
+ *               display_content:
  *                 type: string
  *               attachment_ids:
  *                 type: array

@@ -99,7 +99,7 @@ export interface ExecutionSurfaceMcpServerSummary {
   name: string;
   scope: "user" | "claude-code";
   scopeLabel: string;
-  transport: "http" | "stdio";
+  transport: "http" | "sse" | "stdio";
   target: string;
   reachable: boolean;
   toolCount: number;

@@ -16,6 +16,7 @@ Deno.test("toRuntimeSessionMessage normalizes stored attachment ids to the runti
     order: 1,
     role: "user",
     content: "hello",
+    display_content: "[Pasted text #1]",
     client_turn_id: "turn-1",
     request_id: null,
     sender_type: "user",
@@ -31,6 +32,7 @@ Deno.test("toRuntimeSessionMessage normalizes stored attachment ids to the runti
   const adapted = await toRuntimeSessionMessage(message);
 
   assertEquals(adapted.attachment_ids, ["att_1", "att_2"]);
+  assertEquals(adapted.display_content, "[Pasted text #1]");
   assertEquals(adapted.attachments, undefined);
 });
 
@@ -81,6 +83,7 @@ Deno.test("toRuntimeSessionMessage resolves runtime attachment metadata", async 
     order: 1,
     role: "user",
     content: "hello",
+    display_content: null,
     client_turn_id: "turn-1",
     request_id: null,
     sender_type: "user",
@@ -114,6 +117,7 @@ Deno.test("toRuntimeSessionMessagesResponse adapts every message through the sam
       order: 1,
       role: "assistant",
       content: "hello",
+      display_content: null,
       client_turn_id: null,
       request_id: "req-1",
       sender_type: "assistant",

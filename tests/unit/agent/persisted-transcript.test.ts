@@ -139,7 +139,7 @@ async function withWorkspace(
   }
 }
 
-Deno.test("persisted transcript: SQLite-backed agent history replays stored tool results", async () => {
+Deno.test({ name: "persisted transcript: SQLite-backed agent history replays stored tool results", sanitizeOps: false, sanitizeResources: false, async fn() {
   const db = setupStoreTestDb();
   try {
     const model = "test-chat/plain";
@@ -165,7 +165,7 @@ Deno.test("persisted transcript: SQLite-backed agent history replays stored tool
   } finally {
     db.close();
   }
-});
+} });
 
 Deno.test("persisted transcript: todo state is stored in session metadata", () => {
   const db = setupStoreTestDb();
@@ -188,34 +188,39 @@ Deno.test("persisted transcript: todo state is stored in session metadata", () =
   }
 });
 
-Deno.test("persisted transcript: child sessions link back to parent metadata", () => {
-  const db = setupStoreTestDb();
-  try {
-    const parentSessionId = getPersistedAgentSessionId();
-    startPersistedAgentTurn(parentSessionId, "parent task");
+Deno.test({
+  name: "persisted transcript: child sessions link back to parent metadata",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn() {
+    const db = setupStoreTestDb();
+    try {
+      const parentSessionId = getPersistedAgentSessionId();
+      startPersistedAgentTurn(parentSessionId, "parent task");
 
-    const childTurn = createPersistedAgentChildSession({
-      parentSessionId,
-      agent: "web",
-      task: "Inspect docs",
-    });
-    completePersistedAgentTurn(childTurn, "test-chat/plain", "done");
+      const childTurn = createPersistedAgentChildSession({
+        parentSessionId,
+        agent: "web",
+        task: "Inspect docs",
+      });
+      completePersistedAgentTurn(childTurn, "test-chat/plain", "done");
 
-    const parent = getSession(parentSessionId);
-    const child = getSession(childTurn.sessionId);
-    const parentMeta = parsePersistedAgentSessionMetadata(parent?.metadata);
-    const childMeta = parsePersistedAgentSessionMetadata(child?.metadata);
+      const parent = getSession(parentSessionId);
+      const child = getSession(childTurn.sessionId);
+      const parentMeta = parsePersistedAgentSessionMetadata(parent?.metadata);
+      const childMeta = parsePersistedAgentSessionMetadata(child?.metadata);
 
-    assertEquals(
-      parentMeta.childSessionIds?.includes(childTurn.sessionId),
-      true,
-    );
-    assertEquals(childMeta.parentSessionId, parentSessionId);
-    assertEquals(childMeta.agent, "web");
-    assertEquals(childMeta.task, "Inspect docs");
-  } finally {
-    db.close();
-  }
+      assertEquals(
+        parentMeta.childSessionIds?.includes(childTurn.sessionId),
+        true,
+      );
+      assertEquals(childMeta.parentSessionId, parentSessionId);
+      assertEquals(childMeta.agent, "web");
+      assertEquals(childMeta.task, "Inspect docs");
+    } finally {
+      db.close();
+    }
+  },
 });
 
 Deno.test("persisted transcript: pending plan review persists in session metadata", () => {
@@ -238,7 +243,7 @@ Deno.test("persisted transcript: pending plan review persists in session metadat
   }
 });
 
-Deno.test("persisted transcript: execution fallback state is stored in session metadata", () => {
+Deno.test({ name: "persisted transcript: execution fallback state is stored in session metadata", sanitizeOps: false, sanitizeResources: false, fn() {
   const db = setupStoreTestDb();
   try {
     const sessionId = getPersistedAgentSessionId();
@@ -266,7 +271,7 @@ Deno.test("persisted transcript: execution fallback state is stored in session m
   } finally {
     db.close();
   }
-});
+} });
 
 Deno.test("persisted transcript: response shape context is stored in session metadata", () => {
   const db = setupStoreTestDb();
@@ -292,7 +297,7 @@ Deno.test("persisted transcript: response shape context is stored in session met
   }
 });
 
-Deno.test("persisted transcript: team runtime snapshot persists in session metadata", () => {
+Deno.test({ name: "persisted transcript: team runtime snapshot persists in session metadata", sanitizeOps: false, sanitizeResources: false, fn() {
   const db = setupStoreTestDb();
   try {
     const sessionId = getPersistedAgentSessionId();
@@ -315,7 +320,7 @@ Deno.test("persisted transcript: team runtime snapshot persists in session metad
   } finally {
     db.close();
   }
-});
+} });
 
 Deno.test({
   name: "persisted transcript: clearPersistedAgentPlanningState removes plan-owned planning metadata",

@@ -2,7 +2,7 @@
 export const URLS = {
   GITHUB_REPO: 'https://github.com/hlvm-dev/hlvm',
   DISCORD: 'https://discord.gg/C6qfeudedY',
-  EMAIL: 'mailto:jang.seoksun@hlvm.dev',
+  EMAIL: 'mailto:contact@hlvm.dev',
   LINKEDIN: 'https://www.linkedin.com/company/hlvm-dev',
   TWITTER: 'https://x.com/hlvm_dev',
   SLACK: 'https://join.slack.com/t/hlvm/shared_invite/zt-3bzzxnmqs-YMJDRAXw2~44uU82RyHHrA',

@@ -15,6 +15,7 @@ const resolve = (...paths: string[]) => path().resolve(...paths);
 
 // Cached HLVM directory path
 let _hlvmDir: string | null = null;
+let _claudeCodeMcpDirForTests: string | null = null;
 
 /**
  * Get environment variable value.
@@ -99,6 +100,13 @@ export function resetHlvmDirCacheForTests(): void {
  */
 export function setHlvmDirForTests(dir: string): void {
   _hlvmDir = dir;
+}
+
+/**
+ * Override the Claude Code MCP plugin directory (used in tests).
+ */
+export function setClaudeCodeMcpDirForTests(dir: string | null): void {
+  _claudeCodeMcpDirForTests = dir;
 }
 
 /**
@@ -326,6 +334,9 @@ export function getTrustedWorkspacesPath(): string {
  * each with a `.mcp.json` config file.
  */
 export function getClaudeCodeMcpDir(): string {
+  if (_claudeCodeMcpDirForTests !== null) {
+    return _claudeCodeMcpDirForTests;
+  }
   const home = getEnvVar("HOME") || getEnvVar("USERPROFILE") || ".";
   return join(
     home,

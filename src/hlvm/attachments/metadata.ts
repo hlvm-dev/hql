@@ -401,6 +401,9 @@ export function getAttachmentDisplayName(
   kind: AttachmentKind,
   index: number,
 ): string {
+  if (kind === "text") {
+    return getTextAttachmentDisplayName(index, 0);
+  }
   return `[${DISPLAY_LABELS[kind]} #${index}]`;
 }
 

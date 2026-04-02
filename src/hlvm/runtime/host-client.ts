@@ -1,5 +1,6 @@
 import { delay } from "@std/async";
 import { http } from "../../common/http-client.ts";
+import { releaseDirLock, tryAcquireDirLock } from "../../common/dir-lock.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import {
@@ -422,41 +423,14 @@ export function __testOnlyGetRuntimeStartLockPath(): string {
 }
 
 async function tryAcquireRuntimeStartLock(): Promise<boolean> {
-  const platform = getPlatform();
-  const lockPath = getRuntimeStartLockPath();
-
-  try {
-    await platform.fs.mkdir(lockPath);
-    return true;
-  } catch {
-    try {
-      const info = await platform.fs.stat(lockPath);
-      const modifiedAt = typeof info.mtimeMs === "number"
-        ? info.mtimeMs
-        : undefined;
-      if (
-        modifiedAt !== undefined &&
-        Date.now() - modifiedAt > RUNTIME_START_LOCK_STALE_MS
-      ) {
-        await platform.fs.remove(lockPath, { recursive: true });
-        await platform.fs.mkdir(lockPath);
-        return true;
-      }
-    } catch {
-      // Another process may have released or recreated the lock meanwhile.
-    }
-    return false;
-  }
+  return await tryAcquireDirLock(
+    getRuntimeStartLockPath(),
+    RUNTIME_START_LOCK_STALE_MS,
+  );
 }
 
 async function releaseRuntimeStartLock(): Promise<void> {
-  try {
-    await getPlatform().fs.remove(getRuntimeStartLockPath(), {
-      recursive: true,
-    });
-  } catch {
-    // Best-effort cleanup only.
-  }
+  await releaseDirLock(getRuntimeStartLockPath());
 }
 
 function makeBaseUrl(port: number): string {

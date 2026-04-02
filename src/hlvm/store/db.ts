@@ -12,6 +12,7 @@ import {
   CONVERSATIONS_SCHEMA_USER_VERSION,
   getSchemaUserVersion,
   initSchema,
+  migrateSchema,
 } from "./schema.ts";
 
 let _db: Database | null = null;
@@ -47,6 +48,19 @@ function resetConversationDbFiles(dbPath: string): void {
   }
 }
 
+function shouldResetConversationDbForVersion(version: number): boolean {
+  return version > CONVERSATIONS_SCHEMA_USER_VERSION;
+}
+
+function initializeConversationDb(db: Database): void {
+  const version = getSchemaUserVersion(db);
+  if (version < CONVERSATIONS_SCHEMA_USER_VERSION) {
+    migrateSchema(db, version);
+    return;
+  }
+  initSchema(db);
+}
+
 function requiresConversationDbReset(dbPath: string): boolean {
   if (!conversationsDbExists(dbPath)) {
     return false;
@@ -55,7 +69,7 @@ function requiresConversationDbReset(dbPath: string): boolean {
   let db: Database | null = null;
   try {
     db = openDb(dbPath);
-    return getSchemaUserVersion(db) !== CONVERSATIONS_SCHEMA_USER_VERSION;
+    return shouldResetConversationDbForVersion(getSchemaUserVersion(db));
   } catch {
     return true;
   } finally {
@@ -78,7 +92,7 @@ export function getDb(): Database {
     }
 
     _db = openDb(dbPath);
-    initSchema(_db);
+    initializeConversationDb(_db);
   }
   return _db;
 }

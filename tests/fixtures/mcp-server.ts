@@ -54,6 +54,8 @@ try {
 }
 
 let buffer = "";
+const ONE_BY_ONE_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2Bt1kAAAAASUVORK5CYII=";
 
 type FixtureState = {
   generation: number;
@@ -133,6 +135,7 @@ function exitForDisconnect(): never {
   fixtureState.disconnectDone = true;
   writeState(next);
   getPlatform().process.exit(0);
+  throw new Error("process exit did not terminate fixture");
 }
 
 function write(message: unknown) {
@@ -324,7 +327,9 @@ function handleRequest(request: {
       if (toolName === "echo") {
         tools.push({
           name: "echo",
-          description: "Echo back the input",
+          description: hasMode("long_description")
+            ? `${"Echo back the input. ".repeat(200)}\u0000\u0007zalgo\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301`
+            : "Echo back the input",
           inputSchema: {
             type: "object",
             properties: {
@@ -542,9 +547,20 @@ function handleRequest(request: {
     const response = {
       jsonrpc: "2.0",
       id: request.id,
-      result: {
-        content: [{ type: "text", text: `${replyPrefix}${args?.message ?? ""}` }],
-      },
+      result: hasMode("tool_binary")
+        ? {
+          content: [
+            { type: "text", text: `${replyPrefix}${args?.message ?? ""}` },
+            {
+              type: "image",
+              mimeType: "image/png",
+              data: ONE_BY_ONE_PNG_BASE64,
+            },
+          ],
+        }
+        : {
+          content: [{ type: "text", text: `${replyPrefix}${args?.message ?? ""}` }],
+        },
     };
     if (toolDelayMs > 0) {
       setTimeout(() => write(response), toolDelayMs);
@@ -589,9 +605,17 @@ function handleRequest(request: {
     write({
       jsonrpc: "2.0",
       id: request.id,
-      result: {
-        contents: [{ uri, text }],
-      },
+      result: hasMode("resource_blob") && uri === "file:///test/config.json"
+        ? {
+          contents: [{
+            uri,
+            mimeType: "image/png",
+            blob: ONE_BY_ONE_PNG_BASE64,
+          }],
+        }
+        : {
+          contents: [{ uri, text }],
+        },
     });
     return;
   }
@@ -685,17 +709,37 @@ function handleRequest(request: {
         jsonrpc: "2.0",
         id: request.id,
         result: {
-          messages: [
-            {
-              role: "user",
-              content: {
-                type: "text",
-                text: `Summarize: ${promptArgs?.text ?? ""} (style: ${
-                  promptArgs?.style ?? "default"
-                })`,
+          messages: hasMode("prompt_binary")
+            ? [
+              {
+                role: "user",
+                content: {
+                  type: "text",
+                  text: `Summarize: ${promptArgs?.text ?? ""} (style: ${
+                    promptArgs?.style ?? "default"
+                  })`,
+                },
               },
-            },
-          ],
+              {
+                role: "assistant",
+                content: {
+                  type: "image",
+                  mimeType: "image/png",
+                  data: ONE_BY_ONE_PNG_BASE64,
+                },
+              },
+            ]
+            : [
+              {
+                role: "user",
+                content: {
+                  type: "text",
+                  text: `Summarize: ${promptArgs?.text ?? ""} (style: ${
+                    promptArgs?.style ?? "default"
+                  })`,
+                },
+              },
+            ],
         },
       });
       return;

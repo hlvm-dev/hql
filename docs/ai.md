@@ -112,13 +112,13 @@ Every example below was verified against Claude Haiku 4.5 with real LLM response
 ```lisp
 (ai "What is the person's name? Reply with ONLY the name."
   {model: "claude-code/claude-haiku-4-5-20251001"
-   data: {person: {name: "Seoksoon" age: 30}}})
+   data: {person: {name: "Alice" age: 30}}})
 ```
 ```
-"Seoksoon"
+"Alice"
 ```
 
-The LLM sees: `"What is the person's name?...\n\nData:\n{\"person\":{\"name\":\"Seoksoon\",\"age\":30}}"`
+The LLM sees: `"What is the person's name?...\n\nData:\n{\"person\":{\"name\":\"Alice\",\"age\":30}}"`
 
 It reads the data and extracts the answer. The response is a plain string.
 

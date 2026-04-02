@@ -4,11 +4,13 @@ import {
 } from "jsr:@std/assert";
 import { runAgentQuery } from "../../../src/hlvm/agent/agent-runner.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { withTempHlvmDir } from "../helpers.ts";
 
 const platform = getPlatform();
 const HOOK_RECORDER_PATH = platform.path.fromFileUrl(
   new URL("../../fixtures/agent-hook-recorder.ts", import.meta.url),
 );
+const HOOK_TEST_TIMEOUT_MS = 10_000;
 
 async function createHookFixture(workspace: string): Promise<string> {
   const fixturePath = platform.path.join(workspace, "hooks-fixture.json");
@@ -86,31 +88,46 @@ function parseJsonLines(text: string): Array<{
     .map((line) => JSON.parse(line));
 }
 
+function createRecorderHookHandler(
+  logPath: string,
+  behavior: "record" | "fail" | "sleep" = "record",
+  timeoutMs = HOOK_TEST_TIMEOUT_MS,
+): { command: string[]; timeoutMs: number } {
+  return {
+    command: behavior === "record"
+      ? [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath]
+      : [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath, behavior],
+    timeoutMs,
+  };
+}
+
+async function withHookWorkspace(
+  fn: (workspace: string) => Promise<void>,
+): Promise<void> {
+  await withTempHlvmDir(async () => {
+    const workspace = await platform.fs.makeTempDir({ prefix: "hlvm-hooks-" });
+    try {
+      await fn(workspace);
+    } finally {
+      await platform.fs.remove(workspace, { recursive: true });
+    }
+  });
+}
+
 Deno.test({
   name: "agent hooks: runAgentQuery dispatches lifecycle hooks in order",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const workspace = await platform.fs.makeTempDir({ prefix: "hlvm-hooks-" });
-    try {
+    await withHookWorkspace(async (workspace) => {
       const fixturePath = await createHookFixture(workspace);
       const logPath = platform.path.join(workspace, "hook-log.jsonl");
       await writeHooksConfig(workspace, {
-        pre_llm: [{
-          command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath],
-        }],
-        post_llm: [{
-          command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath],
-        }],
-        pre_tool: [{
-          command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath],
-        }],
-        post_tool: [{
-          command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath],
-        }],
-        final_response: [{
-          command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath],
-        }],
+        pre_llm: [createRecorderHookHandler(logPath)],
+        post_llm: [createRecorderHookHandler(logPath)],
+        pre_tool: [createRecorderHookHandler(logPath)],
+        post_tool: [createRecorderHookHandler(logPath)],
+        final_response: [createRecorderHookHandler(logPath)],
       });
 
       const result = await runAgentQuery({
@@ -140,9 +157,7 @@ Deno.test({
       assertEquals(events[1]?.payload?.completionState, "tool_calls");
       assertEquals(events[5]?.payload?.completionState, "complete");
       assertEquals(events[6]?.payload?.text, "Hook tool response");
-    } finally {
-      await platform.fs.remove(workspace, { recursive: true });
-    }
+    });
   },
 });
 
@@ -151,23 +166,15 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const workspace = await platform.fs.makeTempDir({ prefix: "hlvm-hooks-fail-open-" });
-    try {
+    await withHookWorkspace(async (workspace) => {
       const fixturePath = await createHookFixture(workspace);
       const logPath = platform.path.join(workspace, "hook-fail-open.jsonl");
       await writeHooksConfig(workspace, {
         pre_llm: [
-          {
-            command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath, "sleep"],
-            timeoutMs: 50,
-          },
-          {
-            command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath, "fail"],
-          },
+          createRecorderHookHandler(logPath, "sleep", 50),
+          createRecorderHookHandler(logPath, "fail"),
         ],
-        final_response: [{
-          command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath],
-        }],
+        final_response: [createRecorderHookHandler(logPath)],
       });
 
       const result = await runAgentQuery({
@@ -184,9 +191,7 @@ Deno.test({
       const finalEvent = events.find((event) => event.hook === "final_response");
       assertExists(finalEvent);
       assertEquals(finalEvent.payload.text, "Hook text response");
-    } finally {
-      await platform.fs.remove(workspace, { recursive: true });
-    }
+    });
   },
 });
 
@@ -196,19 +201,12 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const workspace = await platform.fs.makeTempDir({
-      prefix: "hlvm-hooks-continuation-",
-    });
-    try {
+    await withHookWorkspace(async (workspace) => {
       const fixturePath = await createHookFixture(workspace);
       const logPath = platform.path.join(workspace, "hook-continuation.jsonl");
       await writeHooksConfig(workspace, {
-        post_llm: [{
-          command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath],
-        }],
-        final_response: [{
-          command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, logPath],
-        }],
+        post_llm: [createRecorderHookHandler(logPath)],
+        final_response: [createRecorderHookHandler(logPath)],
       });
 
       const result = await runAgentQuery({
@@ -231,8 +229,6 @@ Deno.test({
       assertExists(finalEvent);
       assertEquals(finalEvent.payload.continuedThisTurn, true);
       assertEquals(finalEvent.payload.continuationCount, 1);
-    } finally {
-      await platform.fs.remove(workspace, { recursive: true });
-    }
+    });
   },
 });

@@ -66,6 +66,8 @@ Deno.test("persisted transcript metadata: parses last applied turn context", () 
     attachmentKinds: ["image", "pdf"],
     visionEligibleAttachmentCount: 1,
     visionEligibleKinds: ["image"],
+    audioEligibleAttachmentCount: 0,
+    audioEligibleKinds: [],
   });
 });
 

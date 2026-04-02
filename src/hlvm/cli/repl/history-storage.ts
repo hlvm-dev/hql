@@ -20,17 +20,19 @@ import {
   getHistoryPath,
   getHistoryPasteStoreDir,
 } from "../../../common/paths.ts";
+import { sha256Hex, sha256HexSync } from "../../../common/sha256.ts";
 import { getLegacyHistoryPath } from "../../../common/legacy-migration.ts";
 import {
   parseJsonLines,
   serializeJsonLines,
 } from "../../../common/jsonl.ts";
 import { atomicWriteTextFile } from "../../../common/atomic-file.ts";
-import { isFileNotFoundError, TEXT_ENCODER } from "../../../common/utils.ts";
+import { isFileNotFoundError } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import type { ComposerLanguage } from "./composer-language.ts";
 import {
+  cloneAttachment,
   cloneAttachments,
   getPastedTextReferenceLineCount,
   type AnyAttachment,
@@ -280,13 +282,6 @@ function parsePersistedHistoryContent(content: string): PersistedHistoryEntry[] 
   return parseJsonLines(content, parsePersistedHistoryEntry);
 }
 
-async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", TEXT_ENCODER.encode(text));
-  return Array.from(new Uint8Array(digest))
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 function getHistoryPastePath(contentHash: string): string {
   return getPlatform().path.join(getHistoryPasteStoreDir(), `${contentHash}.txt`);
 }
@@ -299,6 +294,16 @@ async function storeHistoryPasteContent(
   await ensureHlvmDir();
   await fs.mkdir(getHistoryPasteStoreDir(), { recursive: true });
   await fs.writeTextFile(getHistoryPastePath(contentHash), content);
+}
+
+function storeHistoryPasteContentSync(
+  contentHash: string,
+  content: string,
+): void {
+  const fs = getPlatform().fs;
+  ensureHlvmDirSync();
+  fs.mkdirSync(getHistoryPasteStoreDir(), { recursive: true });
+  fs.writeTextFileSync(getHistoryPastePath(contentHash), content);
 }
 
 async function readHistoryPasteContent(
@@ -325,7 +330,7 @@ async function restoreStoredAttachment(
     if (content === undefined) {
       return undefined;
     }
-    return {
+    return cloneAttachment({
       id: attachment.id,
       attachmentId: attachment.attachmentId,
       type: "text",
@@ -336,9 +341,9 @@ async function restoreStoredAttachment(
       size: attachment.size,
       fileName: attachment.fileName,
       mimeType: attachment.mimeType,
-    };
+    });
   }
-  return {
+  return cloneAttachment({
     id: attachment.id,
     attachmentId: attachment.attachmentId,
     type: attachment.type,
@@ -348,7 +353,7 @@ async function restoreStoredAttachment(
     mimeType: attachment.mimeType,
     size: attachment.size,
     metadata: attachment.metadata ? { ...attachment.metadata } : undefined,
-  };
+  });
 }
 
 async function restorePersistedHistoryEntry(
@@ -431,6 +436,21 @@ function toPersistedAttachmentSync(
   attachment: AnyAttachment,
 ): StoredHistoryAttachment {
   if ("content" in attachment) {
+    if (attachment.content.length <= MAX_INLINE_HISTORY_TEXT_ATTACHMENT_CHARS) {
+      return {
+        id: attachment.id,
+        attachmentId: attachment.attachmentId,
+        type: "text",
+        displayName: attachment.displayName,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        lineCount: attachment.lineCount,
+        content: attachment.content,
+      };
+    }
+    const contentHash = sha256HexSync(attachment.content);
+    storeHistoryPasteContentSync(contentHash, attachment.content);
     return {
       id: attachment.id,
       attachmentId: attachment.attachmentId,
@@ -440,7 +460,7 @@ function toPersistedAttachmentSync(
       mimeType: attachment.mimeType,
       size: attachment.size,
       lineCount: attachment.lineCount,
-      content: attachment.content,
+      contentHash,
     };
   }
   return {
@@ -492,6 +512,14 @@ async function serializeHistoryEntries(
     entries.map((entry) => toPersistedHistoryEntry(entry)),
   );
   return serializeJsonLines(persistedEntries);
+}
+
+function serializeHistoryEntriesSync(
+  entries: HistoryEntry[],
+): string {
+  return serializeJsonLines(
+    entries.map((entry) => toPersistedHistoryEntrySync(entry)),
+  );
 }
 
 async function writeHistoryEntries(
@@ -721,6 +749,10 @@ export class HistoryStorage {
    * Appends to file (no read-modify-write).
    */
   async flush(): Promise<void> {
+    if (this.saveTimeoutId !== null) {
+      clearTimeout(this.saveTimeoutId);
+      this.saveTimeoutId = null;
+    }
     if (this.pendingWrites.length === 0) return;
 
     const toWrite = this.pendingWrites.splice(0);
@@ -744,14 +776,16 @@ export class HistoryStorage {
    * Best effort - errors are ignored.
    */
   flushSync(): void {
+    if (this.saveTimeoutId !== null) {
+      clearTimeout(this.saveTimeoutId);
+      this.saveTimeoutId = null;
+    }
     if (this.pendingWrites.length === 0) return;
 
     try {
       const path = getHistoryPath();
       ensureHlvmDirSync();
-      const lines = serializeJsonLines(
-        this.pendingWrites.map((entry) => toPersistedHistoryEntrySync(entry)),
-      );
+      const lines = serializeHistoryEntriesSync(this.pendingWrites);
       getPlatform().fs.writeTextFileSync(path, lines, { append: true });
       this.lineCount += this.pendingWrites.length;
       this.pendingWrites = [];
@@ -808,8 +842,7 @@ export class HistoryStorage {
       // Keep only maxEntries
       const toKeep = this.entries.slice(-this.config.maxEntries);
 
-      // Atomic write: temp file + rename
-      await atomicWriteTextFile(path, serializeJsonLines(toKeep));
+      await writeHistoryEntries(path, toKeep);
 
       this.entries = toKeep;
       this.lineCount = toKeep.length;

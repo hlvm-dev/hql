@@ -182,15 +182,16 @@ export function insertMessage(opts: InsertMessageOpts): MessageRow {
 
     db.prepare(
       `INSERT INTO messages
-         (session_id, "order", role, content, client_turn_id, request_id,
+         (session_id, "order", role, content, display_content, client_turn_id, request_id,
           sender_type, sender_detail, attachment_ids, tool_calls, tool_name,
           tool_call_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       opts.session_id,
       order,
       opts.role,
       opts.content,
+      opts.display_content ?? null,
       opts.client_turn_id ?? null,
       opts.request_id ?? null,
       opts.sender_type ?? "user",
@@ -291,7 +292,7 @@ export function deleteMessage(id: number, sessionId: string): boolean {
 
 export function updateMessage(
   id: number,
-  patch: { cancelled?: boolean; content?: string },
+  patch: { cancelled?: boolean; content?: string; display_content?: string | null },
 ): void {
   const db = getDb();
   const updates: string[] = [];
@@ -304,6 +305,10 @@ export function updateMessage(
   if (patch.content !== undefined) {
     updates.push("content = ?");
     values.push(patch.content);
+  }
+  if (patch.display_content !== undefined) {
+    updates.push("display_content = ?");
+    values.push(patch.display_content);
   }
 
   if (updates.length === 0) return;

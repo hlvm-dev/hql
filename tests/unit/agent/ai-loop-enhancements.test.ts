@@ -279,11 +279,11 @@ Deno.test("Item 2: generateArgsSummary humanizes agent-team tools for the transc
 
 // Leaf function tests (these were validated before, keeping for regression)
 
-Deno.test("Item 2: compressForLLM read_file head+tail", () => {
+Deno.test("Item 2: compressForLLM read head+tail", () => {
   const pad = "x".repeat(30);
   const lines = Array.from({ length: 200 }, (_, i) => `line ${i + 1} ${pad}`);
   const input = lines.join("\n");
-  const result = compressForLLM("read_file", input);
+  const result = compressForLLM("read", input);
   assertStringIncludes(result, "line 1 ");
   assertStringIncludes(result, "line 80 ");
   assertStringIncludes(result, "lines omitted");
@@ -291,7 +291,7 @@ Deno.test("Item 2: compressForLLM read_file head+tail", () => {
   assertEquals(result.includes("line 100 "), false);
 });
 
-Deno.test("Item 2: compressForLLM git_diff strips excess context", () => {
+Deno.test("Item 2: compressForLLM diff strips excess context", () => {
   // Must exceed BOTH: >4000 chars AND >80 lines to trigger compression
   const pad = "x".repeat(40);
   const lines: string[] = [
@@ -313,7 +313,7 @@ Deno.test("Item 2: compressForLLM git_diff strips excess context", () => {
     `must exceed 80 lines, got ${lines.length}`,
   );
 
-  const result = compressForLLM("git_diff", input);
+  const result = compressForLLM("diff", input);
   assertStringIncludes(result, "diff --git a/foo.ts");
   assertStringIncludes(result, "+  added");
   assertStringIncludes(result, "-  removed");

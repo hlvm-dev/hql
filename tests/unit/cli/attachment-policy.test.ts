@@ -30,6 +30,7 @@ function createModelInfo(
 Deno.test("attachment policy: text files stay outside legacy media handling but are accepted by the broad attachment path", () => {
   assertEquals(isSupportedConversationMedia("/tmp/notes.md"), false);
   assertEquals(isSupportedConversationAttachmentPath("/tmp/notes.md"), true);
+  assertEquals(isSupportedConversationAttachmentPath("/tmp/archive.zip"), false);
   assertEquals(
     getConversationAttachmentMimeType("/tmp/notes.md"),
     "text/plain",

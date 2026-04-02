@@ -325,6 +325,10 @@ export function useAgentRunner(
         messages: [{
           role: "user",
           content: query,
+          display_content: options?.displayText !== undefined &&
+              options.displayText !== query
+            ? options.displayText
+            : undefined,
           attachment_ids: attachmentIds,
           client_turn_id: crypto.randomUUID(),
         }],
