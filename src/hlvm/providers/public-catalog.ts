@@ -13,7 +13,7 @@ import type { ModelInfo, ProviderCapability } from "./types.ts";
 import { CATALOG_CACHE_TTL_MS } from "./common.ts";
 import { http } from "../../common/http-client.ts";
 import { getCloudModelCatalogCachePath } from "../../common/paths.ts";
-import { getPlatform } from "../../platform/platform.ts";
+import { createCachedCatalog } from "./cached-catalog.ts";
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 
@@ -41,112 +41,45 @@ interface OpenRouterModel {
 }
 
 // ---------------------------------------------------------------------------
-// In-memory cache
+// Cached catalog instance
 // ---------------------------------------------------------------------------
-
-let cachedModels: ModelInfo[] | null = null;
-let cacheTimestamp = 0;
-let inFlightCatalogFetch: Promise<ModelInfo[]> | null = null;
 
 interface CatalogCacheRecord {
   timestamp: number;
   models: ModelInfo[];
 }
 
-function isCacheValid(): boolean {
-  return cachedModels !== null &&
-    Date.now() - cacheTimestamp < CATALOG_CACHE_TTL_MS;
-}
-
-async function readDiskCatalogCache(): Promise<CatalogCacheRecord | null> {
-  try {
-    const raw = await getPlatform().fs.readTextFile(
-      getCloudModelCatalogCachePath(),
-    );
-    const parsed = JSON.parse(raw) as Partial<CatalogCacheRecord>;
-    if (
-      typeof parsed.timestamp !== "number" ||
-      !Array.isArray(parsed.models)
-    ) {
+const catalog = createCachedCatalog<ModelInfo[], ModelInfo[]>({
+  cachePath: getCloudModelCatalogCachePath,
+  ttlMs: CATALOG_CACHE_TTL_MS,
+  async fetchData(): Promise<ModelInfo[] | null> {
+    const response = await http.fetchRaw(OPENROUTER_MODELS_URL, {
+      timeout: 10_000,
+    });
+    if (!response.ok) return null;
+    const result = await response.json() as { data: OpenRouterModel[] };
+    const models = (result.data ?? []).map(toModelInfo);
+    return models.length > 0 ? models : null;
+  },
+  transform: (raw) => raw,
+  serializeCache: (models) =>
+    JSON.stringify({ timestamp: Date.now(), models } satisfies CatalogCacheRecord),
+  deserializeCache(json: unknown) {
+    const parsed = json as Partial<CatalogCacheRecord>;
+    if (typeof parsed?.timestamp !== "number" || !Array.isArray(parsed?.models)) {
       return null;
     }
-    return {
-      timestamp: parsed.timestamp,
-      models: parsed.models as ModelInfo[],
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function writeDiskCatalogCache(models: ModelInfo[]): Promise<void> {
-  try {
-    await getPlatform().fs.writeTextFile(
-      getCloudModelCatalogCachePath(),
-      JSON.stringify(
-        {
-          timestamp: Date.now(),
-          models,
-        } satisfies CatalogCacheRecord,
-      ),
-    );
-  } catch {
-    // Best-effort cache persistence only.
-  }
-}
+    return { timestamp: parsed.timestamp, data: parsed.models as ModelInfo[] };
+  },
+  fallback: [],
+});
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-/**
- * Fetch all models from the public OpenRouter catalog.
- * Results are cached in memory for 1 hour.
- * Returns empty array on network failure (never throws).
- */
-async function fetchPublicCatalog(): Promise<ModelInfo[]> {
-  if (isCacheValid()) return cachedModels!;
-  if (inFlightCatalogFetch) return await inFlightCatalogFetch;
-
-  inFlightCatalogFetch = (async (): Promise<ModelInfo[]> => {
-    const diskCache = await readDiskCatalogCache();
-    if (
-      diskCache &&
-      Array.isArray(diskCache.models) &&
-      diskCache.models.length > 0
-    ) {
-      cachedModels = diskCache.models;
-      cacheTimestamp = diskCache.timestamp;
-      if (isCacheValid()) {
-        return cachedModels;
-      }
-    }
-
-    try {
-      const response = await http.fetchRaw(OPENROUTER_MODELS_URL, {
-        timeout: 10_000,
-      });
-      if (!response.ok) return cachedModels ?? [];
-
-      const result = await response.json() as { data: OpenRouterModel[] };
-      cachedModels = (result.data ?? []).map(toModelInfo);
-      cacheTimestamp = Date.now();
-      await writeDiskCatalogCache(cachedModels);
-      return cachedModels;
-    } catch {
-      return cachedModels ?? [];
-    } finally {
-      inFlightCatalogFetch = null;
-    }
-  })();
-
-  return await inFlightCatalogFetch;
-}
-
 export function resetPublicCatalogCacheForTests(): void {
-  cachedModels = null;
-  cacheTimestamp = 0;
-  inFlightCatalogFetch = null;
+  catalog.resetForTests();
 }
 
 /**
@@ -160,7 +93,7 @@ export async function fetchPublicModelsForProvider(
   const prefix = PROVIDER_PREFIXES[providerName];
   if (!prefix) return [];
 
-  const all = await fetchPublicCatalog();
+  const all = await catalog.fetch();
   return all.filter((m) =>
     (m.metadata?.openRouterId as string | undefined)?.startsWith(prefix)
   );

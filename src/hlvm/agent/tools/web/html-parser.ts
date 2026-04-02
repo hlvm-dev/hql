@@ -3,6 +3,8 @@
  * Extracted from web-tools.ts for modularity.
  */
 
+import he from "he";
+
 // ============================================================
 // Constants
 // ============================================================
@@ -34,19 +36,7 @@ const BOILERPLATE_KEYWORDS = [
 // ============================================================
 
 export function decodeHtmlEntities(input: string): string {
-  const map: Record<string, string> = {
-    "&amp;": "&",
-    "&lt;": "<",
-    "&gt;": ">",
-    "&quot;": '"',
-    "&#39;": "'",
-    "&apos;": "'",
-    "&nbsp;": " ",
-  };
-  return input.replace(
-    /&(amp|lt|gt|quot|#39|apos|nbsp);/g,
-    (match) => map[match] ?? match,
-  );
+  return he.decode(input);
 }
 
 export function parseAttributes(tag: string): Record<string, string> {

@@ -1,18 +1,16 @@
 /**
  * Shell Parser - SSOT for shell command parsing
  *
- * Provides robust shell command parsing with proper quote/escape handling.
- * Fixes naive whitespace-split approach that breaks on quoted arguments.
- *
- * Replaces:
- * - shell-tools.ts:133 (naive split)
+ * Provides robust shell command parsing via the battle-tested `shell-quote` library
+ * with a security analysis layer on top.
  *
  * Features:
- * - Single/double quote handling
- * - Backslash escape sequences
+ * - Proper quote/escape handling (via shell-quote)
  * - Dangerous operator detection (|, &&, ||, ;, >, <)
  * - Preserves original command for auditing
  */
+
+import { parse as shellParse } from "shell-quote";
 
 // ============================================================
 // Types
@@ -50,29 +48,52 @@ export class ShellParseError extends Error {
 }
 
 // ============================================================
+// Pre-validation (shell-quote doesn't throw on these)
+// ============================================================
+
+function preValidate(input: string): void {
+  let inQuote: "'" | '"' | null = null;
+  let escaped = false;
+  let position = 0;
+
+  for (const char of input) {
+    position++;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && inQuote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      if (inQuote === char) {
+        inQuote = null;
+      } else if (!inQuote) {
+        inQuote = char;
+      }
+    }
+  }
+
+  if (inQuote) {
+    throw new ShellParseError(
+      `Unclosed ${inQuote === '"' ? "double" : "single"} quote`,
+      position,
+    );
+  }
+  if (escaped) {
+    throw new ShellParseError("Trailing backslash", position);
+  }
+}
+
+// ============================================================
 // Parser
 // ============================================================
 
 /**
  * Parse shell command with proper quote/escape handling
  *
- * Handles:
- * - Single quotes: Literal strings, no escapes processed
- * - Double quotes: Allows escapes like \", \\, \n
- * - Backslash: Escapes next character outside quotes
- * - Whitespace: Argument delimiter outside quotes
- * - Pipes/chaining/redirects: Detected and flagged (not parsed)
- *
- * Security:
- * - Detects dangerous shell operators
- * - Returns flags for risk assessment
- * - Preserves original for auditing
- *
- * Limitations:
- * - No variable expansion ($VAR)
- * - No glob expansion (*.txt)
- * - No subshell execution ($(cmd))
- * - Single command only (pipes detected but not parsed)
+ * Uses `shell-quote` for tokenization with a security analysis layer on top.
  *
  * @param command Shell command string to parse
  * @returns Parsed command with security metadata
@@ -88,191 +109,48 @@ export class ShellParseError extends Error {
  * parseShellCommand('git commit -m "fix: bug #123"')
  * // => { program: "git", args: ["commit", "-m", "fix: bug #123"], ... }
  *
- * // Escaped quotes
- * parseShellCommand('echo "He said \\"Hello\\""')
- * // => { program: "echo", args: ['He said "Hello"'], ... }
- *
  * // Dangerous operators detected
  * parseShellCommand("ls | grep foo")
  * // => { ..., hasPipes: true, ... }
  * ```
  */
 export function parseShellCommand(command: string): ParsedCommand {
-  const args: string[] = [];
-  let current = "";
-  let inQuote: "'" | '"' | null = null;
-  let escaped = false;
-  let hasPipes = false;
-  let hasChaining = false;
-  let hasRedirects = false;
-  let position = 0;
-  let pendingPipe = false;
-  let pendingAmp = false;
-
-  // Trim leading/trailing whitespace
   const trimmed = command.trim();
 
-  // Empty command
   if (!trimmed) {
     throw new ShellParseError("Empty command");
   }
 
-  const pushCurrentArg = () => {
-    if (current) {
-      args.push(current);
-      current = "";
-    }
-  };
+  // shell-quote silently absorbs unclosed quotes — validate first
+  preValidate(trimmed);
 
-  for (const char of trimmed) {
-    position++;
+  const tokens = shellParse(trimmed);
+  const args: string[] = [];
+  let hasPipes = false;
+  let hasChaining = false;
+  let hasRedirects = false;
 
-    // Handle escape sequences
-    if (escaped) {
-      // In single quotes, backslash is literal
-      if (inQuote === "'") {
-        current += "\\" + char;
-      } else {
-        // Process common escape sequences
-        switch (char) {
-          case "n":
-            current += "\n";
-            break;
-          case "t":
-            current += "\t";
-            break;
-          case "r":
-            current += "\r";
-            break;
-          case " ": // Escaped space
-          case "\\":
-          case '"':
-          case "'":
-            current += char;
-            break;
-          default:
-            // Unknown escape - preserve backslash
-            current += "\\" + char;
+  for (const token of tokens) {
+    if (typeof token === "string") {
+      args.push(token);
+    } else if (token && typeof token === "object") {
+      if ("op" in token) {
+        const op = (token as { op: string }).op;
+        if (op === "|") {
+          hasPipes = true;
+        } else if (op === "||" || op === "&&" || op === ";" || op === ";;") {
+          hasChaining = true;
+        } else if (op === ">" || op === ">>" || op === "<" || op === "<<") {
+          hasRedirects = true;
         }
+        // Single & (background) is not treated as chaining — matches prior behavior
+      } else if ("pattern" in token) {
+        // Glob pattern — treat the pattern string as a regular arg
+        args.push((token as { pattern: string }).pattern);
       }
-      escaped = false;
-      continue;
     }
-
-    // Backslash initiates escape sequence (not in single quotes)
-    if (char === "\\" && inQuote !== "'") {
-      escaped = true;
-      continue;
-    }
-
-    // Quote handling
-    if (char === '"' || char === "'") {
-      if (inQuote === char) {
-        // Close matching quote
-        inQuote = null;
-      } else if (!inQuote) {
-        // Open new quote
-        inQuote = char;
-      } else {
-        // Different quote inside quotes - treat as literal
-        current += char;
-      }
-      continue;
-    }
-
-    // Inside quotes - add all chars literally
-    if (inQuote) {
-      current += char;
-      continue;
-    }
-
-    // Outside quotes - detect special operators using pending-state pattern.
-    // A single | or & could be the start of || or && respectively, so we defer
-    // the decision until we see the next character.
-
-    // Resolve any pending operator that the current char may continue
-    let consumed = false;
-    if (pendingPipe) {
-      if (char === "|") {
-        // || is a chaining operator, not a pipe
-        hasChaining = true;
-        consumed = true;
-      } else {
-        // Previous | was a standalone pipe
-        hasPipes = true;
-      }
-      pendingPipe = false;
-    }
-    if (pendingAmp) {
-      if (char === "&") {
-        // && is a chaining operator and acts as an argument boundary
-        pushCurrentArg();
-        hasChaining = true;
-        consumed = true;
-      } else {
-        // Single & is not treated as chaining here - preserve literal behavior
-        current += "&";
-      }
-      pendingAmp = false;
-    }
-
-    if (consumed) {
-      continue;
-    }
-
-    // Start new pending operators (only if char wasn't consumed as part of a multi-char op)
-    if (char === "|") {
-      // Pipe/operator chars are delimiters and must not leak into args
-      pushCurrentArg();
-      pendingPipe = true;
-      continue;
-    } else if (char === "&") {
-      // Defer until next char so we can distinguish && from single &
-      pendingAmp = true;
-      continue;
-    } else if (char === ";") {
-      pushCurrentArg();
-      hasChaining = true;
-      continue;
-    } else if (char === ">" || char === "<") {
-      pushCurrentArg();
-      hasRedirects = true;
-      continue;
-    }
-
-    // Whitespace delimiter outside quotes
-    if (char === " " || char === "\t") {
-      pushCurrentArg();
-      continue;
-    }
-
-    // Regular character
-    current += char;
   }
 
-  // Resolve any pending operators at end of input
-  if (pendingPipe) {
-    hasPipes = true;
-  }
-  // pendingAmp at end: single trailing & is not &&, preserve literal behavior
-  if (pendingAmp) {
-    current += "&";
-  }
-
-  // Check for unclosed quotes
-  if (inQuote) {
-    throw new ShellParseError(`Unclosed ${inQuote === '"' ? "double" : "single"} quote`, position);
-  }
-
-  // Check for trailing backslash
-  if (escaped) {
-    throw new ShellParseError("Trailing backslash", position);
-  }
-
-  // Add final argument
-  pushCurrentArg();
-
-  // Empty result
   if (args.length === 0) {
     throw new ShellParseError("No command found");
   }
@@ -300,14 +178,6 @@ export function parseShellCommand(command: string): ParsedCommand {
  *
  * @param parsed Parsed command to check
  * @returns True if command appears safe
- *
- * @example
- * ```ts
- * const cmd = parseShellCommand("ls -la");
- * if (isSafeCommand(cmd)) {
- *   // Execute command
- * }
- * ```
  */
 export function isSafeCommand(parsed: ParsedCommand): boolean {
   return !parsed.hasPipes && !parsed.hasChaining && !parsed.hasRedirects;
@@ -318,15 +188,6 @@ export function isSafeCommand(parsed: ParsedCommand): boolean {
  *
  * @param parsed Parsed command
  * @returns Error message explaining why command is unsafe
- *
- * @example
- * ```ts
- * const cmd = parseShellCommand("ls | grep foo");
- * if (!isSafeCommand(cmd)) {
- *   console.error(getUnsafeReason(cmd));
- *   // => "Command contains pipe operators (|)"
- * }
- * ```
  */
 export function getUnsafeReason(parsed: ParsedCommand): string {
   const reasons: string[] = [];

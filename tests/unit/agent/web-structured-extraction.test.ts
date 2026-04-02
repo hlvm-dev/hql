@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "jsr:@std/assert";
-import { parseHtml } from "../../../src/hlvm/agent/tools/web/html-parser.ts";
+import { parseHtml, decodeHtmlEntities } from "../../../src/hlvm/agent/tools/web/html-parser.ts";
 import { extractRelevantPassages } from "../../../src/hlvm/agent/tools/web/search-ranking.ts";
 
 const MAX_TEXT = 10_000;
@@ -8,6 +8,25 @@ const MAX_LINKS = 0;
 function extractText(html: string): string {
   return parseHtml(`<html><body>${html}</body></html>`, MAX_TEXT, MAX_LINKS).text;
 }
+
+// ============================================================
+// HTML Entity Decoding (extended coverage via `he` library)
+// ============================================================
+
+Deno.test("web structured extraction: decodeHtmlEntities handles numeric entities", () => {
+  assertEquals(decodeHtmlEntities("dash&#8212;here"), "dash\u2014here");
+  assertEquals(decodeHtmlEntities("&#x2603; snowman"), "\u2603 snowman");
+});
+
+Deno.test("web structured extraction: decodeHtmlEntities handles extended named entities", () => {
+  assertEquals(decodeHtmlEntities("&euro;100"), "\u20AC100");
+  assertEquals(decodeHtmlEntities("&copy; 2026"), "\u00A9 2026");
+  assertEquals(decodeHtmlEntities("&mdash;"), "\u2014");
+});
+
+// ============================================================
+// Structured Extraction
+// ============================================================
 
 Deno.test("web structured extraction: parseHtml preserves headings for passage grouping", () => {
   const parsed = parseHtml(

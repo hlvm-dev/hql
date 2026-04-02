@@ -15,6 +15,8 @@
 import type { SdkModelSpec, SdkConvertibleMessage } from "./sdk-runtime.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { ProviderErrorCode } from "../../common/error-codes.ts";
+import { jsonrepair as jsonrepairLib } from "jsonrepair";
+import ajvModule from "ajv";
 
 type PromptFallbackDeps = {
   createSdkLanguageModel: typeof import("./sdk-runtime.ts").createSdkLanguageModel;
@@ -75,43 +77,27 @@ export function extractJsonFromResponse(text: string): string | null {
 
 /** Attempt to repair common JSON issues from LLM output. */
 export function repairJson(raw: string): string {
-  let repaired = raw;
-  // Remove trailing commas before } or ]
-  repaired = repaired.replace(/,\s*([}\]])/g, "$1");
-  // Stack-based repair: remove mismatched closers, then append missing ones
-  const stack: string[] = [];
-  const chars: string[] = [];
-  let inString = false;
-  let escape = false;
-  for (const ch of repaired) {
-    if (escape) { escape = false; chars.push(ch); continue; }
-    if (ch === "\\") { escape = true; chars.push(ch); continue; }
-    if (ch === '"') { inString = !inString; chars.push(ch); continue; }
-    if (inString) { chars.push(ch); continue; }
-    if (ch === "{") { stack.push("}"); chars.push(ch); }
-    else if (ch === "[") { stack.push("]"); chars.push(ch); }
-    else if ((ch === "}" || ch === "]") && stack.length > 0 && stack[stack.length - 1] === ch) {
-      stack.pop();
-      chars.push(ch);
-    } else if (ch === "}" || ch === "]") {
-      // Mismatched closer — drop it from output
-    } else {
-      chars.push(ch);
-    }
+  try {
+    return jsonrepairLib(raw);
+  } catch {
+    return raw; // Preserve never-throw contract
   }
-  return chars.join("") + stack.reverse().join("");
 }
 
 // ============================================================================
-// Schema validation (top-level checks, no Ajv)
+// Schema validation (Ajv-backed)
 // ============================================================================
+
+// deno-lint-ignore no-explicit-any
+const AjvConstructor = (ajvModule as any).default ?? ajvModule;
+const ajv = new AjvConstructor({ allErrors: false, strict: false });
 
 export interface ValidationResult {
   valid: boolean;
   error?: string;
 }
 
-/** Top-level schema validation: is object? required keys? primitive types match? */
+/** Validate a parsed value against a JSON Schema using Ajv. */
 export function validateAgainstSchema(
   value: unknown,
   schema: Record<string, unknown>,
@@ -120,54 +106,29 @@ export function validateAgainstSchema(
     return { valid: false, error: "Expected a JSON object, got " + typeof value };
   }
 
+  // Strip null/undefined values to preserve current lenient behavior
   const obj = value as Record<string, unknown>;
-  const properties = schema.properties as Record<string, Record<string, unknown>> | undefined;
-  const required = schema.required as string[] | undefined;
+  const cleaned = Object.fromEntries(
+    Object.entries(obj).filter(([_, v]) => v != null),
+  );
 
-  // Check required keys
-  if (required) {
-    for (const key of required) {
-      if (!(key in obj)) {
-        return { valid: false, error: `Missing required key: "${key}"` };
-      }
-    }
+  const validate = ajv.compile(schema);
+  if (validate(cleaned)) return { valid: true };
+
+  const err = validate.errors?.[0];
+  if (!err) return { valid: false, error: "Validation failed" };
+
+  if (err.keyword === "required") {
+    return { valid: false, error: `Missing required key: "${err.params.missingProperty}"` };
+  }
+  if (err.keyword === "type") {
+    const key = err.instancePath.replace(/^\//, "");
+    const actualValue = obj[key];
+    const actualType = Array.isArray(actualValue) ? "array" : typeof actualValue;
+    return { valid: false, error: `Key "${key}": expected ${err.params.type}, got ${actualType}` };
   }
 
-  // Check primitive types for declared properties
-  if (properties) {
-    for (const [key, propSchema] of Object.entries(properties)) {
-      if (!(key in obj)) continue;
-      const expectedType = propSchema.type as string | undefined;
-      if (!expectedType) continue;
-      const actualValue = obj[key];
-      if (actualValue === null || actualValue === undefined) continue;
-
-      const actualType = Array.isArray(actualValue) ? "array" : typeof actualValue;
-      if (expectedType === "integer" || expectedType === "number") {
-        if (typeof actualValue !== "number") {
-          return { valid: false, error: `Key "${key}": expected ${expectedType}, got ${actualType}` };
-        }
-      } else if (expectedType === "boolean") {
-        if (typeof actualValue !== "boolean") {
-          return { valid: false, error: `Key "${key}": expected boolean, got ${actualType}` };
-        }
-      } else if (expectedType === "string") {
-        if (typeof actualValue !== "string") {
-          return { valid: false, error: `Key "${key}": expected string, got ${actualType}` };
-        }
-      } else if (expectedType === "array") {
-        if (!Array.isArray(actualValue)) {
-          return { valid: false, error: `Key "${key}": expected array, got ${actualType}` };
-        }
-      } else if (expectedType === "object") {
-        if (typeof actualValue !== "object" || Array.isArray(actualValue)) {
-          return { valid: false, error: `Key "${key}": expected object, got ${actualType}` };
-        }
-      }
-    }
-  }
-
-  return { valid: true };
+  return { valid: false, error: err.message ?? "Validation failed" };
 }
 
 // ============================================================================

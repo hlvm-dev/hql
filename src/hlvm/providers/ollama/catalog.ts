@@ -15,7 +15,7 @@ import {
   getOllamaCatalogCachePath,
 } from "../../../common/paths.ts";
 import { isObjectValue } from "../../../common/utils.ts";
-import { getPlatform } from "../../../platform/platform.ts";
+import { createCachedCatalog } from "../cached-catalog.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,101 +54,36 @@ const LIVE_CATALOG_URL =
 const DEFAULT_MAX_VARIANTS = 3;
 
 // ---------------------------------------------------------------------------
-// Cache (network fetch only — buildCatalog is cheap)
+// Cached catalog instance
 // ---------------------------------------------------------------------------
 
-let liveCatalogData: ScrapedCatalog | null = null;
-let liveFetchTimestamp = 0;
-let inFlightCatalogFetch: Promise<ScrapedCatalog | null> | null = null;
-
-interface CatalogCacheRecord {
-  timestamp: number;
-  data: ScrapedCatalog;
-}
-
-function isLiveCacheValid(): boolean {
-  return liveCatalogData !== null &&
-    Date.now() - liveFetchTimestamp < CATALOG_CACHE_TTL_MS;
-}
-
-async function readDiskCatalogCache(): Promise<CatalogCacheRecord | null> {
-  try {
-    const raw = await getPlatform().fs.readTextFile(getOllamaCatalogCachePath());
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isObjectValue(parsed)) return null;
-    const data = isObjectValue(parsed.data) ? parsed.data : null;
+const catalog = createCachedCatalog<ScrapedCatalog, ScrapedCatalog | null>({
+  cachePath: getOllamaCatalogCachePath,
+  ttlMs: CATALOG_CACHE_TTL_MS,
+  async fetchData(): Promise<ScrapedCatalog | null> {
+    await ensureHlvmDir();
+    const response = await http.fetchRaw(LIVE_CATALOG_URL, {
+      timeout: API_TIMEOUT_MS,
+    });
+    if (!response.ok) return null;
+    const data = await response.json() as ScrapedCatalog;
+    return data?.models?.length > 0 ? data : null;
+  },
+  transform: (raw) => raw,
+  serializeCache: (data) =>
+    JSON.stringify({ timestamp: Date.now(), data }),
+  deserializeCache(json: unknown) {
+    if (!isObjectValue(json)) return null;
+    const data = isObjectValue(json.data) ? json.data : null;
     const models = Array.isArray(data?.models) ? data.models : null;
-    if (typeof parsed.timestamp !== "number" || !models) return null;
+    if (typeof json.timestamp !== "number" || !models) return null;
     return {
-      timestamp: parsed.timestamp,
+      timestamp: json.timestamp,
       data: { models: models as ScrapedModel[] },
     };
-  } catch {
-    return null;
-  }
-}
-
-async function writeDiskCatalogCache(data: ScrapedCatalog): Promise<void> {
-  try {
-    await ensureHlvmDir();
-    await getPlatform().fs.writeTextFile(
-      getOllamaCatalogCachePath(),
-      JSON.stringify(
-        {
-          timestamp: Date.now(),
-          data,
-        } satisfies CatalogCacheRecord,
-      ),
-    );
-  } catch {
-    // Best-effort cache persistence only.
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Live fetch
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch the latest catalog from public gist.
- * Returns null on failure (caller may use cached in-memory data only).
- */
-async function fetchLiveCatalog(): Promise<ScrapedCatalog | null> {
-  if (isLiveCacheValid()) return liveCatalogData;
-  if (inFlightCatalogFetch) return await inFlightCatalogFetch;
-
-  inFlightCatalogFetch = (async (): Promise<ScrapedCatalog | null> => {
-    const diskCache = await readDiskCatalogCache();
-    if (diskCache?.data?.models?.length) {
-      liveCatalogData = diskCache.data;
-      liveFetchTimestamp = diskCache.timestamp;
-      if (isLiveCacheValid()) {
-        return liveCatalogData;
-      }
-    }
-
-    try {
-      const response = await http.fetchRaw(LIVE_CATALOG_URL, {
-        timeout: API_TIMEOUT_MS,
-      });
-      if (!response.ok) return liveCatalogData;
-
-      const data = await response.json() as ScrapedCatalog;
-      if (data?.models?.length > 0) {
-        liveCatalogData = data;
-        liveFetchTimestamp = Date.now();
-        await writeDiskCatalogCache(data);
-      }
-      return liveCatalogData;
-    } catch {
-      return liveCatalogData;
-    } finally {
-      inFlightCatalogFetch = null;
-    }
-  })();
-
-  return await inFlightCatalogFetch;
-}
+  },
+  fallback: null,
+});
 
 // ---------------------------------------------------------------------------
 // Model conversion
@@ -229,13 +164,11 @@ function buildCatalog(data: ScrapedCatalog, maxVariants: number): ModelInfo[] {
 export async function getOllamaCatalogAsync(
   options: { maxVariants?: number } = {},
 ): Promise<ModelInfo[]> {
-  const liveData = await fetchLiveCatalog();
+  const liveData = await catalog.fetch();
   if (!liveData) return [];
   return buildCatalog(liveData, options.maxVariants ?? DEFAULT_MAX_VARIANTS);
 }
 
 export function resetOllamaCatalogCacheForTests(): void {
-  liveCatalogData = null;
-  liveFetchTimestamp = 0;
-  inFlightCatalogFetch = null;
+  catalog.resetForTests();
 }

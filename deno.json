@@ -38,7 +38,12 @@
     "mammoth": "npm:mammoth@1.12.0",
     "xlsx": "npm:xlsx@0.18.5",
     "jszip": "npm:jszip@3.10.1",
-    "libreoffice-convert": "npm:libreoffice-convert@1.8.1"
+    "libreoffice-convert": "npm:libreoffice-convert@1.8.1",
+    "jsonrepair": "npm:jsonrepair@^3",
+    "he": "npm:he@^1.2.0",
+    "ajv": "npm:ajv@^8.18.0",
+    "shell-quote": "npm:shell-quote@^1.8.0",
+    "diff": "npm:diff@^7"
   },
   "lint": {
     "include": ["src/", "tests/", "scripts/"],

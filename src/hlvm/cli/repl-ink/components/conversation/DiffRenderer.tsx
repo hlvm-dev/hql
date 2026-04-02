@@ -10,6 +10,7 @@ import React, { memo, useMemo } from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { TOGGLE_LATEST_HINT } from "../../ui-constants.ts";
+import { parsePatch } from "diff";
 
 // ============================================================
 // Types
@@ -29,7 +30,7 @@ interface DiffRendererProps {
 }
 
 // ============================================================
-// Parser
+// Parser (uses `diff` library for hunk parsing)
 // ============================================================
 
 const HUNK_HEADER_RE = /@@ -(\d+),?\d* \+(\d+),?\d* @@/;
@@ -49,85 +50,88 @@ function isDiffMetadataLine(line: string): boolean {
 
 /**
  * Parse unified diff text into structured DiffLine entries.
- * Tracks old/new line counters independently per hunk.
+ *
+ * Uses `diff` library's `parsePatch` for reliable hunk parsing (line counting,
+ * add/del/context classification) while preserving raw file headers and metadata
+ * lines for the renderer.
  */
 export function parseDiffLines(diffContent: string): DiffLine[] {
-  const rawLines = diffContent.split("\n");
-  const result: DiffLine[] = [];
-  let oldLine = 0;
-  let newLine = 0;
-  let inHunk = false;
+  if (!diffContent.trim()) return [];
 
+  const result: DiffLine[] = [];
+
+  // Split raw input into per-file sections to preserve headers/metadata that
+  // parsePatch strips. Each section starts with "diff --git".
+  const rawLines = diffContent.split("\n");
+
+  // Group raw lines into file sections (split at "diff --git")
+  const fileSections: string[][] = [];
+  let currentSection: string[] = [];
   for (const line of rawLines) {
     if (line.startsWith("diff --git ")) {
-      inHunk = false;
-      oldLine = 0;
-      newLine = 0;
-      result.push({ type: "file-header", content: line });
-      continue;
+      if (currentSection.length > 0) fileSections.push(currentSection);
+      currentSection = [line];
+    } else {
+      currentSection.push(line);
+    }
+  }
+  if (currentSection.length > 0) fileSections.push(currentSection);
+
+  // Parse structured hunks via `diff` library
+  const patches = parsePatch(diffContent);
+
+  for (let patchIdx = 0; patchIdx < patches.length; patchIdx++) {
+    const patch = patches[patchIdx];
+    const section = fileSections[patchIdx];
+
+    // Emit file-header lines from the raw section (everything before first hunk)
+    if (section) {
+      let inHunk = false;
+      for (const line of section) {
+        if (HUNK_HEADER_RE.test(line)) {
+          inHunk = true;
+          break;
+        }
+        if (!inHunk && (
+          line.startsWith("diff --git ") ||
+          line.startsWith("---") ||
+          line.startsWith("+++") ||
+          isDiffMetadataLine(line)
+        )) {
+          result.push({ type: "file-header", content: line });
+        }
+      }
     }
 
-    // Hunk header
-    const hunkMatch = line.match(HUNK_HEADER_RE);
-    if (hunkMatch) {
-      oldLine = parseInt(hunkMatch[1], 10) - 1;
-      newLine = parseInt(hunkMatch[2], 10) - 1;
-      inHunk = true;
-      result.push({ type: "hunk-header", content: line });
-      continue;
-    }
+    // Emit hunks using parsePatch's structured data
+    for (const hunk of patch.hunks) {
+      result.push({
+        type: "hunk-header",
+        content: `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`,
+      });
 
-    // File headers + metadata (before first hunk in a section)
-    if (
-      !inHunk &&
-      ((line.startsWith("---") || line.startsWith("+++")) ||
-        isDiffMetadataLine(line))
-    ) {
-      result.push({ type: "file-header", content: line });
-      continue;
-    }
+      let oldLine = hunk.oldStart - 1;
+      let newLine = hunk.newStart - 1;
 
-    // Skip diff metadata lines before first hunk (e.g. "diff --git ...")
-    if (!inHunk) continue;
+      for (const line of hunk.lines) {
+        // Skip no-newline markers
+        if (line.startsWith("\\")) continue;
 
-    // No-newline marker
-    if (line.startsWith("\\")) continue;
+        const prefix = line[0];
+        const content = line.substring(1);
 
-    const prefix = line[0];
-    const content = line.substring(1);
-
-    switch (prefix) {
-      case "+":
-        newLine++;
-        result.push({ type: "add", content, newLineNum: newLine });
-        break;
-      case "-":
-        oldLine++;
-        result.push({ type: "del", content, oldLineNum: oldLine });
-        break;
-      case " ":
-        oldLine++;
-        newLine++;
-        result.push({
-          type: "context",
-          content,
-          oldLineNum: oldLine,
-          newLineNum: newLine,
-        });
-        break;
-      default:
-        // Treat unexpected lines as context (empty lines in some diffs)
-        if (inHunk) {
+        if (prefix === "+") {
+          newLine++;
+          result.push({ type: "add", content, newLineNum: newLine });
+        } else if (prefix === "-") {
+          oldLine++;
+          result.push({ type: "del", content, oldLineNum: oldLine });
+        } else {
           oldLine++;
           newLine++;
-          result.push({
-            type: "context",
-            content: line,
-            oldLineNum: oldLine,
-            newLineNum: newLine,
-          });
+          result.push({ type: "context", content, oldLineNum: oldLine, newLineNum: newLine });
         }
-        break;
+      }
     }
   }
 
