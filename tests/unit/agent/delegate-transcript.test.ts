@@ -25,6 +25,15 @@ Deno.test("delegate transcript formatter produces canonical event strings", () =
     }),
     "Tool search_web failed: network timeout",
   );
+  assertEquals(
+    formatDelegateTranscriptEvent({
+      type: "tool_progress",
+      name: "search_web",
+      argsSummary: "docs",
+      message: 'Found 5 results for "docs"',
+    }),
+    'Tool search_web: Found 5 results for "docs"',
+  );
 });
 
 Deno.test("delegate transcript formatter includes final response once", () => {

@@ -49,6 +49,31 @@ Deno.test("deriveLiveTurnStatus surfaces active tool activity labels", () => {
   assertEquals(status?.tone, "active");
 });
 
+Deno.test("deriveLiveTurnStatus prefers running tool progress text for web search", () => {
+  const status = deriveLiveTurnStatus({
+    items: [{
+      type: "tool_group",
+      id: "tool-group-1",
+      ts: 1,
+      tools: [{
+        id: "tool-1",
+        name: "search_web",
+        displayName: "Web Search",
+        argsSummary: "react 19 release notes",
+        status: "running",
+        progressText: 'Found 10 results for "react 19 release notes"',
+        progressTone: "running",
+        toolIndex: 1,
+        toolTotal: 1,
+      }],
+    }],
+    streamingState: StreamingState.Responding,
+  });
+
+  assertEquals(status?.label, 'Found 10 results for "react 19 release notes"');
+  assertEquals(status?.tone, "active");
+});
+
 Deno.test("summarizeTurnCompletion prefers important completed actions", () => {
   const items: ConversationItem[] = [{
     type: "tool_group",

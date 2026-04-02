@@ -21,16 +21,25 @@ Deno.test("buildFooterLeftState shows tool status when responding with active to
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Responding,
-    activeTool: { name: "search_web", toolIndex: 1, toolTotal: 2 },
+    activeTool: {
+      name: "search_web",
+      displayName: "Web Search",
+      progressText: "Found 10 results",
+      toolIndex: 1,
+      toolTotal: 2,
+    },
     spinner: "x",
   });
 
   assertEquals(state.mode, "segments");
-  assertEquals(state.text, "x search_web 1/2 \u00B7 Esc cancels");
+  assertEquals(
+    state.text,
+    "x Web Search 1/2 \u00B7 Found 10 results \u00B7 Esc cancels",
+  );
   assertEquals(
     state.segments.map((segment) => [segment.text, segment.chip, segment.tone]),
     [
-      ["x search_web 1/2", true, "warning"],
+      ["x Web Search 1/2 · Found 10 results", true, "active"],
       ["Esc cancels", undefined, "muted"],
     ],
   );
@@ -239,7 +248,12 @@ Deno.test("buildFooterLeftState prefers queue/force hints over tool status when 
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Responding,
-    activeTool: { name: "search_web", toolIndex: 1, toolTotal: 2 },
+    activeTool: {
+      name: "search_web",
+      displayName: "Web Search",
+      toolIndex: 1,
+      toolTotal: 2,
+    },
     hasDraftInput: true,
     spinner: "x",
   });
@@ -253,13 +267,18 @@ Deno.test("buildFooterLeftState orders shell segments as mode, queue, active too
     streamingState: StreamingState.Responding,
     modeLabel: "Default mode (shift+tab to cycle)",
     interactionQueueLength: 3,
-    activeTool: { name: "search_web", toolIndex: 1, toolTotal: 2 },
+    activeTool: {
+      name: "search_web",
+      displayName: "Web Search",
+      toolIndex: 1,
+      toolTotal: 2,
+    },
     spinner: "x",
   });
 
   assertEquals(
     state.segments.map((segment) => segment.text),
-    ["+2 queued", "x search_web 1/2", "Esc cancels"],
+    ["+2 queued", "x Web Search 1/2", "Esc cancels"],
   );
 });
 

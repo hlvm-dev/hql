@@ -37,6 +37,13 @@ export function toDelegateTranscriptEvent(
         toolIndex: event.toolIndex,
         toolTotal: event.toolTotal,
       };
+    case "tool_progress":
+      return {
+        type: "tool_progress",
+        name: event.name,
+        argsSummary: event.argsSummary,
+        message: event.message,
+      };
     case "tool_end":
       return {
         type: "tool_end",

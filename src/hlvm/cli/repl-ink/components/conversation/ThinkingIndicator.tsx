@@ -12,6 +12,7 @@ import { useSemanticColors } from "../../../theme/index.ts";
 import { STATUS_GLYPHS } from "../../ui-constants.ts";
 import { getThinkingLabel } from "./conversation-chrome.ts";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
+import { useConversationSpinnerFrame } from "../../hooks/useConversationMotion.ts";
 
 interface ThinkingIndicatorProps {
   kind: "reasoning" | "planning";
@@ -30,8 +31,8 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
   isAnimating = true,
 }: ThinkingIndicatorProps): React.ReactElement {
   const sc = useSemanticColors();
-  // Static marker — no spinner subscription avoids 250ms terminal redraws
-  const marker = isAnimating ? STATUS_GLYPHS.running : "\u00B7"; // ● vs ·
+  const spinner = useConversationSpinnerFrame(isAnimating);
+  const marker = isAnimating ? spinner ?? STATUS_GLYPHS.running : "\u00B7";
   const lines = summary ? summary.split("\n") : [];
   const maxBodyLines = expanded ? lines.length : 0;
   const visibleBodyLines = lines.slice(0, maxBodyLines);

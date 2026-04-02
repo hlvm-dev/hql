@@ -62,6 +62,12 @@ import {
   reduceTranscriptState,
 } from "../agent-transcript-state.ts";
 import { ANSI_COLORS } from "../ansi.ts";
+import {
+  buildToolTranscriptInvocationLabel,
+  resolveToolTranscriptDisplayName,
+  resolveToolTranscriptProgress,
+  resolveToolTranscriptResult,
+} from "../repl-ink/components/conversation/tool-transcript.ts";
 
 const { DIM, RESET, GREEN, RED } = ANSI_COLORS;
 const CLEAR_LINE = "\r\x1b[K";
@@ -693,6 +699,35 @@ export async function askCommand(args: string[]): Promise<void> {
     if (outputFormat === "json") return;
     if (verbose) {
       switch (event.type) {
+        case "tool_start":
+          if (event.name === "ask_user" || event.name === "delegate_agent") {
+            return;
+          }
+          flushStream();
+          log.raw.log(
+            `\n[Tool] ${
+              buildToolTranscriptInvocationLabel({
+                name: event.name,
+                displayName: resolveToolTranscriptDisplayName(event.name),
+                argsSummary: event.argsSummary,
+              })
+            }\n`,
+          );
+          break;
+        case "tool_progress": {
+          if (event.name === "ask_user" || event.name === "delegate_agent") {
+            return;
+          }
+          const progress = resolveToolTranscriptProgress(event.name, event);
+          if (!progress?.message) return;
+          flushStream();
+          log.raw.log(
+            `\n[Tool] ${resolveToolTranscriptDisplayName(event.name)}\n${
+              progress.message
+            }\n`,
+          );
+          break;
+        }
         case "tool_end":
           if (event.name === "ask_user" || event.name === "delegate_agent") {
             return;
@@ -700,7 +735,21 @@ export async function askCommand(args: string[]): Promise<void> {
           flushStream();
           {
             const label = event.success ? "Tool Result" : "Tool Error";
-            log.raw.log(`\n[${label}] ${event.name}\n${event.content}\n`);
+            const transcriptResult = resolveToolTranscriptResult(event.name, {
+              toolCallId: event.toolCallId,
+              name: event.name,
+              success: event.success,
+              summary: event.summary,
+              content: event.content,
+              durationMs: event.durationMs,
+              argsSummary: event.argsSummary,
+              meta: event.meta,
+            });
+            log.raw.log(
+              `\n[${label}] ${resolveToolTranscriptDisplayName(event.name)}\n${
+                transcriptResult.detailText ?? event.content
+              }\n`,
+            );
           }
           break;
         case "reasoning_update":
@@ -889,16 +938,37 @@ export async function askCommand(args: string[]): Promise<void> {
         clearThinking();
         flushStream();
         log.raw.write(
-          `  ${DIM}\u2847 ${event.name} ${
-            truncate(event.argsSummary, 60)
+          `  ${DIM}\u2847 ${
+            buildToolTranscriptInvocationLabel({
+              name: event.name,
+              displayName: resolveToolTranscriptDisplayName(event.name),
+              argsSummary: truncate(event.argsSummary, 60),
+            })
           }${RESET}`,
         );
         toolInProgress = true;
+        break;
+      case "tool_progress":
         break;
       case "tool_end": {
         if (event.name === "ask_user" || event.name === "delegate_agent") {
           return;
         }
+        const transcriptResult = resolveToolTranscriptResult(event.name, {
+          toolCallId: event.toolCallId,
+          name: event.name,
+          success: event.success,
+          summary: event.summary,
+          content: event.content,
+          durationMs: event.durationMs,
+          argsSummary: event.argsSummary,
+          meta: event.meta,
+        });
+        const toolLabel = buildToolTranscriptInvocationLabel({
+          name: event.name,
+          displayName: resolveToolTranscriptDisplayName(event.name),
+          argsSummary: event.argsSummary,
+        });
         if (toolInProgress) {
           const icon = event.success
             ? `${GREEN}\u2713${RESET}`
@@ -906,25 +976,29 @@ export async function askCommand(args: string[]): Promise<void> {
           const dur = event.durationMs
             ? ` ${DIM}(${(event.durationMs / 1000).toFixed(1)}s)${RESET}`
             : "";
-          const summary = summarizeToolEventForDefaultMode(
-            event.name,
-            event.summary,
-            event.content,
-          );
+          const summary = transcriptResult.summaryText ||
+            summarizeToolEventForDefaultMode(
+              event.name,
+              event.summary,
+              event.content,
+            );
           const renderedSummary = event.success ? summary : `Error: ${summary}`;
           log.raw.write(
-            `${CLEAR_LINE}  ${icon} ${event.name} ${event.argsSummary} ${DIM}\u2192${RESET} ${renderedSummary}${dur}\n`,
+            `${CLEAR_LINE}  ${icon} ${toolLabel} ${DIM}\u2192${RESET} ${renderedSummary}${dur}\n`,
           );
           toolInProgress = false;
         } else {
           flushStream();
-          const summary = summarizeToolEventForDefaultMode(
-            event.name,
-            event.summary,
-            event.content,
-          );
+          const summary = transcriptResult.summaryText ||
+            summarizeToolEventForDefaultMode(
+              event.name,
+              event.summary,
+              event.content,
+            );
           if (!event.success) {
-            log.raw.log(`[${event.name}] Error: ${summary}\n`);
+            log.raw.log(
+              `[${resolveToolTranscriptDisplayName(event.name)}] Error: ${summary}\n`,
+            );
           } else if (summary) {
             log.raw.log(`${summary}\n`);
           }

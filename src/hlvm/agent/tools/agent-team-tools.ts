@@ -17,7 +17,12 @@
 
 import { ValidationError } from "../../../common/error.ts";
 import { truncate } from "../../../common/utils.ts";
-import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
+import type {
+  ToolExecutionOptions,
+  ToolMetadata,
+  ToolTranscriptAdapter,
+  ToolTranscriptResultEvent,
+} from "../registry.ts";
 import { isToolArgsObject } from "../validation.ts";
 import {
   createTeamStore,
@@ -104,6 +109,289 @@ function optionalStringArray(
 function getMemberId(options: ToolExecutionOptions | undefined, runtime: TeamRuntime): string {
   return options?.teamMemberId ?? runtime.leadMemberId;
 }
+
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function parseTranscriptContent(
+  content: string | undefined,
+): Record<string, unknown> | undefined {
+  if (!content?.trim()) return undefined;
+  try {
+    return toRecord(JSON.parse(content));
+  } catch {
+    return undefined;
+  }
+}
+
+function readRecordString(
+  value: Record<string, unknown> | undefined,
+  ...keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const candidate = value?.[key];
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return undefined;
+}
+
+function readRecordNumber(
+  value: Record<string, unknown> | undefined,
+  ...keys: string[]
+): number | undefined {
+  for (const key of keys) {
+    const candidate = value?.[key];
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function humanizeStatus(status: string | undefined): string | undefined {
+  return status?.trim()
+    ? status.trim().replaceAll("_", " ")
+    : undefined;
+}
+
+function firstMeaningfulLine(text: string | undefined): string | undefined {
+  return text?.split("\n").map((line) => line.trim()).find(Boolean);
+}
+
+function pluralize(word: string, count: number): string {
+  return count === 1 ? word : `${word}s`;
+}
+
+function buildTranscriptResult(
+  summaryText: string | undefined,
+  detailText: string,
+): { summaryText?: string; detailText: string } {
+  return {
+    summaryText: summaryText?.trim() || undefined,
+    detailText,
+  };
+}
+
+function formatTeammateTranscriptResult(
+  event: ToolTranscriptResultEvent,
+): { summaryText?: string; detailText: string } {
+  const parsed = parseTranscriptContent(event.content);
+  const status = readRecordString(parsed, "status");
+  const name = readRecordString(parsed, "name");
+  const teamName = readRecordString(parsed, "teamName");
+  const agentType = readRecordString(parsed, "agentType");
+  let summaryText: string | undefined;
+
+  switch (status) {
+    case "created":
+      summaryText = teamName ? `Created team ${teamName}` : "Created team";
+      break;
+    case "spawned":
+      summaryText = name
+        ? `Started ${name}${agentType ? ` (${agentType})` : ""}`
+        : "Started teammate";
+      break;
+    case "cleaned_up":
+      summaryText = teamName ? `Removed team ${teamName}` : "Removed team";
+      break;
+    default:
+      summaryText = firstMeaningfulLine(event.summary) ??
+        firstMeaningfulLine(event.content);
+      break;
+  }
+
+  return buildTranscriptResult(summaryText, event.content);
+}
+
+function formatTaskCreateTranscriptResult(
+  event: ToolTranscriptResultEvent,
+): { summaryText?: string; detailText: string } {
+  const parsed = parseTranscriptContent(event.content);
+  const id = readRecordString(parsed, "id");
+  const subject = readRecordString(parsed, "subject");
+  const summaryText = id
+    ? subject
+      ? `Created task #${id} · ${subject}`
+      : `Created task #${id}`
+    : firstMeaningfulLine(event.summary) ?? "Created task";
+  return buildTranscriptResult(summaryText, event.content);
+}
+
+function formatTaskGetTranscriptResult(
+  event: ToolTranscriptResultEvent,
+): { summaryText?: string; detailText: string } {
+  const parsed = parseTranscriptContent(event.content);
+  const task = toRecord(parsed?.task) ?? parsed;
+  const id = readRecordString(task, "id");
+  const goal = readRecordString(task, "subject", "goal");
+  const status = humanizeStatus(readRecordString(task, "status"));
+  const parts = [
+    id ? `Task #${id}` : "Loaded task",
+    goal,
+    status,
+  ].filter((part): part is string => Boolean(part));
+  return buildTranscriptResult(parts.join(" · "), event.content);
+}
+
+function formatTaskUpdateTranscriptResult(
+  event: ToolTranscriptResultEvent,
+): { summaryText?: string; detailText: string } {
+  const parsed = parseTranscriptContent(event.content);
+  if (parsed?.deleted === true) {
+    const taskId = readRecordString(parsed, "taskId");
+    return buildTranscriptResult(
+      taskId ? `Deleted task #${taskId}` : "Deleted task",
+      event.content,
+    );
+  }
+
+  const task = toRecord(parsed?.task) ?? parsed;
+  const id = readRecordString(task, "id");
+  const status = humanizeStatus(readRecordString(task, "status"));
+  const owner = readRecordString(task, "owner", "assigneeMemberId");
+  const parts = [
+    id ? `Updated task #${id}` : "Updated task",
+    status,
+    owner ? `owner ${owner}` : undefined,
+  ].filter((part): part is string => Boolean(part));
+  return buildTranscriptResult(parts.join(" · "), event.content);
+}
+
+function formatTaskListTranscriptResult(
+  event: ToolTranscriptResultEvent,
+): { summaryText?: string; detailText: string } {
+  const parsed = parseTranscriptContent(event.content);
+  const tasks = Array.isArray(parsed?.tasks)
+    ? parsed.tasks.map((task) => toRecord(task)).filter((
+      task,
+    ): task is Record<string, unknown> => Boolean(task))
+    : [];
+  const activeCount = tasks.filter((task) => {
+    const status = readRecordString(task, "status");
+    return status === "claimed" || status === "in_progress" ||
+      status === "running";
+  }).length;
+  const pendingCount = tasks.filter((task) =>
+    readRecordString(task, "status") === "pending"
+  ).length;
+  const blockedCount = tasks.filter((task) =>
+    readRecordString(task, "status") === "blocked"
+  ).length;
+  const parts = [`Listed ${tasks.length} ${pluralize("task", tasks.length)}`];
+  if (activeCount > 0) parts.push(`${activeCount} active`);
+  if (pendingCount > 0) parts.push(`${pendingCount} pending`);
+  if (blockedCount > 0) parts.push(`${blockedCount} blocked`);
+  return buildTranscriptResult(parts.join(" · "), event.content);
+}
+
+function formatTeamStatusTranscriptResult(
+  event: ToolTranscriptResultEvent,
+): { summaryText?: string; detailText: string } {
+  const parsed = parseTranscriptContent(event.content);
+  const summary = toRecord(parsed?.summary);
+  const taskCounts = toRecord(summary?.taskCounts);
+  const taskTotal = Object.values(taskCounts ?? {}).reduce<number>(
+    (sum, value) =>
+      sum + (typeof value === "number" && Number.isFinite(value) ? value : 0),
+    0,
+  );
+  const activeMembers = readRecordNumber(summary, "activeMembers");
+  const pendingApprovals = readRecordNumber(summary, "pendingApprovals");
+  const unreadMessages = readRecordNumber(summary, "unreadMessages");
+  const parts = [
+    activeMembers != null
+      ? `${activeMembers} active ${pluralize("member", activeMembers)}`
+      : undefined,
+    `${taskTotal} ${pluralize("task", taskTotal)}`,
+    pendingApprovals ? `${pendingApprovals} pending approval` : undefined,
+    unreadMessages ? `${unreadMessages} unread` : undefined,
+  ].filter((part): part is string => Boolean(part));
+  return buildTranscriptResult(parts.join(" · "), event.content);
+}
+
+function formatSendMessageTranscriptResult(
+  event: ToolTranscriptResultEvent,
+): { summaryText?: string; detailText: string } {
+  const parsed = parseTranscriptContent(event.content);
+  const type = readRecordString(parsed, "type");
+  const recipient = readRecordString(parsed, "to");
+  const approval = toRecord(parsed?.approval);
+  const approvalTaskId = readRecordString(approval, "taskId");
+  let summaryText: string | undefined;
+
+  switch (type) {
+    case "submit_plan":
+      summaryText = approvalTaskId
+        ? `Submitted plan for task #${approvalTaskId}`
+        : "Submitted plan";
+      break;
+    case "broadcast":
+      summaryText = "Broadcasted message";
+      break;
+    case "shutdown_request":
+      summaryText = recipient
+        ? `Requested shutdown for ${recipient}`
+        : "Requested shutdown";
+      break;
+    case "shutdown_response":
+      summaryText = "Responded to shutdown request";
+      break;
+    case "plan_approval_response":
+      summaryText = approvalTaskId
+        ? `Reviewed plan for task #${approvalTaskId}`
+        : "Sent plan review response";
+      break;
+    case "message":
+      summaryText = recipient ? `Messaged ${recipient}` : "Sent message";
+      break;
+    default:
+      summaryText = firstMeaningfulLine(event.summary) ??
+        firstMeaningfulLine(event.content);
+      break;
+  }
+
+  return buildTranscriptResult(summaryText, event.content);
+}
+
+const TEAMMATE_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
+  displayName: "Team",
+  formatResult: formatTeammateTranscriptResult,
+};
+
+const SEND_MESSAGE_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
+  displayName: "Send Message",
+  formatResult: formatSendMessageTranscriptResult,
+};
+
+const TASK_CREATE_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
+  displayName: "Create Task",
+  formatResult: formatTaskCreateTranscriptResult,
+};
+
+const TASK_GET_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
+  displayName: "Read Task",
+  formatResult: formatTaskGetTranscriptResult,
+};
+
+const TASK_UPDATE_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
+  displayName: "Update Task",
+  formatResult: formatTaskUpdateTranscriptResult,
+};
+
+const TASK_LIST_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
+  displayName: "List Tasks",
+  formatResult: formatTaskListTranscriptResult,
+};
+
+const TEAM_STATUS_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
+  displayName: "Team Status",
+  formatResult: formatTeamStatusTranscriptResult,
+};
 
 // ── Teammate Tool ─────────────────────────────────────────────────────
 
@@ -286,6 +574,7 @@ export const teammate: ToolMetadata = {
   description:
     "Manage agent teams. Use 'spawnTeam' to create a team, 'spawnAgent' to spawn a persistent teammate, or 'cleanup' to remove team resources.",
   category: "meta",
+  transcript: TEAMMATE_TRANSCRIPT_ADAPTER,
   args: {
     operation:
       "string (required) - 'spawnTeam' to create a team, 'spawnAgent' to spawn a teammate, 'cleanup' to remove team resources",
@@ -548,6 +837,7 @@ export const sendMessage: ToolMetadata = {
   description:
     "Send messages to agent teammates. Supports direct messages, broadcasts, shutdown requests/responses, plan submissions, and plan approval responses.",
   category: "meta",
+  transcript: SEND_MESSAGE_TRANSCRIPT_ADAPTER,
   args: {
     type: "string (required) - 'message', 'broadcast', 'shutdown_request', 'shutdown_response', 'plan_approval_response', 'submit_plan'",
     recipient:
@@ -630,6 +920,7 @@ export const taskCreate: ToolMetadata = {
   description:
     "Create a task in the team's shared task list. Tasks help track progress and coordinate work across teammates.",
   category: "meta",
+  transcript: TASK_CREATE_TRANSCRIPT_ADAPTER,
   args: {
     id: "string (optional) - Explicit task ID for deterministic workflows",
     subject: "string (required) - Brief, actionable task title",
@@ -672,6 +963,7 @@ export const taskGet: ToolMetadata = {
   },
   description: "Retrieve a task by its ID from the shared task list.",
   category: "meta",
+  transcript: TASK_GET_TRANSCRIPT_ADAPTER,
   args: {
     taskId: "string (required) - The ID of the task to retrieve",
   },
@@ -768,6 +1060,7 @@ export const taskUpdate: ToolMetadata = {
   description:
     "Update a task in the shared task list. Can change status, ownership, dependencies, and other fields.",
   category: "meta",
+  transcript: TASK_UPDATE_TRANSCRIPT_ADAPTER,
   args: {
     taskId: "string (required) - The task ID to update",
     status:
@@ -827,6 +1120,7 @@ export const taskList: ToolMetadata = {
   description:
     "List all tasks in the team's shared task list with summary information.",
   category: "meta",
+  transcript: TASK_LIST_TRANSCRIPT_ADAPTER,
   args: {},
   returns: {
     tasks:
@@ -874,6 +1168,7 @@ export const teamStatus: ToolMetadata = {
   description:
     "Read the current team summary, your member state, pending approvals, pending shutdowns, and unread messages.",
   category: "meta",
+  transcript: TEAM_STATUS_TRANSCRIPT_ADAPTER,
   args: {},
   returns: {
     summary: "object - Team summary including policy, members, task counts, blocked tasks, and unread counts",

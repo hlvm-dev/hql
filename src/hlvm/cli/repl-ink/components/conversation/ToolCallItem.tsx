@@ -40,19 +40,24 @@ function getPresentationBadge(
       return "EDIT";
     case "diff":
       return "DIFF";
-    case "meta":
-      return "META";
     default:
       return null;
   }
 }
 
 export function resolveToolResultText(
-  tool: Pick<ToolCallDisplay, "resultSummaryText" | "resultText">,
+  tool: Pick<
+    ToolCallDisplay,
+    "resultSummaryText" | "resultDetailText" | "resultText"
+  >,
   expanded: boolean,
 ): string {
-  if (expanded) return tool.resultText ?? tool.resultSummaryText ?? "";
-  return tool.resultSummaryText ?? tool.resultText ?? "";
+  if (expanded) {
+    return tool.resultDetailText ?? tool.resultText ?? tool.resultSummaryText ??
+      "";
+  }
+  return tool.resultSummaryText ?? tool.resultDetailText ?? tool.resultText ??
+    "";
 }
 
 export const ToolCallItem = React.memo(function ToolCallItem(
@@ -62,10 +67,19 @@ export const ToolCallItem = React.memo(function ToolCallItem(
   const sc = useSemanticColors();
   const presentationKind = tool.resultMeta?.presentation?.kind;
   const presentationBadge = getPresentationBadge(presentationKind);
+  const displayName = tool.displayName ?? tool.name;
+  const invocationArgsSummary =
+    (tool.name === "search_web" ||
+      tool.name === "web_search" ||
+      tool.name === "web_fetch" ||
+      tool.name === "fetch_url") &&
+      tool.argsSummary.trim().length > 0
+      ? `("${tool.argsSummary.trim().replaceAll('"', "'")}")`
+      : tool.argsSummary;
   const layout = buildToolCallTextLayout(
     Math.max(0, width - 2),
-    tool.name,
-    tool.argsSummary,
+    displayName,
+    invocationArgsSummary,
     tool.durationMs,
   );
 
@@ -73,9 +87,6 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     ? sc.status.error
     : isProminentToolName(tool.name)
     ? sc.text.primary
-    : sc.text.secondary;
-  const argsColor = tool.status === "error"
-    ? sc.status.error
     : sc.text.secondary;
   const durationTone = getToolDurationTone(tool.durationMs);
   const durationColor = durationTone === "error"
@@ -86,6 +97,12 @@ export const ToolCallItem = React.memo(function ToolCallItem(
   const resultGutterColor = tool.status === "error"
     ? sc.status.error
     : sc.text.muted;
+  const progressColor = tool.progressTone === "warning"
+    ? sc.status.warning
+    : tool.progressTone === "success"
+    ? sc.status.success
+    : sc.text.secondary;
+  const queuedColor = sc.text.muted;
   const shouldRenderResult = tool.status !== "running";
   const resultMaxLines = tool.status === "error"
     ? 12
@@ -106,9 +123,9 @@ export const ToolCallItem = React.memo(function ToolCallItem(
             <Text color={sc.text.muted}> </Text>
           </>
         )}
-        <Text color={nameColor}>{tool.name}</Text>
+        <Text color={nameColor}>{displayName}</Text>
         {layout.argsText && (
-          <Text color={argsColor}>
+          <Text color={sc.text.secondary}>
             {" "}
             {layout.argsText}
           </Text>
@@ -118,6 +135,24 @@ export const ToolCallItem = React.memo(function ToolCallItem(
           <Text color={durationColor}>{layout.durationText}</Text>
         )}
       </Box>
+
+      {tool.status === "running" && tool.progressText && (
+        <Box marginLeft={2} flexDirection="row">
+          <Text color={resultGutterColor}>{"⎿  "}</Text>
+          <Text color={progressColor} wrap="wrap">
+            {tool.progressText}
+          </Text>
+        </Box>
+      )}
+
+      {tool.status === "pending" && tool.queuedText && (
+        <Box marginLeft={2} flexDirection="row">
+          <Text color={resultGutterColor}>{"⎿  "}</Text>
+          <Text color={queuedColor} wrap="wrap">
+            {tool.queuedText}
+          </Text>
+        </Box>
+      )}
 
       {shouldRenderResult &&
         resolveToolResultText(tool, expanded) &&

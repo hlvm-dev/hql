@@ -201,7 +201,8 @@ function buildTranscriptItemLines(
           color: statusColor,
         });
         const resultSummary = firstNonEmptyLine(
-          tool.resultSummaryText ?? tool.resultText ?? "",
+          tool.resultSummaryText ?? tool.resultDetailText ?? tool.resultText ??
+            "",
         );
         if (resultSummary) {
           result.push({

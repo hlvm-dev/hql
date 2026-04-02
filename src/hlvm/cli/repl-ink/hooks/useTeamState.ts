@@ -69,6 +69,7 @@ export interface MemberActivityItem {
     | "plan_created"
     | "plan_step"
     | "tool_start"
+    | "tool_progress"
     | "tool_end"
     | "turn_stats";
   ts: number;

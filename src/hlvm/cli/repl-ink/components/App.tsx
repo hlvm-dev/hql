@@ -1646,11 +1646,16 @@ function AppContent(
 
   const pickerInteractionActive = hasConversationContext &&
     isPickerInteractionRequest(pendingInteraction);
+  const interactionPromptActive = hasConversationContext &&
+    Boolean(pendingInteraction);
+  const blockingInteractionActive = interactionPromptActive &&
+    (pendingInteraction?.mode === "permission" || pickerInteractionActive);
+  const showBackgroundStatusSurface = !interactionPromptActive;
+  const showBottomDialog = interactionPromptActive && !isOverlayOpen;
   const isConversationInputVisible = hasConversationContext && !isOverlayOpen;
   const isInputVisible = !isOverlayOpen &&
     (surfacePanel === "none" || isConversationInputVisible);
-  const isInputDisabled = hasConversationContext &&
-    (pendingInteraction?.mode === "permission" || pickerInteractionActive);
+  const isInputDisabled = blockingInteractionActive;
   const isForegroundTaskRunning = isEvaluating ||
     agentControllerRef.current !== null;
   const isConversationTaskRunning = hasConversationContext &&
@@ -1703,24 +1708,28 @@ function AppContent(
     isConversationTaskRunning,
     footerStatusMessage,
   ]);
-  const activityRailRows = buildActivityRailRows({
-    currentTurn: currentTurnRailItem,
-    teamState,
-    width: shellContentWidth,
-  });
-  const localAgentsPanelModel = buildLocalAgentsStatusPanelModel(
-    localAgentEntries,
-    shellContentWidth,
-    {
-      focused: localAgentsFocused,
-      leader: {
-        activityText: currentTurnRailItem?.text,
-        idleText: teamWorkerSummary
-          ? `Idle · ${teamWorkerSummary}`
-          : "Idle",
+  const activityRailRows = showBackgroundStatusSurface
+    ? buildActivityRailRows({
+      currentTurn: currentTurnRailItem,
+      teamState,
+      width: shellContentWidth,
+    })
+    : undefined;
+  const localAgentsPanelModel = showBackgroundStatusSurface
+    ? buildLocalAgentsStatusPanelModel(
+      localAgentEntries,
+      shellContentWidth,
+      {
+        focused: localAgentsFocused,
+        leader: {
+          activityText: currentTurnRailItem?.text,
+          idleText: teamWorkerSummary
+            ? `Idle · ${teamWorkerSummary}`
+            : "Idle",
+        },
       },
-    },
-  );
+    )
+    : undefined;
   const activityRailRowCount = !localAgentsPanelModel && activityRailRows
     ? activityRailRows.rows.length + (activityRailRows.overflow ? 1 : 0)
     : 0;
@@ -1728,7 +1737,7 @@ function AppContent(
   const transcriptReservedRows = 10 +
     SHELL_LAYOUT.transcriptToComposerGap +
     composerShellState.queuePreviewRows +
-    (hasConversationContext && pendingInteraction ? 8 : 0) +
+    (showBottomDialog ? 8 : 0) +
     (hasConversationContext &&
         (conversation.liveItems.length > 0 || liveTodoCount > 0)
       ? Math.min(conversation.liveItems.length + liveTodoCount + 2, 12)
@@ -1908,18 +1917,6 @@ function AppContent(
                     conversation.liveItems.length > 0}
                 />
               </RenderErrorBoundary>
-              <RenderErrorBoundary>
-                {!isOverlayOpen && (
-                  <DialogStack
-                    interactionRequest={pendingInteraction}
-                    interactionQueueLength={interactionQueue.length}
-                    onInteractionResponse={handleConversationInteractionResponse}
-                    onQuestionInterrupt={pendingInteraction?.mode === "question"
-                      ? handleQuestionInterrupt
-                      : undefined}
-                  />
-                )}
-              </RenderErrorBoundary>
             </>
           )}
         </Box>
@@ -1940,8 +1937,21 @@ function AppContent(
         />
       )}
 
+      {showBottomDialog && (
+        <RenderErrorBoundary>
+          <DialogStack
+            interactionRequest={pendingInteraction}
+            interactionQueueLength={interactionQueue.length}
+            onInteractionResponse={handleConversationInteractionResponse}
+            onQuestionInterrupt={pendingInteraction?.mode === "question"
+              ? handleQuestionInterrupt
+              : undefined}
+          />
+        </RenderErrorBoundary>
+      )}
+
       {/* Input line */}
-      {!isOverlayOpen && isInputVisible &&
+      {!blockingInteractionActive && !isOverlayOpen && isInputVisible &&
         (
           <ComposerSurface
             ref={composerRef}
@@ -1983,7 +1993,7 @@ function AppContent(
         )}
 
       {/* Footer hint (directly under input, no gap) */}
-      {(isInputVisible || hasConversationContext) &&
+      {!blockingInteractionActive && (isInputVisible || hasConversationContext) &&
         (
           <FooterHint
             modelName={modelSelection.displayLabel}

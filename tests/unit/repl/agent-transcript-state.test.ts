@@ -1036,7 +1036,7 @@ Deno.test("agent transcript state records batch progress updates as info items",
   }
 });
 
-Deno.test("agent transcript state tracks planning phase and shows clarification prompts in the transcript", () => {
+Deno.test("agent transcript state tracks planning phase without duplicating clarification prompts", () => {
   let state = reduceTranscriptState(createTranscriptState(), {
     type: "agent_event",
     event: {
@@ -1057,14 +1057,7 @@ Deno.test("agent transcript state tracks planning phase and shows clarification 
 
   assertEquals(state.planningPhase, "researching");
   assertEquals(state.streamingState, "waiting_for_confirmation");
-  const latestItem = state.items.at(-1);
-  assertEquals(latestItem?.type, "info");
-  if (latestItem?.type === "info") {
-    assertEquals(
-      latestItem.text,
-      "Clarification needed: Which for-loop style do you want?",
-    );
-  }
+  assertEquals(state.items.length, 0);
 });
 
 Deno.test("agent transcript state hides planning and reasoning updates once plan execution has started", () => {
@@ -1662,4 +1655,76 @@ Deno.test("batch_progress_updated suppressed when delegate group exists", () => 
   });
   // No new info item should be added since the group already shows the data
   assertEquals(state.items.length, beforeCount);
+});
+
+Deno.test("agent transcript state tracks web-search progress and transcript summaries", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "agent_event",
+    event: {
+      type: "tool_start",
+      name: "search_web",
+      toolCallId: "tool-call-1",
+      argsSummary: "react 19 release notes",
+      toolIndex: 1,
+      toolTotal: 1,
+    },
+  });
+
+  assertEquals(state.activeTool?.displayName, "Web Search");
+  assertEquals(state.activeTool?.progressText, "Searching: react 19 release notes");
+
+  const startedGroup = state.items.find((item) => item.type === "tool_group");
+  assertEquals(startedGroup?.type, "tool_group");
+  if (startedGroup?.type === "tool_group") {
+    assertEquals(startedGroup.tools[0]?.displayName, "Web Search");
+    assertEquals(
+      startedGroup.tools[0]?.progressText,
+      "Searching: react 19 release notes",
+    );
+  }
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "tool_progress",
+      name: "search_web",
+      toolCallId: "tool-call-1",
+      argsSummary: "react 19 release notes",
+      message: 'Found 10 results for "react 19 release notes"',
+      tone: "running",
+      phase: "results",
+    },
+  });
+
+  assertEquals(
+    state.activeTool?.progressText,
+    'Found 10 results for "react 19 release notes"',
+  );
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "tool_end",
+      name: "search_web",
+      toolCallId: "tool-call-1",
+      success: true,
+      content: 'Top sources for "react 19 release notes"',
+      durationMs: 1700,
+      argsSummary: "react 19 release notes",
+    },
+  });
+
+  assertEquals(state.activeTool, undefined);
+  const finishedGroup = state.items.find((item) => item.type === "tool_group");
+  assertEquals(finishedGroup?.type, "tool_group");
+  if (finishedGroup?.type === "tool_group") {
+    const tool = finishedGroup.tools[0];
+    assertEquals(tool?.status, "success");
+    assertEquals(tool?.progressText, undefined);
+    assertEquals(tool?.resultSummaryText, "Did 1 search in 1.7s");
+    assertEquals(
+      tool?.resultDetailText,
+      'Top sources for "react 19 release notes"',
+    );
+  }
 });

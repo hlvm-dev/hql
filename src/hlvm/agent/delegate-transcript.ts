@@ -28,6 +28,12 @@ export type DelegateTranscriptEvent =
     argsSummary: string;
   }
   | {
+    type: "tool_progress";
+    name: string;
+    argsSummary: string;
+    message: string;
+  }
+  | {
     type: "turn_stats";
     iteration: number;
     toolCount: number;
@@ -107,6 +113,8 @@ export function formatDelegateTranscriptEvent(
       return `Plan step ${event.index + 1} complete: ${event.stepId}`;
     case "tool_start":
       return `Tool ${event.name}: ${event.argsSummary}`;
+    case "tool_progress":
+      return `Tool ${event.name}: ${event.message.trim()}`;
     case "tool_end": {
       const summary = summarizeDelegateToolContent(
         event.name,

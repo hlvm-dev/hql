@@ -553,19 +553,15 @@ export function generateArgsSummary(
       const agentType = readStringField(a, "agent_type", "agentType");
       switch (operation) {
         case "spawnTeam":
-          return teamName
-            ? `spawn team ${truncate(teamName, 48)}`
-            : "spawn team";
+          return teamName ? truncate(teamName, 48) : "new team";
         case "spawnAgent":
           return name
-            ? `spawn ${truncate(name, 40)}${
+            ? `${truncate(name, 40)}${
               agentType ? ` (${truncate(agentType, 20)})` : ""
             }`
-            : "spawn teammate";
+            : "new teammate";
         case "cleanup":
-          return teamName
-            ? `cleanup ${truncate(teamName, 48)}`
-            : "cleanup team";
+          return teamName ? truncate(teamName, 48) : "active team";
         default:
           return truncate(
             [operation, name ?? teamName].filter(Boolean).join(" "),
@@ -577,21 +573,21 @@ export function generateArgsSummary(
       return truncate(readStringField(a, "subject") ?? "", 80);
     case "TaskGet": {
       const taskId = readStringField(a, "taskId", "task_id");
-      return taskId ? `task ${truncate(taskId, 24)}` : "";
+      return taskId ? `#${truncate(taskId, 24)}` : "";
     }
     case "TaskUpdate": {
       const taskId = readStringField(a, "taskId", "task_id");
       const status = readStringField(a, "status");
       const owner = readStringField(a, "owner");
       const parts = [
-        taskId ? `task ${truncate(taskId, 24)}` : undefined,
+        taskId ? `#${truncate(taskId, 24)}` : undefined,
         status,
         owner ? `owner ${truncate(owner, 24)}` : undefined,
       ].filter((part): part is string => Boolean(part));
       return truncate(parts.join(" · "), 80);
     }
     case "TaskList":
-      return "team tasks";
+      return "";
     case "SendMessage": {
       const type = readStringField(a, "type");
       const recipient = readStringField(a, "recipient");
@@ -775,6 +771,46 @@ function extractWebSearchEventMeta(
   };
 }
 
+function extractWebFetchEventMeta(
+  result: unknown,
+): ToolEventMeta["webFetch"] | undefined {
+  if (!isObjectValue(result)) return undefined;
+
+  if (result.batch === true && Array.isArray(result.results)) {
+    const count = toFiniteNumber(result.count) ?? result.results.length;
+    const errors = toFiniteNumber(result.errors) ?? 0;
+    return {
+      batch: true,
+      count,
+      errors,
+    };
+  }
+
+  const url = typeof result.url === "string" ? result.url : undefined;
+  const status = toFiniteNumber(result.status);
+  const bytes = toFiniteNumber(result.bytes);
+  const contentType = typeof result.contentType === "string"
+    ? result.contentType
+    : undefined;
+
+  if (
+    url === undefined &&
+    status === undefined &&
+    bytes === undefined &&
+    contentType === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    url,
+    status,
+    bytes,
+    contentType,
+    batch: false,
+  };
+}
+
 function extractToolEventMeta(
   toolName: string,
   result: unknown,
@@ -786,6 +822,14 @@ function extractToolEventMeta(
   const webSearch = (toolName === "search_web" || toolName.endsWith("_search_web"))
     ? extractWebSearchEventMeta(result)
     : undefined;
+  const webFetch = (
+    toolName === "web_fetch" ||
+    toolName === "fetch_url" ||
+    toolName.endsWith("_web_fetch") ||
+    toolName.endsWith("_fetch_url")
+  )
+    ? extractWebFetchEventMeta(result)
+    : undefined;
   return {
     presentation: { kind: outputs.presentationKind },
     truncation: {
@@ -793,6 +837,7 @@ function extractToolEventMeta(
       transcript: outputs.truncatedForTranscript,
     },
     ...(webSearch ? { webSearch } : {}),
+    ...(webFetch ? { webFetch } : {}),
   };
 }
 

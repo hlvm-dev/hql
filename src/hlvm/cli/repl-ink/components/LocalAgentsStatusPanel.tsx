@@ -131,6 +131,7 @@ function buildAgentText(
   index: number,
   visibleCount: number,
   hasOverflow: boolean,
+  showPreviewLines: boolean,
 ): LocalAgentsAgentRow {
   const isLastVisible = index === visibleCount - 1;
   const isTerminalBranch = isLastVisible && !hasOverflow;
@@ -144,7 +145,9 @@ function buildAgentText(
     name: entry.name,
     bodyText: activityText,
     metricsText: formatMetrics(entry),
-    previewLines: entry.progress?.previewLines.slice(0, MAX_PREVIEW_LINES) ?? [],
+    previewLines: showPreviewLines
+      ? entry.progress?.previewLines.slice(0, MAX_PREVIEW_LINES) ?? []
+      : [],
     tone: statusTone(entry.status),
   };
 }
@@ -160,12 +163,19 @@ export function buildLocalAgentsStatusPanelModel(
   if (entries.length === 0) return null;
 
   const focused = options.focused === true;
+  const showPreviewLines = focused;
   const visibleEntries = entries.slice(0, MAX_VISIBLE_LOCAL_AGENTS);
   const overflowCount = Math.max(0, entries.length - visibleEntries.length);
   const hasOverflow = overflowCount > 0;
   const leader = buildLeaderText(entries, options.leader, focused);
   const agents = visibleEntries.map((entry, index) =>
-    buildAgentText(entry, index, visibleEntries.length, hasOverflow)
+    buildAgentText(
+      entry,
+      index,
+      visibleEntries.length,
+      hasOverflow,
+      showPreviewLines,
+    )
   );
   const previewRowCount = agents.reduce(
     (count, agent) => count + agent.previewLines.length,

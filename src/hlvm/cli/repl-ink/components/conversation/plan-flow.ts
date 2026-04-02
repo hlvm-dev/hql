@@ -159,12 +159,16 @@ function summarizeThinkingActivity(item: ThinkingItem): string {
 }
 
 function summarizeToolActivity(tool: ToolCallDisplay): string {
+  if (tool.status === "running" && tool.progressText?.trim()) {
+    return truncate(tool.progressText.trim(), 84, "…");
+  }
   const args = summarizeActivityArgs(tool.name, tool.argsSummary);
   const shellCommand = tool.name === "shell_exec"
     ? normalizeActivityText(tool.argsSummary)
     : "";
   switch (tool.name) {
     case "search_web":
+    case "web_search":
       return args ? `Researching ${args}` : "Researching the request";
     case "web_fetch":
     case "fetch_url":

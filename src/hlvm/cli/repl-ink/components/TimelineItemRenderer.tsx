@@ -61,7 +61,7 @@ export function getToggleTargets(
     }
     if (item.type === "tool_group") {
       for (const tool of item.tools) {
-        if (tool.resultText) {
+        if (tool.resultDetailText || tool.resultText) {
           targets.push({ kind: "tool", id: tool.id });
         }
       }

@@ -11,6 +11,7 @@ import { useSemanticColors } from "../../../theme/index.ts";
 import { ToolCallItem } from "./ToolCallItem.tsx";
 import type { ToolCallDisplay } from "../../types.ts";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
+import { resolveToolTranscriptGroupSummary } from "./tool-transcript.ts";
 
 interface ToolGroupProps {
   tools: ToolCallDisplay[];
@@ -34,7 +35,8 @@ function isSemanticCollapseCandidate(tool: ToolCallDisplay): boolean {
 }
 
 function extractSummaryCount(tool: ToolCallDisplay): number | undefined {
-  const summary = tool.resultSummaryText ?? tool.resultText ?? "";
+  const summary = tool.resultSummaryText ?? tool.resultDetailText ??
+    tool.resultText ?? "";
   const match = /(\d+)\s+(match|result|symbol|entry|item)/i.exec(summary);
   if (!match) return undefined;
   const value = Number(match[1]);
@@ -42,31 +44,28 @@ function extractSummaryCount(tool: ToolCallDisplay): number | undefined {
 }
 
 function summarizeCollapsedTools(tools: ToolCallDisplay[]): string {
-  const firstKind = tools[0]?.resultMeta?.presentation?.kind;
-  const distinctTargets = new Set(
-    tools.map((tool) => tool.argsSummary.trim() || tool.name).filter(Boolean),
-  ).size;
-  const count = tools.length;
-  const activityLabel = firstKind === "read"
-    ? `file read${count === 1 ? "" : "s"}`
-    : firstKind === "search"
-    ? `search${count === 1 ? "" : "es"}`
-    : `web lookup${count === 1 ? "" : "s"}`;
-  const parts = [`... ${count} ${activityLabel}`];
-
-  if (distinctTargets > 0) {
-    const targetNoun = firstKind === "read"
-      ? "file"
-      : firstKind === "web"
-      ? "query"
-      : "target";
-    const suffix = distinctTargets === 1
-      ? targetNoun
-      : targetNoun === "query"
-      ? "queries"
-      : `${targetNoun}s`;
-    parts.push(`${distinctTargets} ${suffix}`);
+  const firstToolName = tools[0]?.name;
+  const sameToolName = firstToolName &&
+    tools.every((tool) => tool.name === firstToolName)
+    ? firstToolName
+    : undefined;
+  if (sameToolName) {
+    const transcriptSummary = resolveToolTranscriptGroupSummary(
+      sameToolName,
+      tools,
+    );
+    if (transcriptSummary) return transcriptSummary;
   }
+
+  const firstKind = tools[0]?.resultMeta?.presentation?.kind;
+  const count = tools.length;
+  const parts = [
+    firstKind === "read"
+      ? `Read ${count} file${count === 1 ? "" : "s"}`
+      : firstKind === "search"
+      ? `Searched ${count} target${count === 1 ? "" : "s"}`
+      : `Worked with ${count} web source${count === 1 ? "" : "s"}`,
+  ];
 
   if (firstKind === "web") {
     const totalResults = tools.reduce((sum, tool) =>

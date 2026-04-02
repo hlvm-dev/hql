@@ -37,6 +37,11 @@ import {
   getRecentTurnActivityTrail,
   summarizeTurnCompletion,
 } from "./repl-ink/components/conversation/turn-activity.ts";
+import {
+  resolveToolTranscriptDisplayName,
+  resolveToolTranscriptProgress,
+  resolveToolTranscriptResult,
+} from "./repl-ink/components/conversation/tool-transcript.ts";
 
 interface PendingTurnStats {
   toolCount: number;
@@ -54,7 +59,14 @@ interface PendingTurnStats {
 export interface TranscriptState {
   items: ConversationItem[];
   streamingState: StreamingState;
-  activeTool?: { name: string; toolIndex: number; toolTotal: number };
+  activeTool?: {
+    name: string;
+    displayName: string;
+    progressText?: string;
+    progressTone?: "running" | "success" | "warning";
+    toolIndex: number;
+    toolTotal: number;
+  };
   nextId: number;
   activePlan?: Plan;
   planningPhase?: PlanningPhase;
@@ -432,6 +444,37 @@ function findMatchingRunningToolIndex(
   );
 }
 
+function buildActiveToolDisplay(
+  tool: Pick<
+    ToolCallDisplay,
+    "name" | "displayName" | "progressText" | "progressTone" | "toolIndex" |
+      "toolTotal"
+  >,
+): NonNullable<TranscriptState["activeTool"]> {
+  return {
+    name: tool.name,
+    displayName: tool.displayName ?? resolveToolTranscriptDisplayName(tool.name),
+    progressText: tool.progressText,
+    progressTone: tool.progressTone,
+    toolIndex: tool.toolIndex,
+    toolTotal: tool.toolTotal,
+  };
+}
+
+function findLatestRunningTool(
+  items: readonly ConversationItem[],
+): ToolCallDisplay | undefined {
+  for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex--) {
+    const item = items[itemIndex];
+    if (item?.type !== "tool_group") continue;
+    for (let toolIndex = item.tools.length - 1; toolIndex >= 0; toolIndex--) {
+      const tool = item.tools[toolIndex];
+      if (tool.status === "running") return tool;
+    }
+  }
+  return undefined;
+}
+
 // ── Delegate Group Helpers ─────────────────────────────────────
 
 /** Reverse-search for existing DelegateGroupItem with matching batchId */
@@ -775,23 +818,31 @@ export function reduceTranscriptState(
         case "tool_start": {
           if (event.name === "delegate_agent") return state;
           if (event.name.startsWith("memory_")) return state;
+          const displayName = resolveToolTranscriptDisplayName(event.name);
+          const initialProgress = resolveToolTranscriptProgress(event.name, {
+            toolCallId: event.toolCallId,
+            name: event.name,
+            argsSummary: event.argsSummary,
+            message: "",
+            tone: "running",
+            phase: "start",
+          });
           const tool: ToolCallDisplay = {
             id: `ci-${state.nextId + 1}`,
             toolCallId: event.toolCallId,
             name: event.name,
+            displayName,
             argsSummary: event.argsSummary,
             status: "running",
+            progressText: initialProgress?.message,
+            progressTone: initialProgress?.tone,
             toolIndex: event.toolIndex,
             toolTotal: event.toolTotal,
           };
           let nextState: TranscriptState = {
             ...state,
             streamingState: ConversationStreamingState.Responding,
-            activeTool: {
-              name: event.name,
-              toolIndex: event.toolIndex,
-              toolTotal: event.toolTotal,
-            },
+            activeTool: buildActiveToolDisplay(tool),
             items: removeTransientInfoItems(state.items),
           };
           const [stateWithToolId, toolId] = nextItemId(nextState);
@@ -827,6 +878,50 @@ export function reduceTranscriptState(
             items: insertBeforePendingAssistant(stateWithGroupId.items, group),
           };
         }
+        case "tool_progress": {
+          if (event.name === "delegate_agent") return state;
+          if (event.name.startsWith("memory_")) return state;
+          const groupIdx = state.items.findLastIndex((item) =>
+            item.type === "tool_group" &&
+            findMatchingRunningToolIndex(
+                item.tools,
+                event.toolCallId,
+                event.name,
+                event.argsSummary,
+              ) >= 0
+          );
+          if (groupIdx < 0) return state;
+          const groupItem = state.items[groupIdx];
+          if (groupItem.type !== "tool_group") return state;
+          const resolvedIdx = findMatchingRunningToolIndex(
+            groupItem.tools,
+            event.toolCallId,
+            event.name,
+            event.argsSummary,
+          );
+          if (resolvedIdx < 0) return state;
+
+          const formattedProgress = resolveToolTranscriptProgress(
+            event.name,
+            event,
+          );
+          if (!formattedProgress) return state;
+
+          const nextTools = [...groupItem.tools];
+          nextTools[resolvedIdx] = {
+            ...nextTools[resolvedIdx],
+            progressText: formattedProgress.message,
+            progressTone: formattedProgress.tone,
+          };
+          const nextItems = [...state.items];
+          nextItems[groupIdx] = { ...groupItem, tools: nextTools };
+          const runningTool = nextTools[resolvedIdx];
+          return {
+            ...state,
+            items: nextItems,
+            activeTool: buildActiveToolDisplay(runningTool),
+          };
+        }
         case "tool_end": {
           if (event.name === "delegate_agent") return state;
           if (event.name.startsWith("memory_")) return state;
@@ -851,11 +946,24 @@ export function reduceTranscriptState(
           if (resolvedIdx < 0) return state;
 
           const nextTools = [...groupItem.tools];
+          const transcriptResult = resolveToolTranscriptResult(event.name, {
+            toolCallId: event.toolCallId,
+            name: event.name,
+            success: event.success,
+            summary: event.summary,
+            content: event.content,
+            durationMs: event.durationMs,
+            argsSummary: event.argsSummary,
+            meta: event.meta,
+          });
           nextTools[resolvedIdx] = {
             ...nextTools[resolvedIdx],
             status: event.success ? "success" : "error",
-            resultSummaryText: event.summary ?? event.content,
-            resultText: event.content,
+            progressText: undefined,
+            progressTone: undefined,
+            resultSummaryText: transcriptResult.summaryText,
+            resultDetailText: transcriptResult.detailText,
+            resultText: transcriptResult.detailText,
             resultMeta: event.meta,
             durationMs: event.durationMs,
           };
@@ -864,13 +972,16 @@ export function reduceTranscriptState(
           const allDone = nextTools.every((tool) =>
             tool.status === "success" || tool.status === "error"
           );
+          const latestRunningTool = findLatestRunningTool(nextItems);
           return {
             ...state,
             items: nextItems,
             streamingState: allDone
               ? ConversationStreamingState.Responding
               : state.streamingState,
-            activeTool: allDone ? undefined : state.activeTool,
+            activeTool: latestRunningTool
+              ? buildActiveToolDisplay(latestRunningTool)
+              : undefined,
           };
         }
         case "delegate_running": {
@@ -1243,19 +1354,10 @@ export function reduceTranscriptState(
           };
         }
         case "interaction_request":
-          return event.mode === "question" && event.question
-            ? appendInfoItem(
-              {
-                ...state,
-                streamingState:
-                  ConversationStreamingState.WaitingForConfirmation,
-              },
-              `Clarification needed: ${event.question}`,
-            )
-            : {
-              ...state,
-              streamingState: ConversationStreamingState.WaitingForConfirmation,
-            };
+          return {
+            ...state,
+            streamingState: ConversationStreamingState.WaitingForConfirmation,
+          };
       }
       return state;
     }

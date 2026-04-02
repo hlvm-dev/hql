@@ -47,9 +47,10 @@ Deno.test("buildLocalAgentsStatusPanelModel renders a leader row with focused hi
   assertEquals(model?.leader.treePrefix, "╒═");
   assertEquals(model?.leader.bodyText, "continuing response");
   assertEquals(model?.leader.hintText, " · enter to view · esc back");
+  assertEquals(model?.agents[0]?.previewLines.length, 2);
 });
 
-Deno.test("buildLocalAgentsStatusPanelModel keeps preview rows and inline metrics", () => {
+Deno.test("buildLocalAgentsStatusPanelModel keeps inline metrics and hides preview rows until focused", () => {
   const model = buildLocalAgentsStatusPanelModel(
     [makeTeammate()],
     100,
@@ -62,9 +63,9 @@ Deno.test("buildLocalAgentsStatusPanelModel keeps preview rows and inline metric
 
   assertEquals(model?.leader.bodyText, "Idle · 1 working");
   assertEquals(model?.agents[0]?.treePrefix, "└─");
-  assertEquals(model?.agents[0]?.previewLines.length, 2);
+  assertEquals(model?.agents[0]?.previewLines.length, 0);
   assertEquals(model?.agents[0]?.metricsText, " · 2 tool uses · 1,420 tokens · 4.2s");
-  assertEquals(model?.rowCount, 4);
+  assertEquals(model?.rowCount, 2);
 });
 
 Deno.test("buildLocalAgentsStatusPanelModel keeps waiting/completed tones and overflow row", () => {

@@ -713,14 +713,26 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
       return {
         type: "tool_start",
         name: event.name,
+        toolCallId: event.tool_call_id,
         argsSummary: event.args_summary,
         toolIndex: event.tool_index,
         toolTotal: event.tool_total,
+      };
+    case "tool_progress":
+      return {
+        type: "tool_progress",
+        name: event.name,
+        toolCallId: event.tool_call_id,
+        argsSummary: event.args_summary,
+        message: event.message,
+        tone: event.tone,
+        phase: event.phase,
       };
     case "tool_end":
       return {
         type: "tool_end",
         name: event.name,
+        toolCallId: event.tool_call_id,
         success: event.success,
         content: event.content ?? "",
         summary: event.summary,

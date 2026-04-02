@@ -109,6 +109,14 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
             tool_index: 1,
             tool_total: 1,
           });
+          emit({
+            event: "tool_progress",
+            name: "read_file",
+            args_summary: "src/main.ts",
+            message: "Scanning file contents",
+            phase: "scan",
+            tone: "running",
+          });
           emit({ event: "delegate_start", agent: "web", task: "Inspect docs" });
           emit({
             event: "interaction_request",
@@ -234,7 +242,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
   try {
     await withEnv("HLVM_REPL_PORT", String(port), async () => {
       const tokens: string[] = [];
-      const uiEvents: string[] = [];
+      const uiEvents: AgentUIEvent[] = [];
       const traces: string[] = [];
       const metaEvents: number[] = [];
 
@@ -246,7 +254,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
         contextWindow: 4096,
         callbacks: {
           onToken: (text) => tokens.push(text),
-          onAgentEvent: (event) => uiEvents.push(event.type),
+          onAgentEvent: (event) => uiEvents.push(event),
           onTrace: (event) => traces.push(event.type),
           onFinalResponseMeta: (meta) =>
             metaEvents.push(meta.citationSpans.length),
@@ -259,18 +267,30 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       });
 
       assertEquals(tokens, ["Let me fetch that first. ", "done"]);
-      assert(uiEvents.includes("thinking"));
-      assert(uiEvents.includes("reasoning_update"));
-      assert(uiEvents.includes("planning_update"));
-      assert(uiEvents.includes("tool_start"));
-      assert(uiEvents.includes("tool_end"));
-      assert(uiEvents.includes("delegate_start"));
-      assert(uiEvents.includes("delegate_end"));
-      assert(uiEvents.includes("plan_phase_changed"));
-      assert(uiEvents.includes("plan_created"));
-      assert(uiEvents.includes("plan_step"));
-      assert(uiEvents.includes("plan_review_required"));
-      assert(uiEvents.includes("plan_review_resolved"));
+      const eventTypes = uiEvents.map((event) => event.type);
+      assert(eventTypes.includes("thinking"));
+      assert(eventTypes.includes("reasoning_update"));
+      assert(eventTypes.includes("planning_update"));
+      assert(eventTypes.includes("tool_start"));
+      assert(eventTypes.includes("tool_progress"));
+      assert(eventTypes.includes("tool_end"));
+      assert(eventTypes.includes("delegate_start"));
+      assert(eventTypes.includes("delegate_end"));
+      assert(eventTypes.includes("plan_phase_changed"));
+      assert(eventTypes.includes("plan_created"));
+      assert(eventTypes.includes("plan_step"));
+      assert(eventTypes.includes("plan_review_required"));
+      assert(eventTypes.includes("plan_review_resolved"));
+
+      const toolProgress = uiEvents.find((event) => event.type === "tool_progress");
+      assertEquals(toolProgress?.type, "tool_progress");
+      if (toolProgress?.type === "tool_progress") {
+        assertEquals(toolProgress.name, "read_file");
+        assertEquals(toolProgress.argsSummary, "src/main.ts");
+        assertEquals(toolProgress.message, "Scanning file contents");
+        assertEquals(toolProgress.phase, "scan");
+        assertEquals(toolProgress.tone, "running");
+      }
       assertEquals(traces, ["iteration"]);
       assertEquals(metaEvents, [1]);
       assertEquals(result.text, "Let me fetch that first. done");

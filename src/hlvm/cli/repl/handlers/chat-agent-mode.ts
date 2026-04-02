@@ -158,9 +158,21 @@ export async function handleAgentMode(
             emit({
               event: "tool_start",
               name: event.name,
+              tool_call_id: event.toolCallId,
               args_summary: event.argsSummary,
               tool_index: event.toolIndex,
               tool_total: event.toolTotal,
+            });
+            break;
+          case "tool_progress":
+            emit({
+              event: "tool_progress",
+              name: event.name,
+              tool_call_id: event.toolCallId,
+              args_summary: event.argsSummary,
+              message: event.message,
+              tone: event.tone,
+              phase: event.phase,
             });
             break;
           case "capability_routed":
@@ -228,6 +240,7 @@ export async function handleAgentMode(
             emit({
               event: "tool_end",
               name: event.name,
+              tool_call_id: event.toolCallId,
               success: event.success,
               content: event.content,
               summary: event.summary,

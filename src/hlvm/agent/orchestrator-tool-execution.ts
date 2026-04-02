@@ -230,6 +230,7 @@ async function coerceBatchRows(
 /** Options for executeToolWithTimeout — collapses 27 positional params into a single object. */
 interface ToolTimeoutOptions {
   toolFn: ToolFunction;
+  toolCall: ToolCall;
   args: unknown;
   config: OrchestratorConfig;
   timeout: number;
@@ -247,6 +248,7 @@ async function executeToolWithTimeout(
   const {
     toolFn,
     args,
+    toolCall,
     config,
     timeout,
     toolAllowlist,
@@ -258,6 +260,9 @@ async function executeToolWithTimeout(
     async (signal) => {
       const toolOptions: ToolExecutionOptions = {
         signal,
+        toolName: toolCall.toolName,
+        toolCallId: toolCall.id,
+        argsSummary: generateArgsSummary(toolCall.toolName, args),
         modelId: config.modelId,
         modelTier: config.modelTier,
         policy: config.policy ?? null,
@@ -992,6 +997,7 @@ export async function executeToolCall(
     const runTool = (args: unknown = coercedArgs) =>
       executeToolWithTimeout({
         toolFn: tool.fn,
+        toolCall,
         args,
         config,
         timeout: toolTimeout,

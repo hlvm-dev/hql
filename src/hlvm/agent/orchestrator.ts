@@ -333,6 +333,15 @@ export interface ToolEventMeta {
     transcript: boolean;
   };
   webSearch?: WebSearchToolEventMeta;
+  webFetch?: {
+    url?: string;
+    status?: number;
+    bytes?: number;
+    contentType?: string;
+    batch?: boolean;
+    count?: number;
+    errors?: number;
+  };
 }
 
 export interface FinalResponseMeta {
@@ -346,6 +355,8 @@ export type RuntimeToolPhase =
   | "verifying"
   | "delegating"
   | "completing";
+
+export type ToolProgressTone = "running" | "success" | "warning";
 
 export interface MemoryActivityEntry {
   text: string;
@@ -393,6 +404,15 @@ export type AgentUIEvent =
     argsSummary: string;
     toolIndex: number;
     toolTotal: number;
+  }
+  | {
+    type: "tool_progress";
+    name: string;
+    toolCallId?: string;
+    argsSummary: string;
+    message: string;
+    tone: ToolProgressTone;
+    phase?: string;
   }
   | {
     type: "tool_end";
@@ -486,6 +506,7 @@ export type AgentUIEvent =
       | "plan_created"
       | "plan_step"
       | "tool_start"
+      | "tool_progress"
       | "tool_end"
       | "turn_stats";
     summary: string;

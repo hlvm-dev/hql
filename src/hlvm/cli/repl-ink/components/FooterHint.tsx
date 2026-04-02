@@ -31,10 +31,18 @@ import {
   formatSubmitActionCue,
   type SubmitAction,
 } from "../utils/submit-routing.ts";
+import { useConversationSpinnerFrame } from "../hooks/useConversationMotion.ts";
 
 interface FooterProps {
   streamingState?: StreamingState;
-  activeTool?: { name: string; toolIndex: number; toolTotal: number };
+  activeTool?: {
+    name: string;
+    displayName: string;
+    progressText?: string;
+    progressTone?: "running" | "success" | "warning";
+    toolIndex: number;
+    toolTotal: number;
+  };
   modelName?: string;
   runtimeModeLabel?: string;
   statusMessage?: string;
@@ -68,7 +76,14 @@ interface FooterLeftStateInput {
   inConversation?: boolean;
   isEvaluating?: boolean;
   streamingState?: StreamingState;
-  activeTool?: { name: string; toolIndex: number; toolTotal: number };
+  activeTool?: {
+    name: string;
+    displayName: string;
+    progressText?: string;
+    progressTone?: "running" | "success" | "warning";
+    toolIndex: number;
+    toolTotal: number;
+  };
   modeLabel?: string;
   planningPhase?: PlanningPhase;
   interactionQueueLength?: number;
@@ -364,10 +379,15 @@ export function buildFooterLeftState({
     activeTool &&
     !hasDraftInput
   ) {
+    const activeToolLabel = `${spinner} ${activeTool.displayName} ${
+      activeTool.toolIndex
+    }/${activeTool.toolTotal}`;
+    const activeToolProgress = activeTool.progressText?.trim()
+      ? ` · ${truncate(activeTool.progressText.trim(), 28)}`
+      : "";
     segments.push({
-      text:
-        `${spinner} ${activeTool.name} ${activeTool.toolIndex}/${activeTool.toolTotal}`,
-      tone: "warning",
+      text: `${activeToolLabel}${activeToolProgress}`,
+      tone: activeTool.progressTone === "warning" ? "warning" : "active",
       chip: true,
     });
   }
@@ -454,7 +474,9 @@ export const FooterHint = React.memo(function FooterHint({
   const { stdout } = useStdout();
   const sc = useSemanticColors();
   const model = modelName ?? "";
-  const spinner = STATUS_GLYPHS.running;
+  const spinner = useConversationSpinnerFrame(
+    streamingState === ConversationStreamingState.Responding,
+  ) ?? STATUS_GLYPHS.running;
 
   const left = buildFooterLeftState({
     inConversation,

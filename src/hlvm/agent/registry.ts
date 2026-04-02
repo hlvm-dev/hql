@@ -86,6 +86,12 @@ export interface InteractionRequestEvent {
 /** Optional execution options passed to tools (e.g., cancellation signal) */
 export interface ToolExecutionOptions {
   signal?: AbortSignal;
+  /** Current tool name for tool-local progress reporting. */
+  toolName?: string;
+  /** Current tool call ID for tool-local progress reporting. */
+  toolCallId?: string;
+  /** Human-readable args summary for transcript/footer rendering. */
+  argsSummary?: string;
   /** Active session model id for tool-internal AI calls. */
   modelId?: string;
   /** Active session model tier for tool-internal routing. */
@@ -159,6 +165,56 @@ export interface FormattedToolResult {
   llmContent?: string;
 }
 
+export type ToolProgressTone = "running" | "success" | "warning";
+
+export interface ToolTranscriptProgressEvent {
+  toolCallId?: string;
+  name: string;
+  argsSummary: string;
+  message: string;
+  tone: ToolProgressTone;
+  phase?: string;
+}
+
+export interface ToolTranscriptResultEvent {
+  toolCallId?: string;
+  name: string;
+  success: boolean;
+  summary?: string;
+  content: string;
+  durationMs: number;
+  argsSummary: string;
+  meta?: unknown;
+}
+
+export interface ToolTranscriptCallSummary {
+  name: string;
+  displayName?: string;
+  argsSummary: string;
+  status: "pending" | "running" | "success" | "error";
+  resultSummaryText?: string;
+  resultDetailText?: string;
+  resultMeta?: unknown;
+}
+
+export interface FormattedToolTranscriptResult {
+  summaryText?: string;
+  detailText?: string;
+}
+
+export interface ToolTranscriptAdapter {
+  displayName?: string | ((args: unknown) => string);
+  formatProgress?: (
+    event: ToolTranscriptProgressEvent,
+  ) => { message: string; tone?: ToolProgressTone } | null;
+  formatResult?: (
+    event: ToolTranscriptResultEvent,
+  ) => FormattedToolTranscriptResult | null;
+  formatGroupSummary?: (
+    calls: readonly ToolTranscriptCallSummary[],
+  ) => string | null;
+}
+
 export type ToolPresentationKind =
   | "read"
   | "search"
@@ -206,6 +262,8 @@ export interface ToolMetadata {
   skipValidation?: boolean;
   /** Optional formatter for tool results (for display/LLM output) */
   formatResult?: (result: unknown) => FormattedToolResult | null;
+  /** Optional transcript adapter for CC-style tool rows/progress/result summaries. */
+  transcript?: ToolTranscriptAdapter;
   /**
    * If true, a successful standalone call can end the turn immediately using
    * the formatted tool result as the final user-facing response.

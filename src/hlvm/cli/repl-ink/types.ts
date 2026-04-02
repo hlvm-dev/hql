@@ -26,9 +26,14 @@ export interface ToolCallDisplay {
   id: string;
   toolCallId?: string;
   name: string;
+  displayName?: string;
   argsSummary: string;
   status: "pending" | "running" | "success" | "error";
+  queuedText?: string;
+  progressText?: string;
+  progressTone?: "running" | "success" | "warning";
   resultSummaryText?: string;
+  resultDetailText?: string;
   resultText?: string;
   resultMeta?: ToolEventMeta;
   durationMs?: number;
@@ -214,6 +219,7 @@ export interface TeamMemberActivityInfoItem extends InfoItem {
     | "plan_created"
     | "plan_step"
     | "tool_start"
+    | "tool_progress"
     | "tool_end"
       | "turn_stats";
   status: "active" | "success" | "error";

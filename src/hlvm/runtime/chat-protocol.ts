@@ -167,13 +167,24 @@ export type ChatStreamEvent =
   | {
     event: "tool_start";
     name: string;
+    tool_call_id?: string;
     args_summary: string;
     tool_index: number;
     tool_total: number;
   }
   | {
+    event: "tool_progress";
+    name: string;
+    tool_call_id?: string;
+    args_summary: string;
+    message: string;
+    tone: "running" | "success" | "warning";
+    phase?: string;
+  }
+  | {
     event: "tool_end";
     name: string;
+    tool_call_id?: string;
     success: boolean;
     content?: string;
     summary?: string;
@@ -239,6 +250,7 @@ export type ChatStreamEvent =
       | "plan_created"
       | "plan_step"
       | "tool_start"
+      | "tool_progress"
       | "tool_end"
       | "turn_stats";
     summary: string;

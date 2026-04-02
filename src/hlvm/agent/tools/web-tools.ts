@@ -16,7 +16,13 @@
 
 import { pooledMap } from "@std/async";
 import { ValidationError } from "../../../common/error.ts";
-import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
+import type {
+  ToolExecutionOptions,
+  ToolMetadata,
+  ToolProgressTone,
+  ToolTranscriptAdapter,
+  ToolTranscriptCallSummary,
+} from "../registry.ts";
 import { loadWebConfig } from "../web-config.ts";
 import { getWebCacheValue, setWebCacheValue } from "../web-cache.ts";
 
@@ -98,6 +104,197 @@ const DEFAULT_SEARCH_DEPTH: SearchDepthProfile = "medium";
 const LOW_CONFIDENCE_RELATED_LINKS_LIMIT = 4;
 const MAX_LLM_EVIDENCE_CHARS = 512;
 const MAX_LLM_SUPPORTING_RESULTS = 2;
+
+function formatTranscriptDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return "0s";
+  if (durationMs < 1_000) return `${Math.max(1, Math.round(durationMs))}ms`;
+  const seconds = durationMs / 1_000;
+  if (seconds < 10) {
+    return `${Number(seconds.toFixed(1)).toString()}s`;
+  }
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  return remainingSeconds > 0
+    ? `${minutes}m ${remainingSeconds}s`
+    : `${minutes}m`;
+}
+
+function formatTranscriptBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const digits = size >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${Number(size.toFixed(digits)).toString()} ${units[unitIndex]}`;
+}
+
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function readWebSearchResultCount(call: ToolTranscriptCallSummary): number {
+  const meta = toRecord(call.resultMeta);
+  const webSearch = toRecord(meta?.webSearch);
+  const sourceGuard = toRecord(webSearch?.sourceGuard);
+  const resultCount = typeof sourceGuard?.resultCount === "number"
+    ? sourceGuard.resultCount
+    : typeof webSearch?.resultCount === "number"
+    ? webSearch.resultCount
+    : undefined;
+  return typeof resultCount === "number" && Number.isFinite(resultCount)
+    ? resultCount
+    : 0;
+}
+
+function buildFetchTranscriptSummary(
+  event: {
+    name: string;
+    summary?: string;
+    content: string;
+    meta?: unknown;
+  },
+): string {
+  const meta = toRecord(event.meta);
+  const webFetch = toRecord(meta?.webFetch);
+  if (webFetch?.batch === true) {
+    const count = typeof webFetch.count === "number" ? webFetch.count : undefined;
+    const errors = typeof webFetch.errors === "number" ? webFetch.errors : 0;
+    if (typeof count === "number" && count > 0) {
+      const succeeded = Math.max(0, count - errors);
+      return errors > 0
+        ? `Received ${succeeded}/${count} URLs`
+        : `Received ${count} URL${count === 1 ? "" : "s"}`;
+    }
+  }
+
+  const status = typeof webFetch?.status === "number" ? webFetch.status : undefined;
+  const bytes = typeof webFetch?.bytes === "number" ? webFetch.bytes : undefined;
+  if (bytes !== undefined && status !== undefined) {
+    return `Received ${formatTranscriptBytes(bytes)} (${status})`;
+  }
+  if (status !== undefined) return `Received response (${status})`;
+  if (bytes !== undefined) return `Received ${formatTranscriptBytes(bytes)}`;
+  return event.name === "fetch_url" ? "Fetched URL" : "Fetched page";
+}
+
+function emitToolProgress(
+  options: ToolExecutionOptions | undefined,
+  toolName: string,
+  message: string,
+  phase: string,
+  tone: ToolProgressTone = "running",
+): void {
+  const trimmed = message.trim();
+  if (!trimmed) return;
+  options?.onAgentEvent?.({
+    type: "tool_progress",
+    name: options?.toolName ?? toolName,
+    toolCallId: options?.toolCallId,
+    argsSummary: options?.argsSummary ?? "",
+    message: trimmed,
+    tone,
+    phase,
+  });
+}
+
+function emitSearchResponseProgress(
+  response: unknown,
+  query: string,
+  options?: ToolExecutionOptions,
+): void {
+  const responseRecord = toRecord(response);
+  const rawResults = responseRecord?.results;
+  const responseResults = Array.isArray(rawResults)
+    ? rawResults.map((result) => toRecord(result)).filter((
+      result,
+    ): result is Record<string, unknown> => Boolean(result))
+    : [];
+  const responseCount = typeof responseRecord?.count === "number"
+    ? responseRecord.count
+    : responseResults.length;
+  emitToolProgress(
+    options,
+    "search_web",
+    `Found ${responseCount} results for "${query}"`,
+    "results",
+  );
+  if (
+    responseResults.some((result) => result?.selectedForFetch === true)
+  ) {
+    emitToolProgress(
+      options,
+      "search_web",
+      "Reading top sources",
+      "read_sources",
+    );
+  }
+}
+
+export const WEB_SEARCH_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
+  displayName: "Web Search",
+  formatProgress: (event) => {
+    const message = event.message.trim();
+    if (message) return { message, tone: event.tone };
+    const query = event.argsSummary.trim();
+    if (event.phase === "start") {
+      return {
+        message: query ? `Searching: ${query}` : "Searching the web",
+        tone: "running",
+      };
+    }
+    return null;
+  },
+  formatResult: (event) => ({
+    summaryText: `Did 1 search in ${formatTranscriptDuration(event.durationMs)}`,
+    detailText: event.content,
+  }),
+  formatGroupSummary: (calls) => {
+    const count = calls.length;
+    const totalResults = calls.reduce((sum, call) => sum + readWebSearchResultCount(call), 0);
+    const base = `Searched the web for ${count} quer${count === 1 ? "y" : "ies"}`;
+    return totalResults > 0 ? `${base} · ${totalResults} results` : base;
+  },
+};
+
+export const WEB_FETCH_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
+  displayName: "Web Fetch",
+  formatProgress: (event) => {
+    const message = event.message.trim();
+    if (message) return { message, tone: event.tone };
+    if (event.phase === "start") {
+      return { message: "Fetching…", tone: "running" };
+    }
+    return null;
+  },
+  formatResult: (event) => ({
+    summaryText: buildFetchTranscriptSummary(event),
+    detailText: event.content,
+  }),
+  formatGroupSummary: (calls) => {
+    const count = calls.length;
+    return `Fetched ${count} page${count === 1 ? "" : "s"}`;
+  },
+};
+
+export const FETCH_URL_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
+  displayName: "Fetch URL",
+  formatProgress: WEB_FETCH_TRANSCRIPT_ADAPTER.formatProgress,
+  formatResult: (event) => ({
+    summaryText: buildFetchTranscriptSummary(event),
+    detailText: event.content,
+  }),
+  formatGroupSummary: (calls) => {
+    const count = calls.length;
+    return `Fetched ${count} URL${count === 1 ? "" : "s"}`;
+  },
+};
 
 // ============================================================
 // Structured Error Codes
@@ -763,7 +960,10 @@ async function searchWeb(
     cacheKey,
     webConfig.search.cacheTtlMinutes,
   );
-  if (cachedSearch) return cachedSearch;
+  if (cachedSearch) {
+    emitSearchResponseProgress(cachedSearch, query, options);
+    return cachedSearch;
+  }
 
   initSearchProviders();
   const provider = resolveSearchProvider(webConfig.search.provider, false);
@@ -785,6 +985,8 @@ async function searchWeb(
     fetchUserAgent: webConfig.fetch.userAgent,
     toolOptions: options,
   });
+
+  emitSearchResponseProgress(response, query, options);
 
   if (webConfig.search.cacheTtlMinutes > 0) {
     await setWebCacheValue(
@@ -981,6 +1183,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L0",
     safety: "Read-only web search (auto-approved).",
+    transcript: WEB_SEARCH_TRANSCRIPT_ADAPTER,
   },
   fetch_url: {
     fn: fetchUrl,
@@ -1008,6 +1211,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
     safetyLevel: "L0",
     safety: "Read-only web fetch (auto-approved).",
     formatResult: formatFetchUrlResult,
+    transcript: FETCH_URL_TRANSCRIPT_ADAPTER,
   },
   web_fetch: {
     fn: webFetch,
@@ -1053,5 +1257,6 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
     safetyLevel: "L0",
     safety: "Read-only web fetch (auto-approved).",
     formatResult: formatWebFetchResult,
+    transcript: WEB_FETCH_TRANSCRIPT_ADAPTER,
   },
 };
