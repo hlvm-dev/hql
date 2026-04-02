@@ -16,7 +16,9 @@ import {
   setAgentEngine,
 } from "../../../src/hlvm/agent/engine.ts";
 import type { AgentUIEvent } from "../../../src/hlvm/agent/orchestrator.ts";
+import { createAgentSession } from "../../../src/hlvm/agent/session.ts";
 import { resolveProviderExecutionPlan } from "../../../src/hlvm/agent/tool-capabilities.ts";
+import type { ConversationAttachmentPayload } from "../../../src/hlvm/attachments/types.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { generateUUID } from "../../../src/common/utils.ts";
@@ -342,6 +344,8 @@ Deno.test({
           attachmentKinds: ["image"],
           visionEligibleAttachmentCount: 1,
           visionEligibleKinds: ["image"],
+          audioEligibleAttachmentCount: 0,
+          audioEligibleKinds: [],
         },
         directVisionKinds: ["image"],
       });
@@ -355,6 +359,164 @@ Deno.test({
       );
     } finally {
       await disposeAllSessions();
+      await platform.fs.remove(workspace, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "agent-runner: reuseSession refreshes execution-surface prompt metadata while preserving file-state cache",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const platform = getPlatform();
+    const workspace = platform.path.join(
+      platform.process.cwd(),
+      ".tmp",
+      `hlvm-agent-reuse-refresh-${generateUUID()}`,
+    );
+    await platform.fs.mkdir(workspace, { recursive: true });
+
+    try {
+      const model = "anthropic/claude-sonnet-4-5-20250929";
+      const session = await createReusableSession(workspace, model, {
+        modelInfo: {
+          name: "claude-sonnet-4-5-20250929",
+          capabilities: ["chat", "tools", "vision"],
+        },
+      });
+      session.fileStateCache.trackRead({
+        path: platform.path.join(workspace, "tracked.txt"),
+        content: "tracked",
+      });
+
+      const providerExecutionPlan = resolveProviderExecutionPlan({
+        providerName: "anthropic",
+        nativeCapabilities: {
+          webSearch: false,
+          webPageRead: false,
+          remoteCodeExecution: false,
+        },
+      });
+      const turnScopedSurface = buildExecutionSurface({
+        runtimeMode: "auto",
+        activeModelId: model,
+        pinnedProviderName: "anthropic",
+        providerExecutionPlan,
+        turnContext: {
+          attachmentCount: 1,
+          attachmentKinds: ["image"],
+          visionEligibleAttachmentCount: 1,
+          visionEligibleKinds: ["image"],
+          audioEligibleAttachmentCount: 0,
+          audioEligibleKinds: [],
+        },
+        directVisionKinds: ["image"],
+      });
+
+      const reused = await reuseSession(session, undefined, {
+        runtimeMode: "auto",
+        providerExecutionPlan,
+        executionSurface: turnScopedSurface,
+      });
+
+      assertEquals(reused.fileStateCache, session.fileStateCache);
+      assertExists(reused.fileStateCache.get(
+        platform.path.join(workspace, "tracked.txt"),
+      ));
+      assertEquals(reused.executionSurface.signature, turnScopedSurface.signature);
+      assertEquals(
+        reused.llmConfig?.executionSurface?.signature,
+        turnScopedSurface.signature,
+      );
+      assertEquals(
+        reused.compiledPromptMeta?.signatureHash ===
+          session.compiledPromptMeta?.signatureHash,
+        false,
+      );
+    } finally {
+      await disposeAllSessions();
+      await platform.fs.remove(workspace, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "agent-runner: runAgentQuery reuses an explicit reusable session across turn-scoped surface changes",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const platform = getPlatform();
+    const workspace = platform.path.join(
+      platform.process.cwd(),
+      ".tmp",
+      `hlvm-agent-run-query-reuse-${generateUUID()}`,
+    );
+    await platform.fs.mkdir(workspace, { recursive: true });
+
+    let observedToolOwnerId: string | undefined;
+    let observedAttachmentCount = 0;
+    const engine: AgentEngine = {
+      createLLM: (config) => async () => {
+        observedToolOwnerId = config.toolOwnerId;
+        observedAttachmentCount =
+          config.executionSurface?.turnContext?.attachmentCount ?? 0;
+        return {
+          content:
+            `owner=${config.toolOwnerId};attachments=${String(observedAttachmentCount)}`,
+          toolCalls: [],
+        };
+      },
+      createSummarizer: () => () => Promise.resolve(""),
+    };
+
+    try {
+      await withEngineOverride(engine, async () => {
+        const model = "anthropic/claude-sonnet-4-5-20250929";
+        const reusableSession = await createAgentSession({
+          workspace,
+          model,
+          modelInfo: {
+            name: "claude-sonnet-4-5-20250929",
+            capabilities: ["chat", "tools", "vision"],
+          },
+          runtimeMode: "manual",
+        });
+        const attachments: ConversationAttachmentPayload[] = [{
+          mode: "binary",
+          attachmentId: "img-1",
+          fileName: "photo.png",
+          mimeType: "image/png",
+          kind: "image",
+          conversationKind: "image",
+          size: 4,
+          data: "AA==",
+        }];
+
+        const result = await runAgentQuery({
+          query: "Describe the attached image in one sentence.",
+          model,
+          modelInfo: {
+            name: "claude-sonnet-4-5-20250929",
+            capabilities: ["chat", "tools", "vision"],
+          },
+          workspace,
+          reusableSession,
+          runtimeMode: "manual",
+          attachments,
+          callbacks: {},
+        });
+
+        assertEquals(
+          result.text,
+          `owner=${reusableSession.toolOwnerId};attachments=1`,
+        );
+        assertEquals(observedToolOwnerId, reusableSession.toolOwnerId);
+        assertEquals(observedAttachmentCount, 1);
+      });
+    } finally {
       await platform.fs.remove(workspace, { recursive: true });
     }
   },

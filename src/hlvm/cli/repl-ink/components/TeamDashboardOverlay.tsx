@@ -35,6 +35,7 @@ import { padTo } from "../utils/formatting.ts";
 import { STATUS_GLYPHS } from "../ui-constants.ts";
 import { cancelThread, getThread } from "../../../agent/delegate-threads.ts";
 import { listDelegateTranscriptLines } from "../../../agent/delegate-transcript.ts";
+import { getRecentMemberActivityLines } from "../utils/team-activity.ts";
 import {
   buildBalancedTextRow,
   buildSectionLabelText,
@@ -269,16 +270,6 @@ function detailLines(item: DashboardItem): string[] {
         item.data.label,
       ];
   }
-}
-
-function getRecentMemberActivityLines(
-  activities: MemberActivityItem[] | undefined,
-): string[] {
-  if (!activities?.length) return [];
-  return [
-    "Recent activity:",
-    ...activities.slice(0, 6).map((entry) => `- ${entry.summary}`),
-  ];
 }
 
 function getInterruptibleThreadId(

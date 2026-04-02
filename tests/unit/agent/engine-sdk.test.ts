@@ -1,6 +1,7 @@
 import { assertEquals, assertExists, assertRejects } from "jsr:@std/assert";
 import {
   applyPromptCaching,
+  buildLlmPerformanceSnapshot,
   buildToolCallRepairFunction,
   filterLocallyExecutableToolCalls,
   getSdkModel,
@@ -61,6 +62,17 @@ function buildAutoExecutionPromptState() {
 
 function buildAutoExecutionPrompt() {
   return buildAutoExecutionPromptState().compiledPrompt;
+}
+
+function toCompiledPromptMeta(
+  compiledPrompt: ReturnType<typeof buildAutoExecutionPrompt>,
+) {
+  return {
+    text: compiledPrompt.text,
+    cacheSegments: compiledPrompt.cacheSegments,
+    signatureHash: compiledPrompt.signatureHash,
+    stableCacheProfile: compiledPrompt.stableCacheProfile,
+  };
 }
 
 Deno.test("engine sdk: convertToSdkMessages preserves basic roles and assistant text", () => {
@@ -674,11 +686,7 @@ Deno.test("engine sdk: applyPromptCaching decorates anthropic stable prompt segm
     messages,
     tools,
     { anthropic: { thinking: { type: "enabled", budgetTokens: 1000 } } },
-    {
-      text: compiledPrompt.text,
-      cacheSegments: compiledPrompt.cacheSegments,
-      signatureHash: compiledPrompt.signatureHash,
-    },
+    toCompiledPromptMeta(compiledPrompt),
     "tool-schema-signature",
     "tool-filter-signature",
   );
@@ -725,6 +733,10 @@ Deno.test("engine sdk: applyPromptCaching decorates anthropic stable prompt segm
       .thinking as Record<string, unknown>).type,
     "enabled",
   );
+  assertEquals(
+    decorated.cacheProfile.stableCacheSignatureHash,
+    compiledPrompt.stableCacheProfile.stableSignatureHash,
+  );
 });
 
 Deno.test("engine sdk: applyPromptCaching adds stable openai promptCacheKey and preserves provider options", () => {
@@ -757,11 +769,7 @@ Deno.test("engine sdk: applyPromptCaching adds stable openai promptCacheKey and 
     messages,
     tools,
     { openai: { reasoningEffort: "high" } },
-    {
-      text: compiledPrompt.text,
-      cacheSegments: compiledPrompt.cacheSegments,
-      signatureHash: compiledPrompt.signatureHash,
-    },
+    toCompiledPromptMeta(compiledPrompt),
     "tool-schema-signature",
     "tool-filter-signature",
   );
@@ -774,11 +782,7 @@ Deno.test("engine sdk: applyPromptCaching adds stable openai promptCacheKey and 
     messages,
     tools,
     { openai: { reasoningEffort: "high" } },
-    {
-      text: compiledPrompt.text,
-      cacheSegments: compiledPrompt.cacheSegments,
-      signatureHash: compiledPrompt.signatureHash,
-    },
+    toCompiledPromptMeta(compiledPrompt),
     "tool-schema-signature",
     "tool-filter-signature",
   );
@@ -812,11 +816,7 @@ Deno.test("engine sdk: openai promptCacheKey stays stable across turn-only promp
     messages,
     {},
     undefined,
-    {
-      text: withTurn.text,
-      cacheSegments: withTurn.cacheSegments,
-      signatureHash: withTurn.signatureHash,
-    },
+    toCompiledPromptMeta(withTurn),
     "tool-schema-signature",
     "tool-filter-signature",
   );
@@ -829,11 +829,7 @@ Deno.test("engine sdk: openai promptCacheKey stays stable across turn-only promp
     messages,
     {},
     undefined,
-    {
-      text: withoutTurn.text,
-      cacheSegments: withoutTurn.cacheSegments,
-      signatureHash: withoutTurn.signatureHash,
-    },
+    toCompiledPromptMeta(withoutTurn),
     "tool-schema-signature",
     "tool-filter-signature",
   );
@@ -864,11 +860,7 @@ Deno.test("engine sdk: openai promptCacheKey changes when session-stable prompt 
     messages,
     {},
     undefined,
-    {
-      text: firstPrompt.text,
-      cacheSegments: firstPrompt.cacheSegments,
-      signatureHash: firstPrompt.signatureHash,
-    },
+    toCompiledPromptMeta(firstPrompt),
     "tool-schema-signature",
     "tool-filter-signature",
   );
@@ -881,11 +873,7 @@ Deno.test("engine sdk: openai promptCacheKey changes when session-stable prompt 
     messages,
     {},
     undefined,
-    {
-      text: secondPrompt.text,
-      cacheSegments: secondPrompt.cacheSegments,
-      signatureHash: secondPrompt.signatureHash,
-    },
+    toCompiledPromptMeta(secondPrompt),
     "tool-schema-signature",
     "tool-filter-signature",
   );
@@ -896,6 +884,87 @@ Deno.test("engine sdk: openai promptCacheKey changes when session-stable prompt 
   assertEquals(
     firstOpenAI.promptCacheKey === secondOpenAI.promptCacheKey,
     false,
+  );
+});
+
+Deno.test("engine sdk: performance snapshot carries provider timing, stable cache signature, and cache counters", () => {
+  const compiledPrompt = buildAutoExecutionPrompt();
+  const performance = buildLlmPerformanceSnapshot({
+    spec: {
+      providerName: "claude-code",
+      modelId: "claude-haiku",
+      providerConfig: null,
+    },
+    compiledPrompt: toCompiledPromptMeta(compiledPrompt),
+    cacheProfile: {
+      stableSegmentCount: compiledPrompt.stableCacheProfile.stableSegmentCount,
+      stablePromptSignature: compiledPrompt.stableCacheProfile
+        .stableSegmentHashes,
+      stableCacheSignatureHash: compiledPrompt.stableCacheProfile
+        .stableSignatureHash,
+    },
+    latencyMs: 2400,
+    firstTokenLatencyMs: 420,
+    usage: {
+      inputTokens: 120,
+      outputTokens: 30,
+      cacheReadInputTokens: 80,
+      cacheCreationInputTokens: 40,
+    },
+    providerMetadata: {
+      anthropic: {
+        cache_read_input_tokens: 80,
+        cache_creation_input_tokens: 40,
+      },
+    },
+  });
+
+  assertEquals(performance.providerName, "claude-code");
+  assertEquals(performance.modelId, "claude-haiku");
+  assertEquals(performance.latencyMs, 2400);
+  assertEquals(performance.firstTokenLatencyMs, 420);
+  assertEquals(
+    performance.promptSignatureHash,
+    compiledPrompt.signatureHash,
+  );
+  assertEquals(
+    performance.stableCacheSignatureHash,
+    compiledPrompt.stableCacheProfile.stableSignatureHash,
+  );
+  assertEquals(
+    performance.stableSegmentCount,
+    compiledPrompt.stableCacheProfile.stableSegmentCount,
+  );
+  assertEquals(performance.inputTokens, 120);
+  assertEquals(performance.outputTokens, 30);
+  assertEquals(performance.cacheReadInputTokens, 80);
+  assertEquals(performance.cacheCreationInputTokens, 40);
+});
+
+Deno.test("engine sdk: performance snapshot leaves first-token latency absent for non-streaming calls", () => {
+  const compiledPrompt = compileSystemPrompt();
+  const performance = buildLlmPerformanceSnapshot({
+    spec: {
+      providerName: "openai",
+      modelId: "gpt-5",
+      providerConfig: null,
+    },
+    compiledPrompt: toCompiledPromptMeta(compiledPrompt),
+    cacheProfile: {
+      stableSegmentCount: compiledPrompt.stableCacheProfile.stableSegmentCount,
+      stablePromptSignature: compiledPrompt.stableCacheProfile
+        .stableSegmentHashes,
+      stableCacheSignatureHash: compiledPrompt.stableCacheProfile
+        .stableSignatureHash,
+    },
+    latencyMs: 1100,
+  });
+
+  assertEquals(performance.firstTokenLatencyMs, undefined);
+  assertEquals(performance.latencyMs, 1100);
+  assertEquals(
+    performance.stableCacheSignatureHash,
+    compiledPrompt.stableCacheProfile.stableSignatureHash,
   );
 });
 

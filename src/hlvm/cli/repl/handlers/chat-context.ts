@@ -158,7 +158,7 @@ export async function buildChatProviderMessages(
   options: BuildChatProviderMessagesOptions,
 ): Promise<BuildChatProviderMessagesResult> {
   const attachmentMaterializationOptions =
-    getConversationMaterializationOptionsForModel(
+    await getConversationMaterializationOptionsForModel(
       options.modelKey ?? "",
       options.modelInfo ?? null,
     );
@@ -195,7 +195,7 @@ export async function buildAgentHistoryMessages(
   options: BuildAgentHistoryOptions,
 ): Promise<AgentMessage[]> {
   const attachmentMaterializationOptions =
-    getConversationMaterializationOptionsForModel(
+    await getConversationMaterializationOptionsForModel(
       options.modelKey ?? "",
       options.modelInfo ?? null,
     );
@@ -216,7 +216,7 @@ export async function buildStoredAgentHistoryMessages(
   const replayMessages = await normalizeStoredMessages(
     options.storedMessages,
     options.assistantMessageId,
-    getConversationMaterializationOptionsForModel(
+    await getConversationMaterializationOptionsForModel(
       options.modelKey ?? "",
       options.modelInfo ?? null,
     ),

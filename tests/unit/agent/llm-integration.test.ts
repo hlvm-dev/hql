@@ -187,6 +187,11 @@ Deno.test("LLM integration: compileSystemPrompt exposes cache-segment metadata w
     ),
     true,
   );
+  assertEquals(
+    compiled.stableCacheProfile.stableSegmentCount,
+    compiled.cacheSegments.filter((segment) => segment.stability !== "turn")
+      .length,
+  );
 });
 
 Deno.test("LLM integration: generateSystemPrompt remains a text-only compatibility wrapper", () => {

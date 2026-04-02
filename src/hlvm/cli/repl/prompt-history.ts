@@ -1,5 +1,6 @@
 import { appendJsonLine } from "../../../common/jsonl.ts";
 import { getDebugLogPath } from "../../../common/paths.ts";
+import type { AnyAttachment } from "./attachment.ts";
 import type { ComposerLanguage } from "./composer-language.ts";
 import type { HistoryEntrySource } from "./history-storage.ts";
 import type { ReplState } from "./state.ts";
@@ -63,6 +64,7 @@ export function recordPromptHistory(
   input: string,
   source: PromptHistorySource,
   language?: ComposerLanguage,
+  attachments?: readonly AnyAttachment[],
 ): void {
   if (!shouldRecordPromptHistory(source)) {
     return;
@@ -71,6 +73,7 @@ export function recordPromptHistory(
   replState.addHistory(input, {
     source,
     language: resolvedLanguage,
+    attachments,
   });
   tracePromptHistoryEvent({
     event: "record",

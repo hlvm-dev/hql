@@ -2,6 +2,7 @@ import type { PlatformEnv } from "../../../../platform/types.ts";
 import {
   type AnyAttachment,
   type Attachment,
+  cloneAttachment,
   getDisplayName,
   getPastedTextPreviewLabel,
   type TextAttachment,
@@ -28,16 +29,6 @@ interface QueueShiftResult {
 interface RenumberDraftResult {
   draft: ConversationComposerDraft;
   nextAttachmentId: number;
-}
-
-function cloneAttachment(attachment: AnyAttachment): AnyAttachment {
-  if ("content" in attachment) {
-    return { ...attachment };
-  }
-  return {
-    ...attachment,
-    metadata: attachment.metadata ? { ...attachment.metadata } : undefined,
-  };
 }
 
 function cloneDraft(

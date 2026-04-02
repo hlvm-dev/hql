@@ -261,6 +261,25 @@ function createTraceCallback(
           `[TRACE] LLM usage: ${event.usage.totalTokens} tokens (${event.usage.source})`,
         );
         break;
+      case "llm_performance": {
+        const firstToken = event.firstTokenLatencyMs !== undefined
+          ? ` first-token=${event.firstTokenLatencyMs}ms`
+          : "";
+        const tokens = event.inputTokens !== undefined ||
+            event.outputTokens !== undefined
+          ? ` tokens=${event.inputTokens ?? 0}/${event.outputTokens ?? 0}`
+          : "";
+        const cache = event.cacheReadInputTokens !== undefined ||
+            event.cacheCreationInputTokens !== undefined
+          ? ` cache=read:${event.cacheReadInputTokens ?? 0},create:${
+            event.cacheCreationInputTokens ?? 0
+          }`
+          : "";
+        log.raw.log(
+          `[TRACE] LLM perf: ${event.providerName}/${event.modelId} latency=${event.latencyMs}ms${firstToken}${tokens} stable=${event.stableCacheSignatureHash ?? "none"} segments=${event.stableSegmentCount ?? 0}${cache}`,
+        );
+        break;
+      }
       case "plan_created":
         log.raw.log(
           `[TRACE] Plan created with ${event.plan.steps.length} steps`,

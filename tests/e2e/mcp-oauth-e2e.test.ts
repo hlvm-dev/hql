@@ -14,15 +14,15 @@ import {
   loginMcpHttpServer,
   logoutMcpHttpServer,
   recoverMcpOAuthFromUnauthorized,
-} from "../../../src/hlvm/agent/mcp/oauth.ts";
-import { SdkMcpClient } from "../../../src/hlvm/agent/mcp/sdk-client.ts";
-import type { McpServerConfig } from "../../../src/hlvm/agent/mcp/types.ts";
-import type { PlatformHttpServerHandle } from "../../../src/platform/types.ts";
+} from "../../src/hlvm/agent/mcp/oauth.ts";
+import { SdkMcpClient } from "../../src/hlvm/agent/mcp/sdk-client.ts";
+import type { McpServerConfig } from "../../src/hlvm/agent/mcp/types.ts";
+import type { PlatformHttpServerHandle } from "../../src/platform/types.ts";
 import {
   serveWithRetry,
   withServePermissionGuard,
   withOAuthStorePath,
-} from "./oauth-test-helpers.ts";
+} from "../unit/agent/oauth-test-helpers.ts";
 
 // ============================================================
 // Server Setup

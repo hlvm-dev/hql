@@ -6,6 +6,7 @@ import {
   mapSdkSources,
   mapSdkUsage,
   maybeHandleSdkAuthError,
+  normalizeProviderCacheMetrics,
   normalizeProviderMetadata,
   resolveSdkStreamFailure,
   type SdkConvertibleMessage,
@@ -310,6 +311,39 @@ Deno.test("sdk runtime: native sources and provider metadata normalize to plain 
     },
   );
   assertEquals(normalizeProviderMetadata("bad"), undefined);
+});
+
+Deno.test("sdk runtime: provider cache metrics normalize camelCase and snake_case counters", () => {
+  assertEquals(
+    normalizeProviderCacheMetrics({
+      usage: {
+        cacheReadInputTokens: 21,
+        cacheCreationInputTokens: 13,
+      },
+    }),
+    {
+      cacheReadInputTokens: 21,
+      cacheCreationInputTokens: 13,
+    },
+  );
+  assertEquals(
+    normalizeProviderCacheMetrics({
+      providerMetadata: {
+        anthropic: {
+          cache_read_input_tokens: 34,
+          cache_creation_input_tokens: 8,
+        },
+      },
+    }),
+    {
+      cacheReadInputTokens: 34,
+      cacheCreationInputTokens: 8,
+    },
+  );
+  assertEquals(
+    normalizeProviderCacheMetrics({ providerMetadata: { openai: { foo: "bar" } } }),
+    undefined,
+  );
 });
 
 Deno.test("sdk runtime: _sdkResponseMessages passthrough preserves assistant message with reasoning", () => {

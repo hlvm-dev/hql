@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals, assertExists } from "jsr:@std/assert";
 import { RuntimeError } from "../../../src/common/error.ts";
 import { ProviderErrorCode } from "../../../src/common/error-codes.ts";
 import {
@@ -8,12 +8,16 @@ import {
 } from "../../../src/hlvm/store/conversation-store.ts";
 import { registerUploadedAttachment } from "../../../src/hlvm/attachments/service.ts";
 import {
+  handleAddMessage,
   handleDeleteMessage,
   handleGetMessage,
   handleGetMessages,
   handleUpdateMessage,
 } from "../../../src/hlvm/cli/repl/handlers/messages.ts";
-import { handleChat } from "../../../src/hlvm/cli/repl/handlers/chat.ts";
+import {
+  buildEvalAttachments,
+  handleChat,
+} from "../../../src/hlvm/cli/repl/handlers/chat.ts";
 import { ai } from "../../../src/hlvm/api/ai.ts";
 import {
   __testOnlyResetAgentReadyState,
@@ -243,6 +247,66 @@ Deno.test("handlers: delete message removes the row and updates session counts",
     );
 
     assertEquals(getSession(owner.id)?.message_count, 1);
+  });
+});
+
+Deno.test("handlers: addMessage rejects unknown attachment ids", async () => {
+  await withDb(async () => {
+    const session = createSession("Messages");
+    const response = await handleAddMessage(
+      jsonRequest({
+        role: "user",
+        content: "hello",
+        attachment_ids: ["att_missing"],
+      }),
+      { id: session.id },
+    );
+
+    assertEquals(response.status, 400);
+    assertEquals((await response.json()).error, "Attachment not found: att_missing");
+  });
+});
+
+Deno.test("handlers: buildEvalAttachments reconstructs pasted text and binary attachments distinctly", async () => {
+  await withTempHlvmDir(async () => {
+    const textRecord = await registerUploadedAttachment({
+      fileName: "snippet.txt",
+      mimeType: "text/plain",
+      bytes: new TextEncoder().encode("alpha\nbeta"),
+    });
+    const imageRecord = await registerUploadedAttachment({
+      fileName: "shot.png",
+      mimeType: "image/png",
+      bytes: Uint8Array.from([
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+        0x0d,
+        0x0a,
+        0x1a,
+        0x0a,
+      ]),
+    });
+
+    const attachments = await buildEvalAttachments([textRecord.id, imageRecord.id]);
+
+    assertEquals(attachments?.length, 2);
+    const pastedText = attachments?.[0];
+    assertExists(pastedText);
+    assertEquals(pastedText?.type, "text");
+    if (pastedText && "content" in pastedText) {
+      assertEquals(pastedText.content, "alpha\nbeta");
+      assertEquals(pastedText.displayName, "[Pasted text #1 +1 lines]");
+    }
+
+    const image = attachments?.[1];
+    assertExists(image);
+    assertEquals(image?.type, "image");
+    if (image && !("content" in image)) {
+      assertEquals(image.attachmentId, imageRecord.id);
+      assertEquals(image.fileName, "shot.png");
+    }
   });
 });
 

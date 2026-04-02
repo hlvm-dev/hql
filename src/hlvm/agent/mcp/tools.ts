@@ -242,6 +242,102 @@ function warnMcpConnectSkip(serverName: string, error: unknown): void {
 }
 
 // ============================================================
+// MCP Tool Call Wrappers
+// ============================================================
+
+const MCP_TOOL_TIMEOUT_MS = 60_000;
+const MCP_TOOL_PROGRESS_INTERVAL_MS = 30_000;
+const MCP_OUTPUT_MAX_TOKENS = 25_000;
+
+/** Format MCP content array into a single text string */
+function formatMcpContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) {
+    return typeof content === "object" && content !== null
+      ? JSON.stringify(content)
+      : String(content ?? "");
+  }
+  return content
+    .map((item) => {
+      if (!isObjectValue(item)) return String(item);
+      const part = item as Record<string, unknown>;
+      if (part.type === "text" && typeof part.text === "string") return part.text;
+      if (part.type === "image") return `[image: ${part.mimeType ?? "unknown"}]`;
+      if (part.type === "resource") {
+        const res = isObjectValue(part.resource)
+          ? part.resource as Record<string, unknown>
+          : null;
+        return `[resource: ${res?.uri ?? "unknown"}] ${res?.text ?? "(binary)"}`;
+      }
+      return JSON.stringify(part);
+    })
+    .join("\n");
+}
+
+/** Truncate MCP output to stay within token budget (heuristic: 1 token ≈ 4 chars) */
+function truncateMcpOutput(text: string, maxTokens = MCP_OUTPUT_MAX_TOKENS): string {
+  const estimatedTokens = Math.ceil(text.length / 4);
+  if (estimatedTokens <= maxTokens) return text;
+  const maxChars = maxTokens * 4;
+  return text.slice(0, maxChars) +
+    `\n\n[Output truncated: ~${estimatedTokens} estimated tokens, limit ${maxTokens}]`;
+}
+
+interface McpToolResult {
+  /** Formatted + truncated text for error messages */
+  content: string;
+  /** Raw SDK result object (preserved for backward-compatible tool results) */
+  raw: unknown;
+  isError?: boolean;
+}
+
+/** Call an MCP tool with timeout, progress logging, and output truncation */
+async function callMcpToolWithTimeout(
+  client: SdkMcpClient,
+  toolName: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+  timeoutMs = MCP_TOOL_TIMEOUT_MS,
+): Promise<McpToolResult> {
+  const logger = getAgentLogger();
+  const progressInterval = setInterval(() => {
+    logger.info(`MCP: Still waiting for "${toolName}"...`);
+  }, MCP_TOOL_PROGRESS_INTERVAL_MS);
+
+  try {
+    const result = await Promise.race([
+      client.callTool(toolName, args, signal),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`MCP tool "${toolName}" timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        )
+      ),
+    ]) as Record<string, unknown>;
+
+    const rawContent = formatMcpContent(result.content);
+    const content = truncateMcpOutput(rawContent);
+
+    // Truncate text content in the raw result too if needed
+    let raw: unknown = result;
+    if (rawContent !== content && Array.isArray(result.content)) {
+      raw = {
+        ...result,
+        content: [{ type: "text", text: content }],
+      };
+    }
+
+    return {
+      content,
+      raw,
+      isError: result.isError === true ? true : undefined,
+    };
+  } finally {
+    clearInterval(progressInterval);
+  }
+}
+
+// ============================================================
 // Tool Entry Builder
 // ============================================================
 
@@ -268,11 +364,19 @@ function buildToolEntry(
       if (!isObjectValue(args)) {
         throw new ValidationError("args must be an object", "mcp");
       }
-      return await client.callTool(
+      const result = await callMcpToolWithTimeout(
+        client,
         tool.name,
         args as Record<string, unknown>,
         options?.signal,
       );
+      if (result.isError) {
+        throw new ValidationError(
+          `MCP tool "${tool.name}" returned error: ${result.content}`,
+          "mcp",
+        );
+      }
+      return result.raw;
     },
     description: tool.description ?? `MCP tool ${tool.name}`,
     args: argsSchema,
@@ -306,25 +410,13 @@ function registerNotificationHandlers(
 ): void {
   const refreshRegisteredTools = async (): Promise<void> => {
     try {
-      const allTools = await client.listTools();
-      const newTools = disabledSet
-        ? allTools.filter((t) => !disabledSet.has(t.name))
-        : allTools;
-      const entries: Record<string, ToolMetadata> = {};
-      const newNames = new Set<string>();
-      for (const tool of newTools) {
-        const name = sanitizeToolName(`mcp_${server.name}_${tool.name}`);
-        entries[name] = buildToolEntry(client, tool);
-        newNames.add(name);
-      }
-      for (const old of currentToolNames) {
-        if (!newNames.has(old)) {
-          unregisterTool(old, registrationOwnerId);
-        }
-      }
-      registerTools(entries, registrationOwnerId);
-      currentToolNames.clear();
-      for (const n of newNames) currentToolNames.add(n);
+      await refreshServerToolRegistration(
+        client,
+        server,
+        registrationOwnerId,
+        currentToolNames,
+        disabledSet,
+      );
     } catch {
       // Best-effort refresh.
     }
@@ -342,12 +434,15 @@ function registerNotificationHandlers(
     },
   );
 
-  // Resource/prompt list change notifications (informational)
+  // Resource/prompt list change notifications → refresh registered tools
+  // (resources/prompts may contribute tool entries that need re-registration)
   client.onNotification("notifications/resources/list_changed", () => {
     getAgentLogger().debug(`MCP server '${server.name}' resources changed`);
+    void refreshRegisteredTools();
   });
   client.onNotification("notifications/prompts/list_changed", () => {
     getAgentLogger().debug(`MCP server '${server.name}' prompts changed`);
+    void refreshRegisteredTools();
   });
 
   // Logging notification
@@ -412,6 +507,80 @@ function registerNotificationHandlers(
 
   // Server ping requests
   client.onRequest("ping", async () => await Promise.resolve({}));
+}
+
+function listEnabledMcpTools(
+  allTools: readonly McpToolInfo[],
+  server: McpServerConfig,
+  disabledSet: Set<string> | null,
+): McpToolInfo[] {
+  if (!disabledSet) return [...allTools];
+  const tools = allTools.filter((tool) => !disabledSet.has(tool.name));
+  if (allTools.length !== tools.length) {
+    getAgentLogger().debug(
+      `MCP '${server.name}': filtered ${allTools.length - tools.length} disabled tool(s)`,
+    );
+  }
+  return tools;
+}
+
+function buildMcpToolEntries(
+  client: SdkMcpClient,
+  server: McpServerConfig,
+  tools: readonly McpToolInfo[],
+): {
+  entries: Record<string, ToolMetadata>;
+  dynamicToolNames: Set<string>;
+} {
+  const entries: Record<string, ToolMetadata> = {};
+  const dynamicToolNames = new Set<string>();
+  for (const tool of tools) {
+    const name = sanitizeToolName(`mcp_${server.name}_${tool.name}`);
+    entries[name] = buildToolEntry(client, tool);
+    dynamicToolNames.add(name);
+  }
+  return { entries, dynamicToolNames };
+}
+
+function reconcileRegisteredToolNames(
+  registrationOwnerId: string,
+  currentToolNames: Set<string>,
+  nextToolNames: Set<string>,
+): void {
+  for (const old of currentToolNames) {
+    if (!nextToolNames.has(old)) {
+      unregisterTool(old, registrationOwnerId);
+    }
+  }
+  currentToolNames.clear();
+  for (const name of nextToolNames) {
+    currentToolNames.add(name);
+  }
+}
+
+async function refreshServerToolRegistration(
+  client: SdkMcpClient,
+  server: McpServerConfig,
+  registrationOwnerId: string,
+  currentToolNames: Set<string>,
+  disabledSet: Set<string> | null,
+): Promise<void> {
+  const tools = listEnabledMcpTools(
+    await client.listTools(),
+    server,
+    disabledSet,
+  );
+  const { entries, dynamicToolNames } = buildMcpToolEntries(
+    client,
+    server,
+    tools,
+  );
+  reconcileRegisteredToolNames(
+    registrationOwnerId,
+    currentToolNames,
+    dynamicToolNames,
+  );
+  registerTools(entries, registrationOwnerId);
 }
 
 // ============================================================
@@ -485,29 +654,14 @@ async function connectAndRegisterServer(
   if (!client) return null;
 
   try {
-    // List tools (filter disabled_tools if configured)
-    const allTools = await client.listTools();
     const disabledSet = server.disabled_tools?.length
       ? new Set(server.disabled_tools)
       : null;
-    const tools = disabledSet
-      ? allTools.filter((t) => !disabledSet.has(t.name))
-      : allTools;
-    if (disabledSet && allTools.length !== tools.length) {
-      getAgentLogger().debug(
-        `MCP '${server.name}': filtered ${
-          allTools.length - tools.length
-        } disabled tool(s)`,
-      );
-    }
-
-    const entries: Record<string, ToolMetadata> = {};
-    const serverToolNames = new Set<string>();
-    for (const tool of tools) {
-      const name = sanitizeToolName(`mcp_${server.name}_${tool.name}`);
-      entries[name] = buildToolEntry(client, tool);
-      serverToolNames.add(name);
-    }
+    const { entries, dynamicToolNames: serverToolNames } = buildMcpToolEntries(
+      client,
+      server,
+      listEnabledMcpTools(await client.listTools(), server, disabledSet),
+    );
 
     registerNotificationHandlers(
       client,
@@ -718,11 +872,15 @@ export async function loadMcpTools(
     ownerId: registrationOwnerId,
     connectedServers,
     dispose: async () => {
+      // Unregister all tools (static + dynamically refreshed)
       for (const name of registered) unregisterTool(name, registrationOwnerId);
       for (const names of dynamicToolSets) {
         for (const name of names) unregisterTool(name, registrationOwnerId);
+        names.clear();
       }
+      // Close all clients (with timeout protection from 1E)
       for (const client of clients) await client.close();
+      clients.length = 0;
     },
     setHandlers,
     setSignal,

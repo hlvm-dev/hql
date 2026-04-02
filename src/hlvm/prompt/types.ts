@@ -81,6 +81,13 @@ export interface PromptCacheSegment {
   text: string;
 }
 
+/** Precomputed stable-cache metadata derived from cache-eligible segments. */
+export interface PromptStableCacheProfile {
+  stableSegmentCount: number;
+  stableSegmentHashes: string[];
+  stableSignatureHash: string;
+}
+
 /** Instruction source metadata for observability. */
 export interface InstructionSource {
   path: string;
@@ -95,6 +102,7 @@ export interface CompiledPrompt {
   tier: ModelTier;
   sections: SectionManifestEntry[];
   cacheSegments: PromptCacheSegment[];
+  stableCacheProfile: PromptStableCacheProfile;
   instructionSources: InstructionSource[];
   signatureHash: string;
 }

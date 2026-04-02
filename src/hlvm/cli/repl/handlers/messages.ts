@@ -15,6 +15,7 @@ import {
 } from "../../../store/conversation-store.ts";
 import { getActiveConversationSessionId } from "../../../store/active-conversation.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
+import { getAttachmentRecords } from "../../../attachments/service.ts";
 import {
   toRuntimeSessionMessage,
   toRuntimeSessionMessagesResponse,
@@ -36,6 +37,31 @@ function parsePositiveIntegerId(raw: string): number | null {
   if (!/^[1-9]\d*$/.test(raw)) return null;
   const parsed = Number(raw);
   return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+async function validateAttachmentIds(
+  attachmentIds: string[] | undefined,
+): Promise<Response | undefined> {
+  if (!attachmentIds) return undefined;
+  if (!Array.isArray(attachmentIds)) {
+    return jsonError("attachment_ids must be an array", 400);
+  }
+  if (attachmentIds.some((id) => typeof id !== "string" || id.length === 0)) {
+    return jsonError("attachment_ids must contain non-empty strings", 400);
+  }
+  if (attachmentIds.length === 0) return undefined;
+
+  const records = await getAttachmentRecords(attachmentIds);
+  if (records.length === attachmentIds.length) {
+    return undefined;
+  }
+
+  const knownIds = new Set(records.map((record) => record.id));
+  const missingAttachmentId = attachmentIds.find((id) => !knownIds.has(id));
+  return jsonError(
+    `Attachment not found: ${missingAttachmentId ?? "unknown"}`,
+    400,
+  );
 }
 
 function requireMessage(params: RouteParams, sessionId: string): { messageId: number } | Response {
@@ -256,6 +282,10 @@ export async function handleAddMessage(
     parsed.value;
   if (!role || content === undefined) {
     return jsonError("role and content are required", 400);
+  }
+  const attachmentValidationError = await validateAttachmentIds(attachment_ids);
+  if (attachmentValidationError) {
+    return attachmentValidationError;
   }
 
   const row = insertMessage({

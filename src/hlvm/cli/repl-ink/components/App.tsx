@@ -26,11 +26,11 @@ import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
 import { TranscriptViewerOverlay } from "./TranscriptViewerOverlay.tsx";
 import { ExecutionSurfaceOverlay } from "./ExecutionSurfaceOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
-import {
-  LocalAgentsBar,
-  shouldRenderLocalAgentsBar,
-} from "./LocalAgentsBar.tsx";
 import { ActivityRail, buildActivityRailRows } from "./ActivityRail.tsx";
+import {
+  buildLocalAgentsStatusPanelModel,
+  LocalAgentsStatusPanel,
+} from "./LocalAgentsStatusPanel.tsx";
 import {
   ComposerSurface,
   type ComposerSurfaceHandle,
@@ -586,6 +586,7 @@ function AppContent(
     interactionQueue,
     pendingInteraction,
     agentControllerRef,
+    expandConversationDraftText,
     prepareConversationAttachmentPayload,
     runConversation,
     submitConversationDraft,
@@ -1145,7 +1146,13 @@ function AppContent(
         }
 
         if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
-          recordPromptHistory(replState, code, "conversation");
+          recordPromptHistory(
+            replState,
+            code,
+            "conversation",
+            undefined,
+            attachments,
+          );
           setSurfacePanel("conversation");
           const conversationDraft = createConversationComposerDraft(
             trimmedInput,
@@ -1161,7 +1168,13 @@ function AppContent(
         }
 
         if (hasConversationContext) {
-          recordPromptHistory(replState, code, "conversation");
+          recordPromptHistory(
+            replState,
+            code,
+            "conversation",
+            undefined,
+            attachments,
+          );
           const conversationDraft = createConversationComposerDraft(
             trimmedInput,
             attachments,
@@ -1197,9 +1210,19 @@ function AppContent(
           return;
         }
 
-        recordPromptHistory(replState, code, "conversation");
+        recordPromptHistory(
+          replState,
+          code,
+          "conversation",
+          undefined,
+          attachments,
+        );
+        const expandedText = expandConversationDraftText(
+          trimmedInput,
+          attachments,
+        );
         const { attachments: conversationAttachments, unsupportedMimeType } =
-          prepareConversationAttachmentPayload(attachments);
+          prepareConversationAttachmentPayload(attachments, trimmedInput);
         if (unsupportedMimeType) {
           conversationRef.current.addHqlEval(code, {
             success: false,
@@ -1214,15 +1237,21 @@ function AppContent(
         setSurfacePanel("conversation");
         setIsEvaluating(true);
         void runConversation(
-          trimmedInput,
+          expandedText,
           conversationAttachments,
-          {},
+          { displayText: trimmedInput },
         );
         return;
       }
 
       if (currentEvalRef.current && !currentEvalRef.current.backgrounded) {
-        recordPromptHistory(replState, code, "evaluate");
+        recordPromptHistory(
+          replState,
+          code,
+          "evaluate",
+          undefined,
+          attachments,
+        );
         const queuedEval = createConversationComposerDraft(
           trimmedInput,
           attachments,
@@ -1236,7 +1265,13 @@ function AppContent(
         return;
       }
       if (agentControllerRef.current) {
-        recordPromptHistory(replState, code, "evaluate");
+        recordPromptHistory(
+          replState,
+          code,
+          "evaluate",
+          undefined,
+          attachments,
+        );
         const queuedEval = createConversationComposerDraft(
           trimmedInput,
           attachments,
@@ -1250,7 +1285,13 @@ function AppContent(
         return;
       }
 
-      recordPromptHistory(replState, code, "evaluate");
+      recordPromptHistory(
+        replState,
+        code,
+        "evaluate",
+        undefined,
+        attachments,
+      );
       setIsEvaluating(true);
 
       // Evaluate (with optional attachments)
@@ -1660,21 +1701,26 @@ function AppContent(
   ]);
   const activityRailRows = buildActivityRailRows({
     currentTurn: currentTurnRailItem,
-    localAgents: localAgentEntries,
-    memberActivity: teamState.memberActivity,
     teamState,
     width: shellContentWidth,
   });
-  const activityRailRowCount = activityRailRows
+  const localAgentsPanelModel = buildLocalAgentsStatusPanelModel(
+    localAgentEntries,
+    shellContentWidth,
+    {
+      focused: localAgentsFocused,
+      leader: {
+        activityText: currentTurnRailItem?.text,
+        idleText: teamWorkerSummary
+          ? `Idle · ${teamWorkerSummary}`
+          : "Idle",
+      },
+    },
+  );
+  const activityRailRowCount = !localAgentsPanelModel && activityRailRows
     ? activityRailRows.rows.length + (activityRailRows.overflow ? 1 : 0)
     : 0;
-  const localAgentsBarRows = localAgentsFocused && shouldRenderLocalAgentsBar(
-      localAgentEntries,
-      localAgentsFocused,
-      teamWorkerSummary,
-    )
-    ? 1
-    : 0;
+  const localAgentsPanelRows = localAgentsPanelModel?.rowCount ?? 0;
   const transcriptReservedRows = 10 +
     SHELL_LAYOUT.transcriptToComposerGap +
     composerShellState.queuePreviewRows +
@@ -1684,7 +1730,7 @@ function AppContent(
       ? Math.min(conversation.liveItems.length + liveTodoCount + 2, 12)
       : 0) +
     activityRailRowCount +
-    localAgentsBarRows;
+    localAgentsPanelRows;
   return (
     <Box
       flexDirection="column"
@@ -1875,6 +1921,21 @@ function AppContent(
         </Box>
       )}
 
+      {localAgentsPanelModel && (
+        <LocalAgentsStatusPanel
+          model={localAgentsPanelModel}
+          width={shellContentWidth}
+        />
+      )}
+
+      {!localAgentsPanelModel && activityRailRows && (
+        <ActivityRail
+          currentTurn={currentTurnRailItem}
+          teamState={teamState}
+          width={shellContentWidth}
+        />
+      )}
+
       {/* Input line */}
       {!isOverlayOpen && isInputVisible &&
         (
@@ -1916,29 +1977,6 @@ function AppContent(
               : undefined}
           />
         )}
-
-      {activityRailRows && (
-        <ActivityRail
-          currentTurn={currentTurnRailItem}
-          localAgents={localAgentEntries}
-          memberActivity={teamState.memberActivity}
-          teamState={teamState}
-          width={shellContentWidth}
-        />
-      )}
-
-      {localAgentsFocused && shouldRenderLocalAgentsBar(
-        localAgentEntries,
-        localAgentsFocused,
-        teamWorkerSummary,
-      ) && (
-        <LocalAgentsBar
-          entries={localAgentEntries}
-          focused={localAgentsFocused}
-          teamWorkerSummary={teamWorkerSummary}
-          width={shellContentWidth}
-        />
-      )}
 
       {/* Footer hint (directly under input, no gap) */}
       {(isInputVisible || hasConversationContext) &&

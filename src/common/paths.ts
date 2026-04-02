@@ -272,6 +272,13 @@ export function getHistoryPath(): string {
 }
 
 /**
+ * Get the history pasted-text store directory (~/.hlvm/history-pastes)
+ */
+export function getHistoryPasteStoreDir(): string {
+  return join(getHlvmDir(), "history-pastes");
+}
+
+/**
  * Get the user-global MCP config path (~/.hlvm/mcp.json)
  */
 export function getMcpConfigPath(): string {

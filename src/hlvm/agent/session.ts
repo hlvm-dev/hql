@@ -20,6 +20,7 @@ import { type AgentPolicy, loadAgentPolicy } from "./policy.ts";
 import {
   classifyModelTier,
   computeTierToolFilter,
+  DEFAULT_TOOL_DENYLIST,
   ENGINE_PROFILES,
   extractModelSuffix,
   extractProviderName,
@@ -62,6 +63,7 @@ import {
   resolveProviderExecutionPlanForSession,
 } from "./execution-surface-runtime.ts";
 import {
+  isMemorySystemMessage,
   isPersistentMemoryEnabled,
   loadMemorySystemMessage,
 } from "../memory/mod.ts";
@@ -102,6 +104,23 @@ interface AgentSessionOptions {
   executionSurface?: ExecutionSurface;
 }
 
+interface RefreshAgentSessionOptions {
+  /** Optional callback for streaming tokens to the terminal */
+  onToken?: (text: string) => void;
+  /** Disable persistent memory injection for this turn. */
+  disablePersistentMemory?: boolean;
+  /** Loaded instruction hierarchy (global + project). */
+  instructions?: InstructionHierarchy;
+  /** Preloaded agent profiles for delegation guidance. */
+  agentProfiles?: readonly AgentProfile[];
+  /** Session-scoped runtime mode for prompt/routing behavior. */
+  runtimeMode?: RuntimeMode;
+  /** Precomputed provider execution plan for the turn. */
+  providerExecutionPlan?: ResolvedProviderExecutionPlan;
+  /** Precomputed execution surface for the turn. */
+  executionSurface?: ExecutionSurface;
+}
+
 export interface AgentSession {
   context: ContextManager;
   llm: LLMFunction;
@@ -137,7 +156,7 @@ export interface AgentSession {
   /** Session-resolved web capability plan reused across prompt/tool execution. */
   webCapabilityPlan?: ResolvedWebCapabilityPlan;
   /** Lazy MCP loader (connect/register only when first needed). */
-  ensureMcpLoaded?: () => Promise<void>;
+  ensureMcpLoaded?: (signal?: AbortSignal) => Promise<void>;
   /** Deferred MCP handler registration (sampling, elicitation, roots) */
   mcpSetHandlers?: (handlers: McpHandlers) => void;
   /** Wire an AbortSignal to cancel all pending MCP requests */
@@ -153,6 +172,7 @@ export interface AgentSession {
     CompiledPrompt,
     | "sections"
     | "cacheSegments"
+    | "stableCacheProfile"
     | "instructionSources"
     | "signatureHash"
     | "mode"
@@ -160,6 +180,8 @@ export interface AgentSession {
   >;
   /** Resolved instruction hierarchy — passed to child agents (delegation/team). */
   instructions?: InstructionHierarchy;
+  /** Preloaded agent profiles used for delegation/team prompt guidance. */
+  agentProfiles?: readonly AgentProfile[];
 }
 
 /** Try to get ModelInfo from the provider (best-effort, non-blocking) */
@@ -190,6 +212,150 @@ function mergeMcpHandlers(
   };
 }
 
+function buildCompiledPromptArtifacts(options: {
+  toolAllowlist?: string[];
+  toolDenylist?: string[];
+  toolOwnerId: string;
+  instructions?: InstructionHierarchy;
+  modelTier: ModelTier;
+  agentProfiles?: readonly AgentProfile[];
+  runtimeMode: RuntimeMode;
+  executionSurface: ExecutionSurface;
+  providerExecutionPlan?: ResolvedProviderExecutionPlan;
+}): {
+  compiledPrompt: NonNullable<AgentLLMConfig["compiledPrompt"]>;
+  compiledPromptMeta: AgentSession["compiledPromptMeta"];
+  systemPromptText: string;
+} {
+  const compiled = compileSystemPrompt({
+    toolAllowlist: options.toolAllowlist,
+    toolDenylist: options.toolDenylist,
+    toolOwnerId: options.toolOwnerId,
+    instructions: options.instructions,
+    modelTier: options.modelTier,
+    agentProfiles: options.agentProfiles,
+    runtimeMode: options.runtimeMode,
+    executionSurface: options.executionSurface,
+    providerExecutionPlan: options.providerExecutionPlan,
+  });
+
+  return {
+    compiledPrompt: {
+      text: compiled.text,
+      cacheSegments: compiled.cacheSegments,
+      signatureHash: compiled.signatureHash,
+      stableCacheProfile: compiled.stableCacheProfile,
+    },
+    compiledPromptMeta: {
+      sections: compiled.sections,
+      cacheSegments: compiled.cacheSegments,
+      stableCacheProfile: compiled.stableCacheProfile,
+      instructionSources: compiled.instructionSources,
+      signatureHash: compiled.signatureHash,
+      mode: compiled.mode,
+      tier: compiled.tier,
+    },
+    systemPromptText: compiled.text,
+  };
+}
+
+async function injectPersistentMemoryContext(options: {
+  context: ContextManager;
+  maxContextTokens: number;
+  disablePersistentMemory?: boolean;
+}): Promise<void> {
+  if (!isPersistentMemoryEnabled(options.disablePersistentMemory)) {
+    return;
+  }
+  try {
+    const memoryMessage = await loadMemorySystemMessage(options.maxContextTokens);
+    if (memoryMessage) {
+      options.context.addMessage(memoryMessage);
+    }
+  } catch {
+    // Memory loading is best-effort — don't block session creation/reuse.
+  }
+}
+
+export async function refreshReusableAgentSession(
+  session: AgentSession,
+  options: RefreshAgentSessionOptions = {},
+): Promise<AgentSession> {
+  const runtimeMode = options.runtimeMode ?? session.runtimeMode;
+  const providerExecutionPlan = options.providerExecutionPlan ??
+    session.providerExecutionPlan;
+  const executionSurface = options.executionSurface ?? session.executionSurface;
+  const instructions = options.instructions ?? session.instructions;
+  const agentProfiles = options.agentProfiles ?? session.agentProfiles;
+  const allowlist = session.toolFilterState?.allowlist ??
+    session.llmConfig?.toolAllowlist;
+  const denylist = session.toolFilterState?.denylist ??
+    session.llmConfig?.toolDenylist;
+  const promptArtifacts = buildCompiledPromptArtifacts({
+    toolAllowlist: allowlist,
+    toolDenylist: denylist,
+    toolOwnerId: session.toolOwnerId,
+    instructions,
+    modelTier: session.modelTier,
+    agentProfiles,
+    runtimeMode,
+    executionSurface,
+    providerExecutionPlan,
+  });
+
+  const context = new ContextManager(session.context.getConfig());
+  context.addMessage({
+    role: "system",
+    content: promptArtifacts.systemPromptText,
+  });
+
+  const previousPromptText = session.llmConfig?.compiledPrompt?.text;
+  for (const message of session.context.getMessages()) {
+    if (
+      message.role !== "system" ||
+      message.content === previousPromptText ||
+      isMemorySystemMessage(message.content)
+    ) {
+      continue;
+    }
+    context.addMessage({ role: "system", content: message.content });
+  }
+
+  await injectPersistentMemoryContext({
+    context,
+    maxContextTokens: session.resolvedContextBudget.budget,
+    disablePersistentMemory: options.disablePersistentMemory,
+  });
+
+  const llmConfig = session.llmConfig
+    ? {
+      ...session.llmConfig,
+      onToken: options.onToken,
+      runtimeMode,
+      providerExecutionPlan,
+      executionSurface,
+      compiledPrompt: promptArtifacts.compiledPrompt,
+    }
+    : undefined;
+  const llm = llmConfig
+    ? (session.engine ?? getAgentEngine()).createLLM(llmConfig)
+    : session.llm;
+
+  return {
+    ...session,
+    llm,
+    context,
+    llmConfig,
+    providerExecutionPlan,
+    runtimeMode,
+    executionSurface,
+    webCapabilityPlan: providerExecutionPlan?.web,
+    compiledPromptMeta: promptArtifacts.compiledPromptMeta,
+    instructions,
+    agentProfiles,
+  };
+}
+
 export async function createAgentSession(
   options: AgentSessionOptions,
 ): Promise<AgentSession> {
@@ -212,10 +378,13 @@ export async function createAgentSession(
   // Compute model tier BEFORE MCP loading (weak models skip MCP entirely)
   const isFrontier = isFrontierProvider(options.model);
   const modelTier = classifyModelTier(modelInfo, isFrontier);
+  const effectiveToolDenylist = options.toolDenylist?.length
+    ? [...options.toolDenylist]
+    : [...DEFAULT_TOOL_DENYLIST];
   const tierFilter = computeTierToolFilter(
     modelTier,
     options.toolAllowlist,
-    options.toolDenylist,
+    effectiveToolDenylist,
   );
   const baseToolFilter: ToolFilterState = {
     allowlist: cloneToolList(tierFilter.allowlist),
@@ -257,8 +426,9 @@ export async function createAgentSession(
     }
   };
 
-  const ensureMcpLoaded = async (): Promise<void> => {
+  const ensureMcpLoaded = async (signal?: AbortSignal): Promise<void> => {
     if (modelTier === "weak") return;
+    if (signal?.aborted) throw new Error("MCP load aborted");
     if (loadedMcp) {
       applyMcpBindings(loadedMcp);
       return;
@@ -368,40 +538,29 @@ export async function createAgentSession(
 
   const context = new ContextManager(contextConfig);
 
-  // Compile prompt — single path via compileSystemPrompt (SSOT for tool resolution + prompt assembly).
-  const compiled = compileSystemPrompt({
+  const promptArtifacts = buildCompiledPromptArtifacts({
     toolAllowlist: toolFilterState.allowlist,
     toolDenylist: toolFilterState.denylist,
     toolOwnerId,
-    instructions: options.instructions,
     modelTier,
+    instructions: options.instructions,
     agentProfiles: options.agentProfiles,
     runtimeMode,
     executionSurface,
     providerExecutionPlan,
   });
-  context.addMessage({ role: "system", content: compiled.text });
-  const compiledPromptMeta: AgentSession["compiledPromptMeta"] = {
-    sections: compiled.sections,
-    cacheSegments: compiled.cacheSegments,
-    instructionSources: compiled.instructionSources,
-    signatureHash: compiled.signatureHash,
-    mode: compiled.mode,
-    tier: compiled.tier,
-  };
+  context.addMessage({
+    role: "system",
+    content: promptArtifacts.systemPromptText,
+  });
 
   // Inject memory as a SEPARATE system message (not embedded in main prompt).
-  // This allows reuseSession() to refresh memory without duplicating it.
-  if (isPersistentMemoryEnabled(options.disablePersistentMemory)) {
-    try {
-      const memoryMessage = await loadMemorySystemMessage(resolved.budget);
-      if (memoryMessage) {
-        context.addMessage(memoryMessage);
-      }
-    } catch {
-      // Memory loading is best-effort — don't block session creation
-    }
-  }
+  // This allows reusable-session refresh to replace it without duplicating stale memory.
+  await injectPersistentMemoryContext({
+    context,
+    maxContextTokens: resolved.budget,
+    disablePersistentMemory: options.disablePersistentMemory,
+  });
 
   const thinkingCapable = supportsNativeThinking({
     model: options.model,
@@ -431,11 +590,7 @@ export async function createAgentSession(
       runtimeMode,
       providerExecutionPlan,
       executionSurface,
-      compiledPrompt: {
-        text: compiled.text,
-        cacheSegments: compiled.cacheSegments,
-        signatureHash: compiled.signatureHash,
-      },
+      compiledPrompt: promptArtifacts.compiledPrompt,
     };
   const llm = options.fixturePath
     ? createFixtureLLM(await loadLlmFixture(options.fixturePath))
@@ -488,7 +643,8 @@ export async function createAgentSession(
     todoState: createTodoState(),
     fileStateCache,
     lspDiagnostics,
-    compiledPromptMeta,
+    compiledPromptMeta: promptArtifacts.compiledPromptMeta,
     instructions: options.instructions,
+    agentProfiles: options.agentProfiles,
   };
 }

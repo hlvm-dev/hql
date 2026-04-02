@@ -24,6 +24,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { getAgentLogger } from "../logger.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
+import { http } from "../../../common/http-client.ts";
 import type {
   McpPromptInfo,
   McpPromptMessage,
@@ -55,10 +56,49 @@ const NOTIFICATION_SCHEMAS: Record<string, any> = {
 };
 
 // ============================================================
+// Fetch Helpers
+// ============================================================
+
+/**
+ * Wraps the SSOT http client with a per-request timeout. Each call creates a
+ * fresh AbortController that fires after `timeoutMs`. If the caller already
+ * provides a signal via RequestInit, both signals are composed so either can abort.
+ */
+function wrapFetchWithTimeout(
+  timeoutMs: number,
+): typeof globalThis.fetch {
+  return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort("MCP HTTP request timeout"), timeoutMs);
+
+    // Compose with caller-provided signal if present
+    const callerSignal = init?.signal;
+    if (callerSignal?.aborted) {
+      clearTimeout(timer);
+      controller.abort(callerSignal.reason);
+    } else if (callerSignal) {
+      callerSignal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        controller.abort(callerSignal.reason);
+      }, { once: true });
+    }
+
+    // Use SSOT http.fetchRaw — cast required because SDK passes standard
+    // RequestInit but http.fetchRaw expects HttpOptions & RequestInit.
+    // deno-lint-ignore no-explicit-any
+    return http.fetchRaw(String(input), { ...init, signal: controller.signal, timeout: timeoutMs } as any)
+      .finally(() => clearTimeout(timer));
+  };
+}
+
+const MCP_HTTP_REQUEST_TIMEOUT_MS = 60_000;
+
+// ============================================================
 // SdkMcpClient — Adapter wrapping SDK Client
 // ============================================================
 
 export class SdkMcpClient {
+  private static readonly MAX_PENDING_PER_METHOD = 100;
   private client: Client;
   private readonly serverConfig: McpServerConfig;
   private transport:
@@ -141,12 +181,17 @@ export class SdkMcpClient {
 
   private async connectClient(): Promise<void> {
     if (this.serverConfig.url || this.serverConfig.transport === "http") {
-      // HTTP transport
+      // HTTP transport — per-request timeout + Accept header
       const url = new URL(this.serverConfig.url!);
+      const baseHeaders = this.serverConfig.headers ?? {};
       this.transport = new StreamableHTTPClientTransport(url, {
         requestInit: {
-          headers: this.serverConfig.headers ?? {},
+          headers: {
+            ...baseHeaders,
+            Accept: "application/json, text/event-stream",
+          },
         },
+        fetch: wrapFetchWithTimeout(MCP_HTTP_REQUEST_TIMEOUT_MS),
       });
     } else {
       // Stdio transport
@@ -162,6 +207,19 @@ export class SdkMcpClient {
     await this.client.connect(this.transport);
     this.connectionState.connected = true;
     this.connectionState.reconnectAttempts = 0;
+
+    // Capture stderr from stdio child processes for diagnostics
+    if (this.transport instanceof StdioClientTransport) {
+      const stderr = (this.transport as unknown as { stderr?: { on?: (event: string, cb: (chunk: unknown) => void) => void } }).stderr;
+      if (stderr?.on) {
+        stderr.on("data", (chunk: unknown) => {
+          const text = typeof chunk === "string" ? chunk : String(chunk);
+          getAgentLogger().debug(
+            `MCP stderr (${this.serverConfig.name}): ${text.trim()}`,
+          );
+        });
+      }
+    }
   }
 
   async close(): Promise<void> {
@@ -170,7 +228,12 @@ export class SdkMcpClient {
     this.closed = true;
     this.connectionState.connected = false;
     try {
-      await this.client.close();
+      await Promise.race([
+        this.client.close(),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error("MCP close timeout")), 5_000)
+        ),
+      ]);
     } catch (error) {
       getAgentLogger().debug(
         `MCP close error (${this.serverConfig.name}): ${getErrorMessage(error)}`,
@@ -205,8 +268,7 @@ export class SdkMcpClient {
     const statusCode = this.extractStatusCode(error);
     const jsonRpcCode = this.extractJsonRpcCode(error);
     if (
-      statusCode === 404 ||
-      jsonRpcCode === -32001 ||
+      (statusCode === 404 && jsonRpcCode === -32001) ||
       message.includes("session expired")
     ) {
       return "session_expired";
@@ -233,8 +295,19 @@ export class SdkMcpClient {
   }
 
   private async reconnectWithBackoff(): Promise<void> {
+    // Stdio transports have limited reconnect capability — log a warning.
+    // The SDK's StdioClientTransport may restart the child process, so we
+    // still attempt reconnection but with reduced attempts.
+    const isStdio = this.transport instanceof StdioClientTransport;
+    const maxAttempts = isStdio ? 2 : 5;
+    if (isStdio) {
+      getAgentLogger().debug(
+        `MCP stdio server "${this.serverConfig.name}" disconnected — attempting restart`,
+      );
+    }
+
     let lastError: unknown;
-    for (let attempt = 1; attempt <= 5; attempt++) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       this.connectionState.reconnectAttempts = attempt;
       try {
         this.cancelAllPending("MCP reconnect");
@@ -252,7 +325,7 @@ export class SdkMcpClient {
         lastError = error;
         this.connectionState.connected = false;
         const delayMs = Math.min(30_000, 1000 * (2 ** (attempt - 1)));
-        if (attempt < 5) {
+        if (attempt < maxAttempts) {
           await this.delayReconnect(delayMs);
         }
       }
@@ -634,8 +707,11 @@ export class SdkMcpClient {
         if (!this.pendingRequests.has(method)) {
           this.pendingRequests.set(method, []);
         }
-        const queue = this.pendingRequests.get(method);
-        if (!queue) return;
+        const queue = this.pendingRequests.get(method)!;
+        if (queue.length >= SdkMcpClient.MAX_PENDING_PER_METHOD) {
+          const dropped = queue.shift()!;
+          dropped.reject(new Error("MCP pending request queue overflow"));
+        }
         queue.push({
           params: request.params,
           resolve,

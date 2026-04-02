@@ -66,6 +66,7 @@ export interface UserItem {
   type: "user";
   id: string;
   text: string;
+  submittedText?: string;
   attachments?: ConversationAttachmentRef[];
   ts: number;
   turnId?: string;
@@ -214,9 +215,13 @@ export interface TeamMemberActivityInfoItem extends InfoItem {
     | "plan_step"
     | "tool_start"
     | "tool_end"
-    | "turn_stats";
+      | "turn_stats";
   status: "active" | "success" | "error";
   summary: string;
+  durationMs?: number;
+  toolCount?: number;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface TeamPlanReviewInfoItem extends InfoItem {

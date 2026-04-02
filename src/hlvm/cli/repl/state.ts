@@ -10,12 +10,26 @@ import {
   type HistoryEntryMetadata,
   HistoryStorage,
 } from "./history-storage.ts";
+import { cloneAttachments } from "./attachment.ts";
 import { log } from "../../api/log.ts";
 
 // Pre-compiled regex patterns (avoid compilation per-call)
 /** Matches function parameter declarations in all JS function forms */
 const JS_FUNCTION_PARAMS_REGEX = /^(?:async\s+)?(?:function\s*\*?\s*\w*\s*)?\(([^)]*)\)|^(\w+)\s*=>/;
 let replSessionCounter = 0;
+
+function getHistoryAttachmentSignature(
+  attachments?: HistoryEntryMetadata["attachments"],
+): string {
+  return attachments?.map((attachment) =>
+    [
+      attachment.id,
+      attachment.attachmentId,
+      attachment.type,
+      attachment.displayName,
+    ].join(":")
+  ).join("\u0001") ?? "";
+}
 
 /**
  * Extract parameter names from a JavaScript function.
@@ -224,7 +238,12 @@ export class ReplState {
 
   /** Get structured command history with timestamps */
   get historyEntries(): HistoryEntry[] {
-    return this._historyEntries.map((entry) => ({ ...entry }));
+    return this._historyEntries.map((entry) => ({
+      ...entry,
+      attachments: entry.attachments?.length
+        ? cloneAttachments(entry.attachments)
+        : undefined,
+    }));
   }
 
   /** Add to history (also persists to disk if initialized) */
@@ -234,7 +253,9 @@ export class ReplState {
     const isDuplicate = !!last &&
       last.cmd === trimmed &&
       last.source === metadata.source &&
-      last.language === metadata.language;
+      last.language === metadata.language &&
+      getHistoryAttachmentSignature(last.attachments) ===
+        getHistoryAttachmentSignature(metadata.attachments);
     if (trimmed && !isDuplicate) {
       this._history.push(trimmed);
       const entry = this._historyInitialized && this.historyStorage
@@ -244,6 +265,9 @@ export class ReplState {
           cmd: trimmed,
           source: metadata.source,
           language: metadata.language,
+          attachments: metadata.attachments?.length
+            ? cloneAttachments(metadata.attachments)
+            : undefined,
         };
       if (entry) {
         this._historyEntries.push(entry);

@@ -223,6 +223,56 @@ Deno.test({
 });
 
 Deno.test({
+  name:
+    "Orchestrator: executeToolCall treats structured success:false payloads as tool failures",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const events: AgentUIEvent[] = [];
+    const toolName = uniqueToolName("structured_failure");
+
+    await withTemporaryTool(
+      toolName,
+      {
+        fn: async () => ({
+          success: false,
+          message: "File has not been fully read in this session. Re-read with read_file before editing.",
+        }),
+        description: "structured failure test tool",
+        args: {},
+        safetyLevel: "L0",
+      },
+      async () => {
+        const result = await executeToolCall(
+          { toolName, args: {} },
+          {
+            workspace: TEST_WORKSPACE,
+            context,
+            permissionMode: "bypassPermissions",
+            onAgentEvent: (event) => events.push(event),
+          },
+        );
+
+        assertEquals(result.success, false);
+        assertEquals(
+          result.error,
+          "File has not been fully read in this session. Re-read with read_file before editing.",
+        );
+        const toolEnd = events.findLast((event) => event.type === "tool_end");
+        assertEquals(toolEnd?.type, "tool_end");
+        if (toolEnd?.type === "tool_end") {
+          assertEquals(toolEnd.success, false);
+          assertEquals(
+            toolEnd.content,
+            "File has not been fully read in this session. Re-read with read_file before editing.",
+          );
+        }
+      },
+    );
+  },
+});
+
+Deno.test({
   name: "Orchestrator: executeToolCall lazy-loads MCP tools on demand",
   async fn() {
     resetApprovals();

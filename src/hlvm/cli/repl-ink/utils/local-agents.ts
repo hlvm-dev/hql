@@ -5,6 +5,10 @@ import type {
   TeamMemberItem,
 } from "../hooks/useTeamState.ts";
 import {
+  deriveMemberActivityProgress,
+  findRecentActivityItem,
+} from "./team-activity.ts";
+import {
   isDelegateTask,
   type Task,
 } from "../../repl/task-manager/index.ts";
@@ -36,6 +40,15 @@ export interface LocalAgentEntry {
   foregroundable?: boolean;
   overlayTarget: "team-dashboard" | "background-tasks";
   overlayItemId: string;
+  progress?: LocalAgentProgress;
+}
+
+export interface LocalAgentProgress {
+  activityText?: string;
+  previewLines: string[];
+  toolUseCount?: number;
+  tokenCount?: number;
+  durationMs?: number;
 }
 
 const LOCAL_AGENT_STATUS_ORDER: LocalAgentStatus[] = [
@@ -65,12 +78,6 @@ const LOCAL_AGENT_STATUS_SUMMARY_LABEL: Record<LocalAgentStatus, string> = {
 
 function statusPriority(status: LocalAgentStatus): number {
   return LOCAL_AGENT_STATUS_PRIORITY.get(status) ?? LOCAL_AGENT_STATUS_ORDER.length;
-}
-
-function getRecentActivity(
-  activities: MemberActivityItem[] | undefined,
-): MemberActivityItem | undefined {
-  return activities?.find((activity) => activity.summary.trim().length > 0);
 }
 
 function summarizeBlockedDependencies(task: TaskBoardItem): string {
@@ -258,6 +265,85 @@ function summarizeDelegateDetail(task: Task): string {
   return "Cancelled";
 }
 
+function dedupePreviewLines(
+  lines: readonly string[],
+  activityText?: string,
+  limit = 3,
+): string[] {
+  const seen = new Set<string>();
+  const normalizedActivity = activityText?.trim();
+  const next: string[] = [];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (normalizedActivity && line === normalizedActivity) continue;
+    if (seen.has(line)) continue;
+    seen.add(line);
+    next.push(line);
+    if (next.length >= limit) break;
+  }
+  return next;
+}
+
+function getDelegateTokenCount(task: Task): number | undefined {
+  if (!isDelegateTask(task) || !task.snapshot) return undefined;
+  const latestTurnStats = [...task.snapshot.events].reverse().find((event) =>
+    event.type === "turn_stats" &&
+    (event.inputTokens != null || event.outputTokens != null)
+  );
+  if (!latestTurnStats || latestTurnStats.type !== "turn_stats") {
+    return undefined;
+  }
+  const tokenCount = (latestTurnStats.inputTokens ?? 0) +
+    (latestTurnStats.outputTokens ?? 0);
+  return tokenCount > 0 ? tokenCount : undefined;
+}
+
+function getTaskDurationMs(task: Task): number | undefined {
+  if (isDelegateTask(task) && task.snapshot?.durationMs != null) {
+    return task.snapshot.durationMs;
+  }
+  if (task.status === "running" && task.startedAt != null) {
+    return Math.max(0, Date.now() - task.startedAt);
+  }
+  if (task.completedAt != null && task.startedAt != null) {
+    return Math.max(0, task.completedAt - task.startedAt);
+  }
+  return undefined;
+}
+
+function buildDelegateProgress(task: Task): LocalAgentProgress {
+  const activityText = summarizeDelegateDetail(task);
+  const transcriptLines = isDelegateTask(task)
+    ? listDelegateTranscriptLines(task.snapshot)
+    : [];
+  return {
+    activityText,
+    previewLines: dedupePreviewLines(transcriptLines.slice(-4), activityText),
+    toolUseCount: isDelegateTask(task) && task.snapshot?.toolCount &&
+        task.snapshot.toolCount > 0
+      ? task.snapshot.toolCount
+      : undefined,
+    tokenCount: getDelegateTokenCount(task),
+    durationMs: getTaskDurationMs(task),
+  };
+}
+
+function buildTeammateProgress(
+  activities: MemberActivityItem[] | undefined,
+  preferredActivityText?: string,
+): LocalAgentProgress {
+  const derived = deriveMemberActivityProgress(activities);
+  const activityText = preferredActivityText?.trim() || derived.activityText;
+  return {
+    activityText,
+    previewLines: dedupePreviewLines(derived.previewLines, activityText),
+    toolUseCount: derived.toolUseCount,
+    tokenCount: derived.tokenCount,
+    durationMs: derived.durationMs,
+  };
+}
+
 function delegateStatusMeta(task: Task): {
   status: LocalAgentStatus;
   statusLabel: string;
@@ -333,7 +419,8 @@ export function buildLocalAgentEntries(
   const teammateEntries = members
     .filter((member) => member.role === "worker")
     .flatMap((member) => {
-      const recentActivity = getRecentActivity(memberActivity[member.id]);
+      const activities = memberActivity[member.id];
+      const recentActivity = findRecentActivityItem(activities);
       const latestTask = findLatestMemberTask(member, taskBoard);
       const pendingApproval = pendingApprovals.find((approval) =>
         approval.status === "pending" && approval.submittedByMemberId === member.id
@@ -355,6 +442,7 @@ export function buildLocalAgentEntries(
         pendingApproval,
         pendingInteraction,
       );
+      const progress = buildTeammateProgress(activities, derived.detail);
 
       return [{
         id: `teammate:${member.id}`,
@@ -373,6 +461,7 @@ export function buildLocalAgentEntries(
           Boolean(member.threadId),
         overlayTarget: "team-dashboard" as const,
         overlayItemId: `member-${member.id}`,
+        progress,
       }];
     });
 
@@ -380,6 +469,7 @@ export function buildLocalAgentEntries(
     .filter(isDelegateTask)
     .map((task) => {
       const { status, statusLabel } = delegateStatusMeta(task);
+      const progress = buildDelegateProgress(task);
       return {
         id: `delegate:${task.id}`,
         kind: "delegate" as const,
@@ -390,11 +480,12 @@ export function buildLocalAgentEntries(
         label: task.task,
         status,
         statusLabel,
-        detail: summarizeDelegateDetail(task),
+        detail: progress.activityText,
         interruptible: status === "running",
         foregroundable: false,
         overlayTarget: "background-tasks" as const,
         overlayItemId: `bg:${task.id}`,
+        progress,
       };
     });
 

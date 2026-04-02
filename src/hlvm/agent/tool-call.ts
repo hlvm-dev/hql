@@ -20,6 +20,21 @@ interface LLMUsage {
   outputTokens: number;
 }
 
+/** Normalized timing/cache metrics surfaced from the provider call path. */
+export interface LLMPerformance {
+  providerName: string;
+  modelId: string;
+  latencyMs: number;
+  firstTokenLatencyMs?: number;
+  promptSignatureHash?: string;
+  stableCacheSignatureHash?: string;
+  stableSegmentCount?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+}
+
 export type LLMCompletionState =
   | "complete"
   | "truncated_max_tokens"
@@ -45,6 +60,8 @@ export interface LLMResponse {
   completionState?: LLMCompletionState;
   /** Provider-reported token usage (if available) */
   usage?: LLMUsage;
+  /** Normalized timing/cache metrics from the provider call path. */
+  performance?: LLMPerformance;
   /** Provider-native sources returned by the model runtime. */
   sources?: LLMSource[];
   /** Provider-native metadata returned by the model runtime. */

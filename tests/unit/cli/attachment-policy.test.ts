@@ -87,6 +87,44 @@ Deno.test("attachment policy: text-only models can accept PDF attachments via ex
   });
 });
 
+Deno.test("attachment policy: non-vision Gemini models fall back to extracted PDF text", async () => {
+  await withTempHlvmDir(async () => {
+    const pdf = await registerUploadedAttachment({
+      fileName: "gemini.pdf",
+      bytes: new TextEncoder().encode(`%PDF-1.4\n1 0 obj\n(Gemini PDF)\nendobj\n%%EOF`),
+      mimeType: "application/pdf",
+    });
+
+    const support = await checkModelAttachmentIds(
+      "google/gemini-1.5-flash",
+      [pdf.id],
+      createModelInfo(["chat"]),
+    );
+
+    assertEquals(support.supported, true);
+    assertEquals(support.unsupportedKind, undefined);
+  });
+});
+
+Deno.test("attachment policy: non-vision Gemma models fall back to extracted PDF text", async () => {
+  await withTempHlvmDir(async () => {
+    const pdf = await registerUploadedAttachment({
+      fileName: "gemma.pdf",
+      bytes: new TextEncoder().encode(`%PDF-1.4\n1 0 obj\n(Gemma PDF)\nendobj\n%%EOF`),
+      mimeType: "application/pdf",
+    });
+
+    const support = await checkModelAttachmentIds(
+      "google/gemma3:12b",
+      [pdf.id],
+      createModelInfo(["chat"]),
+    );
+
+    assertEquals(support.supported, true);
+    assertEquals(support.unsupportedKind, undefined);
+  });
+});
+
 Deno.test("attachment policy: Anthropic models accept PDF attachments without vision", async () => {
   const support = await checkModelAttachmentMimeTypes(
     "anthropic/claude-sonnet-4-5-20250929",

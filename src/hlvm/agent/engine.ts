@@ -56,7 +56,7 @@ export interface AgentLLMConfig {
   /** Compiled system prompt metadata used for cache-boundary-aware emission. */
   compiledPrompt?: Pick<
     CompiledPrompt,
-    "text" | "cacheSegments" | "signatureHash"
+    "text" | "cacheSegments" | "signatureHash" | "stableCacheProfile"
   >;
   /** Auto-mode only: allow one narrow route downgrade retry on provider capability rejection. */
   onProviderNativeRouteFailure?: (options: {

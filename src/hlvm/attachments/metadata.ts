@@ -408,5 +408,8 @@ export function getTextAttachmentDisplayName(
   index: number,
   lineCount: number,
 ): string {
+  if (lineCount <= 0) {
+    return `[Pasted text #${index}]`;
+  }
   return `[Pasted text #${index} +${lineCount} lines]`;
 }

@@ -5,8 +5,9 @@
  * while the canonical attachment bytes/metadata live in src/hlvm/attachments/.
  */
 
-import { countLines, truncate } from "../../../common/utils.ts";
+import { countLines } from "../../../common/utils.ts";
 import { formatBytes } from "../../../common/limits.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 import {
   detectAttachmentMimeType,
   getAttachmentDisplayName,
@@ -63,8 +64,33 @@ export interface AttachmentError {
   path: string;
 }
 
+export interface AttachmentReferenceMatch {
+  id: number;
+  kind: "text" | "attachment";
+  match: string;
+  index: number;
+}
+
 const TEXT_COLLAPSE_MIN_LINES = 5;
 const TEXT_COLLAPSE_MIN_CHARS = 300;
+const TEXT_ATTACHMENT_REFERENCE_PATTERN =
+  /\[Pasted text #(\d+)(?:: [^\]]*)?(?: \+\d+ lines)?\]/g;
+const BINARY_ATTACHMENT_REFERENCE_PATTERN =
+  /\[(Image|Video|Audio|PDF|Document|File) #(\d+)\]/g;
+
+function resolveAttachmentPath(path: string): string {
+  const platform = getPlatform();
+  const trimmed = path.trim();
+  if (trimmed.startsWith("~")) {
+    const home = platform.env.get("HOME");
+    if (!home) return platform.path.normalize(trimmed);
+    const suffix = trimmed.slice(1).replace(/^[/\\]+/, "");
+    return suffix.length > 0
+      ? platform.path.join(home, suffix)
+      : home;
+  }
+  return platform.path.normalize(trimmed);
+}
 
 export function isSupportedConversationMedia(path: string): boolean {
   return isSupportedConversationAttachmentMimeType(
@@ -75,6 +101,18 @@ export function isSupportedConversationMedia(path: string): boolean {
 
 export function isSupportedConversationAttachmentPath(_path: string): boolean {
   return true;
+}
+
+export function isAutoAttachableConversationAttachmentPath(path: string): boolean {
+  const resolvedPath = resolveAttachmentPath(path);
+  if (!isSupportedConversationMedia(resolvedPath)) {
+    return false;
+  }
+  try {
+    return getPlatform().fs.statSync(resolvedPath).isFile;
+  } catch {
+    return false;
+  }
 }
 
 export function detectMimeType(path: string): string {
@@ -159,6 +197,22 @@ export function isAttachment(
   return "attachmentId" in result;
 }
 
+export function cloneAttachment(attachment: AnyAttachment): AnyAttachment {
+  if ("content" in attachment) {
+    return { ...attachment };
+  }
+  return {
+    ...attachment,
+    metadata: attachment.metadata ? { ...attachment.metadata } : undefined,
+  };
+}
+
+export function cloneAttachments(
+  attachments?: readonly AnyAttachment[],
+): AnyAttachment[] {
+  return attachments?.map((attachment) => cloneAttachment(attachment)) ?? [];
+}
+
 export function shouldCollapseText(text: string): boolean {
   const lineCount = countLines(text);
   if (lineCount < 2) {
@@ -172,42 +226,100 @@ export function getTextDisplayName(id: number, lineCount: number): string {
   return getTextAttachmentDisplayName(id, lineCount);
 }
 
-function buildPastedTextPreview(content: string): string {
-  const flattened = content
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!flattened) return "";
-  if (flattened.length <= 48) {
-    return flattened;
+export function getPastedTextReferenceLineCount(content: string): number {
+  return Math.max(0, countLines(content) - 1);
+}
+
+export function parseAttachmentReferences(
+  text: string,
+): AttachmentReferenceMatch[] {
+  const refs: AttachmentReferenceMatch[] = [];
+
+  for (const match of text.matchAll(TEXT_ATTACHMENT_REFERENCE_PATTERN)) {
+    const id = Number(match[1]);
+    if (!Number.isFinite(id) || id <= 0 || typeof match.index !== "number") {
+      continue;
+    }
+    refs.push({
+      id,
+      kind: "text",
+      match: match[0],
+      index: match.index,
+    });
   }
-  const head = flattened.slice(0, 28).trimEnd();
-  const tail = flattened.slice(-16).trimStart();
-  return `${head} ... ${tail}`;
+
+  for (const match of text.matchAll(BINARY_ATTACHMENT_REFERENCE_PATTERN)) {
+    const id = Number(match[2]);
+    if (!Number.isFinite(id) || id <= 0 || typeof match.index !== "number") {
+      continue;
+    }
+    refs.push({
+      id,
+      kind: "attachment",
+      match: match[0],
+      index: match.index,
+    });
+  }
+
+  return refs.sort((left, right) => left.index - right.index);
+}
+
+export function filterReferencedAttachments(
+  text: string,
+  attachments: readonly AnyAttachment[],
+): AnyAttachment[] {
+  if (attachments.length === 0) return [];
+  const referencedIds = new Set(parseAttachmentReferences(text).map((ref) => ref.id));
+  if (referencedIds.size === 0) return [];
+  return attachments.filter((attachment) => referencedIds.has(attachment.id));
+}
+
+export function expandTextAttachmentReferences(
+  text: string,
+  attachments: readonly AnyAttachment[],
+): string {
+  const refs = parseAttachmentReferences(text);
+  if (refs.length === 0) {
+    return text;
+  }
+
+  const textById = new Map<number, string>();
+  for (const attachment of attachments) {
+    if ("content" in attachment) {
+      textById.set(attachment.id, attachment.content);
+    }
+  }
+  if (textById.size === 0) {
+    return text;
+  }
+
+  let expanded = text;
+  for (let i = refs.length - 1; i >= 0; i--) {
+    const ref = refs[i]!;
+    if (ref.kind !== "text") continue;
+    const content = textById.get(ref.id);
+    if (content === undefined) continue;
+    expanded =
+      expanded.slice(0, ref.index) +
+      content +
+      expanded.slice(ref.index + ref.match.length);
+  }
+  return expanded;
 }
 
 export function getPastedTextPreviewLabel(
   id: number,
   content: string,
-  lineCount = countLines(content),
+  lineCount = getPastedTextReferenceLineCount(content),
 ): string {
-  const preview = buildPastedTextPreview(content);
-  const lineSuffix = lineCount > 1 ? ` +${lineCount} lines` : "";
-  if (!preview) {
-    return getTextDisplayName(id, lineCount);
-  }
-  return truncate(
-    `[Pasted text #${id}: ${preview}${lineSuffix}]`,
-    96,
-  );
+  return getTextDisplayName(id, lineCount);
 }
 
 export async function createTextAttachment(
   content: string,
   id: number,
 ): Promise<TextAttachment | AttachmentError> {
-  const lineCount = countLines(content);
+  const lineCount = getPastedTextReferenceLineCount(content);
   try {
     const record = await registerTextAttachment(content, `pasted-text-${id}.txt`);
     return {

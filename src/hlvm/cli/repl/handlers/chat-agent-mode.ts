@@ -90,7 +90,7 @@ export async function handleAgentMode(
   const lastUserMessage = getLastUserMessage(body.messages);
   const query = lastUserMessage?.content ?? "";
   const attachmentMaterializationOptions =
-    getConversationMaterializationOptionsForModel(
+    await getConversationMaterializationOptionsForModel(
       resolvedModel,
       modelInfo ?? null,
     );

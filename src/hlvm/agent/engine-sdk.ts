@@ -26,6 +26,7 @@ import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type {
   LLMCompletionState,
+  LLMPerformance,
   LLMResponse,
   ToolCall,
 } from "./tool-call.ts";
@@ -69,6 +70,7 @@ import {
   mapSdkSources,
   mapSdkUsage,
   maybeHandleSdkAuthError,
+  normalizeProviderCacheMetrics,
   normalizeProviderMetadata,
   resolveSdkStreamFailure,
   type SdkModelSpec as SdkRuntimeModelSpec,
@@ -417,6 +419,12 @@ function buildStableSignature(value: unknown): string {
   return fnv1aHex(JSON.stringify(canonicalizeForSignature(value)) ?? "null");
 }
 
+interface ResolvedPromptCacheProfile {
+  stableSegmentCount: number;
+  stablePromptSignature: readonly string[];
+  stableCacheSignatureHash: string;
+}
+
 function buildOpenAIPromptCacheKey(
   spec: ResolvedModelSpec,
   stablePromptSignature: readonly string[],
@@ -436,6 +444,26 @@ function flattenSystemPrompt(system: SystemPromptValue | undefined): string {
   if (!system) return "";
   if (typeof system === "string") return system;
   return system.map((message) => message.content).join("\n\n");
+}
+
+function resolvePromptCacheProfile(
+  compiledPrompt: AgentLLMConfig["compiledPrompt"],
+  system: SystemPromptValue | undefined,
+): ResolvedPromptCacheProfile {
+  const stableSegmentCount = compiledPrompt?.stableCacheProfile.stableSegmentCount ??
+    0;
+  const stablePromptSignature =
+    compiledPrompt?.stableCacheProfile.stableSegmentHashes?.length
+      ? compiledPrompt.stableCacheProfile.stableSegmentHashes
+      : [flattenSystemPrompt(system)];
+
+  return {
+    stableSegmentCount,
+    stablePromptSignature,
+    stableCacheSignatureHash: compiledPrompt?.stableCacheProfile
+        .stableSignatureHash ??
+      buildStableSignature(stablePromptSignature),
+  };
 }
 
 function buildSystemPromptValue(
@@ -485,13 +513,10 @@ function buildSystemPromptValue(
 
 function withAnthropicSystemCacheBreakpoints(
   system: SystemPromptValue | undefined,
-  compiledPrompt: AgentLLMConfig["compiledPrompt"],
+  stableSegmentCount: number,
 ): SystemPromptValue | undefined {
   if (!system) return undefined;
 
-  const stableSegmentCount = compiledPrompt?.cacheSegments.filter((segment) =>
-    segment.stability !== "turn"
-  ).length ?? 0;
   const systemMessages = typeof system === "string"
     ? [{ role: "system", content: system } satisfies SystemModelMessage]
     : system.slice();
@@ -502,19 +527,6 @@ function withAnthropicSystemCacheBreakpoints(
       ? withProviderOptions(message, ANTHROPIC_EPHEMERAL_CACHE)
       : message
   );
-}
-
-function buildStablePromptSignature(
-  compiledPrompt: AgentLLMConfig["compiledPrompt"],
-  system: SystemPromptValue | undefined,
-): readonly string[] {
-  const stableHashes = compiledPrompt?.cacheSegments.filter((segment) =>
-    segment.stability !== "turn"
-  ).map((segment) => segment.contentHash) ?? [];
-  if (stableHashes.length > 0) {
-    return stableHashes;
-  }
-  return [flattenSystemPrompt(system)];
 }
 
 function googleThinkingBudgetForLevel(
@@ -545,18 +557,20 @@ export function applyPromptCaching(
   messages: ModelMessage[];
   tools: ToolSet;
   providerOptions?: ProviderOptionsMap;
+  cacheProfile: ResolvedPromptCacheProfile;
 } {
   let decoratedSystem = system;
   let decoratedMessages = messages;
   let decoratedTools = tools;
   let decoratedProviderOptions = providerOptions;
+  const cacheProfile = resolvePromptCacheProfile(compiledPrompt, system);
 
   if (
     spec.providerName === "anthropic" || spec.providerName === "claude-code"
   ) {
     decoratedSystem = withAnthropicSystemCacheBreakpoints(
       system,
-      compiledPrompt,
+      cacheProfile.stableSegmentCount,
     );
     decoratedMessages = messages.slice();
     if (decoratedMessages.length > 0) {
@@ -584,7 +598,7 @@ export function applyPromptCaching(
       openai: {
         promptCacheKey: buildOpenAIPromptCacheKey(
           spec,
-          buildStablePromptSignature(compiledPrompt, decoratedSystem),
+          cacheProfile.stablePromptSignature,
           toolSchemaSignature,
           toolFilterSignature,
         ),
@@ -597,6 +611,53 @@ export function applyPromptCaching(
     messages: decoratedMessages,
     tools: decoratedTools,
     providerOptions: decoratedProviderOptions,
+    cacheProfile,
+  };
+}
+
+export function buildLlmPerformanceSnapshot(options: {
+  spec: ResolvedModelSpec;
+  compiledPrompt: AgentLLMConfig["compiledPrompt"];
+  cacheProfile: ResolvedPromptCacheProfile;
+  latencyMs: number;
+  firstTokenLatencyMs?: number;
+  usage?: unknown;
+  providerMetadata?: unknown;
+}): LLMPerformance {
+  const normalizedUsage = isRecord(options.usage)
+    ? mapSdkUsage({
+      inputTokens: typeof options.usage.inputTokens === "number"
+        ? options.usage.inputTokens
+        : undefined,
+      outputTokens: typeof options.usage.outputTokens === "number"
+        ? options.usage.outputTokens
+        : undefined,
+    })
+    : undefined;
+  const cacheMetrics = normalizeProviderCacheMetrics({
+    usage: options.usage,
+    providerMetadata: options.providerMetadata,
+  });
+
+  return {
+    providerName: options.spec.providerName,
+    modelId: options.spec.modelId,
+    latencyMs: options.latencyMs,
+    ...(options.firstTokenLatencyMs !== undefined
+      ? { firstTokenLatencyMs: options.firstTokenLatencyMs }
+      : {}),
+    ...(options.compiledPrompt?.signatureHash
+      ? { promptSignatureHash: options.compiledPrompt.signatureHash }
+      : {}),
+    stableCacheSignatureHash: options.cacheProfile.stableCacheSignatureHash,
+    stableSegmentCount: options.cacheProfile.stableSegmentCount,
+    ...(normalizedUsage
+      ? {
+        inputTokens: normalizedUsage.inputTokens,
+        outputTokens: normalizedUsage.outputTokens,
+      }
+      : {}),
+    ...(cacheMetrics ?? {}),
   };
 }
 
@@ -941,6 +1002,7 @@ export class SdkAgentEngine implements AgentEngine {
           }),
           toolFilterSignature,
         );
+        const requestStartedAt = Date.now();
         const commonOpts = {
           model,
           ...(cacheDecorated.system ? { system: cacheDecorated.system } : {}),
@@ -962,6 +1024,7 @@ export class SdkAgentEngine implements AgentEngine {
           const tokenSink = callOptions?.onToken ?? config.onToken;
           if (tokenSink) {
             // Streaming path
+            let firstTokenLatencyMs: number | undefined;
             const result = streamText({
               ...commonOpts,
               onError: ({ error }) => {
@@ -972,6 +1035,13 @@ export class SdkAgentEngine implements AgentEngine {
             // Feed tokens to callback as they arrive
             const chunks: string[] = [];
             for await (const chunk of result.textStream) {
+              if (
+                firstTokenLatencyMs === undefined &&
+                typeof chunk === "string" &&
+                chunk.length > 0
+              ) {
+                firstTokenLatencyMs = Date.now() - requestStartedAt;
+              }
               chunks.push(chunk);
               tokenSink(chunk);
             }
@@ -1000,6 +1070,9 @@ export class SdkAgentEngine implements AgentEngine {
               mapSdkToolCalls(toolCalls),
               providerExecutionPlan,
             );
+            const normalizedProviderMetadata = normalizeProviderMetadata(
+              providerMetadata,
+            );
 
             return {
               content: chunks.join("") || text || "",
@@ -1010,7 +1083,16 @@ export class SdkAgentEngine implements AgentEngine {
               ),
               usage: mapSdkUsage(usage),
               sources: mapSdkSources(sources),
-              providerMetadata: normalizeProviderMetadata(providerMetadata),
+              providerMetadata: normalizedProviderMetadata,
+              performance: buildLlmPerformanceSnapshot({
+                spec,
+                compiledPrompt: config.compiledPrompt,
+                cacheProfile: cacheDecorated.cacheProfile,
+                latencyMs: Date.now() - requestStartedAt,
+                firstTokenLatencyMs,
+                usage,
+                providerMetadata: normalizedProviderMetadata,
+              }),
               reasoning: extractReasoningText(reasoning),
               sdkResponseMessages: response?.messages,
             };
@@ -1022,6 +1104,9 @@ export class SdkAgentEngine implements AgentEngine {
             mapSdkToolCalls(result.toolCalls),
             providerExecutionPlan,
           );
+          const normalizedProviderMetadata = normalizeProviderMetadata(
+            result.providerMetadata,
+          );
           return {
             content: result.text || "",
             toolCalls: mappedToolCalls,
@@ -1031,9 +1116,15 @@ export class SdkAgentEngine implements AgentEngine {
             ),
             usage: mapSdkUsage(result.usage),
             sources: mapSdkSources(result.sources),
-            providerMetadata: normalizeProviderMetadata(
-              result.providerMetadata,
-            ),
+            providerMetadata: normalizedProviderMetadata,
+            performance: buildLlmPerformanceSnapshot({
+              spec,
+              compiledPrompt: config.compiledPrompt,
+              cacheProfile: cacheDecorated.cacheProfile,
+              latencyMs: Date.now() - requestStartedAt,
+              usage: result.usage,
+              providerMetadata: normalizedProviderMetadata,
+            }),
             reasoning: extractReasoningText(result.reasoning),
             sdkResponseMessages: result.response?.messages,
           };
@@ -1076,6 +1167,7 @@ export class SdkAgentEngine implements AgentEngine {
               | undefined;
             let fallbackSources;
             let fallbackProviderMetadata;
+            let fallbackRawUsage: unknown;
 
             try {
               const fallback = await generateText(commonOpts);
@@ -1084,6 +1176,7 @@ export class SdkAgentEngine implements AgentEngine {
                 mapSdkToolCalls(fallback.toolCalls),
               );
               fallbackUsage = mapSdkUsage(fallback.usage);
+              fallbackRawUsage = fallback.usage;
               fallbackSources = mapSdkSources(fallback.sources);
               fallbackProviderMetadata = normalizeProviderMetadata(
                 fallback.providerMetadata,
@@ -1118,6 +1211,14 @@ export class SdkAgentEngine implements AgentEngine {
               usage: fallbackUsage,
               sources: fallbackSources,
               providerMetadata: fallbackProviderMetadata,
+              performance: buildLlmPerformanceSnapshot({
+                spec,
+                compiledPrompt: config.compiledPrompt,
+                cacheProfile: cacheDecorated.cacheProfile,
+                latencyMs: Date.now() - requestStartedAt,
+                usage: fallbackRawUsage,
+                providerMetadata: fallbackProviderMetadata,
+              }),
             };
           }
           throw executionError;

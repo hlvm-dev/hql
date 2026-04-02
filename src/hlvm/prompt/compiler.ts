@@ -16,6 +16,7 @@ import {
   type PromptCompilerInput,
   type PromptSection,
   type PromptSectionStability,
+  type PromptStableCacheProfile,
   type SectionManifestEntry,
 } from "./types.ts";
 
@@ -76,6 +77,20 @@ function buildCacheSegments(filtered: PromptSection[]): PromptCacheSegment[] {
   return segments;
 }
 
+function buildStableCacheProfile(
+  cacheSegments: readonly PromptCacheSegment[],
+): PromptStableCacheProfile {
+  const stableSegmentHashes = cacheSegments
+    .filter((segment) => segment.stability !== "turn")
+    .map((segment) => segment.contentHash);
+
+  return {
+    stableSegmentCount: stableSegmentHashes.length,
+    stableSegmentHashes,
+    stableSignatureHash: fnv1aHex(stableSegmentHashes.join("\n")),
+  };
+}
+
 /**
  * Compile a prompt from structured input.
  *
@@ -99,6 +114,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     cacheEligible: s.stability !== "turn",
   }));
   const cacheSegments = buildCacheSegments(filtered);
+  const stableCacheProfile = buildStableCacheProfile(cacheSegments);
 
   // Build instruction source manifest for observability.
   // Record any source that was attempted, even if the file was missing.
@@ -131,6 +147,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     tier: input.tier,
     sections,
     cacheSegments,
+    stableCacheProfile,
     instructionSources,
     signatureHash,
   };

@@ -16,6 +16,7 @@ import React, {
 } from "react";
 import { Box } from "ink";
 import type { ComposerLanguage } from "../../repl/composer-language.ts";
+import { filterReferencedAttachments } from "../../repl/attachment.ts";
 import { isBalanced } from "../../repl/syntax.ts";
 import type { ReplState } from "../../repl/state.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
@@ -206,7 +207,7 @@ export const ComposerSurface = forwardRef<
   const getCurrentDraft = useCallback((): ConversationComposerDraft => {
     return createConversationComposerDraft(
       inputRef.current,
-      attachmentsRef.current,
+      filterReferencedAttachments(inputRef.current, attachmentsRef.current),
     );
   }, []);
 
@@ -217,7 +218,13 @@ export const ComposerSurface = forwardRef<
       : queuedKind === "command"
       ? "command"
       : "conversation";
-    recordPromptHistory(replState, draft.text, historyKind);
+    recordPromptHistory(
+      replState,
+      draft.text,
+      historyKind,
+      undefined,
+      draft.attachments,
+    );
     setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
       enqueueConversationDraft(prev, draft)
     );

@@ -53,11 +53,12 @@ import {
 } from "../../repl/keyboard.ts";
 import {
   detectMimeType,
+  filterReferencedAttachments,
   getAttachmentType,
   getDisplayName,
   getPastedTextPreviewLabel,
   isAttachment,
-  isSupportedConversationAttachmentPath,
+  isAutoAttachableConversationAttachmentPath,
   shouldCollapseText,
 } from "../../repl/attachment.ts";
 import {
@@ -401,7 +402,7 @@ export function Input({
     historyIndexRef.current = idx;
     setHistoryIndex(idx);
   }, []);
-  const [tempInput, setTempInput] = useState("");
+  const tempHistoryDraftRef = useRef<ConversationComposerDraft | null>(null);
 
   // Theme from context
   const { color } = useTheme();
@@ -423,9 +424,22 @@ export function Input({
     addAttachmentWithId,
     addTextAttachmentWithId,
     reserveNextId,
+    replaceAttachments,
+    syncAttachments,
     clearAttachments,
     lastError: attachmentError,
   } = attachmentState;
+
+  useEffect(() => {
+    const nextAttachments = filterReferencedAttachments(value, attachments);
+    const matchesCurrent = nextAttachments.length === attachments.length &&
+      nextAttachments.every((attachment, index) =>
+        attachment.id === attachments[index]?.id
+      );
+    if (!matchesCurrent) {
+      syncAttachments(nextAttachments);
+    }
+  }, [attachments, syncAttachments, value]);
 
   // Memoize attached file paths so @ picker filters already-attached files
   const attachedPathsSet = useMemo(() => {
@@ -535,7 +549,7 @@ export function Input({
     setPlaceholderIndex(-1);
     setSuggestion(null);
     updateHistoryIndex(-1);
-    setTempInput("");
+    tempHistoryDraftRef.current = null;
     setCursorPos(
       Math.max(
         0,
@@ -982,7 +996,7 @@ export function Input({
       exitPlaceholderMode();
       setSuggestion(null);
       updateHistoryIndex(-1);
-      setTempInput("");
+      tempHistoryDraftRef.current = null;
       onChange("");
       setCursorPos(0);
       clearAttachments();
@@ -1270,7 +1284,7 @@ export function Input({
     clearPasteBuffer();
     cancelPendingEsc();
     updateHistoryIndex(-1);
-    setTempInput("");
+    tempHistoryDraftRef.current = null;
     completion.close();
     historySearch.actions.cancelSearch();
     exitPlaceholderMode();
@@ -1297,9 +1311,10 @@ export function Input({
     if (!onForceSubmit) return;
     const trimmed = value.trim();
     if (!trimmed) return;
+    const referencedAttachments = filterReferencedAttachments(trimmed, attachments);
     onForceSubmit(
       trimmed,
-      attachments.length > 0 ? attachments : undefined,
+      referencedAttachments.length > 0 ? referencedAttachments : undefined,
     );
     resetAfterSubmit();
   }, [attachments, onForceSubmit, resetAfterSubmit, value]);
@@ -1310,7 +1325,11 @@ export function Input({
 
     const finalValue = resolveSuggestionValue(value, suggestion, "submit");
     const trimmedDraft = trimConversationDraftText(finalValue, cursorPos);
-    const hasAttachments = attachments.length > 0;
+    const referencedAttachments = filterReferencedAttachments(
+      trimmedDraft.text,
+      attachments,
+    );
+    const hasAttachments = referencedAttachments.length > 0;
     if (!trimmedDraft.text && !hasAttachments) {
       return false;
     }
@@ -1318,7 +1337,7 @@ export function Input({
     onQueueDraft(
       createConversationComposerDraft(
         trimmedDraft.text,
-        attachments.length > 0 ? attachments : [],
+        referencedAttachments,
         trimmedDraft.cursorOffset,
       ),
     );
@@ -1474,12 +1493,16 @@ export function Input({
     if (direction < 0) {
       // Up arrow - go back in history
       if (currentIdx === -1) {
-        // FIX H5: Save current input value directly (captured at call time)
+        tempHistoryDraftRef.current = createConversationComposerDraft(
+          value,
+          attachments,
+          cursorPos,
+        );
         const entry = historyEntries[historyEntries.length - 1];
-        setTempInput(value);
         updateHistoryIndex(historyEntries.length - 1);
         pendingValueRef.current = entry.cmd;
         onChange(entry.cmd);
+        replaceAttachments(entry.attachments ?? []);
         setCursorPos(entry.cmd.length);
         tracePromptHistoryEvent({
           event: "history-up",
@@ -1493,6 +1516,7 @@ export function Input({
         updateHistoryIndex(currentIdx - 1);
         pendingValueRef.current = entry.cmd;
         onChange(entry.cmd);
+        replaceAttachments(entry.attachments ?? []);
         setCursorPos(entry.cmd.length);
         tracePromptHistoryEvent({
           event: "history-up",
@@ -1511,6 +1535,7 @@ export function Input({
         updateHistoryIndex(currentIdx + 1);
         pendingValueRef.current = entry.cmd;
         onChange(entry.cmd);
+        replaceAttachments(entry.attachments ?? []);
         setCursorPos(entry.cmd.length);
         tracePromptHistoryEvent({
           event: "history-down",
@@ -1521,24 +1546,28 @@ export function Input({
         });
       } else {
         // Restore temp input
+        const tempDraft = tempHistoryDraftRef.current;
         updateHistoryIndex(-1);
-        pendingValueRef.current = tempInput;
-        onChange(tempInput);
-        setCursorPos(tempInput.length);
+        pendingValueRef.current = tempDraft?.text ?? "";
+        onChange(tempDraft?.text ?? "");
+        replaceAttachments(tempDraft?.attachments ?? []);
+        setCursorPos(tempDraft?.cursorOffset ?? 0);
         tracePromptHistoryEvent({
           event: "history-restore-draft",
-          text: tempInput,
+          text: tempDraft?.text ?? "",
         });
       }
     }
   }, [
+    attachments,
+    cursorPos,
     historyEntries,
-    tempInput,
     value,
     onChange,
     pushUndo,
     clearPasteBuffer,
     completion,
+    replaceAttachments,
     updateHistoryIndex,
   ]);
 
@@ -2070,9 +2099,10 @@ export function Input({
           completion.close();
           setSuggestion(null);
           updateHistoryIndex(-1);
-          setTempInput("");
+          tempHistoryDraftRef.current = null;
           pendingValueRef.current = selected.cmd;
           onChange(selected.cmd);
+          replaceAttachments(selected.attachments ?? []);
           setCursorPos(selected.cmd.length);
           tracePromptHistoryEvent({
             event: "history-search-confirm",
@@ -2490,7 +2520,7 @@ export function Input({
           pushUndo();
           pendingValueRef.current = "";
           updateHistoryIndex(-1);
-          setTempInput("");
+          tempHistoryDraftRef.current = null;
           onChange("");
           setCursorPos(0);
           clearAttachments();
@@ -3062,9 +3092,8 @@ export function Input({
         const isAbsolutePath = cleanText.startsWith("/") ||
           cleanText.startsWith("~");
 
-        if (
-          isAbsolutePath && isSupportedConversationAttachmentPath(cleanText)
-        ) {
+        if (isAbsolutePath &&
+          isAutoAttachableConversationAttachmentPath(cleanText)) {
           const id = reserveNextId();
           const mimeType = detectMimeType(cleanText);
           const type = getAttachmentType(mimeType);

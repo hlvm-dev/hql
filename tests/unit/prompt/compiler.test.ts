@@ -402,6 +402,16 @@ Deno.test("compiler: cacheSegments collapse adjacent sections with the same stab
     result.cacheSegments.map((segment) => segment.text).join("\n\n"),
     result.text,
   );
+  assertEquals(
+    result.stableCacheProfile.stableSegmentCount,
+    result.cacheSegments.filter((segment) => segment.stability !== "turn")
+      .length,
+  );
+  assertEquals(
+    result.stableCacheProfile.stableSegmentHashes,
+    result.cacheSegments.filter((segment) => segment.stability !== "turn")
+      .map((segment) => segment.contentHash),
+  );
 });
 
 Deno.test("compiler: turn-only changes affect only the turn cache segment hash", () => {
@@ -417,6 +427,10 @@ Deno.test("compiler: turn-only changes affect only the turn cache segment hash",
     segmentHash(withoutTurn, "session"),
   );
   assertEquals(segmentHash(base, "turn") === segmentHash(withoutTurn, "turn"), false);
+  assertEquals(
+    compilePrompt(base).stableCacheProfile.stableSignatureHash,
+    compilePrompt(withoutTurn).stableCacheProfile.stableSignatureHash,
+  );
 });
 
 Deno.test("compiler: session-stable changes do not churn the static cache segment hash", () => {
@@ -429,6 +443,11 @@ Deno.test("compiler: session-stable changes do not churn the static cache segmen
 
   assertEquals(segmentHash(first, "static"), segmentHash(second, "static"));
   assertEquals(segmentHash(first, "session") === segmentHash(second, "session"), false);
+  assertEquals(
+    compilePrompt(first).stableCacheProfile.stableSignatureHash ===
+      compilePrompt(second).stableCacheProfile.stableSignatureHash,
+    false,
+  );
 });
 
 Deno.test("compiler: tier changes churn the static cache segment hash", () => {

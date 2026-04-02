@@ -191,11 +191,11 @@ export function describeConversationAttachmentMimeTypeError(
   return `Attachment unsupported: ${mimeType}. Supported inputs are ${describeSupportedAttachmentInputs()}.`;
 }
 
-export function getConversationMaterializationOptionsForModel(
+export async function getConversationMaterializationOptionsForModel(
   modelName: string,
   modelInfo: ModelInfo | null,
-): ConversationAttachmentMaterializationOptions {
-  const supportedKinds = getSupportedAttachmentKindsForModel(
+) : Promise<ConversationAttachmentMaterializationOptions> {
+  const supportedKinds = await resolveSupportedAttachmentKindsForModel(
     modelName,
     modelInfo,
   );
@@ -252,7 +252,7 @@ export async function checkModelAttachmentIds(
     };
   }
   const resolvedMimeTypes: string[] = [];
-  const materializationOptions = getConversationMaterializationOptionsForModel(
+  const materializationOptions = await getConversationMaterializationOptionsForModel(
     modelName,
     modelInfo,
   );
@@ -311,7 +311,7 @@ export function describeAttachmentFailure(
     const supported = check.supportedKinds.map((k) => describeAttachmentKind(k)).join(
       ", ",
     );
-    return `${modelName} does not support this attachment type (${kindLabel}). Supported: ${supported}.`;
+    return `${modelName} does not support ${kindLabel} attachments. Supported: ${supported}.`;
   }
 
   if (check.unsupportedMimeType) {

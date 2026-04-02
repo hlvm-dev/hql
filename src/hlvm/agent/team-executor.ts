@@ -225,6 +225,16 @@ export async function runTeammateLoop(
             ? "success"
             : "error"
           : "active",
+        durationMs: "durationMs" in activity ? activity.durationMs : undefined,
+        toolCount: activity.type === "turn_stats"
+          ? activity.toolCount
+          : undefined,
+        inputTokens: activity.type === "turn_stats"
+          ? activity.inputTokens
+          : undefined,
+        outputTokens: activity.type === "turn_stats"
+          ? activity.outputTokens
+          : undefined,
       });
       return;
     }

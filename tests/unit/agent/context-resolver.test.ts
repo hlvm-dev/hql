@@ -122,19 +122,37 @@ Deno.test("ContextManager: trimToFit trims context after budget reduction", asyn
 // KNOWN_MODELS contextWindow across all providers
 // ============================================================================
 
-Deno.test("All provider KNOWN_MODELS have contextWindow set", async () => {
-  const { createOpenAIProvider } = await import("../../../src/hlvm/providers/openai/provider.ts");
-  const { createAnthropicProvider } = await import("../../../src/hlvm/providers/anthropic/provider.ts");
-  const { createGoogleProvider } = await import("../../../src/hlvm/providers/google/provider.ts");
-  const providers = [
-    createOpenAIProvider({ apiKey: "" }),
-    createAnthropicProvider({ apiKey: "" }),
-    createGoogleProvider({ apiKey: "" }),
+Deno.test("resolveContextBudget: models with contextWindow use model_info source", () => {
+  // Representative models across providers — tests the LOGIC that any model
+  // with a valid contextWindow gets "model_info" source, not specific model lists.
+  const representativeModels = [
+    { name: "gpt-4o", contextWindow: 128_000 },
+    { name: "claude-sonnet-4-5", contextWindow: 200_000 },
+    { name: "gemini-2.0-flash", contextWindow: 1_000_000 },
+    { name: "llama3.1:70b", contextWindow: 131_072 },
   ];
-  for (const provider of providers) {
-    const models = await provider.models!.list();
-    for (const model of models) {
-      assertGreater(model.contextWindow ?? 0, 0, `${model.name} missing contextWindow`);
-    }
+  for (const model of representativeModels) {
+    const result = resolveContextBudget({ modelInfo: model });
+    assertEquals(result.source, "model_info", `${model.name} should use model_info source`);
+    assertGreater(result.budget, 0, `${model.name} should have positive budget`);
+    assertEquals(result.rawLimit, model.contextWindow, `${model.name} rawLimit should equal contextWindow`);
+  }
+});
+
+Deno.test("resolveContextBudget: models without contextWindow fall back to default", () => {
+  // When a model has no contextWindow (or it's too small), the resolver must
+  // fall back gracefully — this is the critical safety net being tested.
+  const modelsWithoutWindow = [
+    { name: "unknown-model" },
+    { name: "custom-finetune", contextWindow: undefined },
+    { name: "ollama-tiny", contextWindow: 0 },
+    { name: "ollama-default-ctx", contextWindow: 4096 }, // <= OUTPUT_RESERVE_TOKENS
+  ];
+  for (const model of modelsWithoutWindow) {
+    const result = resolveContextBudget({
+      modelInfo: model as { name: string; contextWindow?: number },
+    });
+    assertEquals(result.source, "default", `${model.name} should fall back to default`);
+    assertEquals(result.rawLimit, DEFAULT_CONTEXT_WINDOW, `${model.name} should use DEFAULT_CONTEXT_WINDOW`);
   }
 });

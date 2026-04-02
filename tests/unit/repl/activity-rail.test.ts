@@ -1,7 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { buildActivityRailRows } from "../../../src/hlvm/cli/repl-ink/components/ActivityRail.tsx";
 import type { TeamDashboardState } from "../../../src/hlvm/cli/repl-ink/hooks/useTeamState.ts";
-import type { LocalAgentEntry } from "../../../src/hlvm/cli/repl-ink/utils/local-agents.ts";
 
 function emptyTeamState(): TeamDashboardState {
   return {
@@ -27,28 +26,8 @@ function emptyTeamState(): TeamDashboardState {
   };
 }
 
-function makeAgent(
-  overrides: Partial<LocalAgentEntry> = {},
-): LocalAgentEntry {
-  return {
-    id: "agent-1",
-    kind: "delegate",
-    name: "alpha",
-    label: "Investigate",
-    status: "running",
-    statusLabel: "running",
-    detail: "Reading files",
-    interruptible: true,
-    overlayTarget: "background-tasks",
-    overlayItemId: "item-1",
-    ...overrides,
-  };
-}
-
 Deno.test("activity rail: returns null when there is no active state", () => {
   const model = buildActivityRailRows({
-    localAgents: [],
-    memberActivity: {},
     teamState: emptyTeamState(),
     width: 80,
   });
@@ -67,15 +46,12 @@ Deno.test("activity rail: current turn state takes priority over agents and team
 
   const model = buildActivityRailRows({
     currentTurn: { text: "continuing response", tone: "active" },
-    localAgents: [makeAgent()],
-    memberActivity: {},
     teamState,
     width: 80,
   });
 
   assertEquals(model?.rows[0]?.text, "turn · continuing response");
-  assertEquals(model?.rows[1]?.text, "agent · alpha · running · Reading files");
-  assertEquals(model?.rows[2]?.text, "team · 1 plan review waiting");
+  assertEquals(model?.rows[1]?.text, "team · 1 plan review waiting");
 });
 
 Deno.test("activity rail: limits to three rows and collapses overflow", () => {
@@ -101,28 +77,32 @@ Deno.test("activity rail: limits to three rows and collapses overflow", () => {
 
   const model = buildActivityRailRows({
     currentTurn: { text: "waiting for approval", tone: "warning" },
-    localAgents: [makeAgent(), makeAgent({ id: "agent-2", name: "beta" })],
-    memberActivity: {},
     teamState,
     width: 80,
   });
 
   assertEquals(model?.rows.length, 3);
-  assertEquals(model?.overflow, "+3 more");
+  assertEquals(model?.overflow, "+1 more");
 });
 
-Deno.test("activity rail: truncates rows to width and maps tones from agent status", () => {
+Deno.test("activity rail: truncates rows to width and preserves warning tone", () => {
+  const teamState = emptyTeamState();
+  teamState.pendingApprovals = [{
+    id: "approval-1",
+    taskId: "task-1",
+    submittedByMemberId: "worker-1",
+    status: "pending",
+  }];
+
   const model = buildActivityRailRows({
-    localAgents: [makeAgent({
-      status: "failed",
-      statusLabel: "failed",
-      detail: "A very long description that should be truncated to fit the available rail width.",
-    })],
-    memberActivity: {},
-    teamState: emptyTeamState(),
+    currentTurn: {
+      text: "A very long description that should be truncated to fit the available rail width.",
+      tone: "warning",
+    },
+    teamState,
     width: 24,
   });
 
-  assertEquals(model?.rows[0]?.tone, "error");
+  assertEquals(model?.rows[0]?.tone, "warning");
   assertEquals((model?.rows[0]?.text.length ?? 0) <= 24, true);
 });

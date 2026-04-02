@@ -213,6 +213,20 @@ export type TraceEvent =
     usage: TokenUsage;
   }
   | {
+    type: "llm_performance";
+    providerName: string;
+    modelId: string;
+    latencyMs: number;
+    firstTokenLatencyMs?: number;
+    promptSignatureHash?: string;
+    stableCacheSignatureHash?: string;
+    stableSegmentCount?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+  }
+  | {
     type: "thinking_profile";
     iteration: number;
     phase: string;
@@ -261,6 +275,7 @@ export type TraceEvent =
     tier: import("./constants.ts").ModelTier;
     sections: import("../prompt/types.ts").SectionManifestEntry[];
     cacheSegments: import("../prompt/types.ts").PromptCacheSegment[];
+    stableCacheProfile: import("../prompt/types.ts").PromptStableCacheProfile;
     instructionSources: import("../prompt/types.ts").InstructionSource[];
     signatureHash: string;
   }
@@ -475,6 +490,10 @@ export type AgentUIEvent =
       | "turn_stats";
     summary: string;
     status: "active" | "success" | "error";
+    durationMs?: number;
+    toolCount?: number;
+    inputTokens?: number;
+    outputTokens?: number;
   }
   | {
     type: "memory_activity";
@@ -588,7 +607,7 @@ export interface OrchestratorConfig {
   /** Top-level delegate owner used to scope background agent control tools. */
   delegateOwnerId?: string;
   /** Optional lazy MCP loader called on demand. */
-  ensureMcpLoaded?: () => Promise<void>;
+  ensureMcpLoaded?: (signal?: AbortSignal) => Promise<void>;
   requireToolCalls?: boolean;
   maxToolCallRetries?: number;
   noInput?: boolean;
@@ -1235,6 +1254,12 @@ async function runLlmResponsePass(
     );
   }
   onTrace?.({ type: "llm_usage", usage });
+  if (agentResponse.performance) {
+    onTrace?.({
+      type: "llm_performance",
+      ...agentResponse.performance,
+    });
+  }
 
   if (config.delegateTokenBudget) {
     const totalTokens = (usage.promptTokens ?? 0) +

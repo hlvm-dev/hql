@@ -408,7 +408,7 @@ export async function executeToolCall(
     (toolCall.toolName.startsWith("mcp_") ||
       toolCall.toolName === "tool_search")
   ) {
-    await config.ensureMcpLoaded();
+    await config.ensureMcpLoaded(config.signal);
   }
 
   // Normalize tool name (handle camelCase, casing, separators)
@@ -1056,6 +1056,17 @@ export async function executeToolCall(
         });
         result = attachWriteVerification(result, verification);
       }
+    }
+
+    const structuredFailure = getStructuredFailureMessage(result);
+    if (structuredFailure) {
+      return buildToolErrorResult(
+        toolCall.toolName,
+        structuredFailure,
+        startedAt,
+        config,
+        toolCall.id,
+      );
     }
 
     const outputs = buildToolResultOutputs(

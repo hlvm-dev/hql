@@ -36,8 +36,11 @@ export const UserMessage = React.memo(function UserMessage(
   const sc = useSemanticColors();
   const spacing = getLiveConversationSpacing(compactSpacing);
   const displayText = truncateTranscriptInline(text, MAX_USER_MESSAGE_CHARS);
-  const attachmentText = attachments && attachments.length > 0
-    ? attachments.map((attachment) => attachment.label).join(" ")
+  const visibleAttachments = attachments?.filter((attachment) =>
+    !displayText.includes(attachment.label)
+  ) ?? [];
+  const attachmentText = visibleAttachments.length > 0
+    ? visibleAttachments.map((attachment) => attachment.label).join(" ")
     : "";
 
   return (

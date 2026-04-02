@@ -551,11 +551,27 @@ function ensureHttpServerConfig(
 // Token Refresh (SDK-backed)
 // ---------------------------------------------------------------------------
 
+type RefreshResult =
+  | { ok: true; record: McpOAuthRecord }
+  | { ok: false; terminal: boolean; reason: string };
+
+function extractHttpStatus(error: unknown): number | undefined {
+  if (!isObjectValue(error)) return undefined;
+  if (typeof error.status === "number") return error.status;
+  if (typeof error.statusCode === "number") return error.statusCode;
+  const response = isObjectValue(error.response)
+    ? error.response as Record<string, unknown>
+    : undefined;
+  return typeof response?.status === "number" ? response.status : undefined;
+}
+
 async function refreshAccessToken(
   record: McpOAuthRecord,
   storePath?: string,
-): Promise<McpOAuthRecord | null> {
-  if (!record.refreshToken) return null;
+): Promise<RefreshResult> {
+  if (!record.refreshToken) {
+    return { ok: false, terminal: true, reason: "no refresh token" };
+  }
   try {
     const tokens = await refreshAuthorization(record.authorizationServer, {
       metadata: recordToMetadata(record),
@@ -566,14 +582,16 @@ async function refreshAccessToken(
     });
     const next = tokensToRecord(tokens, record);
     await upsertRecord(next, storePath);
-    return next;
+    return { ok: true, record: next };
   } catch (error) {
+    const msg = getErrorMessage(error);
+    const status = extractHttpStatus(error);
+    const isTerminal = status === 401 || status === 403 ||
+      msg.includes("invalid_grant") || msg.includes("invalid_client");
     getAgentLogger().warn(
-      `MCP OAuth refresh failed (${record.serverName}): ${
-        getErrorMessage(error)
-      }`,
+      `MCP OAuth refresh ${isTerminal ? "terminal" : "transient"} failure (${record.serverName}): ${msg}`,
     );
-    return null;
+    return { ok: false, terminal: isTerminal, reason: msg };
   }
 }
 
@@ -741,12 +759,16 @@ export async function getMcpOAuthAuthorizationHeader(
 
   let activeRecord = record;
   if (tokenNeedsRefresh(record)) {
-    const refreshed = await refreshAccessToken(record, options.storePath);
-    if (!refreshed) {
-      await removeRecordByKey(record.key, options.storePath);
+    const result = await refreshAccessToken(record, options.storePath);
+    if (!result.ok) {
+      // Only delete token on terminal failure (401/403/invalid_grant).
+      // Transient failures (network errors) preserve the token for next attempt.
+      if (result.terminal) {
+        await removeRecordByKey(record.key, options.storePath);
+      }
       return null;
     }
-    activeRecord = refreshed;
+    activeRecord = result.record;
   }
 
   return buildBearerHeader(activeRecord);
@@ -767,9 +789,12 @@ export async function recoverMcpOAuthFromUnauthorized(
   if (!record.refreshToken) {
     return false;
   }
-  const refreshed = await refreshAccessToken(record, options.storePath);
-  if (!refreshed) {
-    await removeRecordByKey(record.key, options.storePath);
+  const result = await refreshAccessToken(record, options.storePath);
+  if (!result.ok) {
+    // Only delete token on terminal failure — preserve on transient errors
+    if (result.terminal) {
+      await removeRecordByKey(record.key, options.storePath);
+    }
     return false;
   }
   return true;

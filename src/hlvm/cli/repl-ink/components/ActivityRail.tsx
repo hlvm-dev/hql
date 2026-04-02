@@ -2,11 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { truncate } from "../../../../common/utils.ts";
 import { useSemanticColors } from "../../theme/index.ts";
-import type {
-  MemberActivityItem,
-  TeamDashboardState,
-} from "../hooks/useTeamState.ts";
-import type { LocalAgentEntry } from "../utils/local-agents.ts";
+import type { TeamDashboardState } from "../hooks/useTeamState.ts";
 
 const MAX_RAIL_ROWS = 3;
 
@@ -22,36 +18,8 @@ interface CurrentTurnRailItem {
   tone: RailTone;
 }
 
-function getStatusTone(status: LocalAgentEntry["status"]): RailTone {
-  switch (status) {
-    case "failed":
-      return "error";
-    case "waiting":
-      return "warning";
-    case "blocked":
-      return "muted";
-    case "completed":
-      return "success";
-    case "cancelled":
-      return "muted";
-    default:
-      return "active";
-  }
-}
-
-function getRecentActivity(
-  memberId: string | undefined,
-  memberActivity: Record<string, MemberActivityItem[]>,
-): string | undefined {
-  if (!memberId) return undefined;
-  return memberActivity[memberId]?.find((entry) => entry.summary.trim().length > 0)
-    ?.summary;
-}
-
 export function buildActivityRailRows(input: {
   currentTurn?: CurrentTurnRailItem;
-  localAgents: LocalAgentEntry[];
-  memberActivity: Record<string, MemberActivityItem[]>;
   teamState: TeamDashboardState;
   width: number;
 }): { rows: RailRow[]; overflow?: string } | null {
@@ -61,16 +29,6 @@ export function buildActivityRailRows(input: {
     rows.push({
       text: `turn · ${input.currentTurn.text.trim()}`,
       tone: input.currentTurn.tone,
-    });
-  }
-
-  for (const entry of input.localAgents) {
-    const activity = entry.detail?.trim() ||
-      getRecentActivity(entry.memberId, input.memberActivity) ||
-      entry.statusLabel;
-    rows.push({
-      text: `agent · ${entry.name} · ${entry.statusLabel} · ${activity}`,
-      tone: getStatusTone(entry.status),
     });
   }
 
@@ -109,8 +67,6 @@ export function buildActivityRailRows(input: {
 
 interface ActivityRailProps {
   currentTurn?: CurrentTurnRailItem;
-  localAgents: LocalAgentEntry[];
-  memberActivity: Record<string, MemberActivityItem[]>;
   teamState: TeamDashboardState;
   width: number;
 }

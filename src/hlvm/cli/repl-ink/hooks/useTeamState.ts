@@ -73,6 +73,10 @@ export interface MemberActivityItem {
     | "turn_stats";
   ts: number;
   threadId?: string;
+  durationMs?: number;
+  toolCount?: number;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface PendingApprovalItem {
@@ -378,6 +382,10 @@ export function deriveTeamDashboardState(items: ConversationItem[]): TeamDashboa
           activityKind: item.activityKind,
           ts,
           threadId: item.threadId,
+          durationMs: item.durationMs,
+          toolCount: item.toolCount,
+          inputTokens: item.inputTokens,
+          outputTokens: item.outputTokens,
         });
         break;
       case "team_message":

@@ -12,144 +12,122 @@ import {
 
 // ── Team Task Status ──────────────────────────────────────
 
-Deno.test("getTeamTaskStatusTone maps pending to neutral", () => {
-  assertEquals(getTeamTaskStatusTone("pending"), "neutral");
+Deno.test("getTeamTaskStatusTone maps statuses correctly", async (t) => {
+  const cases: [string, string][] = [
+    ["pending", "neutral"],
+    ["in_progress", "active"],
+    ["completed", "success"],
+    ["errored", "error"],
+    ["blocked", "warning"],
+  ];
+  for (const [input, expected] of cases) {
+    await t.step(`${input} → ${expected}`, () => {
+      assertEquals(getTeamTaskStatusTone(input), expected);
+    });
+  }
 });
 
-Deno.test("getTeamTaskStatusTone maps in_progress to active", () => {
-  assertEquals(getTeamTaskStatusTone("in_progress"), "active");
-});
-
-Deno.test("getTeamTaskStatusTone maps completed to success", () => {
-  assertEquals(getTeamTaskStatusTone("completed"), "success");
-});
-
-Deno.test("getTeamTaskStatusTone maps errored to error", () => {
-  assertEquals(getTeamTaskStatusTone("errored"), "error");
-});
-
-Deno.test("getTeamTaskStatusTone maps blocked to warning", () => {
-  assertEquals(getTeamTaskStatusTone("blocked"), "warning");
-});
-
-Deno.test("getTeamTaskStatusGlyph maps pending to ○", () => {
-  assertEquals(getTeamTaskStatusGlyph("pending"), "○");
-});
-
-Deno.test("getTeamTaskStatusGlyph maps in_progress to ●", () => {
-  assertEquals(getTeamTaskStatusGlyph("in_progress"), "●");
-});
-
-Deno.test("getTeamTaskStatusGlyph maps completed to ✓", () => {
-  assertEquals(getTeamTaskStatusGlyph("completed"), "✓");
-});
-
-Deno.test("getTeamTaskStatusGlyph maps errored to ✗", () => {
-  assertEquals(getTeamTaskStatusGlyph("errored"), "✗");
-});
-
-Deno.test("getTeamTaskStatusGlyph maps blocked to ⚠", () => {
-  assertEquals(getTeamTaskStatusGlyph("blocked"), "⚠");
+Deno.test("getTeamTaskStatusGlyph maps statuses correctly", async (t) => {
+  const cases: [string, string][] = [
+    ["pending", "○"],
+    ["in_progress", "●"],
+    ["completed", "✓"],
+    ["errored", "✗"],
+    ["blocked", "⚠"],
+  ];
+  for (const [input, expected] of cases) {
+    await t.step(`${input} → ${expected}`, () => {
+      assertEquals(getTeamTaskStatusGlyph(input), expected);
+    });
+  }
 });
 
 // ── Team Message ──────────────────────────────────────────
 
-Deno.test("getTeamMessageTone maps idle_notification to neutral", () => {
-  assertEquals(getTeamMessageTone("idle_notification"), "neutral");
+Deno.test("getTeamMessageTone maps kinds correctly", async (t) => {
+  const cases: [string, string][] = [
+    ["idle_notification", "neutral"],
+    ["task_completed", "success"],
+    ["task_error", "error"],
+    ["message", "active"],
+    ["broadcast", "active"],
+  ];
+  for (const [input, expected] of cases) {
+    await t.step(`${input} → ${expected}`, () => {
+      assertEquals(getTeamMessageTone(input), expected);
+    });
+  }
 });
 
-Deno.test("getTeamMessageTone maps task_completed to success", () => {
-  assertEquals(getTeamMessageTone("task_completed"), "success");
-});
-
-Deno.test("getTeamMessageTone maps task_error to error", () => {
-  assertEquals(getTeamMessageTone("task_error"), "error");
-});
-
-Deno.test("getTeamMessageTone maps message to active", () => {
-  assertEquals(getTeamMessageTone("message"), "active");
-});
-
-Deno.test("getTeamMessageTone maps broadcast to active", () => {
-  assertEquals(getTeamMessageTone("broadcast"), "active");
-});
-
-Deno.test("getTeamMessageGlyph maps idle_notification to ○", () => {
-  assertEquals(getTeamMessageGlyph("idle_notification"), "○");
-});
-
-Deno.test("getTeamMessageGlyph maps task_completed to ✓", () => {
-  assertEquals(getTeamMessageGlyph("task_completed"), "✓");
-});
-
-Deno.test("getTeamMessageGlyph maps task_error to ✗", () => {
-  assertEquals(getTeamMessageGlyph("task_error"), "✗");
-});
-
-Deno.test("getTeamMessageGlyph maps message to ✉", () => {
-  assertEquals(getTeamMessageGlyph("message"), "✉");
-});
-
-Deno.test("getTeamMessageGlyph maps broadcast to 📢", () => {
-  assertEquals(getTeamMessageGlyph("broadcast"), "📢");
+Deno.test("getTeamMessageGlyph maps kinds correctly", async (t) => {
+  const cases: [string, string][] = [
+    ["idle_notification", "○"],
+    ["task_completed", "✓"],
+    ["task_error", "✗"],
+    ["message", "✉"],
+    ["broadcast", "📢"],
+  ];
+  for (const [input, expected] of cases) {
+    await t.step(`${input} → ${expected}`, () => {
+      assertEquals(getTeamMessageGlyph(input), expected);
+    });
+  }
 });
 
 // ── Team Shutdown ─────────────────────────────────────────
 
-Deno.test("getTeamShutdownTone maps requested to warning", () => {
-  assertEquals(getTeamShutdownTone("requested"), "warning");
+Deno.test("getTeamShutdownTone maps statuses correctly", async (t) => {
+  const cases: [string, string][] = [
+    ["requested", "warning"],
+    ["acknowledged", "active"],
+    ["forced", "error"],
+    ["completed", "neutral"],
+  ];
+  for (const [input, expected] of cases) {
+    await t.step(`${input} → ${expected}`, () => {
+      assertEquals(getTeamShutdownTone(input), expected);
+    });
+  }
 });
 
-Deno.test("getTeamShutdownTone maps acknowledged to active", () => {
-  assertEquals(getTeamShutdownTone("acknowledged"), "active");
-});
-
-Deno.test("getTeamShutdownTone maps forced to error", () => {
-  assertEquals(getTeamShutdownTone("forced"), "error");
-});
-
-Deno.test("getTeamShutdownTone maps completed to neutral", () => {
-  assertEquals(getTeamShutdownTone("completed"), "neutral");
-});
-
-Deno.test("getTeamShutdownGlyph maps requested to ⚠", () => {
-  assertEquals(getTeamShutdownGlyph("requested"), "⚠");
-});
-
-Deno.test("getTeamShutdownGlyph maps acknowledged to ●", () => {
-  assertEquals(getTeamShutdownGlyph("acknowledged"), "●");
-});
-
-Deno.test("getTeamShutdownGlyph maps forced to ✗", () => {
-  assertEquals(getTeamShutdownGlyph("forced"), "✗");
-});
-
-Deno.test("getTeamShutdownGlyph maps completed to ○", () => {
-  assertEquals(getTeamShutdownGlyph("completed"), "○");
+Deno.test("getTeamShutdownGlyph maps statuses correctly", async (t) => {
+  const cases: [string, string][] = [
+    ["requested", "⚠"],
+    ["acknowledged", "●"],
+    ["forced", "✗"],
+    ["completed", "○"],
+  ];
+  for (const [input, expected] of cases) {
+    await t.step(`${input} → ${expected}`, () => {
+      assertEquals(getTeamShutdownGlyph(input), expected);
+    });
+  }
 });
 
 // ── Team Plan Review ──────────────────────────────────────
 
-Deno.test("getTeamPlanReviewTone maps pending to warning", () => {
-  assertEquals(getTeamPlanReviewTone("pending"), "warning");
+Deno.test("getTeamPlanReviewTone maps statuses correctly", async (t) => {
+  const cases: [string, string][] = [
+    ["pending", "warning"],
+    ["approved", "success"],
+    ["rejected", "error"],
+  ];
+  for (const [input, expected] of cases) {
+    await t.step(`${input} → ${expected}`, () => {
+      assertEquals(getTeamPlanReviewTone(input), expected);
+    });
+  }
 });
 
-Deno.test("getTeamPlanReviewTone maps approved to success", () => {
-  assertEquals(getTeamPlanReviewTone("approved"), "success");
-});
-
-Deno.test("getTeamPlanReviewTone maps rejected to error", () => {
-  assertEquals(getTeamPlanReviewTone("rejected"), "error");
-});
-
-Deno.test("getTeamPlanReviewGlyph maps pending to ○", () => {
-  assertEquals(getTeamPlanReviewGlyph("pending"), "○");
-});
-
-Deno.test("getTeamPlanReviewGlyph maps approved to ✓", () => {
-  assertEquals(getTeamPlanReviewGlyph("approved"), "✓");
-});
-
-Deno.test("getTeamPlanReviewGlyph maps rejected to ✗", () => {
-  assertEquals(getTeamPlanReviewGlyph("rejected"), "✗");
+Deno.test("getTeamPlanReviewGlyph maps statuses correctly", async (t) => {
+  const cases: [string, string][] = [
+    ["pending", "○"],
+    ["approved", "✓"],
+    ["rejected", "✗"],
+  ];
+  for (const [input, expected] of cases) {
+    await t.step(`${input} → ${expected}`, () => {
+      assertEquals(getTeamPlanReviewGlyph(input), expected);
+    });
+  }
 });

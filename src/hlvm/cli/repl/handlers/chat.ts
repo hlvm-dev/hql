@@ -35,6 +35,10 @@ import {
   textEncoder,
 } from "../http-utils.ts";
 import type { AnyAttachment } from "../attachment.ts";
+import {
+  getPastedTextPreviewLabel,
+  getPastedTextReferenceLineCount,
+} from "../attachment.ts";
 import { evaluate } from "../evaluator.ts";
 import { formatPlainValue } from "../formatter.ts";
 import { ensureRuntimeHostReplState } from "../init-repl-state.ts";
@@ -86,6 +90,7 @@ import {
 import {
   appendAttachmentPipelineTrace,
   getAttachmentRecords,
+  materializeConversationAttachment,
 } from "../../../attachments/service.ts";
 import { toRuntimeSessionMessage } from "../../../runtime/session-protocol.ts";
 
@@ -101,7 +106,7 @@ function getRequestAttachmentIds(
   return messages.flatMap((message) => message.attachment_ids ?? []);
 }
 
-async function buildEvalAttachments(
+export async function buildEvalAttachments(
   attachmentIds: readonly string[],
 ): Promise<AnyAttachment[] | undefined> {
   if (attachmentIds.length === 0) {
@@ -113,17 +118,39 @@ async function buildEvalAttachments(
     return undefined;
   }
 
-  return records.map((record, index) => ({
-    id: index + 1,
-    attachmentId: record.id,
-    type: record.kind,
-    displayName: record.fileName,
-    path: record.sourcePath ?? record.fileName,
-    fileName: record.fileName,
-    mimeType: record.mimeType,
-    size: record.size,
-    metadata: record.metadata,
-  }));
+  const attachments = await Promise.all(
+    records.map(async (record, index) => {
+      const materialized = await materializeConversationAttachment(
+        record.id,
+        "repl",
+      );
+      if (materialized.mode === "text") {
+        return {
+          id: index + 1,
+          attachmentId: record.id,
+          type: "text" as const,
+          displayName: getPastedTextPreviewLabel(index + 1, materialized.text),
+          content: materialized.text,
+          lineCount: getPastedTextReferenceLineCount(materialized.text),
+          size: materialized.size,
+          fileName: materialized.fileName,
+          mimeType: materialized.mimeType,
+        };
+      }
+      return {
+        id: index + 1,
+        attachmentId: record.id,
+        type: record.kind,
+        displayName: record.fileName,
+        path: record.sourcePath ?? record.fileName,
+        fileName: record.fileName,
+        mimeType: record.mimeType,
+        size: record.size,
+        metadata: record.metadata,
+      };
+    }),
+  );
+  return attachments;
 }
 
 // ============================================================

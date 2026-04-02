@@ -161,13 +161,16 @@ Deno.test("agent transcript state streams into the existing pending assistant it
 Deno.test("agent transcript state preserves user attachment labels for the active turn", () => {
   const next = reduceTranscriptState(createTranscriptState(), {
     type: "user_message",
-    text: "describe this UI regression",
+    text: "[Pasted text #1 +2 lines]",
+    submittedText: "line 1\nline 2\nline 3",
     attachments: createConversationAttachmentRefs(["[Image #1]", "[PDF #2]"]),
   });
 
   assertEquals(next.items.length, 2);
   assertEquals(next.items[0]?.type, "user");
   if (next.items[0]?.type === "user") {
+    assertEquals(next.items[0].text, "[Pasted text #1 +2 lines]");
+    assertEquals(next.items[0].submittedText, "line 1\nline 2\nline 3");
     assertEquals(
       next.items[0].attachments,
       createConversationAttachmentRefs(["[Image #1]", "[PDF #2]"]),
@@ -1581,8 +1584,6 @@ Deno.test("delegate_running transitions queued group entry to running", () => {
     type: "agent_event",
     event: {
       type: "delegate_running",
-      agent: "researcher",
-      task: "Search docs",
       threadId: "t1",
     },
   });
@@ -1610,8 +1611,6 @@ Deno.test("delegate_running with no matching group entry returns state unchanged
     type: "agent_event",
     event: {
       type: "delegate_running",
-      agent: "researcher",
-      task: "Search docs",
       threadId: "t1",
     },
   });
@@ -1621,8 +1620,6 @@ Deno.test("delegate_running with no matching group entry returns state unchanged
     type: "agent_event",
     event: {
       type: "delegate_running",
-      agent: "unknown",
-      task: "Unknown task",
       threadId: "t999",
     },
   });
@@ -1648,6 +1645,11 @@ Deno.test("batch_progress_updated suppressed when delegate group exists", () => 
       type: "batch_progress_updated",
       snapshot: {
         batchId: "batch-1",
+        agent: "researcher",
+        totalRows: 1,
+        threadIds: ["t1"],
+        spawnFailures: 0,
+        createdAt: 0,
         spawned: 1,
         queued: 0,
         running: 1,

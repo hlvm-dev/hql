@@ -103,7 +103,13 @@ export function useConversationComposer(
   );
 
   const handleQueueDraft = useCallback((draft: ConversationComposerDraft) => {
-    recordPromptHistory(replState, draft.text, "conversation");
+    recordPromptHistory(
+      replState,
+      draft.text,
+      "conversation",
+      undefined,
+      draft.attachments,
+    );
     setPendingConversationQueue((prev: ConversationComposerDraft[]) =>
       enqueueConversationDraft(prev, draft)
     );

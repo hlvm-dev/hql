@@ -41,6 +41,7 @@ export interface UseConversationResult {
   addUserMessage: (
     text: string,
     options?: {
+      submittedText?: string;
       attachments?: ConversationAttachmentRef[];
       startTurn?: boolean;
     },
@@ -83,6 +84,7 @@ export function useConversation(): UseConversationResult {
   const addUserMessage = useCallback((
     text: string,
     options?: {
+      submittedText?: string;
       attachments?: ConversationAttachmentRef[];
       startTurn?: boolean;
     },
@@ -90,6 +92,7 @@ export function useConversation(): UseConversationResult {
     updateState(setState, {
       type: "user_message",
       text,
+      submittedText: options?.submittedText,
       attachments: options?.attachments,
       startTurn: options?.startTurn,
     });

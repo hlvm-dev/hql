@@ -1,8 +1,4 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import {
-  buildLocalAgentsBarLine,
-  shouldRenderLocalAgentsBar,
-} from "../../../src/hlvm/cli/repl-ink/components/LocalAgentsBar.tsx";
 import { buildLocalAgentEntries } from "../../../src/hlvm/cli/repl-ink/utils/local-agents.ts";
 import type {
   MemberActivityItem,
@@ -71,6 +67,8 @@ Deno.test("buildLocalAgentEntries includes live teammates and delegates", () => 
   assertEquals(entries[0]?.status, "running");
   assertEquals(entries[0]?.overlayTarget, "team-dashboard");
   assertEquals(entries[0]?.name, "worker-1");
+  assertEquals(entries[0]?.progress?.activityText, "Tool TaskList: listed tasks");
+  assertEquals(entries[0]?.progress?.toolUseCount, 1);
   assertEquals(entries[1]?.status, "running");
   assertEquals(entries[1]?.overlayTarget, "background-tasks");
   assertEquals(entries[1]?.name, "alpha");
@@ -169,113 +167,29 @@ Deno.test("buildLocalAgentEntries includes completed delegate tasks so outcomes 
     makeDelegateTask({
       status: "completed",
       summary: "Found unused exports in cli/",
+      snapshot: {
+        agent: "Explore",
+        task: "Inspect overlay",
+        success: true,
+        durationMs: 5400,
+        toolCount: 3,
+        finalResponse: "Found unused exports in cli/",
+        events: [{
+          type: "turn_stats",
+          iteration: 1,
+          toolCount: 3,
+          durationMs: 5400,
+          inputTokens: 1200,
+          outputTokens: 340,
+        }],
+      },
     }),
   ]);
 
   assertEquals(entries.length, 1);
   assertEquals(entries[0]?.status, "completed");
   assertEquals(entries[0]?.detail, "Found unused exports in cli/");
-});
-
-Deno.test("buildLocalAgentsBarLine shows summary state when unfocused", () => {
-  const line = buildLocalAgentsBarLine(
-    [
-      {
-        id: "delegate:1",
-        kind: "delegate",
-        name: "alpha",
-        label: "Inspect overlay",
-        status: "running",
-        statusLabel: "running",
-        interruptible: true,
-        overlayTarget: "background-tasks",
-        overlayItemId: "bg:delegate-1",
-      },
-      {
-        id: "teammate:worker-1",
-        kind: "teammate",
-        name: "worker-1",
-        label: "Inspect CLI",
-        status: "running",
-        statusLabel: "running",
-        interruptible: true,
-        overlayTarget: "team-dashboard",
-        overlayItemId: "member-worker-1",
-      },
-    ],
-    false,
-    80,
-  );
-
-  assertEquals(line?.summary, "2 local agents");
-  assertEquals(line?.hints, "2 working · ↓ manage · Ctrl+T manager");
-});
-
-Deno.test("buildLocalAgentsBarLine shows focused agent controls", () => {
-  const line = buildLocalAgentsBarLine(
-    [
-      {
-        id: "delegate:1",
-        kind: "delegate",
-        name: "alpha",
-        label: "Inspect overlay session progress",
-        status: "running",
-        statusLabel: "running",
-        interruptible: true,
-        overlayTarget: "background-tasks",
-        overlayItemId: "bg:delegate-1",
-      },
-    ],
-    true,
-    96,
-  );
-
-  assertEquals(line?.summary, "alpha (running)");
-  assertEquals(line?.hints.includes("Enter open"), true);
-});
-
-Deno.test("shouldRenderLocalAgentsBar keeps the rail visible when agents exist", () => {
-  assertEquals(
-    shouldRenderLocalAgentsBar(
-      [
-        {
-          id: "teammate:worker-1",
-          kind: "teammate",
-          name: "worker-1",
-          label: "Inspect CLI",
-          status: "running",
-          statusLabel: "running",
-          interruptible: true,
-          overlayTarget: "team-dashboard",
-          overlayItemId: "member-worker-1",
-        },
-      ],
-      false,
-      "3 working",
-    ),
-    true,
-  );
-});
-
-Deno.test("shouldRenderLocalAgentsBar keeps focused rail visible even when footer already shows the team summary", () => {
-  assertEquals(
-    shouldRenderLocalAgentsBar(
-      [
-        {
-          id: "teammate:worker-1",
-          kind: "teammate",
-          name: "worker-1",
-          label: "Inspect CLI",
-          status: "running",
-          statusLabel: "running",
-          interruptible: true,
-          overlayTarget: "team-dashboard",
-          overlayItemId: "member-worker-1",
-        },
-      ],
-      true,
-      "3 working",
-    ),
-    true,
-  );
+  assertEquals(entries[0]?.progress?.toolUseCount, 3);
+  assertEquals(entries[0]?.progress?.tokenCount, 1540);
+  assertEquals(entries[0]?.progress?.durationMs, 5400);
 });

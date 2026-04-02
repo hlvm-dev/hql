@@ -99,7 +99,7 @@ export interface ToolExecutionOptions {
   /** Top-level delegate owner used to scope background agent control tools. */
   delegateOwnerId?: string;
   /** Optional lazy MCP loader hook used by tool_search. */
-  ensureMcpLoaded?: () => Promise<void>;
+  ensureMcpLoaded?: (signal?: AbortSignal) => Promise<void>;
   /** Session-scoped todo state used by todo_read/todo_write. */
   todoState?: TodoState;
   /** Session-scoped file coordination cache for read/write/edit integrity. */

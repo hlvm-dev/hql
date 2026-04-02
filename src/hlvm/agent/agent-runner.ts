@@ -13,9 +13,7 @@ import { ValidationError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import {
   closeFactDb,
-  isMemorySystemMessage,
   isPersistentMemoryEnabled,
-  loadMemorySystemMessage,
   MEMORY_TOOLS,
   persistConversationFacts,
   persistExplicitMemoryRequest,
@@ -30,7 +28,11 @@ import {
 import { getPlatform } from "../../platform/platform.ts";
 import { loadInstructionHierarchy } from "../prompt/mod.ts";
 import { deriveDefaultSessionKey } from "../runtime/session-key.ts";
-import { type AgentSession, createAgentSession } from "./session.ts";
+import {
+  type AgentSession,
+  createAgentSession,
+  refreshReusableAgentSession,
+} from "./session.ts";
 import { getAgentEngine } from "./engine.ts";
 import { createDelegateHandler } from "./delegation.ts";
 import {
@@ -286,9 +288,8 @@ export async function disposeAllSessions(): Promise<void> {
 }
 
 /**
- * Create a fresh context + l1Confirmations from a reusable session.
- * Reuses policy, toolOwnerId, profile, isFrontierModel, resolvedContextBudget.
- * When onToken is provided, rebuilds the LLM to enable streaming.
+ * Refresh the prompt/context/LLM for a reusable session while preserving
+ * session-scoped state such as todoState, fileStateCache, and tool ownership.
  */
 /** @internal Exported for testing. Refreshes memory in a reusable session. */
 export async function reuseSession(
@@ -296,48 +297,22 @@ export async function reuseSession(
   onToken?: (text: string) => void,
   options?: {
     disablePersistentMemory?: boolean;
+    instructions?: typeof session.instructions;
+    agentProfiles?: typeof session.agentProfiles;
+    runtimeMode?: RuntimeMode;
+    providerExecutionPlan?: typeof session.providerExecutionPlan;
+    executionSurface?: typeof session.executionSurface;
   },
 ): Promise<AgentSession> {
-  const context = new ContextManager(session.context.getConfig());
-  // Copy system messages from the reusable session, excluding stale memory.
-  const systemMessages = session.context.getMessages().filter((m) =>
-    m.role === "system" && !isMemorySystemMessage(m.content)
-  );
-  for (const message of systemMessages) {
-    context.addMessage({ role: "system", content: message.content });
-  }
-
-  // Inject FRESH memory context (replaces stale memory from cache)
-  if (isPersistentMemoryEnabled(options?.disablePersistentMemory)) {
-    try {
-      const memoryMessage = await loadMemorySystemMessage(
-        session.resolvedContextBudget.budget,
-      );
-      if (memoryMessage) {
-        context.addMessage(memoryMessage);
-      }
-    } catch {
-      // Memory loading is best-effort — don't block session reuse
-    }
-  }
-
-  // Rebuild LLM with caller's onToken to enable streaming in GUI mode
-  let llm = session.llm;
-  if (onToken && session.llmConfig) {
-    const engine = session.engine ?? getAgentEngine();
-    llm = engine.createLLM({
-      ...session.llmConfig,
-      options: session.llmConfig.options,
-      onToken,
-    });
-  }
-
-  return {
-    ...session,
-    llm,
-    context,
-    l1Confirmations: session.l1Confirmations,
-  };
+  return await refreshReusableAgentSession(session, {
+    onToken,
+    disablePersistentMemory: options?.disablePersistentMemory,
+    instructions: options?.instructions,
+    agentProfiles: options?.agentProfiles,
+    runtimeMode: options?.runtimeMode,
+    providerExecutionPlan: options?.providerExecutionPlan,
+    executionSurface: options?.executionSurface,
+  });
 }
 
 function mergePolicyPathRoots(
@@ -701,16 +676,26 @@ export async function runAgentQuery(
         toolAllowlist,
         toolDenylist: effectiveToolDenylist,
         runtimeMode,
-        executionSurfaceSignature: executionSurfaceState.executionSurface
-          .signature,
+        executionSurfaceSignature: undefined,
       })
     ? options.reusableSession
     : undefined;
   const isReusableSession = !!matchingReusableSession;
   const engine = isReusableSession ? undefined : getAgentEngine();
+  if (
+    matchingReusableSession?.ensureMcpLoaded &&
+    executionSurfaceUsesMcp(executionSurfaceState.executionSurface)
+  ) {
+    await matchingReusableSession.ensureMcpLoaded();
+  }
   const session: AgentSession = matchingReusableSession
     ? await reuseSession(matchingReusableSession, effectiveOnToken, {
       disablePersistentMemory,
+      instructions,
+      agentProfiles,
+      runtimeMode,
+      providerExecutionPlan: executionSurfaceState.providerExecutionPlan,
+      executionSurface: executionSurfaceState.executionSurface,
     })
     : await createAgentSession({
       workspace,

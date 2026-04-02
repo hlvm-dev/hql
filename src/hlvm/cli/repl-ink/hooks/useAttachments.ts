@@ -12,6 +12,7 @@ import {
   type AnyAttachment,
   type Attachment,
   type AttachmentError,
+  cloneAttachments,
   createAttachment,
   createTextAttachment,
   isAttachment,
@@ -40,6 +41,8 @@ export interface UseAttachmentsReturn {
   reserveNextId: () => number;
   /** Replace all attachments while keeping attachment labels monotonic */
   replaceAttachments: (attachments: AnyAttachment[]) => void;
+  /** Synchronize attachment state without invalidating in-flight registrations */
+  syncAttachments: (attachments: AnyAttachment[]) => void;
   /** Clear all attachments without reusing old attachment labels */
   clearAttachments: () => void;
   /** Last error if any */
@@ -126,9 +129,7 @@ export function useAttachments(): UseAttachmentsReturn {
    */
   const replaceAttachments = useCallback((nextAttachments: AnyAttachment[]) => {
     generationRef.current += 1;
-    setAttachments(
-      nextAttachments.map((attachment: AnyAttachment) => ({ ...attachment })),
-    );
+    setAttachments(cloneAttachments(nextAttachments));
     nextIdRef.current = Math.max(
       nextIdRef.current,
       nextAttachments.reduce(
@@ -137,6 +138,22 @@ export function useAttachments(): UseAttachmentsReturn {
       ) + 1,
     );
     setLastError(null);
+  }, []);
+
+  /**
+   * Synchronize attachment state with composer refs while preserving the
+   * current generation so unrelated in-flight attachment registrations can
+   * still resolve normally.
+   */
+  const syncAttachments = useCallback((nextAttachments: AnyAttachment[]) => {
+    setAttachments(cloneAttachments(nextAttachments));
+    nextIdRef.current = Math.max(
+      nextIdRef.current,
+      nextAttachments.reduce(
+        (maxId, attachment) => Math.max(maxId, attachment.id),
+        0,
+      ) + 1,
+    );
   }, []);
 
   /**
@@ -154,6 +171,7 @@ export function useAttachments(): UseAttachmentsReturn {
     addTextAttachmentWithId,
     reserveNextId,
     replaceAttachments,
+    syncAttachments,
     clearAttachments,
     lastError,
   };

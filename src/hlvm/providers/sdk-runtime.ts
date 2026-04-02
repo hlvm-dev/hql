@@ -1183,6 +1183,96 @@ export function normalizeProviderMetadata(
   return isObjectValue(value) ? value as Record<string, unknown> : undefined;
 }
 
+function asNonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function readCacheMetric(
+  record: Record<string, unknown>,
+  camelKey: string,
+  snakeKey: string,
+): number | undefined {
+  return asNonNegativeNumber(record[camelKey]) ??
+    asNonNegativeNumber(record[snakeKey]);
+}
+
+function collectCacheMetricRecords(
+  providerMetadata: unknown,
+  usage: unknown,
+): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+  if (isObjectValue(usage)) {
+    records.push(usage as Record<string, unknown>);
+  }
+  if (!isObjectValue(providerMetadata)) {
+    return records;
+  }
+
+  const metadataRecord = providerMetadata as Record<string, unknown>;
+  records.push(metadataRecord);
+
+  const candidateKeys = [
+    "usage",
+    "anthropic",
+    "claude-code",
+    "claude_code",
+  ];
+  for (const key of candidateKeys) {
+    const nested = metadataRecord[key];
+    if (isObjectValue(nested)) {
+      records.push(nested as Record<string, unknown>);
+      const nestedUsage = (nested as Record<string, unknown>).usage;
+      if (isObjectValue(nestedUsage)) {
+        records.push(nestedUsage as Record<string, unknown>);
+      }
+    }
+  }
+
+  return records;
+}
+
+export function normalizeProviderCacheMetrics(options: {
+  providerMetadata?: unknown;
+  usage?: unknown;
+}): {
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+} | undefined {
+  let cacheReadInputTokens: number | undefined;
+  let cacheCreationInputTokens: number | undefined;
+
+  for (
+    const record of collectCacheMetricRecords(
+      options.providerMetadata,
+      options.usage,
+    )
+  ) {
+    cacheReadInputTokens ??= readCacheMetric(
+      record,
+      "cacheReadInputTokens",
+      "cache_read_input_tokens",
+    );
+    cacheCreationInputTokens ??= readCacheMetric(
+      record,
+      "cacheCreationInputTokens",
+      "cache_creation_input_tokens",
+    );
+    if (
+      cacheReadInputTokens !== undefined &&
+      cacheCreationInputTokens !== undefined
+    ) {
+      break;
+    }
+  }
+
+  return cacheReadInputTokens !== undefined ||
+      cacheCreationInputTokens !== undefined
+    ? { cacheReadInputTokens, cacheCreationInputTokens }
+    : undefined;
+}
+
 interface SdkSourceShape {
   type: "source";
   sourceType: "url" | "document";

@@ -41,6 +41,11 @@ import {
   describeAttachmentFailure,
   describeConversationAttachmentMimeTypeError,
 } from "../../attachment-policy.ts";
+import {
+  expandTextAttachmentReferences,
+  filterReferencedAttachments,
+  type Attachment,
+} from "../../repl/attachment.ts";
 import { runChatViaHost } from "../../../runtime/host-client.ts";
 import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
@@ -110,15 +115,22 @@ export interface UseAgentRunnerResult {
   interactionResolversRef: MutableRefObject<
     Map<string, (response: InteractionResponse) => void>
   >;
-  prepareConversationAttachmentPayload: (attachments?: AnyAttachment[]) => {
+  prepareConversationAttachmentPayload: (
+    attachments?: AnyAttachment[],
+    text?: string,
+  ) => {
     attachments: ConversationAttachmentRef[] | undefined;
     unsupportedMimeType: string | undefined;
   };
-  expandConversationDraftText: (text: string) => string;
+  expandConversationDraftText: (
+    text: string,
+    attachments?: AnyAttachment[],
+  ) => string;
   runConversation: (
     query: string,
     attachments?: ConversationAttachmentRef[],
     options?: {
+      displayText?: string;
       skipTranscriptSeed?: boolean;
     },
   ) => Promise<void>;
@@ -192,34 +204,42 @@ export function useAgentRunner(
   }, []);
 
   const prepareConversationAttachmentPayload = useCallback(
-    (attachments?: AnyAttachment[]) => {
-      const runtimeAttachments = attachments
-        ?.filter((a): a is import("../../repl/attachment.ts").Attachment =>
-          "attachmentId" in a
-        ) ??
-        [];
+    (attachments?: AnyAttachment[], text = "") => {
+      const referencedAttachments = text.trim().length > 0
+        ? filterReferencedAttachments(text, attachments ?? [])
+        : attachments ?? [];
+      const runtimeAttachments = referencedAttachments.filter(
+        (attachment): attachment is Attachment =>
+          "attachmentId" in attachment && !("content" in attachment),
+      );
 
       return {
-        attachments: runtimeAttachments.map((attachment) =>
-          createConversationAttachmentRef(
-            attachment.displayName,
-            attachment.attachmentId,
+        attachments: runtimeAttachments.length > 0
+          ? runtimeAttachments.map((attachment) =>
+            createConversationAttachmentRef(
+              attachment.displayName,
+              attachment.attachmentId,
+            )
           )
-        ),
+          : undefined,
         unsupportedMimeType: undefined,
       };
     },
     [],
   );
 
-  const expandConversationDraftText = useCallback((text: string): string => {
-    return text;
+  const expandConversationDraftText = useCallback((
+    text: string,
+    attachments?: AnyAttachment[],
+  ): string => {
+    return expandTextAttachmentReferences(text, attachments ?? []);
   }, []);
 
   const runConversation = useCallback(async (
     query: string,
     attachments?: ConversationAttachmentRef[],
     options?: {
+      displayText?: string;
       skipTranscriptSeed?: boolean;
     },
   ) => {
@@ -237,7 +257,16 @@ export function useAgentRunner(
     // Show user message and pending indicator immediately — before expensive
     // config/model init, unless the caller already seeded the transcript.
     if (!options?.skipTranscriptSeed) {
-      conversationRef.current.addUserMessage(query, { attachments });
+      conversationRef.current.addUserMessage(
+        options?.displayText ?? query,
+        {
+          submittedText: options?.displayText !== undefined &&
+              options.displayText !== query
+            ? query
+            : undefined,
+          attachments,
+        },
+      );
       conversationRef.current.addAssistantText("", true);
     }
 
@@ -580,17 +609,16 @@ export function useAgentRunner(
   ): { started: boolean; unsupportedMimeType?: string } => {
     const expandedText = expandConversationDraftText(
       draft.text,
+      draft.attachments,
     );
     const { attachments, unsupportedMimeType } =
-      prepareConversationAttachmentPayload(draft.attachments);
+      prepareConversationAttachmentPayload(draft.attachments, draft.text);
     if (unsupportedMimeType) {
       return { started: false, unsupportedMimeType };
     }
-    conversationRef.current.addUserMessage(expandedText, { attachments });
-    conversationRef.current.addAssistantText("", true);
     setIsEvaluating(true);
     void runConversation(expandedText, attachments, {
-      skipTranscriptSeed: true,
+      displayText: draft.text,
     });
     return { started: true };
   }, [
@@ -697,7 +725,7 @@ export function useAgentRunner(
   const handleForceInterrupt = useCallback(
     (code: string, attachments?: AnyAttachment[]) => {
       if (!code.trim()) return;
-      recordPromptHistory(replState, code, "conversation");
+      recordPromptHistory(replState, code, "conversation", undefined, attachments);
       clearComposerDraft();
       const draft = createConversationComposerDraft(code.trim(), attachments);
 

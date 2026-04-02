@@ -68,8 +68,8 @@ Deno.test("getConversationQueueEditBinding matches Codex terminal mapping", () =
 
 Deno.test("renumberConversationDraftAttachments rewrites placeholders and attachment ids", () => {
   const draft = createConversationComposerDraft(
-    "[Image #1] and [Pasted text #2 +3 lines]",
-    [imageAttachment(1), textAttachment(2, 3)],
+    "[Image #1] and [Pasted text #2 +2 lines]",
+    [imageAttachment(1), textAttachment(2, 2)],
     37,
   );
 
@@ -77,11 +77,11 @@ Deno.test("renumberConversationDraftAttachments rewrites placeholders and attach
 
   assertEquals(
     result.draft.text,
-    "[Image #4] and [Pasted text #5 +3 lines]",
+    "[Image #4] and [Pasted text #5 +2 lines]",
   );
   assertEquals(
     result.draft.attachments.map((attachment) => attachment.displayName),
-    ["[Image #4]", "[Pasted text #5 +3 lines]"],
+    ["[Image #4]", "[Pasted text #5 +2 lines]"],
   );
   assertEquals(result.draft.cursorOffset, 37);
   assertEquals(result.nextAttachmentId, 6);
@@ -121,8 +121,8 @@ Deno.test("mergeConversationDraftsForInterrupt restores queued drafts before cur
       5,
     ),
     createConversationComposerDraft(
-      "second [Pasted text #1 +3 lines]",
-      [textAttachment(1, 3)],
+      "second [Pasted text #1 +2 lines]",
+      [textAttachment(1, 2)],
       6,
     ),
   ];
@@ -136,15 +136,15 @@ Deno.test("mergeConversationDraftsForInterrupt restores queued drafts before cur
 
   assertEquals(
     merged?.text,
-    "[Image #1] first\nsecond [Pasted text #2 +3 lines]\n[Image #3] current draft",
+    "[Image #1] first\nsecond [Pasted text #2 +2 lines]\n[Image #3] current draft",
   );
   assertEquals(
     merged?.attachments.map((attachment) => attachment.displayName),
-    ["[Image #1]", "[Pasted text #2 +3 lines]", "[Image #3]"],
+    ["[Image #1]", "[Pasted text #2 +2 lines]", "[Image #3]"],
   );
   assertEquals(
     merged?.cursorOffset,
-    "[Image #1] first\nsecond [Pasted text #2 +3 lines]\n[Image #3] current draft"
+    "[Image #1] first\nsecond [Pasted text #2 +2 lines]\n[Image #3] current draft"
       .length,
   );
 });

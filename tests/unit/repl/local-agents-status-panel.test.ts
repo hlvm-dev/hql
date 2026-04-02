@@ -1,9 +1,7 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   buildLocalAgentsStatusPanelModel,
-  getLocalAgentsStatusPanelRowCount,
 } from "../../../src/hlvm/cli/repl-ink/components/LocalAgentsStatusPanel.tsx";
-import type { MemberActivityItem } from "../../../src/hlvm/cli/repl-ink/hooks/useTeamState.ts";
 import type { LocalAgentEntry } from "../../../src/hlvm/cli/repl-ink/utils/local-agents.ts";
 
 function makeTeammate(overrides: Partial<LocalAgentEntry> = {}): LocalAgentEntry {
@@ -15,63 +13,71 @@ function makeTeammate(overrides: Partial<LocalAgentEntry> = {}): LocalAgentEntry
     label: "Find unused code in agent/",
     status: "running",
     statusLabel: "running",
+    detail: "Tool TaskList: listed tasks",
     interruptible: true,
     overlayTarget: "team-dashboard",
     overlayItemId: "member-worker-1",
+    progress: {
+      activityText: "Tool TaskList: listed tasks",
+      previewLines: [
+        "Planning: inspect agent graph",
+        "Tool read_file: src/hlvm/agent/session.ts",
+      ],
+      toolUseCount: 2,
+      tokenCount: 1420,
+      durationMs: 4200,
+    },
     ...overrides,
   };
 }
 
-Deno.test("buildLocalAgentsStatusPanelModel uses live activity when available", () => {
+Deno.test("buildLocalAgentsStatusPanelModel renders a leader row with focused hint text", () => {
   const model = buildLocalAgentsStatusPanelModel(
     [makeTeammate()],
-    {
-      "worker-1": [{
-        id: "activity-1",
-        summary: "Tool TaskList: listed tasks",
-        status: "success",
-        activityKind: "tool_end",
-        ts: 1,
-      } satisfies MemberActivityItem],
-    },
-    80,
-  );
-
-  assertEquals(model?.header.includes("1 local agent"), true);
-  assertEquals(model?.header.includes("1 working"), true);
-  assertEquals(model?.rows[0]?.summary.includes("Find unused code in agent/"), true);
-  assertEquals(model?.rows[0]?.detail, "Tool TaskList: listed tasks");
-});
-
-Deno.test("buildLocalAgentsStatusPanelModel falls back to background status messaging", () => {
-  const model = buildLocalAgentsStatusPanelModel(
-    [
-      makeTeammate({ name: "alpha" }),
-      makeTeammate({
-        id: "teammate:worker-2",
-        memberId: "worker-2",
-        name: "beta",
-        label: "Find unused code in cli/",
-      }),
-    ],
-    {},
     100,
+    {
+      focused: true,
+      leader: {
+        activityText: "continuing response",
+      },
+    },
   );
 
-  assertEquals(model?.header, "• 2 local agents · 2 working · Ctrl+T manager");
-  assertEquals(
-    model?.rows[0]?.detail,
-    "Running in the background (Ctrl+T manager)",
-  );
+  assertEquals(model?.leader.name, "team-lead");
+  assertEquals(model?.leader.treePrefix, "╒═");
+  assertEquals(model?.leader.bodyText, "continuing response");
+  assertEquals(model?.leader.hintText, " · enter to view · esc back");
 });
 
-Deno.test("buildLocalAgentsStatusPanelModel surfaces waiting and completed states", () => {
+Deno.test("buildLocalAgentsStatusPanelModel keeps preview rows and inline metrics", () => {
+  const model = buildLocalAgentsStatusPanelModel(
+    [makeTeammate()],
+    100,
+    {
+      leader: {
+        idleText: "Idle · 1 working",
+      },
+    },
+  );
+
+  assertEquals(model?.leader.bodyText, "Idle · 1 working");
+  assertEquals(model?.agents[0]?.treePrefix, "└─");
+  assertEquals(model?.agents[0]?.previewLines.length, 2);
+  assertEquals(model?.agents[0]?.metricsText, " · 2 tool uses · 1,420 tokens · 4.2s");
+  assertEquals(model?.rowCount, 4);
+});
+
+Deno.test("buildLocalAgentsStatusPanelModel keeps waiting/completed tones and overflow row", () => {
   const model = buildLocalAgentsStatusPanelModel(
     [
       makeTeammate({
         status: "waiting",
         statusLabel: "awaiting approval",
         detail: "Waiting for your approval",
+        progress: {
+          activityText: "Waiting for your approval",
+          previewLines: [],
+        },
       }),
       makeTeammate({
         id: "teammate:worker-2",
@@ -81,20 +87,25 @@ Deno.test("buildLocalAgentsStatusPanelModel surfaces waiting and completed state
         status: "completed",
         statusLabel: "done",
         detail: "Task completed: Inspect CLI",
+        progress: {
+          activityText: "Task completed: Inspect CLI",
+          previewLines: ["Final: cleaned up cli/repl"],
+          durationMs: 3100,
+        },
       }),
+      makeTeammate({ id: "teammate:worker-3", memberId: "worker-3", name: "worker-3" }),
+      makeTeammate({ id: "teammate:worker-4", memberId: "worker-4", name: "worker-4" }),
+      makeTeammate({ id: "teammate:worker-5", memberId: "worker-5", name: "worker-5" }),
     ],
-    {},
-    96,
+    120,
+    {
+      leader: {
+        idleText: "Idle · 5 working",
+      },
+    },
   );
 
-  assertEquals(model?.header, "• 2 local agents · 1 waiting · 1 done · Ctrl+T manager");
-  assertEquals(model?.rows[0]?.detail, "Waiting for your approval");
-  assertEquals(model?.rows[1]?.detail, "Task completed: Inspect CLI");
-});
-
-Deno.test("getLocalAgentsStatusPanelRowCount caps visible agents and adds overflow row", () => {
-  assertEquals(getLocalAgentsStatusPanelRowCount(0), 0);
-  assertEquals(getLocalAgentsStatusPanelRowCount(1), 3);
-  assertEquals(getLocalAgentsStatusPanelRowCount(4), 9);
-  assertEquals(getLocalAgentsStatusPanelRowCount(6), 10);
+  assertEquals(model?.agents[0]?.tone, "warning");
+  assertEquals(model?.agents[1]?.tone, "success");
+  assertEquals(model?.overflow, "└─ 1 more agents · Ctrl+T manager");
 });

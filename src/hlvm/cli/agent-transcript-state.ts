@@ -74,6 +74,7 @@ export type TranscriptInput =
   | {
     type: "user_message";
     text: string;
+    submittedText?: string;
     attachments?: ConversationAttachmentRef[];
     startTurn?: boolean;
   }
@@ -1040,6 +1041,10 @@ export function reduceTranscriptState(
               activityKind: event.activityKind,
               status: event.status,
               summary: event.summary,
+              durationMs: event.durationMs,
+              toolCount: event.toolCount,
+              inputTokens: event.inputTokens,
+              outputTokens: event.outputTokens,
             },
             describeTeamMemberActivity(event),
           );
@@ -1293,6 +1298,7 @@ export function reduceTranscriptState(
         type: "user",
         id,
         text: input.text,
+        submittedText: input.submittedText,
         attachments: input.attachments,
         ts: Date.now(),
         turnId,
