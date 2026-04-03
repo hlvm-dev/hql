@@ -94,6 +94,11 @@ Deno.test("shouldRenderMainBanner keeps the banner visible on a pristine shell",
       isOverlayOpen: false,
       hasStandaloneSurface: false,
       hasActivePlanningState: false,
+      hasShellHistory: false,
+      hasLiveConversation: false,
+      hasQueuedInput: false,
+      hasPendingInteraction: false,
+      hasLocalAgents: false,
     }),
     true,
   );
@@ -107,6 +112,11 @@ Deno.test("shouldRenderMainBanner hides the banner for overlays and standalone s
       isOverlayOpen: true,
       hasStandaloneSurface: false,
       hasActivePlanningState: false,
+      hasShellHistory: false,
+      hasLiveConversation: false,
+      hasQueuedInput: false,
+      hasPendingInteraction: false,
+      hasLocalAgents: false,
     }),
     false,
   );
@@ -117,12 +127,17 @@ Deno.test("shouldRenderMainBanner hides the banner for overlays and standalone s
       isOverlayOpen: false,
       hasStandaloneSurface: true,
       hasActivePlanningState: false,
+      hasShellHistory: false,
+      hasLiveConversation: false,
+      hasQueuedInput: false,
+      hasPendingInteraction: false,
+      hasLocalAgents: false,
     }),
     false,
   );
 });
 
-Deno.test("shouldRenderMainBanner keeps the banner visible during active plan flow", () => {
+Deno.test("shouldRenderMainBanner hides the banner whenever the shell is active", () => {
   assertEquals(
     shouldRenderMainBanner({
       showBanner: true,
@@ -130,8 +145,43 @@ Deno.test("shouldRenderMainBanner keeps the banner visible during active plan fl
       isOverlayOpen: false,
       hasStandaloneSurface: false,
       hasActivePlanningState: true,
+      hasShellHistory: false,
+      hasLiveConversation: false,
+      hasQueuedInput: false,
+      hasPendingInteraction: false,
+      hasLocalAgents: false,
     }),
-    true,
+    false,
+  );
+  assertEquals(
+    shouldRenderMainBanner({
+      showBanner: true,
+      hasBeenCleared: false,
+      isOverlayOpen: false,
+      hasStandaloneSurface: false,
+      hasActivePlanningState: false,
+      hasShellHistory: true,
+      hasLiveConversation: false,
+      hasQueuedInput: false,
+      hasPendingInteraction: false,
+      hasLocalAgents: false,
+    }),
+    false,
+  );
+  assertEquals(
+    shouldRenderMainBanner({
+      showBanner: true,
+      hasBeenCleared: false,
+      isOverlayOpen: false,
+      hasStandaloneSurface: false,
+      hasActivePlanningState: false,
+      hasShellHistory: false,
+      hasLiveConversation: true,
+      hasQueuedInput: true,
+      hasPendingInteraction: false,
+      hasLocalAgents: true,
+    }),
+    false,
   );
 });
 

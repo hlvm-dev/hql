@@ -186,6 +186,37 @@ Deno.test("compactPlanTranscriptItems preserves prior history while hiding curre
   );
 });
 
+Deno.test("compactPlanTranscriptItems leaves ordinary non-plan turns unchanged", () => {
+  const items: AgentConversationItem[] = [
+    {
+      type: "user",
+      id: "user-1",
+      text: "hello",
+      ts: 1,
+    },
+    {
+      type: "assistant",
+      id: "assistant-1",
+      text: "Hi there.",
+      isPending: false,
+      ts: 2,
+    },
+    {
+      type: "turn_stats",
+      id: "stats-1",
+      toolCount: 0,
+      durationMs: 1200,
+      status: "completed",
+    },
+  ];
+
+  assertEquals(compactPlanTranscriptItems(items).map((item) => item.id), [
+    "user-1",
+    "assistant-1",
+    "stats-1",
+  ]);
+});
+
 Deno.test("derivePlanSurfaceState centralizes the active checklist, current step, and recent activities", () => {
   const state = derivePlanSurfaceState({
     planningPhase: "executing",

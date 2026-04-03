@@ -93,6 +93,10 @@ import {
   materializeConversationAttachment,
 } from "../../../attachments/service.ts";
 import { toRuntimeSessionMessage } from "../../../runtime/session-protocol.ts";
+import {
+  buildTraceTextPreview,
+  traceReplMainThreadForSource,
+} from "../../../repl-main-thread-trace.ts";
 
 function requestHasMediaAttachments(
   messages: ChatRequest["messages"],
@@ -275,6 +279,15 @@ export async function handleChat(req: Request): Promise<Response> {
   const sessionId = resolveConversationSessionId(body.session_id, {
     stateless: body.stateless === true,
   });
+  traceReplMainThreadForSource(body.query_source, "server.chat.request", {
+    requestId,
+    sessionId,
+    mode: body.mode,
+    runtimeMode: body.runtime_mode ?? null,
+    stateless: body.stateless === true,
+    messageCount: body.messages.length,
+    queryPreview: buildTraceTextPreview(getLastUserMessage(body.messages)?.content),
+  });
 
   const requestValidationError = validateChatRequestMessages(body.messages);
   if (requestValidationError) {
@@ -348,6 +361,12 @@ export async function handleChat(req: Request): Promise<Response> {
     ? undefined
     : body.model ?? (await ensureInitialModelConfigured()).model;
   const requestAttachmentIds = getRequestAttachmentIds(body.messages);
+  traceReplMainThreadForSource(body.query_source, "server.chat.model_ready", {
+    requestId,
+    sessionId,
+    model: resolvedModel ?? null,
+    attachmentCount: requestAttachmentIds.length,
+  });
   if (requestAttachmentIds.length > 0) {
     await appendAttachmentPipelineTrace({
       stage: "chat_requested",
@@ -464,6 +483,7 @@ export async function handleChat(req: Request): Promise<Response> {
   const controller = new AbortController();
   activeRequests.set(requestId, { controller, sessionId });
   const session = getOrCreateSession(sessionId);
+  const preTurnSessionVersion = session.session_version;
 
   const persistedRequestMessages = buildRequestMessagesToPersist({
     requestMessages: body.messages,
@@ -534,6 +554,11 @@ export async function handleChat(req: Request): Promise<Response> {
       const emitCancellationOnce = async () => {
         if (cancellationEmitted) return;
         cancellationEmitted = true;
+        traceReplMainThreadForSource(body.query_source, "server.chat.cancelled", {
+          requestId,
+          sessionId,
+          partialTextChars: partialText.length,
+        });
         try {
           await emitCancellation(
             assistantMessageId,
@@ -550,6 +575,14 @@ export async function handleChat(req: Request): Promise<Response> {
       const emitErrorState = async (error: unknown): Promise<void> => {
         const described = describeErrorForDisplay(error);
         const errorMsg = described.message;
+        traceReplMainThreadForSource(body.query_source, "server.chat.error", {
+          requestId,
+          sessionId,
+          error: errorMsg,
+          errorClass: described.class,
+          retryable: described.retryable,
+          partialTextChars: partialText.length,
+        });
         const displayContent = partialText.length > 0
           ? `${partialText}\n\n[Error: ${errorMsg}]`
           : `Error: ${errorMsg}`;
@@ -610,6 +643,10 @@ export async function handleChat(req: Request): Promise<Response> {
 
       try {
         emit({ event: "start", request_id: requestId });
+        traceReplMainThreadForSource(body.query_source, "server.chat.stream_started", {
+          requestId,
+          sessionId,
+        });
 
         const onPartial = (text: string) => {
           partialText += text;
@@ -718,6 +755,7 @@ export async function handleChat(req: Request): Promise<Response> {
               emit,
               onPartial,
               requestId,
+              preTurnSessionVersion,
               resolvedModelInfo,
             );
           } else {
@@ -729,6 +767,7 @@ export async function handleChat(req: Request): Promise<Response> {
               controller.signal,
               emit,
               onPartial,
+              requestId,
               resolvedModelInfo,
             );
           }
@@ -741,6 +780,7 @@ export async function handleChat(req: Request): Promise<Response> {
             controller.signal,
             emit,
             onPartial,
+            requestId,
             resolvedModelInfo,
           );
         }
@@ -791,6 +831,12 @@ export async function handleChat(req: Request): Promise<Response> {
             completeEvent.stats = resultStats;
           }
           emit(completeEvent);
+          traceReplMainThreadForSource(body.query_source, "server.chat.complete", {
+            requestId,
+            sessionId,
+            partialTextChars: partialText.length,
+            sessionVersion: updatedSession?.session_version ?? 0,
+          });
         }
       } catch (error) {
         if (controller.signal.aborted) {
@@ -802,6 +848,12 @@ export async function handleChat(req: Request): Promise<Response> {
 
       streamClosed = true;
       clearInterval(heartbeatInterval);
+      traceReplMainThreadForSource(body.query_source, "server.chat.stream_finally", {
+        requestId,
+        sessionId,
+        partialTextChars: partialText.length,
+        aborted: controller.signal.aborted,
+      });
       try {
         streamController.close();
       } catch {

@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert";
 import { getMcpConfigPath } from "../../../src/common/paths.ts";
-import { getPlatform } from "../../../src/platform/platform.ts";
+import { getPlatform, setPlatform } from "../../../src/platform/platform.ts";
 import {
   inferMcpSafetyLevel,
   loadMcpConfig,
@@ -16,6 +16,10 @@ import {
   sanitizeToolName,
   validateToolSchema,
 } from "../../../src/hlvm/agent/tool-schema.ts";
+import {
+  startOAuthServer,
+  withServePermissionGuard,
+} from "./oauth-test-helpers.ts";
 import { withTempDir, withTempHlvmDir } from "../helpers.ts";
 
 type FixtureServerOptions = {
@@ -148,6 +152,45 @@ Deno.test({
         }
 
         assertEquals(hasTool("mcp_test_echo"), false);
+      });
+    });
+  },
+});
+
+Deno.test({
+  name: "MCP: loadMcpTools skips interactive OAuth during agent registration",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withServePermissionGuard(async () => {
+      await withTempHlvmDir(async () => {
+        await withWorkspace(async (workspace) => {
+          const oauth = await startOAuthServer({ protectMcp: true });
+          const originalPlatform = getPlatform();
+          let openUrlCalls = 0;
+          setPlatform({
+            ...originalPlatform,
+            openUrl: async () => {
+              openUrlCalls++;
+            },
+          });
+
+          try {
+            const { tools, dispose } = await loadMcpTools(workspace, [{
+              name: "oauth-protected",
+              url: `http://127.0.0.1:${oauth.port}/mcp`,
+            }]);
+            try {
+              assertEquals(tools.length, 0);
+              assertEquals(openUrlCalls, 0);
+            } finally {
+              await dispose();
+            }
+          } finally {
+            setPlatform(originalPlatform);
+            await oauth.server.shutdown();
+          }
+        });
       });
     });
   },

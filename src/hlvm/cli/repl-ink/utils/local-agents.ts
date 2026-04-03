@@ -12,7 +12,7 @@ import {
   isDelegateTask,
   type Task,
 } from "../../repl/task-manager/index.ts";
-import { listDelegateTranscriptLines } from "../../../agent/delegate-transcript.ts";
+import { listDelegatePreviewLines } from "../../../agent/delegate-transcript.ts";
 
 export type LocalAgentKind = "teammate" | "delegate";
 export type LocalAgentStatus =
@@ -38,7 +38,7 @@ export interface LocalAgentEntry {
   detail?: string;
   interruptible: boolean;
   foregroundable?: boolean;
-  overlayTarget: "team-dashboard" | "background-tasks";
+  overlayTarget: "background-tasks";
   overlayItemId: string;
   progress?: LocalAgentProgress;
 }
@@ -76,7 +76,7 @@ const LOCAL_AGENT_STATUS_SUMMARY_LABEL: Record<LocalAgentStatus, string> = {
   cancelled: "cancelled",
 };
 
-function statusPriority(status: LocalAgentStatus): number {
+export function statusPriority(status: LocalAgentStatus): number {
   return LOCAL_AGENT_STATUS_PRIORITY.get(status) ?? LOCAL_AGENT_STATUS_ORDER.length;
 }
 
@@ -195,7 +195,7 @@ function deriveTeammateStatus(
       status: "running",
       statusLabel: "running",
       detail: recentActivity?.summary ||
-        "Running in the background (Ctrl+T manager)",
+        "Working in the background",
     };
   }
 
@@ -205,7 +205,7 @@ function deriveTeammateStatus(
       status: "running",
       statusLabel: "queued",
       detail: recentActivity?.summary ||
-        "Queued in the background (Ctrl+T manager)",
+        "Queued in the background",
     };
   }
 
@@ -215,7 +215,7 @@ function deriveTeammateStatus(
       status: "running",
       statusLabel: "running",
       detail: recentActivity?.summary ||
-        "Running in the background (Ctrl+T manager)",
+        "Working in the background",
     };
   }
 
@@ -232,7 +232,7 @@ function deriveTeammateStatus(
     label: member.id,
     status: "idle",
     statusLabel: "idle",
-    detail: "Waiting for the next task (Ctrl+T manager)",
+    detail: "Waiting for the next task",
   };
 }
 
@@ -244,15 +244,15 @@ function summarizeDelegateDetail(task: Task): string {
       ? "Failed"
       : task.status === "cancelled"
       ? "Cancelled"
-      : "Running in the background (Ctrl+T manager)";
+      : "Running in the background";
   }
 
-  const latestSnapshotLine = listDelegateTranscriptLines(task.snapshot).at(-1);
+  const latestSnapshotLine = listDelegatePreviewLines(task.snapshot).at(-1);
   if (task.status === "pending") {
-    return latestSnapshotLine || "Queued in the background (Ctrl+T manager)";
+    return latestSnapshotLine || "Queued in the background";
   }
   if (task.status === "running") {
-    return latestSnapshotLine || "Running in the background (Ctrl+T manager)";
+    return latestSnapshotLine || "Working in the background";
   }
   if (task.status === "completed") {
     return task.summary?.trim() || latestSnapshotLine || "Completed";
@@ -315,7 +315,7 @@ function getTaskDurationMs(task: Task): number | undefined {
 function buildDelegateProgress(task: Task): LocalAgentProgress {
   const activityText = summarizeDelegateDetail(task);
   const transcriptLines = isDelegateTask(task)
-    ? listDelegateTranscriptLines(task.snapshot)
+    ? listDelegatePreviewLines(task.snapshot)
     : [];
   return {
     activityText,
@@ -459,8 +459,8 @@ export function buildLocalAgentEntries(
           Boolean(member.threadId),
         foregroundable: member.status !== "terminated" &&
           Boolean(member.threadId),
-        overlayTarget: "team-dashboard" as const,
-        overlayItemId: `member-${member.id}`,
+        overlayTarget: "background-tasks" as const,
+        overlayItemId: `teammate:${member.id}`,
         progress,
       }];
     });

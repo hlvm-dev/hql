@@ -71,11 +71,16 @@ import { cloneToolList } from "./orchestrator-state.ts";
 import { releaseToolOwner } from "./registry.ts";
 import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "./runtime-mode.ts";
 import { FileStateCache } from "./file-state-cache.ts";
+import {
+  REPL_MAIN_THREAD_QUERY_SOURCE,
+  resolveMainThreadBaselineToolAllowlist,
+} from "./query-tool-routing.ts";
 
 interface AgentSessionOptions {
   workspace: string;
   model?: string;
   fixturePath?: string;
+  querySource?: string;
   /** Optional output-token cap for a single provider response. */
   maxOutputTokens?: number;
   engineProfile?: keyof typeof ENGINE_PROFILES;
@@ -102,11 +107,16 @@ interface AgentSessionOptions {
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
   /** Precomputed execution surface for the session. */
   executionSurface?: ExecutionSurface;
+  /** Persistent deferred-tool discoveries carried across turns. */
+  discoveredDeferredTools?: Iterable<string>;
 }
 
 interface RefreshAgentSessionOptions {
   /** Optional callback for streaming tokens to the terminal */
   onToken?: (text: string) => void;
+  querySource?: string;
+  /** Preserve prior user/assistant/tool context already held in memory. */
+  preserveConversationContext?: boolean;
   /** Disable persistent memory injection for this turn. */
   disablePersistentMemory?: boolean;
   /** Loaded instruction hierarchy (global + project). */
@@ -127,6 +137,7 @@ export interface AgentSession {
   policy: AgentPolicy | null;
   l1Confirmations: Map<string, boolean>;
   toolOwnerId: string;
+  querySource?: string;
   dispose: () => Promise<void>;
   profile: typeof ENGINE_PROFILES[keyof typeof ENGINE_PROFILES];
   /** True if the model is a frontier model (API provider, not local) */
@@ -145,8 +156,12 @@ export interface AgentSession {
   engine?: AgentEngine;
   /** Shared mutable tool filter state used by orchestrator + engine. */
   toolFilterState?: ToolFilterState;
+  /** Persistent baseline tool filters used to reset per-turn narrowing. */
+  toolFilterBaseline?: ToolFilterState;
   /** Reset runtime tool filters back to tier/user baseline. */
   resetToolFilter?: () => void;
+  /** Deferred specialized tools discovered via tool_search and kept across turns. */
+  discoveredDeferredTools: Set<string>;
   /** Session-resolved provider execution plan reused across prompt/tool execution. */
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
   /** Session runtime mode for prompt/tool routing behavior. */
@@ -177,6 +192,7 @@ export interface AgentSession {
     | "signatureHash"
     | "mode"
     | "tier"
+    | "querySource"
   >;
   /** Resolved instruction hierarchy — passed to child agents (delegation/team). */
   instructions?: InstructionHierarchy;
@@ -216,6 +232,7 @@ function buildCompiledPromptArtifacts(options: {
   toolAllowlist?: string[];
   toolDenylist?: string[];
   toolOwnerId: string;
+  querySource?: string;
   instructions?: InstructionHierarchy;
   modelTier: ModelTier;
   agentProfiles?: readonly AgentProfile[];
@@ -231,6 +248,7 @@ function buildCompiledPromptArtifacts(options: {
     toolAllowlist: options.toolAllowlist,
     toolDenylist: options.toolDenylist,
     toolOwnerId: options.toolOwnerId,
+    querySource: options.querySource,
     instructions: options.instructions,
     modelTier: options.modelTier,
     agentProfiles: options.agentProfiles,
@@ -254,6 +272,7 @@ function buildCompiledPromptArtifacts(options: {
       signatureHash: compiled.signatureHash,
       mode: compiled.mode,
       tier: compiled.tier,
+      querySource: compiled.querySource,
     },
     systemPromptText: compiled.text,
   };
@@ -277,6 +296,10 @@ async function injectPersistentMemoryContext(options: {
   }
 }
 
+function isTransientReusableSystemMessage(content: string): boolean {
+  return content.startsWith("Allowed file roots:");
+}
+
 export async function refreshReusableAgentSession(
   session: AgentSession,
   options: RefreshAgentSessionOptions = {},
@@ -287,14 +310,15 @@ export async function refreshReusableAgentSession(
   const executionSurface = options.executionSurface ?? session.executionSurface;
   const instructions = options.instructions ?? session.instructions;
   const agentProfiles = options.agentProfiles ?? session.agentProfiles;
-  const allowlist = session.toolFilterState?.allowlist ??
+  const allowlist = session.toolFilterBaseline?.allowlist ??
     session.llmConfig?.toolAllowlist;
-  const denylist = session.toolFilterState?.denylist ??
+  const denylist = session.toolFilterBaseline?.denylist ??
     session.llmConfig?.toolDenylist;
   const promptArtifacts = buildCompiledPromptArtifacts({
     toolAllowlist: allowlist,
     toolDenylist: denylist,
     toolOwnerId: session.toolOwnerId,
+    querySource: options.querySource ?? session.querySource,
     instructions,
     modelTier: session.modelTier,
     agentProfiles,
@@ -314,7 +338,8 @@ export async function refreshReusableAgentSession(
     if (
       message.role !== "system" ||
       message.content === previousPromptText ||
-      isMemorySystemMessage(message.content)
+      isMemorySystemMessage(message.content) ||
+      isTransientReusableSystemMessage(message.content)
     ) {
       continue;
     }
@@ -327,10 +352,20 @@ export async function refreshReusableAgentSession(
     disablePersistentMemory: options.disablePersistentMemory,
   });
 
+  if (options.preserveConversationContext) {
+    for (const message of session.context.getMessages()) {
+      if (message.role === "system") {
+        continue;
+      }
+      context.addMessage({ ...message });
+    }
+  }
+
   const llmConfig = session.llmConfig
     ? {
       ...session.llmConfig,
       onToken: options.onToken,
+      querySource: options.querySource ?? session.querySource,
       runtimeMode,
       providerExecutionPlan,
       executionSurface,
@@ -347,6 +382,7 @@ export async function refreshReusableAgentSession(
     context,
     llmConfig,
     providerExecutionPlan,
+    querySource: options.querySource ?? session.querySource,
     runtimeMode,
     executionSurface,
     webCapabilityPlan: providerExecutionPlan?.web,
@@ -381,22 +417,27 @@ export async function createAgentSession(
   const effectiveToolDenylist = options.toolDenylist?.length
     ? [...options.toolDenylist]
     : [...DEFAULT_TOOL_DENYLIST];
+  const baselineToolAllowlist = resolveMainThreadBaselineToolAllowlist({
+    querySource: options.querySource,
+    toolAllowlist: options.toolAllowlist,
+    discoveredDeferredTools: options.discoveredDeferredTools,
+  });
   const tierFilter = computeTierToolFilter(
     modelTier,
-    options.toolAllowlist,
+    baselineToolAllowlist,
     effectiveToolDenylist,
   );
-  const baseToolFilter: ToolFilterState = {
+  const toolFilterBaseline: ToolFilterState = {
     allowlist: cloneToolList(tierFilter.allowlist),
     denylist: cloneToolList(tierFilter.denylist),
   };
   const toolFilterState: ToolFilterState = {
-    allowlist: cloneToolList(baseToolFilter.allowlist),
-    denylist: cloneToolList(baseToolFilter.denylist),
+    allowlist: cloneToolList(toolFilterBaseline.allowlist),
+    denylist: cloneToolList(toolFilterBaseline.denylist),
   };
   const resetToolFilter = () => {
-    toolFilterState.allowlist = cloneToolList(baseToolFilter.allowlist);
-    toolFilterState.denylist = cloneToolList(baseToolFilter.denylist);
+    toolFilterState.allowlist = cloneToolList(toolFilterBaseline.allowlist);
+    toolFilterState.denylist = cloneToolList(toolFilterBaseline.denylist);
   };
   const thinkingState: ThinkingState = {};
   const lspDiagnostics = createLspDiagnosticsRuntime({
@@ -551,7 +592,10 @@ export async function createAgentSession(
   const executionSurface = resolvedSurface.executionSurface;
   const webCapabilityPlan = providerExecutionPlan.web;
 
-  if (executionSurfaceUsesMcp(executionSurface)) {
+  if (
+    executionSurfaceUsesMcp(executionSurface) &&
+    options.querySource !== REPL_MAIN_THREAD_QUERY_SOURCE
+  ) {
     await ensureMcpLoaded();
   }
 
@@ -561,6 +605,7 @@ export async function createAgentSession(
     toolAllowlist: toolFilterState.allowlist,
     toolDenylist: toolFilterState.denylist,
     toolOwnerId,
+    querySource: options.querySource,
     modelTier,
     instructions: options.instructions,
     agentProfiles: options.agentProfiles,
@@ -599,12 +644,13 @@ export async function createAgentSession(
         ? { maxTokens: options.maxOutputTokens }
         : {},
       contextBudget: resolved.budget,
-      toolAllowlist: toolFilterState.allowlist,
-      toolDenylist: toolFilterState.denylist,
+      toolAllowlist: toolFilterBaseline.allowlist,
+      toolDenylist: toolFilterBaseline.denylist,
       toolFilterState,
       thinkingState,
       toolOwnerId,
       onToken: options.onToken,
+      querySource: options.querySource,
       thinkingCapable,
       runtimeMode,
       providerExecutionPlan,
@@ -628,6 +674,7 @@ export async function createAgentSession(
     policy,
     l1Confirmations: new Map<string, boolean>(),
     toolOwnerId,
+    querySource: options.querySource,
     dispose: async () => {
       try {
         await Promise.allSettled([
@@ -651,7 +698,9 @@ export async function createAgentSession(
     thinkingCapable,
     engine,
     toolFilterState,
+    toolFilterBaseline,
     resetToolFilter,
+    discoveredDeferredTools: new Set(options.discoveredDeferredTools ?? []),
     providerExecutionPlan,
     runtimeMode,
     executionSurface,

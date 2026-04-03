@@ -138,11 +138,6 @@ function sanitizeBasicIdentifier(
   return sanitized;
 }
 
-export function checkForHqlImports(source: string): boolean {
-  return STATIC_HQL_IMPORT_PATTERN.test(source) ||
-    DYNAMIC_HQL_IMPORT_PATTERN.test(source);
-}
-
 export async function readFile(
   filePath: string,
   context?: string,
@@ -156,6 +151,11 @@ export async function readFile(
       }`,
     );
   }
+}
+
+export function checkForHqlImports(source: string): boolean {
+  return STATIC_HQL_IMPORT_PATTERN.test(source) ||
+    DYNAMIC_HQL_IMPORT_PATTERN.test(source);
 }
 
 export async function findActualFilePath(

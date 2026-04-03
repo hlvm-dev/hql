@@ -40,6 +40,9 @@ export interface AgentLLMConfig {
   options?: { temperature?: number; maxTokens?: number };
   toolAllowlist?: string[];
   toolDenylist?: string[];
+  querySource?: string;
+  eagerToolCount?: number;
+  discoveredDeferredToolCount?: number;
   /** Runtime-overridable tool filters (e.g., tool_search narrowing). */
   toolFilterState?: ToolFilterState;
   /** Runtime reasoning profile inputs (updated every turn by orchestrator). */

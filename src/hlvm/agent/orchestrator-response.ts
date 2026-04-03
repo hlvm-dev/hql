@@ -1213,6 +1213,18 @@ export async function handlePostToolExecution(
     const rawAllowlist = parseToolSearchAllowlist(toolResult.result);
     if (rawAllowlist.length === 0) continue;
 
+    const updatedBaselineAllowlist = config.onToolSearchDiscovered?.(
+      rawAllowlist,
+    );
+    if (updatedBaselineAllowlist) {
+      config.toolFilterBaseline = {
+        allowlist: [...updatedBaselineAllowlist],
+        denylist: cloneToolList(
+          config.toolFilterBaseline?.denylist ?? config.toolDenylist,
+        ),
+      };
+    }
+
     const currentAllowlist = config.toolFilterBaseline?.allowlist ??
       effectiveAllowlist(config);
     const allowedUniverse = currentAllowlist?.length

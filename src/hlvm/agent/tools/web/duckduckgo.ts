@@ -5,6 +5,7 @@
 
 import { http } from "../../../../common/http-client.ts";
 import { ValidationError } from "../../../../common/error.ts";
+import { getErrorMessage } from "../../../../common/utils.ts";
 import { withRetry } from "../../../../common/retry.ts";
 import { DEFAULT_USER_AGENT } from "../../../../common/config/web-resolver.ts";
 import type { ToolExecutionOptions } from "../../registry.ts";
@@ -403,7 +404,7 @@ async function duckDuckGoSearch(
       );
       page2Fetched = true;
     } catch (error) {
-      page2Error = error instanceof Error ? error.message : String(error);
+      page2Error = getErrorMessage(error);
     }
   }
 

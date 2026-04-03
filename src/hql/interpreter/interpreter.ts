@@ -209,11 +209,4 @@ export class Interpreter implements IInterpreter {
       this.callDepth--;
     }
   }
-
-  /**
-   * Reset the interpreter state
-   */
-  reset(): void {
-    this.callDepth = 0;
-  }
 }

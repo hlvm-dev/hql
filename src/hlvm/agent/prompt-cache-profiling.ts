@@ -10,11 +10,15 @@ export interface PromptCacheProfilingScenarioRun {
   scenario: PromptCacheProfilingScenarioName;
   title: string;
   responsePreview: string;
+  querySource: string | null;
   promptSignatureHash: string | null;
   stableCacheSignatureHash: string | null;
   stableSegmentCount: number | null;
   providerName: string | null;
   modelId: string | null;
+  toolSchemaSignature: string | null;
+  eagerToolCount: number | null;
+  discoveredDeferredToolCount: number | null;
   latencyMs: number | null;
   firstTokenLatencyMs: number | null;
   inputTokens: number | null;
@@ -69,6 +73,7 @@ export function summarizePromptCacheProfilingRun(input: {
     scenario: input.scenario,
     title: input.title,
     responsePreview: truncatePreview(input.responseText),
+    querySource: performance?.querySource ?? compiled?.querySource ?? null,
     promptSignatureHash: compiled?.signatureHash ?? performance?.promptSignatureHash ?? null,
     stableCacheSignatureHash: performance?.stableCacheSignatureHash ??
       compiled?.stableCacheProfile.stableSignatureHash ?? null,
@@ -76,6 +81,9 @@ export function summarizePromptCacheProfilingRun(input: {
       compiled?.stableCacheProfile.stableSegmentCount ?? null,
     providerName: performance?.providerName ?? null,
     modelId: performance?.modelId ?? null,
+    toolSchemaSignature: performance?.toolSchemaSignature ?? null,
+    eagerToolCount: performance?.eagerToolCount ?? null,
+    discoveredDeferredToolCount: performance?.discoveredDeferredToolCount ?? null,
     latencyMs: performance?.latencyMs ?? null,
     firstTokenLatencyMs: performance?.firstTokenLatencyMs ?? null,
     inputTokens: performance?.inputTokens ?? null,

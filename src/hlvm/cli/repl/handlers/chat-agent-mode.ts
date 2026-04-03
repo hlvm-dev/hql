@@ -8,7 +8,15 @@ import {
   runAgentQuery,
 } from "../../../agent/agent-runner.ts";
 import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
-import { resolveQueryToolAllowlist } from "../../../agent/query-tool-routing.ts";
+import {
+  isMainThreadQuerySource,
+  resolveQueryToolAllowlist,
+} from "../../../agent/query-tool-routing.ts";
+import {
+  invalidateReplLiveAgentSession,
+  resolveReplLiveAgentSession,
+  setReplLiveAgentSession,
+} from "../../../agent/repl-live-session-cache.ts";
 import {
   getMessage,
   getSession,
@@ -51,6 +59,11 @@ import {
   getConversationMaterializationOptionsForModel,
 } from "../../attachment-policy.ts";
 import type { ChatResultStats } from "../../../runtime/chat-protocol.ts";
+import {
+  buildTraceTextPreview,
+  summarizeTraceEvent,
+  traceReplMainThreadForSource,
+} from "../../../repl-main-thread-trace.ts";
 
 export async function handleAgentMode(
   body: ChatRequest,
@@ -61,8 +74,10 @@ export async function handleAgentMode(
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
   requestId: string,
+  preTurnSessionVersion: number,
   modelInfo?: ModelInfo | null,
 ): Promise<ChatResultStats> {
+  const handlerStartedAt = Date.now();
   const effectiveToolDenylist = body.tool_denylist?.length
     ? [...body.tool_denylist]
     : [...DEFAULT_TOOL_DENYLIST];
@@ -70,7 +85,16 @@ export async function handleAgentMode(
       body.fixture_path.trim()
     ? body.fixture_path.trim()
     : undefined;
+  traceReplMainThreadForSource(body.query_source, "server.agent.handle.start", {
+    requestId,
+    sessionId,
+    model: resolvedModel,
+    runtimeMode: body.runtime_mode ?? null,
+    fixturePath: !!fixturePath,
+    queryPreview: buildTraceTextPreview(getLastUserMessage(body.messages)?.content),
+  });
   if (!fixturePath) {
+    const agentReadyStartedAt = Date.now();
     let agentReadyPromise = getAgentReadyPromise(resolvedModel);
     if (!agentReadyPromise) {
       agentReadyPromise = ensureAgentReady(
@@ -84,6 +108,12 @@ export async function handleAgentMode(
       setAgentReadyPromise(resolvedModel, agentReadyPromise);
     }
     await agentReadyPromise;
+    traceReplMainThreadForSource(body.query_source, "server.agent.ensure_ready.done", {
+      requestId,
+      sessionId,
+      durationMs: Date.now() - agentReadyStartedAt,
+      model: resolvedModel,
+    });
   }
 
   const workingDirectory = getPlatform().process.cwd();
@@ -99,57 +129,182 @@ export async function handleAgentMode(
     attachmentMaterializationOptions,
   );
   const toolAllowlist = resolveQueryToolAllowlist(body.tool_allowlist);
+  const permissionMode = body.permission_mode ??
+    getPermissionMode(config.snapshot) ??
+    "default";
+  const mainThreadQuery = isMainThreadQuerySource(body.query_source);
+  const requestOverridesStoredHistory = shouldHonorRequestMessages(body.messages);
+  const hotSessionReusableTurn = mainThreadQuery &&
+    !fixturePath &&
+    !requestOverridesStoredHistory &&
+    body.skip_session_history !== true &&
+    attachments.length === 0 &&
+    body.response_schema === undefined &&
+    body.computer_use !== true;
+  let hotSessionInvalidationReason: string | undefined;
+  let liveSessionEntry: ReturnType<typeof resolveReplLiveAgentSession>["entry"];
+  let historyStrategy: "live_session" | "persisted_replay" = "persisted_replay";
 
-  const history = await buildAgentHistoryMessages({
-    requestMessages: body.messages,
-    storedMessages: shouldHonorRequestMessages(body.messages)
-      ? []
-      : loadAllMessages(sessionId),
-    assistantMessageId,
-    maxGroups: AGENT_CONTEXT_HISTORY_LIMIT,
-    modelKey: resolvedModel,
-    modelInfo,
-  });
+  if (mainThreadQuery && !hotSessionReusableTurn) {
+    hotSessionInvalidationReason = requestOverridesStoredHistory
+      ? "request_messages_override"
+      : body.skip_session_history === true
+      ? "skip_session_history"
+      : attachments.length > 0
+      ? "attachments_present"
+      : body.response_schema !== undefined
+      ? "structured_output_requested"
+      : body.computer_use === true
+      ? "computer_use_requested"
+      : undefined;
+    invalidateReplLiveAgentSession(sessionId);
+  } else if (hotSessionReusableTurn) {
+    const liveSessionResult = resolveReplLiveAgentSession({
+      sessionId,
+      expectedSessionVersion: preTurnSessionVersion,
+      model: resolvedModel,
+      querySource: body.query_source,
+      runtimeMode: body.runtime_mode ?? "manual",
+      permissionMode,
+      toolAllowlist,
+      toolDenylist: effectiveToolDenylist,
+    });
+    liveSessionEntry = liveSessionResult.entry;
+    hotSessionInvalidationReason = liveSessionResult.invalidationReason;
+    if (liveSessionResult.hotSessionReuse) {
+      historyStrategy = "live_session";
+    }
+  }
+
+  const history = historyStrategy === "live_session"
+    ? []
+    : await buildAgentHistoryMessages({
+      requestMessages: body.messages,
+      storedMessages: requestOverridesStoredHistory
+        ? []
+        : loadAllMessages(sessionId),
+      assistantMessageId,
+      maxGroups: AGENT_CONTEXT_HISTORY_LIMIT,
+      modelKey: resolvedModel,
+      modelInfo,
+    });
+  const messageHistory = historyStrategy === "live_session" ? undefined : history;
 
   let streamedFinalText = false;
   let successfulToolCalls = 0;
   let failedToolCalls = 0;
-
-  const result = await runAgentQuery({
-    query,
-    model: resolvedModel,
+  traceReplMainThreadForSource(body.query_source, "server.agent.context_ready", {
+    requestId,
     sessionId,
-    transcriptPersistenceMode: "caller",
-    permissionMode: body.permission_mode ??
-      getPermissionMode(config.snapshot) ??
-      "default",
-    runtimeMode: body.runtime_mode,
-    restorePersistedRuntimeMode: true,
-    noInput: false,
-    signal,
-    toolAllowlist,
-    toolDenylist: effectiveToolDenylist,
-    workspace: workingDirectory,
-    maxOutputTokens: body.max_tokens,
-    contextWindow: body.context_window,
-    fixturePath,
-    skipSessionHistory: body.skip_session_history === true,
-    disablePersistentMemory: body.disable_persistent_memory === true,
-    messageHistory: history,
-    attachments: attachments.length > 0 ? attachments : undefined,
-    responseSchema: body.response_schema,
-    computerUse: body.computer_use === true,
-    modelInfo,
-    callbacks: {
-      onToken: (text: string) => {
-        streamedFinalText = true;
-        onPartial(text);
-        emit({ event: "token", text });
-      },
-      onInteraction: async (event) => {
-        return await awaitInteractionResponse(event, signal, emit);
-      },
-      onAgentEvent: (event) => {
+    historyCount: history.length,
+    historyStrategy,
+    hotSessionReuse: historyStrategy === "live_session",
+    hotSessionInvalidationReason: hotSessionInvalidationReason ?? null,
+    attachmentCount: attachments.length,
+    toolAllowlistCount: toolAllowlist?.length ?? 0,
+    toolDenylistCount: effectiveToolDenylist.length,
+  });
+
+  let result: Awaited<ReturnType<typeof runAgentQuery>>;
+  try {
+    result = await runAgentQuery({
+      query,
+      model: resolvedModel,
+      querySource: body.query_source,
+      requestId,
+      sessionId,
+      transcriptPersistenceMode: "caller",
+      permissionMode,
+      runtimeMode: body.runtime_mode,
+      restorePersistedRuntimeMode: true,
+      noInput: false,
+      signal,
+      toolAllowlist,
+      toolDenylist: effectiveToolDenylist,
+      workspace: workingDirectory,
+      maxOutputTokens: body.max_tokens,
+      contextWindow: body.context_window,
+      fixturePath,
+      skipSessionHistory: body.skip_session_history === true,
+      skipPersistedHistoryReplay: historyStrategy === "live_session",
+      disablePersistentMemory: body.disable_persistent_memory === true,
+      messageHistory,
+      attachments: attachments.length > 0 ? attachments : undefined,
+      responseSchema: body.response_schema,
+      computerUse: body.computer_use === true,
+      modelInfo,
+      reusableSession: liveSessionEntry?.session,
+      retainSessionForReuse: hotSessionReusableTurn,
+      callbacks: {
+        onToken: (text: string) => {
+          streamedFinalText = true;
+          onPartial(text);
+          emit({ event: "token", text });
+        },
+        onInteraction: async (event) => {
+          return await awaitInteractionResponse(event, signal, emit);
+        },
+        onAgentEvent: (event) => {
+        switch (event.type) {
+          case "tool_start":
+            traceReplMainThreadForSource(body.query_source, "server.agent.tool_start", {
+              requestId,
+              sessionId,
+              name: event.name,
+              toolCallId: event.toolCallId,
+              toolIndex: event.toolIndex,
+              toolTotal: event.toolTotal,
+              argsSummary: event.argsSummary,
+            });
+            break;
+          case "tool_end":
+            traceReplMainThreadForSource(body.query_source, "server.agent.tool_end", {
+              requestId,
+              sessionId,
+              name: event.name,
+              toolCallId: event.toolCallId,
+              success: event.success,
+              durationMs: event.durationMs,
+              summary: event.summary,
+            });
+            break;
+          case "delegate_start":
+            traceReplMainThreadForSource(body.query_source, "server.agent.delegate_start", {
+              requestId,
+              sessionId,
+              agent: event.agent,
+              task: buildTraceTextPreview(event.task, 120),
+              threadId: event.threadId,
+            });
+            break;
+          case "delegate_end":
+            traceReplMainThreadForSource(body.query_source, "server.agent.delegate_end", {
+              requestId,
+              sessionId,
+              agent: event.agent,
+              success: event.success,
+              durationMs: event.durationMs,
+              threadId: event.threadId,
+              summary: buildTraceTextPreview(event.summary, 120),
+              error: event.error,
+            });
+            break;
+          case "turn_stats":
+            traceReplMainThreadForSource(body.query_source, "server.agent.turn_stats", {
+              requestId,
+              sessionId,
+              iteration: event.iteration,
+              toolCount: event.toolCount,
+              durationMs: event.durationMs,
+              inputTokens: event.inputTokens,
+              outputTokens: event.outputTokens,
+              modelId: event.modelId,
+              continuedThisTurn: event.continuedThisTurn,
+              continuationCount: event.continuationCount,
+              compactionReason: event.compactionReason,
+            });
+            break;
+        }
         switch (event.type) {
           case "thinking":
             emit({ event: "thinking", iteration: event.iteration });
@@ -429,16 +584,44 @@ export async function handleAgentMode(
             break;
         }
       },
-      onTrace: body.trace
-        ? (trace) => emit({ event: "trace", trace })
-        : undefined,
-      onFinalResponseMeta: (meta) =>
-        emit({ event: "final_response_meta", meta }),
-    },
+        onTrace: body.trace
+          ? (trace) => {
+            traceReplMainThreadForSource(body.query_source, "server.agent.trace", {
+              requestId,
+              sessionId,
+              ...summarizeTraceEvent(trace),
+            });
+            emit({ event: "trace", trace });
+          }
+          : undefined,
+        onFinalResponseMeta: (meta) =>
+          emit({ event: "final_response_meta", meta }),
+      },
+    });
+  } catch (error) {
+    if (hotSessionReusableTurn) {
+      invalidateReplLiveAgentSession(sessionId);
+    }
+    traceReplMainThreadForSource(body.query_source, "server.agent.handle.error", {
+      requestId,
+      sessionId,
+      durationMs: Date.now() - handlerStartedAt,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+  traceReplMainThreadForSource(body.query_source, "server.agent.handle.done", {
+    requestId,
+    sessionId,
+    durationMs: Date.now() - handlerStartedAt,
+    textChars: result.text.length,
+    successfulToolCalls,
+    failedToolCalls,
   });
 
   if (!signal.aborted) {
     let finalText = result.text;
+    let usedDirectChatFallback = false;
     const structuredResponseRequested = !!body.response_schema;
     const shouldFallbackToDirectChat = !structuredResponseRequested &&
       (
@@ -447,6 +630,10 @@ export async function handleAgentMode(
         (failedToolCalls > 0 && successfulToolCalls === 0 && !finalText.trim())
       );
     if (shouldFallbackToDirectChat) {
+      traceReplMainThreadForSource(body.query_source, "server.agent.direct_chat_fallback.start", {
+        requestId,
+        sessionId,
+      });
       const fallbackText = await streamDirectChatFallback(
         body.messages,
         sessionId,
@@ -461,7 +648,13 @@ export async function handleAgentMode(
       if (fallbackText.trim().length > 0) {
         finalText = fallbackText;
         streamedFinalText = true;
+        usedDirectChatFallback = true;
       }
+      traceReplMainThreadForSource(body.query_source, "server.agent.direct_chat_fallback.done", {
+        requestId,
+        sessionId,
+        textChars: fallbackText.length,
+      });
     }
 
     if (finalText.trim().length === 0) {
@@ -490,6 +683,26 @@ export async function handleAgentMode(
         },
     });
     pushConversationUpdatedEvent(sessionId);
+    if (hotSessionReusableTurn && usedDirectChatFallback) {
+      invalidateReplLiveAgentSession(sessionId);
+      if (historyStrategy !== "live_session" && result.liveSession) {
+        await result.liveSession.dispose().catch(() => {});
+      }
+    } else if (hotSessionReusableTurn && result.liveSession) {
+      const updatedSession = getSession(sessionId);
+      setReplLiveAgentSession(sessionId, {
+        session: result.liveSession,
+        lastSessionVersion: updatedSession?.session_version ?? preTurnSessionVersion,
+        model: resolvedModel,
+        querySource: body.query_source,
+        runtimeMode: body.runtime_mode ?? "manual",
+        permissionMode,
+        toolAllowlist,
+        toolDenylist: effectiveToolDenylist,
+      });
+    }
+  } else if (hotSessionReusableTurn) {
+    invalidateReplLiveAgentSession(sessionId);
   }
 
   emit({ event: "result_stats", stats: result.stats });

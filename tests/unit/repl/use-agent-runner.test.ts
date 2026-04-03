@@ -14,6 +14,13 @@ Deno.test("getConversationToolDenylist keeps ask_user available while disabling 
     "send_input",
     "interrupt_agent",
     "resume_agent",
+    "Teammate",
+    "SendMessage",
+    "TaskCreate",
+    "TaskGet",
+    "TaskUpdate",
+    "TaskList",
+    "TeamStatus",
   ]);
   assertEquals(getConversationToolDenylist("acceptEdits"), [
     "complete_task",
@@ -27,6 +34,13 @@ Deno.test("getConversationToolDenylist keeps ask_user available while disabling 
     "send_input",
     "interrupt_agent",
     "resume_agent",
+    "Teammate",
+    "SendMessage",
+    "TaskCreate",
+    "TaskGet",
+    "TaskUpdate",
+    "TaskList",
+    "TeamStatus",
   ]);
   assertEquals(getConversationToolDenylist("bypassPermissions"), [
     "complete_task",
@@ -40,6 +54,22 @@ Deno.test("getConversationToolDenylist keeps ask_user available while disabling 
     "send_input",
     "interrupt_agent",
     "resume_agent",
+    "Teammate",
+    "SendMessage",
+    "TaskCreate",
+    "TaskGet",
+    "TaskUpdate",
+    "TaskList",
+    "TeamStatus",
   ]);
-  assertEquals(getConversationToolDenylist("plan"), ["complete_task"]);
+  assertEquals(getConversationToolDenylist("plan"), [
+    "complete_task",
+    "Teammate",
+    "SendMessage",
+    "TaskCreate",
+    "TaskGet",
+    "TaskUpdate",
+    "TaskList",
+    "TeamStatus",
+  ]);
 });

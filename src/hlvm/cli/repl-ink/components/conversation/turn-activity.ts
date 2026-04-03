@@ -9,6 +9,7 @@ import type {
 import { StreamingState as ConversationStreamingState } from "../../types.ts";
 import {
   normalizeActivityText,
+  SHELL_COMMAND_LABELS,
   summarizePathLabel,
 } from "./activity-labels.ts";
 import {
@@ -43,10 +44,8 @@ function summarizeShellCommandOutcome(command: string): string | undefined {
     const target = normalizeActivityText(normalized.replace(/^open\s+/i, ""));
     return `Opened ${summarizePathLabel(target)}`;
   }
-  if (/^mkdir\b/i.test(normalized)) return "Created directories";
-  if (/^mv\b/i.test(normalized)) return "Moved files";
-  if (/^cp\b/i.test(normalized)) return "Copied files";
-  if (/^rm\b/i.test(normalized)) return "Removed files";
+  const match = SHELL_COMMAND_LABELS.find(([re]) => re.test(normalized));
+  if (match) return match[2]; // completedLabel
   return `Ran ${truncate(normalized, 48, "…")}`;
 }
 
@@ -132,7 +131,9 @@ export function deriveLiveTurnStatus(options: {
     };
   }
 
-  const currentActivity = getPlanFlowActivitySummary(items);
+  const currentActivity = getPlanFlowActivitySummary(items, {
+    includeAssistant: false,
+  });
   if (currentActivity) {
     return {
       label: currentActivity,
@@ -150,7 +151,7 @@ export function deriveLiveTurnStatus(options: {
     };
   }
 
-  if (hasPendingAssistant(items)) {
+  if (hasPendingAssistant(items) && items.length <= 2) {
     return {
       label: "Starting response",
       tone: "active",

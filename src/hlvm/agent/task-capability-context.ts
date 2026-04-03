@@ -2,6 +2,7 @@ import {
   normalizeSemanticCapabilityId,
   type SemanticCapabilityId,
 } from "./semantic-capabilities.ts";
+import { uniqueSorted } from "./turn-context.ts";
 
 export interface ExecutionTaskCapabilityContext {
   requestedCapabilities: SemanticCapabilityId[];
@@ -67,10 +68,6 @@ const TASK_CAPABILITY_CUE_SPECS: readonly TaskCapabilityCueSpec[] = [
   },
 ] as const;
 
-function uniqueSortedStrings(values: readonly string[]): string[] {
-  return [...new Set(values)].sort();
-}
-
 export function extractTaskCapabilityContextFromTaskText(
   taskText: string,
 ): ExecutionTaskCapabilityContext {
@@ -92,7 +89,7 @@ export function extractTaskCapabilityContextFromTaskText(
   }
 
   return {
-    requestedCapabilities: uniqueSortedStrings(
+    requestedCapabilities: uniqueSorted(
       requestedCapabilities,
     ) as SemanticCapabilityId[],
     source: "task-text",
@@ -109,14 +106,14 @@ export function normalizeExecutionTaskCapabilityContext(
 
   const record = value as Record<string, unknown>;
   const requestedCapabilities = Array.isArray(record.requestedCapabilities)
-    ? uniqueSortedStrings(
+    ? uniqueSorted(
       record.requestedCapabilities.map((entry) =>
         normalizeSemanticCapabilityId(entry)
       ).filter((entry): entry is SemanticCapabilityId => !!entry),
     ) as SemanticCapabilityId[]
     : [];
   const matchedCueLabels = Array.isArray(record.matchedCueLabels)
-    ? uniqueSortedStrings(
+    ? uniqueSorted(
       record.matchedCueLabels.filter((entry): entry is string =>
         typeof entry === "string" && entry.trim().length > 0
       ),

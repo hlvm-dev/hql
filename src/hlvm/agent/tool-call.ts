@@ -26,9 +26,13 @@ export interface LLMPerformance {
   modelId: string;
   latencyMs: number;
   firstTokenLatencyMs?: number;
+  querySource?: string;
   promptSignatureHash?: string;
   stableCacheSignatureHash?: string;
   stableSegmentCount?: number;
+  toolSchemaSignature?: string;
+  eagerToolCount?: number;
+  discoveredDeferredToolCount?: number;
   inputTokens?: number;
   outputTokens?: number;
   cacheReadInputTokens?: number;

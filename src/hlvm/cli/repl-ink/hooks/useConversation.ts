@@ -97,6 +97,8 @@ export function useConversation(): UseConversationResult {
   const [activeTurnId, setActiveTurnId] = useState<string | undefined>(
     state.currentTurnId,
   );
+  const activeTurnIdRef = useRef(activeTurnId);
+  activeTurnIdRef.current = activeTurnId;
 
   const hydrateState = useCallback((nextState: TranscriptState) => {
     stateRef.current = nextState;
@@ -194,7 +196,7 @@ export function useConversation(): UseConversationResult {
       status,
       turnId: options?.turnId,
     });
-    if (!options?.turnId || options.turnId === activeTurnId) {
+    if (!options?.turnId || options.turnId === activeTurnIdRef.current) {
       setActiveTurnId(nextState.currentTurnId);
     }
   }, []);

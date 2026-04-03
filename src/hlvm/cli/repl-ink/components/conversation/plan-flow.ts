@@ -13,15 +13,9 @@ import type {
 } from "../../types.ts";
 import {
   normalizeActivityText,
+  SHELL_COMMAND_LABELS,
   summarizeActivityArgs,
 } from "./activity-labels.ts";
-
-const SHELL_COMMAND_LABELS: ReadonlyArray<[RegExp, string]> = [
-  [/^mkdir\b/i, "Creating directories"],
-  [/^mv\b/i, "Moving files"],
-  [/^cp\b/i, "Copying files"],
-  [/^rm\b/i, "Removing files"],
-] as const;
 
 const PLAN_SURFACE_HIDDEN_TOOL_NAMES = new Set([
   "ask_user",
@@ -316,8 +310,19 @@ export function compactPlanTranscriptItems<T extends ConversationItem>(
   if (lastUserIndex < 0) {
     return getPlanSurfaceItems(items);
   }
+  const activeTurnItems = items.slice(lastUserIndex + 1);
+  const hasPlanSignals = activeTurnItems.some((item) => {
+    if (item.type === "thinking") return true;
+    if (item.type === "tool_group") {
+      return item.tools.some((tool) => isPlanNoiseTool(tool));
+    }
+    return false;
+  });
+  if (!hasPlanSignals) {
+    return [...items];
+  }
   const historyPrefix = items.slice(0, lastUserIndex + 1);
-  const activePlanSuffix = getPlanSurfaceItems(items.slice(lastUserIndex + 1));
+  const activePlanSuffix = getPlanSurfaceItems(activeTurnItems);
   return [...historyPrefix, ...activePlanSuffix];
 }
 
@@ -403,15 +408,17 @@ export function getPlanFlowActivities(
 
 export function getPlanFlowActivitySummary(
   items: readonly ConversationItem[],
+  options: PlanFlowActivityOptions = {},
 ): string | undefined {
-  return getPlanFlowActivities(items, "latest")[0];
+  return getPlanFlowActivities(items, "latest", 1, options)[0];
 }
 
 export function getRecentPlanFlowActivitySummaries(
   items: readonly ConversationItem[],
   limit = 3,
+  options: PlanFlowActivityOptions = {},
 ): string[] {
-  return getPlanFlowActivities(items, "recent", limit);
+  return getPlanFlowActivities(items, "recent", limit, options);
 }
 
 export type AgentPlanSurfaceState = PlanSurfaceState<AgentConversationItem>;

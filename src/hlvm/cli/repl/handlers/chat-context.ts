@@ -58,6 +58,8 @@ interface BuildChatProviderMessagesOptions extends BuildReplayMessagesOptions {
   disablePersistentMemory?: boolean;
   modelInfo?: ModelInfo | null;
   modelKey?: string;
+  prependReplayMessages?: ReplayMessage[];
+  contextBudgetOverride?: ResolvedBudget;
 }
 
 interface BuildAgentHistoryOptions extends BuildReplayMessagesOptions {
@@ -167,20 +169,24 @@ export async function buildChatProviderMessages(
     ...options,
     attachmentMaterializationOptions,
   });
-  const resolvedContextBudget = resolveChatContextBudget(
-    options.modelInfo,
-    options.modelKey,
-  );
+  const resolvedContextBudget = options.contextBudgetOverride ??
+    resolveChatContextBudget(
+      options.modelInfo,
+      options.modelKey,
+    );
+  const replayWithPrefix = options.prependReplayMessages?.length
+    ? [...options.prependReplayMessages, ...replayMessages]
+    : replayMessages;
   const replayWithMemory = isPersistentMemoryEnabled(
       options.disablePersistentMemory,
     )
     ? await injectMemoryReplayMessage(
-      replayMessages,
+      replayWithPrefix,
       resolvedContextBudget.budget,
       options.requestMessages[options.requestMessages.length - 1]?.content ??
         "",
     )
-    : replayMessages;
+    : replayWithPrefix;
   const trimmed = trimReplayMessages(
     replayWithMemory,
     resolvedContextBudget.budget,

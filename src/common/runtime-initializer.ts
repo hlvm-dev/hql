@@ -126,10 +126,10 @@ class HlvmRuntimeInitializer {
       runtimeProgress.emit("stdlib", "Loading standard library", step, totalSteps);
       const parallelInits: Promise<void>[] = [];
       if (opts.stdlib) {
-        parallelInits.push(this.initializeStdlib());
+        parallelInits.push(this.initializeComponent("stdlib", this._initializeStdlib.bind(this)));
       }
       if (opts.cache) {
-        parallelInits.push(this.initializeCache());
+        parallelInits.push(this.initializeComponent("cache", this._initializeCache.bind(this)));
       }
       await Promise.all(parallelInits);
     }
@@ -157,55 +157,33 @@ class HlvmRuntimeInitializer {
   }
 
   /**
-   * Initialize the standard library
+   * Initialize a component with deduplication guard (idempotent, concurrent-safe).
+   * Consolidates the repeated init-guard pattern from initializeStdlib/initializeCache.
    */
-  public async initializeStdlib(): Promise<void> {
-    // Return existing promise if initialization is in progress
-    if (this.initPromises.stdlib) {
-      return this.initPromises.stdlib;
-    }
+  private async initializeComponent(
+    key: keyof InitializationState,
+    init: () => Promise<void>,
+  ): Promise<void> {
+    if (this.initPromises[key]) return this.initPromises[key]!;
+    if (this.state[key]) return;
 
-    // Skip if already initialized
-    if (this.state.stdlib) {
-      return;
-    }
-
-    // Create and store the promise
-    this.initPromises.stdlib = this._initializeStdlib();
-
+    this.initPromises[key] = init();
     try {
-      await this.initPromises.stdlib;
-      this.state.stdlib = true;
+      await this.initPromises[key];
+      this.state[key] = true;
     } finally {
-      // Clear the promise reference after completion (success or failure)
-      delete this.initPromises.stdlib;
+      delete this.initPromises[key];
     }
   }
 
-  /**
-   * Initialize the cache system
-   */
-  public async initializeCache(): Promise<void> {
-    // Return existing promise if initialization is in progress
-    if (this.initPromises.cache) {
-      return this.initPromises.cache;
-    }
+  /** Initialize the standard library */
+  public initializeStdlib(): Promise<void> {
+    return this.initializeComponent("stdlib", this._initializeStdlib.bind(this));
+  }
 
-    // Skip if already initialized
-    if (this.state.cache) {
-      return;
-    }
-
-    // Create and store the promise
-    this.initPromises.cache = this._initializeCache();
-
-    try {
-      await this.initPromises.cache;
-      this.state.cache = true;
-    } finally {
-      // Clear the promise reference after completion (success or failure)
-      delete this.initPromises.cache;
-    }
+  /** Initialize the cache system */
+  public initializeCache(): Promise<void> {
+    return this.initializeComponent("cache", this._initializeCache.bind(this));
   }
 
   /**

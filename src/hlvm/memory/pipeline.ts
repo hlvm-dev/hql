@@ -13,6 +13,7 @@ import {
   detectConflicts,
   type MemoryModelTier,
 } from "./invalidate.ts";
+import { normalizeWhitespace } from "./store.ts";
 
 export interface WriteMemoryFactOptions extends InsertFactOptions {
   linkEntities?: boolean;
@@ -39,7 +40,7 @@ function normalizeWriteOptions(
   return {
     ...opts,
     content: typeof opts.content === "string"
-      ? opts.content.replace(/\s+/g, " ").trim()
+      ? normalizeWhitespace(opts.content)
       : "",
     category: opts.category?.trim() || "General",
     source: opts.source?.trim() || "memory",

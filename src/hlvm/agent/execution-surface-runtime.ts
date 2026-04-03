@@ -1,4 +1,6 @@
 import { getConfiguredModel } from "../../common/config/selectors.ts";
+import { fnv1aHex } from "../../common/hash.ts";
+import { LRUCache } from "../../common/lru-cache.ts";
 import { ValidationError } from "../../common/error.ts";
 import { ai } from "../api/ai.ts";
 import { config } from "../api/config.ts";
@@ -33,11 +35,20 @@ import type {
   VisionEligibleAttachmentKind,
 } from "./turn-context.ts";
 import { selectReasoningPathForTurn } from "./reasoning-selector.ts";
+import { canonicalizeForSignature } from "./orchestrator-tool-formatting.ts";
+import { isMainThreadQuerySource } from "./query-tool-routing.ts";
 
 export interface ExecutionSurfaceResolution {
   providerExecutionPlan: ResolvedProviderExecutionPlan;
   executionSurface: ExecutionSurface;
+  cacheHit?: boolean;
+  fastPath?: boolean;
 }
+
+const MAIN_THREAD_EXECUTION_SURFACE_CACHE = new LRUCache<
+  string,
+  ExecutionSurfaceResolution
+>(64);
 
 function collectProviderNames(pinnedProviderName: string): string[] {
   const names = new Set(listRegisteredProviders());
@@ -45,6 +56,87 @@ function collectProviderNames(pinnedProviderName: string): string[] {
     names.add(pinnedProviderName);
   }
   return [...names].sort();
+}
+
+function cloneExecutionSurfaceResolution(
+  resolution: ExecutionSurfaceResolution,
+): ExecutionSurfaceResolution {
+  return structuredClone(resolution);
+}
+
+function buildMainThreadExecutionSurfaceCacheKey(options: {
+  querySource?: string;
+  sessionKey?: string | null;
+  model?: string;
+  fixturePath?: string;
+  runtimeMode: RuntimeMode;
+  routingConstraints?: RoutingConstraintSet;
+  taskCapabilityContext?: ExecutionTaskCapabilityContext;
+  responseShapeContext?: ExecutionResponseShapeContext;
+  turnContext?: ExecutionTurnContext;
+  fallbackState?: ExecutionFallbackState;
+  toolAllowlist?: string[];
+  toolDenylist?: string[];
+  computerUseRequested?: boolean;
+  skipReasoningSelection?: boolean;
+}): string | null {
+  if (!isMainThreadQuerySource(options.querySource) || !options.sessionKey) {
+    return null;
+  }
+  const canonical = canonicalizeForSignature({
+    querySource: options.querySource,
+    sessionKey: options.sessionKey,
+    model: options.model ?? null,
+    fixturePath: options.fixturePath ?? null,
+    runtimeMode: options.runtimeMode,
+    routingConstraints: options.routingConstraints ?? null,
+    taskCapabilityContext: options.taskCapabilityContext ?? null,
+    responseShapeContext: options.responseShapeContext ?? null,
+    turnContext: options.turnContext ?? null,
+    fallbackState: options.fallbackState ?? null,
+    toolAllowlist: options.toolAllowlist ?? [],
+    toolDenylist: options.toolDenylist ?? [],
+    computerUseRequested: options.computerUseRequested === true,
+    skipReasoningSelection: options.skipReasoningSelection === true,
+  });
+  return `${options.sessionKey}:${fnv1aHex(JSON.stringify(canonical) ?? "null")}`;
+}
+
+function buildPinnedProviderSummary(
+  pinnedProviderName: string,
+): ExecutionSurfaceProviderSummary[] {
+  if (!pinnedProviderName.trim()) return [];
+  return [{
+    providerName: pinnedProviderName,
+    available: true,
+    isPinned: true,
+  }];
+}
+
+function buildMainThreadLocalModelSummary(
+  activeModelId?: string,
+): ExecutionSurfaceLocalModelSummary {
+  const activeProvider = extractProviderName(activeModelId);
+  const activeModelName = activeProvider === "ollama"
+    ? extractModelSuffix(activeModelId)
+    : undefined;
+  return {
+    providerName: "ollama",
+    available: activeProvider === "ollama",
+    installedModelCount: activeProvider === "ollama" ? 1 : 0,
+    activeModelName,
+    activeModelInstalled: activeProvider === "ollama",
+  };
+}
+
+function shouldUseMainThreadFastPath(options: {
+  querySource?: string;
+  runtimeMode: RuntimeMode;
+  fixturePath?: string;
+}): boolean {
+  return isMainThreadQuerySource(options.querySource) &&
+    options.runtimeMode === "manual" &&
+    !options.fixturePath;
 }
 
 async function getProviderStatuses(
@@ -312,6 +404,8 @@ export async function resolveProviderExecutionPlanForSession(options: {
 export async function resolveExecutionSurfaceState(options: {
   model?: string;
   fixturePath?: string;
+  querySource?: string;
+  sessionKey?: string | null;
   runtimeMode: RuntimeMode;
   routingConstraints?: RoutingConstraintSet;
   taskCapabilityContext?: ExecutionTaskCapabilityContext;
@@ -326,28 +420,60 @@ export async function resolveExecutionSurfaceState(options: {
   const activeModelId = options.model ??
     getConfiguredModel(config.snapshot);
   const pinnedProviderName = extractProviderName(activeModelId);
-  const [providerExecutionPlan, providerStatuses, localModelSummary, mcpServers, modelInfo] =
-    await Promise.all([
-      resolveProviderExecutionPlanForSession({
-        model: activeModelId,
-        fixturePath: options.fixturePath,
-        toolAllowlist: options.toolAllowlist,
-        toolDenylist: options.toolDenylist,
-        runtimeMode: options.runtimeMode,
-        taskCapabilityContext: options.taskCapabilityContext,
-      }),
+  const cacheKey = buildMainThreadExecutionSurfaceCacheKey(options);
+  if (cacheKey) {
+    const cached = MAIN_THREAD_EXECUTION_SURFACE_CACHE.get(cacheKey);
+    if (cached) {
+      return {
+        ...cloneExecutionSurfaceResolution(cached),
+        cacheHit: true,
+      };
+    }
+  }
+
+  const useMainThreadFastPath = shouldUseMainThreadFastPath(options);
+  const providerExecutionPlan = await resolveProviderExecutionPlanForSession({
+    model: activeModelId,
+    fixturePath: options.fixturePath,
+    toolAllowlist: options.toolAllowlist,
+    toolDenylist: options.toolDenylist,
+    runtimeMode: options.runtimeMode,
+    taskCapabilityContext: options.taskCapabilityContext,
+  });
+  const shouldResolveModelInfo = (
+    (options.turnContext?.attachmentCount ?? 0) > 0 ||
+    options.responseShapeContext?.requested === true
+  );
+  const [
+    providerStatuses,
+    localModelSummary,
+    mcpServers,
+    modelInfo,
+    localVisionModelId,
+  ] = useMainThreadFastPath
+    ? await Promise.all([
+      Promise.resolve(buildPinnedProviderSummary(pinnedProviderName)),
+      Promise.resolve(buildMainThreadLocalModelSummary(activeModelId)),
+      Promise.resolve([] as Awaited<ReturnType<typeof inspectMcpServersForCapabilities>>),
+      shouldResolveModelInfo ? tryGetModelInfo(activeModelId) : Promise.resolve(null),
+      Promise.resolve(null),
+    ])
+    : await Promise.all([
       getProviderStatuses(pinnedProviderName),
       getLocalModelSummary(activeModelId),
       inspectMcpServersForCapabilities(),
       tryGetModelInfo(activeModelId),
+      getLocalVisionModelId(),
     ]);
-  const [directVisionKinds, directAudioKinds, localVisionModelId] = await Promise.all([
-    resolveDirectVisionKinds({ activeModelId, modelInfo }),
-    resolveDirectAudioKinds({ activeModelId, modelInfo }),
-    getLocalVisionModelId(),
-  ]);
+  const [directVisionKinds, directAudioKinds] = shouldResolveModelInfo
+    ? await Promise.all([
+      resolveDirectVisionKinds({ activeModelId, modelInfo }),
+      resolveDirectAudioKinds({ activeModelId, modelInfo }),
+    ])
+    : [[], []];
   const localVisionAvailable = localVisionModelId !== null;
   const providerNativeStructuredOutputAvailable =
+    shouldResolveModelInfo &&
     supportsProviderNativeStructuredOutput(activeModelId, options.fixturePath);
 
   const executionSurface = buildExecutionSurface({
@@ -393,5 +519,17 @@ export async function resolveExecutionSurfaceState(options: {
     }
   }
 
-  return { providerExecutionPlan, executionSurface };
+  const resolution: ExecutionSurfaceResolution = {
+    providerExecutionPlan,
+    executionSurface,
+    cacheHit: false,
+    fastPath: useMainThreadFastPath,
+  };
+  if (cacheKey) {
+    MAIN_THREAD_EXECUTION_SURFACE_CACHE.set(
+      cacheKey,
+      cloneExecutionSurfaceResolution(resolution),
+    );
+  }
+  return resolution;
 }

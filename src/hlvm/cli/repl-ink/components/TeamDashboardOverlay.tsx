@@ -34,7 +34,7 @@ import { useTheme } from "../../theme/index.ts";
 import { padTo } from "../utils/formatting.ts";
 import { STATUS_GLYPHS } from "../ui-constants.ts";
 import { cancelThread, getThread } from "../../../agent/delegate-threads.ts";
-import { listDelegateTranscriptLines } from "../../../agent/delegate-transcript.ts";
+import { listDelegatePreviewLines } from "../../../agent/delegate-transcript.ts";
 import { getRecentMemberActivityLines } from "../utils/team-activity.ts";
 import {
   buildBalancedTextRow,
@@ -214,10 +214,6 @@ function detailLines(item: DashboardItem): string[] {
         `Agent: ${item.data.agent}`,
         `Role: ${item.data.role}`,
         `Status: ${item.data.status}`,
-        item.data.threadId ? `Thread: ${item.data.threadId}` : "",
-        item.data.currentTaskId
-          ? `Current task: ${item.data.currentTaskId}`
-          : "",
         item.data.currentTaskGoal ? `Goal: ${item.data.currentTaskGoal}` : "",
       ].filter(Boolean);
     case "worker":
@@ -227,7 +223,6 @@ function detailLines(item: DashboardItem): string[] {
         `Status: ${item.data.status}`,
         `Task: ${item.data.task}`,
         `Duration: ${Math.round(item.data.durationMs / 1000)}s`,
-        item.data.threadId ? `Thread: ${item.data.threadId}` : "",
       ].filter(Boolean);
     case "task":
       return [
@@ -242,9 +237,6 @@ function detailLines(item: DashboardItem): string[] {
           : "",
         item.data.reviewStatus ? `Review: ${item.data.reviewStatus}` : "",
         item.data.mergeState ? `Merge: ${item.data.mergeState}` : "",
-        item.data.delegateThreadId
-          ? `Delegate thread: ${item.data.delegateThreadId}`
-          : "",
       ].filter(Boolean);
     case "approval":
       return [
@@ -299,7 +291,7 @@ export function buildTeamDashboardDetailLines(
 
   const threadId = item.data.threadId;
   const threadSnapshotLines = threadId
-    ? listDelegateTranscriptLines(getThread(threadId)?.snapshot).slice(-6)
+    ? listDelegatePreviewLines(getThread(threadId)?.snapshot).slice(-6)
     : [];
   const memberId = item.kind === "member" ? item.data.id : undefined;
   const memberActivityLines = memberId

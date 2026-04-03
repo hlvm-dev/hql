@@ -4,7 +4,11 @@
  */
 
 import { ai } from "../../../api/ai.ts";
-import { getMessage, updateMessage } from "../../../store/conversation-store.ts";
+import {
+  getMessage,
+  getSession,
+  updateMessage,
+} from "../../../store/conversation-store.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
 import { config } from "../../../api/config.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
@@ -16,6 +20,12 @@ import {
   shouldHonorRequestMessages,
 } from "./chat-context.ts";
 import { compilePrompt, EMPTY_INSTRUCTIONS } from "../../../prompt/mod.ts";
+import {
+  buildWeakDirectChatContext,
+  isWeakLocalDirectChatModel,
+  scheduleWeakDirectChatSummaryMaintenance,
+} from "./direct-chat-history.ts";
+import { traceReplMainThreadForSource } from "../../../repl-main-thread-trace.ts";
 
 /** Drain a token iterator with abort support, forwarding each chunk. */
 async function drainTokenStream(
@@ -77,22 +87,49 @@ export async function handleChatMode(
   signal: AbortSignal,
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
+  requestId?: string,
   modelInfo?: ModelInfo | null,
 ): Promise<void> {
-  const storedMessages = shouldHonorRequestMessages(body.messages)
+  const requestOverridesStoredHistory = shouldHonorRequestMessages(body.messages);
+  const weakLocalDirectChat = isWeakLocalDirectChatModel(
+    resolvedModel,
+    modelInfo,
+  );
+  const weakContext = weakLocalDirectChat && !requestOverridesStoredHistory
+    ? buildWeakDirectChatContext(
+      sessionId,
+      getSession(sessionId)?.metadata,
+      modelInfo,
+    )
+    : undefined;
+  const storedMessages = requestOverridesStoredHistory
     ? []
-    : loadAllMessages(sessionId);
-  const { messages: providerMessages } = await buildChatProviderMessages({
+    : weakContext?.storedMessages ?? loadAllMessages(sessionId);
+  const { messages: providerMessages, resolvedContextBudget } =
+    await buildChatProviderMessages({
     requestMessages: body.messages,
     storedMessages,
     assistantMessageId,
     disablePersistentMemory: body.disable_persistent_memory === true,
     modelInfo,
     modelKey: resolvedModel,
+    prependReplayMessages: weakContext?.prependReplayMessages,
+    contextBudgetOverride: weakContext?.resolvedContextBudget,
   });
   providerMessages.unshift({
     role: "system",
     content: getChatSystemPrompt(),
+  });
+  traceReplMainThreadForSource(body.query_source, "server.chat.context_ready", {
+    requestId: requestId ?? null,
+    sessionId,
+    historyStrategy: weakContext?.historyStrategy ?? "persisted_replay",
+    summaryChars: weakContext?.summaryChars ?? 0,
+    summarizedThroughOrder: weakContext?.summarizedThroughOrder ?? 0,
+    recentRawGroupCount: weakContext?.recentRawGroupCount ?? 0,
+    weakContextBudget: weakContext?.weakContextBudget ?? null,
+    providerMessageCount: providerMessages.length,
+    contextBudget: resolvedContextBudget.budget,
   });
 
   const cfgSnapshot = config.snapshot;
@@ -120,6 +157,9 @@ export async function handleChatMode(
         },
     });
     pushConversationUpdatedEvent(sessionId);
+    if (weakContext) {
+      scheduleWeakDirectChatSummaryMaintenance(sessionId);
+    }
   }
 }
 

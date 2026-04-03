@@ -145,6 +145,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     text,
     mode: input.mode,
     tier: input.tier,
+    querySource: input.querySource,
     sections,
     cacheSegments,
     stableCacheProfile,

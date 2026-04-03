@@ -6,6 +6,7 @@
  */
 
 import { getDb } from "./db.ts";
+import { invalidateReplLiveAgentSession } from "../agent/repl-live-session-cache.ts";
 import type {
   InsertMessageOpts,
   MessageRow,
@@ -108,6 +109,7 @@ export function deleteSession(id: string): boolean {
   const db = getDb();
   const result = db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
   if (result > 0) {
+    invalidateReplLiveAgentSession(id);
     clearSessionBuffer(id);
   }
   return result > 0;

@@ -55,6 +55,7 @@ import { getErrorMessage } from "../../common/utils.ts";
 import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../common/ai-messages.ts";
 import { ProviderErrorCode } from "../../common/error-codes.ts";
 import { buildCompactionPrompt } from "./compaction-template.ts";
+import { isMainThreadQuerySource } from "./query-tool-routing.ts";
 import {
   getDefaultProvider,
   getProviderDefaultConfig,
@@ -337,9 +338,17 @@ type ProviderOptionValue = { [key: string]: ProviderOptionJson };
 type ProviderOptionsMap = Record<string, ProviderOptionValue>;
 type SystemPromptValue = string | SystemModelMessage[];
 
-const ANTHROPIC_EPHEMERAL_CACHE: ProviderOptionsMap = {
-  anthropic: { cacheControl: { type: "ephemeral" } },
-};
+function buildAnthropicEphemeralCache(
+  querySource?: string,
+): ProviderOptionsMap {
+  return {
+    anthropic: {
+      cacheControl: isMainThreadQuerySource(querySource)
+        ? { type: "ephemeral", ttl: "1h" }
+        : { type: "ephemeral" },
+    },
+  };
+}
 
 // ----------- Google explicit caching -----------
 // Google uses a fundamentally different caching model than Anthropic/OpenAI:
@@ -451,9 +460,13 @@ function withProviderOptions<T extends object>(
   } as T;
 }
 
-function withAnthropicCacheBreakpoint(message: ModelMessage): ModelMessage {
+function withAnthropicCacheBreakpoint(
+  message: ModelMessage,
+  querySource?: string,
+): ModelMessage {
+  const anthropicCache = buildAnthropicEphemeralCache(querySource);
   if (message.role === "system") {
-    return withProviderOptions(message, ANTHROPIC_EPHEMERAL_CACHE);
+    return withProviderOptions(message, anthropicCache);
   }
 
   if (typeof message.content === "string") {
@@ -462,7 +475,7 @@ function withAnthropicCacheBreakpoint(message: ModelMessage): ModelMessage {
       content: [{
         type: "text",
         text: message.content,
-        providerOptions: ANTHROPIC_EPHEMERAL_CACHE,
+        providerOptions: anthropicCache,
       }],
     } as ModelMessage;
   }
@@ -478,7 +491,7 @@ function withAnthropicCacheBreakpoint(message: ModelMessage): ModelMessage {
         ...lastPart,
         providerOptions: mergeProviderOptions(
           existing,
-          ANTHROPIC_EPHEMERAL_CACHE,
+          anthropicCache,
         ),
       };
       return {
@@ -488,7 +501,7 @@ function withAnthropicCacheBreakpoint(message: ModelMessage): ModelMessage {
     }
   }
 
-  return withProviderOptions(message, ANTHROPIC_EPHEMERAL_CACHE);
+  return withProviderOptions(message, anthropicCache);
 }
 
 function buildStableSignature(value: unknown): string {
@@ -590,8 +603,10 @@ function buildSystemPromptValue(
 function withAnthropicSystemCacheBreakpoints(
   system: SystemPromptValue | undefined,
   stableSegmentCount: number,
+  querySource?: string,
 ): SystemPromptValue | undefined {
   if (!system) return undefined;
+  const anthropicCache = buildAnthropicEphemeralCache(querySource);
 
   const systemMessages = typeof system === "string"
     ? [{ role: "system", content: system } satisfies SystemModelMessage]
@@ -600,7 +615,7 @@ function withAnthropicSystemCacheBreakpoints(
 
   return systemMessages.map((message, index) =>
     index < decorateCount
-      ? withProviderOptions(message, ANTHROPIC_EPHEMERAL_CACHE)
+      ? withProviderOptions(message, anthropicCache)
       : message
   );
 }
@@ -628,6 +643,7 @@ export function applyPromptCaching(
   compiledPrompt: AgentLLMConfig["compiledPrompt"],
   toolSchemaSignature: string,
   toolFilterSignature: string,
+  querySource?: string,
 ): {
   system?: SystemPromptValue;
   messages: ModelMessage[];
@@ -647,12 +663,14 @@ export function applyPromptCaching(
     decoratedSystem = withAnthropicSystemCacheBreakpoints(
       system,
       cacheProfile.stableSegmentCount,
+      querySource,
     );
     decoratedMessages = messages.slice();
     if (decoratedMessages.length > 0) {
       const lastIndex = decoratedMessages.length - 1;
       decoratedMessages[lastIndex] = withAnthropicCacheBreakpoint(
         decoratedMessages[lastIndex],
+        querySource,
       );
     }
 
@@ -663,7 +681,7 @@ export function applyPromptCaching(
         ...tools,
         [lastToolName]: withProviderOptions(
           tools[lastToolName],
-          ANTHROPIC_EPHEMERAL_CACHE,
+          buildAnthropicEphemeralCache(querySource),
         ),
       };
     }
@@ -714,6 +732,10 @@ export function buildLlmPerformanceSnapshot(options: {
   firstTokenLatencyMs?: number;
   usage?: unknown;
   providerMetadata?: unknown;
+  querySource?: string;
+  toolSchemaSignature?: string;
+  eagerToolCount?: number;
+  discoveredDeferredToolCount?: number;
 }): LLMPerformance {
   const normalizedUsage = isRecord(options.usage)
     ? mapSdkUsage({
@@ -740,8 +762,18 @@ export function buildLlmPerformanceSnapshot(options: {
     ...(options.compiledPrompt?.signatureHash
       ? { promptSignatureHash: options.compiledPrompt.signatureHash }
       : {}),
+    ...(options.querySource ? { querySource: options.querySource } : {}),
     stableCacheSignatureHash: options.cacheProfile.stableCacheSignatureHash,
     stableSegmentCount: options.cacheProfile.stableSegmentCount,
+    ...(options.toolSchemaSignature
+      ? { toolSchemaSignature: options.toolSchemaSignature }
+      : {}),
+    ...(options.eagerToolCount !== undefined
+      ? { eagerToolCount: options.eagerToolCount }
+      : {}),
+    ...(options.discoveredDeferredToolCount !== undefined
+      ? { discoveredDeferredToolCount: options.discoveredDeferredToolCount }
+      : {}),
     ...(normalizedUsage
       ? {
         inputTokens: normalizedUsage.inputTokens,
@@ -1096,6 +1128,14 @@ export class SdkAgentEngine implements AgentEngine {
           }
         }
 
+        const effectiveToolSchemaSignature = buildStableSignature({
+          tools: lastToolSchemaSignature,
+          activeWebTools: Object.keys(sdkTools).filter(isWebCapabilityToolName)
+            .sort(),
+          plannedProviderTools: getActiveProviderExecutionToolNames(
+            providerExecutionPlan,
+          ).sort(),
+        });
         const cacheDecorated = applyPromptCaching(
           spec,
           promptPayload.system,
@@ -1103,15 +1143,9 @@ export class SdkAgentEngine implements AgentEngine {
           sdkTools,
           baseProviderOptions,
           config.compiledPrompt,
-          buildStableSignature({
-            tools: lastToolSchemaSignature,
-            activeWebTools: Object.keys(sdkTools).filter(isWebCapabilityToolName)
-              .sort(),
-            plannedProviderTools: getActiveProviderExecutionToolNames(
-              providerExecutionPlan,
-            ).sort(),
-          }),
+          effectiveToolSchemaSignature,
           toolFilterSignature,
+          config.querySource,
         );
         const requestStartedAt = Date.now();
         const commonOpts = {
@@ -1203,6 +1237,10 @@ export class SdkAgentEngine implements AgentEngine {
                 firstTokenLatencyMs,
                 usage,
                 providerMetadata: normalizedProviderMetadata,
+                querySource: config.querySource,
+                toolSchemaSignature: effectiveToolSchemaSignature,
+                eagerToolCount: config.eagerToolCount,
+                discoveredDeferredToolCount: config.discoveredDeferredToolCount,
               }),
               reasoning: extractReasoningText(reasoning),
               sdkResponseMessages: response?.messages,
@@ -1235,6 +1273,10 @@ export class SdkAgentEngine implements AgentEngine {
               latencyMs: Date.now() - requestStartedAt,
               usage: result.usage,
               providerMetadata: normalizedProviderMetadata,
+              querySource: config.querySource,
+              toolSchemaSignature: effectiveToolSchemaSignature,
+              eagerToolCount: config.eagerToolCount,
+              discoveredDeferredToolCount: config.discoveredDeferredToolCount,
             }),
             reasoning: extractReasoningText(result.reasoning),
             sdkResponseMessages: result.response?.messages,
@@ -1329,6 +1371,10 @@ export class SdkAgentEngine implements AgentEngine {
                 latencyMs: Date.now() - requestStartedAt,
                 usage: fallbackRawUsage,
                 providerMetadata: fallbackProviderMetadata,
+                querySource: config.querySource,
+                toolSchemaSignature: effectiveToolSchemaSignature,
+                eagerToolCount: config.eagerToolCount,
+                discoveredDeferredToolCount: config.discoveredDeferredToolCount,
               }),
             };
           }

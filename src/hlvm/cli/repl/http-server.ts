@@ -47,6 +47,7 @@ import {
   handleUpdateActiveMessage,
 } from "./handlers/messages.ts";
 import { closeActiveConversationSession } from "../../store/active-conversation.ts";
+import { disposeAllReplLiveAgentSessions } from "../../agent/repl-live-session-cache.ts";
 import {
   handleDeleteModel,
   handleGetModel,
@@ -437,6 +438,7 @@ function scheduleServerShutdown(): void {
 
 async function handleRuntimeShutdown(): Promise<Response> {
   resetRuntimeHostReplState();
+  await disposeAllReplLiveAgentSessions();
   await closeActiveConversationSession();
   scheduleServerShutdown();
   return Response.json({ ok: true, shutting_down: true });

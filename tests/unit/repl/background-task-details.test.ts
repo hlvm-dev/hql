@@ -32,6 +32,8 @@ Deno.test("buildDelegateTaskDetailLines prefers live child-session progress", ()
   assertEquals(lines.includes("--- Prompt ---"), true);
   assertEquals(lines.includes("--- Progress ---"), true);
   assertEquals(lines.some((line) => line.includes("Read: Read(App.tsx)")), true);
+  assertEquals(lines.some((line) => line.startsWith("Thread:")), false);
+  assertEquals(lines.some((line) => line.startsWith("Session:")), false);
 });
 
 Deno.test("buildDelegateTaskDetailLines falls back to final summary and error", () => {

@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 import { truncate } from "../../../../common/utils.ts";
 import { useSemanticColors } from "../../theme/index.ts";
 import { formatDurationMs } from "../utils/formatting.ts";
-import type { LocalAgentEntry } from "../utils/local-agents.ts";
+import { type LocalAgentEntry, statusPriority } from "../utils/local-agents.ts";
 
 const MAX_VISIBLE_LOCAL_AGENTS = 4;
 const MAX_PREVIEW_LINES = 3;
@@ -36,7 +36,21 @@ interface LocalAgentsAgentRow {
   tone: AgentRowTone;
 }
 
-export interface LocalAgentsStatusPanelModel {
+export interface LocalAgentsCompactFooterModel {
+  text: string;
+  hintText?: string;
+  highlighted: boolean;
+  rowCount: number;
+}
+
+interface BackgroundStatusFooterOptions {
+  focused?: boolean;
+  leader?: LocalAgentsLeaderState;
+  activeTaskCount?: number;
+  recentActiveTaskLabel?: string;
+}
+
+export interface LocalAgentsManagerPanelModel {
   leader: LocalAgentsLeaderRow;
   agents: LocalAgentsAgentRow[];
   overflow?: string;
@@ -152,14 +166,92 @@ function buildAgentText(
   };
 }
 
-export function buildLocalAgentsStatusPanelModel(
+function summarizeCompactFooterText(
+  entries: LocalAgentEntry[],
+  leader: LocalAgentsLeaderState | undefined,
+): string {
+  const highestPriority = [...entries].sort((a, b) =>
+    statusPriority(a.status) - statusPriority(b.status)
+  )[0];
+  const activeSummary = highestPriority?.progress?.activityText?.trim() ||
+    highestPriority?.detail?.trim() ||
+    highestPriority?.label?.trim();
+  const countSummary = entries.length === 1
+    ? "1 agent running"
+    : `${entries.length} agents active`;
+  const leaderSummary = leader?.activityText?.trim() ||
+    leader?.idleText?.trim() ||
+    countSummary;
+  return activeSummary && activeSummary !== leaderSummary
+    ? `${leaderSummary} · ${activeSummary}`
+    : leaderSummary;
+}
+
+export function buildLocalAgentsCompactFooterModel(
   entries: LocalAgentEntry[],
   width: number,
   options: {
     focused?: boolean;
     leader?: LocalAgentsLeaderState;
   } = {},
-): LocalAgentsStatusPanelModel | null {
+): LocalAgentsCompactFooterModel | null {
+  if (entries.length === 0) return null;
+  const highlighted = options.focused === true;
+  const hintText = highlighted
+    ? entries.length === 1 ? " · Enter view · Esc back" : " · Enter manager · Esc back"
+    : " · Ctrl+T manager";
+  const text = truncate(
+    `team-lead · ${summarizeCompactFooterText(entries, options.leader)}`,
+    Math.max(18, width),
+  );
+  return {
+    text,
+    hintText,
+    highlighted,
+    rowCount: 1,
+  };
+}
+
+export function buildBackgroundStatusFooterModel(
+  entries: LocalAgentEntry[],
+  width: number,
+  options: BackgroundStatusFooterOptions = {},
+): LocalAgentsCompactFooterModel | null {
+  if (entries.length > 0) {
+    return buildLocalAgentsCompactFooterModel(entries, width, {
+      focused: options.focused,
+      leader: options.leader,
+    });
+  }
+
+  const activeTaskCount = Math.max(0, options.activeTaskCount ?? 0);
+  if (activeTaskCount === 0) return null;
+
+  const countText = activeTaskCount === 1
+    ? "1 task running"
+    : `${activeTaskCount} tasks running`;
+  const taskLabel = options.recentActiveTaskLabel?.trim();
+  const text = truncate(
+    taskLabel ? `tasks · ${countText} · ${taskLabel}` : `tasks · ${countText}`,
+    Math.max(18, width),
+  );
+
+  return {
+    text,
+    hintText: " · Ctrl+T manager",
+    highlighted: false,
+    rowCount: 1,
+  };
+}
+
+export function buildLocalAgentsManagerModel(
+  entries: LocalAgentEntry[],
+  width: number,
+  options: {
+    focused?: boolean;
+    leader?: LocalAgentsLeaderState;
+  } = {},
+): LocalAgentsManagerPanelModel | null {
   if (entries.length === 0) return null;
 
   const focused = options.focused === true;
@@ -197,12 +289,47 @@ export function buildLocalAgentsStatusPanelModel(
 }
 
 interface LocalAgentsStatusPanelProps {
-  model: LocalAgentsStatusPanelModel;
+  model: LocalAgentsCompactFooterModel;
   width: number;
 }
 
-export function LocalAgentsStatusPanel(
+export function LocalAgentsCompactFooter(
   { model, width }: LocalAgentsStatusPanelProps,
+): React.ReactElement | null {
+  const sc = useSemanticColors();
+  const contentWidth = Math.max(18, width);
+
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Text
+        backgroundColor={model.highlighted
+          ? sc.shell.chipActive.background
+          : undefined}
+        color={model.highlighted
+          ? sc.shell.chipActive.foreground
+          : sc.text.primary}
+        bold
+      >
+        <Text color={model.highlighted ? sc.shell.chipActive.foreground : sc.status.warning}>
+          {truncate(model.text, contentWidth)}
+        </Text>
+        {model.hintText && (
+          <Text color={model.highlighted ? sc.shell.chipActive.foreground : sc.text.muted}>
+            {truncate(model.hintText, contentWidth)}
+          </Text>
+        )}
+      </Text>
+    </Box>
+  );
+}
+
+interface LocalAgentsManagerPanelProps {
+  model: LocalAgentsManagerPanelModel;
+  width: number;
+}
+
+export function LocalAgentsManagerPanel(
+  { model, width }: LocalAgentsManagerPanelProps,
 ): React.ReactElement | null {
   const sc = useSemanticColors();
   const primaryWidth = Math.max(18, width);
@@ -237,7 +364,6 @@ export function LocalAgentsStatusPanel(
           </Text>
         )}
       </Text>
-
       {model.agents.map((row) => {
         const rowColor = toneColor(row.tone, sc);
         const mainText = truncate(

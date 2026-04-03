@@ -17,6 +17,8 @@ import { truncateTranscriptBlock } from "../../utils/transcript-truncation.ts";
 import type { ToolEventMeta } from "../../../../agent/orchestrator.ts";
 import type { ToolPresentationKind } from "../../../../agent/registry.ts";
 
+import { pluralize } from "../../../../agent/tool-result-summary.ts";
+
 const MAX_RESULT_CHARS = 20_000;
 
 interface ToolResultProps {
@@ -97,9 +99,7 @@ function extractSummaryCount(text: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
-function pluralize(noun: string, count: number): string {
-  return count === 1 ? noun : `${noun}s`;
-}
+
 
 function isUrlLike(line: string): boolean {
   return /^https?:\/\//i.test(line.trim());

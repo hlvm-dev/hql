@@ -58,6 +58,7 @@ export interface PromptCompilerInput {
   instructions: InstructionHierarchy;
   agentProfiles?: readonly AgentProfile[];
   runtimeMode?: RuntimeMode;
+  querySource?: string;
   executionSurface?: ExecutionSurface;
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
 }
@@ -100,6 +101,7 @@ export interface CompiledPrompt {
   text: string;
   mode: PromptMode;
   tier: ModelTier;
+  querySource?: string;
   sections: SectionManifestEntry[];
   cacheSegments: PromptCacheSegment[];
   stableCacheProfile: PromptStableCacheProfile;

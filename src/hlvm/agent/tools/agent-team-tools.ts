@@ -24,6 +24,7 @@ import type {
   ToolTranscriptResultEvent,
 } from "../registry.ts";
 import { isToolArgsObject } from "../validation.ts";
+import { pluralize } from "../tool-result-summary.ts";
 import {
   createTeamStore,
   getActiveTeamStore,
@@ -35,8 +36,11 @@ import type { TeamRuntime } from "../team-runtime.ts";
 import type { Plan } from "../planning.ts";
 import type { TeammateIdentity } from "../team-executor.ts";
 import {
+  enqueueThreadCompletion,
   registerThread,
   type DelegateThreadResult,
+  updateThreadResult,
+  updateThreadStatus,
 } from "../delegate-threads.ts";
 
 // ── Backend Resolution ──────────────────────────────────────────────
@@ -161,10 +165,6 @@ function humanizeStatus(status: string | undefined): string | undefined {
 
 function firstMeaningfulLine(text: string | undefined): string | undefined {
   return text?.split("\n").map((line) => line.trim()).find(Boolean);
-}
-
-function pluralize(word: string, count: number): string {
-  return count === 1 ? word : `${word}s`;
 }
 
 function buildTranscriptResult(
@@ -476,6 +476,7 @@ export const teammate: ToolMetadata = {
 
       // Create abort controller for this teammate
       const controller = new AbortController();
+      const threadId = crypto.randomUUID();
 
       // Get execution options from tool execution context
       const workspace = _workspace;
@@ -513,6 +514,12 @@ export const teammate: ToolMetadata = {
             maxIdlePolls,
             permissionMode,
           });
+          if (result.exitReason === "signal") {
+            return {
+              success: false,
+              error: `Teammate "${name}" stopped by signal`,
+            };
+          }
           return {
             success: true,
             result: `Teammate "${name}" finished: ${result.tasksCompleted} tasks completed, exit: ${result.exitReason}`,
@@ -523,10 +530,21 @@ export const teammate: ToolMetadata = {
             : String(error);
           return { success: false, error: message };
         }
-      })();
+      })().then((result) => {
+        updateThreadResult(threadId, result);
+        updateThreadStatus(
+          threadId,
+          !result.success && controller.signal.aborted
+            ? "cancelled"
+            : result.success
+            ? "completed"
+            : "errored",
+        );
+        enqueueThreadCompletion(threadId);
+        return result;
+      });
 
       // Register in thread registry
-      const threadId = crypto.randomUUID();
       registerThread({
         threadId,
         agent: agentType,

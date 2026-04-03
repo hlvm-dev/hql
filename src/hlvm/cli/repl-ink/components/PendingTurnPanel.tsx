@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, useInput } from "ink";
 import type { PlanningPhase } from "../../../agent/planning.ts";
 import type { TodoState } from "../../../agent/todo-state.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
-import { useSemanticColors } from "../../theme/index.ts";
 import {
   type AgentConversationItem,
   type StreamingState,
@@ -26,36 +25,11 @@ import {
 import { PlanChecklistPanel } from "./conversation/PlanChecklistPanel.tsx";
 import { derivePlanSurfaceState } from "./conversation/plan-flow.ts";
 import { TranscriptDivider } from "./conversation/TranscriptDivider.tsx";
-import { deriveLiveTurnStatus } from "./conversation/turn-activity.ts";
 import { getLiveConversationSpacing } from "./conversation/message-spacing.ts";
 import { shouldRenderTranscriptDividerBeforeIndex } from "../utils/layout-tokens.ts";
 import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
 
 const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
-
-function LiveStatusRow(
-  {
-    label,
-    tone,
-    recentLabels,
-  }: { label: string; tone: "active" | "warning"; recentLabels?: string[] },
-): React.ReactElement {
-  const sc = useSemanticColors();
-  const color = tone === "warning" ? sc.status.warning : sc.text.primary;
-  const glyph = tone === "warning" ? "!" : "●";
-  return (
-    <Box marginBottom={1} flexDirection="column">
-      <Text color={color}>{`${glyph} ${label}`}</Text>
-      {recentLabels?.filter((recent) => recent !== label).slice(0, 2).map((
-        recent,
-      ) => (
-        <Box key={recent}>
-          <Text color={sc.text.muted}>{`  · ${recent}`}</Text>
-        </Box>
-      ))}
-    </Box>
-  );
-}
 
 interface PendingTurnPanelProps {
   items: AgentConversationItem[];
@@ -112,10 +86,6 @@ export function PendingTurnPanel(
   const visibleItems = useMemo(
     () => filterRenderableTimelineItems(planSurface.visibleItems),
     [planSurface.visibleItems],
-  );
-  const liveStatus = useMemo(
-    () => deriveLiveTurnStatus({ items, streamingState, planningPhase }),
-    [items, streamingState, planningPhase],
   );
   const renderedItems = useMemo(() => {
     const hidePassiveWaitingSignals = streamingState ===
@@ -220,7 +190,7 @@ export function PendingTurnPanel(
     }
   });
 
-  if (renderedItems.length === 0 && !planSurface.active && !liveStatus) {
+  if (renderedItems.length === 0 && !planSurface.active) {
     return null;
   }
 
@@ -236,13 +206,6 @@ export function PendingTurnPanel(
           planningPhase={planningPhase}
           todoState={todoState}
           items={items}
-        />
-      )}
-      {liveStatus && (
-        <LiveStatusRow
-          label={liveStatus.label}
-          tone={liveStatus.tone}
-          recentLabels={liveStatus.recentLabels}
         />
       )}
       {renderedItems.map((item: AgentConversationItem, index: number) => (

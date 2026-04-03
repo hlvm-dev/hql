@@ -304,7 +304,7 @@ Deno.test("buildFooterRightState shows model name only when no metadata is prese
   assertEquals(state.infoParts, ["llama3.2:1b"]);
 });
 
-Deno.test("buildFooterLeftState shows bg chip outside conversation when tasks active", () => {
+Deno.test("buildFooterLeftState omits background-task chips outside conversation", () => {
   const state = buildFooterLeftState({
     inConversation: false,
     activeTaskCount: 3,
@@ -312,9 +312,10 @@ Deno.test("buildFooterLeftState shows bg chip outside conversation when tasks ac
   });
 
   assertEquals(state.mode, "segments");
-  const bgChip = state.segments.find((s) => s.text === "● 3 tasks");
-  assertEquals(bgChip?.chip, undefined);
-  assertEquals(bgChip?.tone, "active");
+  assertEquals(
+    state.segments.some((s) => s.text.includes("tasks")),
+    false,
+  );
 });
 
 Deno.test("buildFooterLeftState hides bg chip when zero tasks active", () => {
@@ -330,7 +331,7 @@ Deno.test("buildFooterLeftState hides bg chip when zero tasks active", () => {
   );
 });
 
-Deno.test("buildFooterLeftState shows bg chip in conversation idle", () => {
+Deno.test("buildFooterLeftState omits background-task chips in conversation idle", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
@@ -339,12 +340,13 @@ Deno.test("buildFooterLeftState shows bg chip in conversation idle", () => {
   });
 
   assertEquals(state.mode, "segments");
-  const bgChip = state.segments.find((s) => s.text === "● 2 tasks");
-  assertEquals(bgChip?.chip, undefined);
-  assertEquals(bgChip?.tone, "active");
+  assertEquals(
+    state.segments.some((s) => s.text.includes("tasks")),
+    false,
+  );
 });
 
-Deno.test("buildFooterLeftState shows task label hint when recentActiveTaskLabel provided", () => {
+Deno.test("buildFooterLeftState omits task-manager hints because the compact background footer owns that surface", () => {
   const state = buildFooterLeftState({
     inConversation: false,
     activeTaskCount: 1,
@@ -353,9 +355,10 @@ Deno.test("buildFooterLeftState shows task label hint when recentActiveTaskLabel
   });
 
   assertEquals(state.mode, "segments");
-  const hint = state.segments.find((s) => s.text.includes("Ctrl+T tasks"));
-  assertEquals(hint?.tone, "muted");
-  assertEquals(hint?.text, "(+ 1 2) \u00B7 Ctrl+T tasks");
+  assertEquals(
+    state.segments.some((s) => s.text.includes("Ctrl+T")),
+    false,
+  );
 });
 
 Deno.test("buildFooterLeftState omits task hint when no recentActiveTaskLabel", () => {
@@ -371,7 +374,7 @@ Deno.test("buildFooterLeftState omits task hint when no recentActiveTaskLabel", 
   );
 });
 
-Deno.test("buildFooterLeftState shows Team chip when teamActive", () => {
+Deno.test("buildFooterLeftState omits team chip when background status has its own compact footer", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
@@ -380,12 +383,13 @@ Deno.test("buildFooterLeftState shows Team chip when teamActive", () => {
   });
 
   assertEquals(state.mode, "segments");
-  const teamChip = state.segments.find((s) => s.text === "Team");
-  assertEquals(teamChip?.chip, undefined);
-  assertEquals(teamChip?.tone, "active");
+  assertEquals(
+    state.segments.some((s) => s.text === "Team"),
+    false,
+  );
 });
 
-Deno.test("buildFooterLeftState shows worker summary when team active with workers", () => {
+Deno.test("buildFooterLeftState omits worker summary when team state is rendered elsewhere", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
@@ -395,14 +399,17 @@ Deno.test("buildFooterLeftState shows worker summary when team active with worke
   });
 
   assertEquals(state.mode, "segments");
-  const workerSegment = state.segments.find((s) => s.text.includes("alice"));
-  assertEquals(workerSegment?.tone, "muted");
-  assertEquals(workerSegment?.text, "alice: working \u00B7 bob: idle");
-  const managerHint = state.segments.find((s) => s.text === "Ctrl+T manager");
-  assertEquals(managerHint?.tone, "muted");
+  assertEquals(
+    state.segments.some((s) => s.text.includes("alice")),
+    false,
+  );
+  assertEquals(
+    state.segments.some((s) => s.text === "Ctrl+T manager"),
+    false,
+  );
 });
 
-Deno.test("buildFooterLeftState shows focused teammate controls when team focus is active", () => {
+Deno.test("buildFooterLeftState omits focused teammate controls from the generic footer", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
@@ -412,17 +419,21 @@ Deno.test("buildFooterLeftState shows focused teammate controls when team focus 
     spinner: "x",
   });
 
-  const focusChip = state.segments.find((s) => s.text === "To alice");
-  assertEquals(focusChip?.chip, undefined);
-  const cycleHint = state.segments.find((s) =>
-    s.text.includes("Shift+Down teammate")
+  assertEquals(
+    state.segments.some((s) => s.text === "To alice"),
+    false,
   );
-  assertEquals(cycleHint?.text, "Shift+Down teammate");
-  const sessionHint = state.segments.find((s) => s.text === "Enter session");
-  assertEquals(sessionHint?.text, "Enter session");
+  assertEquals(
+    state.segments.some((s) => s.text.includes("Shift+Down teammate")),
+    false,
+  );
+  assertEquals(
+    state.segments.some((s) => s.text === "Enter session"),
+    false,
+  );
 });
 
-Deno.test("buildFooterLeftState suppresses the teammate cycle hint when a team summary is already visible", () => {
+Deno.test("buildFooterLeftState keeps teammate management hints out of the generic footer", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
@@ -437,11 +448,11 @@ Deno.test("buildFooterLeftState suppresses the teammate cycle hint when a team s
   );
   assertEquals(
     state.segments.some((s) => s.text === "Ctrl+T manager"),
-    true,
+    false,
   );
 });
 
-Deno.test("buildFooterLeftState prefixes pending permission hints with source label", () => {
+Deno.test("buildFooterLeftState stays quiet while prompt dialogs own the bottom lane", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     hasPendingPermission: true,
@@ -450,7 +461,7 @@ Deno.test("buildFooterLeftState prefixes pending permission hints with source la
   });
 
   assertEquals(state.mode, "message");
-  assertEquals(state.text, "cleaner-1 · Enter approve · Esc cancel");
+  assertEquals(state.text, "");
 });
 
 Deno.test("buildFooterLeftState omits Team chip when team not active", () => {

@@ -207,7 +207,7 @@ export function buildBackgroundTasksSummaryRows(
         ? "Agents above · shared tasks below"
         : s.evalCount > 0
         ? "Agents above · evals below"
-        : "Agent manager",
+        : "Task manager",
       s.totalReal > 0 ? `${selectedIndex + 1}/${s.totalReal}` : "empty",
     );
     return [
@@ -448,8 +448,6 @@ export function buildDelegateTaskDetailLines(
   lines.push(`Agent: ${task.nickname} [${task.agent}]`);
   lines.push(`Task: ${task.task}`);
   lines.push(`Status: ${task.status}`);
-  if (task.threadId) lines.push(`Thread: ${task.threadId}`);
-  if (task.childSessionId) lines.push(`Session: ${task.childSessionId}`);
 
   const prompt = sessionMessages.find((message) =>
     message.role === "user" && message.content.trim().length > 0
@@ -795,9 +793,7 @@ export function BackgroundTasksOverlay({
     }
 
     const headerY = overlayFrame.y + PADDING.top;
-    const title = viewMode === "list"
-      ? localAgents.length > 0 ? "Agent Manager" : "Background Tasks"
-      : "Details";
+    const title = viewMode === "list" ? "Task Manager" : "Details";
     const escHint = viewMode === "list" ? "esc close" : "esc back";
 
     const [summaryText, hintText] = buildBackgroundTasksSummaryRows(

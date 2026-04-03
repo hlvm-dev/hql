@@ -16,6 +16,7 @@ import {
   type DelegateGroupItem,
   type DelegateItem,
   type HqlEvalItem,
+  type ErrorItem,
   type InfoItem,
   type MemoryActivityDetail,
   type MemoryActivityItem,
@@ -95,14 +96,15 @@ export type TranscriptInput =
     text: string;
     isPending: boolean;
     citations?: AssistantCitation[];
+    turnId?: string;
   }
-  | { type: "error"; text: string }
-  | { type: "info"; text: string; isTransient?: boolean }
+  | { type: "error"; text: string; turnId?: string }
+  | { type: "info"; text: string; isTransient?: boolean; turnId?: string }
   | { type: "replace_items"; items: ConversationItem[] }
   | { type: "hql_eval"; input: string; result: EvalResult }
   | { type: "reset_status" }
   | { type: "cancel_planning" }
-  | { type: "finalize"; status: TurnCompletionStatus }
+  | { type: "finalize"; status: TurnCompletionStatus; turnId?: string }
   | { type: "clear" };
 
 export function createTranscriptState(): TranscriptState {
@@ -155,9 +157,13 @@ function nextTurnId(state: TranscriptState): [TranscriptState, string] {
   return [{ ...state, turnCounter: counter }, `turn-${counter}`];
 }
 
-function findPendingAssistantIndex(items: ConversationItem[]): number {
+function findPendingAssistantIndex(
+  items: ConversationItem[],
+  turnId?: string,
+): number {
   return items.findLastIndex((item) =>
-    item.type === "assistant" && item.isPending
+    item.type === "assistant" && item.isPending &&
+    (turnId === undefined || item.turnId === turnId)
   );
 }
 
@@ -176,12 +182,40 @@ function findCurrentTurnAssistantIndices(items: ConversationItem[]): number[] {
   return indices;
 }
 
+function findTurnAssistantIndices(
+  items: ConversationItem[],
+  turnId?: string,
+): number[] {
+  if (!turnId) {
+    return findCurrentTurnAssistantIndices(items);
+  }
+  const indices: number[] = [];
+  for (let i = 0; i < items.length; i++) {
+    if (items[i]?.type === "assistant" && items[i]?.turnId === turnId) {
+      indices.push(i);
+    }
+  }
+  return indices;
+}
+
 function removeCurrentTurnTurnStats(
   items: ConversationItem[],
 ): ConversationItem[] {
   const turnStartIdx = findCurrentTurnStartIndex(items);
   return items.filter((item, index) =>
     !(index > turnStartIdx && item.type === "turn_stats")
+  );
+}
+
+function removeTurnTurnStats(
+  items: ConversationItem[],
+  turnId?: string,
+): ConversationItem[] {
+  if (!turnId) {
+    return removeCurrentTurnTurnStats(items);
+  }
+  return items.filter((item) =>
+    !(item.type === "turn_stats" && item.turnId === turnId)
   );
 }
 
@@ -198,10 +232,20 @@ function keepOnlyCurrentTurnPrompt(
 function insertBeforePendingAssistant(
   items: ConversationItem[],
   nextItem: ConversationItem,
+  turnId?: string,
 ): ConversationItem[] {
-  const pendingAssistantIdx = findPendingAssistantIndex(items);
+  const pendingAssistantIdx = findPendingAssistantIndex(items, turnId);
   if (pendingAssistantIdx < 0) {
-    return [...items, nextItem];
+    if (!turnId) {
+      return [...items, nextItem];
+    }
+    const lastTurnIndex = items.findLastIndex((item) => item.turnId === turnId);
+    if (lastTurnIndex < 0) {
+      return [...items, nextItem];
+    }
+    const next = [...items];
+    next.splice(lastTurnIndex + 1, 0, nextItem);
+    return next;
   }
   const next = [...items];
   next.splice(pendingAssistantIdx, 0, nextItem);
@@ -231,6 +275,25 @@ function cleanupTransientItems(items: ConversationItem[]): ConversationItem[] {
   });
 }
 
+function cleanupTransientItemsForTurn(
+  items: ConversationItem[],
+  turnId?: string,
+): ConversationItem[] {
+  if (!turnId) {
+    return cleanupTransientItems(items);
+  }
+  return removeTransientInfoItems(items).flatMap((item) => {
+    if (item.turnId !== turnId) {
+      return [item];
+    }
+    if (item.type === "thinking") return [];
+    if (item.type === "assistant" && item.isPending) {
+      return item.text.trim().length > 0 ? [{ ...item, isPending: false }] : [];
+    }
+    return [item];
+  });
+}
+
 function getTurnItems(
   items: readonly ConversationItem[],
   turnId: string | undefined,
@@ -249,25 +312,27 @@ function countTurnTools(items: readonly ConversationItem[]): number {
 }
 
 function resolveFinalTurnDurationMs(state: TranscriptState): number {
-  if (typeof state.pendingTurnStats?.durationMs === "number") {
-    return state.pendingTurnStats.durationMs;
-  }
-  if (typeof state.currentTurnStartedAt === "number") {
-    return Math.max(0, Date.now() - state.currentTurnStartedAt);
-  }
-  return 0;
+  const wallClockDuration = typeof state.currentTurnStartedAt === "number"
+    ? Math.max(0, Date.now() - state.currentTurnStartedAt)
+    : 0;
+  const reportedDuration = typeof state.pendingTurnStats?.durationMs === "number"
+    ? Math.max(0, state.pendingTurnStats.durationMs)
+    : 0;
+  return Math.max(reportedDuration, wallClockDuration);
 }
 
 function appendCommittedTurnStats(
   state: TranscriptState,
   cleanedItems: ConversationItem[],
   status: TurnCompletionStatus,
+  turnId?: string,
 ): TranscriptState {
-  if (!state.currentTurnId) {
+  const targetTurnId = turnId ?? state.currentTurnId;
+  if (!targetTurnId) {
     return { ...state, items: cleanedItems };
   }
 
-  const turnItems = getTurnItems(cleanedItems, state.currentTurnId);
+  const turnItems = getTurnItems(cleanedItems, targetTurnId);
   const [nextState, id] = nextItemId({ ...state, items: cleanedItems });
   const statsItem: TurnStatsItem = {
     type: "turn_stats",
@@ -285,29 +350,34 @@ function appendCommittedTurnStats(
     status,
     summary: summarizeTurnCompletion(turnItems),
     activityTrail: getRecentTurnActivityTrail(turnItems, 2),
-    turnId: state.currentTurnId,
+    turnId: targetTurnId,
   };
 
   return {
     ...nextState,
-    items: [...cleanedItems, statsItem],
+    items: insertBeforePendingAssistant(cleanedItems, statsItem, targetTurnId),
   };
 }
 
 function appendInfoItem(
   state: TranscriptState,
   text: string,
+  turnId?: string,
 ): TranscriptState {
   const [nextState, id] = nextItemId(state);
   const item: InfoItem = {
     type: "info",
     id,
     text,
-    turnId: state.currentTurnId,
+    turnId: turnId ?? state.currentTurnId,
   };
   return {
     ...nextState,
-    items: insertBeforePendingAssistant(nextState.items, item),
+    items: insertBeforePendingAssistant(
+      nextState.items,
+      item,
+      turnId ?? state.currentTurnId,
+    ),
   };
 }
 
@@ -330,10 +400,15 @@ function appendStructuredTeamInfoItem(
     id,
     text,
     ts: Date.now(),
+    turnId: state.currentTurnId,
   };
   return {
     ...nextState,
-    items: insertBeforePendingAssistant(nextState.items, nextItem),
+    items: insertBeforePendingAssistant(
+      nextState.items,
+      nextItem,
+      state.currentTurnId,
+    ),
   };
 }
 
@@ -634,6 +709,34 @@ function appendBeforeTrailingTurnStats(
   return nextItems;
 }
 
+function insertAssistantIntoTurn(
+  items: ConversationItem[],
+  item: AssistantItem,
+  isPending: boolean,
+  turnId?: string,
+): ConversationItem[] {
+  if (!turnId) {
+    return appendBeforeTrailingTurnStats(items, item, isPending);
+  }
+  const trailingTurnStatsIdx = items.findLastIndex((existing) =>
+    existing.type === "turn_stats" && existing.turnId === turnId
+  );
+  if (trailingTurnStatsIdx >= 0) {
+    const next = [...items];
+    next.splice(trailingTurnStatsIdx, 0, item);
+    return next;
+  }
+  const lastTurnIndex = items.findLastIndex((existing) =>
+    existing.turnId === turnId
+  );
+  if (lastTurnIndex < 0) {
+    return appendBeforeTrailingTurnStats(items, item, isPending);
+  }
+  const next = [...items];
+  next.splice(lastTurnIndex + 1, 0, item);
+  return next;
+}
+
 function upsertAssistantTextItem(
   state: TranscriptState,
   text: string,
@@ -641,6 +744,7 @@ function upsertAssistantTextItem(
   citations?: AssistantCitation[],
   turnId?: string,
 ): TranscriptState {
+  const targetTurnId = turnId ?? state.currentTurnId;
   // When a pending assistant item is created or updated, ensure streamingState
   // is Responding so the footer shows "Working · esc to interrupt" immediately.
   const baseState = isPending
@@ -653,21 +757,29 @@ function upsertAssistantTextItem(
   if (isPending && baseState.items.length > 0) {
     const lastIdx = baseState.items.length - 1;
     const last = baseState.items[lastIdx];
-    if (last.type === "assistant" && last.isPending) {
+    if (
+      last.type === "assistant" && last.isPending &&
+      (targetTurnId === undefined || last.turnId === targetTurnId)
+    ) {
       const nextItems = baseState.items.slice();
       nextItems[lastIdx] = { ...last, text, citations };
       return { ...baseState, items: nextItems };
     }
   }
 
-  const cleanedItems = removeCurrentTurnTurnStats(
+  const cleanedItems = removeTurnTurnStats(
     removeTransientInfoItems(baseState.items),
+    targetTurnId,
   );
   let pendingIdx = -1;
   for (let i = cleanedItems.length - 1; i >= 0; i--) {
     const item = cleanedItems[i];
     if (item.type === "assistant") {
-      if (item.isPending && pendingIdx < 0) pendingIdx = i;
+      if (
+        item.isPending &&
+        (targetTurnId === undefined || item.turnId === targetTurnId) &&
+        pendingIdx < 0
+      ) pendingIdx = i;
       if (pendingIdx >= 0) break;
     }
   }
@@ -679,8 +791,9 @@ function upsertAssistantTextItem(
     return { ...baseState, items: nextItems };
   }
 
-  const currentTurnAssistantIndices = findCurrentTurnAssistantIndices(
+  const currentTurnAssistantIndices = findTurnAssistantIndices(
     cleanedItems,
+    targetTurnId,
   );
   if (currentTurnAssistantIndices.length > 0) {
     const lastAssistant = cleanedItems[
@@ -699,10 +812,11 @@ function upsertAssistantTextItem(
       };
       return {
         ...baseState,
-        items: appendBeforeTrailingTurnStats(
+        items: insertAssistantIntoTurn(
           nextItems,
           updatedAssistant,
           isPending,
+          targetTurnId,
         ),
       };
     }
@@ -719,11 +833,16 @@ function upsertAssistantTextItem(
     citations,
     isPending,
     ts: Date.now(),
-    turnId,
+    turnId: targetTurnId,
   };
   return {
     ...nextState,
-    items: appendBeforeTrailingTurnStats(cleanedItems, assistant, isPending),
+    items: insertAssistantIntoTurn(
+      cleanedItems,
+      assistant,
+      isPending,
+      targetTurnId,
+    ),
   };
 }
 
@@ -1440,18 +1559,23 @@ export function reduceTranscriptState(
         input.text,
         input.isPending,
         input.citations,
-        state.currentTurnId,
+        input.turnId ?? state.currentTurnId,
       );
     case "error": {
       const [nextState, id] = nextItemId(state);
+      const item: ErrorItem = {
+        type: "error",
+        id,
+        text: input.text,
+        turnId: input.turnId ?? state.currentTurnId,
+      };
       return {
         ...nextState,
-        items: [...nextState.items, {
-          type: "error",
-          id,
-          text: input.text,
-          turnId: state.currentTurnId,
-        }],
+        items: insertBeforePendingAssistant(
+          nextState.items,
+          item,
+          input.turnId ?? state.currentTurnId,
+        ),
       };
     }
     case "info": {
@@ -1465,23 +1589,18 @@ export function reduceTranscriptState(
           id,
           text: input.text,
           isTransient: true,
-          turnId: state.currentTurnId,
+          turnId: input.turnId ?? state.currentTurnId,
         };
         return {
           ...nextState,
-          items: insertBeforePendingAssistant(nextState.items, item),
+          items: insertBeforePendingAssistant(
+            nextState.items,
+            item,
+            input.turnId ?? state.currentTurnId,
+          ),
         };
       }
-      const [nextState, id] = nextItemId(state);
-      return {
-        ...nextState,
-        items: [...nextState.items, {
-          type: "info",
-          id,
-          text: input.text,
-          turnId: state.currentTurnId,
-        }],
-      };
+      return appendInfoItem(state, input.text, input.turnId);
     }
     case "hql_eval": {
       let nextState = state;
@@ -1516,6 +1635,7 @@ export function reduceTranscriptState(
         todoState: undefined,
         planTodoState: undefined,
         pendingPlanReview: undefined,
+        currentTurnId: undefined,
         currentTurnStartedAt: undefined,
         pendingTurnStats: undefined,
         nextId: input.items.length,
@@ -1540,25 +1660,38 @@ export function reduceTranscriptState(
         pendingPlanReview: undefined,
       };
     case "finalize": {
-      const cleanedItems = cleanupTransientItems(state.items);
+      const targetTurnId = input.turnId ?? state.currentTurnId;
+      const cleanedItems = cleanupTransientItemsForTurn(
+        state.items,
+        targetTurnId,
+      );
       const finalizedState = appendCommittedTurnStats(
         state,
         cleanedItems,
         input.status,
+        targetTurnId,
       );
+      const finalizesCurrentTurn = !targetTurnId ||
+        targetTurnId === state.currentTurnId;
       const hasPlanContext = Boolean(
         state.activePlan || state.pendingPlanReview,
       );
       const shouldResetActivePlan = Boolean(
-        state.planningPhase && state.planningPhase !== "done",
+        finalizesCurrentTurn &&
+          state.planningPhase &&
+          state.planningPhase !== "done",
       );
       return {
         ...finalizedState,
         streamingState: ConversationStreamingState.Idle,
         activeTool: undefined,
-        currentTurnId: undefined,
-        currentTurnStartedAt: undefined,
-        pendingTurnStats: undefined,
+        currentTurnId: finalizesCurrentTurn ? undefined : state.currentTurnId,
+        currentTurnStartedAt: finalizesCurrentTurn
+          ? undefined
+          : state.currentTurnStartedAt,
+        pendingTurnStats: finalizesCurrentTurn
+          ? undefined
+          : state.pendingTurnStats,
         ...(shouldResetActivePlan
           ? {
             activePlan: undefined,
@@ -1568,7 +1701,7 @@ export function reduceTranscriptState(
             planTodoState: undefined,
             pendingPlanReview: undefined,
           }
-          : hasPlanContext
+          : hasPlanContext && finalizesCurrentTurn
           ? {}
           : {
             planningPhase: undefined,

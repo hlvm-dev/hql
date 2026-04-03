@@ -1,6 +1,8 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
-  buildLocalAgentsStatusPanelModel,
+  buildBackgroundStatusFooterModel,
+  buildLocalAgentsCompactFooterModel,
+  buildLocalAgentsManagerModel,
 } from "../../../src/hlvm/cli/repl-ink/components/LocalAgentsStatusPanel.tsx";
 import type { LocalAgentEntry } from "../../../src/hlvm/cli/repl-ink/utils/local-agents.ts";
 
@@ -13,15 +15,15 @@ function makeTeammate(overrides: Partial<LocalAgentEntry> = {}): LocalAgentEntry
     label: "Find unused code in agent/",
     status: "running",
     statusLabel: "running",
-    detail: "Tool TaskList: listed tasks",
+    detail: "Inspecting agent graph",
     interruptible: true,
-    overlayTarget: "team-dashboard",
-    overlayItemId: "member-worker-1",
+    overlayTarget: "background-tasks",
+    overlayItemId: "teammate:worker-1",
     progress: {
-      activityText: "Tool TaskList: listed tasks",
+      activityText: "Inspecting agent graph",
       previewLines: [
-        "Planning: inspect agent graph",
-        "Tool read_file: src/hlvm/agent/session.ts",
+        "Inspecting agent graph",
+        "Read src/hlvm/agent/session.ts",
       ],
       toolUseCount: 2,
       tokenCount: 1420,
@@ -31,8 +33,53 @@ function makeTeammate(overrides: Partial<LocalAgentEntry> = {}): LocalAgentEntry
   };
 }
 
-Deno.test("buildLocalAgentsStatusPanelModel renders a leader row with focused hint text", () => {
-  const model = buildLocalAgentsStatusPanelModel(
+Deno.test("buildLocalAgentsCompactFooterModel keeps the default shell to one compact row", () => {
+  const model = buildLocalAgentsCompactFooterModel(
+    [makeTeammate()],
+    100,
+    {
+      leader: {
+        idleText: "Idle · 1 working",
+      },
+    },
+  );
+
+  assertEquals(model?.rowCount, 1);
+  assertEquals(model?.highlighted, false);
+  assertEquals(model?.hintText, " · Ctrl+T manager");
+  assertEquals(model?.text, "team-lead · Idle · 1 working · Inspecting agent graph");
+});
+
+Deno.test("buildBackgroundStatusFooterModel shows a single background-task summary row when no local agents are active", () => {
+  const model = buildBackgroundStatusFooterModel([], 100, {
+    activeTaskCount: 2,
+    recentActiveTaskLabel: "(+ 1 2)",
+  });
+
+  assertEquals(model?.rowCount, 1);
+  assertEquals(model?.hintText, " · Ctrl+T manager");
+  assertEquals(model?.text, "tasks · 2 tasks running · (+ 1 2)");
+});
+
+Deno.test("buildLocalAgentsCompactFooterModel shows focused manager hint without expanding previews", () => {
+  const model = buildLocalAgentsCompactFooterModel(
+    [makeTeammate()],
+    100,
+    {
+      focused: true,
+      leader: {
+        activityText: "Continuing response",
+      },
+    },
+  );
+
+  assertEquals(model?.highlighted, true);
+  assertEquals(model?.hintText, " · Enter view · Esc back");
+  assertEquals(model?.text, "team-lead · Continuing response · Inspecting agent graph");
+});
+
+Deno.test("buildLocalAgentsManagerModel keeps preview rows for manager-only mode", () => {
+  const model = buildLocalAgentsManagerModel(
     [makeTeammate()],
     100,
     {
@@ -45,31 +92,14 @@ Deno.test("buildLocalAgentsStatusPanelModel renders a leader row with focused hi
 
   assertEquals(model?.leader.name, "team-lead");
   assertEquals(model?.leader.treePrefix, "╒═");
-  assertEquals(model?.leader.bodyText, "continuing response");
   assertEquals(model?.leader.hintText, " · enter to view · esc back");
-  assertEquals(model?.agents[0]?.previewLines.length, 2);
+  assertEquals(model?.agents[0]?.previewLines, [
+    "Read src/hlvm/agent/session.ts",
+  ]);
 });
 
-Deno.test("buildLocalAgentsStatusPanelModel keeps inline metrics and hides preview rows until focused", () => {
-  const model = buildLocalAgentsStatusPanelModel(
-    [makeTeammate()],
-    100,
-    {
-      leader: {
-        idleText: "Idle · 1 working",
-      },
-    },
-  );
-
-  assertEquals(model?.leader.bodyText, "Idle · 1 working");
-  assertEquals(model?.agents[0]?.treePrefix, "└─");
-  assertEquals(model?.agents[0]?.previewLines.length, 0);
-  assertEquals(model?.agents[0]?.metricsText, " · 2 tool uses · 1,420 tokens · 4.2s");
-  assertEquals(model?.rowCount, 2);
-});
-
-Deno.test("buildLocalAgentsStatusPanelModel keeps waiting/completed tones and overflow row", () => {
-  const model = buildLocalAgentsStatusPanelModel(
+Deno.test("buildLocalAgentsManagerModel keeps inline metrics, tones, and overflow rows", () => {
+  const model = buildLocalAgentsManagerModel(
     [
       makeTeammate({
         status: "waiting",
@@ -87,10 +117,10 @@ Deno.test("buildLocalAgentsStatusPanelModel keeps waiting/completed tones and ov
         label: "Inspect CLI",
         status: "completed",
         statusLabel: "done",
-        detail: "Task completed: Inspect CLI",
+        detail: "Finished inspecting CLI",
         progress: {
-          activityText: "Task completed: Inspect CLI",
-          previewLines: ["Final: cleaned up cli/repl"],
+          activityText: "Finished inspecting CLI",
+          previewLines: ["Final answer ready"],
           durationMs: 3100,
         },
       }),
@@ -108,5 +138,6 @@ Deno.test("buildLocalAgentsStatusPanelModel keeps waiting/completed tones and ov
 
   assertEquals(model?.agents[0]?.tone, "warning");
   assertEquals(model?.agents[1]?.tone, "success");
+  assertEquals(model?.agents[0]?.metricsText, undefined);
   assertEquals(model?.overflow, "└─ 1 more agents · Ctrl+T manager");
 });

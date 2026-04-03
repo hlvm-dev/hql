@@ -374,6 +374,7 @@ Deno.test("runChatViaHost forwards agent max_tokens and maps continuation-aware 
       const events: AgentUIEvent[] = [];
       const result = await runChatViaHost({
         mode: "agent",
+        querySource: "repl_main_thread",
         model: "ollama/test-fixture",
         maxTokens: 64,
         messages: [{
@@ -386,6 +387,7 @@ Deno.test("runChatViaHost forwards agent max_tokens and maps continuation-aware 
       });
 
       assertEquals(capturedChatBody?.mode, "agent");
+      assertEquals(capturedChatBody?.query_source, "repl_main_thread");
       assertEquals(capturedChatBody?.max_tokens, 64);
       assertEquals(result.text, "merged-response");
 

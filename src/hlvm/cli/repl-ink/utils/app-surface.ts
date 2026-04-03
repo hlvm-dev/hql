@@ -25,11 +25,21 @@ export function shouldRenderMainBanner(options: {
   hasStandaloneSurface: boolean;
   hasActivePlanningState: boolean;
   hasShellHistory?: boolean;
+  hasLiveConversation?: boolean;
+  hasQueuedInput?: boolean;
+  hasPendingInteraction?: boolean;
+  hasLocalAgents?: boolean;
 }): boolean {
   return options.showBanner &&
     !options.hasBeenCleared &&
     !options.isOverlayOpen &&
-    !options.hasStandaloneSurface;
+    !options.hasStandaloneSurface &&
+    !options.hasShellHistory &&
+    !options.hasLiveConversation &&
+    !options.hasQueuedInput &&
+    !options.hasPendingInteraction &&
+    !options.hasLocalAgents &&
+    !options.hasActivePlanningState;
 }
 
 export function shouldRenderShellLanes(options: {

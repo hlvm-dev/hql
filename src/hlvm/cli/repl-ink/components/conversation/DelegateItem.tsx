@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { truncate } from "../../../../../common/utils.ts";
-import { listDelegateTranscriptLines } from "../../../../agent/delegate-transcript.ts";
+import { listDelegatePreviewLines } from "../../../../agent/delegate-transcript.ts";
 import { useSemanticColors } from "../../../theme/index.ts";
 import type { DelegateItem as DelegateItemData } from "../../types.ts";
 import {
@@ -93,7 +93,7 @@ export const DelegateItem = React.memo(function DelegateItem(
             </Text>
           )}
           {item.snapshot &&
-            listDelegateTranscriptLines(item.snapshot).map((line, index) => (
+            listDelegatePreviewLines(item.snapshot).map((line, index) => (
               <React.Fragment key={`${item.id}-event-${index}`}>
                 <Text color={sc.text.muted}>
                   {truncate(

@@ -218,9 +218,13 @@ export type TraceEvent =
     modelId: string;
     latencyMs: number;
     firstTokenLatencyMs?: number;
+    querySource?: string;
     promptSignatureHash?: string;
     stableCacheSignatureHash?: string;
     stableSegmentCount?: number;
+    toolSchemaSignature?: string;
+    eagerToolCount?: number;
+    discoveredDeferredToolCount?: number;
     inputTokens?: number;
     outputTokens?: number;
     cacheReadInputTokens?: number;
@@ -273,6 +277,7 @@ export type TraceEvent =
     type: "prompt_compiled";
     mode: import("../prompt/types.ts").PromptMode;
     tier: import("./constants.ts").ModelTier;
+    querySource?: string;
     sections: import("../prompt/types.ts").SectionManifestEntry[];
     cacheSegments: import("../prompt/types.ts").PromptCacheSegment[];
     stableCacheProfile: import("../prompt/types.ts").PromptStableCacheProfile;
@@ -619,6 +624,11 @@ export interface OrchestratorConfig {
   toolFilterState?: ToolFilterState;
   /** Baseline tool filters before runtime narrowing/pruning. */
   toolFilterBaseline?: ToolFilterState;
+  /** Full tool universe visible to tool_search before turn-local narrowing. */
+  toolSearchUniverseAllowlist?: string[];
+  toolSearchUniverseDenylist?: string[];
+  /** Persist main-thread deferred tool discoveries into the session baseline. */
+  onToolSearchDiscovered?: (toolNames: string[]) => string[] | undefined;
   /** Mutable reasoning state shared with the engine. */
   thinkingState?: ThinkingState;
   /** Whether the active model can use provider-native reasoning/thinking. */
@@ -641,6 +651,9 @@ export interface OrchestratorConfig {
   modelId?: string;
   sessionId?: string;
   turnId?: string;
+  querySource?: string;
+  eagerToolCount?: number;
+  discoveredDeferredToolCount?: number;
   currentUserRequest?: string;
   signal?: AbortSignal;
   /** Enable one-time automatic memory recall for this user turn. */

@@ -8,6 +8,19 @@ const PATH_LIKE_TOOL_NAMES = new Set([
   "open_path",
 ]);
 
+/**
+ * Shared shell-command regex labels used by both plan-flow (live activity)
+ * and turn-activity (completed-outcome summaries) to avoid duplication.
+ */
+export const SHELL_COMMAND_LABELS: ReadonlyArray<
+  readonly [pattern: RegExp, liveLabel: string, completedLabel: string]
+> = [
+  [/^mkdir\b/i, "Creating directories", "Created directories"],
+  [/^mv\b/i, "Moving files", "Moved files"],
+  [/^cp\b/i, "Copying files", "Copied files"],
+  [/^rm\b/i, "Removing files", "Removed files"],
+] as const;
+
 export function normalizeActivityText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }

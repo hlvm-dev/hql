@@ -1,4 +1,5 @@
 import { assertEquals } from "jsr:@std/assert";
+import { FakeTime } from "jsr:@std/testing@1/time";
 import {
   createTranscriptState,
   reduceTranscriptState,
@@ -155,6 +156,99 @@ Deno.test("agent transcript state streams into the existing pending assistant it
     assertEquals(next.items[1].id, "a1");
     assertEquals(next.items[1].text, "Hello there");
     assertEquals(next.items[1].isPending, false);
+  }
+});
+
+Deno.test("agent transcript state targets assistant streaming to the requested turn", () => {
+  const state = {
+    ...createTranscriptState(),
+    currentTurnId: "turn-2",
+    items: [
+      {
+        type: "user" as const,
+        id: "u1",
+        text: "first",
+        ts: 1,
+        turnId: "turn-1",
+      },
+      {
+        type: "assistant" as const,
+        id: "a1",
+        text: "Par",
+        isPending: true,
+        ts: 2,
+        turnId: "turn-1",
+      },
+      {
+        type: "user" as const,
+        id: "u2",
+        text: "second",
+        ts: 3,
+        turnId: "turn-2",
+      },
+      {
+        type: "assistant" as const,
+        id: "a2",
+        text: "",
+        isPending: true,
+        ts: 4,
+        turnId: "turn-2",
+      },
+    ],
+  };
+
+  const next = reduceTranscriptState(state, {
+    type: "assistant_text",
+    text: "Partial answer",
+    isPending: true,
+    turnId: "turn-1",
+  });
+
+  assertEquals(next.items[1]?.type, "assistant");
+  if (next.items[1]?.type === "assistant") {
+    assertEquals(next.items[1].id, "a1");
+    assertEquals(next.items[1].text, "Partial answer");
+    assertEquals(next.items[1].turnId, "turn-1");
+  }
+  assertEquals(next.items[3]?.type, "assistant");
+  if (next.items[3]?.type === "assistant") {
+    assertEquals(next.items[3].id, "a2");
+    assertEquals(next.items[3].text, "");
+  }
+});
+
+Deno.test("agent transcript state keeps one pending assistant per targeted turn", () => {
+  const state = reduceTranscriptState(createTranscriptState(), {
+    type: "user_message",
+    text: "hello",
+    startTurn: true,
+  });
+  const turnId = state.currentTurnId;
+
+  const next = reduceTranscriptState(
+    reduceTranscriptState(state, {
+      type: "assistant_text",
+      text: "Hel",
+      isPending: true,
+      turnId,
+    }),
+    {
+      type: "assistant_text",
+      text: "Hello there",
+      isPending: true,
+      turnId,
+    },
+  );
+
+  assertEquals(
+    next.items.filter((item) => item.type === "assistant" && item.turnId === turnId).length,
+    1,
+  );
+  assertEquals(next.items.at(-1)?.type, "assistant");
+  const lastItem = next.items.at(-1);
+  if (lastItem?.type === "assistant") {
+    assertEquals(lastItem.text, "Hello there");
+    assertEquals(lastItem.isPending, true);
   }
 });
 
@@ -1266,6 +1360,47 @@ Deno.test("finalize clears currentTurnId after committing pending turn stats", (
   if (statsItem?.type === "turn_stats") {
     assertEquals(statsItem.turnId, "turn-1");
     assertEquals(statsItem.status, "completed");
+  }
+});
+
+Deno.test("finalize prefers full wall-clock turn duration over shorter pending turn stats", () => {
+  const time = new FakeTime(1_000);
+  try {
+    let state = createTranscriptState();
+    state = reduceTranscriptState(state, {
+      type: "user_message",
+      text: "hello",
+      startTurn: true,
+    });
+    state = reduceTranscriptState(state, {
+      type: "assistant_text",
+      text: "world",
+      isPending: false,
+    });
+
+    time.tick(10_000);
+
+    state = reduceTranscriptState(state, {
+      type: "agent_event",
+      event: {
+        type: "turn_stats",
+        iteration: 1,
+        toolCount: 0,
+        durationMs: 2_000,
+      },
+    });
+    state = reduceTranscriptState(state, {
+      type: "finalize",
+      status: "completed",
+    });
+
+    const statsItem = state.items.find((item) => item.type === "turn_stats");
+    assertEquals(statsItem?.type, "turn_stats");
+    if (statsItem?.type === "turn_stats") {
+      assertEquals(statsItem.durationMs, 10_000);
+    }
+  } finally {
+    time.restore();
   }
 });
 

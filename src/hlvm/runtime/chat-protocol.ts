@@ -37,6 +37,7 @@ export interface ChatRequestMessage {
 export interface ChatRequest {
   mode: ChatMode;
   session_id?: string;
+  query_source?: string;
   stateless?: boolean;
   messages: ChatRequestMessage[];
   model?: string;

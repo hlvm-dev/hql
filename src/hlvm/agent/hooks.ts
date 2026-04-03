@@ -2,7 +2,7 @@ import { closeProcessStdin, writeToProcessStdin } from "../../common/process-io.
 import { safeStringify } from "../../common/safe-stringify.ts";
 import { createProcessAbortHandler, readProcessStream } from "../../common/stream-utils.ts";
 import { TimeoutError, withTimeout } from "../../common/timeout-utils.ts";
-import { isObjectValue, truncate } from "../../common/utils.ts";
+import { getErrorMessage, isObjectValue, truncate } from "../../common/utils.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { getAgentLogger } from "./logger.ts";
 
@@ -215,7 +215,7 @@ class Runtime implements AgentHookRuntime {
       this.logFailure(
         name,
         handler.command,
-        `spawn failed: ${error instanceof Error ? error.message : String(error)}`,
+        `spawn failed: ${getErrorMessage(error)}`,
       );
       return null;
     }
@@ -275,7 +275,7 @@ class Runtime implements AgentHookRuntime {
         this.logFailure(
           name,
           handler.command,
-          error instanceof Error ? error.message : String(error),
+          getErrorMessage(error),
         );
       }
     } finally {
@@ -335,7 +335,7 @@ export async function loadAgentHookRuntime(
   } catch (error) {
     getAgentLogger().warn(
       `Agent hooks load failed (${path}): ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     return null;
@@ -347,7 +347,7 @@ export async function loadAgentHookRuntime(
   } catch (error) {
     getAgentLogger().warn(
       `Agent hooks JSON invalid (${path}): ${
-        error instanceof Error ? error.message : String(error)
+        getErrorMessage(error)
       }`,
     );
     return null;

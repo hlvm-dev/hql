@@ -597,6 +597,97 @@ Deno.test({
 
 Deno.test({
   name:
+    "agent-runner: repl main-thread persists deferred tool discovery across reusable turns",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const platform = getPlatform();
+    const workspace = platform.path.join(
+      platform.process.cwd(),
+      ".tmp",
+      `hlvm-agent-main-thread-discovery-${generateUUID()}`,
+    );
+    await platform.fs.mkdir(workspace, { recursive: true });
+
+    const observedAllowlists: Array<string[] | undefined> = [];
+    let llmFactoryCount = 0;
+    const engine: AgentEngine = {
+      createLLM: (config) => {
+        llmFactoryCount += 1;
+        observedAllowlists.push(config.toolAllowlist ? [...config.toolAllowlist] : undefined);
+        const factoryIndex = llmFactoryCount;
+        let callCount = 0;
+        return async () => {
+          callCount += 1;
+          if (factoryIndex === 2 && callCount === 1) {
+            return {
+              content: "",
+              toolCalls: [{
+                toolName: "tool_search",
+                args: { query: "web search", limit: 1 },
+              }],
+            };
+          }
+          return { content: "done", toolCalls: [] };
+        };
+      },
+      createSummarizer: () => () => Promise.resolve(""),
+    };
+
+    let reusableSession: Awaited<ReturnType<typeof createAgentSession>> | null = null;
+    try {
+      reusableSession = await createAgentSession({
+        workspace,
+        model: "anthropic/claude-sonnet-4-5-20250929",
+        modelInfo: {
+          name: "claude-sonnet-4-5-20250929",
+          capabilities: ["chat", "tools"],
+        },
+        engine,
+        querySource: "repl_main_thread",
+      });
+
+      await runAgentQuery({
+        query: "Find the web tool",
+        model: "anthropic/claude-sonnet-4-5-20250929",
+        modelInfo: {
+          name: "claude-sonnet-4-5-20250929",
+          capabilities: ["chat", "tools"],
+        },
+        workspace,
+        querySource: "repl_main_thread",
+        reusableSession,
+        skipSessionHistory: true,
+        callbacks: {},
+      });
+
+      assertEquals(reusableSession.discoveredDeferredTools.has("search_web"), true);
+      assertEquals(reusableSession.llmConfig?.toolAllowlist?.includes("search_web"), true);
+
+      await runAgentQuery({
+        query: "Answer directly",
+        model: "anthropic/claude-sonnet-4-5-20250929",
+        modelInfo: {
+          name: "claude-sonnet-4-5-20250929",
+          capabilities: ["chat", "tools"],
+        },
+        workspace,
+        querySource: "repl_main_thread",
+        reusableSession,
+        skipSessionHistory: true,
+        callbacks: {},
+      });
+
+      assertEquals(observedAllowlists[2]?.includes("search_web"), true);
+    } finally {
+      await reusableSession?.dispose();
+      await platform.fs.remove(workspace, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name:
     "agent-runner: runAgentQuery rejects weak models before agent execution",
   async fn() {
     await assertRejects(

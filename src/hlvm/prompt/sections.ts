@@ -28,6 +28,7 @@ import type {
 } from "./types.ts";
 import { type RuntimeMode } from "../agent/runtime-mode.ts";
 import { summarizeRoutingConstraints } from "../agent/routing-constraints.ts";
+import { isMainThreadQuerySource } from "../agent/query-tool-routing.ts";
 
 /** Human-readable labels for routing table */
 const CATEGORY_LABELS: Record<string, string> = {
@@ -104,10 +105,14 @@ function renderChatNoToolsRule(): RawPromptSection {
 
 function renderCriticalRules(
   tools: Record<string, ToolMetadata>,
+  querySource?: string,
 ): RawPromptSection {
   const memoryToolsAvailable = Object.keys(MEMORY_TOOLS).some((k) =>
     k in tools
   );
+  const mainThreadRule = isMainThreadQuerySource(querySource) && "tool_search" in tools
+    ? "\nMain REPL rule: only the core local coding tools are preloaded. Before web, memory, remote execution, data shaping, archive/commit, or MCP-backed work, use tool_search to expand the tool surface. Tools discovered that way remain available later in the same conversation."
+    : "";
   return {
     id: "critical_rules",
     content: `# CRITICAL: When NOT to use tools
@@ -120,7 +125,7 @@ Use tools whenever accuracy depends on repository state, local files, command ou
       memoryToolsAvailable
         ? "\nException: memory_write, memory_search, and memory_edit may be used proactively — save important facts, decisions, and preferences without being asked. Use memory_edit to correct outdated information."
         : ""
-    }`,
+    }${mainThreadRule}`,
     minTier: "weak",
   };
 }
@@ -675,7 +680,7 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
 
   const sections: RawPromptSection[] = [
     renderRole(),
-    renderCriticalRules(tools),
+    renderCriticalRules(tools, input.querySource),
     renderInstructions(tier),
     renderAutoExecutionGuidance(runtimeMode, input),
     renderToolRouting(tools),

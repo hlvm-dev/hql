@@ -131,6 +131,7 @@ export interface SystemPromptOptions {
   toolAllowlist?: string[];
   toolDenylist?: string[];
   toolOwnerId?: string;
+  querySource?: string;
   /** Model tier — controls prompt depth */
   modelTier?: ModelTier;
   /** Preloaded agent profiles for delegation guidance. */
@@ -188,6 +189,7 @@ export function compileSystemPrompt(
     instructions,
     agentProfiles: options.agentProfiles,
     runtimeMode: options.runtimeMode,
+    querySource: options.querySource,
     executionSurface: options.executionSurface,
     providerExecutionPlan,
   });

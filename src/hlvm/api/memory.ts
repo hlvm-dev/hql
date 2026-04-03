@@ -104,7 +104,9 @@ function searchNotes(
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
-    if (!line.toLowerCase().includes(normalizedQuery)) continue;
+    // Single toLowerCase() call per line instead of per-comparison
+    const lowerLine = line.toLowerCase();
+    if (!lowerLine.includes(normalizedQuery)) continue;
     hits.push({
       kind: "note",
       text: line,

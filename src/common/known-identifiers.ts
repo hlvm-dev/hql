@@ -96,7 +96,7 @@ export const FOR_LOOP_SYNTAX_KEYWORDS_SET: ReadonlySet<string> = new Set(FOR_LOO
  * Word-form logical operators (macros that act like operators).
  * For syntax highlighting categorization.
  */
-export const WORD_LOGICAL_OPERATORS = ["and", "or", "not"] as const;
+const WORD_LOGICAL_OPERATORS = ["and", "or", "not"] as const;
 
 /**
  * Common JS globals accessible in HQL.

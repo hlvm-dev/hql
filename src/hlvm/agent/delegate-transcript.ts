@@ -132,6 +132,34 @@ export function formatDelegateTranscriptEvent(
   }
 }
 
+export function formatDelegatePreviewEvent(
+  event: DelegateTranscriptEvent,
+): string | undefined {
+  switch (event.type) {
+    case "reasoning":
+    case "planning":
+      return truncate(event.summary.trim(), 120);
+    case "plan_created":
+      return `Plan created (${event.stepCount} steps)`;
+    case "plan_step":
+      return `Completed step ${event.index + 1}`;
+    case "tool_start":
+      return event.argsSummary.trim() || `Using ${event.name}`;
+    case "tool_progress":
+      return event.message.trim();
+    case "tool_end":
+      return summarizeDelegateToolContent(
+        event.name,
+        event.summary,
+        event.content,
+      );
+    case "turn_stats":
+      return `${event.toolCount} tool${event.toolCount === 1 ? "" : "s"} · ${
+        formatDelegateDurationMs(event.durationMs)
+      }`;
+  }
+}
+
 export function listDelegateTranscriptLines(
   snapshot?: DelegateTranscriptSnapshot,
 ): string[] {
@@ -141,6 +169,19 @@ export function listDelegateTranscriptLines(
     .filter(Boolean);
   const finalLine = snapshot.finalResponse?.trim()
     ? `Final: ${truncate(snapshot.finalResponse.trim(), 120)}`
+    : undefined;
+  return finalLine ? [...eventLines, finalLine] : eventLines;
+}
+
+export function listDelegatePreviewLines(
+  snapshot?: DelegateTranscriptSnapshot,
+): string[] {
+  if (!snapshot) return [];
+  const eventLines = snapshot.events
+    .map(formatDelegatePreviewEvent)
+    .filter((line): line is string => Boolean(line?.trim()));
+  const finalLine = snapshot.finalResponse?.trim()
+    ? truncate(snapshot.finalResponse.trim(), 120)
     : undefined;
   return finalLine ? [...eventLines, finalLine] : eventLines;
 }

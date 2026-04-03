@@ -16,6 +16,8 @@ import {
 import { getActiveConversationSessionId } from "../../../store/active-conversation.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
 import { getRequiredAttachmentRecords } from "../../../attachments/service.ts";
+import { invalidateReplLiveAgentSession } from "../../../agent/repl-live-session-cache.ts";
+import { clearWeakDirectChatSummaryState } from "./direct-chat-history.ts";
 import {
   toRuntimeSessionMessage,
   toRuntimeSessionMessagesResponse,
@@ -304,6 +306,8 @@ export async function handleAddMessage(
     sender_type,
     attachment_ids,
   });
+  invalidateReplLiveAgentSession(session.sessionId);
+  clearWeakDirectChatSummaryState(session.sessionId);
 
   pushSSEEvent(session.sessionId, "message_added", {
     message: await toRuntimeSessionMessage(row),
@@ -393,6 +397,8 @@ export async function handleUpdateMessage(
   }
 
   updateMessage(msg.messageId, patch);
+  invalidateReplLiveAgentSession(session.sessionId);
+  clearWeakDirectChatSummaryState(session.sessionId);
   const updated = getMessage(msg.messageId);
   if (!updated) {
     return jsonError("Message not found", 404);
@@ -469,6 +475,8 @@ export function handleDeleteMessage(
 
   const deleted = deleteMessage(msg.messageId, session.sessionId);
   if (!deleted) return jsonError("Failed to delete message", 500);
+  invalidateReplLiveAgentSession(session.sessionId);
+  clearWeakDirectChatSummaryState(session.sessionId);
 
   pushSSEEvent(session.sessionId, "message_deleted", { id: msg.messageId });
   pushConversationUpdatedEvent(session.sessionId);

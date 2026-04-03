@@ -51,6 +51,11 @@ import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import type { ReplState } from "../../repl/state.ts";
 import type { OverlayPanel } from "./useOverlayPanel.ts";
+import { REPL_MAIN_THREAD_QUERY_SOURCE } from "../../../agent/query-tool-routing.ts";
+import {
+  buildTraceTextPreview,
+  traceReplMainThread,
+} from "../../../repl-main-thread-trace.ts";
 
 const CONVERSATION_DELEGATE_TOOL_DENYLIST = [
   "delegate_agent",
@@ -63,6 +68,16 @@ const CONVERSATION_DELEGATE_TOOL_DENYLIST = [
   "send_input",
   "interrupt_agent",
   "resume_agent",
+] as const;
+
+const CONVERSATION_TEAM_TOOL_DENYLIST = [
+  "Teammate",
+  "SendMessage",
+  "TaskCreate",
+  "TaskGet",
+  "TaskUpdate",
+  "TaskList",
+  "TeamStatus",
 ] as const;
 
 type ContextPressureLevel =
@@ -81,12 +96,17 @@ export function getConversationToolDenylist(
   agentExecutionMode: AgentExecutionMode,
 ): string[] {
   return agentExecutionMode === "plan"
-    ? ["complete_task"]
-    : ["complete_task", ...CONVERSATION_DELEGATE_TOOL_DENYLIST];
+    ? ["complete_task", ...CONVERSATION_TEAM_TOOL_DENYLIST]
+    : [
+      "complete_task",
+      ...CONVERSATION_DELEGATE_TOOL_DENYLIST,
+      ...CONVERSATION_TEAM_TOOL_DENYLIST,
+    ];
 }
 
 interface UseAgentRunnerInput {
   conversation: UseConversationResult;
+  activeModelId: string | null;
   agentExecutionMode: AgentExecutionMode;
   runtimeMode: RuntimeMode;
   configuredContextWindow: number | undefined;
@@ -161,6 +181,7 @@ export interface UseAgentRunnerResult {
 export function useAgentRunner(
   {
     conversation,
+    activeModelId,
     agentExecutionMode,
     runtimeMode,
     configuredContextWindow,
@@ -193,6 +214,7 @@ export function useAgentRunner(
   const pendingStreamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const activeRunTurnIdRef = useRef<string | undefined>(undefined);
   const contextPressureLevelRef = useRef<ContextPressureLevel>("normal");
 
   // Cleanup orphaned stream timer on unmount
@@ -256,8 +278,8 @@ export function useAgentRunner(
 
     // Show user message and pending indicator immediately — before expensive
     // config/model init, unless the caller already seeded the transcript.
-    if (!options?.skipTranscriptSeed) {
-      conversationRef.current.addUserMessage(
+    const runTurnId = !options?.skipTranscriptSeed
+      ? conversationRef.current.addUserMessage(
         options?.displayText ?? query,
         {
           submittedText: options?.displayText !== undefined &&
@@ -266,19 +288,42 @@ export function useAgentRunner(
             : undefined,
           attachments,
         },
-      );
-      conversationRef.current.addAssistantText("", true);
+      )
+      : conversationRef.current.activeTurnId;
+    activeRunTurnIdRef.current = runTurnId;
+    if (!options?.skipTranscriptSeed) {
+      conversationRef.current.addAssistantText("", true, undefined, {
+        turnId: runTurnId,
+      });
     }
 
     let finalizeStatus: TurnCompletionStatus = "completed";
+    const requestId = crypto.randomUUID();
+    const runStartedAt = Date.now();
+    traceReplMainThread("ui.run_conversation.start", {
+      requestId,
+      runtimeMode,
+      agentExecutionMode,
+      activeModelId: activeModelId ?? null,
+      queryPreview: buildTraceTextPreview(query),
+      attachmentCount: attachments?.length ?? 0,
+    });
 
     try {
       const attachmentIds = attachments
         ?.flatMap((attachment) =>
           attachment.attachmentId ? [attachment.attachmentId] : []
         );
-      const currentModelSelection = await refreshRuntimeConfigState();
-      const model = currentModelSelection.activeModelId || undefined;
+      const modelResolutionStartedAt = Date.now();
+      const model = activeModelId ||
+        (await refreshRuntimeConfigState()).activeModelId ||
+        undefined;
+      traceReplMainThread("ui.model_resolution.done", {
+        requestId,
+        durationMs: Date.now() - modelResolutionStartedAt,
+        model: model ?? null,
+        usedActiveModelId: !!activeModelId,
+      });
       if (!model) {
         throw new ConfigError(
           "No configured model available for conversation mode.",
@@ -316,12 +361,16 @@ export function useAgentRunner(
       const flushStreamBuffer = () => {
         pendingStreamTimerRef.current = null;
         if (!controller.signal.aborted && isActiveConversationRun()) {
-          conversationRef.current.addAssistantText(textBuffer, true);
+          conversationRef.current.addAssistantText(textBuffer, true, undefined, {
+            turnId: activeRunTurnIdRef.current,
+          });
           lastStreamRender = Date.now();
         }
       };
       const result = await runChatViaHost({
         mode: "agent",
+        querySource: REPL_MAIN_THREAD_QUERY_SOURCE,
+        requestId,
         messages: [{
           role: "user",
           content: query,
@@ -414,14 +463,20 @@ export function useAgentRunner(
               if (event.level === "soft") {
                 conversationRef.current.addInfo(
                   "Context pressure is rising; older context may compact soon.",
-                  { isTransient: true },
+                  {
+                    isTransient: true,
+                    turnId: activeRunTurnIdRef.current,
+                  },
                 );
                 return;
               }
               if (event.level === "urgent") {
                 conversationRef.current.addInfo(
                   "Context is nearly full; this turn may compact older messages.",
-                  { isTransient: true },
+                  {
+                    isTransient: true,
+                    turnId: activeRunTurnIdRef.current,
+                  },
                 );
               }
               return;
@@ -431,7 +486,10 @@ export function useAgentRunner(
               setFooterContextUsageLabel("");
               conversationRef.current.addInfo(
                 "Context was compacted and the turn retried.",
-                { isTransient: true },
+                {
+                  isTransient: true,
+                  turnId: activeRunTurnIdRef.current,
+                },
               );
               return;
             }
@@ -440,7 +498,10 @@ export function useAgentRunner(
               setFooterContextUsageLabel("");
               conversationRef.current.addInfo(
                 "Older context was compacted before the next model call.",
-                { isTransient: true },
+                {
+                  isTransient: true,
+                  turnId: activeRunTurnIdRef.current,
+                },
               );
               return;
             }
@@ -450,7 +511,10 @@ export function useAgentRunner(
             ) {
               conversationRef.current.addInfo(
                 "Continuing truncated response...",
-                { isTransient: true },
+                {
+                  isTransient: true,
+                  turnId: activeRunTurnIdRef.current,
+                },
               );
             }
           },
@@ -519,6 +583,13 @@ export function useAgentRunner(
           });
         },
       });
+      traceReplMainThread("ui.run_conversation.host_done", {
+        requestId,
+        durationMs: Date.now() - runStartedAt,
+        textChars: result.text.length,
+        estimatedTokens: result.stats.estimatedTokens,
+        toolMessages: result.stats.toolMessages,
+      });
       // Clear any pending streaming render timer
       if (pendingStreamTimerRef.current) {
         clearTimeout(pendingStreamTimerRef.current);
@@ -557,6 +628,7 @@ export function useAgentRunner(
           finalAssistantText,
           false,
           finalCitations,
+          { turnId: activeRunTurnIdRef.current },
         );
       }
 
@@ -580,15 +652,24 @@ export function useAgentRunner(
         setFooterContextUsageLabel("");
       }
     } catch (error) {
+      traceReplMainThread("ui.run_conversation.error", {
+        requestId,
+        durationMs: Date.now() - runStartedAt,
+        error: ensureError(error).message,
+      });
       if (controller.signal.aborted) {
         finalizeStatus = "cancelled";
         if (isActiveConversationRun()) {
-          conversationRef.current.addInfo("Cancelled");
+          conversationRef.current.addInfo("Cancelled", {
+            turnId: activeRunTurnIdRef.current,
+          });
         }
       } else {
         finalizeStatus = "failed";
         if (isActiveConversationRun()) {
-          conversationRef.current.addError(ensureError(error).message);
+          conversationRef.current.addError(ensureError(error).message, {
+            turnId: activeRunTurnIdRef.current,
+          });
         }
       }
     } finally {
@@ -598,10 +679,19 @@ export function useAgentRunner(
         setInteractionQueue([]);
         setIsEvaluating(false);
         contextPressureLevelRef.current = "normal";
-        conversationRef.current.finalize(finalizeStatus);
+        conversationRef.current.finalize(finalizeStatus, {
+          turnId: activeRunTurnIdRef.current,
+        });
+        activeRunTurnIdRef.current = undefined;
       }
+      traceReplMainThread("ui.run_conversation.finally", {
+        requestId,
+        durationMs: Date.now() - runStartedAt,
+        status: finalizeStatus,
+      });
     }
   }, [
+    activeModelId,
     agentExecutionMode,
     runtimeMode,
     configuredContextWindow,
@@ -662,8 +752,11 @@ export function useAgentRunner(
       if (options?.clearConversation) {
         conversationRef.current.clear();
       } else if (hadActiveRun) {
-        conversationRef.current.finalize("cancelled");
+        conversationRef.current.finalize("cancelled", {
+          turnId: activeRunTurnIdRef.current,
+        });
       }
+      activeRunTurnIdRef.current = undefined;
       setPendingConversationQueue([]);
       setFooterContextUsageLabel("");
       contextPressureLevelRef.current = "normal";
@@ -715,9 +808,14 @@ export function useAgentRunner(
     contextPressureLevelRef.current = "normal";
     restoreComposerDraft(restoredDraft);
     if (options?.addCancelledInfo !== false) {
-      conversationRef.current.addInfo("Cancelled");
+      conversationRef.current.addInfo("Cancelled", {
+        turnId: activeRunTurnIdRef.current,
+      });
     }
-    conversationRef.current.finalize("cancelled");
+    conversationRef.current.finalize("cancelled", {
+      turnId: activeRunTurnIdRef.current,
+    });
+    activeRunTurnIdRef.current = undefined;
   }, [
     getCurrentComposerDraft,
     getPendingConversationQueue,

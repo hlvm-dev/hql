@@ -46,7 +46,8 @@ function isAudioEligibleAttachmentKind(
   return value === "audio";
 }
 
-function uniqueSortedKinds<T extends string>(items: readonly T[]): T[] {
+/** Dedup + sort a string array. Shared across execution context modules. */
+export function uniqueSorted<T extends string>(items: readonly T[]): T[] {
   return [...new Set(items)].sort();
 }
 
@@ -57,10 +58,10 @@ export function deriveExecutionTurnContextFromAttachments(
     return { ...EMPTY_EXECUTION_TURN_CONTEXT };
   }
 
-  const attachmentKinds = uniqueSortedKinds(
+  const attachmentKinds = uniqueSorted(
     attachments.map((attachment) => attachment.conversationKind),
   );
-  const visionEligibleKinds = uniqueSortedKinds(
+  const visionEligibleKinds = uniqueSorted(
     attachments.flatMap((attachment) =>
       attachment.mode === "binary" &&
           (attachment.conversationKind === "image" ||
@@ -76,7 +77,7 @@ export function deriveExecutionTurnContextFromAttachments(
       attachment.conversationKind === "pdf"
     )
   ).length;
-  const audioEligibleKinds = uniqueSortedKinds(
+  const audioEligibleKinds = uniqueSorted(
     attachments.flatMap((attachment) =>
       attachment.mode === "binary" && attachment.conversationKind === "audio"
         ? [attachment.conversationKind as AudioEligibleAttachmentKind]
@@ -106,12 +107,12 @@ export function normalizeExecutionTurnContext(
 
   const record = value as Record<string, unknown>;
   const attachmentKinds = Array.isArray(record.attachmentKinds)
-    ? uniqueSortedKinds(
+    ? uniqueSorted(
       record.attachmentKinds.filter(isConversationAttachmentKind),
     )
     : [];
   const visionEligibleKinds = Array.isArray(record.visionEligibleKinds)
-    ? uniqueSortedKinds(
+    ? uniqueSorted(
       record.visionEligibleKinds.filter(isVisionEligibleAttachmentKind),
     )
     : [];
@@ -127,7 +128,7 @@ export function normalizeExecutionTurnContext(
       ? Math.trunc(record.visionEligibleAttachmentCount)
       : visionEligibleKinds.length;
   const audioEligibleKinds = Array.isArray(record.audioEligibleKinds)
-    ? uniqueSortedKinds(
+    ? uniqueSorted(
       record.audioEligibleKinds.filter(isAudioEligibleAttachmentKind),
     )
     : [];

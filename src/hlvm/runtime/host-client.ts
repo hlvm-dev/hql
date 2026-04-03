@@ -55,6 +55,11 @@ import {
   buildRuntimeServeCommand,
   getRuntimeHostIdentity,
 } from "./host-identity.ts";
+import {
+  buildTraceTextPreview,
+  summarizeTraceEvent,
+  traceReplMainThreadForSource,
+} from "../repl-main-thread-trace.ts";
 
 const STREAM_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const HEALTH_POLL_ATTEMPTS = 60;
@@ -162,6 +167,8 @@ interface HostBackedChatCallbacks {
 
 interface HostBackedChatOptions {
   mode: ChatMode;
+  querySource?: string;
+  requestId?: string;
   stateless?: boolean;
   messages: ChatRequestMessage[];
   model?: string;
@@ -187,6 +194,7 @@ interface HostBackedChatOptions {
 interface HostBackedAgentQueryOptions {
   query: string;
   model: string;
+  querySource?: string;
   fixturePath?: string;
   attachmentIds?: string[];
   contextWindow?: number;
@@ -1351,14 +1359,39 @@ async function runChatViaHostAttempt(
   attempt: number,
 ): Promise<HostBackedChatResult> {
   const callbacks = options.callbacks ?? {};
+  const runStartedAt = Date.now();
+  const requestId = options.requestId ?? crypto.randomUUID();
+  traceReplMainThreadForSource(options.querySource, "client.run_chat.start", {
+    requestId,
+    attempt,
+    mode: options.mode,
+    runtimeMode: options.runtimeMode ?? null,
+    model: options.model ?? null,
+    stateless: options.stateless === true,
+    messageCount: options.messages.length,
+    queryPreview: buildTraceTextPreview(options.messages.at(-1)?.content),
+  });
+  const runtimeReadyStartedAt = Date.now();
   const { baseUrl, authToken } = options.fixturePath
     ? await ensureRuntimeHost()
     : await ensureRuntimeAiReady();
+  traceReplMainThreadForSource(
+    options.querySource,
+    "client.runtime_ready.done",
+    {
+      requestId,
+      attempt,
+      durationMs: Date.now() - runtimeReadyStartedAt,
+      baseUrl,
+      fixturePath: !!options.fixturePath,
+    },
+  );
   const { messages, clientTurnId } = cloneMessagesWithCurrentTurn(
     options.messages,
   );
   const request: ChatRequest = {
     mode: options.mode,
+    query_source: options.querySource,
     stateless: options.stateless,
     messages,
     client_turn_id: clientTurnId,
@@ -1378,7 +1411,15 @@ async function runChatViaHostAttempt(
     trace: !!callbacks.onTrace,
   };
 
+  const requestBody = JSON.stringify(request);
   let response: Response;
+  const fetchStartedAt = Date.now();
+  traceReplMainThreadForSource(options.querySource, "client.fetch.start", {
+    requestId,
+    attempt,
+    bodyBytes: requestBody.length,
+    traceEnabled: !!callbacks.onTrace,
+  });
   try {
     response = await http.fetchRaw(`${baseUrl}/api/chat`, {
       method: "POST",
@@ -1386,11 +1427,18 @@ async function runChatViaHostAttempt(
       signal: options.signal,
       headers: {
         "Content-Type": "application/json",
+        "X-Request-ID": requestId,
         ...authHeaders(authToken),
       },
-      body: JSON.stringify(request),
+      body: requestBody,
     });
   } catch (error) {
+    traceReplMainThreadForSource(options.querySource, "client.fetch.error", {
+      requestId,
+      attempt,
+      durationMs: Date.now() - fetchStartedAt,
+      error: getErrorMessage(error),
+    });
     const shouldRetry = options.permissionMode === "plan" &&
       attempt < PLAN_MODE_STREAM_RETRY_LIMIT &&
       isRetryableHostChatStreamError(error);
@@ -1404,7 +1452,19 @@ async function runChatViaHostAttempt(
     await parseErrorResponse(response);
   }
 
-  const requestId = response.headers.get("X-Request-ID") ?? crypto.randomUUID();
+  const responseRequestId = response.headers.get("X-Request-ID");
+  const effectiveRequestId = responseRequestId || requestId;
+  traceReplMainThreadForSource(
+    options.querySource,
+    "client.fetch.headers",
+    {
+      requestId: effectiveRequestId,
+      attempt,
+      status: response.status,
+      durationMs: Date.now() - fetchStartedAt,
+      responseRequestId,
+    },
+  );
   const cancel = async () => {
     try {
       const cancelResponse = await http.fetchRaw(`${baseUrl}/api/chat/cancel`, {
@@ -1414,7 +1474,7 @@ async function runChatViaHostAttempt(
           "Content-Type": "application/json",
           ...authHeaders(authToken),
         },
-        body: JSON.stringify({ request_id: requestId }),
+        body: JSON.stringify({ request_id: effectiveRequestId }),
       });
       await cancelResponse.text();
     } catch {
@@ -1437,12 +1497,40 @@ async function runChatViaHostAttempt(
   let sessionVersion = 0;
   let duplicateMessage: unknown;
   let sawPlanReview = false;
+  let sawFirstEvent = false;
+  let sawFirstToken = false;
 
   try {
     for await (const event of readNdjsonStream<ChatStreamEvent>(reader)) {
+      if (!sawFirstEvent) {
+        sawFirstEvent = true;
+        traceReplMainThreadForSource(
+          options.querySource,
+          "client.stream.first_event",
+          {
+            requestId: effectiveRequestId,
+            attempt,
+            event: event.event,
+            durationMs: Date.now() - runStartedAt,
+          },
+        );
+      }
       switch (event.event) {
         case "token":
           text += event.text;
+          if (!sawFirstToken && event.text.length > 0) {
+            sawFirstToken = true;
+            traceReplMainThreadForSource(
+              options.querySource,
+              "client.stream.first_token",
+              {
+                requestId: effectiveRequestId,
+                attempt,
+                durationMs: Date.now() - runStartedAt,
+                preview: buildTraceTextPreview(event.text, 80),
+              },
+            );
+          }
           callbacks.onToken?.(event.text);
           break;
         case "interaction_request": {
@@ -1472,6 +1560,16 @@ async function runChatViaHostAttempt(
           break;
         }
         case "trace":
+          traceReplMainThreadForSource(
+            options.querySource,
+            "client.stream.trace",
+            {
+              requestId: effectiveRequestId,
+              attempt,
+              durationMs: Date.now() - runStartedAt,
+              ...summarizeTraceEvent(event.trace),
+            },
+          );
           callbacks.onTrace?.(event.trace);
           break;
         case "final_response_meta":
@@ -1489,10 +1587,41 @@ async function runChatViaHostAttempt(
           break;
         case "complete":
           sessionVersion = event.session_version;
+          traceReplMainThreadForSource(
+            options.querySource,
+            "client.stream.complete_event",
+            {
+              requestId: effectiveRequestId,
+              attempt,
+              durationMs: Date.now() - runStartedAt,
+              sessionVersion,
+            },
+          );
           break;
         case "error":
+          traceReplMainThreadForSource(
+            options.querySource,
+            "client.stream.error_event",
+            {
+              requestId: effectiveRequestId,
+              attempt,
+              durationMs: Date.now() - runStartedAt,
+              message: event.message,
+              errorClass: event.errorClass,
+              retryable: event.retryable,
+            },
+          );
           throw createRuntimeHostError(event.message);
         case "cancelled":
+          traceReplMainThreadForSource(
+            options.querySource,
+            "client.stream.cancelled_event",
+            {
+              requestId: effectiveRequestId,
+              attempt,
+              durationMs: Date.now() - runStartedAt,
+            },
+          );
           throw createRuntimeHostError("Runtime host request cancelled.");
         case "plan_review_required":
         case "plan_review_resolved":
@@ -1505,7 +1634,26 @@ async function runChatViaHostAttempt(
           }
           break;
         case "start":
+          traceReplMainThreadForSource(
+            options.querySource,
+            "client.stream.start_event",
+            {
+              requestId: effectiveRequestId,
+              attempt,
+              durationMs: Date.now() - runStartedAt,
+            },
+          );
+          break;
         case "heartbeat":
+          traceReplMainThreadForSource(
+            options.querySource,
+            "client.stream.heartbeat",
+            {
+              requestId: effectiveRequestId,
+              attempt,
+              durationMs: Date.now() - runStartedAt,
+            },
+          );
           break;
         default: {
           const uiEvent = toAgentUiEvent(event);
@@ -1516,6 +1664,12 @@ async function runChatViaHostAttempt(
       }
     }
   } catch (error) {
+    traceReplMainThreadForSource(options.querySource, "client.run_chat.error", {
+      requestId: effectiveRequestId,
+      attempt,
+      durationMs: Date.now() - runStartedAt,
+      error: getErrorMessage(error),
+    });
     await cancelResponseBody(response);
     const shouldRetry = options.permissionMode === "plan" &&
       attempt < PLAN_MODE_STREAM_RETRY_LIMIT &&
@@ -1528,6 +1682,15 @@ async function runChatViaHostAttempt(
     rethrowAsRuntimeHostError(error);
   }
 
+  traceReplMainThreadForSource(options.querySource, "client.run_chat.done", {
+    requestId: effectiveRequestId,
+    attempt,
+    durationMs: Date.now() - runStartedAt,
+    textChars: text.length,
+    sessionVersion,
+    duplicate: duplicateMessage !== undefined,
+    sawPlanReview,
+  });
   return { text, structuredResult, stats, sessionVersion, duplicateMessage };
 }
 
@@ -1536,6 +1699,7 @@ export async function runAgentQueryViaHost(
 ): Promise<HostBackedAgentQueryResult> {
   const result = await runChatViaHost({
     mode: "agent",
+    querySource: options.querySource,
     messages: [{
       role: "user",
       content: options.query,

@@ -712,6 +712,11 @@ Deno.test("engine sdk: applyPromptCaching decorates anthropic stable prompt segm
     "ephemeral",
   );
   assertEquals(
+    ((staticSegmentProviderOptions.anthropic as Record<string, unknown>)
+      .cacheControl as Record<string, unknown>).ttl,
+    undefined,
+  );
+  assertEquals(
     ((sessionSegmentProviderOptions.anthropic as Record<string, unknown>)
       .cacheControl as Record<string, unknown>).type,
     "ephemeral",
@@ -738,6 +743,67 @@ Deno.test("engine sdk: applyPromptCaching decorates anthropic stable prompt segm
   assertEquals(
     decorated.cacheProfile.stableCacheSignatureHash,
     compiledPrompt.stableCacheProfile.stableSignatureHash,
+  );
+});
+
+Deno.test("engine sdk: applyPromptCaching upgrades stable anthropic cache breakpoints to 1h TTL for repl main thread", () => {
+  const compiledPrompt = buildAutoExecutionPrompt();
+  const messages = convertToSdkMessages([
+    { role: "user", content: "Hello" },
+  ]);
+  const tools = {
+    edit_file: {
+      description: "Edit file",
+      inputSchema: { type: "object", properties: {} },
+      execute: async () => "ok",
+    },
+  } as unknown as Parameters<typeof applyPromptCaching>[3];
+
+  const decorated = applyPromptCaching(
+    {
+      providerName: "anthropic",
+      modelId: "claude-sonnet",
+      providerConfig: null,
+    },
+    compiledPrompt.cacheSegments.map((segment) => ({
+      role: "system" as const,
+      content: segment.text,
+    })),
+    messages,
+    tools,
+    undefined,
+    toCompiledPromptMeta(compiledPrompt),
+    "tool-schema-signature",
+    "tool-filter-signature",
+    "repl_main_thread",
+  );
+
+  const decoratedSystem = decorated.system as Array<Record<string, unknown>>;
+  const staticSegmentProviderOptions =
+    decoratedSystem[0].providerOptions as Record<string, unknown>;
+  const lastMessageContent = (decorated.messages[0] as Record<string, unknown>)
+    .content as Array<Record<string, unknown>>;
+  const lastMessagePartOptions = lastMessageContent[0]
+    .providerOptions as Record<string, unknown>;
+  const lastTool = decorated.tools.edit_file as Record<string, unknown>;
+
+  assertEquals(
+    ((staticSegmentProviderOptions.anthropic as Record<string, unknown>)
+      .cacheControl as Record<string, unknown>).ttl,
+    "1h",
+  );
+  assertEquals(
+    ((lastMessagePartOptions.anthropic as Record<string, unknown>)
+      .cacheControl as Record<string, unknown>).ttl,
+    "1h",
+  );
+  assertEquals(
+    ((((lastTool.providerOptions as Record<string, unknown>)
+      .anthropic) as Record<string, unknown>).cacheControl as Record<
+        string,
+        unknown
+      >).ttl,
+    "1h",
   );
 });
 

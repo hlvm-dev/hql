@@ -128,6 +128,27 @@ function getQueuedInputLabel(
   return `+${totalCount} next`;
 }
 
+/** Constant returned when the footer should yield to another surface (dialog, etc.). */
+const EMPTY_FOOTER: FooterLeftState = Object.freeze({
+  mode: "message" as const,
+  segments: [] as ShellFooterSegment[],
+  text: "",
+  tone: "muted" as const,
+});
+
+/** Push a mode-chip segment (e.g. "Full auto", "Plan mode") into `segments`. */
+function pushModeChipSegment(
+  segments: ShellFooterSegment[],
+  modeChip: string | undefined,
+): void {
+  const isFullAuto = modeChip === "Full auto";
+  if (isFullAuto) {
+    segments.push({ text: modeChip, tone: "error", chip: true });
+  } else if (!isDefaultModeLabel(modeChip) && modeChip) {
+    segments.push({ text: modeChip, tone: "muted" });
+  }
+}
+
 export function buildFooterLeftState({
   inConversation,
   isEvaluating,
@@ -142,14 +163,6 @@ export function buildFooterLeftState({
   hasPendingPlanReview,
   hasPendingQuestion,
   suppressInteractionHints,
-  teamActive,
-  teamAttentionCount: _teamAttentionCount,
-  teamFocusLabel,
-  teamWorkerSummary,
-  localAgentCount = 0,
-  pendingInteractionLabel,
-  activeTaskCount = 0,
-  recentActiveTaskLabel,
   spinner,
   statusMessage,
   conversationQueueCount = 0,
@@ -162,87 +175,22 @@ export function buildFooterLeftState({
     ? undefined
     : summarizedModeLabel;
   const queuedCount = Math.max(0, interactionQueueLength - 1);
-  const suppressFooterTeamRail = localAgentCount > 0 && !teamFocusLabel;
-  const teamChip: ShellFooterSegment | null =
-    teamActive && !suppressFooterTeamRail
-      ? { text: "Team", tone: "active" }
-      : null;
-  const showTeamControls = teamActive &&
-    !hasDraftInput &&
-    streamingState !== ConversationStreamingState.Responding;
-  const teamFocusChip: ShellFooterSegment | null = teamActive && teamFocusLabel
-    ? { text: `To ${teamFocusLabel}`, tone: "active" }
-    : null;
-  const teamWorkerSegment: ShellFooterSegment | null =
-    teamActive && teamWorkerSummary && !suppressFooterTeamRail
-      ? { text: teamWorkerSummary, tone: "muted" }
-      : null;
-  const teamCycleSegment: ShellFooterSegment | null = showTeamControls &&
-      !teamWorkerSegment
-    ? { text: "Shift+Down teammate", tone: "muted" }
-    : null;
-  const teamSessionSegment: ShellFooterSegment | null =
-    showTeamControls && teamFocusLabel
-      ? { text: "Enter session", tone: "muted" }
-      : null;
-  const teamManageSegment: ShellFooterSegment | null = showTeamControls &&
-      teamWorkerSegment &&
-      !suppressFooterTeamRail
-    ? { text: "Ctrl+T manager", tone: "muted" }
-    : null;
-  const bgChip: ShellFooterSegment | null = activeTaskCount > 0
-    ? {
-      text: `${STATUS_GLYPHS.running} ${activeTaskCount} tasks`,
-      tone: "active",
-    }
-    : null;
-  const bgTaskHint: ShellFooterSegment | null =
-    recentActiveTaskLabel && activeTaskCount > 0
-      ? {
-        text: `${truncate(recentActiveTaskLabel, 24)} \u00B7 Ctrl+T tasks`,
-        tone: "muted",
-      }
-      : null;
 
   if (!inConversation) {
     // Status message takes precedence (mode switch flash, etc.)
     if (statusMessage) {
-      return {
-        mode: "message",
-        segments: [],
-        text: statusMessage,
-        tone: "muted",
-      };
+      return { mode: "message", segments: [], text: statusMessage, tone: "muted" };
     }
 
     const segments: ShellFooterSegment[] = [];
-    const isFullAuto = modeChip === "Full auto";
-    const shouldShowModeChip = !isDefaultModeLabel(modeChip);
+    pushModeChipSegment(segments, modeChip);
 
-    // Full auto gets red chip, others get plain text segment
-    if (isFullAuto) {
-      segments.push({ text: modeChip, tone: "error", chip: true });
-    } else if (shouldShowModeChip && modeChip) {
-      segments.push({ text: modeChip, tone: "muted" });
-    }
-
-    if (teamChip) segments.push(teamChip);
-    if (teamFocusChip) segments.push(teamFocusChip);
-    if (teamCycleSegment) segments.push(teamCycleSegment);
-    if (teamSessionSegment) segments.push(teamSessionSegment);
-    if (teamWorkerSegment) segments.push(teamWorkerSegment);
-    if (teamManageSegment) segments.push(teamManageSegment);
-    if (bgChip) segments.push(bgChip);
-    if (bgTaskHint) segments.push(bgTaskHint);
     const queuedInputLabel = getQueuedInputLabel(
       conversationQueueCount,
       localEvalQueueCount,
     );
     if (queuedInputLabel) {
-      segments.push({
-        text: queuedInputLabel,
-        tone: "active",
-      });
+      segments.push({ text: queuedInputLabel, tone: "active" });
     }
     if (hasSubmitText && submitAction) {
       segments.push({
@@ -260,9 +208,8 @@ export function buildFooterLeftState({
       };
     }
 
-    const hintText = segments.length === 0 ? "? for shortcuts" : "";
-    if (hintText) {
-      segments.push({ text: hintText, tone: "muted" });
+    if (segments.length === 0) {
+      segments.push({ text: "? for shortcuts", tone: "muted" });
     }
     return {
       mode: "segments",
@@ -272,83 +219,34 @@ export function buildFooterLeftState({
     };
   }
 
-  // Warning states — keep visible since they require user action
+  // Warning / interaction states — yield to the dialog surface
+  const suppressedByPicker = suppressInteractionHints &&
+    (hasPendingPlanReview || hasPendingQuestion);
   if (
-    suppressInteractionHints && (hasPendingPlanReview || hasPendingQuestion)
-  ) {
-    return { mode: "message", segments: [], text: "", tone: "muted" };
-  } else if (hasPendingPlanReview) {
-    return {
-      mode: "message",
-      segments: [],
-      text: pendingInteractionLabel
-        ? `${pendingInteractionLabel} · Use arrows or 1-3 · Enter confirm · Esc cancel`
-        : "Use arrows or 1-3 · Enter confirm · Esc cancel",
-      tone: "warning",
-    };
-  } else if (hasPendingPermission) {
-    return {
-      mode: "message",
-      segments: [],
-      text: pendingInteractionLabel
-        ? `${pendingInteractionLabel} · Enter approve · Esc cancel`
-        : "Enter approve · Esc cancel",
-      tone: "warning",
-    };
-  } else if (hasPendingQuestion) {
-    return {
-      mode: "message",
-      segments: [],
-      text: pendingInteractionLabel
-        ? `${pendingInteractionLabel} · Enter submit · Tab notes · Esc cancel`
-        : "Enter submit · Tab notes · Esc cancel",
-      tone: "warning",
-    };
-  } else if (
+    suppressedByPicker || hasPendingPlanReview || hasPendingPermission ||
+    hasPendingQuestion ||
     streamingState === ConversationStreamingState.WaitingForConfirmation
   ) {
-    return {
-      mode: "message",
-      segments: [],
-      text: "Waiting for confirmation",
-      tone: "warning",
-    };
-  } else if (statusMessage) {
-    // Status message (mode switch flash, etc.) - show after high-priority warnings
-    return {
-      mode: "message",
-      segments: [],
-      text: statusMessage,
-      tone: "muted",
-    };
+    return EMPTY_FOOTER;
+  }
+
+  // Status message (mode switch flash, etc.) - show after high-priority warnings
+  if (statusMessage) {
+    return { mode: "message", segments: [], text: statusMessage, tone: "muted" };
   }
 
   const segments: ShellFooterSegment[] = [];
-  const isFullAuto = modeChip === "Full auto";
-  const shouldShowModeChip = !isDefaultModeLabel(modeChip);
-
-  // Full auto gets red chip, others get plain text segment
-  if (isFullAuto) {
-    segments.push({ text: modeChip, tone: "error", chip: true });
-  } else if (shouldShowModeChip && modeChip) {
-    segments.push({ text: modeChip, tone: "muted" });
-  }
+  pushModeChipSegment(segments, modeChip);
 
   if (queuedCount > 0) {
-    segments.push({
-      text: `+${queuedCount} queued`,
-      tone: "active",
-    });
+    segments.push({ text: `+${queuedCount} queued`, tone: "active" });
   }
   const queuedInputLabel = getQueuedInputLabel(
     conversationQueueCount,
     localEvalQueueCount,
   );
   if (queuedInputLabel) {
-    segments.push({
-      text: queuedInputLabel,
-      tone: "active",
-    });
+    segments.push({ text: queuedInputLabel, tone: "active" });
   }
   if (
     hasSubmitText &&
@@ -360,20 +258,9 @@ export function buildFooterLeftState({
       tone: "active",
     });
   }
-  if (teamChip) segments.push(teamChip);
-  if (teamFocusChip) segments.push(teamFocusChip);
-  if (teamCycleSegment) segments.push(teamCycleSegment);
-  if (teamSessionSegment) segments.push(teamSessionSegment);
-  if (teamWorkerSegment) segments.push(teamWorkerSegment);
-  if (teamManageSegment) segments.push(teamManageSegment);
   if (planningPhase && planningPhase !== "done") {
-    segments.push({
-      text: getPlanPhaseLabel(planningPhase),
-      tone: "active",
-    });
+    segments.push({ text: getPlanPhaseLabel(planningPhase), tone: "active" });
   }
-  if (bgChip) segments.push(bgChip);
-  if (bgTaskHint) segments.push(bgTaskHint);
   if (
     streamingState === ConversationStreamingState.Responding &&
     activeTool &&

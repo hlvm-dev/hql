@@ -228,10 +228,6 @@ async function toolSearch(
     throw new ValidationError("query must be a non-empty string", "tool_search");
   }
 
-  if (options?.ensureMcpLoaded) {
-    await options.ensureMcpLoaded();
-  }
-
   const resolvedLimit = typeof limit === "number" && Number.isFinite(limit)
     ? Math.max(1, Math.min(Math.floor(limit), 25))
     : 10;
@@ -240,10 +236,28 @@ async function toolSearch(
     throw new ValidationError("tool search is not configured", "tool_search");
   }
 
-  const matches = options.searchTools(query, {
+  let matches = options.searchTools(query, {
     ownerId: options?.toolOwnerId,
     limit: resolvedLimit,
   });
+  const hasDeferredDiscovery = matches.some((match) =>
+    !!match && typeof match === "object" &&
+    (match as { loadingExposure?: unknown }).loadingExposure === "deferred"
+  );
+  const ensureMcpLoaded = options?.ensureMcpLoaded;
+  const shouldProbeDeferredMcp = !!ensureMcpLoaded &&
+    !hasDeferredDiscovery &&
+    matches.length < resolvedLimit;
+  if (shouldProbeDeferredMcp) {
+    await ensureMcpLoaded();
+    const expandedMatches = options.searchTools(query, {
+      ownerId: options?.toolOwnerId,
+      limit: resolvedLimit,
+    });
+    if (expandedMatches.length >= matches.length) {
+      matches = expandedMatches;
+    }
+  }
 
   return {
     query,

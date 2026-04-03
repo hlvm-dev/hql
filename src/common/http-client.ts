@@ -65,20 +65,9 @@ class HttpClient {
     url: string,
     options?: HttpOptions & RequestInit,
   ): Promise<Response> {
-    const timeout = options?.timeout ?? this.defaultTimeout;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-    // Combine parent signal with timeout signal so both are effective
-    const signal = options?.signal
-      ? combineSignals(controller.signal, options.signal)
-      : controller.signal;
-
-    try {
-      return await fetch(url, { ...options, signal });
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    return this.withTimeoutSignal(options, (signal) =>
+      fetch(url, { ...options, signal }),
+    );
   }
 
   /**
@@ -93,16 +82,10 @@ class HttpClient {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= retries; attempt++) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-      // Combine parent signal with timeout so both are effective
-      const signal = options.signal
-        ? combineSignals(controller.signal, options.signal)
-        : controller.signal;
-
       try {
-        const response = await fetch(url, { ...options, signal });
+        const response = await this.withTimeoutSignal(options, (signal) =>
+          fetch(url, { ...options, signal }),
+        );
 
         if (!response.ok) {
           throw new HttpError(
@@ -131,12 +114,33 @@ class HttpClient {
           await new Promise((r) => setTimeout(r, 100 * Math.pow(2, attempt)));
           continue;
         }
-      } finally {
-        clearTimeout(timeoutId);
       }
     }
 
     throw lastError ?? new Error(`Request failed: ${url}`);
+  }
+
+  /**
+   * Execute an async operation with a combined timeout + parent signal.
+   * Consolidates the repeated timeout-controller + combineSignals + clearTimeout pattern.
+   */
+  private async withTimeoutSignal<T>(
+    options: HttpOptions | undefined,
+    fn: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const timeout = options?.timeout ?? this.defaultTimeout;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    const signal = options?.signal
+      ? combineSignals(controller.signal, options.signal)
+      : controller.signal;
+
+    try {
+      return await fn(signal);
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 }
 

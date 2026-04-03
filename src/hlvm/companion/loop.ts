@@ -48,7 +48,7 @@ function makeEvent(
 }
 
 /** Emit a companion event to the SSE channel. */
-export function emitCompanionEvent(event: CompanionEvent): void {
+function emitCompanionEvent(event: CompanionEvent): void {
   pushSSEEvent(COMPANION_CHANNEL, "companion_event", event);
 }
 

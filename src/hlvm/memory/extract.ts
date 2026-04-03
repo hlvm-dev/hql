@@ -8,6 +8,7 @@
  */
 
 import { writeMemoryFacts } from "./pipeline.ts";
+import { normalizeWhitespace } from "./store.ts";
 
 export interface ExtractedMemoryFact {
   content: string;
@@ -26,7 +27,6 @@ export interface PersistMemoryResult {
 const CODE_FENCE_RE = /```[\s\S]*?```/g;
 const QUOTE_WRAPPER_RE = /^["'`“”‘’\s]+|["'`“”‘’\s]+$/g;
 const TRAILING_PUNCTUATION_RE = /[.?!\s]+$/g;
-const MULTI_SPACE_RE = /\s+/g;
 const MAX_FACT_LENGTH = 240;
 const MIN_FACT_LENGTH = 8;
 
@@ -120,10 +120,7 @@ const ASSISTANT_OUTCOME_PATTERNS: ExtractPattern[] = [
 ];
 
 function normalizeContent(value: string): string {
-  return value
-    .replace(CODE_FENCE_RE, " ")
-    .replace(MULTI_SPACE_RE, " ")
-    .trim();
+  return normalizeWhitespace(value.replace(CODE_FENCE_RE, " "));
 }
 
 function cleanValue(value: string): string {

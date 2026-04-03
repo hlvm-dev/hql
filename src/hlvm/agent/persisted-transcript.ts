@@ -57,6 +57,7 @@ interface PersistedToolMessageMetadata {
 
 export interface PersistedAgentSessionMetadata {
   runtimeMode?: RuntimeMode;
+  discoveredDeferredTools?: string[];
   lastAppliedRoutingConstraints?: RoutingConstraintSet;
   lastAppliedTaskCapabilityContext?: ExecutionTaskCapabilityContext;
   lastAppliedResponseShapeContext?: ExecutionResponseShapeContext;
@@ -220,6 +221,11 @@ export function parsePersistedAgentSessionMetadata(
 
   return {
     runtimeMode: normalizeRuntimeMode(agentRecord.runtimeMode),
+    discoveredDeferredTools: Array.isArray(agentRecord.discoveredDeferredTools)
+      ? agentRecord.discoveredDeferredTools.filter((value): value is string =>
+        typeof value === "string"
+      )
+      : undefined,
     lastAppliedRoutingConstraints: normalizeRoutingConstraintSet(
       agentRecord.lastAppliedRoutingConstraints,
     ),
@@ -377,6 +383,16 @@ export function persistAgentRuntimeMode(
 ): void {
   updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
     metadata.runtimeMode = runtimeMode;
+  });
+}
+
+export function persistDiscoveredDeferredTools(
+  sessionId: string,
+  tools: Iterable<string>,
+): void {
+  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
+    const next = [...new Set(tools)];
+    metadata.discoveredDeferredTools = next.length > 0 ? next : undefined;
   });
 }
 

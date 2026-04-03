@@ -94,6 +94,7 @@ interface ComposerSurfaceProps {
   isConversationTaskRunning?: boolean;
   queueEnabled?: boolean;
   interactionMode?: "permission" | "question";
+  showQueuePreview?: boolean;
 }
 
 const ESCAPE_CONSUMED_SUPPRESSION_MS = 32;
@@ -120,6 +121,7 @@ export const ComposerSurface = forwardRef<
     isConversationTaskRunning = false,
     queueEnabled = false,
     interactionMode,
+    showQueuePreview = true,
   }: ComposerSurfaceProps,
   ref: React.ForwardedRef<ComposerSurfaceHandle>,
 ): React.ReactElement {
@@ -289,7 +291,7 @@ export const ComposerSurface = forwardRef<
 
   return (
     <>
-      {pendingConversationQueue.length > 0 && (
+      {showQueuePreview && pendingConversationQueue.length > 0 && (
         <QueuePreview
           items={pendingConversationQueue}
           editBindingLabel={queueEditBindingLabel}

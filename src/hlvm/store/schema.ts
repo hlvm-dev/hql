@@ -7,7 +7,7 @@
 
 import type { Database } from "@db/sqlite";
 
-export const CONVERSATIONS_SCHEMA_VERSION_1 = 1;
+const CONVERSATIONS_SCHEMA_VERSION_1 = 1;
 export const CONVERSATIONS_SCHEMA_USER_VERSION = 2;
 
 const DDL = `

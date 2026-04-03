@@ -65,7 +65,7 @@ Deno.test("buildLocalAgentEntries includes live teammates and delegates", () => 
 
   assertEquals(entries.map((entry) => entry.kind), ["teammate", "delegate"]);
   assertEquals(entries[0]?.status, "running");
-  assertEquals(entries[0]?.overlayTarget, "team-dashboard");
+  assertEquals(entries[0]?.overlayTarget, "background-tasks");
   assertEquals(entries[0]?.name, "worker-1");
   assertEquals(entries[0]?.progress?.activityText, "Tool TaskList: listed tasks");
   assertEquals(entries[0]?.progress?.toolUseCount, 1);

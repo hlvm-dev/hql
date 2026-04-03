@@ -1,11 +1,21 @@
 /**
  * Memory Store - Shared utilities for the canonical memory DB.
  *
- * Only three concerns remain after V2 (DB-as-SSOT):
- * 1. PII sanitization — used by facts.ts before DB insert
- * 2. Date helper — used by facts.ts, entities.ts
- * 3. Logger helper — used by facts.ts, manager.ts
+ * Concerns:
+ * 1. Whitespace normalization — shared by facts.ts, pipeline.ts, extract.ts
+ * 2. PII sanitization — used by facts.ts before DB insert
+ * 3. Date helper — used by facts.ts, entities.ts
+ * 4. Logger helper — used by facts.ts, manager.ts
  */
+
+// ============================================================
+// Whitespace Normalization — SSOT for collapsing whitespace
+// ============================================================
+
+/** Collapse all whitespace runs to a single space and trim. */
+export function normalizeWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
 
 // ============================================================
 // Logger Helper — DRY wrapper for optional agent logger

@@ -21,6 +21,7 @@ import {
   isRemoteUrl,
 } from "./import-utils.ts";
 import { LRUCache } from "./lru-cache.ts";
+import { bytesToHex } from "./hash.ts";
 import { RuntimeError } from "./error.ts";
 
 // Cache directory configuration
@@ -189,24 +190,13 @@ export async function getRuntimeCacheDir(): Promise<string> {
   return runtimeDir;
 }
 
-// Pre-computed hex lookup table — avoids per-byte toString(16).padStart(2, "0")
-const HEX_TABLE: string[] = Array.from(
-  { length: 256 },
-  (_, i) => i.toString(16).padStart(2, "0"),
-);
-
 /**
  * Calculate hash for content
  */
 async function calculateHash(content: string): Promise<string> {
   const data = TEXT_ENCODER.encode(content);
   const hashBuffer = await crypto.subtle.digest("SHA-1", data);
-  const bytes = new Uint8Array(hashBuffer);
-  let hex = "";
-  for (let i = 0; i < bytes.length; i++) {
-    hex += HEX_TABLE[bytes[i]];
-  }
-  return hex;
+  return bytesToHex(new Uint8Array(hashBuffer));
 }
 
 /**

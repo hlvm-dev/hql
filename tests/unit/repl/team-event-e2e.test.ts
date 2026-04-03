@@ -385,7 +385,7 @@ Deno.test("E2E: full team lifecycle produces correct item sequence", () => {
 
 // ── E2E: Footer integration ──────────────────────────────
 
-Deno.test("E2E: footer shows Team chip and worker summary when team active", () => {
+Deno.test("E2E: footer leaves team status to the compact background footer", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
@@ -396,19 +396,18 @@ Deno.test("E2E: footer shows Team chip and worker summary when team active", () 
   });
 
   assertEquals(state.mode, "segments");
-
-  // Team chip present
-  const teamChip = state.segments.find((s) => s.text === "Team");
-  assertEquals(teamChip?.chip, undefined);
-  assertEquals(teamChip?.tone, "active");
-
-  // Worker summary present
-  const workerSeg = state.segments.find((s) => s.text.includes("alice"));
-  assertEquals(workerSeg?.tone, "muted");
-  assertEquals(workerSeg?.text, "alice: working \u00B7 bob: idle");
-
-  const hintSeg = state.segments.find((s) => s.text === "Ctrl+T manager");
-  assertEquals(hintSeg?.tone, "muted");
+  assertEquals(
+    state.segments.some((s) => s.text === "Team"),
+    false,
+  );
+  assertEquals(
+    state.segments.some((s) => s.text.includes("alice")),
+    false,
+  );
+  assertEquals(
+    state.segments.some((s) => s.text === "Ctrl+T manager"),
+    false,
+  );
 });
 
 Deno.test("E2E: footer omits team segments when team inactive", () => {

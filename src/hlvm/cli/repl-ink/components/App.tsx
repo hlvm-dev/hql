@@ -18,7 +18,6 @@ import {
   CommandPaletteOverlay,
   type KeyCombo,
 } from "./CommandPaletteOverlay.tsx";
-import { TeamDashboardOverlay } from "./TeamDashboardOverlay.tsx";
 import { ShortcutsOverlay } from "./ShortcutsOverlay.tsx";
 import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
@@ -26,16 +25,16 @@ import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
 import { TranscriptViewerOverlay } from "./TranscriptViewerOverlay.tsx";
 import { ExecutionSurfaceOverlay } from "./ExecutionSurfaceOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
-import { ActivityRail, buildActivityRailRows } from "./ActivityRail.tsx";
 import {
-  buildLocalAgentsStatusPanelModel,
-  LocalAgentsStatusPanel,
+  buildBackgroundStatusFooterModel,
+  LocalAgentsCompactFooter,
 } from "./LocalAgentsStatusPanel.tsx";
 import {
   ComposerSurface,
   type ComposerSurfaceHandle,
   type ComposerSurfaceUiState,
 } from "./ComposerSurface.tsx";
+import { QueuePreview } from "./QueuePreview.tsx";
 import { TranscriptHistory } from "./TranscriptHistory.tsx";
 import { PendingTurnPanel } from "./PendingTurnPanel.tsx";
 import { DialogStack } from "./DialogStack.tsx";
@@ -61,10 +60,7 @@ import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
 import { type TeamMemberItem, useTeamState } from "../hooks/useTeamState.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
-import {
-  type OverlayPanel,
-  useOverlayPanel,
-} from "../hooks/useOverlayPanel.ts";
+import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
 import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
@@ -105,6 +101,8 @@ import {
   type ConversationComposerDraft,
   createConversationComposerDraft,
   enqueueConversationDraft,
+  getConversationQueueEditBinding,
+  getConversationQueueEditBindingLabel,
   shiftQueuedConversationDraft,
 } from "../utils/conversation-queue.ts";
 import { resolveCtrlCAction } from "../ctrl-c-behavior.ts";
@@ -130,6 +128,7 @@ import {
 } from "../utils/local-agents.ts";
 import { getActiveTeamStore } from "../../../agent/team-store.ts";
 import { sendThreadInput } from "../../../agent/delegate-threads.ts";
+import { getPlatform } from "../../../../platform/platform.ts";
 
 interface CurrentEval {
   code: string;
@@ -144,22 +143,12 @@ interface AppProps {
   initialConfig?: HlvmConfig;
 }
 
-interface TeamDashboardOverlayState {
-  initialViewMode: "dashboard" | "details";
-  initialDetailItemId?: string;
-  sessionOnly: boolean;
-}
-
 interface BackgroundTasksOverlayState {
   initialSelectedItemId?: string;
   initialViewMode?: "list" | "result";
 }
 
 const GLOBAL_KEYBINDING_CATEGORIES = ["Global"] as const;
-const DEFAULT_TEAM_DASHBOARD_OVERLAY_STATE: TeamDashboardOverlayState = {
-  initialViewMode: "dashboard",
-  sessionOnly: false,
-};
 const DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE: BackgroundTasksOverlayState = {
   initialViewMode: "list",
 };
@@ -294,9 +283,6 @@ function AppContent(
   const committedHistoryCount = conversation.historyItems.length;
   const [focusedTeammateIndex, setFocusedTeammateIndex] = useState(-1);
   const [localAgentsFocused, setLocalAgentsFocused] = useState(false);
-  const [teamDashboardOverlayState, setTeamDashboardOverlayState] = useState<
-    TeamDashboardOverlayState
-  >(DEFAULT_TEAM_DASHBOARD_OVERLAY_STATE);
   const [backgroundTasksOverlayState, setBackgroundTasksOverlayState] =
     useState<BackgroundTasksOverlayState>(
       DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE,
@@ -450,19 +436,9 @@ function AppContent(
   const clearComposerDraft = useCallback(() => {
     composerRef.current?.clearDraft();
   }, []);
-  const closeTeamDashboardOverlay = useCallback(() => {
-    setActiveOverlay("none");
-    setTeamDashboardOverlayState(DEFAULT_TEAM_DASHBOARD_OVERLAY_STATE);
-  }, [setActiveOverlay]);
   const closeBackgroundTasksOverlay = useCallback(() => {
     setActiveOverlay("none");
     setBackgroundTasksOverlayState(DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE);
-  }, [setActiveOverlay]);
-  const toggleTeamDashboardOverlay = useCallback(() => {
-    setTeamDashboardOverlayState(DEFAULT_TEAM_DASHBOARD_OVERLAY_STATE);
-    setActiveOverlay((current: OverlayPanel) =>
-      current === "team-dashboard" ? "none" : "team-dashboard"
-    );
   }, [setActiveOverlay]);
   const toggleBackgroundTasksOverlay = useCallback(() => {
     setBackgroundTasksOverlayState(DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE);
@@ -477,13 +453,8 @@ function AppContent(
   }, [setActiveOverlay]);
   const openFocusedTeammateSession = useCallback(() => {
     if (!focusedTeammate) return;
-    setTeamDashboardOverlayState({
-      initialViewMode: "details",
-      initialDetailItemId: `member-${focusedTeammate.id}`,
-      sessionOnly: true,
-    });
-    setActiveOverlay("team-dashboard");
-  }, [focusedTeammate, setActiveOverlay]);
+    openBackgroundTasksOverlay(`teammate:${focusedTeammate.id}`, "result");
+  }, [focusedTeammate, openBackgroundTasksOverlay]);
   const focusLocalAgents = useCallback(() => {
     if (baseLocalAgentEntries.length === 0) return false;
     setLocalAgentsFocused(true);
@@ -503,12 +474,7 @@ function AppContent(
     if (teammateIndex < 0) return false;
     setFocusedTeammateIndex(teammateIndex);
     setLocalAgentsFocused(false);
-    setTeamDashboardOverlayState({
-      initialViewMode: "details",
-      initialDetailItemId: `member-${agent.memberId}`,
-      sessionOnly: true,
-    });
-    setActiveOverlay("team-dashboard");
+    setActiveOverlay("none");
     return true;
   }, [activeTeammates, setActiveOverlay]);
   const openLocalAgentsSurface = useCallback(() => {
@@ -567,6 +533,7 @@ function AppContent(
 
   const agentRunner = useAgentRunner({
     conversation,
+    activeModelId: modelSelection.activeModelId,
     agentExecutionMode,
     runtimeMode,
     configuredContextWindow,
@@ -911,7 +878,7 @@ function AppContent(
     );
     registerHandler(
       HandlerIds.APP_TEAM_DASHBOARD,
-      toggleTeamDashboardOverlay,
+      toggleBackgroundTasksOverlay,
       "App",
     );
     registerHandler(
@@ -958,7 +925,6 @@ function AppContent(
     handleKillAll,
     togglePalette,
     toggleTranscriptHistory,
-    toggleTeamDashboardOverlay,
     toggleBackgroundTasksOverlay,
   ]);
 
@@ -1650,7 +1616,7 @@ function AppContent(
     Boolean(pendingInteraction);
   const blockingInteractionActive = interactionPromptActive &&
     (pendingInteraction?.mode === "permission" || pickerInteractionActive);
-  const showBackgroundStatusSurface = !interactionPromptActive;
+  const showBackgroundStatusSurface = !interactionPromptActive && !isOverlayOpen;
   const showBottomDialog = interactionPromptActive && !isOverlayOpen;
   const isConversationInputVisible = hasConversationContext && !isOverlayOpen;
   const isInputVisible = !isOverlayOpen &&
@@ -1677,29 +1643,20 @@ function AppContent(
       Boolean(pendingInteraction),
     hasLocalAgents: localAgentEntries.length > 0,
   });
-  const currentTurnRailItem = useMemo(() => {
+  const currentTurnSummary = useMemo(() => {
     if (!hasConversationContext) return undefined;
     if (pendingInteraction?.mode === "permission") {
-      return {
-        text: pendingInteraction.sourceLabel
-          ? `approval needed · ${pendingInteraction.sourceLabel}`
-          : "approval needed",
-        tone: "warning" as const,
-      };
+      return pendingInteraction.sourceLabel
+        ? `Approval needed · ${pendingInteraction.sourceLabel}`
+        : "Approval needed";
     }
     if (pendingInteraction?.mode === "question") {
-      return {
-        text: pendingInteraction.sourceLabel
-          ? `reply needed · ${pendingInteraction.sourceLabel}`
-          : "reply needed",
-        tone: "warning" as const,
-      };
+      return pendingInteraction.sourceLabel
+        ? `Reply needed · ${pendingInteraction.sourceLabel}`
+        : "Reply needed";
     }
     if (isConversationTaskRunning && footerStatusMessage?.trim()) {
-      return {
-        text: footerStatusMessage.trim(),
-        tone: "active" as const,
-      };
+      return footerStatusMessage.trim();
     }
     return undefined;
   }, [
@@ -1708,32 +1665,36 @@ function AppContent(
     isConversationTaskRunning,
     footerStatusMessage,
   ]);
-  const activityRailRows = showBackgroundStatusSurface
-    ? buildActivityRailRows({
-      currentTurn: currentTurnRailItem,
-      teamState,
-      width: shellContentWidth,
-    })
-    : undefined;
-  const localAgentsPanelModel = showBackgroundStatusSurface
-    ? buildLocalAgentsStatusPanelModel(
+  const localAgentsFooterModel = showBackgroundStatusSurface
+    ? buildBackgroundStatusFooterModel(
       localAgentEntries,
       shellContentWidth,
       {
         focused: localAgentsFocused,
         leader: {
-          activityText: currentTurnRailItem?.text,
+          activityText: currentTurnSummary,
           idleText: teamWorkerSummary
             ? `Idle · ${teamWorkerSummary}`
             : "Idle",
         },
+        activeTaskCount: localAgentEntries.length === 0 ? activeCount : 0,
+        recentActiveTaskLabel: localAgentEntries.length === 0
+          ? recentActiveTaskLabel
+          : undefined,
       },
     )
     : undefined;
-  const activityRailRowCount = !localAgentsPanelModel && activityRailRows
-    ? activityRailRows.rows.length + (activityRailRows.overflow ? 1 : 0)
-    : 0;
-  const localAgentsPanelRows = localAgentsPanelModel?.rowCount ?? 0;
+  const localAgentsFooterRows = localAgentsFooterModel?.rowCount ?? 0;
+  const queueEditBindingLabel = useMemo(
+    () =>
+      getConversationQueueEditBindingLabel(
+        getConversationQueueEditBinding(getPlatform().env),
+      ),
+    [],
+  );
+  const queuedConversationDrafts = composerShellState.queuePreviewRows > 0
+    ? composerRef.current?.getPendingQueue() ?? []
+    : [];
   const transcriptReservedRows = 10 +
     SHELL_LAYOUT.transcriptToComposerGap +
     composerShellState.queuePreviewRows +
@@ -1742,8 +1703,7 @@ function AppContent(
         (conversation.liveItems.length > 0 || liveTodoCount > 0)
       ? Math.min(conversation.liveItems.length + liveTodoCount + 2, 12)
       : 0) +
-    activityRailRowCount +
-    localAgentsPanelRows;
+    localAgentsFooterRows;
   return (
     <Box
       flexDirection="column"
@@ -1756,6 +1716,10 @@ function AppContent(
         hasStandaloneSurface,
         hasActivePlanningState,
         hasShellHistory: committedHistoryCount > 0,
+        hasLiveConversation: conversation.liveItems.length > 0,
+        hasQueuedInput: composerShellState.queuedDraftCount > 0,
+        hasPendingInteraction: Boolean(pendingInteraction),
+        hasLocalAgents: localAgentEntries.length > 0,
       }) && (
         <>
           <Banner errors={init.errors} />
@@ -1837,18 +1801,6 @@ function AppContent(
           onStateChange={setConfigOverlayState}
         />
       )}
-      {activeOverlay === "team-dashboard" && (
-        <TeamDashboardOverlay
-          onClose={closeTeamDashboardOverlay}
-          teamState={teamState}
-          interactionMode={pendingInteraction?.mode}
-          interactionSourceMemberId={pendingInteraction?.sourceMemberId}
-          interactionSourceLabel={pendingInteraction?.sourceLabel}
-          initialViewMode={teamDashboardOverlayState.initialViewMode}
-          initialDetailItemId={teamDashboardOverlayState.initialDetailItemId}
-          sessionOnly={teamDashboardOverlayState.sessionOnly}
-        />
-      )}
       {activeOverlay === "shortcuts-overlay" && (
         <ShortcutsOverlay onClose={() => setActiveOverlay("none")} />
       )}
@@ -1889,10 +1841,7 @@ function AppContent(
               historyItems={conversation.historyItems}
               width={shellContentWidth}
               reservedRows={transcriptReservedRows}
-              compactPlanTranscript={Boolean(
-                conversation.planningPhase &&
-                  conversation.planningPhase !== "done",
-              )}
+              compactPlanTranscript
               interactive={!isOverlayOpen}
               allowToggleHotkeys={surfacePanel === "conversation" &&
                 allowConversationToggleHotkeys &&
@@ -1922,17 +1871,9 @@ function AppContent(
         </Box>
       )}
 
-      {localAgentsPanelModel && (
-        <LocalAgentsStatusPanel
-          model={localAgentsPanelModel}
-          width={shellContentWidth}
-        />
-      )}
-
-      {!localAgentsPanelModel && activityRailRows && (
-        <ActivityRail
-          currentTurn={currentTurnRailItem}
-          teamState={teamState}
+      {localAgentsFooterModel && (
+        <LocalAgentsCompactFooter
+          model={localAgentsFooterModel}
           width={shellContentWidth}
         />
       )}
@@ -1953,47 +1894,57 @@ function AppContent(
       {/* Input line */}
       {!blockingInteractionActive && !isOverlayOpen && isInputVisible &&
         (
-          <ComposerSurface
-            ref={composerRef}
-            replState={replState}
-            onUiStateChange={handleComposerUiStateChange}
-            onSubmit={handleSubmit}
-            onEmptySubmit={hasConversationContext && focusedTeammate &&
-                !localAgentsFocused
-              ? openFocusedTeammateSession
-              : undefined}
-            onFocusLocalAgents={localAgentEntries.length > 0 &&
-                !composerShellState.hasDraftInput
-              ? focusLocalAgents
-              : undefined}
-            onLocalAgentsInput={localAgentsFocused
-              ? handleLocalAgentsInput
-              : undefined}
-            localAgentsFocused={localAgentsFocused}
-            onForceSubmit={hasConversationContext
-              ? handleForceInterrupt
-              : undefined}
-            onInterruptRunningTask={hasConversationContext
-              ? () =>
-                interruptConversationRun({
-                  clearPlanning: hasActivePlanningState,
-                })
-              : undefined}
-            queueEnabled={isForegroundTaskRunning}
-            isConversationTaskRunning={isConversationTaskRunning}
-            onCycleMode={cycleAgentMode}
-            disabled={isInputDisabled}
-            isConversationContext={hasConversationContext}
-            composerLanguage={hasConversationContext ? "chat" : "hql"}
-            promptLabel={focusedTeammate ? `${focusedTeammate.id}>` : ">"}
-            interactionMode={pickerInteractionActive
-              ? pendingInteraction?.mode
-              : undefined}
-          />
-        )}
+          <>
+            {queuedConversationDrafts.length > 0 && (
+              <QueuePreview
+                items={queuedConversationDrafts}
+                editBindingLabel={queueEditBindingLabel}
+              />
+            )}
+            <ComposerSurface
+              ref={composerRef}
+              replState={replState}
+              onUiStateChange={handleComposerUiStateChange}
+              onSubmit={handleSubmit}
+              onEmptySubmit={hasConversationContext && focusedTeammate &&
+                  !localAgentsFocused
+                ? openFocusedTeammateSession
+                : undefined}
+              onFocusLocalAgents={localAgentEntries.length > 0 &&
+                  !composerShellState.hasDraftInput
+                ? focusLocalAgents
+                : undefined}
+              onLocalAgentsInput={localAgentsFocused
+                ? handleLocalAgentsInput
+                : undefined}
+              localAgentsFocused={localAgentsFocused}
+              onForceSubmit={hasConversationContext
+                ? handleForceInterrupt
+                : undefined}
+              onInterruptRunningTask={hasConversationContext
+                ? () =>
+                  interruptConversationRun({
+                    clearPlanning: hasActivePlanningState,
+                  })
+                : undefined}
+              queueEnabled={isForegroundTaskRunning}
+              isConversationTaskRunning={isConversationTaskRunning}
+              onCycleMode={cycleAgentMode}
+              disabled={isInputDisabled}
+              isConversationContext={hasConversationContext}
+              composerLanguage={hasConversationContext ? "chat" : "hql"}
+              promptLabel={focusedTeammate ? `${focusedTeammate.id}>` : ">"}
+              interactionMode={pickerInteractionActive
+                ? pendingInteraction?.mode
+                : undefined}
+              showQueuePreview={false}
+            />
+          </>
+      )}
 
       {/* Footer hint (directly under input, no gap) */}
-      {!blockingInteractionActive && (isInputVisible || hasConversationContext) &&
+      {!showBottomDialog && !blockingInteractionActive &&
+        (isInputVisible || hasConversationContext) &&
         (
           <FooterHint
             modelName={modelSelection.displayLabel}
@@ -2026,16 +1977,18 @@ function AppContent(
               pendingInteraction?.mode === "question"}
             suppressInteractionHints={hasConversationContext &&
               pickerInteractionActive}
-            teamActive={teamState.active}
+            teamActive={false}
             teamAttentionCount={teamState.attentionItems.length}
             teamFocusLabel={focusedTeammate?.id}
-            teamWorkerSummary={teamWorkerSummary}
-            localAgentCount={localAgentEntries.length}
-            pendingInteractionLabel={pendingInteraction?.sourceLabel}
-            activeTaskCount={activeCount}
-            recentActiveTaskLabel={recentActiveTaskLabel}
+            teamWorkerSummary={undefined}
+            localAgentCount={0}
+            pendingInteractionLabel={undefined}
+            activeTaskCount={0}
+            recentActiveTaskLabel={undefined}
             aiAvailable={init.aiAvailable}
-            conversationQueueCount={composerShellState.queuedDraftCount}
+            conversationQueueCount={composerShellState.queuePreviewRows > 0
+              ? 0
+              : composerShellState.queuedDraftCount}
             submitAction={composerShellState.hasSubmitText
               ? composerShellState.submitAction
               : undefined}

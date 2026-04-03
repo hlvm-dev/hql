@@ -65,7 +65,11 @@ import {
   MAX_SESSION_HISTORY,
   supportsAgentExecution,
 } from "./constants.ts";
-import { resolveQueryToolAllowlist } from "./query-tool-routing.ts";
+import {
+  isMainThreadQuerySource,
+  resolveMainThreadBaselineToolAllowlist,
+  resolveQueryToolAllowlist,
+} from "./query-tool-routing.ts";
 import {
   type AgentExecutionMode,
   getPlanningModeForExecutionMode,
@@ -74,6 +78,10 @@ import { UsageTracker } from "./usage.ts";
 import { ContextManager, takeLastMessageGroups } from "./context.ts";
 import type { ModelInfo } from "../providers/types.ts";
 import type { ConversationAttachmentPayload } from "../attachments/types.ts";
+import {
+  buildTraceTextPreview,
+  traceReplMainThreadForSource,
+} from "../repl-main-thread-trace.ts";
 import {
   type AgentOrchestratorFailureCode,
   classifyAgentFinalResponse,
@@ -89,6 +97,7 @@ import {
   persistAgentRuntimeMode,
   persistAgentTeamRuntime,
   persistAgentTodos,
+  persistDiscoveredDeferredTools,
   type PersistedAgentTurn,
   persistLastAppliedExecutionFallbackState,
   persistLastAppliedResponseShapeContext,
@@ -158,6 +167,16 @@ const DEFAULT_AGENT_PATH_ROOTS = [
   "~/Documents",
 ];
 
+const TEAM_RUNTIME_TOOL_NAMES = [
+  "Teammate",
+  "SendMessage",
+  "TaskCreate",
+  "TaskGet",
+  "TaskUpdate",
+  "TaskList",
+  "TeamStatus",
+] as const;
+
 const reusableSessions = new Set<AgentSession>();
 
 function isAbortLikeError(error: unknown, signal?: AbortSignal): boolean {
@@ -171,6 +190,14 @@ function resolveDefaultAgentRoots(): string[] {
   return DEFAULT_AGENT_PATH_ROOTS.map((root) =>
     `file://${root.startsWith("~") ? home + root.slice(1) : root}`
   );
+}
+
+function hasTeamRuntimeTools(options: {
+  allowlist?: string[];
+  denylist?: string[];
+}): boolean {
+  const tools = resolveTools(options);
+  return TEAM_RUNTIME_TOOL_NAMES.some((name) => name in tools);
 }
 
 function hasProviderGroundedCitations(
@@ -297,6 +324,8 @@ export async function reuseSession(
   onToken?: (text: string) => void,
   options?: {
     disablePersistentMemory?: boolean;
+    querySource?: string;
+    preserveConversationContext?: boolean;
     instructions?: typeof session.instructions;
     agentProfiles?: typeof session.agentProfiles;
     runtimeMode?: RuntimeMode;
@@ -307,6 +336,8 @@ export async function reuseSession(
   return await refreshReusableAgentSession(session, {
     onToken,
     disablePersistentMemory: options?.disablePersistentMemory,
+    querySource: options?.querySource,
+    preserveConversationContext: options?.preserveConversationContext,
     instructions: options?.instructions,
     agentProfiles: options?.agentProfiles,
     runtimeMode: options?.runtimeMode,
@@ -378,6 +409,7 @@ export function shouldReuseAgentSession(
   session: AgentSession | undefined,
   options: {
     model?: string;
+    querySource?: string;
     toolAllowlist?: string[];
     toolDenylist?: string[];
     runtimeMode?: RuntimeMode;
@@ -392,6 +424,9 @@ export function shouldReuseAgentSession(
     (session.llmConfig?.runtimeMode ?? DEFAULT_RUNTIME_MODE) !==
       (options.runtimeMode ?? DEFAULT_RUNTIME_MODE)
   ) {
+    return false;
+  }
+  if ((session.llmConfig?.querySource ?? session.querySource) !== options.querySource) {
     return false;
   }
   if (
@@ -471,6 +506,8 @@ interface AgentRunnerCallbacks {
 interface AgentRunnerOptions {
   query: string;
   model?: string;
+  querySource?: string;
+  requestId?: string;
   sessionId?: string | null;
   transcriptPersistenceMode?: "runner" | "caller";
   fixturePath?: string;
@@ -499,14 +536,82 @@ interface AgentRunnerOptions {
   modelInfo?: ModelInfo | null;
   /** Reuse an existing session (skips policy/MCP/LLM setup) */
   reusableSession?: AgentSession;
+  /** Reuse the in-memory conversation context and skip persisted history replay. */
+  skipPersistedHistoryReplay?: boolean;
+  /** Keep a newly created session alive for future reuse instead of disposing it. */
+  retainSessionForReuse?: boolean;
   /** Disable persistent memory reads/writes for this run. */
   disablePersistentMemory?: boolean;
+}
+
+function updateSessionBaselineAllowlist(
+  session: AgentSession,
+  toolAllowlist: string[] | undefined,
+): string[] | undefined {
+  const nextAllowlist = resolveMainThreadBaselineToolAllowlist({
+    querySource: session.querySource,
+    toolAllowlist,
+    discoveredDeferredTools: session.discoveredDeferredTools,
+    ownerId: session.toolOwnerId,
+  });
+  if (session.toolFilterBaseline) {
+    session.toolFilterBaseline.allowlist = cloneToolList(nextAllowlist);
+  }
+  if (session.llmConfig) {
+    session.llmConfig.toolAllowlist = cloneToolList(nextAllowlist);
+    session.llmConfig.discoveredDeferredToolCount =
+      session.discoveredDeferredTools.size;
+  }
+  return nextAllowlist;
+}
+
+function persistDeferredToolDiscoveriesForSession(options: {
+  session: AgentSession;
+  discoveredToolNames: readonly string[];
+  toolAllowlist?: string[];
+  toolDenylist?: string[];
+  sessionKey?: string | null;
+}): string[] | undefined {
+  if (!isMainThreadQuerySource(options.session.querySource)) {
+    return options.session.toolFilterBaseline?.allowlist ??
+      options.session.llmConfig?.toolAllowlist;
+  }
+
+  const eagerOnly = new Set(
+    resolveMainThreadBaselineToolAllowlist({
+      querySource: options.session.querySource,
+      toolAllowlist: options.toolAllowlist,
+      ownerId: options.session.toolOwnerId,
+    }) ?? [],
+  );
+  let changed = false;
+  for (const name of options.discoveredToolNames) {
+    if (eagerOnly.has(name)) {
+      continue;
+    }
+    if (!options.session.discoveredDeferredTools.has(name)) {
+      options.session.discoveredDeferredTools.add(name);
+      changed = true;
+    }
+  }
+  const nextBaseline = updateSessionBaselineAllowlist(
+    options.session,
+    options.toolAllowlist,
+  );
+  if (changed && options.sessionKey) {
+    persistDiscoveredDeferredTools(
+      options.sessionKey,
+      options.session.discoveredDeferredTools,
+    );
+  }
+  return nextBaseline;
 }
 
 interface AgentRunnerResult {
   text: string;
   structuredResult?: unknown;
   finalResponseMeta?: FinalResponseMeta;
+  liveSession?: AgentSession;
   finalResponseState: {
     suppressFinalResponse: boolean;
     orchestratorFailureCode: AgentOrchestratorFailureCode | null;
@@ -584,6 +689,7 @@ export async function runAgentQuery(
   const hookRuntime = await loadAgentHookRuntime(workspace);
   const profile = ENGINE_PROFILES.normal;
   const turnId = crypto.randomUUID();
+  const runStartedAt = Date.now();
   const useExternalHistory = !!options.messageHistory;
   const shouldPersistSession = !skipSessionHistory;
   const sessionKey = shouldPersistSession
@@ -596,18 +702,40 @@ export async function runAgentQuery(
   const restoredSessionMetadata = sessionKey
     ? loadPersistedAgentSessionMetadata(sessionKey)
     : {};
+  const querySource = options.querySource;
   const runtimeMode = options.restorePersistedRuntimeMode
     ? resolveRuntimeMode(
       options.runtimeMode ?? restoredSessionMetadata.runtimeMode,
     )
     : resolveRuntimeMode(options.runtimeMode);
+  traceReplMainThreadForSource(querySource, "agent.run.start", {
+    requestId: options.requestId ?? null,
+    sessionId: options.sessionId ?? null,
+    turnId,
+    model,
+    permissionMode,
+    runtimeMode,
+    reusableSession: !!options.reusableSession,
+    messageHistoryCount: options.messageHistory?.length ?? 0,
+    attachmentCount: options.attachments?.length ?? 0,
+    queryPreview: buildTraceTextPreview(query),
+  });
   const persistentMemoryEnabled = isPersistentMemoryEnabled(
     disablePersistentMemory,
   );
   const effectiveToolDenylist = !persistentMemoryEnabled
     ? [...new Set([...toolDenylist, ...Object.keys(MEMORY_TOOLS)])]
     : [...toolDenylist];
-  const toolAllowlist = resolveQueryToolAllowlist(options.toolAllowlist);
+  const requestedToolAllowlist = resolveQueryToolAllowlist(options.toolAllowlist);
+  const toolAllowlist = resolveMainThreadBaselineToolAllowlist({
+    querySource,
+    toolAllowlist: requestedToolAllowlist,
+    discoveredDeferredTools: restoredSessionMetadata.discoveredDeferredTools,
+  });
+  const teamRuntimeEnabled = hasTeamRuntimeTools({
+    allowlist: toolAllowlist,
+    denylist: effectiveToolDenylist,
+  });
   const routingConstraints = extractRoutingConstraintsFromTaskText(query);
   const taskCapabilityContext = extractTaskCapabilityContextFromTaskText(query);
   const responseShapeContext = deriveExecutionResponseShapeContextFromSchema(
@@ -619,6 +747,8 @@ export async function runAgentQuery(
   let executionSurfaceState = await resolveExecutionSurfaceState({
     model,
     fixturePath: options.fixturePath,
+    querySource,
+    sessionKey,
     runtimeMode,
     routingConstraints,
     taskCapabilityContext,
@@ -627,6 +757,19 @@ export async function runAgentQuery(
     toolAllowlist,
     toolDenylist: effectiveToolDenylist,
     computerUseRequested: options.computerUse,
+  });
+  traceReplMainThreadForSource(querySource, "agent.execution_surface.resolved", {
+    requestId: options.requestId ?? null,
+    sessionId: options.sessionId ?? null,
+    turnId,
+    durationMs: Date.now() - runStartedAt,
+    runtimeMode,
+    requestedToolAllowlistCount: requestedToolAllowlist?.length ?? 0,
+    effectiveToolAllowlistCount: toolAllowlist?.length ?? 0,
+    effectiveToolDenylistCount: effectiveToolDenylist.length,
+    teamRuntimeEnabled,
+    cacheHit: executionSurfaceState.cacheHit === true,
+    fastPath: executionSurfaceState.fastPath === true,
   });
 
   // GAP 1: If reasoning selector switched from pinned model, apply the switch
@@ -641,6 +784,8 @@ export async function runAgentQuery(
     executionSurfaceState = await resolveExecutionSurfaceState({
       model,
       fixturePath: options.fixturePath,
+      querySource,
+      sessionKey,
       runtimeMode,
       routingConstraints,
       taskCapabilityContext,
@@ -663,16 +808,26 @@ export async function runAgentQuery(
   const effectiveOnToken = structuredOutputActive
     ? undefined
     : callbacks.onToken;
-  const agentProfiles = await loadAgentProfiles(workspace, {
-    toolValidator: hasTool,
-  });
 
-  // Load instruction hierarchy (global + project) — non-blocking
-  const instructions = await loadInstructionHierarchy(workspace);
+  if (
+    options.reusableSession &&
+    isMainThreadQuerySource(querySource) &&
+    restoredSessionMetadata.discoveredDeferredTools?.length
+  ) {
+    options.reusableSession.querySource = querySource;
+    for (const name of restoredSessionMetadata.discoveredDeferredTools) {
+      options.reusableSession.discoveredDeferredTools.add(name);
+    }
+    updateSessionBaselineAllowlist(
+      options.reusableSession,
+      requestedToolAllowlist,
+    );
+  }
 
   const matchingReusableSession = persistentMemoryEnabled &&
       shouldReuseAgentSession(options.reusableSession, {
         model,
+        querySource,
         toolAllowlist,
         toolDenylist: effectiveToolDenylist,
         runtimeMode,
@@ -680,17 +835,26 @@ export async function runAgentQuery(
       })
     ? options.reusableSession
     : undefined;
+  const agentProfiles = matchingReusableSession?.agentProfiles ??
+    await loadAgentProfiles(workspace, {
+      toolValidator: hasTool,
+    });
+  const instructions = matchingReusableSession?.instructions ??
+    await loadInstructionHierarchy(workspace);
   const isReusableSession = !!matchingReusableSession;
   const engine = isReusableSession ? undefined : getAgentEngine();
   if (
     matchingReusableSession?.ensureMcpLoaded &&
-    executionSurfaceUsesMcp(executionSurfaceState.executionSurface)
+    executionSurfaceUsesMcp(executionSurfaceState.executionSurface) &&
+    !isMainThreadQuerySource(querySource)
   ) {
     await matchingReusableSession.ensureMcpLoaded();
   }
   const session: AgentSession = matchingReusableSession
     ? await reuseSession(matchingReusableSession, effectiveOnToken, {
       disablePersistentMemory,
+      querySource,
+      preserveConversationContext: options.skipPersistedHistoryReplay === true,
       instructions,
       agentProfiles,
       runtimeMode,
@@ -705,6 +869,7 @@ export async function runAgentQuery(
       contextWindow: options.contextWindow,
       engineProfile: "normal",
       failOnContextOverflow: false,
+      querySource,
       toolAllowlist,
       toolDenylist: effectiveToolDenylist,
       onToken: effectiveOnToken,
@@ -712,22 +877,47 @@ export async function runAgentQuery(
       instructions,
       disablePersistentMemory,
       runtimeMode,
+      discoveredDeferredTools: restoredSessionMetadata.discoveredDeferredTools,
       providerExecutionPlan: executionSurfaceState.providerExecutionPlan,
       executionSurface: executionSurfaceState.executionSurface,
       engine,
       agentProfiles,
     });
+  traceReplMainThreadForSource(querySource, "agent.session.ready", {
+    requestId: options.requestId ?? null,
+    sessionId: sessionKey,
+    turnId,
+    durationMs: Date.now() - runStartedAt,
+    reusedSession: isReusableSession,
+    retainedForReuse: options.retainSessionForReuse === true,
+    discoveredDeferredToolCount: session.discoveredDeferredTools.size,
+    contextMessages: session.context.getMessages().length,
+    compiledPromptChars: session.llmConfig?.compiledPrompt?.text.length ?? null,
+    toolAllowlistCount: session.llmConfig?.toolAllowlist?.length ?? null,
+  });
 
+  session.querySource = querySource;
   session.providerExecutionPlan = executionSurfaceState.providerExecutionPlan;
   session.executionSurface = executionSurfaceState.executionSurface;
   if (session.llmConfig) {
+    session.llmConfig.querySource = querySource;
+    session.llmConfig.eagerToolCount = isMainThreadQuerySource(querySource)
+      ? resolveMainThreadBaselineToolAllowlist({
+        querySource,
+        toolAllowlist: requestedToolAllowlist,
+        ownerId: session.toolOwnerId,
+      })?.length
+      : undefined;
+    session.llmConfig.discoveredDeferredToolCount =
+      session.discoveredDeferredTools.size;
     session.llmConfig.providerExecutionPlan =
       executionSurfaceState.providerExecutionPlan;
     session.llmConfig.executionSurface = executionSurfaceState.executionSurface;
   }
   if (
     session.ensureMcpLoaded &&
-    executionSurfaceUsesMcp(executionSurfaceState.executionSurface)
+    executionSurfaceUsesMcp(executionSurfaceState.executionSurface) &&
+    !isMainThreadQuerySource(querySource)
   ) {
     await session.ensureMcpLoaded();
   }
@@ -742,6 +932,7 @@ export async function runAgentQuery(
 
   const delegateOwnerId = crypto.randomUUID();
   let persistedTurn: PersistedAgentTurn | null = null;
+  let keepSessionAlive = false;
 
   try {
     // Reset any prior dynamic tool narrowing (tool_search) for this new turn.
@@ -772,7 +963,7 @@ export async function runAgentQuery(
       for (const message of options.messageHistory!) {
         session.context.addMessage({ ...message, fromSession: true });
       }
-    } else if (sessionKey) {
+    } else if (sessionKey && options.skipPersistedHistoryReplay !== true) {
       const { history } = await loadPersistedAgentHistory({
         sessionId: sessionKey,
         model,
@@ -878,10 +1069,10 @@ export async function runAgentQuery(
       ) ||
       session.todoState.items.length === 0;
     const baseExecutionAllowlist = cloneToolList(
-      session.toolFilterState?.allowlist ?? session.llmConfig?.toolAllowlist,
+      session.toolFilterBaseline?.allowlist ?? session.llmConfig?.toolAllowlist,
     );
     const baseExecutionDenylist = cloneToolList(
-      session.toolFilterState?.denylist ?? session.llmConfig?.toolDenylist,
+      session.toolFilterBaseline?.denylist ?? session.llmConfig?.toolDenylist,
     );
     const directFileTargets = permissionMode === "plan"
       ? await resolveExistingMentionedFiles(query, workspace)
@@ -1165,6 +1356,8 @@ export async function runAgentQuery(
       const nextState = await resolveExecutionSurfaceState({
         model,
         fixturePath: options.fixturePath,
+        querySource,
+        sessionKey,
         runtimeMode,
         routingConstraints,
         taskCapabilityContext,
@@ -1460,32 +1653,34 @@ export async function runAgentQuery(
     try {
       const delegateInbox = createDelegateInbox();
       const coordinationBoard = createDelegateCoordinationBoard();
-      teamRuntime = createTeamRuntime("lead", "lead", {
-        snapshot: sessionMetadata.teamRuntime,
-        reconcileStaleWorkers: true,
-        onChange: (snapshot) => {
-          if (sessionKey) {
-            persistAgentTeamRuntime(sessionKey, snapshot);
+      if (teamRuntimeEnabled) {
+        teamRuntime = createTeamRuntime("lead", "lead", {
+          snapshot: sessionMetadata.teamRuntime,
+          reconcileStaleWorkers: true,
+          onChange: (snapshot) => {
+            if (sessionKey) {
+              persistAgentTeamRuntime(sessionKey, snapshot);
+            }
+          },
+        });
+        if (sessionMetadata.teamRuntime) {
+          session.todoState.items = teamRuntime.deriveTodoState().items.map((
+            item,
+          ) => ({
+            ...item,
+          }));
+          // If stale workers were cleaned up, inject a notice so the model
+          // doesn't trust stale team state from conversation history.
+          const hasStaleWorkers = teamRuntime.listMembers().some(
+            (m) => m.role !== "lead" && m.status === "terminated",
+          );
+          if (hasStaleWorkers) {
+            session.context.addMessage({
+              role: "user",
+              content:
+                "[System Notice] Previous team session has been reset. All prior delegate workers and their tasks have been terminated/cancelled. Start fresh — create new tasks and spawn new delegates as needed. Ignore any team state from earlier messages.",
+            });
           }
-        },
-      });
-      if (sessionMetadata.teamRuntime) {
-        session.todoState.items = teamRuntime.deriveTodoState().items.map((
-          item,
-        ) => ({
-          ...item,
-        }));
-        // If stale workers were cleaned up, inject a notice so the model
-        // doesn't trust stale team state from conversation history.
-        const hasStaleWorkers = teamRuntime.listMembers().some(
-          (m) => m.role !== "lead" && m.status === "terminated",
-        );
-        if (hasStaleWorkers) {
-          session.context.addMessage({
-            role: "user",
-            content:
-              "[System Notice] Previous team session has been reset. All prior delegate workers and their tasks have been terminated/cancelled. Start fresh — create new tasks and spawn new delegates as needed. Ignore any team state from earlier messages.",
-          });
         }
       }
       reactLoopConfig = {
@@ -1523,8 +1718,8 @@ export async function runAgentQuery(
         delegateInbox,
         coordinationBoard,
         teamRuntime,
-        teamMemberId: teamRuntime.leadMemberId,
-        teamLeadMemberId: teamRuntime.leadMemberId,
+        teamMemberId: teamRuntime?.leadMemberId,
+        teamLeadMemberId: teamRuntime?.leadMemberId,
         agentProfiles,
         instructions: session.instructions,
         planning: {
@@ -1540,6 +1735,15 @@ export async function runAgentQuery(
         modelId: model,
         sessionId: sessionKey ?? undefined,
         turnId,
+        querySource,
+        eagerToolCount: isMainThreadQuerySource(querySource)
+          ? resolveMainThreadBaselineToolAllowlist({
+            querySource,
+            toolAllowlist: requestedToolAllowlist,
+            ownerId: session.toolOwnerId,
+          })?.length
+          : undefined,
+        discoveredDeferredToolCount: session.discoveredDeferredTools.size,
         currentUserRequest: query,
         signal: options.signal,
         autoMemoryRecall: persistentMemoryEnabled,
@@ -1561,6 +1765,18 @@ export async function runAgentQuery(
           session.llmConfig?.toolDenylist,
         toolFilterState: session.toolFilterState,
         toolFilterBaseline: runtimeToolFilterBaseline,
+        toolSearchUniverseAllowlist: isMainThreadQuerySource(querySource)
+          ? (requestedToolAllowlist ?? [])
+          : requestedToolAllowlist,
+        toolSearchUniverseDenylist: effectiveToolDenylist,
+        onToolSearchDiscovered: (toolNames) =>
+          persistDeferredToolDiscoveriesForSession({
+            session,
+            discoveredToolNames: toolNames,
+            toolAllowlist: requestedToolAllowlist,
+            toolDenylist: effectiveToolDenylist,
+            sessionKey,
+          }),
         thinkingState: session.thinkingState,
         thinkingCapable: session.thinkingCapable,
         planModeState,
@@ -1576,6 +1792,12 @@ export async function runAgentQuery(
         session.llm,
         options.attachments,
       );
+      traceReplMainThreadForSource(querySource, "agent.react.done", {
+        requestId: options.requestId ?? null,
+        sessionId: sessionKey,
+        turnId,
+        durationMs: Date.now() - runStartedAt,
+      });
     } catch (error) {
       if (sessionKey && isAbortLikeError(error, options.signal)) {
         clearPersistedAgentPlanningState(sessionKey);
@@ -1591,6 +1813,7 @@ export async function runAgentQuery(
       }
       throw error;
     } finally {
+      const cleanupStartedAt = Date.now();
       if (planModeState && session.toolFilterState) {
         session.toolFilterState.allowlist = cloneToolList(
           baseExecutionAllowlist,
@@ -1609,6 +1832,12 @@ export async function runAgentQuery(
         await Promise.allSettled(active.map((t) => t.promise));
       }
       await hookRuntime?.waitForIdle();
+      traceReplMainThreadForSource(querySource, "agent.cleanup.done", {
+        requestId: options.requestId ?? null,
+        sessionId: sessionKey,
+        turnId,
+        durationMs: Date.now() - cleanupStartedAt,
+      });
     }
 
     try {
@@ -1676,10 +1905,27 @@ export async function runAgentQuery(
     }
 
     const finalResponseState = classifyAgentFinalResponse(text);
+    keepSessionAlive = options.retainSessionForReuse === true ||
+      isReusableSession;
+    traceReplMainThreadForSource(querySource, "agent.run.done", {
+      requestId: options.requestId ?? null,
+      sessionId: sessionKey,
+      turnId,
+      durationMs: Date.now() - runStartedAt,
+      textChars: text.length,
+      discoveredDeferredToolCount: session.discoveredDeferredTools.size,
+      totalPromptTokens: usageSnapshot.totalPromptTokens,
+      totalCompletionTokens: usageSnapshot.totalCompletionTokens,
+      totalTokens: usageSnapshot.totalTokens,
+      usageSource: usageSnapshot.source,
+    });
     return {
       text,
       structuredResult,
       finalResponseMeta,
+      liveSession: isReusableSession || options.retainSessionForReuse === true
+        ? session
+        : undefined,
       finalResponseState,
       stats: {
         messageCount: stats.messageCount,
@@ -1697,8 +1943,15 @@ export async function runAgentQuery(
     };
   } finally {
     // Only dispose ad-hoc sessions here; reusable sessions are cleaned up by disposeAllSessions().
-    if (!isReusableSession) {
+    if (!isReusableSession && !keepSessionAlive) {
+      const disposeStartedAt = Date.now();
       await session.dispose();
+      traceReplMainThreadForSource(querySource, "agent.session.disposed", {
+        requestId: options.requestId ?? null,
+        sessionId: sessionKey,
+        turnId,
+        durationMs: Date.now() - disposeStartedAt,
+      });
     }
   }
 }

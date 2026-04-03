@@ -26,7 +26,6 @@ export type OverlayPanel =
   | "model-setup"
   | "config-overlay"
   | "execution-surface"
-  | "team-dashboard"
   | "shortcuts-overlay"
   | "transcript-history"
   | "background-tasks";
@@ -50,14 +49,8 @@ function createOverlayToggle(
   };
 }
 
-function isModalOverlayPanel(panel: string): boolean {
-  return panel === "palette" || panel === "models" ||
-    panel === "model-setup" || panel === "config-overlay" ||
-    panel === "execution-surface" ||
-    panel === "team-dashboard" ||
-    panel === "shortcuts-overlay" ||
-    panel === "transcript-history" ||
-    panel === "background-tasks";
+function isModalOverlayPanel(panel: OverlayPanel): boolean {
+  return panel !== "none";
 }
 
 interface UseOverlayPanelInput {
@@ -91,7 +84,6 @@ export interface UseOverlayPanelResult {
     SetStateAction<ConfigOverlayState>
   >;
   togglePalette: () => void;
-  toggleTeamDashboard: () => void;
   toggleShortcutsOverlay: () => void;
   toggleTranscriptHistory: () => void;
   toggleBackgroundTasks: () => void;
@@ -194,11 +186,6 @@ export function useOverlayPanel(
     surfacePanel,
   ]);
 
-  const toggleTeamDashboard = useMemo(
-    () =>
-      createOverlayToggle("team-dashboard", lastPanelToggleRef, setActiveOverlay),
-    [],
-  );
   const togglePalette = useMemo(
     () =>
       createOverlayToggle("palette", lastPanelToggleRef, setActiveOverlay),
@@ -255,7 +242,6 @@ export function useOverlayPanel(
     configOverlayState,
     setConfigOverlayState,
     togglePalette,
-    toggleTeamDashboard,
     toggleShortcutsOverlay,
     toggleTranscriptHistory,
     toggleBackgroundTasks,

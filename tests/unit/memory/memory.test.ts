@@ -109,6 +109,7 @@ function createAgentSession(context: ContextManager): AgentSession {
       rawLimit: 32000,
       source: "default",
     },
+    discoveredDeferredTools: new Set(),
     runtimeMode: DEFAULT_RUNTIME_MODE,
     executionSurface: {} as ExecutionSurface,
     fileStateCache: new FileStateCache(),

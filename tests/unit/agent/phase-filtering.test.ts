@@ -256,3 +256,48 @@ Deno.test("tool_search narrowing does not persist via toolSearchAllowlist", asyn
     cleanupTestTools();
   }
 });
+
+Deno.test("tool_search discovery can expand the session baseline before turn-local narrowing", async () => {
+  const { handlePostToolExecution } = await import(
+    "../../../src/hlvm/agent/orchestrator-response.ts"
+  );
+  const { resolveLoopConfig } = await import(
+    "../../../src/hlvm/agent/orchestrator-state.ts"
+  );
+
+  const searchTool = "tool_search";
+  const deferredTool = "search_web";
+
+  const state = makeLoopState({ lastToolNames: [searchTool] });
+  const config = makeConfig({
+    modelTier: "mid",
+    toolFilterBaseline: {
+      allowlist: [searchTool],
+      denylist: undefined,
+    },
+    toolAllowlist: [searchTool],
+    toolFilterState: {
+      allowlist: [searchTool],
+      denylist: undefined,
+    },
+    onToolSearchDiscovered: () => [searchTool, deferredTool],
+  });
+  const lc = resolveLoopConfig(config);
+
+  const result = {
+    toolCallsMade: 1,
+    results: [{
+      success: true,
+      result: { matches: [{ name: deferredTool }] },
+    }],
+    toolCalls: [{ toolName: searchTool, args: { query: "web search" }, id: "tc-3" }],
+    toolUses: [],
+    toolBytes: 0,
+  };
+
+  const llmFn = async () => ({ content: "", toolCalls: [] });
+  await handlePostToolExecution(result, state, lc, config, llmFn);
+
+  assertEquals(config.toolFilterBaseline?.allowlist?.includes(deferredTool), true);
+  assertEquals(config.toolFilterState?.allowlist?.includes(deferredTool), true);
+});

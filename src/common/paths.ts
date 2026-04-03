@@ -186,6 +186,13 @@ export function getDebugLogPath(): string {
 }
 
 /**
+ * End-to-end JSONL trace for REPL main-thread agent turns (~/.hlvm/repl-main-thread-trace.jsonl)
+ */
+export function getReplMainThreadTracePath(): string {
+  return join(getHlvmDir(), "repl-main-thread-trace.jsonl");
+}
+
+/**
  * Get the cloud model catalog cache path (~/.hlvm/cloud-model-catalog.json)
  */
 export function getCloudModelCatalogCachePath(): string {

@@ -1030,7 +1030,10 @@ async function connectAndRegisterServer(
   registrationOwnerId: string,
   signal?: AbortSignal,
 ): Promise<ServerRegistration | null> {
-  const client = await connectWithTimeout(server, signal);
+  const client = await connectWithTimeout(server, signal, {
+    // Background tool discovery/execution must not surprise-open browser auth.
+    interactiveAuth: false,
+  });
   if (!client) return null;
 
   try {

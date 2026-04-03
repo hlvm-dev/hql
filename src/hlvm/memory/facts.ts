@@ -3,7 +3,7 @@
  */
 
 import { getFactDb } from "./db.ts";
-import { sanitizeSensitiveContent, todayDate, warnMemory } from "./store.ts";
+import { normalizeWhitespace, sanitizeSensitiveContent, todayDate, warnMemory } from "./store.ts";
 import { ValidationError } from "../../common/error.ts";
 
 export interface FactRecord {
@@ -29,9 +29,7 @@ export interface InsertFactOptions {
   embeddingModel?: string;
 }
 
-function normalizeFactContent(content: string): string {
-  return content.replace(/\s+/g, " ").trim();
-}
+const normalizeFactContent = normalizeWhitespace;
 
 type RawFactRow = {
   id: number;

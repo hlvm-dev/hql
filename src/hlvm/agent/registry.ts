@@ -228,6 +228,10 @@ export interface ToolMetadata {
   fn: ToolFunction;
   description: string;
   args: Record<string, string>;
+  /** Tool exposure defaults for source-specific lazy-loading policies. */
+  loading?: {
+    exposure: "eager" | "deferred";
+  };
   /** Internal execution traits used by the orchestrator. */
   execution?: {
     /** Read-only/shared-safe tools may run concurrently within a batch. */
@@ -278,6 +282,7 @@ interface ToolSearchResult {
   category?: ToolMetadata["category"];
   safetyLevel: "L0" | "L1" | "L2";
   source: "built-in" | "dynamic";
+  loadingExposure?: NonNullable<ToolMetadata["loading"]>["exposure"];
 }
 
 function formatDelegateAgentResult(
@@ -379,6 +384,21 @@ const BUILTIN_PRESENTATION_KIND = new Map<string, ToolPresentationKind>([
   ["todo_write", "meta"],
 ]);
 
+const MAIN_THREAD_EXPLICIT_DEFERRED_TOOL_NAMES = new Set<string>([
+  "remote_code_execute",
+  "local_code_execute",
+  "archive_files",
+  "git_commit",
+  "recent_activity",
+  "report_result",
+]);
+
+const MAIN_THREAD_DEFERRED_CATEGORIES = new Set<NonNullable<ToolMetadata["category"]>>([
+  "web",
+  "data",
+  "memory",
+]);
+
 function inferToolPresentationKind(
   name: string,
   tool: Pick<ToolMetadata, "category" | "presentation">,
@@ -403,6 +423,23 @@ function inferToolPresentationKind(
   }
 }
 
+function inferToolLoadingExposure(
+  name: string,
+  tool: Pick<ToolMetadata, "category" | "loading">,
+  isDynamic = false,
+): NonNullable<ToolMetadata["loading"]>["exposure"] {
+  const explicit = tool.loading?.exposure;
+  if (explicit) return explicit;
+  if (isDynamic) return "deferred";
+  if (MAIN_THREAD_EXPLICIT_DEFERRED_TOOL_NAMES.has(name)) {
+    return "deferred";
+  }
+  if (tool.category && MAIN_THREAD_DEFERRED_CATEGORIES.has(tool.category)) {
+    return "deferred";
+  }
+  return "eager";
+}
+
 function applyBuiltInMetadataDefaults(
   tools: Record<string, ToolMetadata>,
 ): Record<string, ToolMetadata> {
@@ -417,6 +454,9 @@ function applyBuiltInMetadataDefaults(
           concurrencySafe: true,
         }
         : tool.execution,
+      loading: {
+        exposure: inferToolLoadingExposure(name, tool),
+      },
       presentation: {
         ...tool.presentation,
         kind: inferToolPresentationKind(name, tool),
@@ -819,6 +859,11 @@ export function searchTools(
       category: meta.category,
       safetyLevel: meta.safetyLevel ?? "L0",
       source: name in TOOL_REGISTRY ? "built-in" : "dynamic",
+      loadingExposure: inferToolLoadingExposure(
+        name,
+        meta,
+        !(name in TOOL_REGISTRY),
+      ),
       score,
     });
   }
@@ -1125,10 +1170,20 @@ export function registerTool(name: string, tool: ToolMetadata): void {
     );
   }
   if (entry) {
-    entry.fallbackTool = tool;
+    entry.fallbackTool = {
+      ...tool,
+      loading: {
+        exposure: inferToolLoadingExposure(name, tool, true),
+      },
+    };
   } else {
     DYNAMIC_TOOL_REGISTRY.set(name, {
-      fallbackTool: tool,
+      fallbackTool: {
+        ...tool,
+        loading: {
+          exposure: inferToolLoadingExposure(name, tool, true),
+        },
+      },
       scopedTools: new Map(),
     });
   }
@@ -1165,14 +1220,20 @@ export function registerTools(
     }
     const warnings = validateToolSchema(name, tool);
     for (const w of warnings) getAgentLogger().warn(w);
+    const decoratedTool = {
+      ...tool,
+      loading: {
+        exposure: inferToolLoadingExposure(name, tool, true),
+      },
+    };
     const entry = DYNAMIC_TOOL_REGISTRY.get(name);
     if (!entry) {
       DYNAMIC_TOOL_REGISTRY.set(name, {
         fallbackTool: null,
-        scopedTools: new Map([[ownerId, tool]]),
+        scopedTools: new Map([[ownerId, decoratedTool]]),
       });
     } else {
-      entry.scopedTools.set(ownerId, tool);
+      entry.scopedTools.set(ownerId, decoratedTool);
     }
     registered.push(name);
   }

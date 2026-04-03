@@ -277,10 +277,12 @@ async function executeToolWithTimeout(
             const rawResults = searchTools(query, {
               ...options,
               allowlist: normalizeWebCapabilitySelectors(
-                options?.allowlist ?? toolAllowlist,
+                options?.allowlist ?? config.toolSearchUniverseAllowlist ??
+                  toolAllowlist,
               ),
               denylist: normalizeWebCapabilitySelectors(
-                options?.denylist ?? toolDenylist,
+                options?.denylist ?? config.toolSearchUniverseDenylist ??
+                  toolDenylist,
               ),
               ownerId: options?.ownerId ?? config.toolOwnerId,
             });

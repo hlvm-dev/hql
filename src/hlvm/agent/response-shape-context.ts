@@ -1,5 +1,6 @@
 import { fnv1aHex } from "../../common/hash.ts";
 import { canonicalizeForSignature } from "./orchestrator-tool-formatting.ts";
+import { uniqueSorted } from "./turn-context.ts";
 
 export interface ExecutionResponseShapeContext {
   requested: boolean;
@@ -15,10 +16,6 @@ export const EMPTY_EXECUTION_RESPONSE_SHAPE_CONTEXT:
     topLevelKeys: [],
   };
 
-function uniqueSortedStrings(values: readonly string[]): string[] {
-  return [...new Set(values)].sort();
-}
-
 export function deriveExecutionResponseShapeContextFromSchema(
   schema: Record<string, unknown> | undefined,
 ): ExecutionResponseShapeContext {
@@ -28,7 +25,7 @@ export function deriveExecutionResponseShapeContextFromSchema(
 
   const canonical = canonicalizeForSignature(schema);
   const schemaSignature = fnv1aHex(JSON.stringify(canonical) ?? "null");
-  const topLevelKeys = uniqueSortedStrings(Object.keys(schema));
+  const topLevelKeys = uniqueSorted(Object.keys(schema));
 
   return {
     requested: true,
@@ -57,7 +54,7 @@ export function normalizeExecutionResponseShapeContext(
     ? record.schemaSignature
     : undefined;
   const topLevelKeys = Array.isArray(record.topLevelKeys)
-    ? uniqueSortedStrings(
+    ? uniqueSorted(
       record.topLevelKeys.filter((entry): entry is string =>
         typeof entry === "string" && entry.trim().length > 0
       ),

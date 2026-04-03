@@ -32,6 +32,7 @@ import { createTodoState } from "./todo-state.ts";
 import { createDelegateInbox } from "./delegate-inbox.ts";
 import { delay } from "@std/async";
 import { getAgentLogger } from "./logger.ts";
+import { getErrorMessage } from "../../common/utils.ts";
 import { getAgentEngine } from "./engine.ts";
 import type { AgentHookRuntime } from "./hooks.ts";
 import type { AgentPolicy } from "./policy.ts";
@@ -492,7 +493,7 @@ export async function runTeammateLoop(
       );
     } catch (error) {
       // 8. On error, leave task in_progress for potential retry, send error msg
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       log.error(
         `[TeamExecutor] Teammate "${identity.name}" error on task #${task.id}: ${message}`,
       );

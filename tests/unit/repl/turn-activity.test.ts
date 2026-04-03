@@ -161,3 +161,18 @@ Deno.test("getRecentTurnActivityTrail prefers tool activity over final assistant
 
   assertEquals(trail, ["Researching tesla analyst targets"]);
 });
+
+Deno.test("deriveLiveTurnStatus does not echo visible assistant prose as live activity", () => {
+  const status = deriveLiveTurnStatus({
+    items: [{
+      type: "assistant",
+      id: "assistant-1",
+      text: "Here is the final answer with sources.",
+      isPending: false,
+      ts: 1,
+    }],
+    streamingState: StreamingState.Responding,
+  });
+
+  assertEquals(status, undefined);
+});
