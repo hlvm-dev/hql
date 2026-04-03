@@ -1,7 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   buildFooterLeftState,
-  buildFooterRightState,
 } from "../../../src/hlvm/cli/repl-ink/components/FooterHint.tsx";
 import { StreamingState } from "../../../src/hlvm/cli/repl-ink/types.ts";
 
@@ -70,7 +69,7 @@ Deno.test("buildFooterLeftState shows non-default mode labels when idle in conve
   assertEquals(state.tone, "muted");
 });
 
-Deno.test("buildFooterLeftState suppresses duplicated plan review actions when picker owns focus", () => {
+Deno.test("buildFooterLeftState shows plan review chip when picker owns focus", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     hasPendingPermission: true,
@@ -79,8 +78,11 @@ Deno.test("buildFooterLeftState suppresses duplicated plan review actions when p
     spinner: "x",
   });
 
-  assertEquals(state.text, "");
-  assertEquals(state.tone, "muted");
+  assertEquals(state.mode, "segments");
+  assertEquals(
+    state.segments.some((s) => s.text === "Plan review pending"),
+    true,
+  );
 });
 
 Deno.test("buildFooterLeftState shows empty text outside conversation", () => {
@@ -282,218 +284,12 @@ Deno.test("buildFooterLeftState orders shell segments as mode, queue, active too
   );
 });
 
-Deno.test("buildFooterRightState includes model metadata with context mini-bar", () => {
-  const state = buildFooterRightState({
-    contextUsageLabel: "12% ctx",
-    modelName: "claude-sonnet-4-6",
-  });
-
-  assertEquals(
-    state.infoText,
-    "[█░░░░░░░] 12% ctx \u00B7 claude-sonnet-4-6",
-  );
-  assertEquals(state.infoParts, ["[█░░░░░░░] 12% ctx", "claude-sonnet-4-6"]);
-});
-
-Deno.test("buildFooterRightState shows model name only when no metadata is present", () => {
-  const state = buildFooterRightState({
-    modelName: "llama3.2:1b",
-  });
-
-  assertEquals(state.infoText, "llama3.2:1b");
-  assertEquals(state.infoParts, ["llama3.2:1b"]);
-});
-
-Deno.test("buildFooterLeftState omits background-task chips outside conversation", () => {
-  const state = buildFooterLeftState({
-    inConversation: false,
-    activeTaskCount: 3,
-    spinner: "x",
-  });
-
-  assertEquals(state.mode, "segments");
-  assertEquals(
-    state.segments.some((s) => s.text.includes("tasks")),
-    false,
-  );
-});
-
-Deno.test("buildFooterLeftState hides bg chip when zero tasks active", () => {
-  const state = buildFooterLeftState({
-    inConversation: false,
-    activeTaskCount: 0,
-    spinner: "x",
-  });
-
-  assertEquals(
-    state.segments.some((s) => s.text.includes("tasks")),
-    false,
-  );
-});
-
-Deno.test("buildFooterLeftState omits background-task chips in conversation idle", () => {
-  const state = buildFooterLeftState({
-    inConversation: true,
-    streamingState: StreamingState.Idle,
-    activeTaskCount: 2,
-    spinner: "x",
-  });
-
-  assertEquals(state.mode, "segments");
-  assertEquals(
-    state.segments.some((s) => s.text.includes("tasks")),
-    false,
-  );
-});
-
-Deno.test("buildFooterLeftState omits task-manager hints because the compact background footer owns that surface", () => {
-  const state = buildFooterLeftState({
-    inConversation: false,
-    activeTaskCount: 1,
-    recentActiveTaskLabel: "(+ 1 2)",
-    spinner: "x",
-  });
-
-  assertEquals(state.mode, "segments");
-  assertEquals(
-    state.segments.some((s) => s.text.includes("Ctrl+T")),
-    false,
-  );
-});
-
-Deno.test("buildFooterLeftState omits task hint when no recentActiveTaskLabel", () => {
-  const state = buildFooterLeftState({
-    inConversation: false,
-    activeTaskCount: 1,
-    spinner: "x",
-  });
-
-  assertEquals(
-    state.segments.some((s) => s.text.includes("Ctrl+T")),
-    false,
-  );
-});
-
-Deno.test("buildFooterLeftState omits team chip when background status has its own compact footer", () => {
-  const state = buildFooterLeftState({
-    inConversation: true,
-    streamingState: StreamingState.Idle,
-    teamActive: true,
-    spinner: "x",
-  });
-
-  assertEquals(state.mode, "segments");
-  assertEquals(
-    state.segments.some((s) => s.text === "Team"),
-    false,
-  );
-});
-
-Deno.test("buildFooterLeftState omits worker summary when team state is rendered elsewhere", () => {
-  const state = buildFooterLeftState({
-    inConversation: true,
-    streamingState: StreamingState.Idle,
-    teamActive: true,
-    teamWorkerSummary: "alice: working \u00B7 bob: idle",
-    spinner: "x",
-  });
-
-  assertEquals(state.mode, "segments");
-  assertEquals(
-    state.segments.some((s) => s.text.includes("alice")),
-    false,
-  );
-  assertEquals(
-    state.segments.some((s) => s.text === "Ctrl+T manager"),
-    false,
-  );
-});
-
-Deno.test("buildFooterLeftState omits focused teammate controls from the generic footer", () => {
-  const state = buildFooterLeftState({
-    inConversation: true,
-    streamingState: StreamingState.Idle,
-    teamActive: true,
-    teamFocusLabel: "alice",
-    teamAttentionCount: 2,
-    spinner: "x",
-  });
-
-  assertEquals(
-    state.segments.some((s) => s.text === "To alice"),
-    false,
-  );
-  assertEquals(
-    state.segments.some((s) => s.text.includes("Shift+Down teammate")),
-    false,
-  );
-  assertEquals(
-    state.segments.some((s) => s.text === "Enter session"),
-    false,
-  );
-});
-
-Deno.test("buildFooterLeftState keeps teammate management hints out of the generic footer", () => {
-  const state = buildFooterLeftState({
-    inConversation: true,
-    streamingState: StreamingState.Idle,
-    teamActive: true,
-    teamWorkerSummary: "3 working",
-    spinner: "x",
-  });
-
-  assertEquals(
-    state.segments.some((s) => s.text === "Shift+Down teammate"),
-    false,
-  );
-  assertEquals(
-    state.segments.some((s) => s.text === "Ctrl+T manager"),
-    false,
-  );
-});
-
 Deno.test("buildFooterLeftState stays quiet while prompt dialogs own the bottom lane", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     hasPendingPermission: true,
-    pendingInteractionLabel: "cleaner-1",
     spinner: "x",
   });
 
-  assertEquals(state.mode, "message");
-  assertEquals(state.text, "");
-});
-
-Deno.test("buildFooterLeftState omits Team chip when team not active", () => {
-  const state = buildFooterLeftState({
-    inConversation: true,
-    streamingState: StreamingState.Idle,
-    teamActive: false,
-    spinner: "x",
-  });
-
-  assertEquals(
-    state.segments.some((s) => s.text === "Team"),
-    false,
-  );
-});
-
-Deno.test("buildFooterLeftState suppresses team rail when local agents are already visible", () => {
-  const state = buildFooterLeftState({
-    inConversation: true,
-    streamingState: StreamingState.Idle,
-    teamActive: true,
-    teamWorkerSummary: "2 working",
-    localAgentCount: 2,
-    spinner: "x",
-  });
-
-  assertEquals(
-    state.segments.some((s) => s.text === "Team"),
-    false,
-  );
-  assertEquals(
-    state.segments.some((s) => s.text === "2 working"),
-    false,
-  );
+  assertEquals(state.mode, "segments");
 });

@@ -8,7 +8,7 @@ export const QUESTION_DIALOG_HINT = "Type your answer below, then press Enter";
 export const QUESTION_PICKER_HINT =
   "Use arrows or 1-9 to choose · Tab add notes · Enter submit · Esc cancel";
 export const PLAN_REVIEW_PICKER_HINT =
-  "Use arrows or 1-9 to choose · Enter confirm · Esc cancel";
+  "Use arrows or 1-9 to choose · Tab add notes · Enter submit · Esc cancel";
 
 interface PlanReviewDialogDisplay {
   plan: Plan;
@@ -127,7 +127,7 @@ export function isPickerInteractionRequest(
 ): boolean {
   if (!request) return false;
   if (request.mode === "permission") {
-    return request.toolName === "plan_review";
+    return true;
   }
   return getQuestionDialogDisplay(request.question, request.options).usesPicker;
 }
@@ -287,9 +287,10 @@ export function estimateInteractionDialogRows(
   if (request.mode === "question") {
     return estimateQuestionDialogRows(request.question, request.options, width);
   }
-  return estimateConfirmationDialogRows(
+  const confirmationRows = estimateConfirmationDialogRows(
     request.toolName,
     request.toolArgs,
     width,
   );
+  return confirmationRows + 6;
 }

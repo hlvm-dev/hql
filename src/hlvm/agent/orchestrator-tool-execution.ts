@@ -338,13 +338,18 @@ async function executeToolWithTimeout(
 
 function getStructuredFailureMessage(result: unknown): string | undefined {
   if (!isObjectValue(result) || result.success !== false) return undefined;
-  if (typeof result.message === "string" && result.message.trim().length > 0) {
-    return result.message;
+  const message = typeof result.message === "string" && result.message.trim().length > 0
+    ? result.message
+    : typeof result.error === "string" && result.error.trim().length > 0
+    ? result.error
+    : undefined;
+  if (!message) return undefined;
+  // Append stderr when present so the model can diagnose shell/process failures
+  const stderr = typeof result.stderr === "string" ? result.stderr.trim() : "";
+  if (stderr.length > 0 && !message.includes(stderr)) {
+    return `${message}\nstderr: ${stderr}`;
   }
-  if (typeof result.error === "string" && result.error.trim().length > 0) {
-    return result.error;
-  }
-  return undefined;
+  return message;
 }
 
 async function maybeBuildEditFileRecoveryResult(

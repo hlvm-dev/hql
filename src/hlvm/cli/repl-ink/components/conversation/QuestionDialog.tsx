@@ -17,6 +17,7 @@ import {
   InteractionPicker,
   type InteractionPickerOption,
 } from "./InteractionPicker.tsx";
+import { ShortcutHint } from "../ShortcutHint.tsx";
 import type {
   InteractionOption,
   InteractionResponse,
@@ -60,8 +61,17 @@ export const QuestionDialog = React.memo(function QuestionDialog(
         subtitle={dialog.question}
         options={dialog.options}
         hint={QUESTION_PICKER_HINT}
+        hintContent={(
+          <Text color={sc.text.muted}>
+            <ShortcutHint bindingId="tab" label="notes" />
+            <Text color={sc.text.muted}> · Use arrows or 1-9 below · Enter submit · Esc cancel</Text>
+          </Text>
+        )}
         tone="warning"
         allowNotes
+        notesLabel="Reply details"
+        notesPlaceholder="Type the clarification here..."
+        notesEmptyText="Press Tab to add more context."
         onSubmit={(option: InteractionPickerOption, notes?: string) =>
           onResolve(requestId, {
             approved: true,
@@ -86,8 +96,13 @@ export const QuestionDialog = React.memo(function QuestionDialog(
         </Box>
       )}
       <Box marginTop={1}>
+        <Text color={sc.text.muted}>{QUESTION_DIALOG_HINT}</Text>
+      </Box>
+      <Box>
         <Text color={sc.text.muted}>
-          {QUESTION_DIALOG_HINT}
+          <ShortcutHint bindingId="enter-history" label="submit" />
+          <Text color={sc.text.muted}> · </Text>
+          <ShortcutHint bindingId="escape-history" label="cancel" />
         </Text>
       </Box>
     </Box>

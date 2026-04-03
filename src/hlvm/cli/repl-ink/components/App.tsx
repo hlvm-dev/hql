@@ -27,7 +27,6 @@ import { ExecutionSurfaceOverlay } from "./ExecutionSurfaceOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
 import {
   buildBackgroundStatusFooterModel,
-  LocalAgentsCompactFooter,
 } from "./LocalAgentsStatusPanel.tsx";
 import {
   ComposerSurface,
@@ -35,8 +34,7 @@ import {
   type ComposerSurfaceUiState,
 } from "./ComposerSurface.tsx";
 import { QueuePreview } from "./QueuePreview.tsx";
-import { TranscriptHistory } from "./TranscriptHistory.tsx";
-import { PendingTurnPanel } from "./PendingTurnPanel.tsx";
+import { TranscriptSurface } from "./TranscriptSurface.tsx";
 import { DialogStack } from "./DialogStack.tsx";
 import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
 import {
@@ -129,6 +127,7 @@ import {
 import { getActiveTeamStore } from "../../../agent/team-store.ts";
 import { sendThreadInput } from "../../../agent/delegate-threads.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
+import { TuiStatusLine } from "./TuiStatusLine.tsx";
 
 interface CurrentEval {
   code: string;
@@ -1643,7 +1642,7 @@ function AppContent(
       Boolean(pendingInteraction),
     hasLocalAgents: localAgentEntries.length > 0,
   });
-  const currentTurnSummary = useMemo(() => {
+  const interactionStatusLabel = useMemo(() => {
     if (!hasConversationContext) return undefined;
     if (pendingInteraction?.mode === "permission") {
       return pendingInteraction.sourceLabel
@@ -1655,15 +1654,19 @@ function AppContent(
         ? `Reply needed · ${pendingInteraction.sourceLabel}`
         : "Reply needed";
     }
+    return undefined;
+  }, [hasConversationContext, pendingInteraction]);
+  const currentTurnSummary = useMemo(() => {
+    if (!hasConversationContext || pendingInteraction) return undefined;
     if (isConversationTaskRunning && footerStatusMessage?.trim()) {
       return footerStatusMessage.trim();
     }
     return undefined;
   }, [
     hasConversationContext,
-    pendingInteraction,
     isConversationTaskRunning,
     footerStatusMessage,
+    pendingInteraction,
   ]);
   const localAgentsFooterModel = showBackgroundStatusSurface
     ? buildBackgroundStatusFooterModel(
@@ -1684,7 +1687,6 @@ function AppContent(
       },
     )
     : undefined;
-  const localAgentsFooterRows = localAgentsFooterModel?.rowCount ?? 0;
   const queueEditBindingLabel = useMemo(
     () =>
       getConversationQueueEditBindingLabel(
@@ -1695,15 +1697,11 @@ function AppContent(
   const queuedConversationDrafts = composerShellState.queuePreviewRows > 0
     ? composerRef.current?.getPendingQueue() ?? []
     : [];
-  const transcriptReservedRows = 10 +
+  const transcriptReservedRows = 12 +
     SHELL_LAYOUT.transcriptToComposerGap +
     composerShellState.queuePreviewRows +
-    (showBottomDialog ? 8 : 0) +
-    (hasConversationContext &&
-        (conversation.liveItems.length > 0 || liveTodoCount > 0)
-      ? Math.min(conversation.liveItems.length + liveTodoCount + 2, 12)
-      : 0) +
-    localAgentsFooterRows;
+    (showBottomDialog ? 9 : 0) +
+    2;
   return (
     <Box
       flexDirection="column"
@@ -1830,52 +1828,37 @@ function AppContent(
         />
       )}
 
-      {/* Shell lanes: committed history, live turn, dialogs */}
+      {/* Shell lanes: unified transcript and dialogs */}
       {!hasStandaloneSurface && renderShellLanes && (
         <Box
           flexDirection="column"
           marginBottom={SHELL_LAYOUT.transcriptToComposerGap}
         >
           <RenderErrorBoundary>
-            <TranscriptHistory
+            <TranscriptSurface
               historyItems={conversation.historyItems}
+              liveItems={hasConversationContext ? conversation.liveItems : []}
               width={shellContentWidth}
               reservedRows={transcriptReservedRows}
               compactPlanTranscript
+              compactSpacing
               interactive={!isOverlayOpen}
               allowToggleHotkeys={surfacePanel === "conversation" &&
-                allowConversationToggleHotkeys &&
-                conversation.liveItems.length === 0}
+                allowConversationToggleHotkeys}
+              streamingState={hasConversationContext
+                ? conversation.streamingState
+                : undefined}
+              planningPhase={hasConversationContext
+                ? conversation.planningPhase
+                : undefined}
+              todoState={hasConversationContext
+                ? (conversation.planTodoState ?? conversation.todoState)
+                : undefined}
+              showPlanChecklist={hasConversationContext}
+              showLeadingDivider={composerShellState.queuedDraftCount > 0}
             />
           </RenderErrorBoundary>
-          {hasConversationContext && (
-            <>
-              <RenderErrorBoundary>
-                <PendingTurnPanel
-                  items={conversation.liveItems}
-                  width={shellContentWidth}
-                  streamingState={conversation.streamingState}
-                  planningPhase={conversation.planningPhase}
-                  todoState={conversation.planTodoState ??
-                    conversation.todoState}
-                  compactSpacing
-                  showLeadingDivider={committedHistoryCount > 0 ||
-                    composerShellState.queuedDraftCount > 0}
-                  allowToggleHotkeys={surfacePanel === "conversation" &&
-                    allowConversationToggleHotkeys &&
-                    conversation.liveItems.length > 0}
-                />
-              </RenderErrorBoundary>
-            </>
-          )}
         </Box>
-      )}
-
-      {localAgentsFooterModel && (
-        <LocalAgentsCompactFooter
-          model={localAgentsFooterModel}
-          width={shellContentWidth}
-        />
       )}
 
       {showBottomDialog && (
@@ -1942,13 +1925,26 @@ function AppContent(
           </>
       )}
 
-      {/* Footer hint (directly under input, no gap) */}
-      {!showBottomDialog && !blockingInteractionActive &&
-        (isInputVisible || hasConversationContext) &&
+      {(isInputVisible || hasConversationContext) && (
+        <TuiStatusLine
+          modelName={modelSelection.displayLabel}
+          runtimeModeLabel={getRuntimeModeStatusLabel(runtimeMode)}
+          contextUsageLabel={modelConfig.footerContextUsageLabel}
+          modeLabel={getPersistentAgentExecutionModeLabel(agentExecutionMode)}
+          planningPhase={hasConversationContext
+            ? conversation.planningPhase
+            : undefined}
+          interactionLabel={interactionStatusLabel}
+          turnLabel={currentTurnSummary}
+          backgroundLabel={localAgentsFooterModel?.text}
+          aiAvailable={init.aiAvailable}
+        />
+      )}
+
+      {/* Footer hint (directly under status line, transient only) */}
+      {(isInputVisible || hasConversationContext) &&
         (
           <FooterHint
-            modelName={modelSelection.displayLabel}
-            runtimeModeLabel={getRuntimeModeFooterLabel(runtimeMode)}
             statusMessage={footerStatusMessage}
             modeLabel={getPersistentAgentExecutionModeLabel(agentExecutionMode)}
             planningPhase={hasConversationContext
@@ -1960,7 +1956,6 @@ function AppContent(
             activeTool={hasConversationContext
               ? conversation.activeTool
               : undefined}
-            contextUsageLabel={modelConfig.footerContextUsageLabel}
             interactionQueueLength={hasConversationContext
               ? interactionQueue.length
               : 0}
@@ -1977,15 +1972,6 @@ function AppContent(
               pendingInteraction?.mode === "question"}
             suppressInteractionHints={hasConversationContext &&
               pickerInteractionActive}
-            teamActive={false}
-            teamAttentionCount={teamState.attentionItems.length}
-            teamFocusLabel={focusedTeammate?.id}
-            teamWorkerSummary={undefined}
-            localAgentCount={0}
-            pendingInteractionLabel={undefined}
-            activeTaskCount={0}
-            recentActiveTaskLabel={undefined}
-            aiAvailable={init.aiAvailable}
             conversationQueueCount={composerShellState.queuePreviewRows > 0
               ? 0
               : composerShellState.queuedDraftCount}

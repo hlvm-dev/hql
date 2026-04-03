@@ -95,6 +95,30 @@ export function getLatestCitation(
   return undefined;
 }
 
+export function filterDuplicateWaitingIndicators<T extends ShellHistoryEntry>(
+  items: readonly T[],
+): T[] {
+  const thinkingTurnIds = new Set(
+    items.flatMap((item) =>
+      item.type === "thinking" && typeof item.turnId === "string"
+        ? [item.turnId]
+        : []
+    ),
+  );
+  if (thinkingTurnIds.size === 0) {
+    return [...items];
+  }
+  return items.filter((item) =>
+    !(
+      item.type === "assistant" &&
+      item.isPending &&
+      item.text.trim().length === 0 &&
+      typeof item.turnId === "string" &&
+      thinkingTurnIds.has(item.turnId)
+    )
+  );
+}
+
 export function getActiveThinkingId(
   items: readonly AgentConversationItem[],
   streamingState: StreamingState | undefined,

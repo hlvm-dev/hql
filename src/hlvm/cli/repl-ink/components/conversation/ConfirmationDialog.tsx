@@ -18,6 +18,7 @@ import {
   type InteractionPickerOption,
 } from "./InteractionPicker.tsx";
 import type { InteractionResponse } from "../../../../agent/registry.ts";
+import { ShortcutHint } from "../ShortcutHint.tsx";
 import {
   splitArgKeyValue,
 } from "./conversation-chrome.ts";
@@ -47,85 +48,202 @@ export const ConfirmationDialog = React.memo(
     const dialog = getConfirmationDialogDisplay(toolName, toolArgs);
     const { isPlanReview, visibleArgLines, hiddenArgLines } = dialog;
 
-    if (isPlanReview && dialog.planReview && requestId && onResolve) {
+    const buildPermissionOptions = (): InteractionPickerOption[] => {
+      if (isPlanReview) {
+        return [
+          {
+            label: "Yes, implement this plan",
+            value: "approve:auto",
+            detail:
+              "Switch to Full auto and start coding without further permission prompts.",
+            recommended: true,
+          },
+          {
+            label: "Revise this plan",
+            value: "revise",
+            detail: "Stay in Plan mode and continue planning with the model.",
+          },
+          {
+            label: "Cancel",
+            value: "cancel",
+            detail: "Stop here without implementing or continuing planning.",
+          },
+        ];
+      }
+      return [
+        {
+          label: "Approve and continue",
+          value: "approve",
+          detail: "Allow this action and keep the current task moving.",
+          recommended: true,
+        },
+        {
+          label: "Reject",
+          value: "reject",
+          detail: "Decline the action. Add notes to steer the next attempt.",
+        },
+      ];
+    };
+
+    if (requestId && onResolve) {
+      const options = buildPermissionOptions();
+      const hintContent = (
+        <Text color={sc.text.muted}>
+          <ShortcutHint bindingId="tab" label="notes" />
+          <Text color={sc.text.muted}> · Use arrows or 1-9 below · Enter submit · Esc cancel</Text>
+        </Text>
+      );
+      const resolvePermission = (
+        option: InteractionPickerOption,
+        notes?: string,
+      ): void => {
+        const trimmedNotes = notes?.trim();
+        if (option.value === "approve:auto") {
+          onResolve(requestId, {
+            approved: true,
+            userInput: trimmedNotes
+              ? `${option.value}\n\nNotes: ${trimmedNotes}`
+              : option.value,
+          });
+          return;
+        }
+        if (option.value === "revise") {
+          onResolve(requestId, {
+            approved: false,
+            userInput: trimmedNotes
+              ? `revise\n\nNotes: ${trimmedNotes}`
+              : "revise",
+          });
+          return;
+        }
+        if (option.value === "approve") {
+          onResolve(requestId, {
+            approved: true,
+            userInput: trimmedNotes,
+          });
+          return;
+        }
+        onResolve(requestId, {
+          approved: false,
+          userInput: trimmedNotes,
+        });
+      };
+
       return (
         <InteractionPicker
-          title="Ready to start implementation?"
-          options={[
-            {
-              label: "Yes, implement this plan",
-              value: "approve:auto",
-              detail:
-                "Switch to Full auto and start coding without further permission prompts.",
-              recommended: true,
-            },
-            {
-              label: "Revise this plan",
-              value: "revise",
-              detail: "Stay in Plan mode and continue planning with the model.",
-            },
-            {
-              label: "Cancel",
-              value: "cancel",
-              detail: "Stop here without implementing or continuing planning.",
-            },
-          ]}
+          title={isPlanReview ? "Ready to start implementation?" : "Permission required"}
+          subtitle={!isPlanReview
+            ? "Review the requested action and decide what the agent should do next."
+            : undefined}
+          options={options}
           hint={PLAN_REVIEW_PICKER_HINT}
+          hintContent={hintContent}
           tone="warning"
-          onSubmit={(option: InteractionPickerOption) => {
-            if (option.value === "approve:auto") {
-              onResolve(requestId, {
-                approved: true,
-                userInput: option.value,
-              });
-              return;
-            }
-            if (option.value === "revise") {
-              onResolve(requestId, {
-                approved: false,
-                userInput: "revise",
-              });
-              return;
-            }
-            onResolve(requestId, { approved: false });
-          }}
+          allowNotes
+          notesLabel={isPlanReview ? "Revision notes" : "Guidance"}
+          notesPlaceholder={isPlanReview
+            ? "Tell the agent what to revise..."
+            : "Tell the agent what to do differently..."}
+          notesEmptyText={isPlanReview
+            ? "Press Tab to add revision notes."
+            : "Press Tab to add guidance."}
+          onSubmit={resolvePermission}
           onCancel={() => onResolve(requestId, { approved: false })}
         >
           <Box flexDirection="column">
-            <Text color={sc.text.secondary}>Overview</Text>
-            <Text color={sc.text.primary} wrap="wrap">
-              {dialog.planReview.plan.goal}
-            </Text>
-            <Box marginTop={1} flexDirection="column">
-              <Text color={sc.text.secondary}>Implementation steps</Text>
-              {dialog.planReview.visibleSteps.map((step, index) => (
-                <React.Fragment key={step.id}>
-                  <Text color={sc.text.primary} wrap="wrap">
-                    {" "}
-                    {index + 1}. {step.title}
-                  </Text>
-                </React.Fragment>
-              ))}
-              {dialog.planReview.hiddenStepCount > 0 && (
-                <Text color={sc.text.muted}>
-                  ... {dialog.planReview.hiddenStepCount} more step
-                  {dialog.planReview.hiddenStepCount === 1 ? "" : "s"}
+            {(sourceLabel || sourceTeamName) && !isPlanReview && (
+              <Box marginBottom={1}>
+                <Text color={sc.text.secondary}>From: </Text>
+                <Text color={sc.text.primary} bold>
+                  {sourceLabel ?? sourceTeamName}
                 </Text>
-              )}
-            </Box>
-            {dialog.planReview.verificationLines.length > 0 && (
-              <Box marginTop={1} flexDirection="column">
-                <Text color={sc.text.secondary}>Verification</Text>
-                {dialog.planReview.verificationLines.map((line) => (
-                  <React.Fragment key={line}>
-                    <Text color={sc.text.muted} wrap="wrap">
-                      {" "}
-                      • {line}
-                    </Text>
-                  </React.Fragment>
-                ))}
+                {sourceLabel && sourceTeamName && (
+                  <Text color={sc.text.muted}>{` · ${sourceTeamName}`}</Text>
+                )}
               </Box>
             )}
+            <Text color={sc.text.secondary}>
+              {isPlanReview ? "Overview" : "Request"}
+            </Text>
+            {toolName && !isPlanReview && (
+              <Text color={sc.text.primary} bold>{toolName}</Text>
+            )}
+            <Text color={sc.text.primary} wrap="wrap">
+              {dialog.planReview?.plan.goal ?? "Review the tool request below."}
+            </Text>
+            {dialog.planReview
+              ? (
+                <>
+                  <Box marginTop={1} flexDirection="column">
+                    <Text color={sc.text.secondary}>Implementation steps</Text>
+                    {dialog.planReview.visibleSteps.map((step, index) => (
+                      <React.Fragment key={step.id}>
+                        <Text color={sc.text.primary} wrap="wrap">
+                          {" "}
+                          {index + 1}. {step.title}
+                        </Text>
+                      </React.Fragment>
+                    ))}
+                    {dialog.planReview.hiddenStepCount > 0 && (
+                      <Text color={sc.text.muted}>
+                        ... {dialog.planReview.hiddenStepCount} more step
+                        {dialog.planReview.hiddenStepCount === 1 ? "" : "s"}
+                      </Text>
+                    )}
+                  </Box>
+                  {dialog.planReview.verificationLines.length > 0 && (
+                    <Box marginTop={1} flexDirection="column">
+                      <Text color={sc.text.secondary}>Verification</Text>
+                      {dialog.planReview.verificationLines.map((line) => (
+                        <React.Fragment key={line}>
+                          <Text color={sc.text.muted} wrap="wrap">
+                            {" "}
+                            • {line}
+                          </Text>
+                        </React.Fragment>
+                      ))}
+                    </Box>
+                  )}
+                </>
+              )
+              : visibleArgLines.length > 0 && (
+                <Box flexDirection="column" marginTop={1}>
+                  <Text color={sc.text.secondary}>Args</Text>
+                  <Box
+                    paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
+                    flexDirection="column"
+                  >
+                    {visibleArgLines.map((line: string, i: number) => {
+                      const kv = splitArgKeyValue(line);
+                      if (kv) {
+                        return (
+                          <Box key={i}>
+                            <Text color={sc.text.secondary} wrap="truncate-end">
+                              {kv.key}
+                              {kv.separator}
+                            </Text>
+                            <Text color={sc.text.muted} wrap="truncate-end">
+                              {kv.value}
+                            </Text>
+                          </Box>
+                        );
+                      }
+                      return (
+                        <React.Fragment key={i}>
+                          <Text color={sc.text.muted} wrap="truncate-end">
+                            {line}
+                          </Text>
+                        </React.Fragment>
+                      );
+                    })}
+                    {hiddenArgLines > 0 && (
+                      <Text color={sc.text.muted}>
+                        … {hiddenArgLines} more line{hiddenArgLines === 1 ? "" : "s"}
+                      </Text>
+                    )}
+                  </Box>
+                </Box>
+              )}
           </Box>
         </InteractionPicker>
       );

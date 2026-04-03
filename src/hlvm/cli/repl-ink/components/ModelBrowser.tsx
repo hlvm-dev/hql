@@ -9,6 +9,7 @@ import { delay } from "@std/async";
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1681,7 +1682,7 @@ export function ModelBrowser({
     statusMessage,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (presentation !== "overlay") return;
     drawOverlay();
   }, [drawOverlay, presentation]);

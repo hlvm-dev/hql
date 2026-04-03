@@ -40,6 +40,8 @@ const SECTION_IDS = [
   {
     title: "Conversation",
     ids: [
+      "conversation-search",
+      "conversation-search-prev",
       "ctrl+o",
       "ctrl+y",
       "shift+tab",

@@ -99,7 +99,7 @@ export const TurnStats = React.memo(function TurnStats(
   return (
     <Box
       flexDirection="column"
-      marginTop={1}
+      marginTop={0}
       marginBottom={0}
       paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
     >
@@ -110,12 +110,12 @@ export const TurnStats = React.memo(function TurnStats(
         )}
       </Box>
       {summary && (
-        <Box marginTop={1}>
+        <Box marginTop={0}>
           <Text color={sc.text.secondary}>{summary}</Text>
         </Box>
       )}
       {activityTrail && activityTrail.length > 0 && (
-        <Box marginTop={summary ? 1 : 0} flexDirection="column">
+        <Box marginTop={0} flexDirection="column">
           {activityTrail.map((label) => (
             <Box key={label}>
               <Text color={sc.text.muted}>{`· ${label}`}</Text>

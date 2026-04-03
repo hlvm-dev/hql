@@ -16,6 +16,7 @@ import { buildToolCallTextLayout } from "./layout.ts";
 import { getToolDurationTone } from "./conversation-chrome.ts";
 import { isProminentToolName } from "./turn-activity.ts";
 import type { ToolPresentationKind } from "../../../../agent/registry.ts";
+import { ChromeChip } from "../ChromeChip.tsx";
 
 interface ToolCallItemProps {
   tool: ToolCallDisplay;
@@ -42,6 +43,22 @@ function getPresentationBadge(
       return "DIFF";
     default:
       return null;
+  }
+}
+
+function getToolStatusChip(
+  status: ToolCallDisplay["status"],
+): { text: string; tone: "active" | "warning" | "success" | "error" | "neutral" } {
+  switch (status) {
+    case "running":
+      return { text: "RUNNING", tone: "active" };
+    case "pending":
+      return { text: "QUEUED", tone: "warning" };
+    case "error":
+      return { text: "ERROR", tone: "error" };
+    case "success":
+    default:
+      return { text: "DONE", tone: "success" };
   }
 }
 
@@ -111,12 +128,15 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     : presentationKind === "edit" || presentationKind === "diff"
     ? 2
     : 1;
+  const statusChip = getToolStatusChip(tool.status);
 
   return (
     <Box flexDirection="column">
       <Box>
         <ToolStatusIcon status={tool.status} animate={animateStatusIcon} />
         <Text></Text>
+        <ChromeChip text={statusChip.text} tone={statusChip.tone} />
+        <Text color={sc.text.muted}> </Text>
         {presentationBadge && (
           <>
             <Text color={sc.chrome.sectionLabel}>{presentationBadge}</Text>

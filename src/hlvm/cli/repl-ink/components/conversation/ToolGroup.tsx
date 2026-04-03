@@ -182,6 +182,13 @@ export const ToolGroup = React.memo(function ToolGroup({
       flexDirection="column"
       paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
     >
+      {(activeRunningToolId || tools.some((tool) => tool.status === "pending")) && (
+        <Box marginLeft={2} marginBottom={1}>
+          <Text color={activeRunningToolId ? sc.footer.status.active : sc.status.warning}>
+            {activeRunningToolId ? "Live tool activity" : "Queued tool activity"}
+          </Text>
+        </Box>
+      )}
       {toolElements}
     </Box>
   );

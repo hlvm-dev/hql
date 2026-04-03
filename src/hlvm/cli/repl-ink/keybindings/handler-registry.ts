@@ -101,6 +101,7 @@ export const HandlerIds = {
   CONVERSATION_OPEN_HISTORY: "conversation.open-history",
   CONVERSATION_TOGGLE_LATEST: "conversation.toggle-latest",
   CONVERSATION_OPEN_LATEST_SOURCE: "conversation.open-latest-source",
+  CONVERSATION_SEARCH: "conversation.search",
   COMPOSER_CYCLE_MODE: "composer.cycle-mode",
   COMPOSER_CLEAR: "composer.clear",
   COMPOSER_FORCE_SUBMIT: "composer.force-submit",

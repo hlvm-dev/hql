@@ -13,6 +13,7 @@ import { STATUS_GLYPHS } from "../../ui-constants.ts";
 import { getThinkingLabel } from "./conversation-chrome.ts";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 import { useConversationSpinnerFrame } from "../../hooks/useConversationMotion.ts";
+import { truncate } from "../../../../../common/utils.ts";
 
 interface ThinkingIndicatorProps {
   kind: "reasoning" | "planning";
@@ -34,6 +35,11 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
   const spinner = useConversationSpinnerFrame(isAnimating);
   const marker = isAnimating ? spinner ?? STATUS_GLYPHS.running : "\u00B7";
   const lines = summary ? summary.split("\n") : [];
+  const previewLine = truncate(
+    lines.find((line) => line.trim().length > 0)?.trim() ?? "",
+    76,
+    "…",
+  );
   const maxBodyLines = expanded ? lines.length : 0;
   const visibleBodyLines = lines.slice(0, maxBodyLines);
   const hiddenBodyLineCount = Math.max(
@@ -54,6 +60,14 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
         </Text>
         {iteration > 1 && (
           <Text color={sc.text.muted}>{` (pass ${iteration})`}</Text>
+        )}
+        {!expanded && previewLine && (
+          <Text color={sc.text.secondary}>{` · ${previewLine}`}</Text>
+        )}
+        {!expanded && hiddenBodyLineCount > 1 && (
+          <Text color={sc.text.muted}>
+            {` · ${hiddenBodyLineCount - 1} more lines`}
+          </Text>
         )}
       </Box>
       {body && (

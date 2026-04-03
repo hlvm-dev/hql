@@ -13,12 +13,31 @@ export interface InteractionPickerOption {
   recommended?: boolean;
 }
 
+const APPLICATION_KEYPAD_DIGIT_MAP = new Map<string, string>([
+  ["Op", "0"],
+  ["Oq", "1"],
+  ["Or", "2"],
+  ["Os", "3"],
+  ["Ot", "4"],
+  ["Ou", "5"],
+  ["Ov", "6"],
+  ["Ow", "7"],
+  ["Ox", "8"],
+  ["Oy", "9"],
+]);
+
+function normalizePickerDigitInput(input: string): string {
+  const normalizedInput = input.startsWith("\x1b") ? input.slice(1) : input;
+  return APPLICATION_KEYPAD_DIGIT_MAP.get(normalizedInput) ?? normalizedInput;
+}
+
 export function resolvePickerDigitSelection(
   input: string,
   optionCount: number,
 ): number | undefined {
-  if (!/^[1-9]$/.test(input)) return undefined;
-  const index = Number(input) - 1;
+  const normalizedInput = normalizePickerDigitInput(input);
+  if (!/^[1-9]$/.test(normalizedInput)) return undefined;
+  const index = Number(normalizedInput) - 1;
   return index >= 0 && index < optionCount ? index : undefined;
 }
 
@@ -27,10 +46,14 @@ interface InteractionPickerProps {
   subtitle?: string;
   options: InteractionPickerOption[];
   hint: string;
+  hintContent?: React.ReactNode;
   tone?: ChromeChipTone;
   onSubmit: (option: InteractionPickerOption, notes?: string) => void;
   onCancel: () => void;
   allowNotes?: boolean;
+  notesLabel?: string;
+  notesPlaceholder?: string;
+  notesEmptyText?: string;
   children?: React.ReactNode;
 }
 
@@ -60,10 +83,14 @@ export const InteractionPicker = React.memo(function InteractionPicker(
     subtitle,
     options,
     hint,
+    hintContent,
     tone = "active",
     onSubmit,
     onCancel,
     allowNotes = false,
+    notesLabel = "Notes",
+    notesPlaceholder = "Type details here...",
+    notesEmptyText = "Press Tab to add details.",
     children,
   }: InteractionPickerProps,
 ): React.ReactElement {
@@ -217,7 +244,7 @@ export const InteractionPicker = React.memo(function InteractionPicker(
       </Box>
       {allowNotes && (notesMode || notes.length > 0) && (
         <Box marginTop={1} marginBottom={1} flexDirection="column">
-          <Text color={pickerColors.previewColor}>Notes</Text>
+          <Text color={pickerColors.previewColor}>{notesLabel}</Text>
           <Text
             color={notesMode
               ? pickerColors.rowForeground
@@ -226,15 +253,19 @@ export const InteractionPicker = React.memo(function InteractionPicker(
             {notes.length > 0
               ? notes
               : notesMode
-              ? "Type details here..."
-              : "Press Tab to add details."}
+              ? notesPlaceholder
+              : notesEmptyText}
           </Text>
         </Box>
       )}
       <Box marginTop={1}>
-        <Text color={pickerColors.hintColor}>
-          {displayedHint}
-        </Text>
+        {hintContent
+          ? hintContent
+          : (
+            <Text color={pickerColors.hintColor}>
+              {displayedHint}
+            </Text>
+          )}
       </Box>
     </Box>
   );

@@ -16,6 +16,8 @@ Deno.test("shell-parser: parses basic commands with whitespace normalization", (
     hasPipes: false,
     hasChaining: false,
     hasRedirects: false,
+    hasGlobs: false,
+    hasExpansion: false,
     raw: input,
   });
 });
@@ -94,4 +96,45 @@ Deno.test("shell-parser: safety helpers summarize parsed risk accurately", () =>
   const reason = getUnsafeReason(dangerous);
   assertEquals(reason.includes("pipe"), true);
   assertEquals(reason.includes("chaining"), true);
+});
+
+Deno.test("shell-parser: detects glob patterns as needing shell expansion", () => {
+  const glob = parseShellCommand("mv ~/Desktop/Screenshot*.png ~/.Trash/");
+  assertEquals(glob.hasGlobs, true);
+  assertEquals(glob.hasExpansion, true); // tilde
+  assertEquals(isSafeCommand(glob), false);
+  assertEquals(getUnsafeReason(glob).includes("glob"), true);
+  assertEquals(getUnsafeReason(glob).includes("expansion"), true);
+});
+
+Deno.test("shell-parser: detects tilde expansion at start of args", () => {
+  const tilde = parseShellCommand("ls ~/Documents");
+  assertEquals(tilde.hasExpansion, true);
+  assertEquals(tilde.hasGlobs, false);
+  assertEquals(isSafeCommand(tilde), false);
+
+  // Tilde mid-string is not expansion (e.g. a literal ~ in a name)
+  const noTilde = parseShellCommand("echo hello~world");
+  assertEquals(noTilde.hasExpansion, false);
+});
+
+Deno.test("shell-parser: detects env variable expansion", () => {
+  const envVar = parseShellCommand("echo $HOME/bin");
+  assertEquals(envVar.hasExpansion, true);
+  assertEquals(isSafeCommand(envVar), false);
+
+  const braceVar = parseShellCommand("ls ${HOME}/docs");
+  assertEquals(braceVar.hasExpansion, true);
+});
+
+Deno.test("shell-parser: simple commands without expansion remain safe", () => {
+  const simple = parseShellCommand("git status");
+  assertEquals(simple.hasGlobs, false);
+  assertEquals(simple.hasExpansion, false);
+  assertEquals(isSafeCommand(simple), true);
+
+  const withArgs = parseShellCommand("mv /tmp/foo.txt /tmp/bar.txt");
+  assertEquals(withArgs.hasGlobs, false);
+  assertEquals(withArgs.hasExpansion, false);
+  assertEquals(isSafeCommand(withArgs), true);
 });

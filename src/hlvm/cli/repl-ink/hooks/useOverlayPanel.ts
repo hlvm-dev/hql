@@ -7,6 +7,7 @@ import {
   type MutableRefObject,
   type SetStateAction,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -162,8 +163,11 @@ export function useOverlayPanel(
 
   // Reset terminal viewport when overlay changes
   const previousOverlayRef = useRef<OverlayPanel>("none");
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (previousOverlayRef.current === activeOverlay) return;
+    // Raw ANSI overlays draw in passive effects. Reset the viewport during the
+    // layout phase so the first overlay frame is not immediately wiped and left
+    // waiting for a later keypress-driven redraw.
     resetTerminalViewport();
     previousOverlayRef.current = activeOverlay;
   }, [activeOverlay]);

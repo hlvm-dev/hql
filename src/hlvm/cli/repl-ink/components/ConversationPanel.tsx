@@ -59,6 +59,7 @@ import {
 import { useSemanticColors } from "../../theme/index.ts";
 import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
 import { PlanChecklistPanel } from "./conversation/PlanChecklistPanel.tsx";
+import { filterDuplicateWaitingIndicators } from "./TimelineItemRenderer.tsx";
 
 const CONVERSATION_KEYBINDING_CATEGORIES = ["Conversation"] as const;
 
@@ -464,7 +465,13 @@ export const ConversationPanel = React.memo(function ConversationPanel({
       terminalRows,
     ],
   );
-  const renderableDisplayItems = hideTranscriptDuringPicker ? [] : displayItems;
+  const renderableDisplayItems = useMemo(
+    () =>
+      hideTranscriptDuringPicker
+        ? []
+        : filterDuplicateWaitingIndicators(displayItems),
+    [displayItems, hideTranscriptDuringPicker],
+  );
   const viewport = useMemo(
     () =>
       computeConversationViewport(

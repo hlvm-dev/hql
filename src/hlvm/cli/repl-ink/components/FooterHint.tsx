@@ -1,9 +1,9 @@
 /**
- * Footer Component
+ * Footer Hint Component
  *
- * Single-line Codex-style footer:
- * - Left: context-aware status / action hints
- * - Right: model name + optional context usage
+ * Single-line hints-only footer (below TuiStatusLine):
+ * - Shows context-aware status / action hints
+ * - Model info / context usage is rendered by TuiStatusLine
  */
 
 import React from "react";
@@ -20,7 +20,6 @@ import { getShellContentWidth } from "../utils/layout-tokens.ts";
 import { truncate } from "../../../../common/utils.ts";
 import { getPlanPhaseLabel } from "./conversation/plan-flow.ts";
 import {
-  buildContextUsageMiniBar,
   fitShellFooterSegments,
   formatShellFooterText,
   SHELL_SEGMENT_SEPARATOR,
@@ -43,10 +42,7 @@ interface FooterProps {
     toolIndex: number;
     toolTotal: number;
   };
-  modelName?: string;
-  runtimeModeLabel?: string;
   statusMessage?: string;
-  contextUsageLabel?: string;
   modeLabel?: string;
   planningPhase?: PlanningPhase;
   interactionQueueLength?: number;
@@ -58,15 +54,6 @@ interface FooterProps {
   hasPendingPlanReview?: boolean;
   hasPendingQuestion?: boolean;
   suppressInteractionHints?: boolean;
-  teamActive?: boolean;
-  teamAttentionCount?: number;
-  teamFocusLabel?: string;
-  teamWorkerSummary?: string;
-  localAgentCount?: number;
-  pendingInteractionLabel?: string;
-  activeTaskCount?: number;
-  recentActiveTaskLabel?: string;
-  aiAvailable?: boolean;
   conversationQueueCount?: number;
   localEvalQueueCount?: number;
   submitAction?: SubmitAction;
@@ -93,14 +80,6 @@ interface FooterLeftStateInput {
   hasPendingPlanReview?: boolean;
   hasPendingQuestion?: boolean;
   suppressInteractionHints?: boolean;
-  teamActive?: boolean;
-  teamAttentionCount?: number;
-  teamFocusLabel?: string;
-  teamWorkerSummary?: string;
-  localAgentCount?: number;
-  pendingInteractionLabel?: string;
-  activeTaskCount?: number;
-  recentActiveTaskLabel?: string;
   spinner: string;
   statusMessage?: string;
   conversationQueueCount?: number;
@@ -127,14 +106,6 @@ function getQueuedInputLabel(
   if (totalCount === 0) return undefined;
   return `+${totalCount} next`;
 }
-
-/** Constant returned when the footer should yield to another surface (dialog, etc.). */
-const EMPTY_FOOTER: FooterLeftState = Object.freeze({
-  mode: "message" as const,
-  segments: [] as ShellFooterSegment[],
-  text: "",
-  tone: "muted" as const,
-});
 
 /** Push a mode-chip segment (e.g. "Full auto", "Plan mode") into `segments`. */
 function pushModeChipSegment(
@@ -219,24 +190,43 @@ export function buildFooterLeftState({
     };
   }
 
-  // Warning / interaction states — yield to the dialog surface
-  const suppressedByPicker = suppressInteractionHints &&
-    (hasPendingPlanReview || hasPendingQuestion);
+  const segments: ShellFooterSegment[] = [];
+  pushModeChipSegment(segments, modeChip);
+
   if (
-    suppressedByPicker || hasPendingPlanReview || hasPendingPermission ||
-    hasPendingQuestion ||
+    hasPendingPlanReview || hasPendingPermission || hasPendingQuestion ||
     streamingState === ConversationStreamingState.WaitingForConfirmation
   ) {
-    return EMPTY_FOOTER;
+    segments.push({
+      text: hasPendingPlanReview
+        ? "Plan review pending"
+        : hasPendingQuestion
+        ? "Clarification needed"
+        : "Permission needed",
+      tone: "warning",
+      chip: true,
+    });
+    if (queuedCount > 0) {
+      segments.push({ text: `+${queuedCount} queued`, tone: "active" });
+    }
+    const interactionHint = suppressInteractionHints
+      ? "Use arrows or 1-9 below · Enter submit · Esc cancel"
+      : hasPendingQuestion
+      ? "Type or choose below · Enter submit · Esc cancel"
+      : "Review below · Enter submit · Esc cancel";
+    segments.push({ text: interactionHint, tone: "muted" });
+    return {
+      mode: "segments",
+      segments,
+      text: formatShellFooterText(segments),
+      tone: "muted",
+    };
   }
 
   // Status message (mode switch flash, etc.) - show after high-priority warnings
   if (statusMessage) {
     return { mode: "message", segments: [], text: statusMessage, tone: "muted" };
   }
-
-  const segments: ShellFooterSegment[] = [];
-  pushModeChipSegment(segments, modeChip);
 
   if (queuedCount > 0) {
     segments.push({ text: `+${queuedCount} queued`, tone: "active" });
@@ -304,36 +294,10 @@ export function buildFooterLeftState({
   };
 }
 
-interface FooterRightStateInput {
-  modelName?: string;
-  runtimeModeLabel?: string;
-  contextUsageLabel?: string;
-}
-
-export function buildFooterRightState({
-  modelName,
-  runtimeModeLabel,
-  contextUsageLabel,
-}: FooterRightStateInput): { infoParts: string[]; infoText: string } {
-  const usageDisplay = contextUsageLabel
-    ? buildContextUsageMiniBar(contextUsageLabel)
-    : undefined;
-  const infoParts = [usageDisplay, runtimeModeLabel, modelName].filter(
-    (part): part is string => Boolean(part && part.trim()),
-  );
-  return {
-    infoParts,
-    infoText: infoParts.join(SHELL_SEGMENT_SEPARATOR),
-  };
-}
-
 export const FooterHint = React.memo(function FooterHint({
   streamingState,
   activeTool,
-  modelName,
-  runtimeModeLabel,
   statusMessage,
-  contextUsageLabel,
   modeLabel,
   planningPhase,
   interactionQueueLength = 0,
@@ -345,22 +309,12 @@ export const FooterHint = React.memo(function FooterHint({
   hasPendingPlanReview,
   hasPendingQuestion,
   suppressInteractionHints,
-  teamActive,
-  teamAttentionCount,
-  teamFocusLabel,
-  teamWorkerSummary,
-  localAgentCount,
-  pendingInteractionLabel,
-  activeTaskCount,
-  recentActiveTaskLabel,
-  aiAvailable = false,
   conversationQueueCount,
   localEvalQueueCount,
   submitAction,
 }: FooterProps): React.ReactElement {
   const { stdout } = useStdout();
   const sc = useSemanticColors();
-  const model = modelName ?? "";
   const spinner = useConversationSpinnerFrame(
     streamingState === ConversationStreamingState.Responding,
   ) ?? STATUS_GLYPHS.running;
@@ -379,14 +333,6 @@ export const FooterHint = React.memo(function FooterHint({
     hasPendingPlanReview,
     hasPendingQuestion,
     suppressInteractionHints,
-    teamActive,
-    teamAttentionCount,
-    teamFocusLabel,
-    teamWorkerSummary,
-    localAgentCount,
-    pendingInteractionLabel,
-    activeTaskCount,
-    recentActiveTaskLabel,
     spinner,
     statusMessage,
     conversationQueueCount,
@@ -394,27 +340,11 @@ export const FooterHint = React.memo(function FooterHint({
     submitAction,
   });
 
-  const right = buildFooterRightState({
-    modelName: model,
-    runtimeModeLabel,
-    contextUsageLabel,
-  });
-
   const rawTerminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const contentWidth = getShellContentWidth(rawTerminalWidth);
 
-  // Single line: left status ... right model info
-  const maxRightWidth = Math.max(8, Math.floor(contentWidth * 0.45));
-  const rightText = truncate(right.infoText, maxRightWidth);
-  const rightParts = rightText === right.infoText
-    ? right.infoParts
-    : [rightText];
-
-  // Reserve space for right side, truncate left to fit
-  // +2 accounts for the "● " health dot prefix rendered before right parts
-  const rightLen = rightParts.length > 0 ? rightText.length + 2 : 0;
-  const gap = 2; // minimum gap between left and right
-  const leftMaxWidth = Math.max(8, contentWidth - rightLen - gap);
+  // Hints-only line — right side is handled by TuiStatusLine above
+  const leftMaxWidth = Math.max(8, contentWidth - 2);
   const fittedSegments = left.mode === "segments"
     ? fitShellFooterSegments(left.segments, leftMaxWidth)
     : [];
@@ -457,59 +387,27 @@ export const FooterHint = React.memo(function FooterHint({
   };
 
   return (
-    <Box flexDirection="column">
-      <Box
-        flexGrow={1}
-        flexDirection="row"
-        justifyContent="space-between"
-        paddingLeft={1}
-        paddingRight={1}
-      >
-        <Box>
-          {left.mode === "message"
-            ? (
-              <Text
-                color={left.tone === "warning"
-                  ? sc.status.warning
-                  : sc.text.muted}
-              >
-                {leftText}
+    <Box paddingLeft={1} paddingRight={1}>
+      {left.mode === "message"
+        ? (
+          <Text
+            color={left.tone === "warning"
+              ? sc.status.warning
+              : sc.text.muted}
+          >
+            {leftText}
+          </Text>
+        )
+        : fittedSegments.map((segment, index) => (
+          <React.Fragment key={`${segment.text}-${index}`}>
+            {index > 0 && (
+              <Text color={sc.shell.separator}>
+                {SHELL_SEGMENT_SEPARATOR}
               </Text>
-            )
-            : fittedSegments.map((segment, index) => (
-              <React.Fragment key={`${segment.text}-${index}`}>
-                {index > 0 && (
-                  <Text color={sc.shell.separator}>
-                    {SHELL_SEGMENT_SEPARATOR}
-                  </Text>
-                )}
-                {renderSegment(segment, index)}
-              </React.Fragment>
-            ))}
-        </Box>
-        {rightParts.length > 0 && (
-          <Box>
-            <Text
-              color={aiAvailable
-                ? sc.footer.status.ready
-                : sc.footer.status.error}
-            >
-              {STATUS_GLYPHS.running}
-              {" "}
-            </Text>
-            {rightParts.map((part, index) => (
-              <React.Fragment key={`${part}-${index}`}>
-                {index > 0 && (
-                  <Text color={sc.shell.separator}>
-                    {SHELL_SEGMENT_SEPARATOR}
-                  </Text>
-                )}
-                <Text color={sc.text.muted}>{part}</Text>
-              </React.Fragment>
-            ))}
-          </Box>
-        )}
-      </Box>
+            )}
+            {renderSegment(segment, index)}
+          </React.Fragment>
+        ))}
     </Box>
   );
 });

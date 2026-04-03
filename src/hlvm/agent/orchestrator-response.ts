@@ -518,7 +518,7 @@ function formatPlanForExecution(
     ...(directFileLine ? [directFileLine] : []),
     "If the user already named the file, work in that file directly instead of doing broad repo-wide searches.",
     "Prefer dedicated tools first: use read_file/list_files/search_code for inspection and edit_file/write_file for changes.",
-    "For approved filesystem-organization steps such as mkdir, mv, cp, or rm, use shell_exec directly instead of asking for another planning clarification.",
+    "For approved filesystem-organization steps such as mkdir, mv, cp, or rm, use shell_exec directly instead of asking for another planning clarification. Note: shell_exec expands ~, *, ?, and $VAR through a real shell when these are present.",
     "Use git_diff/git_status for repo inspection instead of shell_exec git commands whenever those tools are available.",
     "If read_file already gave you the needed context for the named file, skip extra search_code or whole-file shell_exec and move straight to edit_file.",
     "If read_file is truncated or a search fails once, immediately switch to a more precise read-only inspection method such as shell_exec with rg -n or sed -n instead of repeating the same search.",
