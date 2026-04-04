@@ -992,24 +992,6 @@ interface ServerRegistration {
   connected: McpConnectedServer;
 }
 
-export interface McpCapabilityInspectionTool {
-  rawToolName: string;
-  registeredToolName: string;
-  semanticCapabilities: string[];
-}
-
-export interface McpCapabilityInspectionServer {
-  name: string;
-  scope: McpScope;
-  scopeLabel: string;
-  transport: "http" | "sse" | "stdio";
-  target: string;
-  reachable: boolean;
-  toolCount: number;
-  contributingTools: McpCapabilityInspectionTool[];
-  reason?: string;
-}
-
 /** Connect to a server, list+register its tools/resources/prompts. */
 async function connectAndRegisterServer(
   server: McpServerConfig,
@@ -1283,88 +1265,4 @@ export async function loadMcpTools(
     setHandlers,
     setSignal,
   };
-}
-
-async function inspectMcpServer(
-  server: McpServerWithScope,
-): Promise<McpCapabilityInspectionServer> {
-  const entry = formatServerEntry(server);
-  const fallback: McpCapabilityInspectionServer = {
-    name: server.name,
-    scope: server.scope,
-    scopeLabel: entry.scopeLabel,
-    transport: server.url ? (server.transport ?? "http") : "stdio",
-    target: entry.target,
-    reachable: false,
-    toolCount: 0,
-    contributingTools: [],
-    reason: "connection unavailable",
-  };
-  const client = await connectWithTimeout(server, undefined, {
-    interactiveAuth: false,
-  });
-  if (!client) return fallback;
-
-  try {
-    const disabledSet = server.disabled_tools?.length
-      ? new Set(server.disabled_tools)
-      : null;
-    const allTools = await client.listTools();
-    const tools = disabledSet
-      ? allTools.filter((tool) => !disabledSet.has(tool.name))
-      : allTools;
-    const contributingTools = tools.flatMap((tool) => {
-      const semanticCapabilities = resolveMcpSemanticCapabilities(tool);
-      if (!semanticCapabilities?.length) return [];
-      return [{
-        rawToolName: tool.name,
-        registeredToolName: sanitizeToolName(`mcp_${server.name}_${tool.name}`),
-        semanticCapabilities,
-      }];
-    });
-
-    return {
-      name: server.name,
-      scope: server.scope,
-      scopeLabel: entry.scopeLabel,
-      transport: server.url ? (server.transport ?? "http") : "stdio",
-      target: entry.target,
-      reachable: true,
-      toolCount: tools.length,
-      contributingTools,
-    };
-  } catch (error) {
-    warnMcpConnectSkip(server.name, error);
-    return {
-      ...fallback,
-      reason: summarizeConnectError(error),
-    };
-  } finally {
-    await client.close().catch(() => undefined);
-  }
-}
-
-export async function inspectMcpServersForCapabilities(
-  extraServers?: McpServerConfig[],
-): Promise<McpCapabilityInspectionServer[]> {
-  const configServers = await loadMcpConfigMultiScope();
-  const merged = dedupeServers([
-    ...configServers,
-    ...(extraServers ?? []).map((server) => ({
-      ...server,
-      scope: "user" as const,
-    })),
-  ]);
-  if (merged.length === 0) return [];
-
-  const results = pooledMap(
-    MCP_CONNECT_CONCURRENCY,
-    merged,
-    (server) => inspectMcpServer(server as McpServerWithScope),
-  );
-  const servers: McpCapabilityInspectionServer[] = [];
-  for await (const result of results) {
-    servers.push(result);
-  }
-  return servers;
 }
