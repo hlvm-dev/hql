@@ -71,12 +71,6 @@ import {
 import { parse as parseCsv } from "jsr:@std/csv/parse";
 import { emitDelegateBatchProgress } from "./delegate-batch-progress.ts";
 import type { WriteVerificationResult } from "./lsp-diagnostics.ts";
-import {
-  normalizeWebCapabilitySelectors,
-  projectToolSearchResultsForWebCapabilities,
-  type ResolvedProviderExecutionPlan,
-  resolveProviderExecutionPlan,
-} from "./tool-capabilities.ts";
 
 const CHECKPOINT_SUPPORTED_MUTATION_TOOLS = new Set([
   "write_file",
@@ -232,7 +226,6 @@ interface ToolTimeoutOptions {
   timeout: number;
   toolAllowlist?: string[];
   toolDenylist?: string[];
-  providerExecutionPlan?: ResolvedProviderExecutionPlan;
 }
 
 /**
@@ -249,7 +242,6 @@ async function executeToolWithTimeout(
     timeout,
     toolAllowlist,
     toolDenylist,
-    providerExecutionPlan,
   } = opts;
   return await withTimeout(
     async (signal) => {
@@ -268,21 +260,14 @@ async function executeToolWithTimeout(
         todoState: config.todoState,
         fileStateCache: config.fileStateCache,
         searchTools: (query, options) =>
-          projectToolSearchResultsForWebCapabilities(
-            searchTools(query, {
-              ...options,
-              allowlist: normalizeWebCapabilitySelectors(
-                options?.allowlist ?? config.toolSearchUniverseAllowlist ??
-                  toolAllowlist,
-              ),
-              denylist: normalizeWebCapabilitySelectors(
-                options?.denylist ?? config.toolSearchUniverseDenylist ??
-                  toolDenylist,
-              ),
-              ownerId: options?.ownerId ?? config.toolOwnerId,
-            }),
-            providerExecutionPlan,
-          ),
+          searchTools(query, {
+            ...options,
+            allowlist: options?.allowlist ?? config.toolSearchUniverseAllowlist ??
+              toolAllowlist,
+            denylist: options?.denylist ?? config.toolSearchUniverseDenylist ??
+              toolDenylist,
+            ownerId: options?.ownerId ?? config.toolOwnerId,
+          }),
         teamRuntime: config.teamRuntime,
         teamMemberId: config.teamMemberId,
         teamLeadMemberId: config.teamLeadMemberId,
@@ -965,12 +950,6 @@ export async function executeToolCall(
       config.toolAllowlist;
     const currentToolDenylist = config.toolFilterState?.denylist ??
       config.toolDenylist;
-    const providerExecutionPlan = config.providerExecutionPlan ??
-      resolveProviderExecutionPlan({
-        providerName: "ollama",
-        allowlist: currentToolAllowlist,
-        denylist: currentToolDenylist,
-      });
     const runTool = (args: unknown = coercedArgs) =>
       executeToolWithTimeout({
         toolFn: tool.fn,
@@ -980,7 +959,6 @@ export async function executeToolCall(
         timeout: toolTimeout,
         toolAllowlist: currentToolAllowlist,
         toolDenylist: currentToolDenylist,
-        providerExecutionPlan,
       });
     let result: unknown;
     try {

@@ -11,14 +11,8 @@
 import {
   getToolRegistryGeneration,
   resolveTools,
-  type ToolMetadata,
 } from "./registry.ts";
 import type { AgentProfile } from "./agent-registry.ts";
-import {
-  normalizeWebCapabilitySelectors,
-  projectPromptToolsForWebCapabilities,
-  type ResolvedProviderExecutionPlan,
-} from "./tool-capabilities.ts";
 import { buildToolJsonSchema } from "./tool-schema.ts";
 import type { ModelTier } from "./constants.ts";
 import {
@@ -131,8 +125,6 @@ export interface SystemPromptOptions {
   modelTier?: ModelTier;
   /** Preloaded agent profiles for delegation guidance. */
   agentProfiles?: readonly AgentProfile[];
-  /** Session-resolved provider execution plan for prompt projection. */
-  providerExecutionPlan?: ResolvedProviderExecutionPlan;
   /** Full instruction hierarchy (overrides customInstructions when provided). */
   instructions?: InstructionHierarchy;
 }
@@ -145,16 +137,11 @@ export function compileSystemPrompt(
   options: SystemPromptOptions = {},
 ): CompiledPrompt {
   const tier = options.modelTier ?? "mid";
-  const providerExecutionPlan = options.providerExecutionPlan;
-  const resolvedTools = resolveTools({
-    allowlist: normalizeWebCapabilitySelectors(options.toolAllowlist),
-    denylist: normalizeWebCapabilitySelectors(options.toolDenylist),
+  const tools = resolveTools({
+    allowlist: options.toolAllowlist,
+    denylist: options.toolDenylist,
     ownerId: options.toolOwnerId,
   });
-  const tools = projectPromptToolsForWebCapabilities(
-    resolvedTools,
-    providerExecutionPlan,
-  );
 
   const instructions: InstructionHierarchy = options.instructions ??
     EMPTY_INSTRUCTIONS;
@@ -166,7 +153,6 @@ export function compileSystemPrompt(
     instructions,
     agentProfiles: options.agentProfiles,
     querySource: options.querySource,
-    providerExecutionPlan,
   });
 }
 

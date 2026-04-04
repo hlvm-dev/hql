@@ -7,15 +7,6 @@
 
 import type { ToolMetadata } from "../agent/registry.ts";
 import type { AgentProfile } from "../agent/agent-registry.ts";
-import {
-  CUSTOM_WEB_SEARCH_TOOL_NAME,
-  getResolvedWebCapabilityPlan,
-  NATIVE_WEB_SEARCH_TOOL_NAME,
-  RAW_URL_FETCH_TOOL_NAME,
-  REMOTE_CODE_EXECUTE_TOOL_NAME,
-  type ResolvedProviderExecutionPlan,
-  WEB_PAGE_READ_TOOL_NAME,
-} from "../agent/tool-capabilities.ts";
 import { MEMORY_TOOLS } from "../memory/mod.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { type ModelTier, tierMeetsMinimum } from "../agent/constants.ts";
@@ -61,6 +52,11 @@ const SECTION_STABILITY: Record<string, PromptSectionStability> = {
   delegation: "session",
   team_coordination: "session",
 };
+
+const CUSTOM_WEB_SEARCH_TOOL_NAME = "search_web";
+const NATIVE_WEB_SEARCH_TOOL_NAME = "web_search";
+const RAW_URL_FETCH_TOOL_NAME = "fetch_url";
+const WEB_PAGE_READ_TOOL_NAME = "web_fetch";
 
 function annotateSection(section: RawPromptSection): PromptSection {
   return {
@@ -225,9 +221,7 @@ function renderPermissionTiers(
 
 function renderWebToolGuidance(
   tools: Record<string, ToolMetadata>,
-  plan?: ResolvedProviderExecutionPlan,
 ): RawPromptSection {
-  const webPlan = getResolvedWebCapabilityPlan(plan);
   const hasCustomSearch = CUSTOM_WEB_SEARCH_TOOL_NAME in tools;
   const hasNativeSearch = NATIVE_WEB_SEARCH_TOOL_NAME in tools;
   const hasSearch = hasCustomSearch || hasNativeSearch;
@@ -254,16 +248,9 @@ function renderWebToolGuidance(
     );
   }
   if (hasWebFetch) {
-    if (webPlan?.capabilities.web_page_read.implementation === "native") {
-      lines.push(
-        "- web_fetch is a provider-native readable-page reader for a single known page in the default path.",
-        "- Use native web_fetch only for one known page. Do not use it for batch reads, raw HTML, or shaped fetches like maxChars.",
-      );
-    } else {
-      lines.push(
-        "- web_fetch is the default reader for a known page URL after search results identify the source.",
-      );
-    }
+    lines.push(
+      "- web_fetch is the default reader for a known page URL after search results identify the source.",
+    );
   }
   if (hasFetchUrl) {
     lines.push(
@@ -277,23 +264,6 @@ function renderWebToolGuidance(
   }
 
   return { id: "web_guidance", content: lines.join("\n"), minTier: "weak" };
-}
-
-function renderRemoteExecutionGuidance(
-  tools: Record<string, ToolMetadata>,
-): RawPromptSection {
-  if (!(REMOTE_CODE_EXECUTE_TOOL_NAME in tools)) {
-    return { id: "remote_exec_guidance", content: "", minTier: "weak" };
-  }
-
-  return {
-    id: "remote_exec_guidance",
-    content: `# Remote Code Execution
-- remote_code_execute runs inline code in a provider-hosted sandbox.
-- It is not the same thing as local compute or workspace access.
-- Do not assume provider filesystem, package availability, or network access beyond what the provider explicitly supports.`,
-    minTier: "weak",
-  };
 }
 
 function renderEnvironment(): RawPromptSection {
@@ -520,7 +490,6 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
     tier,
     instructions,
     agentProfiles,
-    providerExecutionPlan,
   } = input;
 
   const sections: RawPromptSection[] = [
@@ -528,8 +497,7 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
     renderCriticalRules(tools, input.querySource),
     renderInstructions(tier),
     renderToolRouting(tools),
-    renderWebToolGuidance(tools, providerExecutionPlan),
-    renderRemoteExecutionGuidance(tools),
+    renderWebToolGuidance(tools),
     renderPermissionTiers(tools),
     renderEnvironment(),
   ];

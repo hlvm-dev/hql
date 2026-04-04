@@ -42,7 +42,6 @@ import {
   responseAsksQuestion,
 } from "./model-compat.ts";
 import { renderEditFileRecoveryPrompt } from "./error-taxonomy.ts";
-import { getProviderExecutedToolNameSet } from "./tool-capabilities.ts";
 import {
   advancePlanState,
   createPlanState,
@@ -480,15 +479,7 @@ function canRepairTextEnvelopeIntoLocalToolCall(
   toolName: string,
   config: OrchestratorConfig,
 ): boolean {
-  if (!hasTool(toolName, config.toolOwnerId)) {
-    return false;
-  }
-  if (!config.providerExecutionPlan) {
-    return true;
-  }
-  return !getProviderExecutedToolNameSet(config.providerExecutionPlan).has(
-    toolName,
-  );
+  return hasTool(toolName, config.toolOwnerId);
 }
 
 function formatPlanPreview(

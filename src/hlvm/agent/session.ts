@@ -50,11 +50,6 @@ import {
   type LspDiagnosticsRuntime,
 } from "./lsp-diagnostics.ts";
 import {
-  resolveProviderExecutionPlan,
-  type ResolvedProviderExecutionPlan,
-  type ResolvedWebCapabilityPlan,
-} from "./tool-capabilities.ts";
-import {
   isMemorySystemMessage,
   isPersistentMemoryEnabled,
   loadMemorySystemMessage,
@@ -92,8 +87,6 @@ interface AgentSessionOptions {
   agentProfiles?: readonly AgentProfile[];
   /** Disable persistent memory injection for this session. */
   disablePersistentMemory?: boolean;
-  /** Precomputed provider execution plan for the session. */
-  providerExecutionPlan?: ResolvedProviderExecutionPlan;
   /** Persistent deferred-tool discoveries carried across turns. */
   discoveredDeferredTools?: Iterable<string>;
 }
@@ -110,8 +103,6 @@ interface RefreshAgentSessionOptions {
   instructions?: InstructionHierarchy;
   /** Preloaded agent profiles for delegation guidance. */
   agentProfiles?: readonly AgentProfile[];
-  /** Precomputed provider execution plan for the turn. */
-  providerExecutionPlan?: ResolvedProviderExecutionPlan;
 }
 
 export interface AgentSession {
@@ -145,10 +136,6 @@ export interface AgentSession {
   resetToolFilter?: () => void;
   /** Deferred specialized tools discovered via tool_search and kept across turns. */
   discoveredDeferredTools: Set<string>;
-  /** Session-resolved provider execution plan reused across prompt/tool execution. */
-  providerExecutionPlan?: ResolvedProviderExecutionPlan;
-  /** Session-resolved web capability plan reused across prompt/tool execution. */
-  webCapabilityPlan?: ResolvedWebCapabilityPlan;
   /** Lazy MCP loader (connect/register only when first needed). */
   ensureMcpLoaded?: (signal?: AbortSignal) => Promise<void>;
   /** Deferred MCP handler registration (sampling, elicitation, roots) */
@@ -215,7 +202,6 @@ function buildCompiledPromptArtifacts(options: {
   instructions?: InstructionHierarchy;
   modelTier: ModelTier;
   agentProfiles?: readonly AgentProfile[];
-  providerExecutionPlan?: ResolvedProviderExecutionPlan;
 }): {
   compiledPrompt: NonNullable<AgentLLMConfig["compiledPrompt"]>;
   compiledPromptMeta: AgentSession["compiledPromptMeta"];
@@ -229,7 +215,6 @@ function buildCompiledPromptArtifacts(options: {
     instructions: options.instructions,
     modelTier: options.modelTier,
     agentProfiles: options.agentProfiles,
-    providerExecutionPlan: options.providerExecutionPlan,
   });
 
   return {
@@ -279,8 +264,6 @@ export async function refreshReusableAgentSession(
   session: AgentSession,
   options: RefreshAgentSessionOptions = {},
 ): Promise<AgentSession> {
-  const providerExecutionPlan = options.providerExecutionPlan ??
-    session.providerExecutionPlan;
   const instructions = options.instructions ?? session.instructions;
   const agentProfiles = options.agentProfiles ?? session.agentProfiles;
   const allowlist = session.toolFilterBaseline?.allowlist ??
@@ -295,7 +278,6 @@ export async function refreshReusableAgentSession(
     instructions,
     modelTier: session.modelTier,
     agentProfiles,
-    providerExecutionPlan,
   });
 
   const context = new ContextManager(session.context.getConfig());
@@ -337,7 +319,6 @@ export async function refreshReusableAgentSession(
       ...session.llmConfig,
       onToken: options.onToken,
       querySource: options.querySource ?? session.querySource,
-      providerExecutionPlan,
       compiledPrompt: promptArtifacts.compiledPrompt,
     }
     : undefined;
@@ -350,9 +331,7 @@ export async function refreshReusableAgentSession(
     llm,
     context,
     llmConfig,
-    providerExecutionPlan,
     querySource: options.querySource ?? session.querySource,
-    webCapabilityPlan: providerExecutionPlan?.web,
     compiledPromptMeta: promptArtifacts.compiledPromptMeta,
     instructions,
     agentProfiles,
@@ -524,14 +503,6 @@ export async function createAgentSession(
   contextConfig.buildRestorationHints = (maxContextTokens: number) =>
     fileStateCache.buildRestorationHints(maxContextTokens);
 
-  const providerExecutionPlan = options.providerExecutionPlan ??
-    resolveProviderExecutionPlan({
-      providerName: extractProviderName(options.model),
-      allowlist: toolFilterState.allowlist,
-      denylist: toolFilterState.denylist,
-    });
-  const webCapabilityPlan = providerExecutionPlan.web;
-
   const context = new ContextManager(contextConfig);
 
   const promptArtifacts = buildCompiledPromptArtifacts({
@@ -542,7 +513,6 @@ export async function createAgentSession(
     modelTier,
     instructions: options.instructions,
     agentProfiles: options.agentProfiles,
-    providerExecutionPlan,
   });
   context.addMessage({
     role: "system",
@@ -583,7 +553,6 @@ export async function createAgentSession(
       onToken: options.onToken,
       querySource: options.querySource,
       thinkingCapable,
-      providerExecutionPlan,
       compiledPrompt: promptArtifacts.compiledPrompt,
     };
   const llm = options.fixturePath
@@ -630,8 +599,6 @@ export async function createAgentSession(
     toolFilterBaseline,
     resetToolFilter,
     discoveredDeferredTools: new Set(options.discoveredDeferredTools ?? []),
-    providerExecutionPlan,
-    webCapabilityPlan,
     ensureMcpLoaded,
     mcpSetHandlers,
     mcpSetSignal,

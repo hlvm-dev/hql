@@ -7,7 +7,6 @@
 import type { ModelTier } from "../agent/constants.ts";
 import type { ToolMetadata } from "../agent/registry.ts";
 import type { AgentProfile } from "../agent/agent-registry.ts";
-import type { ResolvedProviderExecutionPlan } from "../agent/tool-capabilities.ts";
 
 /** Prompt assembly mode — determines which sections are included. */
 export type PromptMode = "chat" | "agent";
@@ -56,7 +55,6 @@ export interface PromptCompilerInput {
   instructions: InstructionHierarchy;
   agentProfiles?: readonly AgentProfile[];
   querySource?: string;
-  providerExecutionPlan?: ResolvedProviderExecutionPlan;
 }
 
 /** Section metadata in the compiled output. */
