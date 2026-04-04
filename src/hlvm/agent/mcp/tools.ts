@@ -692,7 +692,6 @@ function buildToolEntry(
   const skipValidation = Object.keys(argsSchema).length === 0 ||
     !supportsStrictMcpValidation(tool.inputSchema);
   const safetyLevel = inferMcpSafetyLevel(tool.name, tool.description);
-  const semanticCapabilities = resolveMcpSemanticCapabilities(tool);
   const presentationKind = inferMcpPresentationKind(
     tool.name,
     tool.description,
@@ -728,26 +727,8 @@ function buildToolEntry(
     presentation: { kind: presentationKind },
     safetyLevel,
     safety: inferMcpSafetyReason(safetyLevel),
-    semanticCapabilities,
     formatResult: formatMcpToolExecutionResult,
   };
-}
-
-function readCapabilitiesFromMeta(
-  meta: Record<string, unknown> | undefined | null,
-): string[] | undefined {
-  if (!meta) return undefined;
-  const raw = (meta as Record<string, unknown>)["semanticCapabilities"] ??
-    (meta as Record<string, unknown>)["semantic_capabilities"];
-  return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : undefined;
-}
-
-function resolveMcpSemanticCapabilities(
-  tool: Pick<McpToolInfo, "metadata" | "annotations" | "_meta">,
-): string[] | undefined {
-  return readCapabilitiesFromMeta(tool.metadata as Record<string, unknown>) ??
-    readCapabilitiesFromMeta(tool.annotations as Record<string, unknown>) ??
-    readCapabilitiesFromMeta(tool._meta as Record<string, unknown>);
 }
 
 // ============================================================

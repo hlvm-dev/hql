@@ -31,20 +31,8 @@ import type {
   ToolCall,
 } from "./tool-call.ts";
 import { buildToolDefinitions } from "./llm-integration.ts";
-import {
-  getActiveProviderExecutionToolNames,
-  getProviderExecutedToolNameSet,
-  getResolvedProviderExecutionPlan,
-  getResolvedWebCapabilityPlan,
-  isWebCapabilityToolName,
-  NATIVE_WEB_SEARCH_TOOL_NAME,
-  normalizeWebCapabilitySelectors,
-  type ResolvedProviderExecutionPlan,
-  type ResolvedWebCapabilityPlan,
-  resolveProviderExecutionPlan,
-} from "./tool-capabilities.ts";
 import { canonicalizeForSignature } from "./orchestrator-tool-formatting.ts";
-import { getToolRegistryGeneration, resolveTools } from "./registry.ts";
+import { getToolRegistryGeneration } from "./registry.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
@@ -73,7 +61,6 @@ import {
   type SdkModelSpec as SdkRuntimeModelSpec,
   type SdkProviderBundle,
 } from "../providers/sdk-runtime.ts";
-import { getNativeProviderCapabilityAvailability } from "../providers/native-web-tools.ts";
 import {
   resolveThinkingProfile,
   supportsNativeThinking,
@@ -147,69 +134,14 @@ async function getSdkProviderBundleFromSpec(
   return await createSdkProviderBundle(toSdkRuntimeModelSpec(spec));
 }
 
-export function mergeSdkWebCapabilityTools(
+export function mergeSdkTools(
   customTools: ToolSet,
   nativeTools: ToolSet,
-  plan?: ResolvedProviderExecutionPlan | ResolvedWebCapabilityPlan,
 ): ToolSet {
-  const merged: ToolSet = { ...customTools };
-  if (!plan) return merged;
-
-  const providerExecutionPlan = getResolvedProviderExecutionPlan(plan);
-  const webPlan = getResolvedWebCapabilityPlan(plan);
-  if (!webPlan) return merged;
-
-  for (const capability of Object.values(webPlan.capabilities)) {
-    if (capability.implementation === "disabled") {
-      delete merged[capability.customToolName];
-      if (
-        capability.nativeToolName &&
-        capability.nativeToolName !== capability.customToolName
-      ) {
-        delete merged[capability.nativeToolName];
-      }
-      continue;
-    }
-
-    if (
-      capability.implementation !== "native" ||
-      !capability.nativeToolName ||
-      !(capability.customToolName in merged)
-    ) {
-      continue;
-    }
-
-    const nativeTool = nativeTools[capability.nativeToolName];
-    if (!nativeTool) continue;
-    if (capability.nativeToolName !== capability.customToolName) {
-      delete merged[capability.customToolName];
-    }
-    merged[capability.nativeToolName] = nativeTool;
-  }
-
-  if (!providerExecutionPlan) return merged;
-
-  const remotePlan = providerExecutionPlan.remoteCodeExecution;
-  if (remotePlan.implementation === "disabled") {
-    delete merged[remotePlan.customToolName];
-    return merged;
-  }
-
-  const nativeTool = nativeTools[remotePlan.nativeToolName];
-  if (nativeTool) {
-    merged[remotePlan.nativeToolName] = nativeTool;
-  }
-
-  // computer.use native tool merge
-  const computerUsePlan = providerExecutionPlan.computerUse;
-  if (computerUsePlan?.available && computerUsePlan.activeToolName) {
-    const nativeComputerTool = nativeTools[computerUsePlan.activeToolName];
-    if (nativeComputerTool) {
-      merged[computerUsePlan.activeToolName] = nativeComputerTool;
-    }
-  }
-
-  return merged;
+  return {
+    ...customTools,
+    ...nativeTools,
+  };
 }
 
 // ============================================================
@@ -229,12 +161,10 @@ export function mapSdkToolCalls(
 
 export function filterLocallyExecutableToolCalls(
   calls: ToolCall[],
-  plan?: ResolvedProviderExecutionPlan,
+  providerNativeToolNames?: ReadonlySet<string>,
 ): ToolCall[] {
-  const providerExecutedToolNames = plan
-    ? getProviderExecutedToolNameSet(plan)
-    : new Set<string>([NATIVE_WEB_SEARCH_TOOL_NAME]);
-  return calls.filter((call) => !providerExecutedToolNames.has(call.toolName));
+  if (!providerNativeToolNames?.size) return calls;
+  return calls.filter((call) => !providerNativeToolNames.has(call.toolName));
 }
 
 // ============================================================
@@ -924,19 +854,13 @@ export class SdkAgentEngine implements AgentEngine {
       const toolFilters = resolveToolFilters();
       const disableTools = callOptions?.disableTools === true;
       const toolFilterSignature = serializeToolFilters(toolFilters);
-      const normalizedAllowlist = normalizeWebCapabilitySelectors(
-        toolFilters.allowlist,
-      );
-      const normalizedDenylist = normalizeWebCapabilitySelectors(
-        toolFilters.denylist,
-      );
       if (
         generation !== lastToolGeneration ||
         toolFilterSignature !== lastToolFilterSignature
       ) {
         const toolDefs = buildToolDefinitions({
-          allowlist: normalizedAllowlist,
-          denylist: normalizedDenylist,
+          allowlist: toolFilters.allowlist,
+          denylist: toolFilters.denylist,
           ownerId: config.toolOwnerId,
         });
         cachedCustomSdkTools = convertToolDefinitionsToSdk(toolDefs) ?? {};
@@ -949,38 +873,17 @@ export class SdkAgentEngine implements AgentEngine {
         lastToolFilterSignature = toolFilterSignature;
       }
 
-      const nativeCapabilities = getNativeProviderCapabilityAvailability(
-        nativeTools,
-      );
-
       for (let attempt = 0; attempt < 2; attempt++) {
         const promptPayload = buildSystemPromptValue(
           messages,
           config.compiledPrompt,
         );
-        const providerExecutionPlan = disableTools
-          ? (config.providerExecutionPlan ??
-            resolveProviderExecutionPlan({
-              providerName: spec.providerName,
-              allowlist: [],
-              denylist: Object.keys(
-                resolveTools({ ownerId: config.toolOwnerId }),
-              ),
-              nativeCapabilities,
-            }))
-          : config.providerExecutionPlan ??
-          resolveProviderExecutionPlan({
-            providerName: spec.providerName,
-            allowlist: toolFilters.allowlist,
-            denylist: toolFilters.denylist,
-            nativeCapabilities,
-          });
+        const providerNativeToolNames = new Set(Object.keys(nativeTools));
         const sdkTools = disableTools
           ? {}
-          : mergeSdkWebCapabilityTools(
+          : mergeSdkTools(
             cachedCustomSdkTools,
             nativeTools,
-            providerExecutionPlan,
           );
 
         // Resolve Google explicit cache (async, best-effort) and merge into
@@ -1006,11 +909,7 @@ export class SdkAgentEngine implements AgentEngine {
 
         const effectiveToolSchemaSignature = buildStableSignature({
           tools: lastToolSchemaSignature,
-          activeWebTools: Object.keys(sdkTools).filter(isWebCapabilityToolName)
-            .sort(),
-          plannedProviderTools: getActiveProviderExecutionToolNames(
-            providerExecutionPlan,
-          ).sort(),
+          activeTools: Object.keys(sdkTools).sort(),
         });
         const cacheDecorated = applyPromptCaching(
           spec,
@@ -1088,7 +987,7 @@ export class SdkAgentEngine implements AgentEngine {
             ]);
             const mappedToolCalls = filterLocallyExecutableToolCalls(
               mapSdkToolCalls(toolCalls),
-              providerExecutionPlan,
+              providerNativeToolNames,
             );
             const normalizedProviderMetadata = normalizeProviderMetadata(
               providerMetadata,
@@ -1126,7 +1025,7 @@ export class SdkAgentEngine implements AgentEngine {
           const result = await generateText(commonOpts);
           const mappedToolCalls = filterLocallyExecutableToolCalls(
             mapSdkToolCalls(result.toolCalls),
-            providerExecutionPlan,
+            providerNativeToolNames,
           );
           const normalizedProviderMetadata = normalizeProviderMetadata(
             result.providerMetadata,
