@@ -10,10 +10,6 @@ import {
   generateSystemPrompt,
 } from "../../../src/hlvm/agent/llm-integration.ts";
 import {
-  REMOTE_CODE_EXECUTE_TOOL_NAME,
-  resolveProviderExecutionPlan,
-} from "../../../src/hlvm/agent/tool-capabilities.ts";
-import {
   classifyModelTier,
   tierMeetsMinimum,
 } from "../../../src/hlvm/agent/constants.ts";
@@ -66,68 +62,6 @@ Deno.test("LLM integration: prompt renders routing and permission sections witho
   assertEquals(prompt.includes("**Arguments:**"), false);
   assertEquals(prompt.includes("**Returns:**"), false);
   assertEquals(prompt.includes("Safety Level"), false);
-});
-
-Deno.test("LLM integration: native web-search mode removes search_web-specific guidance", () => {
-  const prompt = generateSystemPrompt({
-    providerExecutionPlan: resolveProviderExecutionPlan({
-      providerName: "openai",
-      nativeCapabilities: {
-        webSearch: true,
-        webPageRead: false,
-        remoteCodeExecution: false,
-      },
-    }),
-  });
-
-  assertStringIncludes(prompt, "# Web Tool Guidance");
-  assertStringIncludes(prompt, "web_search is for live web discovery");
-  assertEquals(prompt.includes("Use timeRange, not recency"), false);
-  assertEquals(prompt.includes("Use prefetch, not preFetch"), false);
-  assertEquals(prompt.includes("DuckDuckGo"), false);
-  assertStringIncludes(
-    prompt,
-    "web_fetch is the default reader for a known page URL",
-  );
-  assertStringIncludes(prompt, "fetch_url is for raw HTML/markdown");
-});
-
-Deno.test("LLM integration: remote code guidance appears only when explicitly enabled", () => {
-  const prompt = generateSystemPrompt({
-    providerExecutionPlan: resolveProviderExecutionPlan({
-      providerName: "google",
-      allowlist: ["remote_code_execute"],
-      nativeCapabilities: {
-        webSearch: true,
-        webPageRead: true,
-        remoteCodeExecution: true,
-      },
-    }),
-  });
-
-  assertStringIncludes(prompt, "# Remote Code Execution");
-  assertStringIncludes(prompt, "provider-hosted sandbox");
-  assertStringIncludes(prompt, "not the same thing as local compute");
-});
-
-Deno.test("LLM integration: auto-execution prompt guidance explains active code.exec routing", () => {
-  const providerExecutionPlan = resolveProviderExecutionPlan({
-    providerName: "google",
-    nativeCapabilities: {
-      webSearch: true,
-      webPageRead: true,
-      remoteCodeExecution: true,
-    },
-    allowlist: [REMOTE_CODE_EXECUTE_TOOL_NAME],
-  });
-  const prompt = generateSystemPrompt({
-    providerExecutionPlan,
-  });
-
-  assertStringIncludes(prompt, "# Auto Execution");
-  assertStringIncludes(prompt, "code.exec is active for this turn");
-  assertStringIncludes(prompt, "provider-hosted sandbox");
-  assertStringIncludes(prompt, "not local shell or workspace access");
 });
 
 Deno.test("LLM integration: prompt omits memory exceptions when memory tools are denied", () => {

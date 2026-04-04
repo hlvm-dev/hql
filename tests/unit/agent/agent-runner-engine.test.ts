@@ -14,7 +14,6 @@ import {
 } from "../../../src/hlvm/agent/engine.ts";
 import type { AgentUIEvent } from "../../../src/hlvm/agent/orchestrator.ts";
 import { createAgentSession } from "../../../src/hlvm/agent/session.ts";
-import { resolveProviderExecutionPlan } from "../../../src/hlvm/agent/tool-capabilities.ts";
 import type { ConversationAttachmentPayload } from "../../../src/hlvm/attachments/types.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
@@ -225,74 +224,6 @@ Deno.test({
           toolDenylist: ["ask_user", "complete_task"],
         }),
         false,
-      );
-    } finally {
-      await disposeAllSessions();
-      await platform.fs.remove(workspace, { recursive: true });
-    }
-  },
-});
-
-Deno.test({
-  name:
-    "agent-runner: reusable sessions retain the cached provider execution plan across reuse",
-  sanitizeOps: false,
-  sanitizeResources: false,
-  async fn() {
-    const platform = getPlatform();
-    const workspace = platform.path.join(
-      platform.process.cwd(),
-      ".tmp",
-      `hlvm-agent-cache-web-plan-${generateUUID()}`,
-    );
-    await platform.fs.mkdir(workspace, { recursive: true });
-
-    try {
-      const session = await createReusableSession(
-        workspace,
-        "ollama/llama3.2:3b",
-        {
-          toolAllowlist: ["web_search", "web_fetch"],
-          modelInfo: null,
-        },
-      );
-      const reused = await reuseSession(session);
-
-      assertEquals(!!session.providerExecutionPlan, true);
-      assertEquals(!!session.webCapabilityPlan, true);
-      assertEquals(
-        session.llmConfig?.providerExecutionPlan ===
-          session.providerExecutionPlan,
-        true,
-      );
-      assertEquals(
-        reused.providerExecutionPlan === session.providerExecutionPlan,
-        true,
-      );
-      assertEquals(
-        reused.webCapabilityPlan === session.webCapabilityPlan,
-        true,
-      );
-      assertEquals(
-        reused.llmConfig?.providerExecutionPlan ===
-          session.providerExecutionPlan,
-        true,
-      );
-      assertEquals(
-        reused.providerExecutionPlan?.routingProfile,
-        "conservative",
-      );
-      assertEquals(
-        reused.webCapabilityPlan?.capabilities.web_search.implementation,
-        "custom",
-      );
-      assertEquals(
-        reused.webCapabilityPlan?.capabilities.web_page_read.implementation,
-        "custom",
-      );
-      assertEquals(
-        reused.webCapabilityPlan?.capabilities.raw_url_fetch.implementation,
-        "disabled",
       );
     } finally {
       await disposeAllSessions();

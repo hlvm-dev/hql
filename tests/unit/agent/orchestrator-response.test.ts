@@ -13,7 +13,6 @@ import {
   resolveLoopConfig,
 } from "../../../src/hlvm/agent/orchestrator-state.ts";
 import { resolveTools } from "../../../src/hlvm/agent/registry.ts";
-import { resolveProviderExecutionPlan } from "../../../src/hlvm/agent/tool-capabilities.ts";
 import { buildCitationSourceIndex } from "../../../src/hlvm/agent/tools/web/citation-spans.ts";
 
 Deno.test("handleTextOnlyResponse retries when a model emits a plain-text function-style tool call", () => {
@@ -25,8 +24,8 @@ Deno.test("handleTextOnlyResponse retries when a model emits a plain-text functi
   const state = initializeLoopState(config);
 
   const result = handleTextOnlyResponse(
-    { content: 'web_search({query: "latest Deno blog"})', toolCalls: [] },
-    'web_search({query: "latest Deno blog"})',
+    { content: 'search_web({query: "latest Deno blog"})', toolCalls: [] },
+    'search_web({query: "latest Deno blog"})',
     state,
     lc,
     config,
@@ -67,44 +66,6 @@ Deno.test("handleTextOnlyResponse repairs a locally executable plain-text functi
   assertEquals(response.toolCalls.length, 1);
   assertEquals(response.toolCalls[0]?.toolName, "read_file");
   assertEquals(response.toolCalls[0]?.args.path, "README.md");
-});
-
-Deno.test("handleTextOnlyResponse does not repair provider-executed tool envelopes into local execution", () => {
-  const config: OrchestratorConfig = {
-    workspace: "/tmp",
-    context: new ContextManager(),
-    providerExecutionPlan: resolveProviderExecutionPlan({
-      providerName: "google",
-      allowlist: ["web_search"],
-      nativeCapabilities: {
-        webSearch: true,
-        webPageRead: false,
-        remoteCodeExecution: false,
-      },
-    }),
-  };
-  const lc = resolveLoopConfig(config);
-  const state = initializeLoopState(config);
-  state.midLoopFormatRetries = lc.maxToolCallRetries;
-  const response: LLMResponse = {
-    content: 'web_search({"query":"latest Deno blog"})',
-    toolCalls: [],
-  };
-
-  const result = handleTextOnlyResponse(
-    response,
-    response.content,
-    state,
-    lc,
-    config,
-  );
-
-  assertEquals(result.action, "return");
-  if (result.action !== "return") {
-    throw new Error("Expected handleTextOnlyResponse to return a terminal failure");
-  }
-  assertStringIncludes(result.value, "Native tool calling required");
-  assertEquals(response.toolCalls.length, 0);
 });
 
 Deno.test("handleFinalResponse retries when a post-tool answer contains a plain-text function-style tool call", async () => {
