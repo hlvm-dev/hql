@@ -634,7 +634,6 @@ export interface OrchestratorConfig {
   /** Lead member ID for the current team runtime. */
   teamLeadMemberId?: string;
   delegateTokenBudget?: DelegateTokenBudget;
-  providerExecutionPlan?: ResolvedProviderExecutionPlan;
 }
 
 function memoryWriteAvailable(config: OrchestratorConfig): boolean {

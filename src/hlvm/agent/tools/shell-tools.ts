@@ -652,7 +652,6 @@ export const SHELL_TOOLS = {
     description:
       "Execute inline code locally through HLVM's shell-backed runtime. Prefer this over raw shell_exec for local code.exec tasks.",
     category: "shell",
-    semanticCapabilities: ["code.exec"],
     safetyLevel: "L2",
     args: {
       code: "string - Inline code to execute locally",

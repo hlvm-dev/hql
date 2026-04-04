@@ -9,7 +9,6 @@
 import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type { CompiledPrompt } from "../prompt/mod.ts";
-import type { ResolvedProviderExecutionPlan } from "./tool-capabilities.ts";
 
 /** Mutable tool filter state shared between orchestrator and engine. */
 export interface ToolFilterState {
@@ -44,8 +43,6 @@ export interface AgentLLMConfig {
   onToken?: (text: string) => void;
   /** Whether the model supports thinking/reasoning. From ModelInfo.capabilities. */
   thinkingCapable?: boolean;
-  /** Session-resolved provider execution plan reused across prompt/tool execution. */
-  providerExecutionPlan?: ResolvedProviderExecutionPlan;
   /** Compiled system prompt metadata used for cache-boundary-aware emission. */
   compiledPrompt?: Pick<
     CompiledPrompt,

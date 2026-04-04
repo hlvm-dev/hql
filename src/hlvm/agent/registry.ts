@@ -241,8 +241,6 @@ export interface ToolMetadata {
   presentation?: {
     kind?: ToolPresentationKind;
   };
-  /** Semantic capabilities this concrete tool can fulfill. */
-  semanticCapabilities?: string[];
   /** Optional arg alias map applied before coercion/validation. */
   argAliases?: Record<string, string>;
   returns?: Record<string, string>;
@@ -384,7 +382,6 @@ const BUILTIN_PRESENTATION_KIND = new Map<string, ToolPresentationKind>([
 ]);
 
 const MAIN_THREAD_EXPLICIT_DEFERRED_TOOL_NAMES = new Set<string>([
-  "remote_code_execute",
   "local_code_execute",
   "archive_files",
   "git_commit",
@@ -472,24 +469,6 @@ const BUILTIN_TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...META_TOOLS,
   ...WEB_TOOLS,
   ...MEMORY_TOOLS,
-  remote_code_execute: {
-    fn: () =>
-      Promise.reject(
-        new RuntimeError(
-          "remote_code_execute is provider-executed and not callable locally",
-        ),
-      ),
-    description:
-      "Run inline code in a provider-hosted sandbox. No workspace access. Provider network/filesystem behavior depends on provider support.",
-    category: "data",
-    args: {
-      code: "string - Inline code to execute remotely",
-      language:
-        "string (optional) - Language hint such as python; provider support varies",
-    },
-    semanticCapabilities: ["code.exec"],
-    safetyLevel: "L2",
-  },
   delegate_agent: {
     fn: () =>
       Promise.reject(

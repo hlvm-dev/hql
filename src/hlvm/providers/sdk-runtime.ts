@@ -34,12 +34,10 @@ import {
 } from "../../common/error-codes.ts";
 import {
   createNativeProviderTools,
-  getNativeProviderCapabilityAvailability,
-} from "./native-web-tools.ts";
-import {
   EMPTY_NATIVE_PROVIDER_CAPABILITY_AVAILABILITY,
+  getNativeProviderCapabilityAvailability,
   type NativeProviderCapabilityAvailability,
-} from "../agent/tool-capabilities.ts";
+} from "./native-web-tools.ts";
 
 export type SdkProviderName =
   | "openai"
