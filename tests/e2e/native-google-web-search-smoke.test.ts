@@ -13,7 +13,6 @@ import { assert } from "jsr:@std/assert";
 import { disposeAllSessions } from "../../src/hlvm/agent/agent-runner.ts";
 import type { AgentUIEvent } from "../../src/hlvm/agent/orchestrator.ts";
 import {
-  assertCapabilityRoute,
   assertHasProviderCitations,
   assertNoLocalToolEvents,
   hasEnvVar,
@@ -53,7 +52,6 @@ Deno.test({
             "Use live web search right now to find the latest post on the official Deno blog. Reply with the post title and the exact source URL. Do not answer from memory.",
           workspace,
           signal: controller.signal,
-          runtimeMode: "auto",
           toolAllowlist: ["web_search"],
           callbacks: {
             onAgentEvent: (event) => events.push(event),
@@ -64,11 +62,6 @@ Deno.test({
           MODEL_CANDIDATES.some((candidate) => candidate === model),
           `Expected a Google model candidate, got ${model}`,
         );
-        assertCapabilityRoute(events, {
-          capabilityId: "web.search",
-          routePhase: "tool-start",
-          selectedBackendKind: "provider-native",
-        });
         assertNoLocalToolEvents(events, "web_search");
         assertNoLocalToolEvents(events, "search_web");
         assertHasProviderCitations(result);

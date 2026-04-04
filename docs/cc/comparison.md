@@ -510,7 +510,7 @@ App.tsx (~1983 lines, full orchestrator — state, overlays, keyboard routing, l
   └─ Overlays (useOverlayPanel routing):
       ConfigOverlay, CommandPaletteOverlay, TeamDashboardOverlay,
       ShortcutsOverlay, BackgroundTasksOverlay, ModelBrowser,
-      ModelSetupOverlay, TranscriptViewerOverlay, ExecutionSurfaceOverlay
+      ModelSetupOverlay, TranscriptViewerOverlay
 ```
 
 **Streaming text** — Direct text append to `ConversationItem`, re-rendered each frame. O(full text) per frame. No markdown parsing in TUI.
@@ -1262,12 +1262,12 @@ Both projects are at parity here.
 ║  ├─ Promise.all([loadAgentPolicy(), tryGetModelInfo()])                   ║
 ║  ├─ classifyModelTier() → weak | mid | frontier                         ║
 ║  ├─ computeTierToolFilter()                                              ║
-║  ├─ resolveContextBudget() + resolveExecutionSurface()                   ║
+║  ├─ resolveContextBudget()                                               ║
 ║  ├─ createLazyMcpLoader() (deferred until first mcp_* use)              ║
-║  ├─ compileSystemPrompt() — 11 modular section renderers:                ║
+║  ├─ compileSystemPrompt() — modular section renderers:                   ║
 ║  │   identity, rules, capabilities, tool routing table,                  ║
-║  │   permission tiers, execution surface, project instructions,          ║
-║  │   git context, delegation docs, team coordination, plan mode          ║
+║  │   permission tiers, project instructions, git context,               ║
+║  │   delegation docs, team coordination, plan mode                       ║
 ║  │   (tier-filtered: weak → minimal, frontier → full)                    ║
 ║  ├─ Memory: separate system message ("# Your Memory\n...")               ║
 ║  │   └─ 10 pinned facts from SQLite + availability hint                  ║
@@ -1361,8 +1361,8 @@ Both projects are at parity here.
 ║       ├─ LocalAgentsBar (delegate status)                                ║
 ║       ├─ Input.tsx (3767 lines, Paredit + syntax highlighting)           ║
 ║       ├─ FooterHint                                                      ║
-║       └─ 9 Overlays: Config, Commands, Teams, Shortcuts, Tasks,         ║
-║          ModelBrowser, ModelSetup, Transcript, ExecutionSurface           ║
+║       └─ 8 Overlays: Config, Commands, Teams, Shortcuts, Tasks,         ║
+║          ModelBrowser, ModelSetup, Transcript                             ║
 ║                                                                          ║
 ║  SUPPORTING SYSTEMS                                                      ║
 ║  ──────────────────                                                      ║

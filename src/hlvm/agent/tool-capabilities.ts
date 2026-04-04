@@ -332,7 +332,6 @@ function resolveRemoteCodeExecutionCapability(options: {
   allowlist?: readonly string[];
   denylist?: readonly string[];
   nativeCapabilities: NativeProviderCapabilityAvailability;
-  autoRequestedRemoteCodeExecution?: boolean;
 }): ResolvedRemoteExecutionCapability {
   const selectors = [REMOTE_CODE_EXECUTE_TOOL_NAME] as const;
   const denied = listIncludesAnySelector(options.denylist, selectors);
@@ -340,11 +339,8 @@ function resolveRemoteCodeExecutionCapability(options: {
     options.allowlist,
     selectors,
   );
-  const autoRequestedWithoutExplicitAllowlist =
-    options.autoRequestedRemoteCodeExecution === true &&
-    !(options.allowlist?.length);
   const implementation: RemoteExecutionImplementation = !denied &&
-      (explicitlyAllowlisted || autoRequestedWithoutExplicitAllowlist) &&
+      explicitlyAllowlisted &&
       options.nativeCapabilities.remoteCodeExecution &&
       NATIVE_REMOTE_CODE_EXECUTION_PROVIDERS.has(options.providerName)
     ? "native"
@@ -371,7 +367,6 @@ export function resolveProviderExecutionPlan(options: {
   denylist?: readonly string[];
   nativeCapabilities?: Partial<NativeProviderCapabilityAvailability>;
   nativeWebSearchAvailable?: boolean;
-  autoRequestedRemoteCodeExecution?: boolean;
 }): ResolvedProviderExecutionPlan {
   const nativeCapabilities = resolveNativeAvailability(options);
 
@@ -389,7 +384,6 @@ export function resolveProviderExecutionPlan(options: {
       allowlist: options.allowlist,
       denylist: options.denylist,
       nativeCapabilities,
-      autoRequestedRemoteCodeExecution: options.autoRequestedRemoteCodeExecution,
     }),
     computerUse: {
       available: nativeCapabilities.computerUse,

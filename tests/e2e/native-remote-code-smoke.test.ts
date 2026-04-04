@@ -13,7 +13,6 @@ import { assertEquals, assertMatch } from "jsr:@std/assert";
 import { disposeAllSessions } from "../../src/hlvm/agent/agent-runner.ts";
 import type { AgentUIEvent } from "../../src/hlvm/agent/orchestrator.ts";
 import {
-  assertCapabilityRoute,
   assertNoLocalToolEvents,
   hasEnvVar,
   runWithCompatibleModel,
@@ -66,18 +65,12 @@ Deno.test({
             `Use remote_code_execute to compute the SHA-256 of this exact string: ${input}. Return only the lowercase hex digest.`,
           workspace,
           signal: controller.signal,
-          runtimeMode: "auto",
           toolAllowlist: ["remote_code_execute"],
           callbacks: {
             onAgentEvent: (event) => events.push(event),
           },
         });
 
-        assertCapabilityRoute(events, {
-          capabilityId: "code.exec",
-          routePhase: "turn-start",
-          selectedBackendKind: "provider-native",
-        });
         assertNoLocalToolEvents(events, "remote_code_execute");
         const digest = result.text.trim().toLowerCase().match(/[a-f0-9]{64}/)
           ?.[0];

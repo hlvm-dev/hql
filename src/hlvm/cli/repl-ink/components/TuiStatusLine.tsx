@@ -10,7 +10,6 @@ import { truncate } from "../../../../common/utils.ts";
 
 interface TuiStatusLineProps {
   modelName?: string;
-  runtimeModeLabel?: string;
   contextUsageLabel?: string;
   modeLabel?: string;
   planningPhase?: PlanningPhase;
@@ -41,7 +40,6 @@ function measureRightParts(parts: string[]): number {
 export function TuiStatusLine(
   {
     modelName,
-    runtimeModeLabel,
     contextUsageLabel,
     modeLabel,
     planningPhase,
@@ -80,13 +78,12 @@ export function TuiStatusLine(
     return segments;
   }, [backgroundLabel, interactionLabel, modeLabel, planningPhase, turnLabel]);
 
-  // Build right-side parts: [ctxBar, runtimeMode, modelName]
+  // Build right-side parts: [ctxBar, modelName]
   // Model name is truncated dynamically to fill remaining terminal width.
   const { rightText, rightWidth, fittedLeft } = useMemo(() => {
-    // Fixed parts (ctx bar + runtime mode) — never truncated
+    // Fixed parts (ctx bar) — never truncated
     const fixedParts = [
       contextUsageLabel ? buildContextUsageMiniBar(contextUsageLabel) : undefined,
-      runtimeModeLabel,
     ].filter((part): part is string => Boolean(part && part.trim()));
 
     // Measure fixed parts width (including "● " prefix and separators)
@@ -124,7 +121,6 @@ export function TuiStatusLine(
     contextUsageLabel,
     leftSegments,
     modelName,
-    runtimeModeLabel,
   ]);
 
   return (

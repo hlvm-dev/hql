@@ -10,7 +10,7 @@ import { log } from "../src/hlvm/api/log.ts";
 
 const platform = getPlatform();
 const DEFAULT_MODEL = "claude-code/claude-haiku-4-5-20251001";
-const SOAK_DOC_DIR = platform.path.join("docs", "llvm-for-llm");
+const SOAK_DOC_DIR = platform.path.join("docs", "ship-soak");
 const CLI_ENTRY_PATH = platform.path.fromFileUrl(
   new URL("../src/hlvm/cli/cli.ts", import.meta.url),
 );
@@ -165,7 +165,6 @@ async function runSingleTurn(options: {
   model: string;
   workspace: string;
   permissionMode?: AgentExecutionMode;
-  runtimeMode?: "manual" | "auto";
   toolAllowlist?: string[];
   maxOutputTokens?: number;
   contextWindow?: number;
@@ -182,7 +181,6 @@ async function runSingleTurn(options: {
     model: options.model,
     workspace: options.workspace,
     permissionMode: options.permissionMode ?? "dontAsk",
-    runtimeMode: options.runtimeMode ?? "manual",
     toolAllowlist: options.toolAllowlist,
     maxOutputTokens: options.maxOutputTokens,
     contextWindow: options.contextWindow,
@@ -202,13 +200,11 @@ async function createReusableScenarioSession(options: {
   workspace: string;
   toolAllowlist?: string[];
   permissionMode?: AgentExecutionMode;
-  runtimeMode?: "manual" | "auto";
 }): Promise<AgentSession> {
   return await createAgentSession({
     workspace: options.workspace,
     model: options.model,
     toolAllowlist: options.toolAllowlist,
-    runtimeMode: options.runtimeMode ?? "manual",
     onToken: undefined,
   });
 }
@@ -220,7 +216,6 @@ async function runSessionTurn(options: {
   workspace: string;
   toolAllowlist?: string[];
   permissionMode?: AgentExecutionMode;
-  runtimeMode?: "manual" | "auto";
 }): Promise<{
   text: string;
   events: AgentUIEvent[];
@@ -235,7 +230,6 @@ async function runSessionTurn(options: {
     reusableSession: options.session,
     toolAllowlist: options.toolAllowlist,
     permissionMode: options.permissionMode ?? "bypassPermissions",
-    runtimeMode: options.runtimeMode ?? "manual",
     skipSessionHistory: true,
     callbacks: {
       onAgentEvent: (event) => events.push(event),

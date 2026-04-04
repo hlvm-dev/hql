@@ -1,7 +1,6 @@
 import { LRUCache } from "../../common/lru-cache.ts";
 import type { AgentExecutionMode } from "./execution-mode.ts";
 import type { AgentSession } from "./session.ts";
-import type { RuntimeMode } from "./runtime-mode.ts";
 
 const MAX_REPL_LIVE_SESSIONS = 8;
 
@@ -10,7 +9,6 @@ export interface ReplLiveAgentSessionEntry {
   lastSessionVersion: number;
   model: string;
   querySource?: string;
-  runtimeMode: RuntimeMode;
   permissionMode: AgentExecutionMode;
   toolAllowlist?: string[];
   toolDenylist?: string[];
@@ -21,7 +19,6 @@ export interface ResolveReplLiveAgentSessionOptions {
   expectedSessionVersion?: number;
   model: string;
   querySource?: string;
-  runtimeMode: RuntimeMode;
   permissionMode: AgentExecutionMode;
   toolAllowlist?: string[];
   toolDenylist?: string[];
@@ -120,13 +117,6 @@ export function resolveReplLiveAgentSession(
     return {
       hotSessionReuse: false,
       invalidationReason: "query_source_changed",
-    };
-  }
-  if (entry.runtimeMode !== options.runtimeMode) {
-    invalidateReplLiveAgentSession(options.sessionId);
-    return {
-      hotSessionReuse: false,
-      invalidationReason: "runtime_mode_changed",
     };
   }
   if (entry.permissionMode !== options.permissionMode) {

@@ -13,7 +13,6 @@ import { assert, assertStringIncludes } from "jsr:@std/assert";
 import { disposeAllSessions } from "../../src/hlvm/agent/agent-runner.ts";
 import type { AgentUIEvent } from "../../src/hlvm/agent/orchestrator.ts";
 import {
-  assertCapabilityRoute,
   hasEnvVar,
   makeInlineImageAttachment,
   runWithCompatibleModel,
@@ -50,7 +49,6 @@ Deno.test({
             "Analyze the attached image and reply with just the dominant color name.",
           workspace,
           signal: controller.signal,
-          runtimeMode: "auto",
           attachments: [makeInlineImageAttachment("red")],
           callbacks: {
             onAgentEvent: (event) => events.push(event),
@@ -61,11 +59,6 @@ Deno.test({
           MODEL_CANDIDATES.some((candidate) => candidate === model),
           `Expected a Google model candidate, got ${model}`,
         );
-        assertCapabilityRoute(events, {
-          capabilityId: "vision.analyze",
-          routePhase: "turn-start",
-          selectedBackendKind: "provider-native",
-        });
         assertStringIncludes(result.text.toLowerCase(), "red");
       });
     } finally {

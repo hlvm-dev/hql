@@ -26,8 +26,6 @@ import type {
   PromptSection,
   PromptSectionStability,
 } from "./types.ts";
-import { type RuntimeMode } from "../agent/runtime-mode.ts";
-import { summarizeRoutingConstraints } from "../agent/routing-constraints.ts";
 import { isMainThreadQuerySource } from "../agent/query-tool-routing.ts";
 
 /** Human-readable labels for routing table */
@@ -62,7 +60,6 @@ const SECTION_STABILITY: Record<string, PromptSectionStability> = {
   custom: "session",
   delegation: "session",
   team_coordination: "session",
-  auto_execution: "turn",
 };
 
 function annotateSection(section: RawPromptSection): PromptSection {
@@ -193,157 +190,6 @@ function renderToolRouting(
   return {
     id: "routing",
     content: `# Tool Selection\n${rules.join("\n")}`,
-    minTier: "weak",
-  };
-}
-
-function renderAutoExecutionGuidance(
-  runtimeMode: RuntimeMode | undefined,
-  input: PromptCompilerInput,
-): RawPromptSection {
-  if (runtimeMode !== "auto") {
-    return { id: "auto_execution", content: "", minTier: "weak" };
-  }
-
-  const searchRoute = input.executionSurface?.capabilities["web.search"];
-  const readRoute = input.executionSurface?.capabilities["web.read"];
-  const visionRoute = input.executionSurface?.capabilities["vision.analyze"];
-  const audioRoute = input.executionSurface?.capabilities["audio.analyze"];
-  const computerUseRoute = input.executionSurface?.capabilities["computer.use"];
-  const codeExecRoute = input.executionSurface?.capabilities["code.exec"];
-  const structuredOutputRoute =
-    input.executionSurface?.capabilities["structured.output"];
-  const taskCapabilityContext = input.executionSurface?.taskCapabilityContext;
-  const responseShapeContext = input.executionSurface?.responseShapeContext;
-  const turnContext = input.executionSurface?.turnContext;
-  const constraints = input.executionSurface?.constraints;
-  const constraintSummary = summarizeRoutingConstraints(constraints);
-  const hasNonDefaultConstraintSummary = constraintSummary !== "none";
-  const hasPreferenceConflict = constraints?.preferenceConflict === true;
-  const hasAttachments = (turnContext?.attachmentCount ?? 0) > 0;
-  const hasCodeExecRequest = !!taskCapabilityContext?.requestedCapabilities
-    .includes("code.exec");
-  const hasStructuredRequest = responseShapeContext?.requested === true;
-  const hasUnavailableWebRoute = !searchRoute?.selectedBackendKind ||
-    !readRoute?.selectedBackendKind;
-  const reasoningSelection = input.executionSurface?.reasoningSelection;
-  const hasReasoningSwitch = reasoningSelection?.switchedFromPinned === true;
-
-  if (
-    !hasNonDefaultConstraintSummary &&
-    !hasPreferenceConflict &&
-    !hasAttachments &&
-    !hasCodeExecRequest &&
-    !hasStructuredRequest &&
-    !hasUnavailableWebRoute &&
-    !hasReasoningSwitch
-  ) {
-    return { id: "auto_execution", content: "", minTier: "weak" };
-  }
-
-  const lines = [
-    "# Auto Execution",
-    "- Runtime mode is auto. Think in semantic capability families first, then use the routed tool surface already exposed to you.",
-    "- The session uses a configured-first strategy. Keep the pinned model/provider as the reasoning brain; do not assume automatic brain switching.",
-    "- For live external information, use the surfaced web search/read tools for the active route instead of trying to force a different backend.",
-  ];
-  if (hasNonDefaultConstraintSummary || hasPreferenceConflict) {
-    lines.push(`- Active routing constraints: ${constraintSummary}.`);
-  }
-  if (input.executionSurface?.constraints.preferenceConflict) {
-    lines.push(
-      "- The current task text contained conflicting soft preferences (cheap and quality). Ignore the soft preference and follow the selected route.",
-    );
-  }
-
-  if (!searchRoute?.selectedBackendKind) {
-    lines.push(
-      "- web.search currently has no valid route under the active constraints. Do not attempt to bypass that with another backend.",
-    );
-  }
-  if (!readRoute?.selectedBackendKind) {
-    lines.push(
-      "- web.read currently has no valid route under the active constraints. Do not attempt to bypass that with another backend.",
-    );
-  }
-  if (hasAttachments) {
-    lines.push(
-      `- Current turn attachments: ${turnContext?.attachmentCount ?? 0} total; vision-eligible attachments: ${turnContext?.visionEligibleAttachmentCount ?? 0}.`,
-    );
-    if (visionRoute?.selectedBackendKind === "provider-native") {
-      lines.push(
-        "- vision.analyze is active for this turn through the pinned model/provider path. If you discuss the attachments visually, base that on the actual attachment inputs for this turn.",
-      );
-    } else {
-      lines.push(
-        "- vision.analyze does not have a valid route for this turn. Do not pretend visual inspection occurred; only use attachment content that is already present in text form.",
-      );
-    }
-    lines.push(
-      "- Keep capability boundaries clear: use vision.analyze only for the current-turn attachments, and use web.search/web.read only for live external information. Do not treat one family as evidence for the other.",
-    );
-    if ((turnContext?.audioEligibleAttachmentCount ?? 0) > 0) {
-      lines.push(
-        `- Audio-eligible attachments: ${turnContext?.audioEligibleAttachmentCount ?? 0}.`,
-      );
-      if (audioRoute?.selectedBackendKind === "provider-native") {
-        lines.push(
-          "- audio.analyze is active for this turn through the pinned model/provider path. If you discuss the audio content, base that on the actual audio attachment inputs for this turn.",
-        );
-      } else {
-        lines.push(
-          "- audio.analyze does not have a valid route for this turn. Do not pretend audio analysis occurred; only use audio content that is already present in text form (e.g. a transcript).",
-        );
-      }
-    }
-  }
-  if (computerUseRoute?.selectedBackendKind === "provider-native") {
-    lines.push(
-      "- computer.use is active for this turn through the Anthropic provider-native computer_use tool. This operates in a sandboxed environment. Do not assume it has access to the user's real desktop unless explicitly configured.",
-    );
-  }
-  if (hasReasoningSwitch && reasoningSelection) {
-    lines.push(
-      `- Reasoning auto-selection active: the pinned model could not satisfy ${reasoningSelection.unsatisfiedCapabilities.join(", ")}. ` +
-        `This turn is routed to ${reasoningSelection.selectedProviderName} (${reasoningSelection.selectedModelId}). ` +
-        `The switch applies to this turn only — the pinned model remains the default for subsequent turns.`,
-    );
-  }
-  if (taskCapabilityContext?.requestedCapabilities.includes("code.exec")) {
-    if (
-      codeExecRoute?.selectedBackendKind === "provider-native" &&
-      codeExecRoute.selectedToolName
-    ) {
-      lines.push(
-        "- code.exec is active for this turn through a provider-hosted sandbox for inline compute/transformation only; it is not local shell or workspace access.",
-      );
-    } else {
-      lines.push(
-        "- code.exec was requested by the current task, but no valid route exists for this turn. Do not pretend provider-side execution happened.",
-      );
-    }
-    lines.push(
-      "- Keep capability boundaries clear: use code.exec for inline compute/transformation only, web.search/web.read for live external information, and vision.analyze only for current-turn attachments.",
-    );
-  }
-  if (responseShapeContext?.requested) {
-    if (structuredOutputRoute?.selectedBackendKind === "provider-native") {
-      lines.push(
-        "- structured.output is active for this turn through the provider-native structured generation path. The final answer must satisfy the explicit response schema; do not treat an unstructured plain-text answer as valid.",
-      );
-    } else {
-      lines.push(
-        "- structured.output was explicitly requested for this turn, but no valid route exists. Do not pretend that plain text satisfies the schema contract.",
-      );
-    }
-    lines.push(
-      "- Keep capability boundaries clear: use structured.output only for the final response contract, code.exec for inline compute/transformation, web.search/web.read for live external information, and vision.analyze only for current-turn attachments.",
-    );
-  }
-
-  return {
-    id: "auto_execution",
-    content: lines.join("\n"),
     minTier: "weak",
   };
 }
@@ -675,14 +521,12 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
     instructions,
     agentProfiles,
     providerExecutionPlan,
-    runtimeMode,
   } = input;
 
   const sections: RawPromptSection[] = [
     renderRole(),
     renderCriticalRules(tools, input.querySource),
     renderInstructions(tier),
-    renderAutoExecutionGuidance(runtimeMode, input),
     renderToolRouting(tools),
     renderWebToolGuidance(tools, providerExecutionPlan),
     renderRemoteExecutionGuidance(tools),

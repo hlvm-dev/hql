@@ -26,7 +26,6 @@ export type OverlayPanel =
   | "models"
   | "model-setup"
   | "config-overlay"
-  | "execution-surface"
   | "shortcuts-overlay"
   | "transcript-history"
   | "background-tasks";

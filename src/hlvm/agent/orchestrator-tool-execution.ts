@@ -77,10 +77,6 @@ import {
   type ResolvedProviderExecutionPlan,
   resolveProviderExecutionPlan,
 } from "./tool-capabilities.ts";
-import {
-  type ExecutionSurface,
-  projectNamedToolListForExecutionSurface,
-} from "./execution-surface.ts";
 
 const CHECKPOINT_SUPPORTED_MUTATION_TOOLS = new Set([
   "write_file",
@@ -255,7 +251,6 @@ async function executeToolWithTimeout(
     toolDenylist,
     providerExecutionPlan,
   } = opts;
-  const { executionSurface } = config;
   return await withTimeout(
     async (signal) => {
       const toolOptions: ToolExecutionOptions = {
@@ -273,8 +268,8 @@ async function executeToolWithTimeout(
         todoState: config.todoState,
         fileStateCache: config.fileStateCache,
         searchTools: (query, options) =>
-          (() => {
-            const rawResults = searchTools(query, {
+          projectToolSearchResultsForWebCapabilities(
+            searchTools(query, {
               ...options,
               allowlist: normalizeWebCapabilitySelectors(
                 options?.allowlist ?? config.toolSearchUniverseAllowlist ??
@@ -285,34 +280,9 @@ async function executeToolWithTimeout(
                   toolDenylist,
               ),
               ownerId: options?.ownerId ?? config.toolOwnerId,
-            });
-            const projected = projectNamedToolListForExecutionSurface(
-              projectToolSearchResultsForWebCapabilities(
-                rawResults,
-                providerExecutionPlan,
-              ),
-              executionSurface,
-            );
-            if (executionSurface?.runtimeMode !== "auto") {
-              return projected;
-            }
-            const restoredByName = new Map(
-              projected.map((result) => [result.name, result]),
-            );
-            for (const route of Object.values(executionSurface.capabilities)) {
-              const selectedToolName = route.selectedToolName;
-              if (!selectedToolName || restoredByName.has(selectedToolName)) {
-                continue;
-              }
-              const rawMatch = rawResults.find((result) =>
-                result.name === selectedToolName
-              );
-              if (rawMatch) {
-                restoredByName.set(selectedToolName, { ...rawMatch });
-              }
-            }
-            return [...restoredByName.values()];
-          })(),
+            }),
+            providerExecutionPlan,
+          ),
         teamRuntime: config.teamRuntime,
         teamMemberId: config.teamMemberId,
         teamLeadMemberId: config.teamLeadMemberId,

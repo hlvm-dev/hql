@@ -19,13 +19,8 @@ import {
   projectPromptToolsForWebCapabilities,
   type ResolvedProviderExecutionPlan,
 } from "./tool-capabilities.ts";
-import {
-  projectNamedToolMapForExecutionSurface,
-  type ExecutionSurface,
-} from "./execution-surface.ts";
 import { buildToolJsonSchema } from "./tool-schema.ts";
 import type { ModelTier } from "./constants.ts";
-import type { RuntimeMode } from "./runtime-mode.ts";
 import {
   type CompiledPrompt,
   compilePrompt,
@@ -136,10 +131,6 @@ export interface SystemPromptOptions {
   modelTier?: ModelTier;
   /** Preloaded agent profiles for delegation guidance. */
   agentProfiles?: readonly AgentProfile[];
-  /** Session runtime mode for prompt behavior. */
-  runtimeMode?: RuntimeMode;
-  /** Generic execution surface for capability-oriented guidance. */
-  executionSurface?: ExecutionSurface;
   /** Session-resolved provider execution plan for prompt projection. */
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
   /** Full instruction hierarchy (overrides customInstructions when provided). */
@@ -160,24 +151,10 @@ export function compileSystemPrompt(
     denylist: normalizeWebCapabilitySelectors(options.toolDenylist),
     ownerId: options.toolOwnerId,
   });
-  const projectedTools = projectNamedToolMapForExecutionSurface(
-    projectPromptToolsForWebCapabilities(
-      resolvedTools,
-      providerExecutionPlan,
-    ),
-    options.executionSurface,
+  const tools = projectPromptToolsForWebCapabilities(
+    resolvedTools,
+    providerExecutionPlan,
   );
-  const tools = { ...projectedTools };
-  if (options.executionSurface?.runtimeMode === "auto") {
-    for (const route of Object.values(options.executionSurface.capabilities)) {
-      const selectedToolName = route.selectedToolName;
-      if (!selectedToolName || selectedToolName in tools) continue;
-      const selectedTool = resolvedTools[selectedToolName];
-      if (selectedTool) {
-        tools[selectedToolName] = selectedTool;
-      }
-    }
-  }
 
   const instructions: InstructionHierarchy = options.instructions ??
     EMPTY_INSTRUCTIONS;
@@ -188,9 +165,7 @@ export function compileSystemPrompt(
     tools,
     instructions,
     agentProfiles: options.agentProfiles,
-    runtimeMode: options.runtimeMode,
     querySource: options.querySource,
-    executionSurface: options.executionSurface,
     providerExecutionPlan,
   });
 }

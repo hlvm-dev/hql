@@ -32,10 +32,6 @@ import type {
 } from "./tool-call.ts";
 import { buildToolDefinitions } from "./llm-integration.ts";
 import {
-  projectNamedToolMapForExecutionSurface,
-  type ExecutionSurface,
-} from "./execution-surface.ts";
-import {
   getActiveProviderExecutionToolNames,
   getProviderExecutedToolNameSet,
   getResolvedProviderExecutionPlan,
@@ -155,12 +151,8 @@ export function mergeSdkWebCapabilityTools(
   customTools: ToolSet,
   nativeTools: ToolSet,
   plan?: ResolvedProviderExecutionPlan | ResolvedWebCapabilityPlan,
-  executionSurface?: ExecutionSurface,
 ): ToolSet {
-  const merged = projectNamedToolMapForExecutionSurface(
-    customTools,
-    executionSurface,
-  );
+  const merged: ToolSet = { ...customTools };
   if (!plan) return merged;
 
   const providerExecutionPlan = getResolvedProviderExecutionPlan(plan);
@@ -168,26 +160,6 @@ export function mergeSdkWebCapabilityTools(
   if (!webPlan) return merged;
 
   for (const capability of Object.values(webPlan.capabilities)) {
-    const selectedRoute = capability.id === "web_search"
-      ? executionSurface?.capabilities["web.search"]
-      : capability.id === "web_page_read"
-      ? executionSurface?.capabilities["web.read"]
-      : undefined;
-    if (selectedRoute) {
-      if (
-        selectedRoute.selectedBackendKind !== "provider-native" ||
-        !selectedRoute.selectedToolName
-      ) {
-        if (
-          capability.nativeToolName &&
-          capability.nativeToolName !== capability.customToolName
-        ) {
-          delete merged[capability.nativeToolName];
-        }
-        continue;
-      }
-    }
-
     if (capability.implementation === "disabled") {
       delete merged[capability.customToolName];
       if (
@@ -218,15 +190,6 @@ export function mergeSdkWebCapabilityTools(
   if (!providerExecutionPlan) return merged;
 
   const remotePlan = providerExecutionPlan.remoteCodeExecution;
-  const selectedCodeExecRoute = executionSurface?.capabilities["code.exec"];
-  if (
-    selectedCodeExecRoute &&
-    (selectedCodeExecRoute.selectedBackendKind !== "provider-native" ||
-      !selectedCodeExecRoute.selectedToolName)
-  ) {
-    delete merged[remotePlan.nativeToolName];
-    return merged;
-  }
   if (remotePlan.implementation === "disabled") {
     delete merged[remotePlan.customToolName];
     return merged;
@@ -240,18 +203,9 @@ export function mergeSdkWebCapabilityTools(
   // computer.use native tool merge
   const computerUsePlan = providerExecutionPlan.computerUse;
   if (computerUsePlan?.available && computerUsePlan.activeToolName) {
-    const selectedComputerRoute = executionSurface?.capabilities["computer.use"];
-    if (
-      selectedComputerRoute &&
-      (selectedComputerRoute.selectedBackendKind !== "provider-native" ||
-        !selectedComputerRoute.selectedToolName)
-    ) {
-      delete merged[computerUsePlan.activeToolName];
-    } else {
-      const nativeComputerTool = nativeTools[computerUsePlan.activeToolName];
-      if (nativeComputerTool) {
-        merged[computerUsePlan.activeToolName] = nativeComputerTool;
-      }
+    const nativeComputerTool = nativeTools[computerUsePlan.activeToolName];
+    if (nativeComputerTool) {
+      merged[computerUsePlan.activeToolName] = nativeComputerTool;
     }
   }
 
@@ -281,44 +235,6 @@ export function filterLocallyExecutableToolCalls(
     ? getProviderExecutedToolNameSet(plan)
     : new Set<string>([NATIVE_WEB_SEARCH_TOOL_NAME]);
   return calls.filter((call) => !providerExecutedToolNames.has(call.toolName));
-}
-
-export function resolveForcedProviderNativeToolChoice(options: {
-  allowlist?: readonly string[];
-  executionSurface?: ExecutionSurface;
-  availableToolNames?: readonly string[];
-}): { type: "tool"; toolName: string } | undefined {
-  if (options.executionSurface?.runtimeMode !== "auto") {
-    return undefined;
-  }
-  if (options.allowlist?.length !== 1) {
-    return undefined;
-  }
-
-  const requestedToolName = options.allowlist[0];
-  const routedCapabilities = [
-    options.executionSurface.capabilities["web.search"],
-    options.executionSurface.capabilities["web.read"],
-    options.executionSurface.capabilities["code.exec"],
-  ];
-  const matchingProviderNativeRoute = routedCapabilities.find((route) =>
-    route.selectedBackendKind === "provider-native" &&
-    route.selectedToolName === requestedToolName
-  );
-  if (!matchingProviderNativeRoute) {
-    return undefined;
-  }
-  if (
-    options.availableToolNames?.length &&
-    !options.availableToolNames.includes(requestedToolName)
-  ) {
-    return undefined;
-  }
-
-  return {
-    type: "tool",
-    toolName: requestedToolName,
-  };
 }
 
 // ============================================================
@@ -823,61 +739,6 @@ export function buildToolCallRepairFunction(): ToolCallRepairFunction<ToolSet> {
   };
 }
 
-function isObviousProviderNativeCapabilityRejectionMessage(
-  message: string,
-): boolean {
-  const normalized = message.toLowerCase();
-  return normalized.includes("unsupported tool") ||
-    normalized.includes("invalid tool") ||
-    normalized.includes("unknown tool") ||
-    normalized.includes("no such tool") ||
-    normalized.includes("tool is not supported") ||
-    normalized.includes("tool not supported") ||
-    normalized.includes("capability unavailable") ||
-    normalized.includes("capability is unavailable") ||
-    normalized.includes("native capability unavailable");
-}
-
-export function resolveProviderNativeRouteFailureFromError(options: {
-  executionSurface?: ExecutionSurface;
-  error: unknown;
-}): {
-  capabilityId: "web.search" | "web.read" | "code.exec";
-  backendKind: "provider-native";
-  toolName?: string;
-  routePhase: "turn-start" | "tool-start";
-  failureReason: string;
-} | null {
-  if (options.executionSurface?.runtimeMode !== "auto") {
-    return null;
-  }
-  const failureReason = getErrorMessage(options.error);
-  if (!isObviousProviderNativeCapabilityRejectionMessage(failureReason)) {
-    return null;
-  }
-  const normalized = failureReason.toLowerCase();
-  for (const capabilityId of ["web.search", "web.read", "code.exec"] as const) {
-    const route = options.executionSurface.capabilities[capabilityId];
-    if (
-      route.selectedBackendKind !== "provider-native" ||
-      !route.selectedToolName
-    ) {
-      continue;
-    }
-    if (!normalized.includes(route.selectedToolName.toLowerCase())) {
-      continue;
-    }
-    return {
-      capabilityId,
-      backendKind: "provider-native",
-      toolName: route.selectedToolName,
-      routePhase: capabilityId.startsWith("web.") ? "tool-start" : "turn-start",
-      failureReason,
-    };
-  }
-  return null;
-}
-
 export function buildProviderOptions(
   spec: ResolvedModelSpec,
   config: AgentLLMConfig,
@@ -940,6 +801,33 @@ export function buildProviderOptions(
   }
 
   return Object.keys(opts).length > 0 ? opts : undefined;
+}
+
+/**
+ * Minimum output tokens reserved beyond the thinking budget so Anthropic
+ * doesn't reject the request with `max_tokens < budget_tokens`.
+ */
+const OUTPUT_RESERVE_TOKENS = 4096;
+
+/** Extract Anthropic thinking budgetTokens from resolved provider options, or 0. */
+function extractAnthropicThinkingBudget(
+  opts: Record<string, ProviderOptionValue> | undefined,
+): number {
+  const thinking = (opts?.anthropic as Record<string, unknown>)?.thinking as
+    | Record<string, unknown>
+    | undefined;
+  return typeof thinking?.budgetTokens === "number" ? thinking.budgetTokens : 0;
+}
+
+/** Ensure maxTokens >= thinkingBudget when thinking is enabled. */
+function guardMaxTokens(
+  maxTokens: number | undefined,
+  thinkingBudget: number,
+): number | undefined {
+  if (maxTokens == null || thinkingBudget <= 0) return maxTokens;
+  // Anthropic requires max_tokens > budget_tokens. Add output reserve.
+  const minRequired = thinkingBudget + OUTPUT_RESERVE_TOKENS;
+  return Math.max(maxTokens, minRequired);
 }
 
 export function extractReasoningText(reasoning: unknown): string | undefined {
@@ -1032,8 +920,6 @@ export class SdkAgentEngine implements AgentEngine {
         : await getSdkProviderBundleFromSpec(spec);
       let model = activeBundle.model;
       const nativeTools = activeBundle.nativeTools;
-      let retryNotices: AgentMessage[] = [];
-
       const generation = getToolRegistryGeneration();
       const toolFilters = resolveToolFilters();
       const disableTools = callOptions?.disableTools === true;
@@ -1068,11 +954,8 @@ export class SdkAgentEngine implements AgentEngine {
       );
 
       for (let attempt = 0; attempt < 2; attempt++) {
-        const attemptMessages = retryNotices.length > 0
-          ? [...messages, ...retryNotices]
-          : messages;
         const promptPayload = buildSystemPromptValue(
-          attemptMessages,
+          messages,
           config.compiledPrompt,
         );
         const providerExecutionPlan = disableTools
@@ -1098,19 +981,12 @@ export class SdkAgentEngine implements AgentEngine {
             cachedCustomSdkTools,
             nativeTools,
             providerExecutionPlan,
-            config.executionSurface,
           );
-        const forcedToolChoice = disableTools
-          ? undefined
-          : resolveForcedProviderNativeToolChoice({
-            allowlist: toolFilters.allowlist,
-            executionSurface: config.executionSurface,
-            availableToolNames: Object.keys(sdkTools),
-          });
 
         // Resolve Google explicit cache (async, best-effort) and merge into
         // provider options so applyPromptCaching() can preserve it.
         let baseProviderOptions = buildProviderOptions(spec, config);
+        const thinkingBudget = extractAnthropicThinkingBudget(baseProviderOptions);
         if (spec.providerName === "google") {
           const cacheProfile = resolvePromptCacheProfile(
             config.compiledPrompt,
@@ -1154,11 +1030,10 @@ export class SdkAgentEngine implements AgentEngine {
           messages: cacheDecorated.messages,
           ...(disableTools ? {} : { tools: cacheDecorated.tools }),
           ...(config.options?.temperature != null &&
-            { temperature: config.options.temperature }),
-          maxTokens: config.options?.maxTokens,
+            { temperature: Math.max(0, Math.min(config.options.temperature, 2.0)) }),
+          maxTokens: guardMaxTokens(config.options?.maxTokens, thinkingBudget),
           abortSignal: signal,
           experimental_repairToolCall: repairToolCall,
-          ...(forcedToolChoice ? { toolChoice: forcedToolChoice } : {}),
           ...(cacheDecorated.providerOptions
             ? { providerOptions: cacheDecorated.providerOptions }
             : {}),
@@ -1291,24 +1166,6 @@ export class SdkAgentEngine implements AgentEngine {
               cachedModel = model;
             }
             continue;
-          }
-
-          if (attempt === 0 && config.onProviderNativeRouteFailure) {
-            const routeFailure = resolveProviderNativeRouteFailureFromError({
-              executionSurface: config.executionSurface,
-              error: executionError,
-            });
-            if (routeFailure) {
-              const fallback = await config.onProviderNativeRouteFailure(
-                routeFailure,
-              );
-              if (fallback.handled) {
-                retryNotices = fallback.retryNotice
-                  ? [fallback.retryNotice]
-                  : [];
-                continue;
-              }
-            }
           }
 
           const message = getErrorMessage(executionError);

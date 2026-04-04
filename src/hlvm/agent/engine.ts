@@ -9,14 +9,7 @@
 import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type { CompiledPrompt } from "../prompt/mod.ts";
-import type {
-  ExecutionBackendKind,
-  ExecutionSurface,
-  RoutedCapabilityId,
-  RoutedCapabilityEventPhase,
-} from "./execution-surface.ts";
 import type { ResolvedProviderExecutionPlan } from "./tool-capabilities.ts";
-import type { RuntimeMode } from "./runtime-mode.ts";
 
 /** Mutable tool filter state shared between orchestrator and engine. */
 export interface ToolFilterState {
@@ -49,27 +42,15 @@ export interface AgentLLMConfig {
   thinkingState?: ThinkingState;
   toolOwnerId?: string;
   onToken?: (text: string) => void;
-  runtimeMode?: RuntimeMode;
   /** Whether the model supports thinking/reasoning. From ModelInfo.capabilities. */
   thinkingCapable?: boolean;
   /** Session-resolved provider execution plan reused across prompt/tool execution. */
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
-  /** Session execution surface reused across prompt/tool routing. */
-  executionSurface?: ExecutionSurface;
   /** Compiled system prompt metadata used for cache-boundary-aware emission. */
   compiledPrompt?: Pick<
     CompiledPrompt,
     "text" | "cacheSegments" | "signatureHash" | "stableCacheProfile"
   >;
-  /** Auto-mode only: allow one narrow route downgrade retry on provider capability rejection. */
-  onProviderNativeRouteFailure?: (options: {
-    capabilityId: RoutedCapabilityId;
-    backendKind: ExecutionBackendKind;
-    toolName?: string;
-    serverName?: string;
-    routePhase: Exclude<RoutedCapabilityEventPhase, "fallback">;
-    failureReason: string;
-  }) => Promise<{ handled: boolean; retryNotice?: AgentMessage }>;
 }
 
 /** Abstract engine interface for creating LLM functions */

@@ -46,9 +46,7 @@ import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import type { AgentSession } from "../../../src/hlvm/agent/session.ts";
 import { ENGINE_PROFILES } from "../../../src/hlvm/agent/constants.ts";
 import { createTodoState } from "../../../src/hlvm/agent/todo-state.ts";
-import { DEFAULT_RUNTIME_MODE } from "../../../src/hlvm/agent/runtime-mode.ts";
 import { FileStateCache } from "../../../src/hlvm/agent/file-state-cache.ts";
-import type { ExecutionSurface } from "../../../src/hlvm/agent/execution-surface.ts";
 import { withGlobalTestLock } from "../_shared/global-test-lock.ts";
 
 const platform = () => getPlatform();
@@ -110,8 +108,6 @@ function createAgentSession(context: ContextManager): AgentSession {
       source: "default",
     },
     discoveredDeferredTools: new Set(),
-    runtimeMode: DEFAULT_RUNTIME_MODE,
-    executionSurface: {} as ExecutionSurface,
     fileStateCache: new FileStateCache(),
   };
 }

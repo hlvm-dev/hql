@@ -10,9 +10,9 @@ import {
   generateSystemPrompt,
 } from "../../../src/hlvm/agent/llm-integration.ts";
 import {
+  REMOTE_CODE_EXECUTE_TOOL_NAME,
   resolveProviderExecutionPlan,
 } from "../../../src/hlvm/agent/tool-capabilities.ts";
-import { buildExecutionSurface } from "../../../src/hlvm/agent/execution-surface.ts";
 import {
   classifyModelTier,
   tierMeetsMinimum,
@@ -110,7 +110,7 @@ Deno.test("LLM integration: remote code guidance appears only when explicitly en
   assertStringIncludes(prompt, "not the same thing as local compute");
 });
 
-Deno.test("LLM integration: auto-mode prompt guidance explains active code.exec routing", () => {
+Deno.test("LLM integration: auto-execution prompt guidance explains active code.exec routing", () => {
   const providerExecutionPlan = resolveProviderExecutionPlan({
     providerName: "google",
     nativeCapabilities: {
@@ -118,22 +118,9 @@ Deno.test("LLM integration: auto-mode prompt guidance explains active code.exec 
       webPageRead: true,
       remoteCodeExecution: true,
     },
-    autoRequestedRemoteCodeExecution: true,
-  });
-  const executionSurface = buildExecutionSurface({
-    runtimeMode: "auto",
-    activeModelId: "google/gemini-2.5-pro",
-    pinnedProviderName: "google",
-    providerExecutionPlan,
-    taskCapabilityContext: {
-      requestedCapabilities: ["code.exec"],
-      source: "task-text",
-      matchedCueLabels: ["calculate", "quick script"],
-    },
+    allowlist: [REMOTE_CODE_EXECUTE_TOOL_NAME],
   });
   const prompt = generateSystemPrompt({
-    runtimeMode: "auto",
-    executionSurface,
     providerExecutionPlan,
   });
 

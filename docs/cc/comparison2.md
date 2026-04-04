@@ -69,7 +69,7 @@ user@hostname ClaudeCode-main % claude
      │  5. refreshPolicyLimits()            │                        │  5. resolveContextBudget()           │
      │  6. loadRemoteManagedSettings()      │                        │  6. loadMemorySystemMessage()        │
      │  7. applyConfigEnvVars()             │                        │  7. engine.createLLM()               │
-     │  8. logManagedSettings()             │                        │  8. buildExecutionSurface()          │
+     │  8. logManagedSettings()             │                        │  8. engine.createLLM()               │
      │                                      │                        │                                      │
      │  Feature flags: GrowthBook           │                        │  Config: globalThis.ai               │
      │  Auth: OAuth + API key (keychain)    │                        │  Auth: env vars per provider         │

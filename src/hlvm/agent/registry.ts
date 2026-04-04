@@ -242,8 +242,7 @@ export interface ToolMetadata {
     kind?: ToolPresentationKind;
   };
   /** Semantic capabilities this concrete tool can fulfill. */
-  semanticCapabilities?:
-    import("./semantic-capabilities.ts").SemanticCapabilityId[];
+  semanticCapabilities?: string[];
   /** Optional arg alias map applied before coercion/validation. */
   argAliases?: Record<string, string>;
   returns?: Record<string, string>;

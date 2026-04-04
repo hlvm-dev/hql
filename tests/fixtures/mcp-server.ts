@@ -19,7 +19,6 @@
  *   MCP_REPLY_PREFIX - prefix for echo tool responses
  *   MCP_TEST_MODE    - comma-separated: resources,prompts,logging,sampling,
  *                      elicitation,paginated,old_protocol,progress,
- *                      semantic_audio,semantic_computer,semantic_structured,
  *                      disconnect_once,dynamic_tools
  *   MCP_STATE_PATH   - persisted JSON state for reconnect-sensitive fixture modes
  */
@@ -360,58 +359,6 @@ function handleRequest(request: {
           },
         });
       }
-    }
-
-    if (testMode.includes("semantic_audio")) {
-      tools.push({
-        name: "audio_transcribe",
-        description: "Transcribe audio content to text",
-        inputSchema: {
-          type: "object",
-          properties: {
-            audio_data: { type: "string", description: "Base64-encoded audio data" },
-            format: { type: "string", description: "Audio format (mp3, wav, etc.)" },
-          },
-        },
-        _meta: {
-          hlvmSemanticCapabilities: ["audio.analyze"],
-        },
-      });
-    }
-
-    if (testMode.includes("semantic_computer")) {
-      tools.push({
-        name: "browser_interact",
-        description: "Interact with browser elements via click, type, or read",
-        inputSchema: {
-          type: "object",
-          properties: {
-            action: { type: "string", description: "click | type | read" },
-            selector: { type: "string", description: "CSS selector" },
-            value: { type: "string", description: "Value for type actions" },
-          },
-        },
-        _meta: {
-          hlvmSemanticCapabilities: ["computer.use"],
-        },
-      });
-    }
-
-    if (testMode.includes("semantic_structured")) {
-      tools.push({
-        name: "structured_generate",
-        description: "Generate structured JSON output matching a given schema",
-        inputSchema: {
-          type: "object",
-          properties: {
-            schema: { type: "object", description: "JSON Schema for the output" },
-            prompt: { type: "string", description: "Prompt for generation" },
-          },
-        },
-        _meta: {
-          hlvmSemanticCapabilities: ["structured.output"],
-        },
-      });
     }
 
     write({

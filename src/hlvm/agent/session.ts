@@ -50,18 +50,10 @@ import {
   type LspDiagnosticsRuntime,
 } from "./lsp-diagnostics.ts";
 import {
+  resolveProviderExecutionPlan,
   type ResolvedProviderExecutionPlan,
   type ResolvedWebCapabilityPlan,
 } from "./tool-capabilities.ts";
-import {
-  buildExecutionSurface,
-  executionSurfaceUsesMcp,
-  type ExecutionSurface,
-} from "./execution-surface.ts";
-import {
-  resolveExecutionSurfaceState,
-  resolveProviderExecutionPlanForSession,
-} from "./execution-surface-runtime.ts";
 import {
   isMemorySystemMessage,
   isPersistentMemoryEnabled,
@@ -69,7 +61,6 @@ import {
 } from "../memory/mod.ts";
 import { cloneToolList } from "./orchestrator-state.ts";
 import { releaseToolOwner } from "./registry.ts";
-import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "./runtime-mode.ts";
 import { FileStateCache } from "./file-state-cache.ts";
 import {
   REPL_MAIN_THREAD_QUERY_SOURCE,
@@ -101,12 +92,8 @@ interface AgentSessionOptions {
   agentProfiles?: readonly AgentProfile[];
   /** Disable persistent memory injection for this session. */
   disablePersistentMemory?: boolean;
-  /** Session-scoped runtime mode for prompt/routing behavior. */
-  runtimeMode?: RuntimeMode;
   /** Precomputed provider execution plan for the session. */
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
-  /** Precomputed execution surface for the session. */
-  executionSurface?: ExecutionSurface;
   /** Persistent deferred-tool discoveries carried across turns. */
   discoveredDeferredTools?: Iterable<string>;
 }
@@ -123,12 +110,8 @@ interface RefreshAgentSessionOptions {
   instructions?: InstructionHierarchy;
   /** Preloaded agent profiles for delegation guidance. */
   agentProfiles?: readonly AgentProfile[];
-  /** Session-scoped runtime mode for prompt/routing behavior. */
-  runtimeMode?: RuntimeMode;
   /** Precomputed provider execution plan for the turn. */
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
-  /** Precomputed execution surface for the turn. */
-  executionSurface?: ExecutionSurface;
 }
 
 export interface AgentSession {
@@ -164,10 +147,6 @@ export interface AgentSession {
   discoveredDeferredTools: Set<string>;
   /** Session-resolved provider execution plan reused across prompt/tool execution. */
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
-  /** Session runtime mode for prompt/tool routing behavior. */
-  runtimeMode: RuntimeMode;
-  /** Session execution surface for generic capability routing/provenance. */
-  executionSurface: ExecutionSurface;
   /** Session-resolved web capability plan reused across prompt/tool execution. */
   webCapabilityPlan?: ResolvedWebCapabilityPlan;
   /** Lazy MCP loader (connect/register only when first needed). */
@@ -236,8 +215,6 @@ function buildCompiledPromptArtifacts(options: {
   instructions?: InstructionHierarchy;
   modelTier: ModelTier;
   agentProfiles?: readonly AgentProfile[];
-  runtimeMode: RuntimeMode;
-  executionSurface: ExecutionSurface;
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
 }): {
   compiledPrompt: NonNullable<AgentLLMConfig["compiledPrompt"]>;
@@ -252,8 +229,6 @@ function buildCompiledPromptArtifacts(options: {
     instructions: options.instructions,
     modelTier: options.modelTier,
     agentProfiles: options.agentProfiles,
-    runtimeMode: options.runtimeMode,
-    executionSurface: options.executionSurface,
     providerExecutionPlan: options.providerExecutionPlan,
   });
 
@@ -304,10 +279,8 @@ export async function refreshReusableAgentSession(
   session: AgentSession,
   options: RefreshAgentSessionOptions = {},
 ): Promise<AgentSession> {
-  const runtimeMode = options.runtimeMode ?? session.runtimeMode;
   const providerExecutionPlan = options.providerExecutionPlan ??
     session.providerExecutionPlan;
-  const executionSurface = options.executionSurface ?? session.executionSurface;
   const instructions = options.instructions ?? session.instructions;
   const agentProfiles = options.agentProfiles ?? session.agentProfiles;
   const allowlist = session.toolFilterBaseline?.allowlist ??
@@ -322,8 +295,6 @@ export async function refreshReusableAgentSession(
     instructions,
     modelTier: session.modelTier,
     agentProfiles,
-    runtimeMode,
-    executionSurface,
     providerExecutionPlan,
   });
 
@@ -366,9 +337,7 @@ export async function refreshReusableAgentSession(
       ...session.llmConfig,
       onToken: options.onToken,
       querySource: options.querySource ?? session.querySource,
-      runtimeMode,
       providerExecutionPlan,
-      executionSurface,
       compiledPrompt: promptArtifacts.compiledPrompt,
     }
     : undefined;
@@ -383,8 +352,6 @@ export async function refreshReusableAgentSession(
     llmConfig,
     providerExecutionPlan,
     querySource: options.querySource ?? session.querySource,
-    runtimeMode,
-    executionSurface,
     webCapabilityPlan: providerExecutionPlan?.web,
     compiledPromptMeta: promptArtifacts.compiledPromptMeta,
     instructions,
@@ -396,7 +363,6 @@ export async function createAgentSession(
   options: AgentSessionOptions,
 ): Promise<AgentSession> {
   const profile = ENGINE_PROFILES[options.engineProfile ?? "normal"];
-  const runtimeMode = options.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const toolOwnerId = `session:${generateUUID()}`;
 
   // Parallelize independent I/O: policy, MCP server discovery, and model info
@@ -558,46 +524,13 @@ export async function createAgentSession(
   contextConfig.buildRestorationHints = (maxContextTokens: number) =>
     fileStateCache.buildRestorationHints(maxContextTokens);
 
-  const resolvedSurface = options.providerExecutionPlan && options.executionSurface
-    ? {
-      providerExecutionPlan: options.providerExecutionPlan,
-      executionSurface: options.executionSurface,
-    }
-    : runtimeMode === "auto"
-    ? await resolveExecutionSurfaceState({
-      model: options.model,
-      fixturePath: options.fixturePath,
-      runtimeMode,
-      toolAllowlist: toolFilterState.allowlist,
-      toolDenylist: toolFilterState.denylist,
-    })
-    : await (async () => {
-      const providerExecutionPlan = await resolveProviderExecutionPlanForSession({
-        model: options.model,
-        fixturePath: options.fixturePath,
-        toolAllowlist: toolFilterState.allowlist,
-        toolDenylist: toolFilterState.denylist,
-      });
-      return {
-        providerExecutionPlan,
-        executionSurface: buildExecutionSurface({
-          runtimeMode,
-          activeModelId: options.model,
-          pinnedProviderName: extractProviderName(options.model),
-          providerExecutionPlan,
-        }),
-      };
-    })();
-  const providerExecutionPlan = resolvedSurface.providerExecutionPlan;
-  const executionSurface = resolvedSurface.executionSurface;
+  const providerExecutionPlan = options.providerExecutionPlan ??
+    resolveProviderExecutionPlan({
+      providerName: extractProviderName(options.model),
+      allowlist: toolFilterState.allowlist,
+      denylist: toolFilterState.denylist,
+    });
   const webCapabilityPlan = providerExecutionPlan.web;
-
-  if (
-    executionSurfaceUsesMcp(executionSurface) &&
-    options.querySource !== REPL_MAIN_THREAD_QUERY_SOURCE
-  ) {
-    await ensureMcpLoaded();
-  }
 
   const context = new ContextManager(contextConfig);
 
@@ -609,8 +542,6 @@ export async function createAgentSession(
     modelTier,
     instructions: options.instructions,
     agentProfiles: options.agentProfiles,
-    runtimeMode,
-    executionSurface,
     providerExecutionPlan,
   });
   context.addMessage({
@@ -652,9 +583,7 @@ export async function createAgentSession(
       onToken: options.onToken,
       querySource: options.querySource,
       thinkingCapable,
-      runtimeMode,
       providerExecutionPlan,
-      executionSurface,
       compiledPrompt: promptArtifacts.compiledPrompt,
     };
   const llm = options.fixturePath
@@ -702,8 +631,6 @@ export async function createAgentSession(
     resetToolFilter,
     discoveredDeferredTools: new Set(options.discoveredDeferredTools ?? []),
     providerExecutionPlan,
-    runtimeMode,
-    executionSurface,
     webCapabilityPlan,
     ensureMcpLoaded,
     mcpSetHandlers,

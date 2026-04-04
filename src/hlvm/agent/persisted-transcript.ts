@@ -20,27 +20,6 @@ import {
   type TeamRuntimeSnapshot,
 } from "./team-runtime.ts";
 import type { DelegateBatchSnapshot } from "./delegate-batches.ts";
-import {
-  normalizeExecutionFallbackState,
-  type ExecutionFallbackState,
-} from "./execution-surface.ts";
-import {
-  normalizeRoutingConstraintSet,
-  type RoutingConstraintSet,
-} from "./routing-constraints.ts";
-import { normalizeRuntimeMode, type RuntimeMode } from "./runtime-mode.ts";
-import {
-  normalizeExecutionTaskCapabilityContext,
-  type ExecutionTaskCapabilityContext,
-} from "./task-capability-context.ts";
-import {
-  normalizeExecutionResponseShapeContext,
-  type ExecutionResponseShapeContext,
-} from "./response-shape-context.ts";
-import {
-  normalizeExecutionTurnContext,
-  type ExecutionTurnContext,
-} from "./turn-context.ts";
 
 const DEFAULT_TITLE_LENGTH = 60;
 const AGENT_SESSION_METADATA_KEY = "agentSession";
@@ -56,13 +35,7 @@ interface PersistedToolMessageMetadata {
 }
 
 export interface PersistedAgentSessionMetadata {
-  runtimeMode?: RuntimeMode;
   discoveredDeferredTools?: string[];
-  lastAppliedRoutingConstraints?: RoutingConstraintSet;
-  lastAppliedTaskCapabilityContext?: ExecutionTaskCapabilityContext;
-  lastAppliedResponseShapeContext?: ExecutionResponseShapeContext;
-  lastAppliedTurnContext?: ExecutionTurnContext;
-  lastAppliedExecutionFallbackState?: ExecutionFallbackState;
   parentSessionId?: string;
   childSessionIds?: string[];
   todos?: TodoItem[];
@@ -220,27 +193,11 @@ export function parsePersistedAgentSessionMetadata(
     : undefined;
 
   return {
-    runtimeMode: normalizeRuntimeMode(agentRecord.runtimeMode),
     discoveredDeferredTools: Array.isArray(agentRecord.discoveredDeferredTools)
       ? agentRecord.discoveredDeferredTools.filter((value): value is string =>
         typeof value === "string"
       )
       : undefined,
-    lastAppliedRoutingConstraints: normalizeRoutingConstraintSet(
-      agentRecord.lastAppliedRoutingConstraints,
-    ),
-    lastAppliedTaskCapabilityContext: normalizeExecutionTaskCapabilityContext(
-      agentRecord.lastAppliedTaskCapabilityContext,
-    ),
-    lastAppliedResponseShapeContext: normalizeExecutionResponseShapeContext(
-      agentRecord.lastAppliedResponseShapeContext,
-    ),
-    lastAppliedTurnContext: normalizeExecutionTurnContext(
-      agentRecord.lastAppliedTurnContext,
-    ),
-    lastAppliedExecutionFallbackState: normalizeExecutionFallbackState(
-      agentRecord.lastAppliedExecutionFallbackState,
-    ),
     parentSessionId: typeof agentRecord.parentSessionId === "string"
       ? agentRecord.parentSessionId
       : undefined,
@@ -377,15 +334,6 @@ export function persistAgentTodos(
   });
 }
 
-export function persistAgentRuntimeMode(
-  sessionId: string,
-  runtimeMode: RuntimeMode,
-): void {
-  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
-    metadata.runtimeMode = runtimeMode;
-  });
-}
-
 export function persistDiscoveredDeferredTools(
   sessionId: string,
   tools: Iterable<string>,
@@ -393,85 +341,6 @@ export function persistDiscoveredDeferredTools(
   updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
     const next = [...new Set(tools)];
     metadata.discoveredDeferredTools = next.length > 0 ? next : undefined;
-  });
-}
-
-export function persistLastAppliedRoutingConstraints(
-  sessionId: string,
-  constraints: RoutingConstraintSet,
-): void {
-  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
-    metadata.lastAppliedRoutingConstraints = {
-      hardConstraints: [...constraints.hardConstraints],
-      ...(constraints.preference ? { preference: constraints.preference } : {}),
-      preferenceConflict: constraints.preferenceConflict,
-      source: constraints.source,
-    };
-  });
-}
-
-export function persistLastAppliedTaskCapabilityContext(
-  sessionId: string,
-  taskCapabilityContext: ExecutionTaskCapabilityContext,
-): void {
-  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
-    metadata.lastAppliedTaskCapabilityContext = {
-      requestedCapabilities: [...taskCapabilityContext.requestedCapabilities],
-      source: taskCapabilityContext.source,
-      matchedCueLabels: [...taskCapabilityContext.matchedCueLabels],
-    };
-  });
-}
-
-export function persistLastAppliedResponseShapeContext(
-  sessionId: string,
-  responseShapeContext: ExecutionResponseShapeContext,
-): void {
-  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
-    metadata.lastAppliedResponseShapeContext = {
-      requested: responseShapeContext.requested,
-      source: responseShapeContext.source,
-      ...(responseShapeContext.schemaSignature
-        ? { schemaSignature: responseShapeContext.schemaSignature }
-        : {}),
-      topLevelKeys: [...responseShapeContext.topLevelKeys],
-    };
-  });
-}
-
-export function persistLastAppliedTurnContext(
-  sessionId: string,
-  turnContext: ExecutionTurnContext,
-): void {
-  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
-    metadata.lastAppliedTurnContext = {
-      attachmentCount: turnContext.attachmentCount,
-      attachmentKinds: [...turnContext.attachmentKinds],
-      visionEligibleAttachmentCount: turnContext.visionEligibleAttachmentCount,
-      visionEligibleKinds: [...turnContext.visionEligibleKinds],
-      audioEligibleAttachmentCount: turnContext.audioEligibleAttachmentCount,
-      audioEligibleKinds: [...turnContext.audioEligibleKinds],
-    };
-  });
-}
-
-export function persistLastAppliedExecutionFallbackState(
-  sessionId: string,
-  fallbackState: ExecutionFallbackState,
-): void {
-  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
-    metadata.lastAppliedExecutionFallbackState = {
-      suppressedCandidates: fallbackState.suppressedCandidates.map((
-        candidate,
-      ) => ({
-        capabilityId: candidate.capabilityId,
-        backendKind: candidate.backendKind,
-        ...(candidate.toolName ? { toolName: candidate.toolName } : {}),
-        ...(candidate.serverName ? { serverName: candidate.serverName } : {}),
-        routePhase: candidate.routePhase,
-        failureReason: candidate.failureReason,
-      })),
-    };
   });
 }
 

@@ -1,3 +1,3483 @@
+# HLVM Potion System — Complete Vision
+
+> **One document to rule them all.**
+> Consolidated from the original vision docs (01-story, 02-module-system, 03-module-store, 04-user-journeys, 05-competitive-analysis, 07-daily-driver-scenarios, 08-full-execution-pipeline).
+
+---
+
+## Table of Contents
+
+1. [The Story — Vision & Philosophy](#01--the-story)
+2. [The Module System](#02--the-module-system)
+3. [The Module Store — Distribution & Discovery](#03--the-module-store)
+4. [User Journeys](#04--user-journeys)
+5. [Competitive Analysis](#05--competitive-analysis)
+6. [Daily Driver Scenarios](#07--daily-driver-scenarios)
+7. [Full Execution Pipeline](#08--full-execution-pipeline)
+
+---
+
+# 01 — The Full Story
+
+**Why HLVM exists. What it becomes. Why it matters.**
+
+---
+
+## The Problem
+
+It is 2026. AI can summarize documents, analyze data, write code, search the
+web, manage files, coordinate multi-step workflows, and even orchestrate teams
+of agents. The raw capability exists.
+
+But there is a massive gap between **"AI can do this"** and **"I have this
+automated on my computer."**
+
+Today, crossing that gap looks like this:
+
+```
+"I want AI to monitor competitor pricing"
+
+  Step 1:  Learn Python                          (hours)
+  Step 2:  pip install langchain crewai scrapy    (minutes, but fragile)
+  Step 3:  Write 200+ lines of orchestration      (hours)
+  Step 4:  Handle API keys, errors, retries       (hours)
+  Step 5:  Run from terminal, manage scheduling   (ongoing)
+  Step 6:  Debug when it breaks at 3am            (ongoing)
+
+  Total: 2-3 days of skilled developer work
+  Audience: developers only
+```
+
+For non-developers, the gap is infinite. They use ChatGPT manually, every time,
+copy-pasting results. No automation. No reuse. No composition.
+
+For developers, the gap is annoying enough that most don't bother. They use AI
+in chat form and do the rest manually.
+
+**The gap is not capability. The gap is delivery.**
+
+---
+
+## The Vision
+
+HLVM collapses the gap to zero:
+
+```
+"I want AI to monitor competitor pricing"
+
+  Step 1:  Search "monitor" in HLVM Spotlight     (2 seconds)
+  Step 2:  Click Install                           (1 click)
+  Step 3:  Click the module icon in Launchpad       (1 click)
+  Step 4:  Enter competitor URL when prompted      (5 seconds)
+  Step 5:  Done.
+
+  Total: 30 seconds
+  Audience: anyone with a Mac
+```
+
+Behind that one click, the module might be doing anything: a single AI call, a
+multi-step pipeline, a full agent team that scrapes websites, analyzes trends,
+writes a report, and saves it to your ~/reports/ folder. The user doesn't know.
+The user doesn't care. They click, they get results.
+
+---
+
+## What HLVM Becomes
+
+HLVM is **the platform where AI capabilities are authored, shared, and
+consumed.**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│   AUTHOR              SHARE              CONSUME            │
+│                                                             │
+│   Write HQL     →    Deploy to     →    Click icon in       │
+│   (3-10 lines)       Registry           macOS Launchpad     │
+│                      (1 command)        (1 click)           │
+│                                                             │
+│   Human or AI        JSR / npm          Native macOS        │
+│   can author         (existing          GUI                 │
+│                       registries)       for all             │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Three roles in the ecosystem:
+
+### Authors
+
+Write HQL modules that encapsulate AI capabilities. A module is a function
+that can contain anything: `ai()` calls, `agent()` loops, team orchestration,
+traditional algorithms, or any combination. Deploy with one command.
+
+### Consumers
+
+Browse the Registry from the HLVM macOS app. Search, discover trending
+modules, read reviews, install with one click. Modules appear in the Launchpad
+as clickable icons. Pin favorites to the Hotbar for quick access. Click to run.
+Drag to rearrange. Remove what you don't need.
+
+### The Platform
+
+HLVM itself: the binary that compiles HQL, runs modules, provides the agent
+engine, manages teams, handles permissions, connects to AI providers, and
+exposes everything through a native macOS GUI.
+
+---
+
+## The Diablo Hotbar Mental Model
+
+This is intentional, not just an analogy.
+
+In Diablo or Lineage, you are a character fighting monsters. You have a hotbar
+of skills and potions. Each item does something powerful. You equip items for
+different encounters. You find, craft, and trade items.
+
+```
+Diablo                              HLVM
+──────                              ────
+Character                           You (developer, analyst, writer, anyone)
+Monsters / Boss                     Complexity (tasks, data, deadlines)
+Skills on hotbar (1-9 keys)         AI modules on Hotbar (click)
+Equip / unequip skills              Drag modules in / out of Hotbar
+Skill does AoE damage               Module runs full agent team
+Craft new skills                    Author new modules (or have AI do it)
+Find loot / rare items              Discover modules in the Store
+Trade items with others             Share modules via the Store
+Skill loadout per dungeon           Hotbar config per workflow
+```
+
+The UI is NOT a game. It is macOS native — clean, minimal, professional. The
+Hotbar looks like macOS Dock or Genie. The Registry browser looks like Mac App
+Store.
+
+> **Note:** The Hotbar is a subset of the Launchpad. All installed modules
+> appear in the Launchpad (full inventory). The Hotbar contains only the modules
+> the user has pinned or assigned shortcuts to. Flow: Registry (browse) -> Install
+> -> Launchpad -> pin/shortcut -> Hotbar.
+
+But the **mental model** is the game: you equip yourself with AI capabilities
+to fight your daily work. Each module is a weapon. The Store is the marketplace
+where you find better weapons. Authors are the crafters.
+
+---
+
+## The Atomic Unit: ONE Function = ONE Module = ONE Click
+
+This is the core design principle. Everything reduces to:
+
+```
+ONE HQL function
+      │
+      │  compiles to
+      ▼
+ONE ESM module (standard JavaScript)
+      │
+      │  deployed to
+      ▼
+ONE entry in the Registry
+      │
+      │  installed as
+      ▼
+ONE icon in the Launchpad
+      │
+      │  executed with
+      ▼
+ONE click → complexity killed
+```
+
+What makes this function special: it can contain **BOTH** traditional
+programming AND AI inside. It is not just code. It is not just a prompt. It is
+code + AI fused into one callable unit.
+
+```lisp
+;; Simple: single AI call
+(export (defn summarize [text]
+  (ai "summarize in 3 bullets" {data: text})))
+
+;; Medium: multi-step pipeline
+(export (defn weekly-report []
+  (let [data   (agent "pull this week's metrics from our APIs")
+        draft  (ai "write executive summary" {data: data})
+        report (agent (str "save as reports/week-" (now) ".md") {data: draft})]
+    report)))
+
+;; Complex: full autonomous team
+(export (defn build-feature [prd]
+  (agent "form a team, plan the work, implement, test, deliver" {data: prd})))
+```
+
+All three compile to ESM. All three become clickable icons. All three take one
+click to execute. The user does not know or care what is inside. Like a Diablo
+health potion — you do not open it to see the alchemy recipe. You drink it.
+It works.
+
+---
+
+## Why HQL (Not Just JavaScript)
+
+HQL compiles to JavaScript. So why not write modules in JavaScript directly?
+
+### 1. Conciseness
+
+An AI module in HQL is 3-10 lines. The equivalent JavaScript with imports,
+error handling, and async boilerplate is 30-50 lines.
+
+```lisp
+;; HQL: 3 lines
+(export (defn analyze [text]
+  (ai "classify sentiment" {data: text schema: Sentiment})))
+```
+
+```javascript
+// JavaScript: ~20 lines
+import { ai } from "@hlvm/runtime";
+import { Sentiment } from "./schemas.js";
+
+export async function analyze(text) {
+  try {
+    const result = await ai("classify sentiment", {
+      data: text,
+      schema: Sentiment
+    });
+    return result;
+  } catch (e) {
+    throw new Error(`Analysis failed: ${e.message}`);
+  }
+}
+```
+
+### 2. AI and Agent Are First-Class
+
+`ai()` and `agent()` are globals in HQL. No imports. No setup. Just call them.
+
+### 3. Effect System = Safety Classification
+
+HQL's effect system (`fx` for pure, `fn` for impure) provides compile-time
+safety classification that the GUI uses to show permission badges:
+
+```lisp
+;; Pure module — green badge, no permissions needed
+(export (fx compute [data]
+  (map (fn [x] (* x 2)) data)))
+
+;; AI module — yellow badge, needs network
+(export (defn summarize [text]
+  (ai "summarize" {data: text})))
+
+;; Agent module — red badge, needs full system access
+(export (defn deploy [spec]
+  (agent "implement and deploy" {data: spec})))
+```
+
+### 4. Composable via Standard ESM
+
+HQL modules compile to standard ESM. They can import from each other, from npm,
+from JSR, from any HTTP URL. Full JavaScript ecosystem access.
+
+```lisp
+(import {extract} from "./extract.hql")
+(import {analyze} from "./analyze.hql")
+
+(export (defn full-report [url]
+  (let [data     (await (extract url))
+        analysis (await (analyze data))]
+    (agent "write report and save" {data: analysis}))))
+```
+
+### 5. Macros for Domain Abstraction
+
+HQL macros can create domain-specific patterns that abstract common AI
+workflows:
+
+```lisp
+;; A macro could let you write:
+(ai-pipeline sentiment-report
+  (extract url)
+  (analyze {schema: Sentiment})
+  (report "save to ~/reports/"))
+```
+
+### 6. Output Is Platform-Agnostic
+
+The output is standard ESM JavaScript. It runs anywhere a JS VM runs. Not
+locked to macOS, not locked to Deno, not locked to HLVM. The module can be
+imported by any JavaScript project.
+
+---
+
+## What Makes This Revolutionary
+
+No single piece is new:
+
+```
+AI callable from code          → Every language can do this
+Agent teams                    → CrewAI, AutoGen, LangChain
+Native macOS GUI               → Every Mac app
+One-click automation           → Apple Shortcuts, Raycast
+Composable modules             → npm, ESM
+Code-first authoring           → Every IDE
+Central package registry       → npm, PyPI, crates.io
+```
+
+The revolution is the **integration**. Nobody has combined ALL of these:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│  Real programming language (HQL)                             │
+│    + AI primitives as first-class (ai, agent)                │
+│    + Agent team orchestration built-in                       │
+│    + Compiles to standard portable format (ESM)              │
+│    + JSR/npm for sharing (no custom registry)                │
+│    + Native macOS GUI for one-click execution                │
+│    + Full local system access (files, web, shell, git)       │
+│    + Effect system for safety classification                 │
+│    + Any LLM provider (Ollama, OpenAI, Anthropic, Google)    │
+│    + Memory system for persistent context                    │
+│                                                              │
+│  = HLVM                                                      │
+│                                                              │
+│  Nobody else has this stack.                                 │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+The revolution is the **complete elimination of friction** from idea to
+automated AI workflow:
+
+```
+TODAY (2026):                           HLVM:
+
+  "I want to monitor competitors"       "I want to monitor competitors"
+         │                                      │
+         ├── Learn Python                       ├── Search in Spotlight
+         ├── Install dependencies               ├── Click Install
+         ├── Write 200 lines                    ├── Click the icon
+         ├── Handle errors                      └── Done. 30 seconds.
+         ├── Run from terminal
+         └── 2-3 days
+
+  Developer-only.                       Anyone with a Mac.
+  Fragile.                              Maintained by community.
+  Local-only.                           Shared via Registry.
+  No reuse.                             One-click reuse.
+```
+
+---
+
+## The Ecosystem Flywheel
+
+The Module Registry is not a "nice to have." It IS the product. Without it,
+HLVM is a local scripting tool. With it, HLVM is a platform. Modules are
+published to existing registries (JSR, npm). No custom registry to build or
+maintain. HLVM piggybacks on ecosystems that already work.
+
+```
+Local tool:     You write, you use.          Value = linear.
+Platform:       You write, everyone uses.    Value = exponential.
+```
+
+The flywheel:
+
+```
+    Author publishes module
+            │
+            ▼
+    Module appears in Registry ──────────► Users discover it
+            ▲                                    │
+            │                                    ▼
+    More authors join                    Users install, use, star
+    because audience exists                      │
+            ▲                                    ▼
+            │                            Module gains visibility
+            │                            (trending, featured)
+            │                                    │
+            └────────────────────────────────────┘
+                     Network effect
+```
+
+Every successful ecosystem has a central registry:
+
+```
+Language/Tool        Central Registry        Without it?
+─────────────       ─────────────────       ────────────────────
+Node.js         →   NPM                    Just another runtime
+Python          →   PyPI                   Just another language
+Ruby            →   RubyGems               Just another language
+Docker          →   Docker Hub             Just another VM tool
+iOS             →   App Store              Just another phone
+VS Code         →   Extension Marketplace  Just another editor
+
+HLVM            →   JSR + npm              Just another AI tool
+                    (existing ecosystems)  (dead on arrival)
+```
+
+**NPM made Node.js. Not the other way around.** The registry is the moat.
+
+---
+
+## The PRD-to-Delivery Vision (Ultimate Goal)
+
+The most extreme version of the HLVM vision:
+
+```
+Step 1:  Human writes a PRD (or even a single sentence)
+         "I need a tool that monitors my competitors' pricing"
+
+Step 2:  Clicks "Build" in HLVM GUI
+
+Step 3:  HLVM's meta-orchestrator (lead agent) reads the PRD
+
+Step 4:  Creates a team: researcher, coder, tester agents
+
+Step 5:  Team collaborates using existing infrastructure:
+         spawnTeam, spawnAgent, TaskCreate, SendMessage
+
+Step 6:  Output: a new HQL module that DOES the thing
+
+Step 7:  Module appears in Launchpad (pin to Hotbar for quick access)
+
+Step 8:  Now user clicks THAT module whenever they want to
+         monitor competitor pricing
+```
+
+**AI builds AI capabilities. The platform consumes its own output.** The HQL
+module is the unit of currency — authored by humans OR by AI, compiled to ESM,
+shared through the Registry, executed on demand through the GUI.
+
+---
+
+## What Matters Most
+
+In priority order:
+
+### 1. Module Publishing (JSR + npm)
+
+Without this, nothing else matters. No sharing = no ecosystem = no network
+effect = no PMF. This is the #1 priority.
+
+### 2. The Launchpad / Hotbar / GUI Integration
+
+Modules must be one-click executable from the macOS GUI. The friction from
+"installed module" to "running module" must be zero. Installed modules appear
+in the Launchpad; users pin favorites to the Hotbar.
+
+### 3. HQL Authoring Experience
+
+Writing a module must be trivially easy. 3-10 lines for common cases. `ai()`
+and `agent()` as globals. No boilerplate.
+
+### 4. The Deploy Pipeline
+
+`hlvm deploy` must be one command that handles everything: compile and deliver.
+`hlvm deploy` for local, `hlvm deploy --jsr` for JSR, `hlvm deploy --npm` for
+npm. Zero friction for authors.
+
+### 5. Trust and Safety Model
+
+Effect-system-driven permission classification. Users must know what a module
+can do before they install it. Verified badges for reviewed modules.
+
+### 6. Meta-Orchestrator (AI-Authored Modules)
+
+The lead agent that can read a high-level goal (PRD) and autonomously produce
+a working HQL module. This closes the loop: AI builds AI capabilities.
+
+---
+
+## What Exists Today
+
+HLVM already has approximately 90% of the infrastructure:
+
+```
+EXISTS:
+  ✓  HQL compiler (→ ESM)
+  ✓  ai() function (single LLM call with schema enforcement)
+  ✓  agent() function (full ReAct loop with tools)
+  ✓  Agent team system (spawnTeam, spawnAgent, TaskCreate, SendMessage)
+  ✓  Multi-provider support (Ollama, OpenAI, Anthropic, Google)
+  ✓  Tool system (file, web, shell, git, MCP)
+  ✓  Memory system (SQLite/FTS5, persistent across sessions)
+  ✓  Effect system (Pure/Impure compile-time classification)
+  ✓  macOS GUI app (Spotlight, Chat, Hotbar, Settings)
+  ✓  Code-first architecture (binary + thin GUI shell)
+  ✓  Async HOFs (asyncMap, concurrentMap, asyncFilter, etc.)
+
+MISSING:
+  ✗  hlvm deploy command (local + JSR/npm publishing)
+  ✗  Module discovery via JSR/npm search
+  ✗  Registry browser GUI view in macOS app
+  ✗  Module manifest via (module ...) form + __hlvm_meta
+  ✗  Module → Launchpad → Hotbar pin pipeline
+  ✗  Permission model for installed modules
+  ✗  Meta-orchestrator lead agent
+  ✗  Module packaging metadata (icon, description, params)
+```
+
+The work is primarily **platform engineering and ecosystem building**, not
+language design. HQL is already sufficient for authoring AI capabilities.
+# 02 — The Module System
+
+**ESM modules as AI capabilities: architecture, authoring, and composition.**
+
+---
+
+## Core Principle
+
+```
+ONE HQL function  →  ONE ESM module  →  ONE registry entry  →  ONE Launchpad icon  →  (optionally) ONE Hotbar shortcut
+```
+
+An HQL module (potion) is the **atomic unit of AI capability** in the HLVM
+ecosystem. It encapsulates any combination of traditional code and AI
+operations behind a single callable function that compiles to a standard
+JavaScript ES Module.
+
+---
+
+## What Is a Module
+
+A module (potion) is an HQL file that exports one or more functions. Each
+exported function becomes an executable capability in the HLVM ecosystem.
+
+### Minimal Module (3 lines)
+
+```lisp
+;; sentiment.hql
+(export (defn analyze [text]
+  (ai "classify sentiment as positive/negative/neutral" {data: text})))
+```
+
+Compiles to:
+
+```javascript
+// sentiment.js (ESM)
+export async function analyze(text) {
+  return await ai("classify sentiment as positive/negative/neutral", { data: text });
+}
+```
+
+This is valid ESM JavaScript. It can be imported by any JS project, published
+to any JS registry, and run by any JS runtime.
+
+### Module with Schema (Type-Safe AI Output)
+
+```lisp
+;; sentiment.hql
+(generable Sentiment {
+  sentiment: (case "positive" "negative" "neutral")
+  score:     {type: number min: 0 max: 1}
+  keywords:  [string]})
+
+(export (defn analyze [text]
+  (ai "analyze sentiment" {data: text schema: Sentiment})))
+```
+
+The `schema` option uses native vendor constrained decoding (via AI SDK + Zod)
+to guarantee the output matches the schema. The return value is a typed object,
+not a string.
+
+### Module with Agent (Full Autonomy)
+
+```lisp
+;; report-writer.hql
+(export (defn write-report [topic]
+  (agent "research this topic, gather data, write a comprehensive report,
+          and save to ~/reports/" {data: topic})))
+```
+
+The `agent()` function runs the full HLVM ReAct loop: the LLM can call tools
+(file read/write, web search, shell execution), observe results, call more
+tools, and produce a final answer. This is the same engine that powers the
+REPL's natural language mode.
+
+### Module with Team (Multi-Agent Orchestration)
+
+```lisp
+;; feature-builder.hql
+(export (defn build [prd]
+  (agent "You are a tech lead. Read this PRD and:
+          1. Break it into tasks
+          2. Spawn a team (researcher, coder, tester)
+          3. Assign tasks and coordinate
+          4. Deliver working code with tests"
+    {data: prd})))
+```
+
+Behind a single function call, the agent orchestrates an entire team using
+HLVM's built-in team infrastructure (spawnTeam, spawnAgent, TaskCreate,
+TaskUpdate, SendMessage).
+
+---
+
+## The Module Format — One File In, One File Out
+
+Every potion is defined in a SINGLE file: `index.hql`. The `(module ...)` form
+is always the first expression — metadata lives inside the code. Compiles to a
+SINGLE output: `main.js` with metadata embedded as `__hlvm_meta`.
+
+No manifest. No config. No JSON. One file in, one file out.
+
+```
+┌─── index.hql — The ONE file ─────────────────────────────────────────────┐
+│                                                                           │
+│  (module                                     ;; FIRST FORM (metadata)    │
+│    {name:        "Sentiment Analyzer"                                     │
+│     description: "Classify text sentiment with confidence and keywords"  │
+│     version:     "1.2.0"                                                  │
+│     author:      "jane"                                                   │
+│     icon:        "face.smiling"              ;; SF Symbol name           │
+│     category:    "data-analysis"                                          │
+│     params:      [{name: "text"                                           │
+│                    type: "string"                                          │
+│                    label: "Text to analyze"                                │
+│                    required: true}]})                                      │
+│                                                                           │
+│  ;; That's it for metadata. No separate manifest needed.                 │
+│  ;; Effect and permissions are AUTO-DETECTED by the compiler.            │
+│  ;; The compiler sees ai() calls → marks effect: "ai"                    │
+│  ;; The compiler sees network usage → marks permissions accordingly      │
+│                                                                           │
+│  (generable Sentiment {                                                   │
+│    sentiment: (case "positive" "negative" "neutral")                      │
+│    score:     {type: number min: 0 max: 1}                                │
+│    keywords:  [string]})                                                  │
+│                                                                           │
+│  (export (defn analyze [text]                ;; THE CODE                 │
+│    (ai "analyze sentiment" {data: text schema: Sentiment})))             │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+What the compiler produces from this single file:
+
+```
+┌─── Compilation: One File In → One File Out ──────────────────────────────┐
+│                                                                           │
+│  INPUT:   index.hql                                                       │
+│  OUTPUT:  main.js  (+ main.js.map for debugging)                         │
+│                                                                           │
+│  main.js is a standard ESM JavaScript module that contains:               │
+│                                                                           │
+│    // The compiled code                                                   │
+│    export async function analyze(text) {                                  │
+│      return await ai("analyze sentiment", { data: text, schema: ... });  │
+│    }                                                                      │
+│                                                                           │
+│    // The embedded metadata (from (module ...) form + compiler analysis)  │
+│    export const __hlvm_meta = {                                           │
+│      name: "Sentiment Analyzer",                                          │
+│      description: "Classify text sentiment with confidence and keywords",│
+│      version: "1.2.0",                                                    │
+│      author: "jane",                                                      │
+│      icon: "face.smiling",                                                │
+│      category: "data-analysis",                                           │
+│      effect: "ai",                  // ← auto-detected by compiler      │
+│      permissions: ["network"],       // ← auto-detected                  │
+│      params: [{ name: "text", type: "string",                            │
+│                 label: "Text to analyze", required: true }]              │
+│    };                                                                     │
+│                                                                           │
+│  KEY INSIGHT:                                                             │
+│  - User writes ONE file (index.hql)                                       │
+│  - Compiler produces ONE file (main.js) — everything bundled inside      │
+│  - NO separate manifest, NO hlvm.json, NO config file                    │
+│  - GUI reads __hlvm_meta directly from the ESM module                    │
+│  - Effect/permissions are inferred, not declared                          │
+│  - The compiled JS IS the module. Self-describing. Self-contained.       │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+### (module ...) Form Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Human-readable display name |
+| `description` | string | yes | One-line description |
+| `version` | semver | yes | Module version |
+| `author` | string | yes | Author identifier |
+| `icon` | string | yes | SF Symbol name (macOS native icons) |
+| `category` | string | yes | Registry category |
+| `params` | Param[] | no | Input parameters the module accepts |
+
+Note: `effect` and `permissions` are **not declared by the author**. They are
+auto-detected by the compiler's effect checker at compile time.
+
+### Effect Classification
+
+The compiler's effect checker infers the effect classification from the code:
+
+```
+┌─────────────┬──────────────────┬───────────────────────────────────┐
+│ Effect      │ GUI Badge        │ Meaning                           │
+├─────────────┼──────────────────┼───────────────────────────────────┤
+│ "pure"      │ Green  ● Safe    │ No side effects. Deterministic.   │
+│             │                  │ Can be cached. No permissions.    │
+├─────────────┼──────────────────┼───────────────────────────────────┤
+│ "ai"        │ Yellow ● AI      │ Makes LLM calls. Needs network.  │
+│             │                  │ Non-deterministic output.         │
+├─────────────┼──────────────────┼───────────────────────────────────┤
+│ "agent"     │ Red    ● Agent   │ Full system access. Can read/     │
+│             │                  │ write files, run commands, browse │
+│             │                  │ web. Long-running.                │
+└─────────────┴──────────────────┴───────────────────────────────────┘
+```
+
+This classification is derived from HQL's effect system at compile time:
+- `fx` functions → `"pure"`
+- `fn` functions that call `ai()` → `"ai"`
+- `fn` functions that call `agent()` → `"agent"`
+
+The author never writes `effect: "agent"` — the compiler detects it.
+
+### Permission Types
+
+```
+┌──────────────────┬──────────────────────────────────────────────┐
+│ Permission       │ What it allows                                │
+├──────────────────┼──────────────────────────────────────────────┤
+│ "network"        │ HTTP requests, LLM API calls                 │
+│ "filesystem"     │ Read/write files on disk                     │
+│ "shell"          │ Execute shell commands                       │
+│ "git"            │ Git operations                               │
+│ "mcp"            │ Connect to MCP servers                       │
+└──────────────────┴──────────────────────────────────────────────┘
+```
+
+Permissions are auto-detected by the compiler. The author does not declare them.
+
+### Input Parameters
+
+Modules declare input parameters inside the `(module ...)` form. The GUI
+renders these as a form when the user clicks the potion icon:
+
+```lisp
+(module
+  {name:        "Price Tracker"
+   description: "Monitor competitor pricing pages"
+   version:     "1.0.0"
+   author:      "jane"
+   icon:        "chart.line.uptrend.xyaxis"
+   category:    "monitoring"
+   params:      [{name:        "url"
+                  type:        "string"
+                  label:       "Target URL"
+                  placeholder: "https://competitor.com/pricing"
+                  required:    true}
+                 {name:    "frequency"
+                  type:    "select"
+                  label:   "Check frequency"
+                  options: ["hourly" "daily" "weekly"]
+                  default: "daily"}]})
+
+(export (defn track [url frequency]
+  (agent (str "Monitor " url " every " frequency
+              ", alert me when prices change")
+    {data: {url: url frequency: frequency}})))
+```
+
+When the user clicks the potion icon, the GUI shows this form. After filling it
+in, the module runs with these values as arguments.
+
+---
+
+## Module Composition
+
+Because modules compile to standard ESM, they compose naturally through
+imports:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                   Module Composition                         │
+│                                                              │
+│   extract.hql          analyze.hql          report.hql       │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐   │
+│  │ export       │    │ import       │    │ import       │   │
+│  │  (defn       │◄───│  {extract}   │◄───│  {analyze}   │   │
+│  │   extract    │    │              │    │              │   │
+│  │   [url]      │    │ export       │    │ export       │   │
+│  │   (agent     │    │  (defn       │    │  (defn       │   │
+│  │    "scrape"  │    │   analyze    │    │   report     │   │
+│  │    {data:    │    │   [url]      │    │   [url]      │   │
+│  │     url}))   │    │   (ai "find  │    │   (agent     │   │
+│  │              │    │    trends"   │    │    "write    │   │
+│  │              │    │    {data:    │    │     report"  │   │
+│  │              │    │     (await   │    │    {data:    │   │
+│  │              │    │      (extract│    │     (await   │   │
+│  │              │    │       url))} │    │      (analyze│   │
+│  │              │    │    ))       │    │       url))} │   │
+│  │              │    │             │    │    ))        │   │
+│  └──────────────┘    └─────────────┘    └─────────────┘   │
+│                                                              │
+│  Each can be a separate Launchpad icon.                      │
+│  Or user just clicks "report" and it cascades.               │
+│                                                              │
+│  This is CRAFTING: combine small capabilities into           │
+│  bigger capabilities. Like combining potions in Diablo.      │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Cross-Registry Imports
+
+Because the output is standard ESM and runs on Deno, modules can import from
+anywhere:
+
+```lisp
+;; Import from another HLVM potion (on the registry)
+(import {extract} from "hlvm:@jane/extractor")
+
+;; Import from npm
+(import {chart} from "npm:chart.js")
+
+;; Import from JSR
+(import {parse} from "jsr:@std/csv")
+
+;; Import from HTTP
+(import {utils} from "https://example.com/lib/utils.js")
+```
+
+This means HLVM modules have access to the **entire JavaScript ecosystem**.
+Every npm package, every JSR package, every HTTP-hosted module. The limitation
+is JavaScript — which is none.
+
+---
+
+## Module Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Module Lifecycle                          │
+│                                                                 │
+│  1. AUTHOR                                                      │
+│     ┌──────────────┐                                            │
+│     │ Write HQL    │  Author writes index.hql                   │
+│     │ (3-10 lines) │  with (module ...) form + ai/agent code    │
+│     └──────┬───────┘                                            │
+│            │                                                    │
+│  2. COMPILE                                                     │
+│     ┌──────┴───────┐                                            │
+│     │ hlvm build   │  index.hql → main.js (code + __hlvm_meta)  │
+│     │              │  Effect + permissions auto-detected         │
+│     │              │  No separate manifest generated             │
+│     └──────┬───────┘                                            │
+│            │                                                    │
+│  3. DEPLOY                                                      │
+│     ┌──────┴───────┐                                            │
+│     │ hlvm deploy  │  One command:                               │
+│     │              │  (default) install locally                   │
+│     │              │  --jsr → publish to JSR                     │
+│     │              │  --npm → publish to npm                     │
+│     │              │  No custom registry needed                   │
+│     └──────┬───────┘                                            │
+│            │                                                    │
+│  4. DISCOVER                                                    │
+│     ┌──────┴───────┐                                            │
+│     │ User browses │  Module Store GUI in HLVM macOS app        │
+│     │ or searches  │  Search, browse categories, see trending   │
+│     │              │  CLI: hlvm search <query>                   │
+│     └──────┬───────┘                                            │
+│            │                                                    │
+│  5. INSTALL                                                     │
+│     ┌──────┴───────┐                                            │
+│     │ Click        │  GUI: "Install" button                     │
+│     │ Install      │  CLI: hlvm install jsr:@jane/sentiment     │
+│     │              │  → downloads main.js from author's hosting  │
+│     │              │  → stores in ~/.hlvm/modules/              │
+│     │              │  → reads __hlvm_meta from the module       │
+│     │              │  → appears in LAUNCHPAD (all installed)    │
+│     └──────┬───────┘                                            │
+│            │                                                    │
+│  6. PIN (optional)                                              │
+│     ┌──────┴───────┐                                            │
+│     │ Pin to       │  User pins potion from Launchpad to Hotbar │
+│     │ Hotbar       │  Or assigns a keyboard shortcut            │
+│     │              │  Hotbar = quick-access subset of Launchpad  │
+│     └──────┬───────┘                                            │
+│            │                                                    │
+│  7. EXECUTE                                                     │
+│     ┌──────┴───────┐                                            │
+│     │ Click icon   │  From Launchpad grid OR Hotbar shortcut    │
+│     │              │  Click → GUI shows param form (if any)     │
+│     │              │  → hlvm run @jane/sentiment --text "..."   │
+│     │              │  → result displayed in GUI                 │
+│     └──────┬───────┘                                            │
+│            │                                                    │
+│  8. UPDATE                                                      │
+│     ┌──────┴───────┐                                            │
+│     │ Author       │  Author pushes new version                 │
+│     │ deploys v2   │  Users see update badge on icon            │
+│     │              │  One-click update                          │
+│     └──────────────┘                                            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Module Directory Structure
+
+A potion on disk (after `hlvm build`):
+
+```
+my-module/
+├── index.hql              ← HQL source (the ONE file the author writes)
+└── dist/
+    ├── main.js             ← Compiled ESM (code + __hlvm_meta bundled)
+    └── main.js.map         ← Source map (for debugging)
+```
+
+No `hlvm.json`. No separate manifest. The compiled `main.js` IS the module —
+self-describing via `__hlvm_meta`.
+
+After installation on a user's machine:
+
+```
+~/.hlvm/modules/
+├── @jane/
+│   └── sentiment/
+│       ├── 1.2.0/
+│       │   └── main.js         ← The ONE compiled file (code + __hlvm_meta)
+│       └── current → 1.2.0/    ← Symlink to active version
+├── @bob/
+│   └── report-writer/
+│       ├── 3.0.1/
+│       │   └── main.js
+│       └── current → 3.0.1/
+├── index.json                  ← Local module index (metadata cache)
+└── launchpad.json              ← Launchpad state (all installed potions)
+```
+
+---
+
+## The Launchpad
+
+The Launchpad is the **complete inventory** of all installed potions. Every
+potion that has been installed — whether from the registry or locally — appears
+here. It is the **superset** of the Hotbar.
+
+```
+┌─── Launchpad (ALL installed potions) ─────────────────────────┐
+│                                                                │
+│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐   │
+│  │Sent│ │Rept│ │Code│ │Srch│ │Anlz│ │Test│ │Dply│ │Mntr│   │
+│  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘   │
+│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                         │
+│  │Git │ │Wiki│ │Mail│ │Data│ │Imgn│                          │
+│  └────┘ └────┘ └────┘ └────┘ └────┘                          │
+│                                                                │
+│  Every installed potion lives here. Search, filter, browse.   │
+│  Right-click any icon → "Pin to Hotbar" or "Assign Shortcut" │
+│                                                                │
+│  Store → Install → Launchpad → pin/shortcut → Hotbar          │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+The Launchpad is where the user goes to:
+- Browse all installed potions
+- Search by name, category, or effect
+- Launch any potion (click the icon)
+- Manage updates and versions
+- Pin potions to the Hotbar for quick access
+
+---
+
+## The Hotbar Configuration
+
+The Hotbar is the user's **quick-access bar** — a **subset** of the Launchpad
+containing only potions the user has explicitly pinned or assigned shortcuts to.
+
+**Launchpad = ALL installed potions (superset).
+Hotbar = only pinned/shortcut potions (subset).**
+
+Configuration is a simple JSON file:
+
+```json
+{
+  "slots": [
+    { "module": "@jane/sentiment",       "position": 0 },
+    { "module": "@bob/report-writer",    "position": 1 },
+    { "module": "@hlvm/code-reviewer",   "position": 2 },
+    { "module": "@hlvm/web-researcher",  "position": 3 }
+  ],
+  "profiles": {
+    "default": [0, 1, 2, 3],
+    "research": [3, 4, 5, 6],
+    "coding": [2, 7, 8, 9]
+  }
+}
+```
+
+Users can have multiple Hotbar profiles (loadouts) for different workflows,
+switchable from the GUI:
+
+```
+My Monday hotbar:
+┌────┐ ┌────┐ ┌────┐ ┌────┐
+│Rept│ │Mon │ │Srch│ │Anlz│
+└────┘ └────┘ └────┘ └────┘
+
+My Focus hotbar:
+┌────┐ ┌────┐ ┌────┐ ┌────┐
+│Code│ │Test│ │Dply│ │Mntr│
+└────┘ └────┘ └────┘ └────┘
+```
+
+Drag icons from Launchpad to Hotbar. Drag icons out to unpin.
+Exactly like equipping skills in Diablo.
+# 03 — The Module Store
+
+**Distribution via JSR and npm: design, requirements, trust model, and flywheel.**
+
+---
+
+## Why Easy Distribution Is Critical (Not Optional)
+
+Without easy distribution:
+
+```
++----------------------------------------------+
+|  User writes HQL module                      |
+|  User uses it locally                        |
+|  User shares it... how?                      |
+|                                              |
+|  "Hey, I made a cool module"                 |
+|  "Cool, how do I get it?"                    |
+|  "Clone my GitHub repo, then run..."         |
+|  "Never mind."                               |
+|                                              |
+|  DEAD. No ecosystem. No network effect.      |
+|  Just a local scripting tool.                |
+|  Glorified bash alias.                       |
++----------------------------------------------+
+```
+
+With distribution via existing registries:
+
+```
++----------------------------------------------+
+|  User writes HQL module                      |
+|  $ hlvm deploy --jsr                         |
+|  Module appears on JSR for ALL users         |
+|                                              |
+|  Other users search -> install -> use ->     |
+|  star -> more users find it -> author        |
+|  writes more -> ecosystem grows ->           |
+|  more users join ->                          |
+|                                              |
+|  NETWORK EFFECT. Flywheel.                   |
+|  This is how npm, Homebrew, Docker Hub       |
+|  all became dominant.                        |
++----------------------------------------------+
+```
+
+The relationship:
+
+```
+Local tool:     You write, you use.          Value = linear.
+Platform:       You write, everyone uses.    Value = exponential.
+```
+
+Every successful developer ecosystem has a central registry:
+
+```
+Platform             Registry               Without it?
+--------            ---------              ------------------
+Node.js         ->   NPM                   Just another runtime
+Python          ->   PyPI                  Just another language
+Ruby            ->   RubyGems              Just another language
+Rust            ->   crates.io             Just another language
+Docker          ->   Docker Hub            Just another VM tool
+iOS             ->   App Store             Just another phone
+VS Code         ->   Extension Market      Just another editor
+Deno            ->   JSR                   Just another runtime
+
+HLVM            ->   JSR + npm             Just another AI tool
+                     (existing ecosystems)
+```
+
+**NPM made Node.js dominant. Not the other way around.** The registry IS the
+moat. It IS the product.
+
+But a registry does NOT require custom infrastructure. JSR and npm already
+exist, already work, already have auth, CDN, search, versioning, and millions
+of users. HLVM piggybacks on these ecosystems instead of building its own.
+
+---
+
+## Architecture Overview
+
+```
++-------------------------------------------------------------------------+
+|               HLVM Module Distribution (No Custom Registry)             |
+|                                                                         |
+|  Authors publish to existing registries. HLVM reads from them.          |
+|                                                                         |
+|  +----------------+                           +----------------+        |
+|  |  hlvm deploy   |                           |  hlvm install  |        |
+|  |  --jsr / --npm |                           |  jsr:@author/X |        |
+|  |  (author)      |                           |  npm:@author/X |        |
+|  |                |                           |  (user)        |        |
+|  |  1. Compile    |         +--------+        |                |        |
+|  |  2. Publish to |-------->| JSR or |<-------|  1. Download   |        |
+|  |     JSR or npm |         |  npm   |        |  2. Verify     |        |
+|  +----------------+         +--------+        |  3. Save to    |        |
+|                                               |     ~/.hlvm/   |        |
+|                                               |  4. Add to     |        |
+|                                               |     Launchpad  |        |
+|                                               +----------------+        |
+|                                                                         |
+|  WHY: Zero infrastructure. JSR/npm already exist, already work,         |
+|  already have auth, CDN, search, and millions of users.                 |
+|                                                                         |
+|  Compare:                                                               |
+|    Custom registry:  Server + DB + CDN + API + auth + CI + $$$          |
+|    JSR/npm:          Already exists. Zero cost. Zero maintenance.        |
+|                                                                         |
++-------------------------------------------------------------------------+
+```
+
+---
+
+## What the Module Contains
+
+There is no custom registry metadata format. JSR and npm handle package
+metadata, versioning, and discovery using their own formats. HLVM only cares
+about one thing: the `__hlvm_meta` export inside the compiled ESM module.
+
+### Module Metadata (what the compiled main.js contains)
+
+```
++--- main.js --- __hlvm_meta export ----------------------------------------+
+|                                                                            |
+|  export const __hlvm_meta = {                                              |
+|    name:        "Competitor Monitor",                                      |
+|    description: "Track competitor pricing changes",                        |
+|    version:     "2.0.0",                                                   |
+|    author:      "jane",                                                    |
+|    icon:        "chart.bar.xaxis",          // SF Symbol                   |
+|    effect:      "agent",                    // auto-detected               |
+|    permissions: ["network", "filesystem"],  // auto-detected               |
+|    category:    "monitoring",                                              |
+|    params:      [                                                          |
+|      { name: "url", type: "string", label: "Competitor URL" },            |
+|      { name: "frequency", type: "select",                                 |
+|        options: ["hourly", "daily", "weekly"] }                            |
+|    ]                                                                       |
+|  };                                                                        |
+|                                                                            |
+|  // Plus the actual code:                                                  |
+|  export async function monitor(url, frequency) { ... }                     |
+|                                                                            |
+|  KEY INSIGHT:                                                              |
+|  - The module is self-describing. No separate manifest.                    |
+|  - GUI reads __hlvm_meta directly from the ESM module.                     |
+|  - Effect and permissions are compiler-inferred, not declared.             |
+|  - The compiled JS IS the module. Self-contained.                          |
+|                                                                            |
++----------------------------------------------------------------------------+
+```
+
+### What goes where
+
+```
+Information              JSR/npm               __hlvm_meta
+--------------          --------------        -------------
+Name                    yes (package.json)    yes (display)
+Description             yes (package.json)    yes (display)
+Author                  yes (package.json)    yes (display)
+Category                no                    yes (HLVM-specific)
+Version                 yes (semver)          yes (current)
+Download URL            yes (registry CDN)    no
+Integrity hash          yes (registry)        no
+File size               yes (registry)        no
+Icon                    no                    yes (SF Symbol)
+Effect                  no                    yes (auto-detected)
+Permissions             no                    yes (auto-detected)
+Params                  no                    yes (UI generation)
+Code                    yes (it IS a pkg)     yes (it IS the code)
+
+Rule: JSR/npm = discovery + download + versioning.
+      __hlvm_meta = HLVM runtime metadata + execution.
+```
+
+---
+
+## Publishing Flow
+
+### CLI Commands: `hlvm deploy`
+
+Three modes:
+
+```
+$ hlvm deploy                  Build + install locally only
+$ hlvm deploy --jsr            Build + publish to JSR
+$ hlvm deploy --npm            Build + publish to npm
+```
+
+### Example: Publishing to JSR
+
+```
+$ hlvm deploy --jsr
+
+  Step 1/2: Compiling
+  index.hql -> main.js ...................... done
+  Effect detected: agent (uses agent() calls)
+  Permissions detected: network, filesystem
+
+  Step 2/2: Publishing to JSR
+  Publishing to jsr.io/@jane/competitor-monitor@2.0.0 .. done
+
+  Deployed locally + published to JSR.
+  Others can install: hlvm install jsr:@jane/competitor-monitor
+```
+
+### Example: Local-only deploy
+
+```
+$ hlvm deploy
+
+  Step 1/1: Compiling
+  index.hql -> main.js ...................... done
+  Effect detected: agent
+
+  Installed locally to ~/.hlvm/modules/local/competitor-monitor/
+  Added to Launchpad.
+
+  To publish for others:
+    hlvm deploy --jsr    (publish to JSR)
+    hlvm deploy --npm    (publish to npm)
+```
+
+### What `hlvm deploy --jsr` Does Internally
+
+```
++----------------------------------------------------------------------+
+|                                                                      |
+|  $ hlvm deploy --jsr                                                 |
+|                                                                      |
+|  Step 1: Compile HQL -> ESM                                          |
+|  +--------------------------------------------------------------+   |
+|  | index.hql -> main.js  (7-stage compiler pipeline)             |   |
+|  | Effect checker auto-detects effect + permissions              |   |
+|  | __hlvm_meta export embedded in the compiled output            |   |
+|  | No separate hlvm.json. The JS IS the module.                  |   |
+|  +--------------------------------------------------------------+   |
+|                      |                                               |
+|  Step 2: Publish to JSR (or npm with --npm)                          |
+|  +--------------------------------------------------------------+   |
+|  |                                                                |   |
+|  |  Uses standard tooling under the hood:                        |   |
+|  |                                                                |   |
+|  |  --jsr: Generates jsr.json, runs `deno publish`               |   |
+|  |    Package: jsr:@jane/competitor-monitor@2.0.0                |   |
+|  |                                                                |   |
+|  |  --npm: Generates package.json, runs `npm publish`            |   |
+|  |    Package: @jane/competitor-monitor@2.0.0                    |   |
+|  |                                                                |   |
+|  |  Auth handled by JSR/npm (their own login flows).             |   |
+|  |  HLVM does not manage auth separately.                        |   |
+|  |                                                                |   |
+|  +--------------------------------------------------------------+   |
+|                      |                                               |
+|  Step 3: Install locally                                             |
+|  +--------------------------------------------------------------+   |
+|  | Save compiled module to ~/.hlvm/modules/                       |   |
+|  | Add to Launchpad                                               |   |
+|  +--------------------------------------------------------------+   |
+|                                                                      |
+|  +-- WHY THIS MODEL -------------------------------------------+    |
+|  |                                                              |    |
+|  |  - Zero custom infrastructure (no server, no Git registry)  |    |
+|  |  - JSR/npm handle auth, CDN, versioning, search             |    |
+|  |  - Authors own their packages (standard JSR/npm accounts)   |    |
+|  |  - Modules are standard ESM (work outside HLVM too)         |    |
+|  |  - Billions of dollars of infrastructure, free to use       |    |
+|  |  - Proven at scale: npm serves 2M+ packages                 |    |
+|  |                                                              |    |
+|  +--------------------------------------------------------------+   |
+|                                                                      |
++----------------------------------------------------------------------+
+```
+
+### Other Build Commands
+
+```
+$ hlvm build [path]            Compile HQL -> ESM only (inspect/debug)
+$ hlvm run <module> [args]     Run a module (auto-compiles if needed)
+```
+
+`hlvm build` is useful for inspecting compiler output without installing
+or publishing. `hlvm run` is the fastest path from source to execution.
+
+---
+
+## Discovery Flow
+
+### GUI: Module Store View
+
+The HLVM macOS app includes a Store view for browsing modules. The GUI
+searches JSR and npm for modules containing `__hlvm_meta` exports:
+
+```
++--------------------------------------------------------------+
+|                     HLVM Module Store                          |
++--------------------------------------------------------------+
+|                                                              |
+|  +------------------------------------------------------+    |
+|  | Q  Search modules...                                 |    |
+|  +------------------------------------------------------+    |
+|                                                              |
+|  FEATURED                                      See All >     |
+|  +------------------------------------------------------+    |
+|  |  +--------+  +--------+  +--------+  +--------+      |    |
+|  |  | Sentmnt|  | Report |  |CodeRevw|  |Resrchr |      |    |
+|  |  | @hlvm  |  | @hlvm  |  | @alice |  | @bob   |      |    |
+|  |  | AI     |  | Agent  |  | AI     |  | Agent  |      |    |
+|  |  +--------+  +--------+  +--------+  +--------+      |    |
+|  +------------------------------------------------------+    |
+|                                                              |
+|  RECENTLY ADDED                                See All >     |
+|  +------------------------------------------------------+    |
+|  |  1. Competitor Monitor    @jane        Agent           |    |
+|  |  2. Stock Analyzer        @carol       AI              |    |
+|  |  3. Email Triager         @dave        Agent           |    |
+|  |  4. PDF Summarizer        @hlvm        AI              |    |
+|  |  5. Test Generator        @eve         Agent           |    |
+|  +------------------------------------------------------+    |
+|                                                              |
+|  CATEGORIES                                                  |
+|  +------+ +------+ +------+ +------+ +------+ +------+      |
+|  | Data | |Write | | Code | |Resrch| |Auto  | |Mail  |      |
+|  +------+ +------+ +------+ +------+ +------+ +------+      |
+|                                                              |
+|  BY EFFECT LEVEL                                             |
+|  +----------+  +----------+  +----------+                    |
+|  | Pure     |  | AI       |  | Agent    |                    |
+|  | 142 mods |  | 891 mods |  | 367 mods |                    |
+|  +----------+  +----------+  +----------+                    |
+|                                                              |
++--------------------------------------------------------------+
+```
+
+Featured modules are curated via a simple JSON file shipped with HLVM
+(updated with each release). No custom registry infrastructure needed.
+
+### GUI: Module Detail View
+
+When the user clicks a module, the detail view displays metadata read from
+`__hlvm_meta` in the compiled ESM (downloaded on demand or from a cached
+summary):
+
+```
++--------------------------------------------------------------+
+|  < Back                                                      |
++--------------------------------------------------------------+
+|                                                              |
+|  Competitor Monitor                                   v2.0.0 |
+|  by @jane                                                    |
+|                                                              |
+|  Track competitor pricing changes across multiple sites      |
+|  and receive alerts when prices change. Configurable         |
+|  check frequency and threshold alerts.                       |
+|                                                              |
+|  +----------------------------------------+                  |
+|  |  Effect:       Agent (full access)     |                  |
+|  |  Permissions:  network, filesystem     |                  |
+|  |  Category:     Monitoring              |                  |
+|  |  Size:         4.2 KB                  |                  |
+|  |  Source:       jsr.io/@jane/...        |                  |
+|  +----------------------------------------+                  |
+|                                                              |
+|  Input Parameters:                                           |
+|  +----------------------------------------+                  |
+|  |  url        string   "Competitor URL"  |                  |
+|  |  frequency  select   hourly/daily/wkly |                  |
+|  +----------------------------------------+                  |
+|                                                              |
+|              +------------------+                             |
+|              |     Install      |                             |
+|              +------------------+                             |
+|                                                              |
++--------------------------------------------------------------+
+```
+
+### GUI: Search Results (Spotlight Integration)
+
+The HLVM Spotlight also searches JSR and npm:
+
+```
++----------------------------------------------+
+| Q  sentiment                                  |
++----------------------------------------------+
+|                                              |
+|  INSTALLED (Launchpad)                       |
+|  Sentiment Analyzer             @hlvm    AI  |
+|                                        Run > |
+|                                              |
+|  ON JSR                                      |
+|  Sentiment Dashboard            @alice  Agt  |
+|                                    Install > |
+|                                              |
+|  ON NPM                                     |
+|  Emotion Classifier             @bob     AI  |
+|                                    Install > |
+|                                              |
+|  ON JSR                                      |
+|  Sentiment Trends               @carol  Agt  |
+|                                    Install > |
+|                                              |
++----------------------------------------------+
+```
+
+Installed modules show "Run" (executes immediately from Launchpad).
+Registry modules show "Install" (downloads then adds to Launchpad).
+
+### CLI: Search and Install
+
+```bash
+$ hlvm search sentiment
+
+  Results from JSR:
+  jsr:@hlvm/sentiment-analyzer    AI       Official
+    Classify text sentiment with confidence score
+
+  jsr:@alice/sentiment-dashboard  Agent    Community
+    Full sentiment analysis with visualizations
+
+  Results from npm:
+  npm:@bob/emotion-classifier     AI       Community
+    Classify emotions (joy, anger, sadness, etc.)
+
+$ hlvm install jsr:@hlvm/sentiment-analyzer
+
+  Downloading from jsr.io/@hlvm/sentiment-analyzer .... done
+  Reading __hlvm_meta ................................. done
+  Installed to ~/.hlvm/modules/@hlvm/sentiment-analyzer/1.2.0/
+
+  Added to Launchpad.
+```
+
+### Install Destination: Launchpad and Hotbar
+
+```
+Install -> Launchpad (ALL installed modules appear here)
+                |
+                +-- Pin / assign shortcut -> Hotbar (frequently used subset)
+
++--- Launchpad -----------------------------------------------------------+
+|                                                                          |
+|  ALL installed modules. The full inventory.                              |
+|  Grid view in the macOS GUI. Every install lands here.                   |
+|                                                                          |
+|  +--------+ +--------+ +--------+ +--------+ +--------+                 |
+|  |Sentimnt| | Commit | |CompMntr| |CSVFmt  | |EmailTrg|                 |
+|  | @hlvm  | |@seoksn | | @jane  | | @bob   | | @dave  |                 |
+|  +--------+ +--------+ +--------+ +--------+ +--------+                 |
+|  +--------+ +--------+ +--------+                                        |
+|  |PDFSumm | |TestGen | |StockAn |                                        |
+|  | @hlvm  | | @eve   | |@carol  |                                        |
+|  +--------+ +--------+ +--------+                                        |
+|                                                                          |
++--------------------------------------------------------------------------+
+
++--- Hotbar ---------------------------------------------------------------+
+|                                                                          |
+|  SUBSET of Launchpad. Only what the user has pinned or                    |
+|  assigned a keyboard shortcut to. Quick access bar.                      |
+|                                                                          |
+|  +--------+ +--------+ +--------+                                        |
+|  |Sentimnt| | Commit | |CompMntr|                                        |
+|  | Cmd+1  | | Cmd+2  | | Cmd+3  |                                        |
+|  +--------+ +--------+ +--------+                                        |
+|                                                                          |
+|  Launchpad is EVERYTHING installed.                                      |
+|  Hotbar is YOUR FAVORITES.                                               |
+|                                                                          |
++--------------------------------------------------------------------------+
+```
+
+---
+
+## Trust and Safety Model
+
+### Trust Tiers
+
+```
++-----------------------------------------------------------------+
+|                       Trust Model                                |
+|                                                                  |
+|  +--------------+--------------+----------------------------+    |
+|  | Tier         | Badge        | How to achieve             |    |
+|  +--------------+--------------+----------------------------+    |
+|  | Official     | Official     | Published by @hlvm org     |    |
+|  |              | (blue)       | on JSR (@hlvm namespace)   |    |
+|  +--------------+--------------+----------------------------+    |
+|  | Verified     | Verified     | Curated/audited by HLVM    |    |
+|  |              | (green)      | maintainers (verified list) |    |
+|  +--------------+--------------+----------------------------+    |
+|  | Community    | Community    | Any module on JSR/npm with  |    |
+|  |              | (gray)       | __hlvm_meta export          |    |
+|  +--------------+--------------+----------------------------+    |
+|                                                                  |
+|  How this works:                                                 |
+|                                                                  |
+|  - Official: Published under the @hlvm org on JSR                |
+|  - Verified: Listed in verified.json shipped with HLVM           |
+|              (maintainers audit and add entries)                  |
+|  - Community: Any JSR/npm package with valid __hlvm_meta         |
+|                                                                  |
+|  Trust tier is determined by namespace (@hlvm) or inclusion      |
+|  in a curated list. Simple, no custom CI pipeline needed.        |
+|                                                                  |
++-----------------------------------------------------------------+
+```
+
+### Effect-Driven Permission Model
+
+When a user installs a module, the GUI shows what it can do based on the
+effect classification read from `__hlvm_meta`:
+
+```
+Installing "Competitor Monitor" by @jane (Verified)
+
+  This module requires:
+
+  Agent Effect --- Full system access
+
+    - Network access     Make HTTP requests and AI calls
+    - File system        Read and write files on your computer
+    - Shell commands     Execute terminal commands
+
+  This is an Agent module. It can take autonomous actions
+  on your computer including reading/writing files and
+  running commands.
+
+           +----------+  +----------+
+           |  Cancel   |  | Install  |
+           +----------+  +----------+
+```
+
+For AI modules (no file/shell access):
+
+```
+Installing "Sentiment Analyzer" by @hlvm (Official)
+
+  This module requires:
+
+  AI Effect --- Network only
+
+    - Network access     Make AI API calls
+
+  This module only makes AI calls. It cannot access
+  your files or run commands.
+
+           +----------+  +----------+
+           |  Cancel   |  | Install  |
+           +----------+  +----------+
+```
+
+For Pure modules (no permissions):
+
+```
+Installing "CSV Formatter" by @bob (Community)
+
+  This module requires:
+
+  Pure --- No permissions needed
+
+  This module runs entirely locally with no network
+  access, file access, or system access.
+
+                       +----------+
+                       | Install  |
+                       +----------+
+```
+
+### Safety Enforcement
+
+The permission model is enforced at runtime, not just displayed:
+
+```
+Module declares:     effect: "ai", permissions: ["network"]
+Module tries to:     read a file via agent()
+
+Result:              BLOCKED. Module only has network permission.
+                     User sees: "Sentiment Analyzer tried to access
+                     the filesystem. This exceeds its declared
+                     permissions. Allow? [Once] [Always] [Deny]"
+```
+
+This is sandboxing via the effect system. The module's `__hlvm_meta` declares
+its permissions. The runtime enforces them.
+
+### Install-Time Verification
+
+When HLVM downloads a module from JSR or npm, it performs these checks:
+
+```
+1. __hlvm_meta:      Import module, check __hlvm_meta has required fields
+2. Effect valid:     effect field is one of: pure, ai, agent
+3. Permissions:      permissions array contains only known values
+4. Size limit:       Max 1MB per module (ESM code should be small)
+5. Name match:       Package name matches __hlvm_meta.name
+```
+
+Reports and moderation use standard JSR/npm reporting mechanisms. HLVM
+maintainers can remove entries from the verified list at any time.
+
+---
+
+## Infrastructure
+
+### The Entire "Backend"
+
+```
++--------------------------------------------------------------+
+|                    Module Infrastructure                       |
+|                                                              |
+|  +----------------------------------------------------------+|
+|  |                                                          ||
+|  |  JSR (jsr.io) and npm (npmjs.com)                        ||
+|  |                                                          ||
+|  |  Existing, battle-tested package registries.             ||
+|  |  HLVM does not maintain any custom registry              ||
+|  |  infrastructure. Zero servers. Zero cost.                ||
+|  |                                                          ||
+|  +----------------------------------------------------------+|
+|                                                              |
+|  What JSR/npm provide (for free):                            |
+|    - Package hosting and CDN                                 |
+|    - Authentication and authorization                        |
+|    - Version management (semver)                             |
+|    - Search and discovery APIs                               |
+|    - Integrity verification (checksums)                      |
+|    - Download statistics                                     |
+|    - Abuse reporting                                         |
+|                                                              |
+|  What HLVM adds on top:                                      |
+|    - __hlvm_meta convention (self-describing modules)        |
+|    - featured.json (curated highlights, shipped with HLVM)   |
+|    - verified.json (audited modules, shipped with HLVM)      |
+|    - Effect-based permission enforcement at runtime          |
+|    - Store GUI that searches JSR/npm with HLVM filtering     |
+|                                                              |
+|  Compare:                                                    |
+|  +--------------------+------------------------------------+ |
+|  |  Custom registry   |  JSR/npm reuse                     | |
+|  +--------------------+------------------------------------+ |
+|  |  API server         |  None (use JSR/npm APIs)          | |
+|  |  Database           |  None (JSR/npm handle it)         | |
+|  |  File storage       |  None (JSR/npm CDN)               | |
+|  |  Auth system        |  None (JSR/npm auth)              | |
+|  |  CI for registry    |  None (no custom registry)        | |
+|  |  Cost               |  $0/month                         | |
+|  |  Maintenance        |  None                             | |
+|  +--------------------+------------------------------------+ |
+|                                                              |
++--------------------------------------------------------------+
+```
+
+### Open Ecosystem
+
+Modules are standard ESM packages on standard registries. Anyone can:
+
+- Install from JSR or npm using standard tooling
+- Import modules in any JavaScript project
+- Run modules with any JS runtime (Node.js, Deno, Bun, browsers)
+- Publish modules using standard JSR/npm workflows
+- Use modules outside of HLVM entirely
+
+The `__hlvm_meta` export is the only HLVM-specific convention. Everything
+else is standard ESM. This prevents vendor lock-in and lowers the barrier
+for authors.
+
+---
+
+## Ranking and Discovery
+
+### Search
+
+The `hlvm search` command and the GUI Store view delegate to JSR/npm APIs:
+
+```
+$ hlvm search sentiment
+
+How it works:
+  1. Query JSR API: GET https://api.jsr.io/packages?search=sentiment
+  2. Query npm API: GET https://registry.npmjs.org/-/v1/search?text=sentiment
+  3. Filter results: only packages with __hlvm_meta export
+  4. Rank by relevance (name match > description match)
+  5. Annotate with trust tier (Official / Verified / Community)
+  6. Display results
+```
+
+### Featured and Categories
+
+Featured modules are curated via JSON files shipped with HLVM:
+
+```
+~/.hlvm/ (or bundled in the app)
+  featured.json       (maintainer-curated list of highlighted modules)
+  verified.json       (audited modules that earn the Verified badge)
+```
+
+These files are updated with each HLVM release. No separate infrastructure.
+
+### Categories
+
+```
+Data Analysis      Monitoring       Writing
+Code Tools         Research         Communication
+Automation         Finance          Education
+DevOps             Design           Productivity
+```
+
+---
+
+## CLI Reference
+
+### CLI Commands
+
+```
+hlvm run <module> [args]              Run a module (auto-compiles if needed)
+hlvm build [path]                     Compile only (inspect/debug)
+hlvm deploy                           Build + install locally
+hlvm deploy --jsr                     Build + publish to JSR
+hlvm deploy --npm                     Build + publish to npm
+hlvm install jsr:<module>[@version]   Install from JSR
+hlvm install npm:<module>[@version]   Install from npm
+hlvm uninstall <module>               Remove from Launchpad + delete files
+hlvm update                           Check for newer versions
+hlvm search <query>                   Search JSR/npm for modules
+hlvm info <module>                    Show module details
+```
+
+### Local Module Directory
+
+```
+~/.hlvm/modules/
++-- @hlvm/
+|   +-- sentiment-analyzer/
+|       +-- 1.2.0/
+|       |   +-- main.js           (compiled ESM -- code + __hlvm_meta)
+|       +-- current -> 1.2.0/     (symlink to active version)
++-- @jane/
+|   +-- competitor-monitor/
+|       +-- 2.0.0/
+|       |   +-- main.js
+|       +-- current -> 2.0.0/
++-- local/
+|   +-- my-commit/
+|       +-- main.js               (local-only, deployed via hlvm deploy)
++-- index.json                    (local module index for fast lookup)
+```
+
+### Namespace Convention
+
+```
+@hlvm/*        Official modules (published to JSR by @hlvm org)
+@<username>/*  User modules (from JSR/npm, e.g. @jane/competitor-monitor)
+local/*        Local-only modules (hlvm deploy without --jsr/--npm)
+```
+
+---
+
+## Migration and Compatibility
+
+### ESM Compatibility
+
+Modules are standard ESM JavaScript packages on standard registries. They can be:
+
+- Imported by any JavaScript project (`import { analyze } from "...";`)
+- Run by any JS runtime (Node.js, Deno, Bun, browsers)
+- Installed via standard tools (`deno add`, `npm install`)
+- Used outside of HLVM entirely
+
+HLVM is a convenience layer for HQL compilation, effect detection, and the
+Launchpad/Hotbar GUI. The modules themselves are not locked to HLVM.
+
+---
+
+## Growth Stages
+
+```
+Stage 1 --- Bootstrap (Month 1-3):
+  +-- Official @hlvm modules published to JSR
+  +-- hlvm deploy + hlvm install commands working
+  +-- hlvm deploy --jsr publishes to JSR correctly
+  +-- Store view in macOS GUI searching JSR
+  +-- 20-30 official @hlvm/* modules on JSR
+  +-- featured.json and verified.json shipped with HLVM
+  +-- Goal: prove the loop works (author -> deploy --jsr -> search -> install)
+
+Stage 2 --- Community (Month 3-6):
+  +-- Community authors publishing to JSR/npm
+  +-- Store GUI searching both JSR and npm
+  +-- hlvm search returning results from both registries
+  +-- Verified badge program (maintainers audit and list modules)
+  +-- Categories populated in Store GUI
+  +-- Goal: 100+ community modules with __hlvm_meta, early flywheel
+
+Stage 3 --- Growth (Month 6-12):
+  +-- Curated featured list updated regularly
+  +-- Verified badge program scales with community reviewers
+  +-- Module composition tools (modules calling modules)
+  +-- AI-authored module publishing workflows
+  +-- Private registry support (private JSR/npm scopes)
+  +-- Goal: 1,000+ modules, self-sustaining ecosystem
+
+Stage 4 --- Scale (Month 12+):
+  +-- Enterprise private registries (private JSR/npm scopes)
+  +-- Module analytics (download counts via JSR/npm APIs)
+  +-- Cross-registry search improvements
+  +-- HLVM becomes the default way to use AI on macOS
+  +-- Goal: HLVM is to AI modules what VS Code is to extensions
+```
+# 04 — User Journeys
+
+**End-to-end flows for authors, consumers, and AI-authored modules.**
+
+---
+
+## Journey 1: Consumer — Find, Install, Use
+
+Sarah is a marketing analyst. She analyzes customer reviews weekly. She has
+HLVM installed on her Mac.
+
+### Step 1: Browse the Registry
+
+Sarah opens the HLVM app and clicks Browse. The app searches JSR and npm for
+available HLVM modules (any ESM module with `__hlvm_meta`).
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     HLVM Module Registry                      │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │ Q  sentiment analysis                                │    │
+│  └──────────────────────────────────────────────────────┘    │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 2: Search and Browse Results
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Q  sentiment analysis                                        │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  😊  Sentiment Analyzer              ★ 2.4k  ✓ Official    │
+│      Classify text sentiment with confidence scores      ▸   │
+│      ● AI · @hlvm                                            │
+│                                                              │
+│  📊  Batch Sentiment Processor       ★ 890   ✓ Verified    │
+│      Analyze sentiment across CSV files                  ▸   │
+│      ● Agent · @jane                                         │
+│                                                              │
+│  🎭  Multi-Language Sentiment        ★ 340   Community      │
+│      Sentiment analysis in 12 languages                  ▸   │
+│      ● AI · @carlos                                          │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 3: View Details and Install
+
+Sarah clicks "Batch Sentiment Processor":
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  ◀ Back                                                      │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  📊  Batch Sentiment Processor                       v1.5.0  │
+│  by @jane · Verified ✓                                       │
+│  ★★★★★ 4.8  ·  890 stars  ·  3.2k installs                  │
+│                                                              │
+│  Analyze sentiment across an entire CSV file.                │
+│  Reads a CSV, processes each row through AI,                 │
+│  outputs results as a new CSV with sentiment                 │
+│  scores and a summary report.                                │
+│                                                              │
+│  Effect:       ● Agent (needs file access)                   │
+│  Permissions:  network (AI calls), filesystem (read/write)   │
+│                                                              │
+│  Input: csv_path (string) — Path to your CSV file            │
+│                                                              │
+│              ┌──────────────────┐                             │
+│              │     Install      │                             │
+│              └──────────────────┘                             │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Sarah clicks Install. Permission prompt:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                                                          │
+│  "Batch Sentiment Processor" needs:                      │
+│                                                          │
+│    ☐ Network — to make AI API calls                      │
+│    ☐ Filesystem — to read your CSV and write results     │
+│                                                          │
+│           ┌──────────┐  ┌──────────┐                     │
+│           │  Cancel   │  │  Allow   │                     │
+│           └──────────┘  └──────────┘                     │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+Sarah clicks Allow. Module downloads and appears in her Launchpad.
+
+### Step 4: Use the Module
+
+Sarah opens Launchpad (all installed modules) and clicks the new module.
+She can also pin it to the Hotbar for one-click access later.
+
+```
+Sarah's Launchpad (all installed):
+┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐
+│ 💬 │ │ 📊 │ │ 📝 │ │ 🔍 │ │ ⚙  │
+│Chat│ │Sent│ │Note│ │Srch│ │Sets│
+└────┘ └─┬──┘ └────┘ └────┘ └────┘
+         │
+         │ Sarah clicks this
+         ▼
+
+┌──────────────────────────────────────────┐
+│  📊 Batch Sentiment Processor            │
+│                                          │
+│  CSV File Path:                          │
+│  ┌──────────────────────────────────┐    │
+│  │ ~/data/customer-reviews.csv      │    │
+│  └──────────────────────────────────┘    │
+│                                          │
+│              ┌──────────┐                │
+│              │    Run    │                │
+│              └──────────┘                │
+│                                          │
+└──────────────────────────────────────────┘
+```
+
+Sarah enters the path and clicks Run:
+
+```
+┌──────────────────────────────────────────┐
+│  📊 Batch Sentiment Processor            │
+│                                          │
+│  Running...                              │
+│                                          │
+│  ✓ Read 247 reviews from CSV             │
+│  ⟳ Analyzing sentiment... (142/247)      │
+│  ◻ Writing results                       │
+│  ◻ Generating summary                    │
+│                                          │
+└──────────────────────────────────────────┘
+```
+
+After completion:
+
+```
+┌──────────────────────────────────────────┐
+│  📊 Batch Sentiment Processor            │
+│                                          │
+│  ✓ Complete                              │
+│                                          │
+│  Results:                                │
+│    Positive: 168 (68%)                   │
+│    Neutral:   52 (21%)                   │
+│    Negative:  27 (11%)                   │
+│                                          │
+│  Files created:                          │
+│    ~/data/customer-reviews-sentiment.csv │
+│    ~/data/sentiment-summary.md           │
+│                                          │
+│  ┌──────────────┐  ┌──────────────┐      │
+│  │ Open Results  │  │    Done     │      │
+│  └──────────────┘  └──────────────┘      │
+│                                          │
+└──────────────────────────────────────────┘
+```
+
+**Total time: ~2 minutes (search, install, run). No code written. No terminal.**
+
+---
+
+## Journey 2: Author — Write, Deploy, Share
+
+Jake is a developer who wrote a useful HQL module for code review.
+
+### Step 1: Write the Module
+
+One file. Metadata and code live together in `index.hql`. The `(module ...)` form
+is always the first expression. No separate manifest, no JSON config.
+
+```
+~/projects/code-reviewer/
+
+index.hql:
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│  (module                                                     │
+│    {name:        "Code Reviewer"                             │
+│     description: "AI-powered code review with severity       │
+│                   classification and line-level feedback"     │
+│     version:     "1.0.0"                                     │
+│     author:      "jake"                                      │
+│     icon:        "doc.text.magnifyingglass"                  │
+│     category:    "code-tools"                                │
+│     params:      [{name: "file-path"                         │
+│                    type: "string"                             │
+│                    label: "File to review"}]})                │
+│                                                              │
+│  ;; Effect and permissions are AUTO-DETECTED by the compiler │
+│  ;; The compiler sees ai() calls → marks effect: "ai"        │
+│  ;; The compiler sees readFile → marks permissions: network,  │
+│  ;;   filesystem                                             │
+│                                                              │
+│  (import {readFile} from "hlvm:fs")                          │
+│                                                              │
+│  (generable ReviewResult {                                   │
+│    issues:      [{severity: (case "high" "medium" "low")     │
+│                   line:     number                           │
+│                   message:  string}]                         │
+│    summary:     string                                       │
+│    score:       {type: number min: 0 max: 10}})              │
+│                                                              │
+│  (export (defn review [file-path]                            │
+│    (let [code (await (readFile file-path))]                  │
+│      (ai "Review this code for bugs, security issues,        │
+│           and style problems. Be specific about line          │
+│           numbers."                                          │
+│        {data: code schema: ReviewResult}))))                 │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+
+Compiles to ONE file: main.js (code + __hlvm_meta embedded).
+No separate manifest. The compiled JS IS the module.
+```
+
+### Step 2: Test Locally
+
+```
+$ hlvm run ./index.hql --file-path ./test.ts
+
+  {
+    "issues": [
+      { "severity": "high", "line": 42, "message": "SQL injection..." },
+      { "severity": "medium", "line": 15, "message": "Unused variable..." }
+    ],
+    "summary": "2 issues found: 1 high severity (SQL injection)...",
+    "score": 6.5
+  }
+```
+
+### Step 3: Deploy
+
+`hlvm deploy --jsr` compiles the module and publishes it to JSR in one step.
+
+```
+$ hlvm deploy --jsr
+
+  Step 1/2: Compiling
+  index.hql → main.js ........................ done
+  Effect detected: ai (uses ai() calls)
+  Permissions detected: network, filesystem
+
+  Step 2/2: Publishing to JSR
+  Publishing jsr:@jake/code-reviewer@1.0.0 .... done
+
+  Deployed locally + published to JSR.
+  Others can install: hlvm install jsr:@jake/code-reviewer
+```
+
+### Step 4: Watch It Grow
+
+Jake can check stats from CLI or the registry page on GitHub:
+
+```
+$ hlvm stats @jake/code-reviewer
+
+  @jake/code-reviewer v1.0.0
+  Published: 2026-03-30
+
+  Stars:     47    (↑ 12 this week)
+  Installs:  183   (↑ 56 this week)
+  Rating:    4.6   (8 reviews)
+
+  Top review:
+    ★★★★★ @sarah "Found a critical bug I missed. Saving this!"
+```
+
+### Step 5: Iterate and Update
+
+Jake improves his module based on feedback:
+
+```
+$ hlvm deploy --jsr
+
+  Compiling index.hql → main.js .............. done
+  Published jsr:@jake/code-reviewer@1.1.0 .... done
+
+  Users with auto-update will receive this version.
+```
+
+---
+
+## Journey 3: AI-Authored Module
+
+This is the ultimate vision: AI creates AI capabilities.
+
+### Step 1: User Describes What They Want
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  💬 HLVM Chat                                                │
+│                                                              │
+│  User: I need a module that monitors my competitor's website │
+│        at example-competitor.com, checks pricing daily, and  │
+│        alerts me if anything changes by more than 5%.        │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 2: HLVM Agent Builds the Module
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  💬 HLVM Chat                                                │
+│                                                              │
+│  Agent: I'll create a pricing monitor module for you.        │
+│                                                              │
+│  ◆ Creating module...                                        │
+│    ├── Writing index.hql (code + module metadata)            │
+│    ├── Testing locally                                       │
+│    └── Compiling to main.js (code + __hlvm_meta)             │
+│                                                              │
+│  ✓ Module created: competitor-monitor                        │
+│                                                              │
+│  It monitors example-competitor.com/pricing daily and        │
+│  sends you a notification if any price changes by > 5%.      │
+│                                                              │
+│  Would you like to:                                          │
+│  [Install]  [Deploy to Registry]  [View Code]                │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 3: Module in Launchpad (Optionally Pinned to Hotbar)
+
+The user clicks "Install". The module appears in Launchpad (all installed):
+
+```
+Launchpad (all installed modules):
+┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐
+│ 💬 │ │ 📊 │ │ 📝 │ │ 🔍 │ │ 📡 │   ← NEW
+│Chat│ │Sent│ │Note│ │Srch│ │Mon │
+└────┘ └────┘ └────┘ └────┘ └────┘
+```
+
+The user can right-click and "Pin to Hotbar" for quick access. But the module
+is already usable from Launchpad immediately.
+
+One click to run. The module that AI built is indistinguishable from a
+human-authored module. Same format, same execution, same GUI.
+
+### Step 4: (Optional) Deploy to JSR
+
+If the module is useful, the user can publish it for others:
+
+```
+$ hlvm deploy --jsr
+
+  Compiling index.hql → main.js .............. done
+  Published jsr:@sarah/competitor-monitor@1.0.0 .. done
+
+  Available to all HLVM users via: hlvm install jsr:@sarah/competitor-monitor
+```
+
+**The loop: AI builds a capability → user uses it → user shares it →
+other users benefit.** The platform produces its own content.
+
+---
+
+## Journey 4: PRD-to-Delivery (Advanced)
+
+The most ambitious flow: human writes a high-level requirement, AI handles
+everything else.
+
+### Step 1: Human Writes PRD
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  💬 HLVM Chat                                                │
+│                                                              │
+│  User: Build me a complete competitor intelligence suite:     │
+│                                                              │
+│        1. Monitor 5 competitor websites for pricing changes  │
+│        2. Track their social media sentiment weekly          │
+│        3. Generate a weekly comparison report                │
+│        4. Alert me immediately on significant changes        │
+│                                                              │
+│        Competitors: acme.com, globex.com, initech.com,       │
+│        umbrella.com, waynetech.com                           │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 2: Meta-Orchestrator Plans
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  💬 HLVM Chat                                                │
+│                                                              │
+│  Agent (Lead): I'll build this as 4 composable modules:      │
+│                                                              │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │  Module 1: price-monitor                                │ │
+│  │    Scrapes pricing pages, detects changes               │ │
+│  │    Effect: Agent · Permissions: network, filesystem     │ │
+│  │                                                         │ │
+│  │  Module 2: social-sentiment                             │ │
+│  │    Tracks social media mentions, classifies sentiment   │ │
+│  │    Effect: Agent · Permissions: network                 │ │
+│  │                                                         │ │
+│  │  Module 3: weekly-report                                │ │
+│  │    Combines price + sentiment data, generates report    │ │
+│  │    Effect: Agent · Permissions: network, filesystem     │ │
+│  │    Imports: price-monitor, social-sentiment             │ │
+│  │                                                         │ │
+│  │  Module 4: change-alert                                 │ │
+│  │    Runs price-monitor, alerts on >5% change             │ │
+│  │    Effect: Agent · Permissions: network, filesystem     │ │
+│  │    Imports: price-monitor                               │ │
+│  └─────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  Spawning team to build these...                             │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 3: Team Builds Modules
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  💬 HLVM Chat                                                │
+│                                                              │
+│  Team Activity:                                              │
+│                                                              │
+│  ◆ Researcher: Analyzing competitor website structures...    │
+│  ◆ Coder-1:    Writing price-monitor.hql .............. done │
+│  ◆ Coder-2:    Writing social-sentiment.hql ........... done │
+│  ◆ Coder-1:    Writing weekly-report.hql .............. done │
+│  ◆ Coder-2:    Writing change-alert.hql ............... done │
+│  ◆ Tester:     Testing all modules .................... done │
+│  ◆ Lead:       Compiling and verifying ................ done │
+│                                                              │
+│  ✓ All 4 modules built, tested, and ready.                   │
+│                                                              │
+│  [Install All]  [Deploy to Registry]  [View Code]            │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Step 4: Four New Modules in Launchpad
+
+All four appear in Launchpad immediately. The user can pin any to the Hotbar
+for quick access.
+
+```
+Launchpad (all installed):
+┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐
+│ 💬 │ │ 💰 │ │ 📱 │ │ 📋 │ │ 🚨 │ │ 📊 │ │ 📝 │ │ ⚙  │
+│Chat│ │Pric│ │Socl│ │Wkly│ │Alrt│ │Sent│ │Note│ │Sets│
+└────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘
+       ─────────────────────────
+       These 4 are NEW, built by AI
+
+Hotbar (pinned subset — user pins their favorites):
+┌────┐ ┌────┐ ┌────┐
+│ 💬 │ │ 🚨 │ │ 📋 │
+│Chat│ │Alrt│ │Wkly│
+└────┘ └────┘ └────┘
+```
+
+Each module is independent, composable, and executable with one click.
+
+---
+
+## Journey 5: Launchpad & Hotbar Management
+
+```
+Launchpad = ALL installed modules (superset, searchable, scrollable grid).
+Hotbar    = PINNED subset (always visible, quick access, keyboard shortcuts).
+
+Install → Launchpad → (optionally) Pin to Hotbar.
+```
+
+### Pinning from Launchpad to Hotbar
+
+The Launchpad is the full inventory. The Hotbar is managed by pinning and
+unpinning modules from Launchpad.
+
+```
+Right-click a module in Launchpad:
+
+  ┌──────────────────────────┐
+  │  Run                     │
+  │  ────────────────────    │
+  │  View Details            │
+  │  Check for Updates       │
+  │  ────────────────────    │
+  │  Pin to Hotbar           │  ← adds to the quick-access bar
+  │  Assign Shortcut...      │  ← assigns key AND pins to Hotbar
+  │  ────────────────────    │
+  │  Uninstall               │
+  └──────────────────────────┘
+```
+
+"Pin to Hotbar" adds the module to the always-visible quick-access bar.
+"Assign Shortcut" assigns a keyboard shortcut AND automatically pins to Hotbar.
+"Uninstall" removes it from both Launchpad and Hotbar.
+
+### Rearranging the Hotbar
+
+```
+Drag-and-drop on the Hotbar:
+
+Before:
+┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐
+│ 💬 │ │ 📊 │ │ 📝 │ │ 🔍 │ │ ⚙  │
+│Chat│ │Sent│ │Note│ │Srch│ │Sets│
+└────┘ └────┘ └────┘ └────┘ └────┘
+
+User drags 🔍 to position 1:
+
+After:
+┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐
+│ 💬 │ │ 🔍 │ │ 📊 │ │ 📝 │ │ ⚙  │
+│Chat│ │Srch│ │Sent│ │Note│ │Sets│
+└────┘ └────┘ └────┘ └────┘ └────┘
+```
+
+### Unpinning from Hotbar
+
+```
+Right-click a module on the Hotbar:
+
+  ┌──────────────────────────┐
+  │  Run                     │
+  │  ────────────────────    │
+  │  View Details            │
+  │  ────────────────────    │
+  │  Unpin from Hotbar       │  ← removes from Hotbar, stays in Launchpad
+  │  Uninstall               │  ← removes from both
+  └──────────────────────────┘
+```
+
+"Unpin from Hotbar" removes it from the quick-access bar but keeps it installed
+in Launchpad. "Uninstall" removes it completely.
+
+### Switching Profiles (Loadouts)
+
+Hotbar profiles let you swap entire pinned sets for different workflows:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Hotbar Profiles                                             │
+│                                                              │
+│  ● Default                                                   │
+│    ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                      │
+│    │ 💬 │ │ 📊 │ │ 📝 │ │ 🔍 │ │ ⚙  │                      │
+│    └────┘ └────┘ └────┘ └────┘ └────┘                      │
+│                                                              │
+│  ○ Research                                                  │
+│    ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                      │
+│    │ 🔍 │ │ 📄 │ │ 📈 │ │ 📚 │ │ 📝 │                      │
+│    └────┘ └────┘ └────┘ └────┘ └────┘                      │
+│                                                              │
+│  ○ Development                                               │
+│    ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐                      │
+│    │ 💻 │ │ 🧪 │ │ 🔍 │ │ 🚀 │ │ 📋 │                      │
+│    └────┘ └────┘ └────┘ └────┘ └────┘                      │
+│                                                              │
+│  [+ New Profile]                                             │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+All modules in every profile are installed in Launchpad. Profiles just control
+which subset is pinned to the Hotbar. Like Diablo: different skill loadouts for
+different encounters. The GUI is simple — radio buttons and drag-and-drop. But
+the concept is powerful: **pre-configured sets of AI capabilities for different
+workflows.**
+# 05 — Competitive Analysis
+
+**What exists, what doesn't, and where HLVM fits.**
+
+---
+
+## The Landscape (2026)
+
+### Category 1: Chat Interfaces
+
+Products where AI is accessed through conversation.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│  ChatGPT / Claude / Gemini                                   │
+│                                                              │
+│  What they do well:                                          │
+│  ├── Natural language interaction                            │
+│  ├── Broad knowledge                                         │
+│  ├── Custom GPTs / Projects / Gems                           │
+│  └── Growing tool access (code interpreter, browsing)        │
+│                                                              │
+│  What they cannot do:                                        │
+│  ├── Access your local filesystem                            │
+│  ├── Run commands on your computer                           │
+│  ├── Orchestrate multi-agent teams                           │
+│  ├── Be automated (each use is manual)                       │
+│  ├── Compose into pipelines                                  │
+│  └── Work offline / with local models                        │
+│                                                              │
+│  Verdict: Great for one-off questions.                       │
+│           Cannot automate anything.                          │
+│           Cannot access your local system.                   │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Category 2: Code-First Agent Frameworks
+
+Products for developers who write agent orchestration in Python/JS.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│  LangChain / CrewAI / AutoGen / Mastra                       │
+│                                                              │
+│  What they do well:                                          │
+│  ├── Full programmatic control                               │
+│  ├── Multi-agent orchestration                               │
+│  ├── Tool/function calling                                   │
+│  ├── Memory systems                                          │
+│  └── Multi-provider support                                  │
+│                                                              │
+│  What they cannot do:                                        │
+│  ├── Non-developers cannot use them at all                   │
+│  ├── No GUI — terminal only                                  │
+│  ├── No one-click execution                                  │
+│  ├── No module marketplace / sharing                         │
+│  ├── No native macOS integration                             │
+│  ├── Heavy Python dependency management                      │
+│  └── Each project is a fresh setup                           │
+│                                                              │
+│  Verdict: Powerful for developers.                           │
+│           Inaccessible to everyone else.                     │
+│           No ecosystem / sharing story.                      │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Category 3: macOS Automation
+
+Products that automate workflows on Mac with visual interfaces.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│  Apple Shortcuts / Automator / Raycast                        │
+│                                                              │
+│  What they do well:                                          │
+│  ├── Native macOS integration                                │
+│  ├── Visual workflow builder (Shortcuts)                     │
+│  ├── Spotlight-style launcher (Raycast)                      │
+│  ├── One-click execution                                     │
+│  └── Some AI features (Raycast AI)                           │
+│                                                              │
+│  What they cannot do:                                        │
+│  ├── No multi-agent orchestration                            │
+│  ├── No real programming language                            │
+│  ├── Limited AI integration (basic prompts only)             │
+│  ├── Cannot compose complex AI pipelines                     │
+│  ├── Cannot run autonomous agent loops                       │
+│  ├── No schema-enforced AI output                            │
+│  └── Shortcuts blocks are clunky for complex logic           │
+│                                                              │
+│  Verdict: Great for simple automation.                       │
+│           Cannot handle complex AI workflows.                │
+│           Limited composability.                              │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Category 4: AI Agent Products
+
+Products that package AI agents with specific capabilities.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│  PaperClip / Devin / Cursor / Claude Code                    │
+│                                                              │
+│  What they do well:                                          │
+│  ├── Domain-specific AI agents (coding, research)            │
+│  ├── Deep integration with their domain                      │
+│  ├── Multi-step autonomous execution                         │
+│  └── Some team/collaboration features                        │
+│                                                              │
+│  What they cannot do:                                        │
+│  ├── Limited to their domain (coding only, etc.)             │
+│  ├── Cannot create new capability types                      │
+│  ├── No user-authored modules                                │
+│  ├── No module marketplace                                   │
+│  ├── Not a general platform                                  │
+│  └── Cannot compose into other workflows                     │
+│                                                              │
+│  Verdict: Good at one thing.                                 │
+│           Not a platform.                                    │
+│           Cannot be extended by users.                       │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## The Gap
+
+```
+                    Full AI Power
+                    (agents, teams,
+                     multi-step,
+                     local access)
+                         ▲
+                         │
+  LangChain ●            │
+  CrewAI    ●            │
+  AutoGen   ●            │
+                         │
+                         │         ● HLVM
+                         │           (HERE)
+                         │
+                         │
+  Devin     ●            │
+  PaperClip ●            │
+                         │
+                         │
+  Raycast AI ●           │
+                         │
+  ChatGPT    ●           │         ● Apple Shortcuts
+  Claude     ●           │
+                         │
+                         └──────────────────────────► Ease of Use
+                    Developer-only              One-click for anyone
+```
+
+**The gap: nobody combines full AI power WITH one-click ease of use.**
+
+- Upper-left (LangChain etc.): Full power, developer-only
+- Lower-left (ChatGPT etc.): Easy but limited, no automation
+- Lower-right (Shortcuts): Easy and automated, but weak AI
+- **Upper-right (HLVM): Full power AND one-click. The empty quadrant.**
+
+---
+
+## Feature Comparison Matrix
+
+```
+┌───────────────────┬────────┬────────┬────────┬────────┬──────┐
+│                   │ChatGPT │LangChn │Raycast │Shortct │ HLVM │
+├───────────────────┼────────┼────────┼────────┼────────┼──────┤
+│ AI calls          │  ✓     │  ✓     │  ✓     │  ~     │  ✓   │
+│ Agent loops       │  ~     │  ✓     │  ✗     │  ✗     │  ✓   │
+│ Multi-agent teams │  ✗     │  ✓     │  ✗     │  ✗     │  ✓   │
+│ Local file access │  ✗     │  ✓     │  ~     │  ✓     │  ✓   │
+│ Shell execution   │  ✗     │  ✓     │  ✗     │  ~     │  ✓   │
+│ Real language     │  ✗     │  ✓(Py) │  ✗     │  ✗     │  ✓   │
+│ Schema-typed AI   │  ✗     │  ✓     │  ✗     │  ✗     │  ✓   │
+│ Native macOS GUI  │  ✗     │  ✗     │  ✓     │  ✓     │  ✓   │
+│ One-click execute │  ✗     │  ✗     │  ✓     │  ✓     │  ✓   │
+│ Module registry   │  ~(GPT)│  ✗     │  ✓     │  ✓     │  ✓   │
+│ Composable        │  ✗     │  ✓     │  ✗     │  ~     │  ✓   │
+│ Multi-provider    │  ✗     │  ✓     │  ✗     │  ✗     │  ✓   │
+│ Local/offline     │  ✗     │  ✓     │  ✗     │  ✓     │  ✓   │
+│ Memory/context    │  ~     │  ✓     │  ✗     │  ✗     │  ✓   │
+│ Effect/safety     │  ✗     │  ✗     │  ✗     │  ✗     │  ✓   │
+│ ESM portable      │  ✗     │  ✗     │  ✗     │  ✗     │  ✓   │
+├───────────────────┼────────┼────────┼────────┼────────┼──────┤
+│ TOTAL             │  3/16  │  10/16 │  4/16  │  5/16  │ 16/16│
+└───────────────────┴────────┴────────┴────────┴────────┴──────┘
+
+✓ = full support   ~ = partial/limited   ✗ = not supported
+```
+
+No other product scores above 10/16. HLVM scores 16/16.
+
+The revolution is not any single column. It is the ONLY row that is all green.
+
+---
+
+## HLVM's Unique Advantages
+
+### 1. The Only Full Stack
+
+HLVM is the only product that spans the entire chain:
+
+```
+Authoring Language (HQL)
+       ↓
+Compilation (ESM)
+       ↓
+Distribution (Module Registry)
+       ↓
+Discovery (Store GUI + Spotlight)
+       ↓
+Installation (one click)
+       ↓
+Execution (Hotbar icon → agent engine)
+       ↓
+AI Runtime (multi-provider, multi-agent)
+```
+
+Every competitor owns only a slice of this chain.
+
+### 2. Platform-Agnostic Output
+
+ESM JavaScript runs everywhere. Modules created on HLVM can be:
+
+```
+Used in:
+  ├── HLVM Launchpad/Hotbar (primary)
+  ├── Any Node.js project (import from npm)
+  ├── Any Deno project (import from JSR or HTTP)
+  ├── Browsers (ESM native)
+  ├── Bun
+  └── Any future JS runtime
+
+Not locked to HLVM. Standard format.
+```
+
+### 3. The Effect System as Safety Model
+
+No other product has compile-time safety classification for AI modules:
+
+```
+Effect         →  Permission  →  GUI Badge  →  Runtime Sandbox
+"pure"         →  none        →  ● Green    →  no access
+"ai"           →  network     →  ● Yellow   →  network only
+"agent"        →  full        →  ● Red      →  full access
+```
+
+Users can make informed decisions before installing. Modules are sandboxed
+at runtime based on their declared effect level.
+
+### 4. AI Can Author Modules
+
+The platform consumes its own output:
+
+```
+User says "I need X"
+  → AI builds an HQL module that does X
+  → Module appears in Launchpad
+  → User clicks to use it
+  → Optionally deploys to Store for others
+```
+
+No other product has this self-reinforcing loop where AI creates shareable,
+reusable, one-click capabilities.
+
+### 5. The Network Effect Moat
+
+Once the Registry has critical mass:
+
+```
+More modules → More users → More authors → More modules → ...
+```
+
+This flywheel is nearly impossible to replicate. You cannot copy a network
+effect. You can only build your own.
+
+---
+
+## Risks and Mitigations
+
+### Risk: "Nobody will write HQL"
+
+**Mitigation**: Modules can also be written in plain JavaScript. HQL is the
+recommended authoring language but not required. The Store accepts any valid
+ESM with embedded `__hlvm_meta`. Additionally, AI can write modules —
+users don't need to learn any language at all.
+
+### Risk: "Not enough modules at launch"
+
+**Mitigation**: Launch with 20-30 high-quality official @hlvm/* modules
+covering common use cases (sentiment analysis, summarization, code review,
+web research, report generation, etc.). These establish quality expectations
+and give users immediate value.
+
+### Risk: "Security of community modules"
+
+**Mitigation**: Effect-based permission system, verified badge for reviewed
+modules, runtime sandboxing, user reporting, automated malware scanning on
+publish. Users can choose to only install Official/Verified modules.
+
+### Risk: "macOS only"
+
+**Mitigation**: The core is the hlvm binary (CLI), which runs on any platform.
+The macOS GUI is a thin shell. The CLI provides identical functionality.
+A web GUI or Linux GUI could be added later. Modules themselves are ESM —
+they run everywhere.
+
+### Risk: "Competing with Raycast / Apple"
+
+**Mitigation**: Raycast is a launcher with AI chat. Apple Shortcuts is visual
+blocks. Neither has a module registry for AI capabilities, agent orchestration,
+multi-step pipelines, or a real programming language. HLVM operates in a
+different category — it is a platform, not a launcher.
+# 07 — Daily Driver Scenarios
+
+**Concrete use cases that make HLVM your personal automation OS, not just a tool
+you open sometimes.**
+
+---
+
+## The Core Loop
+
+Every killer use case in HLVM follows the same three-step abstraction ladder:
+
+```
+Step 1: Write a function (parameterized, general)
+Step 2: Bind your defaults (zero-param, personal)
+Step 3: Assign a shortcut (one keystroke, instant)
+
+Each step removes friction. By Step 3, the action is muscle memory.
+```
+
+This document walks through concrete scenarios that demonstrate why this matters
+and what it feels like in practice.
+
+---
+
+## Scenario 1: Multi-Repo Commit
+
+### The Problem
+
+You work across multiple projects simultaneously. Every commit session is the
+same ritual: check each directory, stage changes, write a message, skip tests,
+push. Multiply by 3-5 repos. Every day.
+
+### Step 1: The General Function
+
+```lisp
+;; commit.hql
+(export (defn commit [directories]
+  (agent "For each directory:
+          1. cd into it
+          2. Run git diff --stat to understand changes
+          3. Write a concise, conventional commit message based on the diff
+          4. Stage all changes (git add -A)
+          5. Commit with --no-verify (skip hooks/tests)
+          6. Report what was committed
+
+          Do NOT push. Just commit locally."
+    {data: {directories: directories}
+     tools: ["shell_exec" "read_file"]})))
+```
+
+This compiles to an ESM module. You can run it from CLI:
+
+```bash
+hlvm run commit --directories '["~/dev/HLVM", "~/dev/hql"]'
+```
+
+Or from the GUI — click the icon, a form appears:
+
+```
+┌─────────────────────────────────────────────┐
+│  Commit All                                 │
+│                                             │
+│  Directories:                               │
+│  ┌─────────────────────────────────────┐    │
+│  │ ~/dev/HLVM                          │    │
+│  │ ~/dev/hql                           │    │
+│  │ (+ add directory)                   │    │
+│  └─────────────────────────────────────┘    │
+│                                             │
+│  ┌────────────┐                             │
+│  │  Execute   │                             │
+│  └────────────┘                             │
+└─────────────────────────────────────────────┘
+```
+
+This is already useful. But typing the same directories every time is tedious.
+
+### Step 2: Personal Binding
+
+```lisp
+;; my-commit.hql
+(import {commit} from "hlvm:@me/commit")
+
+(export (defn my-commit []
+  (commit ["~/dev/HLVM" "~/dev/hql" "~/dev/dotfiles"])))
+```
+
+Three lines. No parameters. `(my-commit)` does exactly what you want, every
+time. The GUI form has no fields — just a confirmation button:
+
+```
+┌─────────────────────────────────────────────┐
+│  My Commit                                  │
+│                                             │
+│  Will commit all changes in:                │
+│  • ~/dev/HLVM                               │
+│  • ~/dev/hql                                │
+│  • ~/dev/dotfiles                           │
+│                                             │
+│  ┌────────────┐                             │
+│  │  Execute   │                             │
+│  └────────────┘                             │
+└─────────────────────────────────────────────┘
+```
+
+### Step 3: Keyboard Shortcut
+
+In the HLVM macOS app, any Hotbar module can be bound to a global keyboard
+shortcut. This is native macOS capability — not a hack.
+
+```
+Settings > Shortcuts:
+
+┌─────────────────────────────────────────────┐
+│  Module Shortcuts                           │
+│                                             │
+│  ⌘⇧C    My Commit                          │
+│  ⌘⇧D    My Deploy                          │
+│  ⌘⇧S    Morning Summary                    │
+│  ⌘⇧R    Quick Review                       │
+│                                             │
+│  ┌──────────────────────┐                   │
+│  │  + Add Shortcut      │                   │
+│  └──────────────────────┘                   │
+└─────────────────────────────────────────────┘
+```
+
+Now: press `⌘⇧C` from anywhere on your Mac. HLVM commits all your repos with
+AI-written messages. One second. Done.
+
+### The Abstraction Ladder
+
+```
+commit.hql              → general purpose, takes parameters
+    ↓ import + bind
+my-commit.hql           → personal, zero parameters
+    ↓ shortcut bind
+⌘⇧C                    → muscle memory, < 1 second
+```
+
+This is the pattern. Every scenario below follows it.
+
+---
+
+## Scenario 2: Morning Standup Prep
+
+### The Problem
+
+Every morning before standup, you need to know: what did you do yesterday, what
+PRs are open, what issues are assigned to you, across all projects.
+
+### Step 1: The General Function
+
+```lisp
+;; standup.hql
+(generable StandupReport {
+  yesterday: [{repo: string commits: [string]}]
+  open_prs:  [{repo: string title: string url: string status: string}]
+  blockers:  [string]
+  today:     [string]})
+
+(export (defn standup [repos github-user]
+  (agent "Generate a standup report:
+          1. For each repo, get yesterday's commits by this user
+          2. Check GitHub for open PRs by this user
+          3. Check for any failing CI or review-requested PRs
+          4. Suggest today's priorities based on PR states and recent work
+
+          Output as structured StandupReport."
+    {data: {repos: repos user: github-user}
+     schema: StandupReport
+     tools: ["shell_exec" "web_search"]})))
+```
+
+### Step 2: Personal Binding
+
+```lisp
+;; my-standup.hql
+(import {standup} from "hlvm:@me/standup")
+
+(export (defn my-standup []
+  (standup
+    ["~/dev/HLVM" "~/dev/hql" "~/dev/infra"]
+    "your-github-username")))
+```
+
+### Step 3: Keyboard Shortcut
+
+`⌘⇧S` — press at 9:55am, paste into Slack at 10:00am.
+
+### What It Feels Like
+
+```
+You: press ⌘⇧S
+
+HLVM (3 seconds later):
+┌─────────────────────────────────────────────┐
+│  Morning Standup — March 31, 2026           │
+│                                             │
+│  Yesterday:                                 │
+│  • hql: 3 commits (routing evals, delegate  │
+│    UX, platform vision docs)                │
+│  • HLVM: 1 commit (shortcut binding UI)     │
+│                                             │
+│  Open PRs:                                  │
+│  • hql#142 — structured output fallback     │
+│    (CI passing, 1 approval)                 │
+│  • infra#89 — k8s resource limits           │
+│    (needs review)                           │
+│                                             │
+│  Today:                                     │
+│  • Merge hql#142 (ready)                    │
+│  • Address review on infra#89               │
+│  • Continue vision docs                     │
+│                                             │
+│  ┌──────────┐ ┌──────────────┐              │
+│  │  Copy    │ │  Copy as MD  │              │
+│  └──────────┘ └──────────────┘              │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+## Scenario 3: Cross-Repo Dependency Sync
+
+### The Problem
+
+You maintain several projects that share dependencies. When you bump a version
+in one, you need to update the others. Today this is manual find-and-replace
+across repos, then commit each one.
+
+### Step 1: The General Function
+
+```lisp
+;; sync-deps.hql
+(export (defn sync-deps [source-repo target-repos]
+  (agent "1. Read the dependency manifest (package.json, deno.json, or
+             Cargo.toml) from the source repo
+          2. For each target repo, find shared dependencies
+          3. Update target repos to match source versions
+          4. Show a diff summary of what changed in each target
+          5. Do NOT commit — just update the files"
+    {data: {source: source-repo targets: target-repos}
+     tools: ["read_file" "write_file" "shell_exec"]})))
+```
+
+### Step 2: Personal Binding
+
+```lisp
+;; my-sync.hql
+(import {sync-deps} from "hlvm:@me/sync-deps")
+
+(export (defn my-sync []
+  (sync-deps "~/dev/hql" ["~/dev/HLVM" "~/dev/hql-vscode"])))
+```
+
+### Step 3: Compose
+
+Now chain it with your commit module:
+
+```lisp
+;; my-sync-and-commit.hql
+(import {my-sync} from "hlvm:@me/my-sync")
+(import {commit} from "hlvm:@me/commit")
+
+(export (defn my-sync-and-commit []
+  (do
+    (await (my-sync))
+    (commit ["~/dev/HLVM" "~/dev/hql-vscode"]))))
+```
+
+One function. Syncs deps, then commits the changes. `⌘⇧U` and walk away.
+
+---
+
+## Scenario 4: PR Review Across Repos
+
+### The Problem
+
+You maintain multiple repos. PRs pile up. Reviewing each one means: open
+GitHub, read the diff, understand context, write comments. Repeat N times.
+
+### Step 1: The General Function
+
+```lisp
+;; review-prs.hql
+(generable ReviewResult {
+  repo:     string
+  pr:       number
+  title:    string
+  verdict:  (case "approve" "request-changes" "comment")
+  summary:  string
+  comments: [{file: string line: number body: string}]})
+
+(export (defn review-prs [repos github-user]
+  (agent "For each repo:
+          1. List open PRs where I am requested reviewer
+          2. For each PR, read the full diff
+          3. Analyze for: bugs, style issues, missing tests, security
+          4. Write inline review comments
+          5. Provide verdict (approve / request changes / comment)
+
+          Do NOT submit reviews — just prepare them for my approval."
+    {data: {repos: repos user: github-user}
+     schema: [ReviewResult]
+     tools: ["shell_exec" "web_search" "read_file"]})))
+```
+
+### Step 2: Personal Binding + GUI Approval
+
+```lisp
+;; my-review.hql
+(import {review-prs} from "hlvm:@me/review-prs")
+
+(export (defn my-review []
+  (review-prs
+    ["hlvm-org/hql" "hlvm-org/HLVM" "hlvm-org/infra"]
+    "your-github-username")))
+```
+
+The key insight: the agent prepares reviews but does NOT submit them. The GUI
+shows each review for human approval:
+
+```
+┌─────────────────────────────────────────────┐
+│  PR Reviews Ready                           │
+│                                             │
+│  hql#142 — structured output fallback       │
+│  Verdict: ✅ Approve                        │
+│  "Clean implementation. Tests cover edge    │
+│   cases. One minor suggestion on line 47."  │
+│  ┌──────────┐ ┌──────────┐ ┌─────────┐     │
+│  │ Submit   │ │  Edit    │ │  Skip   │     │
+│  └──────────┘ └──────────┘ └─────────┘     │
+│                                             │
+│  infra#89 — k8s resource limits             │
+│  Verdict: 🔸 Request Changes                │
+│  "Missing memory limit on worker pods.     │
+│   See inline comments (3)."                 │
+│  ┌──────────┐ ┌──────────┐ ┌─────────┐     │
+│  │ Submit   │ │  Edit    │ │  Skip   │     │
+│  └──────────┘ └──────────┘ └─────────┘     │
+└─────────────────────────────────────────────┘
+```
+
+The human is always in the loop for actions that are visible to others.
+
+---
+
+## Scenario 5: One-Click Environment Setup
+
+### The Problem
+
+You switch between projects. Each one has different environment needs: different
+services to start, different env vars, different ports to check.
+
+### Step 1: The General Function
+
+```lisp
+;; dev-env.hql
+(export (defn start-env [config]
+  (agent "Based on this configuration:
+          1. Check if required services are running (ports)
+          2. Start any that are missing
+          3. Set environment variables
+          4. Open relevant URLs in browser
+          5. Report status"
+    {data: config
+     tools: ["shell_exec" "read_file"]})))
+```
+
+### Step 2: Personal Bindings (Multiple)
+
+```lisp
+;; env-hql.hql — for HQL development
+(import {start-env} from "hlvm:@me/dev-env")
+
+(export (defn env-hql []
+  (start-env {
+    dir: "~/dev/hql"
+    services: [{name: "ollama" check-port: 11434 start: "ollama serve"}]
+    env: {HLVM_DIR: "~/.hlvm-dev"}
+    open: ["http://localhost:11434"]})))
+```
+
+```lisp
+;; env-hlvm.hql — for HLVM GUI development
+(import {start-env} from "hlvm:@me/dev-env")
+
+(export (defn env-hlvm []
+  (start-env {
+    dir: "~/dev/HLVM"
+    services: [
+      {name: "hlvm-server" check-port: 8765 start: "hlvm serve"}
+      {name: "ollama" check-port: 11434 start: "ollama serve"}]
+    env: {HLVM_DIR: "~/.hlvm-dev"}
+    open: ["http://localhost:8765/health"]})))
+```
+
+### Step 3: Hotbar Profile
+
+These aren't just individual shortcuts — they're part of a Hotbar profile:
+
+```
+"HQL Development" profile:
+┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐
+│ 🔧 │ │ 📝 │ │ 🧪 │ │ 📋 │ │ 🚀 │
+│Env │ │Cmit│ │Test│ │Stup│ │Dply│
+│HQL │ │    │ │    │ │    │ │    │
+└────┘ └────┘ └────┘ └────┘ └────┘
+ ⌘⇧1   ⌘⇧C   ⌘⇧T   ⌘⇧S   ⌘⇧D
+```
+
+Switch profile = switch your entire toolbelt. Like loadouts in a game.
+
+---
+
+## Scenario 6: Research-to-Memo Pipeline
+
+### The Problem
+
+Your boss asks "what's the state of WebAssembly in 2026?" You need to research,
+synthesize, and write a memo. Today: open 15 tabs, read for an hour, write for
+an hour.
+
+### Step 1: The General Function
+
+```lisp
+;; research-memo.hql
+(export (defn research-memo [topic output-path]
+  (agent "You are a senior analyst. Research this topic thoroughly:
+          1. Search the web for recent developments (2025-2026)
+          2. Find at least 5 authoritative sources
+          3. Synthesize findings into a structured memo:
+             - Executive Summary (3 sentences)
+             - Key Developments (bulleted)
+             - Market Impact
+             - Recommendations
+             - Sources (with URLs)
+          4. Save the memo as markdown to the output path"
+    {data: {topic: topic path: output-path}
+     tools: ["web_search" "web_fetch" "write_file"]})))
+```
+
+### Step 2: Personal Binding with Defaults
+
+```lisp
+;; my-memo.hql
+(import {research-memo} from "hlvm:@me/research-memo")
+
+(export (defn my-memo [topic]
+  (research-memo topic
+    (str "~/Documents/memos/" (today) "-" (slugify topic) ".md"))))
+```
+
+This one keeps `topic` as a parameter — you want a different topic each time.
+But the output path, naming convention, and directory are all baked in.
+
+### GUI Interaction
+
+```
+┌─────────────────────────────────────────────┐
+│  Research Memo                              │
+│                                             │
+│  Topic:                                     │
+│  ┌─────────────────────────────────────┐    │
+│  │ WebAssembly adoption in 2026       │    │
+│  └─────────────────────────────────────┘    │
+│                                             │
+│  Output: ~/Documents/memos/2026-03-31-      │
+│          webassembly-adoption-in-2026.md     │
+│                                             │
+│  ┌────────────┐                             │
+│  │  Execute   │                             │
+│  └────────────┘                             │
+└─────────────────────────────────────────────┘
+```
+
+This shows the key design principle: **the GUI is a thin wrapper around the
+code.** The GUI renders form fields from the module metadata (`__hlvm_meta`). The module
+determines what is parameterized and what is hardcoded. The user's personal
+binding decides where the slider sits between "always ask" and "always default."
+
+---
+
+## Scenario 7: Scheduled Monitoring
+
+### The Problem
+
+You want to check if your side project's API is healthy, every day, and get a
+Slack notification if something is wrong.
+
+### Step 1: The General Function
+
+```lisp
+;; health-check.hql
+(generable HealthReport {
+  status:   (case "healthy" "degraded" "down")
+  checks:   [{name: string ok: boolean latency_ms: number}]
+  message:  string})
+
+(export (defn health-check [endpoints webhook-url]
+  (agent "1. For each endpoint, make an HTTP request
+          2. Check status code, response time, response body
+          3. If any check fails, send a summary to the webhook URL
+          4. Return structured health report"
+    {data: {endpoints: endpoints webhook: webhook-url}
+     schema: HealthReport
+     tools: ["web_fetch"]})))
+```
+
+### Step 2: Personal Binding
+
+```lisp
+;; my-health.hql
+(import {health-check} from "hlvm:@me/health-check")
+
+(export (defn my-health []
+  (health-check
+    ["https://api.myproject.com/health"
+     "https://api.myproject.com/v2/status"]
+    "https://hooks.slack.com/services/T.../B.../xxx")))
+```
+
+### Step 3: Schedule (Future Capability)
+
+Beyond shortcuts, modules can be scheduled:
+
+```json
+{
+  "module": "@me/my-health",
+  "schedule": "0 9 * * *",
+  "note": "Daily 9am health check"
+}
+```
+
+This is a natural extension of the Hotbar — from "click to run" to "run
+automatically." The abstraction ladder extends:
+
+```
+health-check.hql        → general purpose, takes endpoints + webhook
+    ↓ import + bind
+my-health.hql            → personal, zero parameters
+    ↓ shortcut
+⌘⇧H                    → manual trigger
+    ↓ schedule
+cron: 0 9 * * *         → fully automated
+```
+
+---
+
+## The Design Principle
+
+Every scenario above demonstrates the same architectural truth:
+
+```
+Code is the core building block. GUI is a thin wrapper.
+
+The module's (module ...) form declares parameters.
+The GUI renders those parameters as a form.
+The user fills the form. The module runs.
+
+When the user binds defaults, the form shrinks.
+When every parameter is bound, the form disappears.
+When the form disappears, it becomes a button.
+When the button gets a shortcut, it becomes a reflex.
+```
+
+This is NOT a no-code platform. Code is always the source of truth. The GUI
+never generates code — it only renders what the code declares. This means:
+
+1. **Version control works.** Your modules are files.
+2. **Composition works.** Import one module into another.
+3. **Sharing works.** Publish to the Registry.
+4. **AI authoring works.** Tell HLVM what you want, it writes the HQL.
+5. **Debugging works.** Read the source. It's 3-10 lines.
+
+---
+
+## Why This Is a Killer Feature
+
+### Compared to Shell Scripts
+
+Shell scripts can do the same things. But:
+
+```
+Shell script:
+  ✗  No GUI. Must remember command + flags.
+  ✗  No parameter forms. Must read --help.
+  ✗  No composition via imports. Must pipe text.
+  ✗  No AI integration. Must add manually.
+  ✗  No sharing. Must copy files around.
+  ✗  No safety model. chmod +x and pray.
+
+HLVM module:
+  ✓  GUI form auto-generated from __hlvm_meta.
+  ✓  Parameters are typed and labeled.
+  ✓  ESM imports for clean composition.
+  ✓  ai() and agent() are first-class.
+  ✓  Registry for one-click sharing.
+  ✓  Effect system classifies safety level.
+```
+
+### Compared to Shortcuts / Automator
+
+macOS Shortcuts and Automator offer GUI automation. But:
+
+```
+Shortcuts:
+  ✗  Visual block programming. Painful at scale.
+  ✗  No real AI integration (just Siri).
+  ✗  No autonomous agent capability.
+  ✗  No sharing ecosystem.
+  ✗  Cannot compose with npm/JSR libraries.
+  ✗  Opaque. Cannot version control.
+
+HLVM module:
+  ✓  Text-based code. Scales infinitely.
+  ✓  Full LLM integration (any provider).
+  ✓  Autonomous agents with tools.
+  ✓  Registry ecosystem.
+  ✓  Entire JavaScript ecosystem available.
+  ✓  Plain files. Git-friendly.
+```
+
+### Compared to Raycast Extensions
+
+Raycast has extensions and AI. But:
+
+```
+Raycast:
+  ✗  Extensions are React components (heavy).
+  ✗  Must learn their API, bundling, submission.
+  ✗  AI is a feature, not a building block.
+  ✗  No autonomous agents.
+  ✗  Locked to Raycast's UI model.
+
+HLVM module:
+  ✓  3-10 lines of HQL.
+  ✓  hlvm deploy — one command.
+  ✓  AI is the building block (ai(), agent()).
+  ✓  Full agent teams with tool access.
+  ✓  Standard ESM — runs anywhere.
+```
+
+---
+
+## Composition: The Exponential Advantage
+
+The real power is not individual modules — it's composition. Each module
+is an ESM import away from being a building block in something larger.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Composition Tree                       │
+│                                                          │
+│  my-morning.hql                                          │
+│  ┌─────────────────────────────────────────────────┐     │
+│  │ (export (defn my-morning []                     │     │
+│  │   (do                                           │     │
+│  │     (await (my-standup))       ; Scenario 2     │     │
+│  │     (await (my-review))        ; Scenario 4     │     │
+│  │     (await (my-sync))          ; Scenario 3     │     │
+│  │     (await (my-health)))))     ; Scenario 7     │     │
+│  └─────────────────────────────────────────────────┘     │
+│                                                          │
+│  Press ⌘⇧M at 9:50am.                                   │
+│                                                          │
+│  Result:                                                 │
+│  • Standup report in clipboard                           │
+│  • PR reviews prepared for approval                      │
+│  • Dependencies synced across repos                      │
+│  • API health verified                                   │
+│                                                          │
+│  Your morning routine. One keystroke. Every day.          │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+This is what "daily driver" means. Not a tool you open when you have a special
+task. A platform that handles your recurring work, silently, with one keystroke.
+
+---
+
+## The Full Abstraction Stack
+
+```
+Layer 0: Raw Capability       ai(), agent(), tools
+Layer 1: General Module       commit.hql — parameterized, shareable
+Layer 2: Personal Binding     my-commit.hql — zero-param, your defaults
+Layer 3: Shortcut             ⌘⇧C — muscle memory
+Layer 4: Composition          my-morning.hql — chains multiple bindings
+Layer 5: Schedule             cron — fully automated
+Layer 6: Event-Driven         on file change, on PR open, on Slack message
+```
+
+HLVM enables all six layers. Today we have Layers 0-3 (modules, Hotbar,
+shortcuts). Layers 4-5 are straightforward extensions. Layer 6 is the long-term
+vision — HLVM as an event-driven automation platform where modules trigger
+in response to the world, not just user action.
+
+---
+
+## Summary
+
+The pattern is always the same:
+
+```
+1. Write a function.            (code is the building block)
+2. Bind your defaults.          (personalize without forking)
+3. Assign a shortcut.           (eliminate all friction)
+4. Compose into pipelines.      (exponential power)
+5. Schedule or trigger.         (remove yourself from the loop)
+```
+
+Every step is optional. You can stop at Step 1 and have a useful module on
+the Store. Or you can go to Step 5 and have a fully autonomous workflow that
+runs while you sleep.
+
+The key insight: **each layer is a one-line HQL file that imports the previous
+layer.** There is no new system to learn at each level. It's functions all the
+way down.
+
+```
+commit.hql                   → 10 lines (general)
+my-commit.hql                → 3 lines  (import + bind)
+my-morning.hql               → 6 lines  (import + compose)
+schedule.json                → 3 lines  (cron entry)
+```
+
+This is what a programming-language-as-platform makes possible. Not
+drag-and-drop blocks. Not YAML configuration. Not visual flows. Just
+functions that import functions. The simplest possible abstraction, repeated
+at every level.
 # 08 — The Full Execution Pipeline
 
 **The complete lifecycle of an HLVM module (potion): from authoring to every

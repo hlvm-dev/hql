@@ -7,7 +7,6 @@ import { runAgentQuery } from "../../src/hlvm/agent/agent-runner.ts";
 import type { AgentUIEvent, TraceEvent } from "../../src/hlvm/agent/orchestrator.ts";
 import type { AgentExecutionMode } from "../../src/hlvm/agent/execution-mode.ts";
 import type { ConversationAttachmentPayload } from "../../src/hlvm/attachments/types.ts";
-import type { RuntimeMode } from "../../src/hlvm/agent/runtime-mode.ts";
 import {
   runChatViaHost,
 } from "../../src/hlvm/runtime/host-client.ts";
@@ -43,7 +42,6 @@ let explicitlyStartedRuntimeProcess: PlatformCommandProcess | null = null;
 
 export type SmokeRunResult = Awaited<ReturnType<typeof runAgentQuery>>;
 export type HostSmokeRunResult = Awaited<ReturnType<typeof runChatViaHost>>;
-export type RoutedEvent = Extract<AgentUIEvent, { type: "capability_routed" }>;
 
 async function readHealth(baseUrl: string): Promise<HostHealthResponse | null> {
   try {
@@ -205,7 +203,6 @@ export async function runWithCompatibleModel(options: {
   workspace: string;
   signal: AbortSignal;
   toolAllowlist?: string[];
-  runtimeMode?: RuntimeMode;
   attachments?: ConversationAttachmentPayload[];
   responseSchema?: Record<string, unknown>;
   callbacks: {
@@ -222,7 +219,6 @@ export async function runWithCompatibleModel(options: {
         workspace: options.workspace,
         permissionMode: "bypassPermissions",
         toolAllowlist: options.toolAllowlist,
-        runtimeMode: options.runtimeMode,
         attachments: options.attachments,
         responseSchema: options.responseSchema,
         disablePersistentMemory: true,
@@ -252,7 +248,6 @@ export async function runHostAgentWithCompatibleModel(options: {
   permissionMode?: AgentExecutionMode;
   toolAllowlist?: string[];
   toolDenylist?: string[];
-  runtimeMode?: RuntimeMode;
   callbacks: {
     onToken?: (text: string) => void;
     onAgentEvent?: (event: AgentUIEvent) => void;
@@ -277,7 +272,6 @@ export async function runHostAgentWithCompatibleModel(options: {
         contextWindow: options.contextWindow,
         stateless: options.stateless,
         permissionMode: options.permissionMode,
-        runtimeMode: options.runtimeMode,
         disablePersistentMemory: options.disablePersistentMemory,
         toolAllowlist: options.toolAllowlist,
         toolDenylist: options.toolDenylist,
@@ -394,46 +388,6 @@ export function assertHasProviderCitations(result: SmokeRunResult): void {
   );
 }
 
-export function getCapabilityRouteEvents(events: AgentUIEvent[]): RoutedEvent[] {
-  return events.filter((event) =>
-    event.type === "capability_routed"
-  );
-}
-
-export function summarizeCapabilityRouteSequence(
-  events: AgentUIEvent[],
-): string[] {
-  return getCapabilityRouteEvents(events).map((event) =>
-    `${event.routePhase}:${event.capabilityId}`
-  );
-}
-
-export function assertCapabilityRouteSequence(
-  events: AgentUIEvent[],
-  expected: string[],
-): void {
-  assertEquals(summarizeCapabilityRouteSequence(events), expected);
-}
-
-export function assertCapabilityRoute(
-  events: AgentUIEvent[],
-  options: {
-    capabilityId: string;
-    routePhase: RoutedEvent["routePhase"];
-    selectedBackendKind?: RoutedEvent["selectedBackendKind"];
-  },
-): RoutedEvent {
-  const routed = getCapabilityRouteEvents(events).find((event) =>
-    event.capabilityId === options.capabilityId &&
-    event.routePhase === options.routePhase
-  );
-  assertExists(
-    routed,
-    `Expected capability_routed for ${options.routePhase}:${options.capabilityId}`,
-  );
-  assertEquals(routed.selectedBackendKind, options.selectedBackendKind);
-  return routed;
-}
 
 export function makeInlineImageAttachment(
   color: "red" | "blue" = "red",

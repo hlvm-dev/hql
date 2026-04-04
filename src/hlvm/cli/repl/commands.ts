@@ -12,11 +12,8 @@ import { log } from "../../api/log.ts";
 import { normalizeModelId } from "../../../common/config/types.ts";
 import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
 import {
-  getActiveConversationExecutionSurface,
   listRuntimeMcpServers,
 } from "../../runtime/host-client.ts";
-import { getCapabilityUnlockHint } from "../../agent/execution-surface.ts";
-import type { RoutedCapabilityId } from "../../agent/execution-surface.ts";
 import {
   getTaskManager,
   isDelegateTask,
@@ -78,14 +75,6 @@ function createOutputWriter(
 
 // Commands handled by App.tsx (not in the `commands` record below)
 const APP_HANDLED_COMMANDS: readonly { name: string; description: string }[] = [
-  {
-    name: "/runtime",
-    description: "Set session runtime mode (manual|auto)",
-  },
-  {
-    name: "/surface",
-    description: "Open the active execution-surface inspector",
-  },
 ];
 
 /** Generate help text dynamically using keybinding registry */
@@ -306,109 +295,32 @@ export const commands: Record<string, Command> = {
   },
 
   "/doctor": {
-    description: "Health check: providers, models, MCP, capabilities",
+    description: "Health check: MCP servers",
     handler: async (_state, _args, context) => {
       const ok = `${GREEN}ok${RESET}`;
       const fail = `${YELLOW}!!${RESET}`;
 
-      let surface;
-      try {
-        surface = await getActiveConversationExecutionSurface();
-      } catch (err: unknown) {
-        context.output(
-          `${fail} Could not fetch execution surface: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-        return;
-      }
-
       context.output(`${BOLD}HLVM Doctor${RESET}`);
-      context.output(
-        `  Runtime ${surface.runtime_mode} · Provider ${surface.pinned_provider_name} · Model ${
-          surface.active_model_id ?? "unknown"
-        }`,
-      );
-      context.output("");
-
-      // Providers
-      context.output(`${BOLD}Providers${RESET}`);
-      for (const p of surface.providers) {
-        const icon = p.available ? ok : fail;
-        const pinned = p.isPinned ? " (pinned)" : "";
-        context.output(
-          `  ${icon} ${p.providerName}${pinned}${p.error ? ` — ${p.error}` : ""}`,
-        );
-      }
-      context.output("");
-
-      // Local models (Ollama)
-      context.output(`${BOLD}Local Models${RESET}`);
-      const lm = surface.local_model_summary;
-      const ollamaIcon = lm.available ? ok : fail;
-      context.output(
-        `  ${ollamaIcon} ollama: ${lm.installedModelCount} models installed`,
-      );
-      if (lm.activeModelName) {
-        const activeIcon = lm.activeModelInstalled ? ok : fail;
-        context.output(
-          `  ${activeIcon} active: ${lm.activeModelName}${
-            lm.activeModelInstalled ? "" : " (missing)"
-          }`,
-        );
-      }
       context.output("");
 
       // MCP servers
       context.output(`${BOLD}MCP Servers${RESET}`);
-      if (surface.mcp_servers.length === 0) {
-        context.output(`  ${DIM_GRAY}none configured${RESET}`);
-      } else {
-        for (const s of surface.mcp_servers) {
-          const icon = s.reachable ? ok : fail;
-          const caps = s.contributingCapabilities.length > 0
-            ? s.contributingCapabilities.join(", ")
-            : "no web-family participation";
-          context.output(`  ${icon} ${s.name} (${s.scopeLabel}): ${caps}`);
-        }
-      }
-      context.output("");
-
-      // Capabilities
-      context.output(`${BOLD}Capabilities${RESET}`);
-      const capIds: RoutedCapabilityId[] = [
-        "web.search",
-        "web.read",
-        "vision.analyze",
-        "code.exec",
-        "structured.output",
-        "audio.analyze",
-        "computer.use",
-      ];
-      for (const capId of capIds) {
-        const decision = surface.capabilities[capId];
-        if (!decision) {
-          context.output(`  ${fail} ${capId}: not in surface`);
-          continue;
-        }
-        const routed = decision.selectedBackendKind != null;
-        const icon = routed ? ok : fail;
-        const path = routed
-          ? `${decision.selectedBackendKind}${
-              decision.selectedToolName ? ` via ${decision.selectedToolName}` : ""
-            }`
-          : "no route";
-        context.output(`  ${icon} ${capId}: ${path}`);
-        if (!routed) {
-          const hint = getCapabilityUnlockHint(
-            capId,
-            decision,
-            surface.pinned_provider_name,
-          );
-          if (hint) {
-            context.output(`     ${DIM_GRAY}-> ${hint}${RESET}`);
+      try {
+        const servers = await listRuntimeMcpServers();
+        if (servers.length === 0) {
+          context.output(`  ${DIM_GRAY}none configured${RESET}`);
+        } else {
+          for (const s of servers) {
+            const icon = s.reachable ? ok : fail;
+            context.output(`  ${icon} ${s.name} (${s.scopeLabel})`);
           }
         }
+      } catch (err: unknown) {
+        context.output(
+          `${fail} Could not list MCP servers: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
       }
     },
   },

@@ -179,24 +179,6 @@ Deno.test("tool capabilities: provider execution plan keeps remote code explicit
   );
 });
 
-Deno.test("tool capabilities: auto-requested remote code activates native provider execution without an explicit allowlist", () => {
-  const plan = resolveProviderExecutionPlan({
-    providerName: "google",
-    nativeCapabilities: {
-      webSearch: true,
-      webPageRead: true,
-      remoteCodeExecution: true,
-    },
-    autoRequestedRemoteCodeExecution: true,
-  });
-
-  assertEquals(plan.remoteCodeExecution.implementation, "native");
-  assertEquals(
-    plan.remoteCodeExecution.activeToolName,
-    REMOTE_CODE_EXECUTE_TOOL_NAME,
-  );
-});
-
 Deno.test("tool capabilities: mixed conservative routing keeps native search and remote code but leaves page-read custom", () => {
   const plan = resolveProviderExecutionPlan({
     providerName: "google",

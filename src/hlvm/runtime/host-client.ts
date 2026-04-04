@@ -16,7 +16,6 @@ import type {
   TraceEvent,
 } from "../agent/orchestrator.ts";
 import type { AgentExecutionMode } from "../agent/execution-mode.ts";
-import type { RuntimeMode } from "../agent/runtime-mode.ts";
 import type { InteractionOption } from "../agent/registry.ts";
 import { formatStructuredResultText } from "../agent/structured-output.ts";
 import {
@@ -33,7 +32,6 @@ import {
   type ChatStreamEvent,
   type HostHealthResponse,
   type InteractionResponseRequest,
-  type RuntimeExecutionSurfaceResponse,
 } from "./chat-protocol.ts";
 import type {
   PullProgress,
@@ -179,7 +177,6 @@ interface HostBackedChatOptions {
   skipSessionHistory?: boolean;
   disablePersistentMemory?: boolean;
   permissionMode?: AgentExecutionMode;
-  runtimeMode?: RuntimeMode;
   toolAllowlist?: string[];
   toolDenylist?: string[];
   responseSchema?: Record<string, unknown>;
@@ -201,7 +198,6 @@ interface HostBackedAgentQueryOptions {
   stateless?: boolean;
   disablePersistentMemory?: boolean;
   permissionMode?: AgentExecutionMode;
-  runtimeMode?: RuntimeMode;
   toolAllowlist?: string[];
   toolDenylist?: string[];
   responseSchema?: Record<string, unknown>;
@@ -219,11 +215,6 @@ interface HostBackedDirectChatOptions {
   expectedVersion?: number;
   signal?: AbortSignal;
   callbacks: Pick<HostBackedChatCallbacks, "onToken">;
-}
-
-interface RuntimeConversationRuntimeModeResponse {
-  session_id: string;
-  runtime_mode: RuntimeMode;
 }
 
 function defaultChatStats(): ChatResultStats {
@@ -639,70 +630,6 @@ export async function ensureRuntimeHostReady(): Promise<void> {
 
 function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
   switch (event.event) {
-    case "capability_routed":
-      return {
-        type: "capability_routed",
-        routePhase: event.route_phase,
-        runtimeMode: event.runtime_mode,
-        familyId: event.family_id as "web" | "vision" | "code" | "structured",
-        capabilityId: event.capability_id as
-          | "web.search"
-          | "web.read"
-          | "vision.analyze"
-          | "code.exec"
-          | "structured.output",
-        strategy: event.strategy as "configured-first",
-        selectedBackendKind: event.selected_backend_kind as
-          | "provider-native"
-          | "mcp"
-          | "hlvm-local",
-        selectedToolName: event.selected_tool_name,
-        selectedServerName: event.selected_server_name,
-        providerName: event.provider_name,
-        fallbackReason: event.fallback_reason,
-        routeChangedByFailure: event.route_changed_by_failure,
-        failedBackendKind: event.failed_backend_kind as
-          | "provider-native"
-          | "mcp"
-          | "hlvm-local"
-          | undefined,
-        failedToolName: event.failed_tool_name,
-        failedServerName: event.failed_server_name,
-        failureReason: event.failure_reason,
-        candidates: event.candidates.map((candidate) => ({
-          familyId: candidate.family_id as
-            | "web"
-            | "vision"
-            | "code"
-            | "structured",
-          capabilityId: candidate.capability_id as
-            | "web.search"
-            | "web.read"
-            | "vision.analyze"
-            | "code.exec"
-            | "structured.output",
-          backendKind: candidate.backend_kind as
-            | "provider-native"
-            | "mcp"
-            | "hlvm-local",
-          label: candidate.label,
-          toolName: candidate.tool_name,
-          serverName: candidate.server_name,
-          providerName: candidate.provider_name as
-            | "anthropic"
-            | "claude-code"
-            | "google"
-            | "ollama"
-            | "openai"
-            | undefined,
-          reachable: candidate.reachable,
-          allowed: candidate.allowed,
-          selected: candidate.selected,
-          reason: candidate.reason,
-          blockedReasons: candidate.blocked_reasons,
-        })),
-        summary: event.summary,
-      };
     case "thinking":
       return { type: "thinking", iteration: event.iteration };
     case "reasoning_update":
@@ -1055,33 +982,6 @@ export async function verifyRuntimeModelAccess(
   return result.available === true;
 }
 
-export async function getActiveConversationRuntimeMode(): Promise<
-  RuntimeConversationRuntimeModeResponse
-> {
-  return await fetchRuntimeJson<RuntimeConversationRuntimeModeResponse>(
-    "/api/chat/runtime-mode",
-  );
-}
-
-export async function setActiveConversationRuntimeMode(
-  runtimeMode: RuntimeMode,
-): Promise<RuntimeConversationRuntimeModeResponse> {
-  return await postRuntimeJson<RuntimeConversationRuntimeModeResponse>(
-    "/api/chat/runtime-mode",
-    {
-      runtime_mode: runtimeMode,
-    },
-  );
-}
-
-export async function getActiveConversationExecutionSurface(): Promise<
-  RuntimeExecutionSurfaceResponse
-> {
-  return await fetchRuntimeJson<RuntimeExecutionSurfaceResponse>(
-    "/api/chat/execution-surface",
-  );
-}
-
 export async function getRuntimeProviderStatus(
   providerName?: string,
 ): Promise<ProviderStatus> {
@@ -1365,7 +1265,6 @@ async function runChatViaHostAttempt(
     requestId,
     attempt,
     mode: options.mode,
-    runtimeMode: options.runtimeMode ?? null,
     model: options.model ?? null,
     stateless: options.stateless === true,
     messageCount: options.messages.length,
@@ -1402,7 +1301,6 @@ async function runChatViaHostAttempt(
     max_tokens: options.maxTokens,
     context_window: options.contextWindow,
     permission_mode: options.permissionMode,
-    runtime_mode: options.runtimeMode,
     skip_session_history: options.skipSessionHistory,
     disable_persistent_memory: options.disablePersistentMemory,
     tool_allowlist: options.toolAllowlist,
@@ -1711,7 +1609,6 @@ export async function runAgentQueryViaHost(
     contextWindow: options.contextWindow,
     stateless: options.stateless,
     permissionMode: options.permissionMode,
-    runtimeMode: options.runtimeMode,
     disablePersistentMemory: options.disablePersistentMemory,
     toolAllowlist: options.toolAllowlist,
     toolDenylist: options.toolDenylist,

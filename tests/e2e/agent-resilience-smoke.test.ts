@@ -103,7 +103,7 @@ Deno.test({
           models: [LIVE_MODEL],
           workspace,
           signal: controller.signal,
-          runtimeMode: "manual",
+
           disablePersistentMemory: true,
           maxTokens: 96,
           query:
@@ -178,7 +178,7 @@ Deno.test({
           models: [LIVE_MODEL],
           workspace,
           signal: controller.signal,
-          runtimeMode: "manual",
+
           disablePersistentMemory: true,
           contextWindow: 480,
           messages: [
@@ -262,7 +262,7 @@ Deno.test({
             workspace,
             fixturePath,
             signal: controller.signal,
-            runtimeMode: "manual",
+  
             disablePersistentMemory: true,
             stateless: true,
             permissionMode: "dontAsk",

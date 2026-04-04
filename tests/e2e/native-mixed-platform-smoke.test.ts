@@ -1,5 +1,5 @@
 /**
- * Opt-in end-to-end smoke test for mixed-family auto-mode turns via Google.
+ * Opt-in end-to-end smoke test for mixed-family turns via Google.
  *
  * Requirements:
  *   - GOOGLE_API_KEY
@@ -13,7 +13,6 @@ import { assert, assertStringIncludes } from "jsr:@std/assert";
 import { disposeAllSessions } from "../../src/hlvm/agent/agent-runner.ts";
 import type { AgentUIEvent } from "../../src/hlvm/agent/orchestrator.ts";
 import {
-  assertCapabilityRouteSequence,
   assertHasProviderCitations,
   assertNoLocalToolEvents,
   hasEnvVar,
@@ -31,7 +30,7 @@ const TIMEOUT_MS = 120_000;
 
 Deno.test({
   name:
-    "E2E real LLM: Google mixed auto-mode turn keeps vision.analyze and web.search routing coherent",
+    "E2E real LLM: Google mixed turn keeps vision.analyze and web.search coherent",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -55,7 +54,6 @@ Deno.test({
             "First inspect the attached image. Then use live web search right now to find the latest post on the official Deno blog. Reply with two labeled lines: image=<dominant color>; web=<exact post title>.",
           workspace,
           signal: controller.signal,
-          runtimeMode: "auto",
           toolAllowlist: ["web_search"],
           attachments: [makeInlineImageAttachment("red")],
           callbacks: {
@@ -67,10 +65,6 @@ Deno.test({
           MODEL_CANDIDATES.some((candidate) => candidate === model),
           `Expected a Google model candidate, got ${model}`,
         );
-        assertCapabilityRouteSequence(events, [
-          "turn-start:vision.analyze",
-          "tool-start:web.search",
-        ]);
         assertNoLocalToolEvents(events, "web_search");
         assertNoLocalToolEvents(events, "search_web");
         assertHasProviderCitations(result);

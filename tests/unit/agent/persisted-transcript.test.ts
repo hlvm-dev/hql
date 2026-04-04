@@ -17,8 +17,6 @@ import {
   parsePersistedAgentSessionMetadata,
   persistAgentPlanState,
   persistPendingPlanReview,
-  persistLastAppliedExecutionFallbackState,
-  persistLastAppliedResponseShapeContext,
   persistAgentTeamRuntime,
   persistAgentTodos,
   startPersistedAgentTurn,
@@ -238,60 +236,6 @@ Deno.test("persisted transcript: pending plan review persists in session metadat
     const metadata = loadPersistedAgentSessionMetadata(sessionId);
     assertEquals(metadata.pendingPlanReview?.requestId, "review-1");
     assertEquals(metadata.pendingPlanReview?.plan.goal, "Edit config safely");
-  } finally {
-    db.close();
-  }
-});
-
-Deno.test({ name: "persisted transcript: execution fallback state is stored in session metadata", sanitizeOps: false, sanitizeResources: false, fn() {
-  const db = setupStoreTestDb();
-  try {
-    const sessionId = getPersistedAgentSessionId();
-    startPersistedAgentTurn(sessionId, "fallback");
-    persistLastAppliedExecutionFallbackState(sessionId, {
-      suppressedCandidates: [{
-        capabilityId: "web.search",
-        backendKind: "provider-native",
-        toolName: "web_search",
-        routePhase: "tool-start",
-        failureReason: "native capability rejected",
-      }],
-    });
-
-    const metadata = loadPersistedAgentSessionMetadata(sessionId);
-    assertEquals(metadata.lastAppliedExecutionFallbackState, {
-      suppressedCandidates: [{
-        capabilityId: "web.search",
-        backendKind: "provider-native",
-        toolName: "web_search",
-        routePhase: "tool-start",
-        failureReason: "native capability rejected",
-      }],
-    });
-  } finally {
-    db.close();
-  }
-} });
-
-Deno.test("persisted transcript: response shape context is stored in session metadata", () => {
-  const db = setupStoreTestDb();
-  try {
-    const sessionId = getPersistedAgentSessionId();
-    startPersistedAgentTurn(sessionId, "structured");
-    persistLastAppliedResponseShapeContext(sessionId, {
-      requested: true,
-      source: "request",
-      schemaSignature: "sig-structured",
-      topLevelKeys: ["answer", "confidence"],
-    });
-
-    const metadata = loadPersistedAgentSessionMetadata(sessionId);
-    assertEquals(metadata.lastAppliedResponseShapeContext, {
-      requested: true,
-      source: "request",
-      schemaSignature: "sig-structured",
-      topLevelKeys: ["answer", "confidence"],
-    });
   } finally {
     db.close();
   }

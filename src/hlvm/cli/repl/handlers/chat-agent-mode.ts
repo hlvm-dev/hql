@@ -89,7 +89,6 @@ export async function handleAgentMode(
     requestId,
     sessionId,
     model: resolvedModel,
-    runtimeMode: body.runtime_mode ?? null,
     fixturePath: !!fixturePath,
     queryPreview: buildTraceTextPreview(getLastUserMessage(body.messages)?.content),
   });
@@ -164,7 +163,6 @@ export async function handleAgentMode(
       expectedSessionVersion: preTurnSessionVersion,
       model: resolvedModel,
       querySource: body.query_source,
-      runtimeMode: body.runtime_mode ?? "manual",
       permissionMode,
       toolAllowlist,
       toolDenylist: effectiveToolDenylist,
@@ -215,8 +213,6 @@ export async function handleAgentMode(
       sessionId,
       transcriptPersistenceMode: "caller",
       permissionMode,
-      runtimeMode: body.runtime_mode,
-      restorePersistedRuntimeMode: true,
       noInput: false,
       signal,
       toolAllowlist,
@@ -328,50 +324,6 @@ export async function handleAgentMode(
               message: event.message,
               tone: event.tone,
               phase: event.phase,
-            });
-            break;
-          case "capability_routed":
-            emit({
-              event: "capability_routed",
-              route_phase: event.routePhase,
-              runtime_mode: event.runtimeMode,
-              family_id: event.familyId,
-              capability_id: event.capabilityId,
-              strategy: event.strategy,
-              selected_backend_kind: event.selectedBackendKind,
-              selected_tool_name: event.selectedToolName,
-              selected_server_name: event.selectedServerName,
-              provider_name: event.providerName,
-              fallback_reason: event.fallbackReason,
-              route_changed_by_failure: event.routeChangedByFailure,
-              failed_backend_kind: event.failedBackendKind,
-              failed_tool_name: event.failedToolName,
-              failed_server_name: event.failedServerName,
-              failure_reason: event.failureReason,
-              summary: event.summary,
-              candidates: event.candidates.map((candidate) => ({
-                family_id: candidate.familyId,
-                capability_id: candidate.capabilityId,
-                backend_kind: candidate.backendKind,
-                label: candidate.label,
-                tool_name: candidate.toolName,
-                provider_name: candidate.providerName,
-                server_name: candidate.serverName,
-                reachable: candidate.reachable,
-                allowed: candidate.allowed,
-                selected: candidate.selected,
-                reason: candidate.reason,
-                blocked_reasons: candidate.blockedReasons,
-              })),
-            });
-            break;
-          case "reasoning_routed":
-            emit({
-              event: "reasoning_routed",
-              selected_model_id: event.selectedModelId,
-              selected_provider_name: event.selectedProviderName,
-              reason: event.reason,
-              switched_from_pinned: event.switchedFromPinned,
             });
             break;
           case "tool_end": {
@@ -695,7 +647,6 @@ export async function handleAgentMode(
         lastSessionVersion: updatedSession?.session_version ?? preTurnSessionVersion,
         model: resolvedModel,
         querySource: body.query_source,
-        runtimeMode: body.runtime_mode ?? "manual",
         permissionMode,
         toolAllowlist,
         toolDenylist: effectiveToolDenylist,

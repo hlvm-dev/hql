@@ -8,9 +8,9 @@ import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts
 import { EMPTY_INSTRUCTIONS } from "../../../src/hlvm/prompt/types.ts";
 import type { InstructionHierarchy, PromptCompilerInput } from "../../../src/hlvm/prompt/types.ts";
 import {
+  REMOTE_CODE_EXECUTE_TOOL_NAME,
   resolveProviderExecutionPlan,
 } from "../../../src/hlvm/agent/tool-capabilities.ts";
-import { buildExecutionSurface } from "../../../src/hlvm/agent/execution-surface.ts";
 
 /** Build a simple agent-mode input with no tools. */
 function agentInput(
@@ -35,23 +35,10 @@ function autoExecutionInput(
       webPageRead: true,
       remoteCodeExecution: true,
     },
-    autoRequestedRemoteCodeExecution: true,
-  });
-  const executionSurface = buildExecutionSurface({
-    runtimeMode: "auto",
-    activeModelId: "google/gemini-2.5-pro",
-    pinnedProviderName: "google",
-    providerExecutionPlan,
-    taskCapabilityContext: {
-      requestedCapabilities: ["code.exec"],
-      source: "task-text",
-      matchedCueLabels: ["calculate"],
-    },
+    allowlist: [REMOTE_CODE_EXECUTE_TOOL_NAME],
   });
   return agentInput({
-    runtimeMode: "auto",
     providerExecutionPlan,
-    executionSurface,
     ...overrides,
   });
 }
@@ -418,7 +405,6 @@ Deno.test("compiler: turn-only changes affect only the turn cache segment hash",
   const base = autoExecutionInput();
   const withoutTurn = agentInput({
     providerExecutionPlan: base.providerExecutionPlan,
-    executionSurface: base.executionSurface,
   });
 
   assertEquals(segmentHash(base, "static"), segmentHash(withoutTurn, "static"));

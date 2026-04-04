@@ -79,7 +79,6 @@ export interface TranscriptState {
   currentTurnStartedAt?: number;
   pendingTurnStats?: PendingTurnStats;
   turnCounter: number;
-  seenCapabilityRouteKeys: Set<string>;
 }
 
 export type TranscriptInput =
@@ -114,24 +113,7 @@ export function createTranscriptState(): TranscriptState {
     nextId: 0,
     completedPlanStepIds: [],
     turnCounter: 0,
-    seenCapabilityRouteKeys: new Set(),
   };
-}
-
-function getCapabilityRouteEventKey(
-  event: Extract<AgentUIEvent, { type: "capability_routed" }>,
-): string {
-  return [
-    event.capabilityId,
-    event.selectedBackendKind ?? "",
-    event.selectedToolName ?? "",
-    event.selectedServerName ?? "",
-    event.fallbackReason ?? "",
-    event.failedBackendKind ?? "",
-    event.failedToolName ?? "",
-    event.failedServerName ?? "",
-    event.failureReason ?? "",
-  ].join("\0");
 }
 
 function getVisibleTodoState(
@@ -830,30 +812,6 @@ export function reduceTranscriptState(
             activeTool: undefined,
             items: removeTransientInfoItems(state.items),
           };
-        case "capability_routed": {
-          const routeKey = getCapabilityRouteEventKey(event);
-          if (state.seenCapabilityRouteKeys.has(routeKey)) {
-            return state;
-          }
-          const nextRouteKeys = new Set(state.seenCapabilityRouteKeys);
-          nextRouteKeys.add(routeKey);
-          return appendInfoItem(
-            {
-              ...state,
-              items: removeTransientInfoItems(state.items),
-              seenCapabilityRouteKeys: nextRouteKeys,
-            },
-            event.summary,
-          );
-        }
-        case "reasoning_routed":
-          return appendInfoItem(
-            {
-              ...state,
-              items: removeTransientInfoItems(state.items),
-            },
-            `Provider Switch → ${event.selectedProviderName}/${event.selectedModelId} (${event.reason})`,
-          );
         case "reasoning_update":
         case "planning_update": {
           if (
@@ -1448,9 +1406,6 @@ export function reduceTranscriptState(
         currentTurnStartedAt: startTurn
           ? Date.now()
           : state.currentTurnStartedAt,
-        seenCapabilityRouteKeys: startTurn
-          ? new Set()
-          : state.seenCapabilityRouteKeys,
       };
 
       // Generate a new turnId when starting a new turn

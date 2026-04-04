@@ -55,6 +55,7 @@ import {
   persistExplicitMemoryRequest,
 } from "../../../memory/mod.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
+import { recordPromptHistory } from "../prompt-history.ts";
 
 import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
 import { evaluateProviderApproval } from "../../../providers/approval.ts";
@@ -283,7 +284,6 @@ export async function handleChat(req: Request): Promise<Response> {
     requestId,
     sessionId,
     mode: body.mode,
-    runtimeMode: body.runtime_mode ?? null,
     stateless: body.stateless === true,
     messageCount: body.messages.length,
     queryPreview: buildTraceTextPreview(getLastUserMessage(body.messages)?.content),
@@ -509,6 +509,15 @@ export async function handleChat(req: Request): Promise<Response> {
       message: await toRuntimeSessionMessage(inserted),
     });
     pushConversationUpdatedEvent(session.id);
+  }
+
+  if (!isEvalMode && !body.stateless) {
+    try {
+      const replState = await ensureRuntimeHostReplState();
+      recordPromptHistory(replState, currentUserMessage.content, "conversation");
+    } catch (error) {
+      log.warn("Failed to record prompt history", error);
+    }
   }
 
   const senderType = body.mode === "agent"

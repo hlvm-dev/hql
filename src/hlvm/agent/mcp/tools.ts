@@ -24,10 +24,6 @@ import {
   type ToolPresentationKind,
   unregisterTool,
 } from "../registry.ts";
-import {
-  readSemanticCapabilitiesFromMetadata,
-  type SemanticCapabilityId,
-} from "../semantic-capabilities.ts";
 import { sanitizeToolName } from "../tool-schema.ts";
 import { createSdkMcpClient, SdkMcpClient } from "./sdk-client.ts";
 import {
@@ -737,12 +733,21 @@ function buildToolEntry(
   };
 }
 
+function readCapabilitiesFromMeta(
+  meta: Record<string, unknown> | undefined | null,
+): string[] | undefined {
+  if (!meta) return undefined;
+  const raw = (meta as Record<string, unknown>)["semanticCapabilities"] ??
+    (meta as Record<string, unknown>)["semantic_capabilities"];
+  return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : undefined;
+}
+
 function resolveMcpSemanticCapabilities(
   tool: Pick<McpToolInfo, "metadata" | "annotations" | "_meta">,
-): SemanticCapabilityId[] | undefined {
-  return readSemanticCapabilitiesFromMetadata(tool.metadata) ??
-    readSemanticCapabilitiesFromMetadata(tool.annotations) ??
-    readSemanticCapabilitiesFromMetadata(tool._meta);
+): string[] | undefined {
+  return readCapabilitiesFromMeta(tool.metadata as Record<string, unknown>) ??
+    readCapabilitiesFromMeta(tool.annotations as Record<string, unknown>) ??
+    readCapabilitiesFromMeta(tool._meta as Record<string, unknown>);
 }
 
 // ============================================================
@@ -1009,7 +1014,7 @@ interface ServerRegistration {
 export interface McpCapabilityInspectionTool {
   rawToolName: string;
   registeredToolName: string;
-  semanticCapabilities: SemanticCapabilityId[];
+  semanticCapabilities: string[];
 }
 
 export interface McpCapabilityInspectionServer {

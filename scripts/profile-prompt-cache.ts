@@ -4,7 +4,6 @@ import { getPlatform } from "../src/platform/platform.ts";
 import { log } from "../src/hlvm/api/log.ts";
 import { runAgentQuery } from "../src/hlvm/agent/agent-runner.ts";
 import type { AgentExecutionMode } from "../src/hlvm/agent/execution-mode.ts";
-import type { RuntimeMode } from "../src/hlvm/agent/runtime-mode.ts";
 import {
   materializeConversationAttachment,
   registerTextAttachment,
@@ -20,13 +19,12 @@ import type { TraceEvent } from "../src/hlvm/agent/orchestrator.ts";
 
 const platform = getPlatform();
 const DEFAULT_MODEL = "claude-code/claude-haiku-4-5-20251001";
-const PROFILE_DOC_DIR = platform.path.join("docs", "llvm-for-llm");
+const PROFILE_DOC_DIR = platform.path.join("docs", "ship-soak");
 
 interface ScenarioConfig {
   name: PromptCacheProfilingScenarioName;
   title: string;
   query: string;
-  runtimeMode: RuntimeMode;
   toolAllowlist?: string[];
   useTextAttachment?: boolean;
 }
@@ -36,20 +34,17 @@ const SCENARIOS: readonly ScenarioConfig[] = [
     name: "cold_baseline",
     title: "Cold baseline",
     query: "Reply with exactly CACHE-PROFILE-BASELINE-OK. Do not call any tools.",
-    runtimeMode: "auto",
   },
   {
     name: "warm_stable_repeat",
     title: "Warm stable repeat",
     query: "Reply with exactly CACHE-PROFILE-BASELINE-OK. Do not call any tools.",
-    runtimeMode: "auto",
   },
   {
     name: "turn_only_change",
     title: "Turn-only change",
     query:
       "Reply with exactly CACHE-PROFILE-TURN-OK. Do not call any tools.",
-    runtimeMode: "auto",
     useTextAttachment: true,
   },
   {
@@ -57,7 +52,6 @@ const SCENARIOS: readonly ScenarioConfig[] = [
     title: "Session-stable change",
     query:
       "Reply with exactly CACHE-PROFILE-SESSION-OK. Do not call any tools.",
-    runtimeMode: "auto",
     toolAllowlist: ["read_file"],
   },
 ];
@@ -152,7 +146,6 @@ async function runScenario(
     skipSessionHistory: true,
     disablePersistentMemory: true,
     permissionMode,
-    runtimeMode: scenario.runtimeMode,
     toolAllowlist: scenario.toolAllowlist,
     attachments,
     callbacks: { onTrace: (event) => traces.push(event) },

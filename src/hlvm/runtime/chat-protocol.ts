@@ -1,22 +1,10 @@
 import type { AgentExecutionMode } from "../agent/execution-mode.ts";
-import type {
-  CapabilityRoutingDecision,
-  ExecutionFallbackState,
-  ExecutionSurfaceLocalModelSummary,
-  ExecutionSurfaceMcpServerSummary,
-  ExecutionSurfaceProviderSummary,
-} from "../agent/execution-surface.ts";
 import type { FinalResponseMeta, TraceEvent } from "../agent/orchestrator.ts";
 import type { Plan, PlanningPhase } from "../agent/planning.ts";
-import type { RoutingConstraintSet } from "../agent/routing-constraints.ts";
 import type { InteractionOption } from "../agent/registry.ts";
-import type { RuntimeMode } from "../agent/runtime-mode.ts";
 import type { DelegateTranscriptSnapshot } from "../agent/delegate-transcript.ts";
 import type { DelegateBatchSnapshot } from "../agent/delegate-batches.ts";
 import type { TodoState } from "../agent/todo-state.ts";
-import type { ExecutionResponseShapeContext } from "../agent/response-shape-context.ts";
-import type { ExecutionTaskCapabilityContext } from "../agent/task-capability-context.ts";
-import type { ExecutionTurnContext } from "../agent/turn-context.ts";
 
 export const CLAUDE_CODE_AGENT_MODE = "claude-code-agent" as const;
 
@@ -49,7 +37,6 @@ export interface ChatRequest {
   expected_version?: number;
   context_window?: number;
   permission_mode?: AgentExecutionMode;
-  runtime_mode?: RuntimeMode;
   skip_session_history?: boolean;
   disable_persistent_memory?: boolean;
   tool_allowlist?: string[];
@@ -96,24 +83,6 @@ export interface HostHealthResponse {
   port?: number | null;
 }
 
-export interface RuntimeExecutionSurfaceResponse {
-  session_id: string;
-  runtime_mode: RuntimeMode;
-  active_model_id?: string;
-  pinned_provider_name: string;
-  strategy: string;
-  signature: string;
-  constraints: RoutingConstraintSet;
-  task_capability_context: ExecutionTaskCapabilityContext;
-  response_shape_context: ExecutionResponseShapeContext;
-  turn_context: ExecutionTurnContext;
-  fallback_state: ExecutionFallbackState;
-  providers: ExecutionSurfaceProviderSummary[];
-  local_model_summary: ExecutionSurfaceLocalModelSummary;
-  mcp_servers: ExecutionSurfaceMcpServerSummary[];
-  capabilities: Record<string, CapabilityRoutingDecision>;
-}
-
 export type ChatStreamEvent =
   | { event: "start"; request_id: string }
   | { event: "duplicate"; request_id: string; message: unknown }
@@ -121,46 +90,6 @@ export type ChatStreamEvent =
   | { event: "thinking"; iteration: number }
   | { event: "reasoning_update"; iteration: number; summary: string }
   | { event: "planning_update"; iteration: number; summary: string }
-  | {
-    event: "capability_routed";
-    route_phase: "turn-start" | "tool-start" | "fallback";
-    runtime_mode: RuntimeMode;
-    family_id: string;
-    capability_id: string;
-    strategy: string;
-    selected_backend_kind?: string;
-    selected_tool_name?: string;
-    selected_server_name?: string;
-    provider_name: string;
-    fallback_reason?: string;
-    route_changed_by_failure?: boolean;
-    failed_backend_kind?: string;
-    failed_tool_name?: string;
-    failed_server_name?: string;
-    failure_reason?: string;
-    summary: string;
-    candidates: Array<{
-      family_id: string;
-      capability_id: string;
-      backend_kind: string;
-      label: string;
-      tool_name?: string;
-      provider_name?: string;
-      server_name?: string;
-      reachable: boolean;
-      allowed: boolean;
-      selected: boolean;
-      reason?: string;
-      blocked_reasons?: string[];
-    }>;
-  }
-  | {
-    event: "reasoning_routed";
-    selected_model_id: string;
-    selected_provider_name: string;
-    reason: string;
-    switched_from_pinned: boolean;
-  }
   | {
     event: "structured_result";
     result: unknown;

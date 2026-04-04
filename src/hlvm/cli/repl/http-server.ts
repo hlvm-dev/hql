@@ -29,11 +29,6 @@ import {
   handleChatInteraction,
 } from "./handlers/chat.ts";
 import {
-  handleGetActiveConversationRuntimeMode,
-  handleSetActiveConversationRuntimeMode,
-} from "./handlers/runtime-mode.ts";
-import { handleGetActiveConversationExecutionSurface } from "./handlers/execution-surface.ts";
-import {
   getRuntimeReady,
   isRuntimeReadinessManaged,
   isRuntimeReadyForAiRequests,
@@ -678,21 +673,6 @@ const router = createRouter();
 router.add("POST", "/api/chat", (req) => handleChat(req));
 router.add("POST", "/eval", (req) => handleEval(req));
 router.add("POST", "/api/chat/cancel", (req) => handleChatCancel(req));
-router.add(
-  "GET",
-  "/api/chat/runtime-mode",
-  () => handleGetActiveConversationRuntimeMode(),
-);
-router.add(
-  "GET",
-  "/api/chat/execution-surface",
-  () => handleGetActiveConversationExecutionSurface(),
-);
-router.add(
-  "POST",
-  "/api/chat/runtime-mode",
-  (req) => handleSetActiveConversationRuntimeMode(req),
-);
 router.add(
   "POST",
   "/api/chat/interaction",

@@ -10,12 +10,9 @@ import {
   mergeSdkWebCapabilityTools,
   repairMalformedToolCallInput,
   resolveGoogleCachedContent,
-  resolveForcedProviderNativeToolChoice,
-  resolveProviderNativeRouteFailureFromError,
   SdkAgentEngine,
 } from "../../../src/hlvm/agent/engine-sdk.ts";
 import { compileSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
-import { buildExecutionSurface } from "../../../src/hlvm/agent/execution-surface.ts";
 import {
   REMOTE_CODE_EXECUTE_TOOL_NAME,
   resolveProviderExecutionPlan,
@@ -38,25 +35,11 @@ function buildAutoExecutionPromptState() {
       webPageRead: true,
       remoteCodeExecution: true,
     },
-    autoRequestedRemoteCodeExecution: true,
-  });
-  const executionSurface = buildExecutionSurface({
-    runtimeMode: "auto",
-    activeModelId: "google/gemini-2.5-pro",
-    pinnedProviderName: "google",
-    providerExecutionPlan,
-    taskCapabilityContext: {
-      requestedCapabilities: ["code.exec"],
-      source: "task-text",
-      matchedCueLabels: ["calculate"],
-    },
+    allowlist: [REMOTE_CODE_EXECUTE_TOOL_NAME],
   });
   return {
     providerExecutionPlan,
-    executionSurface,
     compiledPrompt: compileSystemPrompt({
-      runtimeMode: "auto",
-      executionSurface,
       providerExecutionPlan,
     }),
   };
@@ -296,69 +279,6 @@ Deno.test("engine sdk: provider-executed native web_search tool calls are exclud
   );
 });
 
-Deno.test("engine sdk: explicit single-tool provider-native surfaces force the routed tool choice", () => {
-  const providerExecutionPlan = resolveProviderExecutionPlan({
-    providerName: "google",
-    allowlist: ["web_search"],
-    nativeCapabilities: {
-      webSearch: true,
-      webPageRead: false,
-      remoteCodeExecution: false,
-    },
-  });
-  const executionSurface = buildExecutionSurface({
-    runtimeMode: "auto",
-    activeModelId: "google/gemini-2.5-flash-lite",
-    pinnedProviderName: "google",
-    providerExecutionPlan,
-  });
-
-  assertEquals(
-    resolveForcedProviderNativeToolChoice({
-      allowlist: ["web_search"],
-      executionSurface,
-      availableToolNames: ["web_search"],
-    }),
-    { type: "tool", toolName: "web_search" },
-  );
-});
-
-Deno.test("engine sdk: forced provider-native tool choice stays off when the routed backend is not native", () => {
-  const providerExecutionPlan = resolveProviderExecutionPlan({
-    providerName: "google",
-    allowlist: ["web_search"],
-    nativeCapabilities: {
-      webSearch: true,
-      webPageRead: false,
-      remoteCodeExecution: false,
-    },
-  });
-  const executionSurface = buildExecutionSurface({
-    runtimeMode: "auto",
-    activeModelId: "google/gemini-2.5-flash-lite",
-    pinnedProviderName: "google",
-    providerExecutionPlan,
-    fallbackState: {
-      suppressedCandidates: [{
-        capabilityId: "web.search",
-        backendKind: "provider-native",
-        toolName: "web_search",
-        routePhase: "tool-start",
-        failureReason: "provider-native search failed",
-      }],
-    },
-  });
-
-  assertEquals(
-    resolveForcedProviderNativeToolChoice({
-      allowlist: ["web_search"],
-      executionSurface,
-      availableToolNames: ["search_web"],
-    }),
-    undefined,
-  );
-});
-
 Deno.test("engine sdk: provider-executed native web_fetch is excluded only on the dedicated conservative surface", () => {
   const mapped = mapSdkToolCalls([
     {
@@ -537,95 +457,6 @@ Deno.test("engine sdk: native provider tools replace custom tools only when the 
       providerPlan,
     )).sort(),
     [REMOTE_CODE_EXECUTE_TOOL_NAME, "web_fetch"],
-  );
-});
-
-Deno.test("engine sdk: execution surface can suppress remote_code_execute after a routed fallback", () => {
-  const remoteCodeTool = convertToolDefinitionsToSdk([{
-    type: "function",
-    function: {
-      name: REMOTE_CODE_EXECUTE_TOOL_NAME,
-      description: "Remote code execution",
-      parameters: { type: "object", properties: {} },
-    },
-  }])![REMOTE_CODE_EXECUTE_TOOL_NAME];
-  const providerPlan = resolveProviderExecutionPlan({
-    providerName: "google",
-    allowlist: [REMOTE_CODE_EXECUTE_TOOL_NAME],
-    nativeCapabilities: {
-      webSearch: true,
-      webPageRead: true,
-      remoteCodeExecution: true,
-    },
-    autoRequestedRemoteCodeExecution: true,
-  });
-  const downgradedSurface = buildExecutionSurface({
-    runtimeMode: "auto",
-    activeModelId: "google/gemini-2.5-pro",
-    pinnedProviderName: "google",
-    providerExecutionPlan: providerPlan,
-    taskCapabilityContext: {
-      requestedCapabilities: ["code.exec"],
-      source: "task-text",
-      matchedCueLabels: ["calculate"],
-    },
-    fallbackState: {
-      suppressedCandidates: [{
-        capabilityId: "code.exec",
-        backendKind: "provider-native",
-        toolName: REMOTE_CODE_EXECUTE_TOOL_NAME,
-        routePhase: "turn-start",
-        failureReason: "provider sandbox unavailable",
-      }],
-    },
-  });
-
-  assertEquals(
-    REMOTE_CODE_EXECUTE_TOOL_NAME in mergeSdkWebCapabilityTools(
-      { [REMOTE_CODE_EXECUTE_TOOL_NAME]: remoteCodeTool },
-      { [REMOTE_CODE_EXECUTE_TOOL_NAME]: remoteCodeTool },
-      providerPlan,
-      downgradedSurface,
-    ),
-    false,
-  );
-});
-
-Deno.test("engine sdk: provider-native capability rejection can be mapped back to the selected routed capability", () => {
-  const surface = buildExecutionSurface({
-    runtimeMode: "auto",
-    activeModelId: "google/gemini-2.5-pro",
-    pinnedProviderName: "google",
-    providerExecutionPlan: resolveProviderExecutionPlan({
-      providerName: "google",
-      allowlist: [REMOTE_CODE_EXECUTE_TOOL_NAME],
-      nativeCapabilities: {
-        webSearch: true,
-        webPageRead: true,
-        remoteCodeExecution: true,
-      },
-      autoRequestedRemoteCodeExecution: true,
-    }),
-    taskCapabilityContext: {
-      requestedCapabilities: ["code.exec"],
-      source: "task-text",
-      matchedCueLabels: ["calculate"],
-    },
-  });
-
-  assertEquals(
-    resolveProviderNativeRouteFailureFromError({
-      executionSurface: surface,
-      error:
-        new Error("Unsupported tool remote_code_execute for this provider"),
-    }),
-    {
-      capabilityId: "code.exec",
-      backendKind: "provider-native",
-      toolName: "remote_code_execute",
-      routePhase: "turn-start",
-      failureReason: "Unsupported tool remote_code_execute for this provider",
-    },
   );
 });
 
@@ -868,7 +699,6 @@ Deno.test("engine sdk: openai promptCacheKey stays stable across turn-only promp
   const state = buildAutoExecutionPromptState();
   const withTurn = state.compiledPrompt;
   const withoutTurn = compileSystemPrompt({
-    executionSurface: state.executionSurface,
     providerExecutionPlan: state.providerExecutionPlan,
   });
   const messages = convertToSdkMessages([

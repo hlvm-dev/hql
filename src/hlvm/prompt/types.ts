@@ -8,8 +8,6 @@ import type { ModelTier } from "../agent/constants.ts";
 import type { ToolMetadata } from "../agent/registry.ts";
 import type { AgentProfile } from "../agent/agent-registry.ts";
 import type { ResolvedProviderExecutionPlan } from "../agent/tool-capabilities.ts";
-import type { ExecutionSurface } from "../agent/execution-surface.ts";
-import type { RuntimeMode } from "../agent/runtime-mode.ts";
 
 /** Prompt assembly mode — determines which sections are included. */
 export type PromptMode = "chat" | "agent";
@@ -57,9 +55,7 @@ export interface PromptCompilerInput {
   tools: Record<string, ToolMetadata>;
   instructions: InstructionHierarchy;
   agentProfiles?: readonly AgentProfile[];
-  runtimeMode?: RuntimeMode;
   querySource?: string;
-  executionSurface?: ExecutionSurface;
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
 }
 

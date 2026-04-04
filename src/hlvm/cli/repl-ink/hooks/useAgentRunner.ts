@@ -14,7 +14,6 @@ import {
 } from "react";
 import type { AnyAttachment } from "./useAttachments.ts";
 import type { AgentExecutionMode } from "../../../agent/execution-mode.ts";
-import type { RuntimeMode } from "../../../agent/runtime-mode.ts";
 import type {
   InteractionRequestEvent,
   InteractionResponse,
@@ -108,7 +107,6 @@ interface UseAgentRunnerInput {
   conversation: UseConversationResult;
   activeModelId: string | null;
   agentExecutionMode: AgentExecutionMode;
-  runtimeMode: RuntimeMode;
   configuredContextWindow: number | undefined;
   refreshRuntimeConfigState: () => Promise<
     { activeModelId: string | null }
@@ -182,7 +180,6 @@ export function useAgentRunner(
     conversation,
     activeModelId,
     agentExecutionMode,
-    runtimeMode,
     configuredContextWindow,
     refreshRuntimeConfigState,
     setIsEvaluating,
@@ -301,7 +298,6 @@ export function useAgentRunner(
     const runStartedAt = Date.now();
     traceReplMainThread("ui.run_conversation.start", {
       requestId,
-      runtimeMode,
       agentExecutionMode,
       activeModelId: activeModelId ?? null,
       queryPreview: buildTraceTextPreview(query),
@@ -382,7 +378,6 @@ export function useAgentRunner(
         }],
         model,
         permissionMode: agentExecutionMode,
-        runtimeMode,
         // Allow structured follow-up questions in normal conversation too so
         // the REPL can render pickers instead of dead-end prose.
         toolDenylist: getConversationToolDenylist(agentExecutionMode),
@@ -707,7 +702,6 @@ export function useAgentRunner(
   }, [
     activeModelId,
     agentExecutionMode,
-    runtimeMode,
     configuredContextWindow,
     refreshRuntimeConfigState,
   ]);

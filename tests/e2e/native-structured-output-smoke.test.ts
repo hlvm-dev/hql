@@ -13,7 +13,6 @@ import { assert } from "jsr:@std/assert";
 import { disposeAllSessions } from "../../src/hlvm/agent/agent-runner.ts";
 import type { AgentUIEvent } from "../../src/hlvm/agent/orchestrator.ts";
 import {
-  assertCapabilityRoute,
   assertStructuredResult,
   hasEnvVar,
   runWithCompatibleModel,
@@ -53,7 +52,6 @@ Deno.test({
             "Classify the sentiment of this sentence: 'I love HLVM.' Return a structured answer only.",
           workspace,
           signal: controller.signal,
-          runtimeMode: "auto",
           responseSchema: {
             type: "object",
             properties: {
@@ -72,11 +70,6 @@ Deno.test({
           MODEL_CANDIDATES.some((candidate) => candidate === model),
           `Expected a Google model candidate, got ${model}`,
         );
-        assertCapabilityRoute(events, {
-          capabilityId: "structured.output",
-          routePhase: "turn-start",
-          selectedBackendKind: "provider-native",
-        });
         const structured = assertStructuredResult(result, [
           "sentiment",
           "confidence",

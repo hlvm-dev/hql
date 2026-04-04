@@ -23,7 +23,6 @@ import {
 import { classifyShellPipeline } from "../security/shell-classifier.ts";
 import { getNetworkPolicyDeniedUrl } from "../policy.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
-import type { SemanticCapabilityId } from "../semantic-capabilities.ts";
 import { failTool, formatToolError, okTool } from "../tool-results.ts";
 
 // ============================================================
@@ -653,7 +652,7 @@ export const SHELL_TOOLS = {
     description:
       "Execute inline code locally through HLVM's shell-backed runtime. Prefer this over raw shell_exec for local code.exec tasks.",
     category: "shell",
-    semanticCapabilities: ["code.exec"] as SemanticCapabilityId[],
+    semanticCapabilities: ["code.exec"],
     safetyLevel: "L2",
     args: {
       code: "string - Inline code to execute locally",

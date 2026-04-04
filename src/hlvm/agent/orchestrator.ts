@@ -87,15 +87,6 @@ import type { AgentHookRuntime } from "./hooks.ts";
 import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
 import type { ResolvedProviderExecutionPlan } from "./tool-capabilities.ts";
-import type {
-  CapabilityFamilyId,
-  ExecutionBackendKind,
-  ExecutionPathCandidate,
-  ExecutionSelectionStrategy,
-  ExecutionSurface,
-  RoutedCapabilityId,
-} from "./execution-surface.ts";
-import type { RuntimeMode } from "./runtime-mode.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -283,24 +274,6 @@ export type TraceEvent =
     stableCacheProfile: import("../prompt/types.ts").PromptStableCacheProfile;
     instructionSources: import("../prompt/types.ts").InstructionSource[];
     signatureHash: string;
-  }
-  | {
-    type: "capability_routed";
-    routePhase: "turn-start" | "tool-start" | "fallback";
-    runtimeMode: RuntimeMode;
-    familyId: CapabilityFamilyId;
-    capabilityId: RoutedCapabilityId;
-    strategy: ExecutionSelectionStrategy;
-    selectedBackendKind?: ExecutionBackendKind;
-    selectedToolName?: string;
-    selectedServerName?: string;
-    providerName: string;
-    fallbackReason?: string;
-    routeChangedByFailure?: boolean;
-    failedBackendKind?: ExecutionBackendKind;
-    failedToolName?: string;
-    failedServerName?: string;
-    failureReason?: string;
   };
 
 /** Agent UI event for display in CLI/GUI */
@@ -372,26 +345,6 @@ export interface MemoryActivityEntry {
 export type AgentUIEvent =
   | { type: "plan_phase_changed"; phase: PlanningPhase }
   | { type: "thinking"; iteration: number }
-  | {
-    type: "capability_routed";
-    routePhase: "turn-start" | "tool-start" | "fallback";
-    runtimeMode: RuntimeMode;
-    familyId: CapabilityFamilyId;
-    capabilityId: RoutedCapabilityId;
-    strategy: ExecutionSelectionStrategy;
-    selectedBackendKind?: ExecutionBackendKind;
-    selectedToolName?: string;
-    selectedServerName?: string;
-    providerName: string;
-    fallbackReason?: string;
-    routeChangedByFailure?: boolean;
-    failedBackendKind?: ExecutionBackendKind;
-    failedToolName?: string;
-    failedServerName?: string;
-    failureReason?: string;
-    candidates: ExecutionPathCandidate[];
-    summary: string;
-  }
   | {
     type: "reasoning_update";
     iteration: number;
@@ -559,17 +512,6 @@ export type AgentUIEvent =
     type: "batch_progress_updated";
     snapshot: import("./delegate-batches.ts").DelegateBatchSnapshot;
   }
-  | {
-    type: "reasoning_routed";
-    pinnedModelId: string;
-    pinnedProviderName: string;
-    selectedModelId: string;
-    selectedProviderName: string;
-    reason: string;
-    switchedFromPinned: boolean;
-    unsatisfiedCapabilities:
-      import("./execution-surface.ts").RoutedCapabilityId[];
-  }
   | InteractionRequestEvent;
 
 // Re-export from registry (SSOT)
@@ -693,7 +635,6 @@ export interface OrchestratorConfig {
   teamLeadMemberId?: string;
   delegateTokenBudget?: DelegateTokenBudget;
   providerExecutionPlan?: ResolvedProviderExecutionPlan;
-  executionSurface?: ExecutionSurface;
 }
 
 function memoryWriteAvailable(config: OrchestratorConfig): boolean {
