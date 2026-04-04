@@ -24,7 +24,6 @@ import {
   formatShellFooterText,
   SHELL_SEGMENT_SEPARATOR,
   type ShellFooterSegment,
-  summarizeModeLabel,
 } from "../utils/shell-chrome.ts";
 import {
   formatSubmitActionCue,
@@ -43,7 +42,6 @@ interface FooterProps {
     toolTotal: number;
   };
   statusMessage?: string;
-  modeLabel?: string;
   planningPhase?: PlanningPhase;
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
@@ -71,7 +69,6 @@ interface FooterLeftStateInput {
     toolIndex: number;
     toolTotal: number;
   };
-  modeLabel?: string;
   planningPhase?: PlanningPhase;
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
@@ -94,10 +91,6 @@ interface FooterLeftState {
   tone: "muted" | "warning";
 }
 
-function isDefaultModeLabel(label: string | undefined): boolean {
-  return !label || label === "Default mode";
-}
-
 function getQueuedInputLabel(
   conversationQueueCount = 0,
   localEvalQueueCount = 0,
@@ -107,25 +100,11 @@ function getQueuedInputLabel(
   return `+${totalCount} next`;
 }
 
-/** Push a mode-chip segment (e.g. "Full auto", "Plan mode") into `segments`. */
-function pushModeChipSegment(
-  segments: ShellFooterSegment[],
-  modeChip: string | undefined,
-): void {
-  const isFullAuto = modeChip === "Full auto";
-  if (isFullAuto) {
-    segments.push({ text: modeChip, tone: "error", chip: true });
-  } else if (!isDefaultModeLabel(modeChip) && modeChip) {
-    segments.push({ text: modeChip, tone: "muted" });
-  }
-}
-
 export function buildFooterLeftState({
   inConversation,
   isEvaluating,
   streamingState,
   activeTool,
-  modeLabel,
   planningPhase,
   interactionQueueLength = 0,
   hasDraftInput,
@@ -140,11 +119,6 @@ export function buildFooterLeftState({
   localEvalQueueCount = 0,
   submitAction,
 }: FooterLeftStateInput): FooterLeftState {
-  const summarizedModeLabel = summarizeModeLabel(modeLabel);
-  const modeChip = planningPhase && planningPhase !== "done" &&
-      summarizedModeLabel === "Plan mode"
-    ? undefined
-    : summarizedModeLabel;
   const queuedCount = Math.max(0, interactionQueueLength - 1);
 
   if (!inConversation) {
@@ -154,7 +128,6 @@ export function buildFooterLeftState({
     }
 
     const segments: ShellFooterSegment[] = [];
-    pushModeChipSegment(segments, modeChip);
 
     const queuedInputLabel = getQueuedInputLabel(
       conversationQueueCount,
@@ -191,7 +164,6 @@ export function buildFooterLeftState({
   }
 
   const segments: ShellFooterSegment[] = [];
-  pushModeChipSegment(segments, modeChip);
 
   if (
     hasPendingPlanReview || hasPendingPermission || hasPendingQuestion ||
@@ -269,12 +241,13 @@ export function buildFooterLeftState({
     });
   }
 
+  const idleHint = "Ctrl+O transcript history · ? for shortcuts";
   const hintText = streamingState === ConversationStreamingState.Responding
     ? hasDraftInput ? "Tab queues · Ctrl+Enter forces" : "Esc cancels"
     : planningPhase && planningPhase !== "done"
     ? "Esc clears plan"
     : segments.length === 0
-    ? "? for shortcuts"
+    ? idleHint
     : "";
   if (hintText) {
     segments.push({
@@ -298,7 +271,6 @@ export const FooterHint = React.memo(function FooterHint({
   streamingState,
   activeTool,
   statusMessage,
-  modeLabel,
   planningPhase,
   interactionQueueLength = 0,
   hasDraftInput,
@@ -324,7 +296,6 @@ export const FooterHint = React.memo(function FooterHint({
     isEvaluating,
     streamingState,
     activeTool,
-    modeLabel,
     planningPhase,
     interactionQueueLength,
     hasDraftInput,

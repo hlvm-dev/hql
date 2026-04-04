@@ -270,53 +270,93 @@ async function searchAbsoluteOrHomePath(
     unescapedQuery,
     platform.env.get("HOME") ?? "",
   );
+  const browseDirectory = unescapedQuery.endsWith("/");
 
-  const match = await checkAbsolutePath(expandedPath);
-  if (match) {
-    return [match];
-  }
+  const joinDisplayPath = (basePath: string, entryName: string): string => {
+    if (basePath === "/") {
+      return `/${entryName}`;
+    }
+    if (basePath === "~") {
+      return `~/${entryName}`;
+    }
+    return basePath.endsWith("/")
+      ? `${basePath}${entryName}`
+      : `${basePath}/${entryName}`;
+  };
 
-  const parentDir = expandedPath.substring(0, expandedPath.lastIndexOf("/")) ||
-    "/";
-  const partial = expandedPath.substring(expandedPath.lastIndexOf("/") + 1);
-
-  try {
+  const listDirectoryEntries = async (
+    directoryPath: string,
+    displayDirectoryPath: string,
+    partial: string,
+  ): Promise<FileMatch[]> => {
     const results: FileMatch[] = [];
     const partialLower = partial.toLowerCase();
     const includeHidden = partial.startsWith(".");
-    for await (const entry of platform.fs.readDir(parentDir)) {
-      if (!includeHidden && entry.name.startsWith(".")) {
-        continue;
+
+    try {
+      for await (const entry of platform.fs.readDir(directoryPath)) {
+        if (!includeHidden && entry.name.startsWith(".")) {
+          continue;
+        }
+        if (entry.isDirectory && SKIP_DIRS.has(entry.name)) {
+          continue;
+        }
+        if (!entry.isDirectory && shouldSkipFile(entry.name)) {
+          continue;
+        }
+
+        const nameLower = entry.name.toLowerCase();
+        if (partial && !nameLower.includes(partialLower)) {
+          continue;
+        }
+
+        results.push({
+          path: joinDisplayPath(displayDirectoryPath, entry.name),
+          isDirectory: entry.isDirectory,
+          score: nameLower.startsWith(partialLower) ? 100 : 50,
+          matchIndices: [],
+        });
       }
-      if (entry.isDirectory && SKIP_DIRS.has(entry.name)) {
-        continue;
-      }
-      if (!entry.isDirectory && shouldSkipFile(entry.name)) {
-        continue;
-      }
-      const nameLower = entry.name.toLowerCase();
-      if (partial && !nameLower.includes(partialLower)) {
-        continue;
-      }
-      const fullPath = parentDir === "/"
-        ? `/${entry.name}`
-        : `${parentDir}/${entry.name}`;
-      results.push({
-        path: fullPath,
-        isDirectory: entry.isDirectory,
-        score: nameLower.startsWith(partialLower) ? 100 : 50,
-        matchIndices: [],
-      });
+    } catch {
+      return [];
     }
+
     results.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
       return a.path.localeCompare(b.path);
     });
     return results.slice(0, maxResults);
-  } catch {
-    return [];
+  };
+
+  const match = await checkAbsolutePath(expandedPath);
+  if (match) {
+    const exactMatch = {
+      ...match,
+      path: unescapedQuery,
+    };
+
+    if (match.isDirectory && browseDirectory) {
+      const displayDirectoryPath = unescapedQuery.endsWith("/")
+        ? unescapedQuery.slice(0, -1)
+        : unescapedQuery;
+      const children = await listDirectoryEntries(
+        expandedPath,
+        displayDirectoryPath || "/",
+        "",
+      );
+      return children.length > 0 ? children : [exactMatch];
+    }
+
+    return [exactMatch];
   }
+
+  const parentDir = expandedPath.substring(0, expandedPath.lastIndexOf("/")) ||
+    "/";
+  const partial = expandedPath.substring(expandedPath.lastIndexOf("/") + 1);
+  const displayParentDir =
+    unescapedQuery.substring(0, unescapedQuery.lastIndexOf("/")) || "/";
+  return listDirectoryEntries(parentDir, displayParentDir, partial);
 }
 
 async function searchCommonHomeFolders(

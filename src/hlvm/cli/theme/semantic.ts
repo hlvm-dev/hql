@@ -83,6 +83,7 @@ export interface SemanticColors {
     dim: string;
   };
   surface: {
+    userMessage: string;
     modal: {
       border: string;
       borderActive: string;
@@ -179,6 +180,16 @@ function pickReadableForeground(
     : palette.bg;
 }
 
+/** Blend two hex colors by factor t (0 = a, 1 = b). */
+function blendHex(a: string, b: string, t: number): string {
+  const [ar, ag, ab] = hexToRgb(a);
+  const [br, bg, bb] = hexToRgb(b);
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bv = Math.round(ab + (bb - ab) * t);
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${bv.toString(16).padStart(2, "0")}`;
+}
+
 /**
  * Build semantic color tokens from a theme palette.
  * Pure function — deterministic mapping from flat palette → structured tokens.
@@ -248,6 +259,7 @@ export function buildSemanticColors(palette: ThemePalette): SemanticColors {
       dim: palette.muted,
     },
     surface: {
+      userMessage: blendHex(palette.bg, palette.text, 0.12),
       modal: {
         border: palette.primary,
         borderActive: palette.accent,

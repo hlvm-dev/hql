@@ -130,6 +130,7 @@ export async function handleChatMode(
     weakContextBudget: weakContext?.weakContextBudget ?? null,
     providerMessageCount: providerMessages.length,
     contextBudget: resolvedContextBudget.budget,
+    numCtx: weakContext ? resolvedContextBudget.rawLimit : null,
   });
 
   const cfgSnapshot = config.snapshot;
@@ -138,6 +139,12 @@ export async function handleChatMode(
     temperature: body.temperature ?? cfgSnapshot.temperature,
     maxTokens: body.max_tokens ?? cfgSnapshot.maxTokens,
     signal,
+    // For weak local models, pass num_ctx to cap Ollama's KV cache pre-allocation.
+    // Without this, Ollama uses the full loaded context (e.g. 32768) even for tiny
+    // payloads, adding 10-20s of unnecessary TTFT latency.
+    ...(weakContext
+      ? { raw: { num_ctx: resolvedContextBudget.rawLimit } }
+      : {}),
   })[Symbol.asyncIterator]();
 
   const fullText = await drainTokenStream(tokenIterator, signal, (token) => {

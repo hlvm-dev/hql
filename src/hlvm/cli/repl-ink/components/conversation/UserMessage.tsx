@@ -1,8 +1,8 @@
 /**
  * UserMessage Component
  *
- * Displays a user message in the conversation.
- * Clear ">" marker for strong role differentiation.
+ * Displays a user message as a full-width background block
+ * for clear visual separation from assistant messages.
  */
 
 import React from "react";
@@ -10,7 +10,6 @@ import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import type { ConversationAttachmentRef } from "../../types.ts";
 import { getLiveConversationSpacing } from "./message-spacing.ts";
-import { ChromeChip } from "../ChromeChip.tsx";
 import { TranscriptDivider } from "./TranscriptDivider.tsx";
 import { truncateTranscriptInline } from "../../utils/transcript-truncation.ts";
 
@@ -51,13 +50,12 @@ export const UserMessage = React.memo(function UserMessage(
         marginTop={spacing.userMessageMarginTop}
         marginBottom={spacing.userMessageMarginBottom}
         flexDirection="column"
+        backgroundColor={sc.surface.userMessage}
+        paddingRight={1}
       >
-        <Box>
-          <ChromeChip text={displayText} tone="neutral" />
-        </Box>
+        <Text color={sc.text.primary} wrap="wrap">{displayText}</Text>
         {attachmentText && (
           <Text color={sc.text.secondary} wrap="wrap">
-            {"  "}
             {attachmentText}
           </Text>
         )}

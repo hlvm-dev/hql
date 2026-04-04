@@ -17,5 +17,5 @@ export function getRuntimeModeFooterLabel(mode: RuntimeMode): string {
 }
 
 export function getRuntimeModeStatusLabel(mode: RuntimeMode): string {
-  return `Runtime mode: ${mode}`;
+  return mode;
 }

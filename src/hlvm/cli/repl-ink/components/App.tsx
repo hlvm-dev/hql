@@ -10,7 +10,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, type Key, useApp, useInput, useStdout } from "ink";
+import { Box, type Key, Static, useApp, useInput, useStdout } from "ink";
 import { Banner } from "./Banner.tsx";
 import { LoadingScreen } from "./LoadingScreen.tsx";
 import { ConfigOverlay } from "./ConfigOverlay.tsx";
@@ -35,6 +35,12 @@ import {
 } from "./ComposerSurface.tsx";
 import { QueuePreview } from "./QueuePreview.tsx";
 import { TranscriptSurface } from "./TranscriptSurface.tsx";
+import {
+  getLatestCitation,
+  TimelineItemRenderer,
+} from "./TimelineItemRenderer.tsx";
+import { compactPlanTranscriptItems } from "./conversation/plan-flow.ts";
+import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
 import { DialogStack } from "./DialogStack.tsx";
 import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
 import {
@@ -60,7 +66,7 @@ import { type TeamMemberItem, useTeamState } from "../hooks/useTeamState.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
 import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
-import type { EvalResult } from "../types.ts";
+import type { EvalResult, ShellHistoryEntry } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { getPersistentAgentExecutionModeLabel } from "../../../agent/execution-mode.ts";
 import {
@@ -114,12 +120,11 @@ import {
   resolveSubmitAction,
 } from "../utils/submit-routing.ts";
 import {
-  resolveConversationEscapeAction,
   shouldAutoCloseConversationSurface,
   shouldRenderMainBanner,
   shouldRenderShellLanes,
 } from "../utils/app-surface.ts";
-import { getShellContentWidth, SHELL_LAYOUT } from "../utils/layout-tokens.ts";
+import { getShellContentWidth, shouldRenderTranscriptDividerBeforeIndex, SHELL_LAYOUT } from "../utils/layout-tokens.ts";
 import {
   buildLocalAgentEntries,
   type LocalAgentEntry,
@@ -280,6 +285,7 @@ function AppContent(
   const transcriptItemCount = conversation.historyItems.length +
     conversation.liveItems.length;
   const committedHistoryCount = conversation.historyItems.length;
+  const [transcriptOverlaySearchActive, setTranscriptOverlaySearchActive] = useState(false);
   const [focusedTeammateIndex, setFocusedTeammateIndex] = useState(-1);
   const [localAgentsFocused, setLocalAgentsFocused] = useState(false);
   const [backgroundTasksOverlayState, setBackgroundTasksOverlayState] =
@@ -318,6 +324,10 @@ function AppContent(
     }
     return `${idleCount} idle`;
   }, [teamState.active, teamState.members]);
+  const committedDisplayItems = useMemo(
+    () => filterRenderableTimelineItems(compactPlanTranscriptItems(conversation.historyItems)),
+    [conversation.historyItems],
+  );
   const baseLocalAgentEntries = useMemo<LocalAgentEntry[]>(
     () =>
       buildLocalAgentEntries(
@@ -904,6 +914,28 @@ function AppContent(
       toggleBackgroundTasksOverlay,
       "App",
     );
+    registerHandler(
+      HandlerIds.CONVERSATION_SEARCH,
+      () => {
+        setTranscriptOverlaySearchActive(true);
+        setActiveOverlay("transcript-history");
+      },
+      "App",
+    );
+    registerHandler(
+      HandlerIds.CONVERSATION_OPEN_LATEST_SOURCE,
+      async () => {
+        const allItems = [
+          ...conversationRef.current.historyItems,
+          ...conversationRef.current.liveItems,
+        ];
+        const citation = getLatestCitation(allItems);
+        if (citation?.url) {
+          await getPlatform().openUrl(citation.url).catch(() => {});
+        }
+      },
+      "App",
+    );
     return () => {
       unregisterHandler(HandlerIds.APP_EXIT);
       unregisterHandler(HandlerIds.APP_SHORTCUTS);
@@ -915,6 +947,8 @@ function AppContent(
       unregisterHandler(HandlerIds.APP_CYCLE_TEAMMATE);
       unregisterHandler(HandlerIds.APP_KILL_ALL);
       unregisterHandler(HandlerIds.APP_TASK_OVERLAY);
+      unregisterHandler(HandlerIds.CONVERSATION_SEARCH);
+      unregisterHandler(HandlerIds.CONVERSATION_OPEN_LATEST_SOURCE);
     };
   }, [
     flushReplOutput,
@@ -925,6 +959,7 @@ function AppContent(
     togglePalette,
     toggleTranscriptHistory,
     toggleBackgroundTasksOverlay,
+    setActiveOverlay,
   ]);
 
   // Refs for values only read inside handlers — avoids re-creating callbacks
@@ -1561,18 +1596,10 @@ function AppContent(
       return;
     }
 
-    if (isEscKey) {
-      const conversationEscapeAction = resolveConversationEscapeAction({
-        surfacePanel,
-        isConversationTaskRunning,
-      });
-      if (conversationEscapeAction === "interrupt") {
-        interruptConversationRun({
-          clearPlanning: hasActivePlanningState,
-        });
-        return;
-      }
-    }
+    // NOTE: Escape→interrupt for running conversations is handled by Input.tsx
+    // (via shouldInterruptConversationOnEsc → onInterruptRunningTask).
+    // App.tsx must NOT duplicate it — both useInput handlers fire on the same
+    // keypress, so a duplicate call would produce double cancellation artifacts.
 
     if (isEscKey && isEvaluatingRef.current && currentEvalRef.current) {
       const evalState = currentEvalRef.current;
@@ -1697,12 +1724,21 @@ function AppContent(
   const queuedConversationDrafts = composerShellState.queuePreviewRows > 0
     ? composerRef.current?.getPendingQueue() ?? []
     : [];
-  const transcriptReservedRows = 12 +
-    SHELL_LAYOUT.transcriptToComposerGap +
-    composerShellState.queuePreviewRows +
-    (showBottomDialog ? 9 : 0) +
-    2;
   return (
+    <>
+    {/* Committed history rendered into terminal scrollback (never re-rendered) */}
+    <Static items={committedDisplayItems} children={(item: ShellHistoryEntry, index: number) => (
+        <Box key={item.id} paddingX={SHELL_LAYOUT.gutterX} flexDirection="column">
+          <TimelineItemRenderer
+            item={item}
+            width={shellContentWidth}
+            compactSpacing
+            showDividerBefore={shouldRenderTranscriptDividerBeforeIndex(
+              committedDisplayItems, index, false,
+            )}
+          />
+        </Box>
+    )} />
     <Box
       flexDirection="column"
       paddingX={SHELL_LAYOUT.gutterX}
@@ -1807,7 +1843,11 @@ function AppContent(
           historyItems={conversation.historyItems}
           liveItems={conversation.liveItems}
           width={shellContentWidth}
-          onClose={() => setActiveOverlay("none")}
+          initialSearchActive={transcriptOverlaySearchActive}
+          onClose={() => {
+            setActiveOverlay("none");
+            setTranscriptOverlaySearchActive(false);
+          }}
         />
       )}
       {activeOverlay === "execution-surface" && (
@@ -1836,11 +1876,8 @@ function AppContent(
         >
           <RenderErrorBoundary>
             <TranscriptSurface
-              historyItems={conversation.historyItems}
               liveItems={hasConversationContext ? conversation.liveItems : []}
               width={shellContentWidth}
-              reservedRows={transcriptReservedRows}
-              compactPlanTranscript
               compactSpacing
               interactive={!isOverlayOpen}
               allowToggleHotkeys={surfacePanel === "conversation" &&
@@ -1946,7 +1983,6 @@ function AppContent(
         (
           <FooterHint
             statusMessage={footerStatusMessage}
-            modeLabel={getPersistentAgentExecutionModeLabel(agentExecutionMode)}
             planningPhase={hasConversationContext
               ? conversation.planningPhase
               : undefined}
@@ -1981,6 +2017,7 @@ function AppContent(
           />
         )}
     </Box>
+    </>
   );
 }
 

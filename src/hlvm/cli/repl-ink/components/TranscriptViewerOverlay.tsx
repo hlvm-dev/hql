@@ -25,6 +25,7 @@ interface TranscriptViewerOverlayProps {
   historyItems: ShellHistoryEntry[];
   liveItems?: Exclude<ShellHistoryEntry, { type: "hql_eval" }>[];
   width: number;
+  initialSearchActive?: boolean;
   onClose: () => void;
 }
 
@@ -362,11 +363,18 @@ function buildTranscriptOverlayLines(
   return output;
 }
 
+function removeLastCharacter(value: string): string {
+  const chars = Array.from(value);
+  chars.pop();
+  return chars.join("");
+}
+
 export function TranscriptViewerOverlay(
   {
     historyItems,
     liveItems = [],
     width,
+    initialSearchActive = false,
     onClose,
   }: TranscriptViewerOverlayProps,
 ): React.ReactElement | null {
@@ -374,6 +382,8 @@ export function TranscriptViewerOverlay(
   const { theme } = useTheme();
   const [showAll, setShowAll] = useState(false);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [isSearching, setIsSearching] = useState(initialSearchActive);
+  const [searchQuery, setSearchQuery] = useState("");
   const terminalWidth = stdout?.columns ?? 120;
   const terminalHeight = stdout?.rows ?? 24;
   const requestedWidth = Math.max(72, Math.min(width + 6, terminalWidth - 4));
@@ -422,14 +432,24 @@ export function TranscriptViewerOverlay(
       showAll,
     ],
   );
+  const displayLines = useMemo(() => {
+    if (!isSearching || !searchQuery.trim()) return contentLines;
+    const normalizedQuery = searchQuery.toLowerCase();
+    return contentLines.filter((line: TranscriptOverlayLine) =>
+      line.text.toLowerCase().includes(normalizedQuery)
+    );
+  }, [contentLines, isSearching, searchQuery]);
   const contentStartY = overlayFrame.y + 5;
   const footerY = overlayFrame.y + overlayFrame.height - 3;
   const visibleRows = Math.max(4, footerY - contentStartY);
-  const maxScrollOffset = Math.max(0, contentLines.length - visibleRows);
+  const maxScrollOffset = Math.max(0, displayLines.length - visibleRows);
 
   useEffect(() => {
     setScrollOffset((current: number) => Math.min(current, maxScrollOffset));
   }, [maxScrollOffset]);
+  useEffect(() => {
+    setScrollOffset(0);
+  }, [searchQuery]);
 
   const drawOverlay = useCallback(() => {
     if (shouldClearOverlay(previousFrameRef.current, overlayFrame)) {
@@ -458,24 +478,40 @@ export function TranscriptViewerOverlay(
         leftBold: true,
       },
     );
-    surface.textRow(
-      overlayFrame.y + 2,
-      items.length > 0
-        ? truncate(
-          `Showing ${
-            Math.min(contentLines.length, visibleRows)
-          } of ${contentLines.length} visible transcript lines`,
-          contentWidth,
-          "…",
-        )
-        : "No transcript entries yet.",
-      { paddingLeft: 3, color: colors.meta },
-    );
+    if (isSearching) {
+      const searchLabel = searchQuery
+        ? `Search: ${truncate(searchQuery, contentWidth - 20, "…")}`
+        : "Search: type to filter";
+      surface.textRow(
+        overlayFrame.y + 2,
+        truncate(searchLabel, contentWidth, "…"),
+        { paddingLeft: 3, color: searchQuery ? colors.accent : colors.meta },
+      );
+      surface.textRow(
+        overlayFrame.y + 3,
+        truncate("Esc cancel search · Enter close search", contentWidth, "…"),
+        { paddingLeft: 3, color: colors.meta },
+      );
+    } else {
+      surface.textRow(
+        overlayFrame.y + 2,
+        items.length > 0
+          ? truncate(
+            `Showing ${
+              Math.min(displayLines.length, visibleRows)
+            } of ${displayLines.length} visible transcript lines`,
+            contentWidth,
+            "…",
+          )
+          : "No transcript entries yet.",
+        { paddingLeft: 3, color: colors.meta },
+      );
+    }
     surface.sectionRow(overlayFrame.y + 4, "Transcript", contentWidth, {
       paddingLeft: 3,
     });
 
-    const visibleLines = contentLines.slice(
+    const visibleLines = displayLines.slice(
       scrollOffset,
       scrollOffset + visibleRows,
     );
@@ -497,9 +533,11 @@ export function TranscriptViewerOverlay(
       );
     }
 
-    const footerHint = contentLines.length > visibleRows
-      ? "↑/↓ scroll · PageUp/PageDown jump · Ctrl+E toggle"
-      : "Ctrl+E toggle detail density";
+    const footerHint = isSearching
+      ? "Esc cancel search · Enter close search"
+      : displayLines.length > visibleRows
+      ? "↑/↓ scroll · Ctrl+R search · Ctrl+E toggle"
+      : "Ctrl+R search · Ctrl+E toggle detail density";
     surface.textRow(
       footerY,
       truncate(footerHint, contentWidth, "…"),
@@ -508,10 +546,10 @@ export function TranscriptViewerOverlay(
     surface.balancedRow(
       footerY + 1,
       scrollOffset > 0 ? `${scrollOffset} lines above` : "",
-      contentLines.length > 0
+      displayLines.length > 0
         ? `${scrollOffset + 1}-${
-          Math.min(contentLines.length, scrollOffset + visibleRows)
-        }/${contentLines.length}`
+          Math.min(displayLines.length, scrollOffset + visibleRows)
+        }/${displayLines.length}`
         : "empty",
       contentWidth,
       {
@@ -527,10 +565,13 @@ export function TranscriptViewerOverlay(
     contentLines,
     contentStartY,
     contentWidth,
+    displayLines,
     footerY,
+    isSearching,
     items.length,
     overlayFrame,
     scrollOffset,
+    searchQuery,
     showAll,
     visibleRows,
   ]);
@@ -547,11 +588,44 @@ export function TranscriptViewerOverlay(
 
   useInput((input, key) => {
     const lowerInput = input.toLowerCase();
+
+    // Search mode input handling
+    if (isSearching) {
+      if (key.escape) {
+        setIsSearching(false);
+        setSearchQuery("");
+        return;
+      }
+      if (key.return) {
+        setIsSearching(false);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setSearchQuery((current: string) => removeLastCharacter(current));
+        return;
+      }
+      if (!key.ctrl && !key.meta && input.length > 0 && input !== "\r" && input !== "\n") {
+        setSearchQuery((current: string) => current + input);
+      }
+      return;
+    }
+
+    // Normal mode
     if (
       key.escape || (key.ctrl && (lowerInput === "c" || lowerInput === "[")) ||
       lowerInput === "q"
     ) {
       onClose();
+      return;
+    }
+    if (key.ctrl && lowerInput === "r") {
+      setIsSearching(true);
+      setSearchQuery("");
+      return;
+    }
+    if (lowerInput === "/" || lowerInput === "f") {
+      setIsSearching(true);
+      setSearchQuery("");
       return;
     }
     if (key.ctrl && lowerInput === "e") {

@@ -171,32 +171,6 @@ export function findCurrentTurnStartIndex(items: ConversationItem[]): number {
   return items.findLastIndex((item) => item.type === "user");
 }
 
-function findCurrentTurnAssistantIndices(items: ConversationItem[]): number[] {
-  const turnStartIdx = findCurrentTurnStartIndex(items);
-  const indices: number[] = [];
-  for (let i = Math.max(0, turnStartIdx + 1); i < items.length; i++) {
-    if (items[i]?.type === "assistant") {
-      indices.push(i);
-    }
-  }
-  return indices;
-}
-
-function findTurnAssistantIndices(
-  items: ConversationItem[],
-  turnId?: string,
-): number[] {
-  if (!turnId) {
-    return findCurrentTurnAssistantIndices(items);
-  }
-  const indices: number[] = [];
-  for (let i = 0; i < items.length; i++) {
-    if (items[i]?.type === "assistant" && items[i]?.turnId === turnId) {
-      indices.push(i);
-    }
-  }
-  return indices;
-}
 
 function removeCurrentTurnTurnStats(
   items: ConversationItem[],
@@ -791,36 +765,9 @@ function upsertAssistantTextItem(
     return { ...baseState, items: nextItems };
   }
 
-  const currentTurnAssistantIndices = findTurnAssistantIndices(
-    cleanedItems,
-    targetTurnId,
-  );
-  if (currentTurnAssistantIndices.length > 0) {
-    const lastAssistant = cleanedItems[
-      currentTurnAssistantIndices[currentTurnAssistantIndices.length - 1]
-    ];
-    if (lastAssistant?.type === "assistant") {
-      const indexSet = new Set(currentTurnAssistantIndices);
-      const nextItems = cleanedItems.filter((_item, index) =>
-        !indexSet.has(index)
-      );
-      const updatedAssistant: AssistantItem = {
-        ...lastAssistant,
-        text,
-        citations,
-        isPending,
-      };
-      return {
-        ...baseState,
-        items: insertAssistantIntoTurn(
-          nextItems,
-          updatedAssistant,
-          isPending,
-          targetTurnId,
-        ),
-      };
-    }
-  }
+  // Each finalized text block between tool calls stays as its own item
+  // (matches Claude Code rendering). No consolidation — previous blocks
+  // were already flushed and finalized by tool_start events.
 
   const [nextState, id] = nextItemId({
     ...baseState,

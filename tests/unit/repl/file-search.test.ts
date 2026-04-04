@@ -64,3 +64,53 @@ Deno.test("file search: known home-folder aliases drill into global folders", as
     );
   });
 });
+
+Deno.test("file search: exact directory paths with trailing slash list children for browsing", async () => {
+  const platform = getPlatform();
+  const tempDir = await platform.fs.makeTempDir({
+    prefix: "hlvm-path-browse-",
+  });
+  const browseDir = platform.path.join(tempDir, "browse-me");
+  await platform.fs.mkdir(platform.path.join(browseDir, "nested"), {
+    recursive: true,
+  });
+  await platform.fs.writeTextFile(
+    platform.path.join(browseDir, "note.txt"),
+    "hello",
+  );
+
+  const results = await searchFiles(`${browseDir}/`);
+
+  assertEquals(
+    results.some((match) =>
+      match.path === `${browseDir}/nested` && match.isDirectory
+    ),
+    true,
+  );
+  assertEquals(
+    results.some((match) =>
+      match.path === `${browseDir}/note.txt` && !match.isDirectory
+    ),
+    true,
+  );
+});
+
+Deno.test("file search: tilde-prefixed exact directory browse keeps the tilde display path", async () => {
+  const platform = getPlatform();
+  const tempHome = await platform.fs.makeTempDir({ prefix: "hlvm-home-" });
+  await platform.fs.mkdir(platform.path.join(tempHome, "Desktop"), {
+    recursive: true,
+  });
+  await platform.fs.writeTextFile(
+    platform.path.join(tempHome, "Desktop", "todo.txt"),
+    "hello",
+  );
+
+  await withEnv("HOME", tempHome, async () => {
+    const results = await searchFiles("~/Desktop/");
+    assertEquals(
+      results.some((match) => match.path === "~/Desktop/todo.txt"),
+      true,
+    );
+  });
+});

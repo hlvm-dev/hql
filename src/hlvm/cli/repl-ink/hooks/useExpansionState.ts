@@ -2,7 +2,7 @@
  * useExpansionState - Shared expansion state for conversation panels.
  *
  * Consolidates the 5 Sets + isXExpanded callbacks + toggleTarget logic
- * duplicated across ConversationPanel, PendingTurnPanel, and TranscriptHistory.
+ * duplicated across ConversationPanel, PendingTurnPanel, and TranscriptSurface.
  */
 
 import React, { useCallback, useEffect, useState } from "react";
@@ -23,8 +23,8 @@ export interface ExpansionCallbacks {
 
 interface UseExpansionStateOptions {
   /**
-   * When true, all items are treated as expanded (used in TranscriptHistory
-   * for the "expand all" mode). Individual expansions still toggle on top.
+   * When true, all items are treated as expanded (used in the transcript
+   * viewer overlay for the "expand all" mode). Individual expansions still toggle on top.
    */
   expandAll?: boolean;
 }

@@ -547,16 +547,6 @@ export const ConversationPanel = React.memo(function ConversationPanel({
 
   useEffect(() => {
     registerHandler(
-      HandlerIds.CONVERSATION_TOGGLE_LATEST,
-      () => {
-        const target = toggleTargets[toggleTargets.length - 1];
-        if (target) {
-          toggleTarget(target);
-        }
-      },
-      "ConversationPanel",
-    );
-    registerHandler(
       HandlerIds.CONVERSATION_OPEN_LATEST_SOURCE,
       async () => {
         const citation = getLatestCitation(items);
@@ -567,10 +557,9 @@ export const ConversationPanel = React.memo(function ConversationPanel({
       "ConversationPanel",
     );
     return () => {
-      unregisterHandler(HandlerIds.CONVERSATION_TOGGLE_LATEST);
       unregisterHandler(HandlerIds.CONVERSATION_OPEN_LATEST_SOURCE);
     };
-  }, [items, toggleTargets]);
+  }, [items]);
 
   useInput((char, key) => {
     if (pickerInteractionActive) return;

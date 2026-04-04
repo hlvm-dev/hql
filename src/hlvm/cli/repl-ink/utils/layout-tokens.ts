@@ -11,7 +11,6 @@ export const TRANSCRIPT_LAYOUT = Object.freeze({
   assistantBulletWidth: 2,
   detailIndent: 2,
   pickerDetailIndent: 5,
-  userChipTone: "neutral" as const,
   dividerMarginTop: 1,
   dividerMarginBottom: 0,
   dividerChar: "─",

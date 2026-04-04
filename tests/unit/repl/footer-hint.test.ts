@@ -45,27 +45,14 @@ Deno.test("buildFooterLeftState shows tool status when responding with active to
   assertEquals(state.tone, "muted");
 });
 
-Deno.test("buildFooterLeftState shows empty text when idle in conversation", () => {
+Deno.test("buildFooterLeftState shows Ctrl+O hint when idle in conversation", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
     spinner: "x",
   });
 
-  assertEquals(state.text, "? for shortcuts");
-  assertEquals(state.tone, "muted");
-});
-
-Deno.test("buildFooterLeftState shows non-default mode labels when idle in conversation", () => {
-  const state = buildFooterLeftState({
-    inConversation: true,
-    streamingState: StreamingState.Idle,
-    modeLabel: "Plan mode (shift+tab to cycle)",
-    spinner: "x",
-  });
-
-  assertEquals(state.mode, "segments");
-  assertEquals(state.text, "Plan mode");
+  assertEquals(state.text, "Ctrl+O transcript history \u00B7 ? for shortcuts");
   assertEquals(state.tone, "muted");
 });
 
@@ -115,18 +102,6 @@ Deno.test("buildFooterLeftState shows Ctrl+B hint when evaluating outside conver
   });
 
   assertEquals(state.text, "Ctrl+B background \u00B7 Esc cancels");
-  assertEquals(state.tone, "muted");
-});
-
-Deno.test("buildFooterLeftState shows non-default mode label outside conversation", () => {
-  const state = buildFooterLeftState({
-    inConversation: false,
-    modeLabel: "Accept edits (shift+tab to cycle)",
-    spinner: "x",
-  });
-
-  assertEquals(state.mode, "segments");
-  assertEquals(state.text, "Accept edits");
   assertEquals(state.tone, "muted");
 });
 
@@ -228,7 +203,6 @@ Deno.test("buildFooterLeftState suppresses the duplicate generic plan-mode segme
     inConversation: true,
     streamingState: StreamingState.Responding,
     planningPhase: "researching",
-    modeLabel: "Plan mode (shift+tab to cycle)",
     spinner: "x",
   });
 
@@ -263,11 +237,10 @@ Deno.test("buildFooterLeftState prefers queue/force hints over tool status when 
   assertEquals(state.text, "Tab queues \u00B7 Ctrl+Enter forces");
 });
 
-Deno.test("buildFooterLeftState orders shell segments as mode, queue, active tool, then hint", () => {
+Deno.test("buildFooterLeftState orders shell segments as queue, active tool, then hint", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Responding,
-    modeLabel: "Default mode (shift+tab to cycle)",
     interactionQueueLength: 3,
     activeTool: {
       name: "search_web",

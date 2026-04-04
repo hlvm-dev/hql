@@ -169,7 +169,6 @@ export interface UseAgentRunnerResult {
       requestId?: string;
       clearPlanning?: boolean;
       restoreDraft?: boolean;
-      addCancelledInfo?: boolean;
     },
   ) => void;
   handleForceInterrupt: (
@@ -421,6 +420,21 @@ export function useAgentRunner(
               // partially-streamed text flush naturally to avoid
               // visible screen flicker during plan phase transitions.
             }
+            // Finalize the current text segment before tool results appear.
+            // Each LLM call in the ReAct loop produces a separate text block;
+            // flushing here keeps them as individual items in the transcript
+            // (interleaved with tool groups) instead of one concatenated blob.
+            if (event.type === "tool_start" && textBuffer.trim()) {
+              if (pendingStreamTimerRef.current) {
+                clearTimeout(pendingStreamTimerRef.current);
+                pendingStreamTimerRef.current = null;
+              }
+              conversationRef.current.addAssistantText(textBuffer, false, undefined, {
+                turnId: activeRunTurnIdRef.current,
+              });
+              textBuffer = "";
+              lastStreamRender = 0;
+            }
             conversationRef.current.addEvent(event);
             // Wire background delegate lifecycle to TaskManager
             if (event.type === "delegate_start" && event.threadId) {
@@ -622,7 +636,7 @@ export function useAgentRunner(
       };
       const finalAssistantText = agentExecutionMode === "plan"
         ? sanitizePlanModeFinalText(result.text ?? textBuffer)
-        : (textBuffer || result.text || "");
+        : textBuffer;
       if (finalAssistantText) {
         conversationRef.current.addAssistantText(
           finalAssistantText,
@@ -771,7 +785,6 @@ export function useAgentRunner(
       requestId?: string;
       clearPlanning?: boolean;
       restoreDraft?: boolean;
-      addCancelledInfo?: boolean;
     },
   ) => {
     if (options?.requestId) {
@@ -807,11 +820,6 @@ export function useAgentRunner(
     setFooterContextUsageLabel("");
     contextPressureLevelRef.current = "normal";
     restoreComposerDraft(restoredDraft);
-    if (options?.addCancelledInfo !== false) {
-      conversationRef.current.addInfo("Cancelled", {
-        turnId: activeRunTurnIdRef.current,
-      });
-    }
     conversationRef.current.finalize("cancelled", {
       turnId: activeRunTurnIdRef.current,
     });
@@ -833,7 +841,6 @@ export function useAgentRunner(
 
       interruptConversationRun({
         restoreDraft: false,
-        addCancelledInfo: false,
       });
 
       // Send immediately (bypass queue)

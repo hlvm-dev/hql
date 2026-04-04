@@ -31,7 +31,7 @@ function WorkingIndicator(
       marginBottom={spacing.waitingIndicatorMarginBottom}
     >
       <Box width={TRANSCRIPT_LAYOUT.assistantBulletWidth} flexShrink={0}>
-        <Text color={sc.text.muted}>·</Text>
+        <Text color={sc.text.muted}>○</Text>
       </Box>
       <Text color={sc.text.muted}>Thinking</Text>
     </Box>
@@ -233,7 +233,7 @@ export const AssistantMessage = React.memo(function AssistantMessage(
       marginTop={0}
     >
       <Box width={TRANSCRIPT_LAYOUT.assistantBulletWidth} flexShrink={0}>
-        <Text color={sc.banner.bullet}>•</Text>
+        <Text color={sc.banner.bullet}>●</Text>
       </Box>
       <Box
         flexDirection="column"
