@@ -86,7 +86,6 @@ import { resolveThinkingProfile } from "./thinking-profile.ts";
 import type { AgentHookRuntime } from "./hooks.ts";
 import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
-import type { ResolvedProviderExecutionPlan } from "./tool-capabilities.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
