@@ -26,7 +26,7 @@ jobs:
             platform: darwin-aarch64
             binary: hlvm-mac-arm
 
-          - os: macos-13
+          - os: macos-15-intel
             platform: darwin-x86_64
             binary: hlvm-mac-intel
 
