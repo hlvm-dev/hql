@@ -9,6 +9,7 @@ BINARY := hlvm
 CLI_ENTRY := src/hlvm/cli/cli.ts
 AI_ENGINE_DIR := resources/ai-engine
 AI_ENGINE_STAMP := $(AI_ENGINE_DIR)/.ollama-source
+COMPILE_SCRIPT := ./scripts/compile-hlvm.sh
 
 # Transpile stdlib.hql → self-hosted.js
 stdlib:
@@ -28,22 +29,14 @@ openapi:
 # Quick build for current computer (always clean — no stale cache)
 build: clean setup-ai stdlib embed-packages
 	@echo "🔨 Building HLVM binary with embedded AI engine (clean)..."
-	@DENO_DIR=$$(mktemp -d) deno compile --allow-all --no-check --config deno.json \
-		--v8-flags=--max-old-space-size=4096 \
-		--include resources/ai-engine \
-		--include src/hql/lib/stdlib/js/index.js \
-		--output $(BINARY) $(CLI_ENTRY)
+	@DENO_DIR=$$(mktemp -d) $(COMPILE_SCRIPT) --output $(BINARY)
 	@echo "✅ Done! Binary: ./$(BINARY)"
 	@ls -lh $(BINARY)
 
 # Fast build — uses cached DENO_DIR, skips clean
 build-fast: setup-ai stdlib embed-packages
 	@echo "🔨 Building HLVM binary with embedded AI engine (cached)..."
-	@deno compile --allow-all --no-check --config deno.json \
-		--v8-flags=--max-old-space-size=4096 \
-		--include resources/ai-engine \
-		--include src/hql/lib/stdlib/js/index.js \
-		--output $(BINARY) $(CLI_ENTRY)
+	@$(COMPILE_SCRIPT) --output $(BINARY)
 	@echo "✅ Done! Binary: ./$(BINARY)"
 	@ls -lh $(BINARY)
 
@@ -80,25 +73,25 @@ test: build
 # Build for Mac (Intel)
 build-mac-intel: stdlib embed-packages
 	@echo "🍎 Building for Mac Intel..."
-	@deno compile --allow-all --no-check --target x86_64-apple-darwin --output hlvm-mac-intel $(CLI_ENTRY)
+	@$(COMPILE_SCRIPT) --target x86_64-apple-darwin --output hlvm-mac-intel
 	@echo "✅ Created: hlvm-mac-intel"
 
 # Build for Mac (Apple Silicon)
 build-mac-arm: stdlib embed-packages
 	@echo "🍎 Building for Mac ARM..."
-	@deno compile --allow-all --no-check --target aarch64-apple-darwin --output hlvm-mac-arm $(CLI_ENTRY)
+	@$(COMPILE_SCRIPT) --target aarch64-apple-darwin --output hlvm-mac-arm
 	@echo "✅ Created: hlvm-mac-arm"
 
 # Build for Linux
 build-linux: stdlib embed-packages
 	@echo "🐧 Building for Linux..."
-	@deno compile --allow-all --no-check --target x86_64-unknown-linux-gnu --output hlvm-linux $(CLI_ENTRY)
+	@$(COMPILE_SCRIPT) --target x86_64-unknown-linux-gnu --output hlvm-linux
 	@echo "✅ Created: hlvm-linux"
 
 # Build for Windows
 build-windows: stdlib embed-packages
 	@echo "🪟 Building for Windows..."
-	@deno compile --allow-all --no-check --target x86_64-pc-windows-msvc --output hlvm-windows.exe $(CLI_ENTRY)
+	@$(COMPILE_SCRIPT) --target x86_64-pc-windows-msvc --output hlvm-windows.exe
 	@echo "✅ Created: hlvm-windows.exe"
 
 # Build for ALL platforms (for distribution)
@@ -170,14 +163,7 @@ setup-ai:
 		exit 1; \
 	fi; \
 	printf '%s\n' "$$STAMP_VALUE" > "$(AI_ENGINE_STAMP)"
-	@deno eval '\
-		const files = [];\
-		for await (const entry of Deno.readDir("$(AI_ENGINE_DIR)")) {\
-			if (entry.isFile) files.push(entry.name);\
-		}\
-		files.sort();\
-		await Deno.writeTextFile("$(AI_ENGINE_DIR)/manifest.json", JSON.stringify({ files }, null, 2));\
-	'
+	@deno run -A scripts/write-ai-engine-manifest.ts "$(AI_ENGINE_DIR)"
 	@chmod +x "$(AI_ENGINE_DIR)/ollama" 2>/dev/null || true
 	@echo "✅ AI engine ready: $(AI_ENGINE_DIR) (Ollama $(OLLAMA_VERSION))"
 	@ls -lah "$(AI_ENGINE_DIR)"

@@ -87,17 +87,7 @@ jobs:
           esac
 
           rm -f "$ARCHIVE_PATH"
-          deno eval '
-            const files = [];
-            for await (const entry of Deno.readDir("resources/ai-engine")) {
-              if (entry.isFile) files.push(entry.name);
-            }
-            files.sort();
-            await Deno.writeTextFile(
-              "resources/ai-engine/manifest.json",
-              JSON.stringify({ files }, null, 2),
-            );
-          '
+          deno run -A scripts/write-ai-engine-manifest.ts resources/ai-engine
           chmod +x "resources/ai-engine/${{ matrix.ollama_binary }}" 2>/dev/null || true
           ls -lah resources/ai-engine
 
@@ -110,16 +100,9 @@ jobs:
       - name: Build binary
         shell: bash
         run: |
-          deno compile \
-            --allow-all \
-            --no-check \
-            --config deno.json \
+          ./scripts/compile-hlvm.sh \
             --target ${{ matrix.target }} \
-            --v8-flags=--max-old-space-size=4096 \
-            --include resources/ai-engine \
-            --include src/hql/lib/stdlib/js/index.js \
-            --output ${{ matrix.binary }} \
-            src/hlvm/cli/cli.ts
+            --output ${{ matrix.binary }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

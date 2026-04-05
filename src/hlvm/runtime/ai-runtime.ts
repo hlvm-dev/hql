@@ -13,10 +13,20 @@ import { RuntimeError } from "../../common/error.ts";
 import { HLVMErrorCode } from "../../common/error-codes.ts";
 import { ai } from "../api/ai.ts";
 import { log } from "../api/log.ts";
-import { ensureRuntimeDir, getModelsDir, getRuntimeDir } from "../../common/paths.ts";
+import {
+  ensureRuntimeDir,
+  getModelsDir,
+  getRuntimeDir,
+} from "../../common/paths.ts";
 import { findLegacyRuntimeEngine } from "../../common/legacy-migration.ts";
-import { getPlatform, type PlatformCommandProcess } from "../../platform/platform.ts";
-import { DEFAULT_OLLAMA_ENDPOINT, DEFAULT_OLLAMA_HOST } from "../../common/config/types.ts";
+import {
+  getPlatform,
+  type PlatformCommandProcess,
+} from "../../platform/platform.ts";
+import {
+  DEFAULT_OLLAMA_ENDPOINT,
+  DEFAULT_OLLAMA_HOST,
+} from "../../common/config/types.ts";
 import { http } from "../../common/http-client.ts";
 
 // ============================================================================
@@ -45,11 +55,15 @@ const textDecoder = new TextDecoder();
 let initPromise: Promise<void> | null = null;
 
 function parseOllamaVersion(output: string): string | null {
-  const clientMatch = output.match(/client version is\s+([0-9]+\.[0-9]+\.[0-9]+)/i);
+  const clientMatch = output.match(
+    /client version is\s+([0-9]+\.[0-9]+\.[0-9]+)/i,
+  );
   if (clientMatch?.[1]) {
     return clientMatch[1];
   }
-  const serverMatch = output.match(/ollama version is\s+([0-9]+\.[0-9]+\.[0-9]+)/i);
+  const serverMatch = output.match(
+    /ollama version is\s+([0-9]+\.[0-9]+\.[0-9]+)/i,
+  );
   if (serverMatch?.[1]) {
     return serverMatch[1];
   }
@@ -58,29 +72,47 @@ function parseOllamaVersion(output: string): string | null {
 
 function isMissingEmbeddedEngineError(error: unknown): boolean {
   return error instanceof Error &&
-    (error.message.includes("No such file") || error.message.includes("path not found"));
+    (error.message.includes("No such file") ||
+      error.message.includes("path not found"));
 }
 
 function getEmbeddedEngineDir(platform = getPlatform()): string {
   return platform.path.join(getRuntimeDir(), "engine");
 }
 
+function getEmbeddedEngineBinaryRelativePath(platform = getPlatform()): string {
+  if (platform.build.os === "windows") {
+    return "ollama.exe";
+  }
+  if (platform.build.os === "linux") {
+    return "bin/ollama";
+  }
+  return "ollama";
+}
+
 function getEmbeddedEngineBinaryName(platform = getPlatform()): string {
-  return platform.build.os === "windows" ? "ollama.exe" : "ollama";
+  return getEmbeddedEngineBinaryRelativePath(platform).split("/").at(-1) ??
+    "ollama";
 }
 
 function getEmbeddedEnginePath(platform = getPlatform()): string {
+  const relativeBinaryPath = getEmbeddedEngineBinaryRelativePath(platform)
+    .split("/");
   return platform.path.join(
     getEmbeddedEngineDir(platform),
-    getEmbeddedEngineBinaryName(platform),
+    ...relativeBinaryPath,
   );
 }
 
 function getBundledEngineResourcePath(platform = getPlatform()): string {
-  return platform.path.fromFileUrl(new URL("../../../resources/ai-engine", import.meta.url));
+  return platform.path.fromFileUrl(
+    new URL("../../../resources/ai-engine", import.meta.url),
+  );
 }
 
-function getBundledEngineFallbackResourceRoot(platform = getPlatform()): string {
+function getBundledEngineFallbackResourceRoot(
+  platform = getPlatform(),
+): string {
   return platform.path.fromFileUrl(new URL("../../../", import.meta.url));
 }
 
@@ -106,16 +138,67 @@ async function resolveBundledEngineResourcePath(
 async function readBundledEngineManifest(
   platform = getPlatform(),
 ): Promise<string[]> {
-  const manifestPath = await resolveBundledEngineResourcePath("manifest.json", platform);
+  const manifestPath = await resolveBundledEngineResourcePath(
+    "manifest.json",
+    platform,
+  );
   if (!manifestPath) {
-    throw new Error("Bundled AI engine manifest was not embedded in this build.");
+    throw new Error(
+      "Bundled AI engine manifest was not embedded in this build.",
+    );
   }
 
   const raw = await platform.fs.readTextFile(manifestPath);
   const parsed = JSON.parse(raw);
   return Array.isArray(parsed?.files)
-    ? parsed.files.filter((value: unknown): value is string => typeof value === "string")
+    ? parsed.files.filter((value: unknown): value is string =>
+      typeof value === "string"
+    )
     : [];
+}
+
+function normalizeFsPath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+function getEmbeddedEngineRootFromBinaryPath(
+  enginePath: string,
+  platform = getPlatform(),
+): string {
+  const relativeBinaryPath = getEmbeddedEngineBinaryRelativePath(platform);
+  if (relativeBinaryPath.includes("/")) {
+    const normalizedEnginePath = normalizeFsPath(enginePath);
+    if (normalizedEnginePath.endsWith(`/${relativeBinaryPath}`)) {
+      let root = enginePath;
+      for (let i = 0; i < relativeBinaryPath.split("/").length; i++) {
+        root = platform.path.dirname(root);
+      }
+      return root;
+    }
+  }
+  return platform.path.dirname(enginePath);
+}
+
+function prependPathEntries(
+  entries: string[],
+  existingValue: string | undefined,
+  separator: string,
+): string {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+
+  for (
+    const entry of [
+      ...entries,
+      ...(existingValue ? existingValue.split(separator) : []),
+    ]
+  ) {
+    if (!entry || seen.has(entry)) continue;
+    seen.add(entry);
+    ordered.push(entry);
+  }
+
+  return ordered.join(separator);
 }
 
 function normalizeCommandOutput(output: {
@@ -185,7 +268,10 @@ export async function resolveEmbeddedEnginePath(
     // Best-effort guard only.
   }
 
-  const invalidReason = await describeInvalidEngine(embeddedEnginePath, platform);
+  const invalidReason = await describeInvalidEngine(
+    embeddedEnginePath,
+    platform,
+  );
   if (invalidReason) {
     log.warn?.(`Discarding extracted embedded AI engine: ${invalidReason}`);
     await removeEmbeddedEngine(invalidReason, platform);
@@ -200,11 +286,12 @@ export async function hasEmbeddedAIEngineResource(
 ): Promise<boolean> {
   try {
     const files = await readBundledEngineManifest(platform);
-    if (!files.includes(getEmbeddedEngineBinaryName(platform))) {
+    const binaryRelativePath = getEmbeddedEngineBinaryRelativePath(platform);
+    if (!files.includes(binaryRelativePath)) {
       return false;
     }
     const bundledBinaryPath = await resolveBundledEngineResourcePath(
-      getEmbeddedEngineBinaryName(platform),
+      binaryRelativePath,
       platform,
     );
     if (!bundledBinaryPath) {
@@ -232,13 +319,32 @@ export function buildAIEngineEnvironment(
 
   const engineDir = platform.path.dirname(enginePath);
   const pathSeparator = platform.build.os === "windows" ? ";" : ":";
-  const currentPath = platform.env.get("PATH");
-  env.PATH = currentPath ? `${engineDir}${pathSeparator}${currentPath}` : engineDir;
+  env.PATH = prependPathEntries(
+    [engineDir],
+    platform.env.get("PATH"),
+    pathSeparator,
+  );
 
   if (platform.build.os === "darwin") {
-    env.DYLD_LIBRARY_PATH = engineDir;
+    env.DYLD_LIBRARY_PATH = prependPathEntries(
+      [engineDir],
+      platform.env.get("DYLD_LIBRARY_PATH"),
+      pathSeparator,
+    );
   } else if (platform.build.os === "linux") {
-    env.LD_LIBRARY_PATH = engineDir;
+    const engineRoot = getEmbeddedEngineRootFromBinaryPath(
+      enginePath,
+      platform,
+    );
+    env.LD_LIBRARY_PATH = prependPathEntries(
+      [
+        engineDir,
+        platform.path.join(engineRoot, "lib"),
+        platform.path.join(engineRoot, "lib", "ollama"),
+      ],
+      platform.env.get("LD_LIBRARY_PATH"),
+      pathSeparator,
+    );
   }
 
   return env;
@@ -284,7 +390,9 @@ export async function extractAIEngine(platform = getPlatform()): Promise<void> {
     const legacyEnginePath = await findLegacyRuntimeEngine();
     if (legacyEnginePath) {
       if (await matchesSelfBinarySize(legacyEnginePath, platform)) {
-        log.debug?.("Legacy engine binary matches HLVM CLI size — skipping copy");
+        log.debug?.(
+          "Legacy engine binary matches HLVM CLI size — skipping copy",
+        );
         // Fall through to embedded resource extraction below
       } else {
         const invalidLegacyReason = await describeInvalidEngine(
@@ -301,7 +409,9 @@ export async function extractAIEngine(platform = getPlatform()): Promise<void> {
           await platform.fs.remove(getEmbeddedEngineDir(platform), {
             recursive: true,
           }).catch(() => {});
-          await platform.fs.mkdir(getEmbeddedEngineDir(platform), { recursive: true });
+          await platform.fs.mkdir(getEmbeddedEngineDir(platform), {
+            recursive: true,
+          });
           await platform.fs.copyFile(legacyEnginePath, embeddedEnginePath);
           await platform.fs.chmod(embeddedEnginePath, 0o755);
           if (await resolveEmbeddedEnginePath(platform)) {
@@ -315,14 +425,27 @@ export async function extractAIEngine(platform = getPlatform()): Promise<void> {
     const embeddedEngineDir = getEmbeddedEngineDir(platform);
     const embeddedEnginePath = getEmbeddedEnginePath(platform);
     await ensureRuntimeDir();
-    await platform.fs.remove(embeddedEngineDir, { recursive: true }).catch(() => {});
+    await platform.fs.remove(embeddedEngineDir, { recursive: true }).catch(
+      () => {},
+    );
     await platform.fs.mkdir(embeddedEngineDir, { recursive: true });
     for (const fileName of bundledFiles) {
-      const sourcePath = await resolveBundledEngineResourcePath(fileName, platform);
+      const sourcePath = await resolveBundledEngineResourcePath(
+        fileName,
+        platform,
+      );
       if (!sourcePath) {
-        throw new Error(`Bundled AI engine file missing from build: ${fileName}`);
+        throw new Error(
+          `Bundled AI engine file missing from build: ${fileName}`,
+        );
       }
-      const targetPath = platform.path.join(embeddedEngineDir, fileName);
+      const targetPath = platform.path.join(
+        embeddedEngineDir,
+        ...fileName.split("/"),
+      );
+      await platform.fs.mkdir(platform.path.dirname(targetPath), {
+        recursive: true,
+      });
       const fileBytes = await platform.fs.readFile(sourcePath);
       await platform.fs.writeFile(targetPath, fileBytes);
     }
@@ -342,7 +465,9 @@ export async function extractAIEngine(platform = getPlatform()): Promise<void> {
   }
 }
 
-export async function waitForAIEngineReady(expectedVersion?: string): Promise<boolean> {
+export async function waitForAIEngineReady(
+  expectedVersion?: string,
+): Promise<boolean> {
   for (let i = 0; i < AI_STARTUP_MAX_POLLS; i++) {
     if (await isCompatibleAIRunning(expectedVersion)) {
       return true;
@@ -358,13 +483,18 @@ function getAIEndpointPort(): string {
 
 async function getAIEndpointVersion(): Promise<string | null> {
   try {
-    const response = await http.fetchRaw(`${DEFAULT_OLLAMA_ENDPOINT}/api/version`, {
-      timeout: 2000,
-    });
+    const response = await http.fetchRaw(
+      `${DEFAULT_OLLAMA_ENDPOINT}/api/version`,
+      {
+        timeout: 2000,
+      },
+    );
     if (!response.ok) {
       return null;
     }
-    const payload = await response.json().catch(() => null) as { version?: unknown } | null;
+    const payload = await response.json().catch(() => null) as {
+      version?: unknown;
+    } | null;
     return typeof payload?.version === "string" ? payload.version : null;
   } catch {
     return null;
@@ -393,7 +523,9 @@ export async function getAIEngineBinaryVersion(
   }
 }
 
-export async function isCompatibleAIRunning(expectedVersion?: string): Promise<boolean> {
+export async function isCompatibleAIRunning(
+  expectedVersion?: string,
+): Promise<boolean> {
   if (!expectedVersion) {
     return await isAIRunning();
   }
@@ -401,11 +533,17 @@ export async function isCompatibleAIRunning(expectedVersion?: string): Promise<b
   return endpointVersion === expectedVersion;
 }
 
-async function findListeningPidForAIEndpoint(platform = getPlatform()): Promise<string | null> {
+async function findListeningPidForAIEndpoint(
+  platform = getPlatform(),
+): Promise<string | null> {
   try {
     if (platform.build.os === "windows") {
       const output = await platform.command.output({
-        cmd: ["cmd", "/c", `netstat -ano -p tcp | findstr LISTENING | findstr :${getAIEndpointPort()}`],
+        cmd: [
+          "cmd",
+          "/c",
+          `netstat -ano -p tcp | findstr LISTENING | findstr :${getAIEndpointPort()}`,
+        ],
         stdin: "null",
         stdout: "piped",
         stderr: "piped",
@@ -417,7 +555,13 @@ async function findListeningPidForAIEndpoint(platform = getPlatform()): Promise<
     }
 
     const output = await platform.command.output({
-      cmd: ["lsof", "-nP", `-iTCP:${getAIEndpointPort()}`, "-sTCP:LISTEN", "-t"],
+      cmd: [
+        "lsof",
+        "-nP",
+        `-iTCP:${getAIEndpointPort()}`,
+        "-sTCP:LISTEN",
+        "-t",
+      ],
       stdin: "null",
       stdout: "piped",
       stderr: "piped",
@@ -457,7 +601,7 @@ export async function reclaimConflictingAIEndpoint(
 
   log.warn?.(
     `Reclaiming HLVM AI endpoint ${DEFAULT_OLLAMA_HOST} from incompatible Ollama ` +
-    `${endpointVersion} (expected ${expectedVersion}).`,
+      `${endpointVersion} (expected ${expectedVersion}).`,
   );
 
   try {
@@ -516,7 +660,9 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
   await reclaimConflictingAIEndpoint(expectedVersion ?? undefined, platform);
 
   const killProcess = (proc: PlatformCommandProcess | null) => {
-    try { proc?.kill?.("SIGTERM"); } catch { /* best-effort */ }
+    try {
+      proc?.kill?.("SIGTERM");
+    } catch { /* best-effort */ }
   };
 
   let aiProcess: PlatformCommandProcess | null = null;
@@ -571,8 +717,12 @@ export const aiEngine: AIEngineLifecycle = {
   async ensureRunning(): Promise<boolean> {
     const platform = getPlatform();
     await extractAIEngine(platform);
-    const enginePath = await resolveEmbeddedEnginePath(platform) ?? SYSTEM_AI_ENGINE;
-    const expectedVersion = await getAIEngineBinaryVersion(enginePath, platform);
+    const enginePath = await resolveEmbeddedEnginePath(platform) ??
+      SYSTEM_AI_ENGINE;
+    const expectedVersion = await getAIEngineBinaryVersion(
+      enginePath,
+      platform,
+    );
     if (await isCompatibleAIRunning(expectedVersion ?? undefined)) return true;
     await startAIEngine(platform);
     return await isCompatibleAIRunning(expectedVersion ?? undefined);
@@ -608,7 +758,8 @@ async function doInitAIRuntime(): Promise<void> {
   }
 
   await extractAIEngine(platform);
-  const enginePath = await resolveEmbeddedEnginePath(platform) ?? SYSTEM_AI_ENGINE;
+  const enginePath = await resolveEmbeddedEnginePath(platform) ??
+    SYSTEM_AI_ENGINE;
   const expectedVersion = await getAIEngineBinaryVersion(enginePath, platform);
   if (await isCompatibleAIRunning(expectedVersion ?? undefined)) {
     return;
