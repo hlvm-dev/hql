@@ -2915,7 +2915,7 @@ PRs are open, what issues are assigned to you, across all projects.
           Output as structured StandupReport."
     {data: {repos: repos user: github-user}
      schema: StandupReport
-     tools: ["shell_exec" "web_search"]})))
+     tools: ["shell_exec" "search_web"]})))
 ```
 
 ### Step 2: Personal Binding
@@ -3049,7 +3049,7 @@ GitHub, read the diff, understand context, write comments. Repeat N times.
           Do NOT submit reviews — just prepare them for my approval."
     {data: {repos: repos user: github-user}
      schema: [ReviewResult]
-     tools: ["shell_exec" "web_search" "read_file"]})))
+     tools: ["shell_exec" "search_web" "read_file"]})))
 ```
 
 ### Step 2: Personal Binding + GUI Approval
@@ -3185,7 +3185,7 @@ an hour.
              - Sources (with URLs)
           4. Save the memo as markdown to the output path"
     {data: {topic: topic path: output-path}
-     tools: ["web_search" "web_fetch" "write_file"]})))
+     tools: ["search_web" "web_fetch" "write_file"]})))
 ```
 
 ### Step 2: Personal Binding with Defaults

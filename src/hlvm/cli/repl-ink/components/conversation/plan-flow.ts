@@ -162,7 +162,6 @@ function summarizeToolActivity(tool: ToolCallDisplay): string {
     : "";
   switch (tool.name) {
     case "search_web":
-    case "web_search":
       return args ? `Researching ${args}` : "Researching the request";
     case "web_fetch":
     case "fetch_url":

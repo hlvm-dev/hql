@@ -7,10 +7,6 @@ import { collectSections } from "../../../src/hlvm/prompt/sections.ts";
 import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
 import { EMPTY_INSTRUCTIONS } from "../../../src/hlvm/prompt/types.ts";
 import type { InstructionHierarchy, PromptCompilerInput } from "../../../src/hlvm/prompt/types.ts";
-import {
-  REMOTE_CODE_EXECUTE_TOOL_NAME,
-  resolveProviderExecutionPlan,
-} from "../../../src/hlvm/agent/tool-capabilities.ts";
 
 /** Build a simple agent-mode input with no tools. */
 function agentInput(
@@ -23,24 +19,6 @@ function agentInput(
     instructions: EMPTY_INSTRUCTIONS,
     ...overrides,
   };
-}
-
-function autoExecutionInput(
-  overrides: Partial<PromptCompilerInput> = {},
-): PromptCompilerInput {
-  const providerExecutionPlan = resolveProviderExecutionPlan({
-    providerName: "google",
-    nativeCapabilities: {
-      webSearch: true,
-      webPageRead: true,
-      remoteCodeExecution: true,
-    },
-    allowlist: [REMOTE_CODE_EXECUTE_TOOL_NAME],
-  });
-  return agentInput({
-    providerExecutionPlan,
-    ...overrides,
-  });
 }
 
 function segmentHash(
@@ -363,10 +341,10 @@ Deno.test("compiler: collectSections returns PromptSection[] with id, content, m
 });
 
 Deno.test("compiler: compilePrompt emits sections in static then session then turn order", () => {
-  const result = compilePrompt(autoExecutionInput());
+  const result = compilePrompt(agentInput());
   const stabilities = result.sections.map((section) => section.stability);
 
-  assertEquals(stabilities.includes("turn"), true);
+  assertEquals(stabilities.includes("turn"), false);
   assertEquals(
     stabilities.join(","),
     [
@@ -378,12 +356,11 @@ Deno.test("compiler: compilePrompt emits sections in static then session then tu
 });
 
 Deno.test("compiler: cacheSegments collapse adjacent sections with the same stability", () => {
-  const result = compilePrompt(autoExecutionInput());
+  const result = compilePrompt(agentInput());
 
   assertEquals(result.cacheSegments.map((segment) => segment.stability), [
     "static",
     "session",
-    "turn",
   ]);
   assertEquals(
     result.cacheSegments.map((segment) => segment.text).join("\n\n"),
@@ -398,24 +375,6 @@ Deno.test("compiler: cacheSegments collapse adjacent sections with the same stab
     result.stableCacheProfile.stableSegmentHashes,
     result.cacheSegments.filter((segment) => segment.stability !== "turn")
       .map((segment) => segment.contentHash),
-  );
-});
-
-Deno.test("compiler: turn-only changes affect only the turn cache segment hash", () => {
-  const base = autoExecutionInput();
-  const withoutTurn = agentInput({
-    providerExecutionPlan: base.providerExecutionPlan,
-  });
-
-  assertEquals(segmentHash(base, "static"), segmentHash(withoutTurn, "static"));
-  assertEquals(
-    segmentHash(base, "session"),
-    segmentHash(withoutTurn, "session"),
-  );
-  assertEquals(segmentHash(base, "turn") === segmentHash(withoutTurn, "turn"), false);
-  assertEquals(
-    compilePrompt(base).stableCacheProfile.stableSignatureHash,
-    compilePrompt(withoutTurn).stableCacheProfile.stableSignatureHash,
   );
 });
 

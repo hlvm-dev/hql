@@ -53,8 +53,7 @@ const SECTION_STABILITY: Record<string, PromptSectionStability> = {
   team_coordination: "session",
 };
 
-const CUSTOM_WEB_SEARCH_TOOL_NAME = "search_web";
-const NATIVE_WEB_SEARCH_TOOL_NAME = "web_search";
+const WEB_SEARCH_TOOL_NAME = "search_web";
 const RAW_URL_FETCH_TOOL_NAME = "fetch_url";
 const WEB_PAGE_READ_TOOL_NAME = "web_fetch";
 
@@ -222,29 +221,20 @@ function renderPermissionTiers(
 function renderWebToolGuidance(
   tools: Record<string, ToolMetadata>,
 ): RawPromptSection {
-  const hasCustomSearch = CUSTOM_WEB_SEARCH_TOOL_NAME in tools;
-  const hasNativeSearch = NATIVE_WEB_SEARCH_TOOL_NAME in tools;
-  const hasSearch = hasCustomSearch || hasNativeSearch;
+  const hasWebSearch = WEB_SEARCH_TOOL_NAME in tools;
   const hasWebFetch = WEB_PAGE_READ_TOOL_NAME in tools;
   const hasFetchUrl = RAW_URL_FETCH_TOOL_NAME in tools;
-  if (!hasSearch && !hasWebFetch && !hasFetchUrl) {
+  if (!hasWebSearch && !hasWebFetch && !hasFetchUrl) {
     return { id: "web_guidance", content: "", minTier: "weak" };
   }
 
   const lines = ["# Web Tool Guidance"];
-  if (hasCustomSearch) {
+  if (hasWebSearch) {
     lines.push(
       "- search_web is for discovery. Use canonical args like query, maxResults, timeRange, locale, searchDepth, prefetch, and reformulate.",
       "- Use timeRange, not recency. Use prefetch, not preFetch.",
       "- For docs, APIs, release notes, and changelogs, prefer official/vendor domains already returned by search_web.",
       "- If the current search results already answer the question, stop and answer instead of chaining more searches.",
-    );
-  }
-  if (hasNativeSearch) {
-    lines.push(
-      "- web_search is for live web discovery when the answer depends on current external information.",
-      "- Prefer official/vendor domains already surfaced by web_search before fetching a specific page.",
-      "- If web_search already provides enough evidence, stop and answer instead of chaining more searches.",
     );
   }
   if (hasWebFetch) {

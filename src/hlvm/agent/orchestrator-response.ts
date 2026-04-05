@@ -72,8 +72,13 @@ import {
 import { executeToolCalls } from "./orchestrator-tool-execution.ts";
 import { callLLMWithRetry, type LLMFunction } from "./orchestrator-llm.ts";
 import type { ToolUse } from "./grounding.ts";
-import { isWebCapabilityToolName } from "./tool-capabilities.ts";
 import { isMutatingTool } from "./security/safety.ts";
+
+const WEB_TOOL_NAMES = new Set(["search_web", "web_fetch", "fetch_url"]);
+
+function isWebToolName(toolName: string): boolean {
+  return WEB_TOOL_NAMES.has(toolName);
+}
 
 /** DRY: Append citation sources to the passage index with bounded size. */
 function mergePassageIndex(
@@ -1364,7 +1369,7 @@ export async function handlePostToolExecution(
 
   // --- Web tool tracking (for mid-conversation reminders) ---
   state.lastToolsIncludedWeb = result.toolCalls.some(
-    (tc) => isWebCapabilityToolName(tc.toolName),
+    (tc) => isWebToolName(tc.toolName),
   ) || (result.nativeSources?.length ?? 0) > 0;
 
   // --- Consecutive failure tracking ---

@@ -4,20 +4,13 @@ import {
   buildLlmPerformanceSnapshot,
   buildToolCallRepairFunction,
   clearGoogleCacheRegistry,
-  filterLocallyExecutableToolCalls,
   getSdkModel,
   mapSdkToolCalls,
-  mergeSdkWebCapabilityTools,
   repairMalformedToolCallInput,
   resolveGoogleCachedContent,
   SdkAgentEngine,
 } from "../../../src/hlvm/agent/engine-sdk.ts";
 import { compileSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
-import {
-  REMOTE_CODE_EXECUTE_TOOL_NAME,
-  resolveProviderExecutionPlan,
-  resolveWebCapabilityPlan,
-} from "../../../src/hlvm/agent/tool-capabilities.ts";
 import {
   convertToolDefinitionsToSdk,
   convertToSdkMessages,
@@ -27,30 +20,12 @@ import type { Message } from "../../../src/hlvm/agent/context.ts";
 import type { ToolDefinition } from "../../../src/hlvm/agent/llm-integration.ts";
 import { InvalidToolInputError, NoSuchToolError } from "ai";
 
-function buildAutoExecutionPromptState() {
-  const providerExecutionPlan = resolveProviderExecutionPlan({
-    providerName: "google",
-    nativeCapabilities: {
-      webSearch: true,
-      webPageRead: true,
-      remoteCodeExecution: true,
-    },
-    allowlist: [REMOTE_CODE_EXECUTE_TOOL_NAME],
-  });
-  return {
-    providerExecutionPlan,
-    compiledPrompt: compileSystemPrompt({
-      providerExecutionPlan,
-    }),
-  };
-}
-
-function buildAutoExecutionPrompt() {
-  return buildAutoExecutionPromptState().compiledPrompt;
+function buildAgentPrompt() {
+  return compileSystemPrompt();
 }
 
 function toCompiledPromptMeta(
-  compiledPrompt: ReturnType<typeof buildAutoExecutionPrompt>,
+  compiledPrompt: ReturnType<typeof buildAgentPrompt>,
 ) {
   return {
     text: compiledPrompt.text,
@@ -244,222 +219,6 @@ Deno.test("engine sdk: usage mapping preserves values and defaults missing count
   assertEquals(mapSdkUsage(undefined), undefined);
 });
 
-Deno.test("engine sdk: provider-executed native web_search tool calls are excluded from local execution", () => {
-  const mapped = mapSdkToolCalls([
-    {
-      toolCallId: "call_native",
-      toolName: "web_search",
-      input: { query: "latest deno blog" },
-    },
-    {
-      toolCallId: "call_local",
-      toolName: "read_file",
-      input: { path: "README.md" },
-    },
-  ]);
-
-  assertEquals(
-    filterLocallyExecutableToolCalls(
-      mapped,
-      resolveProviderExecutionPlan({
-        providerName: "google",
-        allowlist: ["web_search"],
-        nativeCapabilities: {
-          webSearch: true,
-          webPageRead: false,
-          remoteCodeExecution: false,
-        },
-      }),
-    ),
-    [{
-      id: "call_local",
-      toolName: "read_file",
-      args: { path: "README.md" },
-    }],
-  );
-});
-
-Deno.test("engine sdk: provider-executed native web_fetch is excluded only on the dedicated conservative surface", () => {
-  const mapped = mapSdkToolCalls([
-    {
-      toolCallId: "call_native_fetch",
-      toolName: "web_fetch",
-      input: {},
-    },
-    {
-      toolCallId: "call_local",
-      toolName: "read_file",
-      input: { path: "README.md" },
-    },
-  ]);
-
-  assertEquals(
-    filterLocallyExecutableToolCalls(
-      mapped,
-      resolveProviderExecutionPlan({
-        providerName: "google",
-        allowlist: ["web_fetch"],
-        nativeCapabilities: {
-          webSearch: true,
-          webPageRead: true,
-          remoteCodeExecution: true,
-        },
-      }),
-    ),
-    [{
-      id: "call_local",
-      toolName: "read_file",
-      args: { path: "README.md" },
-    }],
-  );
-});
-
-Deno.test("engine sdk: provider-executed remote_code_execute is excluded from local execution", () => {
-  const mapped = mapSdkToolCalls([
-    {
-      toolCallId: "call_native_remote",
-      toolName: "code_execution",
-      input: { code: "print(1)" },
-    },
-    {
-      toolCallId: "call_local",
-      toolName: "read_file",
-      input: { path: "README.md" },
-    },
-  ]);
-
-  assertEquals(
-    filterLocallyExecutableToolCalls(
-      mapped,
-      resolveProviderExecutionPlan({
-        providerName: "google",
-        allowlist: [REMOTE_CODE_EXECUTE_TOOL_NAME],
-        nativeCapabilities: {
-          webSearch: true,
-          webPageRead: true,
-          remoteCodeExecution: true,
-        },
-      }),
-    ),
-    [{
-      id: "call_local",
-      toolName: "read_file",
-      args: { path: "README.md" },
-    }],
-  );
-});
-
-Deno.test("engine sdk: native provider tools replace custom tools only when the resolved execution plan activates them", () => {
-  const customSearchTool = convertToolDefinitionsToSdk([{
-    type: "function",
-    function: {
-      name: "search_web",
-      description: "Search the web",
-      parameters: { type: "object", properties: {} },
-    },
-  }])!.search_web;
-  const nativeSearchTool = convertToolDefinitionsToSdk([{
-    type: "function",
-    function: {
-      name: "web_search",
-      description: "Native web search",
-      parameters: { type: "object", properties: {} },
-    },
-  }])!.web_search;
-  const readFileTool = convertToolDefinitionsToSdk([{
-    type: "function",
-    function: {
-      name: "read_file",
-      description: "Read a file",
-      parameters: { type: "object", properties: {} },
-    },
-  }])!.read_file;
-  const webFetchTool = convertToolDefinitionsToSdk([{
-    type: "function",
-    function: {
-      name: "web_fetch",
-      description: "Fetch a readable page",
-      parameters: { type: "object", properties: {} },
-    },
-  }])!.web_fetch;
-  const remoteCodeTool = convertToolDefinitionsToSdk([{
-    type: "function",
-    function: {
-      name: REMOTE_CODE_EXECUTE_TOOL_NAME,
-      description: "Remote code execution",
-      parameters: { type: "object", properties: {} },
-    },
-  }])![REMOTE_CODE_EXECUTE_TOOL_NAME];
-  const nativePlan = resolveWebCapabilityPlan({
-    providerName: "openai",
-    nativeCapabilities: {
-      webSearch: true,
-      webPageRead: false,
-      remoteCodeExecution: false,
-    },
-  });
-  const customPlan = resolveWebCapabilityPlan({
-    providerName: "google",
-    nativeCapabilities: {
-      webSearch: false,
-      webPageRead: false,
-      remoteCodeExecution: false,
-    },
-  });
-  const providerPlan = resolveProviderExecutionPlan({
-    providerName: "google",
-    allowlist: ["web_fetch", REMOTE_CODE_EXECUTE_TOOL_NAME],
-    nativeCapabilities: {
-      webSearch: true,
-      webPageRead: true,
-      remoteCodeExecution: true,
-    },
-  });
-
-  assertEquals(
-    Object.keys(mergeSdkWebCapabilityTools(
-      {
-        search_web: customSearchTool,
-        read_file: readFileTool,
-        web_fetch: webFetchTool,
-      },
-      { web_search: nativeSearchTool },
-      nativePlan,
-    )).sort(),
-    ["read_file", "web_fetch", "web_search"],
-  );
-  assertEquals(
-    mergeSdkWebCapabilityTools(
-      { search_web: customSearchTool },
-      {},
-      nativePlan,
-    ).search_web,
-    customSearchTool,
-  );
-  assertEquals(
-    mergeSdkWebCapabilityTools(
-      { search_web: customSearchTool },
-      { web_search: nativeSearchTool },
-      customPlan,
-    ).search_web,
-    customSearchTool,
-  );
-  assertEquals(
-    Object.keys(mergeSdkWebCapabilityTools(
-      {
-        web_fetch: webFetchTool,
-        [REMOTE_CODE_EXECUTE_TOOL_NAME]: remoteCodeTool,
-      },
-      {
-        web_fetch: nativeSearchTool,
-        [REMOTE_CODE_EXECUTE_TOOL_NAME]: nativeSearchTool,
-      },
-      providerPlan,
-    )).sort(),
-    [REMOTE_CODE_EXECUTE_TOOL_NAME, "web_fetch"],
-  );
-});
-
 Deno.test("engine sdk: SdkAgentEngine exposes llm and summarizer factories", () => {
   const engine = new SdkAgentEngine();
   assertEquals(typeof engine.createLLM({ model: "ollama/test" }), "function");
@@ -475,7 +234,7 @@ Deno.test("engine sdk: getSdkModel rejects unsupported provider prefixes", async
 });
 
 Deno.test("engine sdk: applyPromptCaching decorates anthropic stable prompt segments, last message, and last tool", () => {
-  const compiledPrompt = buildAutoExecutionPrompt();
+  const compiledPrompt = buildAgentPrompt();
   const messages = convertToSdkMessages([
     { role: "user", content: "Read src/app.ts" },
   ]);
@@ -578,7 +337,7 @@ Deno.test("engine sdk: applyPromptCaching decorates anthropic stable prompt segm
 });
 
 Deno.test("engine sdk: applyPromptCaching upgrades stable anthropic cache breakpoints to 1h TTL for repl main thread", () => {
-  const compiledPrompt = buildAutoExecutionPrompt();
+  const compiledPrompt = buildAgentPrompt();
   const messages = convertToSdkMessages([
     { role: "user", content: "Hello" },
   ]);
@@ -639,7 +398,7 @@ Deno.test("engine sdk: applyPromptCaching upgrades stable anthropic cache breakp
 });
 
 Deno.test("engine sdk: applyPromptCaching adds stable openai promptCacheKey and preserves provider options", () => {
-  const compiledPrompt = buildAutoExecutionPrompt();
+  const compiledPrompt = buildAgentPrompt();
   const messages = convertToSdkMessages([
     { role: "user", content: "Hello" },
   ]);
@@ -696,11 +455,8 @@ Deno.test("engine sdk: applyPromptCaching adds stable openai promptCacheKey and 
 });
 
 Deno.test("engine sdk: openai promptCacheKey stays stable across turn-only prompt changes", () => {
-  const state = buildAutoExecutionPromptState();
-  const withTurn = state.compiledPrompt;
-  const withoutTurn = compileSystemPrompt({
-    providerExecutionPlan: state.providerExecutionPlan,
-  });
+  const withTurn = buildAgentPrompt();
+  const withoutTurn = compileSystemPrompt();
   const messages = convertToSdkMessages([
     { role: "user", content: "Hello" },
   ]);
@@ -786,7 +542,7 @@ Deno.test("engine sdk: openai promptCacheKey changes when session-stable prompt 
 });
 
 Deno.test("engine sdk: applyPromptCaching passes through google cachedContent from provider options", () => {
-  const compiledPrompt = buildAutoExecutionPrompt();
+  const compiledPrompt = buildAgentPrompt();
   const messages = convertToSdkMessages([
     { role: "user", content: "Hello" },
   ]);
@@ -815,7 +571,7 @@ Deno.test("engine sdk: applyPromptCaching passes through google cachedContent fr
 });
 
 Deno.test("engine sdk: applyPromptCaching omits google cachedContent when not provided", () => {
-  const compiledPrompt = buildAutoExecutionPrompt();
+  const compiledPrompt = buildAgentPrompt();
   const messages = convertToSdkMessages([
     { role: "user", content: "Hello" },
   ]);
@@ -865,7 +621,7 @@ Deno.test("engine sdk: resolveGoogleCachedContent returns undefined for short pr
 });
 
 Deno.test("engine sdk: performance snapshot carries provider timing, stable cache signature, and cache counters", () => {
-  const compiledPrompt = buildAutoExecutionPrompt();
+  const compiledPrompt = buildAgentPrompt();
   const performance = buildLlmPerformanceSnapshot({
     spec: {
       providerName: "claude-code",

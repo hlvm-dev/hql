@@ -87,7 +87,6 @@ export const ToolCallItem = React.memo(function ToolCallItem(
   const displayName = tool.displayName ?? tool.name;
   const invocationArgsSummary =
     (tool.name === "search_web" ||
-      tool.name === "web_search" ||
       tool.name === "web_fetch" ||
       tool.name === "fetch_url") &&
       tool.argsSummary.trim().length > 0

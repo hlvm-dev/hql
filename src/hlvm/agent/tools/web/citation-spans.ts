@@ -9,7 +9,16 @@
 import type { Citation } from "./search-provider.ts";
 import type { LLMSource } from "../../tool-call.ts";
 import { isObjectValue } from "../../../../common/utils.ts";
-import { isRawPayloadCitationWebToolName } from "../../tool-capabilities.ts";
+
+const RAW_PAYLOAD_CITATION_WEB_TOOL_NAMES = new Set([
+  "search_web",
+  "web_fetch",
+  "fetch_url",
+]);
+
+function isCurrentRawPayloadWebTool(toolName: string): boolean {
+  return RAW_PAYLOAD_CITATION_WEB_TOOL_NAMES.has(toolName);
+}
 
 export type CitationSourceKind = "snippet" | "passage";
 
@@ -368,7 +377,7 @@ export function buildCitationSourceIndex(
 
   for (const item of toolResults) {
     if (!item || !isObjectValue(item.result)) continue;
-    if (!isRawPayloadCitationWebToolName(item.toolName)) {
+    if (!isCurrentRawPayloadWebTool(item.toolName)) {
       continue;
     }
 

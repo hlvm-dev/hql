@@ -330,7 +330,6 @@ interface ToolMetadata {
   skipValidation?: boolean
   formatResult?: (result: unknown) => string
   terminalOnSuccess?: boolean
-  semanticCapabilities?: string[]
   argAliases?: Record<string, string[]>
 }
 ```
@@ -936,7 +935,7 @@ Per-model accumulation with full token breakdown:
 addToTotalSessionCost(cost, usage, model)
   ├─ input_tokens, output_tokens
   ├─ cache_read_input_tokens, cache_creation_input_tokens
-  ├─ web_search_requests
+  ├─ web requests
   └─ advisor (sub-model) usage recursion
 ```
 
@@ -1373,7 +1372,6 @@ Both projects are at parity here.
 ║  ├─ Policy: toolRules > levelRules > default, path/network globs         ║
 ║  ├─ Planning: draft → review → execute mode                             ║
 ║  ├─ Delegation: foreground/background, batch fan-out                     ║
-║  ├─ Execution Surface: native provider → HLVM fallback routing           ║
 ║  └─ MCP: SDK client, lazy loading, weak models skip                      ║
 ║                                                                          ║
 ╚══════════════════════════════════════════════════════════════════════════╝
@@ -2008,7 +2006,6 @@ interface ToolMetadata {
   safetyLevel: "L0" | "L1" | "L2";  // Static safety classification
   category: string;                   // For adaptive phasing
   replaces: string[];                 // Tool routing hints
-  semanticCapabilities: string[];     // What this tool can do
   argAliases?: Record<string, string[]>;
   formatResult?: (result) => string;
 }
@@ -2395,7 +2392,7 @@ addToTotalSessionCost(cost, usage, model)
 ├─ output_tokens
 ├─ cache_read_input_tokens
 ├─ cache_creation_input_tokens
-├─ web_search_requests
+├─ web requests
 └─ advisor (sub-model) usage — recursive for side-queries
 
 Hardcoded pricing:
@@ -3009,8 +3006,8 @@ function truncateResult(result: string, limit: number): string {
 // read_file:    50_000
 // shell_exec:   50_000
 // search_code:  30_000
-// web_search:   20_000
-// fetch_webpage: 30_000
+// search_web:   20_000
+// web_fetch:   30_000
 // git_log:      20_000
 // git_diff:     50_000
 6. TOOL INPUT VALIDATION
@@ -3518,7 +3515,7 @@ Both track token usage. CC accumulates per-model with pricing; HLVM shows per-tu
 │  ├─ output_tokens                 │  │ cost: $0.02                   │  │
 │  ├─ cache_read_input_tokens       │  └───────────────────────────────┘  │
 │  ├─ cache_creation_input_tokens   │                                     │
-│  ├─ web_search_requests           │  No session accumulation.           │
+│  ├─ web requests                  │  No session accumulation.           │
 │  └─ advisor (sub-model) usage     │  No cache hit tracking.             │
 │     (recursive for side-queries)  │  No per-model breakdown.            │
 │                                   │  No rate limit % display.           │

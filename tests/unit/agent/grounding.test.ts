@@ -102,44 +102,6 @@ Deno.test("grounding: uncited non-web claims still fail even when another claim 
   assert(result.warnings.length >= 1);
 });
 
-Deno.test("grounding: native web_search counts as citation-backed when provider citations are present", () => {
-  const result = checkGrounding(
-    "TaskGroup cancels sibling tasks on failure.",
-    [{ toolName: "web_search", result: "provider-native result" }],
-    [{
-      url: "https://docs.python.org/3/library/asyncio-task.html",
-      title: "asyncio task docs",
-      startIndex: 0,
-      endIndex: 42,
-      confidence: 0.78,
-    }],
-  );
-
-  assertEquals(result.grounded, true);
-});
-
-Deno.test("grounding: native web_search without provider citations is ungrounded even if the tool is mentioned", () => {
-  const result = checkGrounding(
-    "According to web_search, TaskGroup cancels sibling tasks on failure.",
-    [{ toolName: "web_search", result: "provider-native result" }],
-  );
-
-  assertEquals(result.grounded, false);
-  assert(result.warnings.length >= 1);
-  assertStringIncludes(result.warnings.join("\n"), "no citations");
-});
-
-Deno.test("grounding: native web_fetch also requires provider citations", () => {
-  const result = checkGrounding(
-    "Based on web_fetch, the page title is Deno 2.5.",
-    [{ toolName: "web_fetch", result: "provider-native page read result" }],
-  );
-
-  assertEquals(result.grounded, false);
-  assert(result.warnings.length >= 1);
-  assertStringIncludes(result.warnings.join("\n"), "no citations");
-});
-
 Deno.test("grounding: custom web search payload citations still count without provider spans", () => {
   const result = checkGrounding(
     "The official docs confirm the API exists.",

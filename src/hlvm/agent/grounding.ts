@@ -8,8 +8,17 @@
  */
 
 import { hasTool } from "./registry.ts";
-import { isCitationBackedWebToolName } from "./tool-capabilities.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
+
+const CITATION_BACKED_WEB_TOOL_NAMES = new Set([
+  "search_web",
+  "web_fetch",
+  "fetch_url",
+]);
+
+function isCurrentCitationBackedWebTool(toolName: string): boolean {
+  return CITATION_BACKED_WEB_TOOL_NAMES.has(toolName);
+}
 
 // ============================================================
 // Types
@@ -195,17 +204,17 @@ function toolUseHasCitationPayload(toolUse: ToolUse): boolean {
 }
 
 function isCitationBackedToolUse(toolUse: ToolUse): boolean {
-  return isCitationBackedWebToolName(toolUse.toolName) ||
+  return isCurrentCitationBackedWebTool(toolUse.toolName) ||
     toolUseHasCitationPayload(toolUse);
 }
 
 function usesOnlyCitationBackedWebTools(toolUses: ToolUse[]): boolean {
   return toolUses.length > 0 &&
-    toolUses.every((toolUse) => isCitationBackedWebToolName(toolUse.toolName));
+    toolUses.every((toolUse) => isCurrentCitationBackedWebTool(toolUse.toolName));
 }
 
 function toolUseIndicatesEmptyCitationBackedResult(toolUse: ToolUse): boolean {
-  if (!isCitationBackedWebToolName(toolUse.toolName)) return false;
+  if (!isCurrentCitationBackedWebTool(toolUse.toolName)) return false;
 
   try {
     const parsed = JSON.parse(toolUse.result);

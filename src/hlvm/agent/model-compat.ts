@@ -36,7 +36,7 @@ export function looksLikeToolCallJsonAnywhere(text: string): boolean {
 
 /**
  * Detect raw function-style tool calls rendered as plain text instead of
- * structured native tool calls, e.g. `web_search({query: "..."})`.
+ * structured tool calls, e.g. `search_web({query: "..."})`.
  */
 export function looksLikeToolCallTextEnvelope(text: string): boolean {
   return RE_TOOL_CALL_TEXT_ENVELOPE.test(text.trim());

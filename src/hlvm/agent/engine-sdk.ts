@@ -134,16 +134,6 @@ async function getSdkProviderBundleFromSpec(
   return await createSdkProviderBundle(toSdkRuntimeModelSpec(spec));
 }
 
-export function mergeSdkTools(
-  customTools: ToolSet,
-  nativeTools: ToolSet,
-): ToolSet {
-  return {
-    ...customTools,
-    ...nativeTools,
-  };
-}
-
 // ============================================================
 // Response Mapping
 // ============================================================
@@ -157,14 +147,6 @@ export function mapSdkToolCalls(
     toolName: call.toolName,
     args: normalizeToolArgs(call.input),
   }));
-}
-
-export function filterLocallyExecutableToolCalls(
-  calls: ToolCall[],
-  providerNativeToolNames?: ReadonlySet<string>,
-): ToolCall[] {
-  if (!providerNativeToolNames?.size) return calls;
-  return calls.filter((call) => !providerNativeToolNames.has(call.toolName));
 }
 
 // ============================================================
@@ -806,7 +788,6 @@ export class SdkAgentEngine implements AgentEngine {
     // Hoisted: resolved once per createLLM() call (same config → same spec)
     const spec = resolveSdkModelSpec(config.model);
     let cachedModel: LanguageModel | null = null;
-    let cachedNativeTools: ToolSet = {};
     const shouldCacheModel = spec.providerName !== "claude-code";
 
     const repairToolCall = buildToolCallRepairFunction();
@@ -840,16 +821,10 @@ export class SdkAgentEngine implements AgentEngine {
       if (shouldCacheModel && !cachedModel) {
         const bundle = await getSdkProviderBundleFromSpec(spec);
         cachedModel = bundle.model;
-        cachedNativeTools = bundle.nativeTools;
       }
-      const activeBundle = shouldCacheModel && cachedModel
-        ? {
-          model: cachedModel,
-          nativeTools: cachedNativeTools,
-        }
-        : await getSdkProviderBundleFromSpec(spec);
-      let model = activeBundle.model;
-      const nativeTools = activeBundle.nativeTools;
+      let model = shouldCacheModel && cachedModel
+        ? cachedModel
+        : (await getSdkProviderBundleFromSpec(spec)).model;
       const generation = getToolRegistryGeneration();
       const toolFilters = resolveToolFilters();
       const disableTools = callOptions?.disableTools === true;
@@ -878,13 +853,7 @@ export class SdkAgentEngine implements AgentEngine {
           messages,
           config.compiledPrompt,
         );
-        const providerNativeToolNames = new Set(Object.keys(nativeTools));
-        const sdkTools = disableTools
-          ? {}
-          : mergeSdkTools(
-            cachedCustomSdkTools,
-            nativeTools,
-          );
+        const sdkTools = disableTools ? {} : cachedCustomSdkTools;
 
         // Resolve Google explicit cache (async, best-effort) and merge into
         // provider options so applyPromptCaching() can preserve it.
@@ -985,10 +954,7 @@ export class SdkAgentEngine implements AgentEngine {
               result.response,
               result.finishReason,
             ]);
-            const mappedToolCalls = filterLocallyExecutableToolCalls(
-              mapSdkToolCalls(toolCalls),
-              providerNativeToolNames,
-            );
+            const mappedToolCalls = mapSdkToolCalls(toolCalls);
             const normalizedProviderMetadata = normalizeProviderMetadata(
               providerMetadata,
             );
@@ -1023,10 +989,7 @@ export class SdkAgentEngine implements AgentEngine {
 
           // Non-streaming path — generateText returns resolved values directly
           const result = await generateText(commonOpts);
-          const mappedToolCalls = filterLocallyExecutableToolCalls(
-            mapSdkToolCalls(result.toolCalls),
-            providerNativeToolNames,
-          );
+          const mappedToolCalls = mapSdkToolCalls(result.toolCalls);
           const normalizedProviderMetadata = normalizeProviderMetadata(
             result.providerMetadata,
           );
@@ -1081,9 +1044,7 @@ export class SdkAgentEngine implements AgentEngine {
             try {
               const fallback = await generateText(commonOpts);
               fallbackText = (fallback.text || "").trim();
-              fallbackCalls = filterLocallyExecutableToolCalls(
-                mapSdkToolCalls(fallback.toolCalls),
-              );
+              fallbackCalls = mapSdkToolCalls(fallback.toolCalls);
               fallbackUsage = mapSdkUsage(fallback.usage);
               fallbackRawUsage = fallback.usage;
               fallbackSources = mapSdkSources(fallback.sources);

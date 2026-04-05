@@ -8,7 +8,7 @@
 
 import { decodeBase64 } from "@std/encoding/base64";
 import { generateText, jsonSchema, Output, streamText, tool } from "ai";
-import type { LanguageModel, ModelMessage, ToolCallPart, ToolSet } from "ai";
+import type { LanguageModel, ModelMessage, ToolCallPart } from "ai";
 import type {
   ChatOptions,
   ChatStructuredResponse,
@@ -32,13 +32,6 @@ import {
   isProviderErrorCode as isProviderErrorFromDomain,
   ProviderErrorCode,
 } from "../../common/error-codes.ts";
-import {
-  createNativeProviderTools,
-  EMPTY_NATIVE_PROVIDER_CAPABILITY_AVAILABILITY,
-  getNativeProviderCapabilityAvailability,
-  type NativeProviderCapabilityAvailability,
-} from "./native-web-tools.ts";
-
 export type SdkProviderName =
   | "openai"
   | "anthropic"
@@ -55,7 +48,6 @@ export interface SdkModelSpec {
 
 export interface SdkProviderBundle {
   model: LanguageModel;
-  nativeTools: ToolSet;
 }
 
 const SUPPORTED_SDK_PROVIDERS = new Set<SdkProviderName>([
@@ -293,14 +285,6 @@ export async function maybeHandleSdkAuthError(
   return false;
 }
 
-function safeCreateNativeTools(factory: () => ToolSet): ToolSet {
-  try {
-    return factory();
-  } catch {
-    return {};
-  }
-}
-
 export async function createSdkProviderBundle(
   spec: SdkModelSpec,
 ): Promise<SdkProviderBundle> {
@@ -322,9 +306,6 @@ export async function createSdkProviderBundle(
       const openai = createOpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
       return {
         model: openai(modelId),
-        nativeTools: safeCreateNativeTools(() =>
-          createNativeProviderTools(providerName, openai)
-        ),
       };
     }
 
@@ -342,9 +323,6 @@ export async function createSdkProviderBundle(
       });
       return {
         model: anthropic(modelId),
-        nativeTools: safeCreateNativeTools(() =>
-          createNativeProviderTools(providerName, anthropic)
-        ),
       };
     }
 
@@ -361,9 +339,6 @@ export async function createSdkProviderBundle(
       });
       return {
         model: google(modelId),
-        nativeTools: safeCreateNativeTools(() =>
-          createNativeProviderTools(providerName, google)
-        ),
       };
     }
 
@@ -386,9 +361,6 @@ export async function createSdkProviderBundle(
       });
       return {
         model: anthropic(modelId),
-        nativeTools: safeCreateNativeTools(() =>
-          createNativeProviderTools(providerName, anthropic)
-        ),
       };
     }
 
@@ -402,9 +374,6 @@ export async function createSdkProviderBundle(
       const ollama = createOllama({ ...(baseURL ? { baseURL } : {}) });
       return {
         model: ollama(modelId),
-        nativeTools: safeCreateNativeTools(() =>
-          createNativeProviderTools(providerName, ollama)
-        ),
       };
     }
   }
@@ -414,17 +383,6 @@ export async function createSdkLanguageModel(
   spec: SdkModelSpec,
 ): Promise<LanguageModel> {
   return (await createSdkProviderBundle(spec)).model;
-}
-
-export async function preflightProviderExecutionCapabilities(
-  spec: SdkModelSpec,
-): Promise<NativeProviderCapabilityAvailability> {
-  try {
-    const bundle = await createSdkProviderBundle(spec);
-    return getNativeProviderCapabilityAvailability(bundle.nativeTools);
-  } catch {
-    return EMPTY_NATIVE_PROVIDER_CAPABILITY_AVAILABILITY;
-  }
 }
 
 export function convertToolDefinitionsToSdk(

@@ -22,7 +22,6 @@ type InvocationToolLike = {
 
 const FALLBACK_TRANSCRIPT_ADAPTERS = new Map<string, ToolTranscriptAdapter>([
   ["search_web", WEB_SEARCH_TRANSCRIPT_ADAPTER],
-  ["web_search", WEB_SEARCH_TRANSCRIPT_ADAPTER],
   ["web_fetch", WEB_FETCH_TRANSCRIPT_ADAPTER],
   ["fetch_url", FETCH_URL_TRANSCRIPT_ADAPTER],
 ]);
@@ -69,7 +68,6 @@ export function buildToolTranscriptInvocationLabel(
 
   if (
     tool.name === "search_web" ||
-    tool.name === "web_search" ||
     tool.name === "web_fetch" ||
     tool.name === "fetch_url"
   ) {

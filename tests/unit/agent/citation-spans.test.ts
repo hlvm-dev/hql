@@ -312,23 +312,3 @@ Deno.test("buildRetrievalCitations prefers the strongest passage-backed source p
   assertEquals(citations[0]?.provenance, "retrieval");
   assertEquals(citations[0]?.sourceKind, "passage");
 });
-
-Deno.test("buildCitationSourceIndex ignores native web_search because provider citations flow through sources", () => {
-  const index = buildCitationSourceIndex([
-    {
-      toolName: "web_search",
-      result: {
-        provider: "openai",
-        results: [
-          {
-            title: "Ignored",
-            url: "https://example.com",
-            snippet: "This should not be indexed from raw native payloads.",
-          },
-        ],
-      },
-    },
-  ]);
-
-  assertEquals(index.length, 0);
-});

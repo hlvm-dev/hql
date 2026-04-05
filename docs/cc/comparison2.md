@@ -252,8 +252,8 @@ user@hostname ClaudeCode-main % claude
      ├───────────────┼───────────────────┤                          ├───────────────┼────────────────────┤
      │  Web          │ Multi-Agent       │                          │  Code         │ Web                │
      │  ───          │ ───────────       │                          │  ────         │ ───                │
-     │  WebSearch    │ AgentTool         │                          │  search_code  │ web_search         │
-     │  WebFetch     │ TeamCreateTool    │                          │  find_symbol  │ web_read           │
+     │  WebSearch    │ AgentTool         │                          │  search_code  │ search_web         │
+     │  WebFetch     │ TeamCreateTool    │                          │  find_symbol  │ web_fetch          │
      │               │ SendMessageTool   │                          │  get_structure│ (DuckDuckGo +      │
      │               │ TaskCreate/Update │                          │               │  Playwright)       │
      ├───────────────┼───────────────────┤                          ├───────────────┼────────────────────┤
@@ -391,8 +391,8 @@ user@hostname ClaudeCode-main % claude
      │  • Custom React/Ink renderer     │                            │    │   (parse→IR→codegen)         │
      │    (terminal UI framework)       │                            │    └─ Interpreter/REPL            │
      │                                  │                            │                                  │
-     │  • YOLO ML classifier            │                            │  • Execution Surface Router      │
-     │    (auto-approve heuristics)     │                            │    (capability → provider map)    │
+     │  • YOLO ML classifier            │                            │  • Multi-provider engine         │
+     │    (auto-approve heuristics)     │                            │    (OpenAI/Anthropic/Google/...) │
      │                                  │                            │                                  │
      │  • Auto-Dream consolidation      │                            │  • SQLite + FTS5 memory          │
      │    (background memory agent)     │                            │    (persistent fact database)     │
@@ -468,7 +468,7 @@ user@hostname ClaudeCode-main % claude
   ├──────────────┼──────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────┤
   │ Agent loop   │ Generator (async function*) yielding stream events       │ Imperative while loop with ReAct pattern              │
   ├──────────────┼──────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────┤
-  │ LLM provider │ Anthropic only                                           │ Multi-provider via Execution Surface Router           │
+  │ LLM provider │ Anthropic only                                           │ Multi-provider via Vercel AI SDK                     │
   ├──────────────┼──────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────┤
   │ Memory       │ File-based + Auto-Dream consolidation (background agent) │ SQLite + FTS5 fact DB with hybrid retrieval           │
   ├──────────────┼──────────────────────────────────────────────────────────┼───────────────────────────────────────────────────────┤
@@ -725,15 +725,15 @@ user@hostname ClaudeCode-main % claude
          ══                                          ═══
 
          ┌─────────────┐                             ┌─────────────────────────────────┐
-         │             │                             │         Execution Surface       │
+         │             │                             │       Multi-provider SDK        │
          │  Anthropic  │                             │                                 │
-         │  API        │                             │  Capability    Provider          │
-         │  (only)     │                             │  ──────────    ────────          │
-         │             │                             │  web.search →  Claude native     │
-         │  claude.ts  │                             │                OR DuckDuckGo     │
-         │  (single    │                             │  code.exec  →  local shell       │
-         │   client)   │                             │  vision     →  Claude/GPT-4o     │
-         │             │                             │  structured →  best available    │
+         │  API        │                             │  OpenAI  Anthropic  Google      │
+         │  (only)     │                             │  Ollama  Claude Code            │
+         │             │                             │                                 │
+         │  claude.ts  │                             │  Shared orchestrator + tools    │
+         │  (single    │                             │  over one provider-agnostic     │
+         │   client)   │                             │  engine surface                 │
+         │             │                             │                                 │
          └─────────────┘                             │                                 │
                                                      │  ┌───────┐ ┌──────┐ ┌────────┐ │
                                                      │  │Claude │ │GPT-4 │ │Gemini  │ │
@@ -907,7 +907,7 @@ user@hostname ClaudeCode-main % claude
   - ~30% divergence comes from what surrounds that loop:
     - CC went deep on one provider (Anthropic) with production polish: streaming generators, ML permission classifier, dream-based memory, prompt
   caching, feature flags, and a custom React/Ink terminal renderer
-    - HQL went broad as a runtime platform: a full programming language (HQL/Lisp), multi-provider routing via an Execution Surface, SQLite-backed
+    - HQL went broad as a runtime platform: a full programming language (HQL/Lisp), a multi-provider engine, SQLite-backed
   persistent memory with real-time recall, SSOT enforcement, and HTTP API server mode
   - Biggest gap: Memory (dream vs database), LLM provider (mono vs poly), and HQL's language layer which has no CC counterpart at all
 
@@ -1537,8 +1537,8 @@ user@hostname ClaudeCode-main % claude
     │   execute command        BashTool                   shell_exec      │
     │                                                                     │
     │ Web tools:                                                          │
-    │   search                 WebSearchTool              web_search      │
-    │   fetch/read             WebFetchTool               web_read        │
+    │   search                 WebSearchTool              search_web      │
+    │   fetch/read             WebFetchTool               web_fetch       │
     │                                                                     │
     │ Git tools:               via BashTool               git_* tools     │
     └─────────────────────────────────────────────────────────────────────┘
@@ -1636,10 +1636,10 @@ user@hostname ClaudeCode-main % claude
     │  ────────────                    │   │                                  │
     │  ◆ YOLO ML classifier           │   │  PROVIDER                        │
     │  ◆ Permission explainer (LLM)   │   │  ────────                        │
-    │  ◆ Risk classification per call  │   │  ◆ Execution Surface Router      │
-    │                                  │   │  ◆ Multi-provider (5+)           │
-    │  CONTEXT                         │   │  ◆ Capability-to-provider map    │
-    │  ───────                         │   │  ◆ Text fallback for weak models │
+    │  ◆ Risk classification per call  │   │  ◆ Multi-provider (5+)           │
+    │                                  │   │  ◆ Provider-agnostic engine      │
+    │  CONTEXT                         │   │  ◆ Text fallback for weak models │
+    │  ───────                         │   │                                  │
     │  ◆ Prompt caching (static/dyn)  │   │                                  │
     │  ◆ MicroCompact (emergency)     │   │  MEMORY                          │
     │  ◆ ToolUseSummary               │   │  ──────                          │
@@ -1716,7 +1716,7 @@ user@hostname ClaudeCode-main % claude
 
     POLISH          ████████████       FLEXIBILITY     ████████████
     (streaming UX, components,         (any provider, any model,
-     diff previews, animations)         capability routing)
+     diff previews, animations)         provider flexibility)
 
     SAFETY          ████████████       INTELLIGENCE    ████████████
     (ML classifier, explainer,          (structured memory, hybrid
@@ -1757,6 +1757,3 @@ user@hostname ClaudeCode-main % claude
 ❯ 
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    ⏵ accept edits on (shift+tab to cycle)                   
-
-
-
