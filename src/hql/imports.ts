@@ -1755,7 +1755,7 @@ async function loadJavaScriptModule(
   processedFiles: Set<string>,
 ): Promise<void> {
   try {
-    let finalModuleUrl = `file://${resolvedPath}`;
+    let finalModuleUrl = path().toFileUrl(resolvedPath).href;
 
     // Check if JS file contains HQL imports or needs processing
     const jsSource = await fs().readTextFile(resolvedPath);
@@ -1772,7 +1772,7 @@ async function loadJavaScriptModule(
       // Get the cached path
       const cachedPath = getImportMapping(resolvedPath);
       if (cachedPath) {
-        finalModuleUrl = `file://${cachedPath}`;
+        finalModuleUrl = path().toFileUrl(cachedPath).href;
         logger.debug(`Using cached JS file: ${cachedPath}`);
       }
     }

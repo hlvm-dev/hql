@@ -65,6 +65,10 @@ export function registerImportMapping(original: string, cached: string): void {
   logger.debug(`Registered import mapping: ${original} -> ${cached}`);
 }
 
+function toFileUrlHref(filePath: string): string {
+  return path().toFileUrl(filePath).href;
+}
+
 function sanitizePathSegment(segment: string): string {
   const sanitized = segment
     .replace(PARENT_DIR_REGEX, "_up_")
@@ -300,8 +304,7 @@ async function processCachedImports(
     // Normalize file URL imports to plain absolute paths to avoid leaking file:// into bundles
     if (importPath.startsWith("file://")) {
       try {
-        const url = new URL(importPath);
-        const fsPath = url.pathname; // Absolute filesystem path
+        const fsPath = path().fromFileUrl(importPath);
         const newImport = fullImport.replace(importPath, fsPath);
         modifiedContent = modifiedContent.replace(fullImport, newImport);
         logger.debug(
@@ -818,8 +821,8 @@ async function processJsImportsInJs(
       registerImportMapping(resolvedImportPath, cachedJsPath);
 
       const newImportPath = keepExtensionInImport
-        ? `file://${cachedJsPath}`
-        : `file://${cachedJsPath.replace(JS_EXTENSION_REGEX, "")}`;
+        ? toFileUrlHref(cachedJsPath)
+        : toFileUrlHref(cachedJsPath.replace(JS_EXTENSION_REGEX, ""));
 
       logger.debug(`Rewritten JS import: ${importPath} -> ${newImportPath}`);
       return fullImport.replace(importPath, newImportPath);
@@ -924,7 +927,7 @@ async function processTsImportsInJs(
         );
 
         registerImportMapping(resolvedImportPath, cachedTsPath);
-        const newImportPath = `file://${cachedTsPath}`;
+        const newImportPath = toFileUrlHref(cachedTsPath);
         return fullImport.replace(importPath, newImportPath);
       } catch (error) {
         logger.debug(
@@ -1012,7 +1015,7 @@ async function rewriteHqlImportsInJs(
         );
       }
 
-      const newImportPath = `file://${cachedJsPath}`;
+      const newImportPath = toFileUrlHref(cachedJsPath);
       logger.debug(
         `Rewritten HQL import in JS: ${importPath} -> ${newImportPath}`,
       );
@@ -1064,11 +1067,11 @@ async function processNestedImports(
           // CRITICAL: Update import to use absolute file:// URL to cached path
           const newImport = fullImport.replace(
             importPath,
-            `file://${processedHqlPath}`,
+            toFileUrlHref(processedHqlPath),
           );
           modifiedContent = modifiedContent.replace(fullImport, newImport);
           logger.debug(
-            `Rewritten nested import: ${importPath} -> file://${processedHqlPath}`,
+            `Rewritten nested import: ${importPath} -> ${toFileUrlHref(processedHqlPath)}`,
           );
         }
       } // Handle JavaScript imports specially to ensure they reference cached versions
@@ -1090,11 +1093,11 @@ async function processNestedImports(
           // CRITICAL: Update import to use absolute file:// URL to cached path
           const newImport = fullImport.replace(
             importPath,
-            `file://${cachedImportPath}`,
+            toFileUrlHref(cachedImportPath),
           );
           modifiedContent = modifiedContent.replace(fullImport, newImport);
           logger.debug(
-            `Rewritten nested TS import: ${importPath} -> file://${cachedImportPath}`,
+            `Rewritten nested TS import: ${importPath} -> ${toFileUrlHref(cachedImportPath)}`,
           );
         }
       } // Handle JavaScript imports
@@ -1110,21 +1113,21 @@ async function processNestedImports(
             // Use the cached version
             const newImport = fullImport.replace(
               importPath,
-              `file://${cachedJsPath}`,
+              toFileUrlHref(cachedJsPath),
             );
             modifiedContent = modifiedContent.replace(fullImport, newImport);
             logger.debug(
-              `Rewritten nested JS import: ${importPath} -> file://${cachedJsPath}`,
+              `Rewritten nested JS import: ${importPath} -> ${toFileUrlHref(cachedJsPath)}`,
             );
           } else {
             // Use the original path but with file:// prefix for absolute imports
             const newImport = fullImport.replace(
               importPath,
-              `file://${resolvedImportPath}`,
+              toFileUrlHref(resolvedImportPath),
             );
             modifiedContent = modifiedContent.replace(fullImport, newImport);
             logger.debug(
-              `Rewritten JS import to absolute path: ${importPath} -> file://${resolvedImportPath}`,
+              `Rewritten JS import to absolute path: ${importPath} -> ${toFileUrlHref(resolvedImportPath)}`,
             );
           }
         }
