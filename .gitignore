@@ -26,6 +26,7 @@ node_modules/
 !src/lib/**/*.js  # Allow stdlib JS files
 !src/hql/lib/stdlib/js/*.js
 !src/hql/lib/stdlib/js/internal/*.js
+!src/vendor/*.js
 
 # Deno cache
 .deno/
