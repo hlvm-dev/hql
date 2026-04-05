@@ -24,6 +24,9 @@ node_modules/
 !test/**/*.js
 !packages/**/*.js  # Allow .js files in stdlib packages (if any)
 !src/lib/**/*.js  # Allow stdlib JS files
+!src/hql/lib/stdlib/js/*.js
+!src/hql/lib/stdlib/js/internal/*.js
+src/hql/lib/stdlib/js/self-hosted.js
 
 # Deno cache
 .deno/
