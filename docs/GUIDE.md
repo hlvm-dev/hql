@@ -619,8 +619,8 @@ hlvm ask -p "check for unused imports" || exit 1
 ### Learn More
 
 - [Agent System](./agent.md) — Complete architecture
-- [CLI Permissions](./cli-permissions.md) — Permission system guide
-- [Non-Interactive Mode](./examples/headless-mode.md) — CI/CD integration
+- [CLI Permission Modes](./CLI.md#permission-modes) — Permission system guide
+- [Non-Interactive Usage Guide](./non-interactive-guide.md) — CI/CD integration
 
 ---
 

@@ -36,7 +36,7 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             binary: hlvm-linux
-            ollama_asset: ollama-linux-amd64.tgz
+            ollama_asset: ollama-linux-amd64.tar.zst
             ollama_binary: ollama
 
           # Windows
@@ -71,6 +71,9 @@ jobs:
           case "${{ matrix.ollama_asset }}" in
             *.tgz)
               tar -xzf "$ARCHIVE_PATH" -C resources/ai-engine
+              ;;
+            *.tar.zst)
+              tar --zstd -xf "$ARCHIVE_PATH" -C resources/ai-engine
               ;;
             *.zip)
               unzip -q "$ARCHIVE_PATH" -d resources/ai-engine

@@ -871,5 +871,5 @@ touch "$LAST_ANALYSIS"
 ## See Also
 
 - [Claude Code Migration Guide](./claude-code-migration.md) — Migrating from Claude Code
-- [CLI Permission System](./cli-permissions.md) — Full permission documentation
+- [CLI Permission Modes](./CLI.md#permission-modes) — Full permission documentation
 - [Agent System Architecture](./agent.md) — Technical reference

@@ -479,7 +479,7 @@ hlvm ask --allowedTools read_file --allowedTools search_code --allowedTools edit
 
 ## Getting Help
 
-- **HLVM Documentation:** [Agent System](./agent.md), [CLI Permissions](./cli-permissions.md)
+- **HLVM Documentation:** [Agent System](./agent.md), [CLI Permission Modes](./CLI.md#permission-modes)
 - **Claude Code Docs:** https://docs.claude.ai/
 - **Report Issues:** https://github.com/hlvm-dev/hql/issues
 
@@ -488,5 +488,5 @@ hlvm ask --allowedTools read_file --allowedTools search_code --allowedTools edit
 ## See Also
 
 - [Agent System Architecture](./agent.md) — Complete technical reference
-- [CLI Permission System](./cli-permissions.md) — Permission guide
+- [CLI Permission Modes](./CLI.md#permission-modes) — Permission guide
 - [Non-Interactive Usage Guide](./non-interactive-guide.md) — Non-interactive patterns

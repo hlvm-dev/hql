@@ -2,7 +2,7 @@
 
 > Comprehensive documentation of the HLVM agent system, covering the full pipeline from CLI entry points through the ReAct orchestrator to team coordination and TUI presentation.
 
-**→ New to HLVM teams?** Start with the **[Agent Teams Tutorial](./agent-teams-tutorial.md)** for a visual, beginner-friendly guide.
+**→ New to HLVM teams?** Start with the **[Team Agent System](#team-agent-system)** section below for the high-level architecture first.
 
 **→ This document** is the complete technical reference for developers and maintainers.
 

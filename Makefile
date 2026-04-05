@@ -137,9 +137,9 @@ setup-ai:
 	if [ "$$UNAME_S" = "Darwin" ]; then \
 		OLLAMA_ASSET="ollama-darwin.tgz"; \
 	elif [ "$$UNAME_S" = "Linux" ] && [ "$$UNAME_M" = "x86_64" ]; then \
-		OLLAMA_ASSET="ollama-linux-amd64.tgz"; \
+		OLLAMA_ASSET="ollama-linux-amd64.tar.zst"; \
 	elif [ "$$UNAME_S" = "Linux" ] && [ "$$UNAME_M" = "aarch64" ]; then \
-		OLLAMA_ASSET="ollama-linux-arm64.tgz"; \
+		OLLAMA_ASSET="ollama-linux-arm64.tar.zst"; \
 	else \
 		echo "❌ No official Ollama binary for $$UNAME_S/$$UNAME_M."; \
 		echo "   Falling back to system Ollama..."; \
@@ -158,7 +158,11 @@ setup-ai:
 		ARCHIVE_PATH="resources/$$OLLAMA_ASSET"; \
 		echo "   Downloading from $$OLLAMA_URL..."; \
 		curl -fsSL -o "$$ARCHIVE_PATH" "$$OLLAMA_URL"; \
-		tar -xzf "$$ARCHIVE_PATH" -C "$(AI_ENGINE_DIR)"; \
+		case "$$OLLAMA_ASSET" in \
+			*.tgz) tar -xzf "$$ARCHIVE_PATH" -C "$(AI_ENGINE_DIR)" ;; \
+			*.tar.zst) tar --zstd -xf "$$ARCHIVE_PATH" -C "$(AI_ENGINE_DIR)" ;; \
+			*) echo "❌ Unsupported Ollama archive: $$OLLAMA_ASSET"; exit 1 ;; \
+		esac; \
 		rm -f "$$ARCHIVE_PATH"; \
 	fi; \
 	if [ ! -f "$(AI_ENGINE_DIR)/ollama" ] && [ ! -f "$(AI_ENGINE_DIR)/ollama.exe" ]; then \
