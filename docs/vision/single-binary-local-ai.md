@@ -106,7 +106,7 @@ Location: `~/.hlvm/.runtime/manifest.json`
     "size": 9600000000,
     "hash": "sha256:c6eb396dbd59..."
   }],
-  "buildId": "0.0.1",
+  "buildId": "0.1.0",
   "createdAt": "2026-04-05T12:00:00Z",
   "lastVerifiedAt": "2026-04-05T12:00:00Z"
 }
@@ -201,9 +201,24 @@ Ship-finish plumbing:
 - [x] operator smoke helper exists at `scripts/release-smoke.sh`
 - [ ] Public release smoke completed against published artifacts
 
+Deterministic GUI bundling:
+
+- [x] `~/dev/hql` is the SSOT build source for `hlvm`
+- [x] the macOS GUI repo copies that exact binary into `HLVM/Resources/hlvm`
+- [x] the Xcode build phase no longer compiles a divergent app-local `hlvm`
+- [x] tracked convenience sync exists at `scripts/sync-gui-binary.sh` and `.githooks/post-commit`
+- [ ] `git config core.hooksPath .githooks` enabled in every clone that wants the convenience hook
+
+GUI runtime conflict policy:
+
+- [x] `HLVM.app` probes `127.0.0.1:11435` before launch
+- [x] if the port is occupied, the app refuses instead of killing a foreign `hlvm serve`
+- [x] conflict is surfaced as a user-visible GUI alert
+- [x] live GUI conflict smoke completed against a running foreign `hlvm serve`
+
 ## Current Handoff Status
 
-As of `2026-04-05`, this feature is **complete in code** and **locally end-to-end proven** on the development machine.
+As of `2026-04-06`, this feature is **complete in code** and **locally end-to-end proven** on the development machine.
 
 Mission status:
 
@@ -244,6 +259,13 @@ The following runtime proofs were completed with the current built binary:
    - `hlvm bootstrap --repair` restored the install
    - `hlvm bootstrap --verify` returned success again
    - `hlvm ask "hello"` worked again
+7. **GUI runtime conflict**
+   - with a foreign runtime already holding `127.0.0.1:11435`, launching `HLVM.app` did not kill it
+   - `HLVM.app` refused startup on the occupied port
+   - the user-visible runtime-conflict alert was shown
+8. **GUI normal startup**
+   - with `127.0.0.1:11435` free, launching the debug `HLVM.app` started its bundled `Resources/hlvm serve`
+   - `/health` responded from that exact bundled binary on `127.0.0.1:11435`
 
 ### Important Scope Boundary
 
@@ -255,6 +277,52 @@ PUBLICLY PUBLISHED + PUBLIC URL SMOKED: not yet
 ```
 
 The remaining work is release/distribution validation, not core feature implementation.
+
+### Deterministic GUI Bundling
+
+The single-binary architecture now has one build SSOT:
+
+```text
+~/dev/hql
+  -> make build / make build-fast
+  -> produces ./hlvm
+
+~/dev/HLVM
+  -> never compiles a divergent hlvm
+  -> copies ~/dev/hql/hlvm into HLVM/Resources/hlvm
+```
+
+Supporting pieces:
+
+- `scripts/sync-gui-binary.sh` is the tracked sync entrypoint
+- `.githooks/post-commit` is an optional convenience wrapper for sibling-checkout sync
+- the Xcode build phase is still the correctness path because it always syncs the SSOT binary before building the app
+
+Hook activation is intentionally opt-in:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+That keeps the workflow reproducible across clones without making correctness depend on an untracked local `.git/hooks/post-commit`.
+
+### GUI Runtime Conflict Policy
+
+`HLVM.app` now follows a strict **probe and refuse** rule on `127.0.0.1:11435`:
+
+```text
+if :11435 is free:
+  launch bundled Resources/hlvm serve
+
+if :11435 is occupied:
+  do not kill the foreign process
+  do not attach to it
+  show a clear runtime-conflict alert
+```
+
+This is intentionally simpler and safer than the old kill/reclaim behavior.
+It fixes the GUI-side ownership bug without changing CLI host behavior or adding
+new runtime-owner protocols.
 
 ### Ship Validation Flow
 
@@ -303,6 +371,25 @@ Operational boundary:
   - start engine
   - verify endpoint readiness
   - verify bootstrap manifest
+- The GUI/runtime boundary remains unchanged:
+  - GUI talks only to `hlvm serve` on `127.0.0.1:11435`
+  - embedded Ollama remains internal to `hlvm` on `127.0.0.1:11439`
+
+### Shared-State Compatibility Boundary
+
+Both standalone `hlvm` and the app-bundled `Resources/hlvm` read the same
+on-disk state under `~/.hlvm/`.
+
+That is fine for this branch because it does not intentionally introduce a
+breaking on-disk schema change. But this is an architectural compatibility
+boundary:
+
+- no migration work is required for the current branch
+- any future breaking change to shared on-disk formats must ship with explicit
+  migration or compatibility handling
+
+Port-conflict policy does not remove that requirement. It only makes runtime
+ownership safer and more honest.
 
 ### Next Owner Checklist
 

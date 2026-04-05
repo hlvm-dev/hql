@@ -76,7 +76,7 @@ To complete the uninstall, remove the PATH entry from your shell config:
     Remove $HOME\\.hlvm\\bin from your user PATH environment variable.
 
 Thank you for using HLVM!
-Report issues: https://github.com/hlvm-dev/hlvm/issues
+Report issues: https://github.com/hlvm-dev/hql/issues
 `);
 }
 

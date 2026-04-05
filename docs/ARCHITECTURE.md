@@ -131,10 +131,15 @@ Menu bar: 🔥 icon appears. App is idle. Zero CPU.
    ▼
 ReplServerManager.startServer()
    │
-   ├── ① Kill orphans
-   │     lsof -ti :11435 → find PIDs
-   │     pgrep -f "hlvm serve" → find stale processes
-   │     SIGTERM each
+   ├── ① Probe runtime port
+   │     TCP connect 127.0.0.1:11435
+   │
+   │     if occupied:
+   │       refuse startup
+   │       show "Another HLVM runtime is already running..."
+   │
+   │     if free:
+   │       continue
    │
    ├── ② Generate auth token
    │     UUID().uuidString → "A1B2C3D4-..."
@@ -153,7 +158,7 @@ ReplServerManager.startServer()
    ├── ④ Register crash handler
    │     terminationHandler → post "hlvmServerCrashed" notification
    │
-   └── ⑤ Health check loop (exponential backoff)
+   └── ⑤ Health check loop (bounded retry)
          Attempt 1:  GET :11435/health  (wait 50ms)
          Attempt 2:  GET :11435/health  (wait 100ms)
          ...
@@ -1541,11 +1546,14 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
        ▼
     ReplServerManager.startServer()
        │
-       ├──① Kill orphans
-       │     /usr/sbin/lsof -ti :11435     → find PIDs holding the port
-       │     /usr/bin/pgrep -f "hlvm serve" → find stale hlvm processes
-       │     SIGTERM each found PID
-       │     Wait briefly for cleanup
+       ├──① Probe localhost:11435
+       │     TCP connect to 127.0.0.1:11435
+       │
+       │     if port is already occupied:
+       │       throw runtimeConflict
+       │       show a clear GUI alert
+       │       do not kill the foreign process
+       │       do not start a second hlvm host
        │
        ├──② Generate auth token
        │     let authToken = UUID().uuidString    // e.g. "A1B2C3D4-..."
@@ -1577,7 +1585,7 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
        │       }
        │     }
        │
-       └──⑤ Health check loop (exponential backoff)
+       └──⑤ Health check loop (bounded retry)
              │
              │  Attempt 1:  GET http://127.0.0.1:11435/health  (wait 50ms)
              │  Attempt 2:  GET http://127.0.0.1:11435/health  (wait 100ms)

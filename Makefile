@@ -4,9 +4,11 @@
 #   make install  - Install system-wide
 #   make all      - Build for Mac/Linux/Windows
 
-VERSION := 0.0.1
+VERSION := 0.1.0
 BINARY := hlvm
 CLI_ENTRY := src/hlvm/cli/cli.ts
+AI_ENGINE_DIR := resources/ai-engine
+AI_ENGINE_STAMP := $(AI_ENGINE_DIR)/.ollama-source
 
 # Transpile stdlib.hql → self-hosted.js
 stdlib:
@@ -114,14 +116,23 @@ build-ai: build
 # Pinned Ollama version — SSOT shared with GitHub Actions.
 OLLAMA_VERSION ?= $(strip $(shell cat embedded-ollama-version.txt))
 
-# Setup AI engine (download Ollama for embedding)
+# Setup AI engine (download pinned Ollama runtime for embedding)
 setup-ai:
 	@echo "📥 Setting up AI engine (Ollama $(OLLAMA_VERSION))..."
 	@mkdir -p resources
-	@rm -rf resources/ai-engine
-	@mkdir -p resources/ai-engine
 	@set -e; \
+	if [ -f "$(AI_ENGINE_STAMP)" ] \
+		&& [ "$$(cat "$(AI_ENGINE_STAMP)" 2>/dev/null)" = "official:$(OLLAMA_VERSION)" ] \
+		&& [ -f "$(AI_ENGINE_DIR)/manifest.json" ] \
+		&& { [ -f "$(AI_ENGINE_DIR)/ollama" ] || [ -f "$(AI_ENGINE_DIR)/ollama.exe" ]; }; then \
+		echo "✅ AI engine already present: $(AI_ENGINE_DIR) (Ollama $(OLLAMA_VERSION))"; \
+		ls -lah "$(AI_ENGINE_DIR)"; \
+		exit 0; \
+	fi; \
+	rm -rf "$(AI_ENGINE_DIR)"; \
+	mkdir -p "$(AI_ENGINE_DIR)"; \
 	UNAME_S=$$(uname -s); UNAME_M=$$(uname -m); \
+	STAMP_VALUE="official:$(OLLAMA_VERSION)"; \
 	OLLAMA_BASE="https://github.com/ollama/ollama/releases/download/$(OLLAMA_VERSION)"; \
 	if [ "$$UNAME_S" = "Darwin" ]; then \
 		OLLAMA_ASSET="ollama-darwin.tgz"; \
@@ -133,8 +144,9 @@ setup-ai:
 		echo "❌ No official Ollama binary for $$UNAME_S/$$UNAME_M."; \
 		echo "   Falling back to system Ollama..."; \
 		if command -v ollama >/dev/null 2>&1; then \
-			cp $$(which ollama) resources/ai-engine/ollama; \
-			chmod +x resources/ai-engine/ollama; \
+			cp $$(which ollama) "$(AI_ENGINE_DIR)/ollama"; \
+			chmod +x "$(AI_ENGINE_DIR)/ollama"; \
+			STAMP_VALUE="system:$$(ollama --version 2>/dev/null | head -1 | tr -d '\r')"; \
 			OLLAMA_ASSET=""; \
 		else \
 			echo "❌ Ollama not found. Install from: https://ollama.ai"; \
@@ -146,24 +158,25 @@ setup-ai:
 		ARCHIVE_PATH="resources/$$OLLAMA_ASSET"; \
 		echo "   Downloading from $$OLLAMA_URL..."; \
 		curl -fsSL -o "$$ARCHIVE_PATH" "$$OLLAMA_URL"; \
-		tar -xzf "$$ARCHIVE_PATH" -C resources/ai-engine; \
+		tar -xzf "$$ARCHIVE_PATH" -C "$(AI_ENGINE_DIR)"; \
 		rm -f "$$ARCHIVE_PATH"; \
 	fi; \
-	if [ ! -f resources/ai-engine/ollama ] && [ ! -f resources/ai-engine/ollama.exe ]; then \
+	if [ ! -f "$(AI_ENGINE_DIR)/ollama" ] && [ ! -f "$(AI_ENGINE_DIR)/ollama.exe" ]; then \
 		echo "❌ Extracted Ollama runtime is missing the main executable."; \
 		exit 1; \
-	fi
+	fi; \
+	printf '%s\n' "$$STAMP_VALUE" > "$(AI_ENGINE_STAMP)"
 	@deno eval '\
 		const files = [];\
-		for await (const entry of Deno.readDir("resources/ai-engine")) {\
+		for await (const entry of Deno.readDir("$(AI_ENGINE_DIR)")) {\
 			if (entry.isFile) files.push(entry.name);\
 		}\
 		files.sort();\
-		await Deno.writeTextFile("resources/ai-engine/manifest.json", JSON.stringify({ files }, null, 2));\
+		await Deno.writeTextFile("$(AI_ENGINE_DIR)/manifest.json", JSON.stringify({ files }, null, 2));\
 	'
-	@chmod +x resources/ai-engine/ollama 2>/dev/null || true
-	@echo "✅ AI engine ready: resources/ai-engine (Ollama $(OLLAMA_VERSION))"
-	@ls -lah resources/ai-engine
+	@chmod +x "$(AI_ENGINE_DIR)/ollama" 2>/dev/null || true
+	@echo "✅ AI engine ready: $(AI_ENGINE_DIR) (Ollama $(OLLAMA_VERSION))"
+	@ls -lah "$(AI_ENGINE_DIR)"
 
 # Test AI features
 test-ai: build-ai
@@ -192,7 +205,7 @@ help:
 	@echo "  make clean        - Remove build files"
 	@echo ""
 	@echo "Embedded AI engine:"
-	@echo "  make setup-ai     - Setup AI engine (copy Ollama)"
+	@echo "  make setup-ai     - Setup pinned embedded AI runtime"
 	@echo "  make build-ai     - Compatibility alias for 'make'"
 	@echo "  make test-ai      - Test AI features"
 	@echo ""

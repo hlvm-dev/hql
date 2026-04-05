@@ -644,6 +644,5 @@ See [Testing Guide](./TESTING.md) for writing your own tests.
 ## Getting Help
 
 - Read the [Manual](./MANUAL.md)
-- Ask in [GitHub Discussions](https://github.com/hlvm-dev/hlvm/discussions)
-- Report bugs in [Issues](https://github.com/hlvm-dev/hlvm/issues)
-
+- Ask in [GitHub Discussions](https://github.com/hlvm-dev/hql/discussions)
+- Report bugs in [Issues](https://github.com/hlvm-dev/hql/issues)

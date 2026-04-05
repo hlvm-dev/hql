@@ -31,7 +31,7 @@ async function createSampleModHql(entryPoint: string): Promise<void> {
 //   2. Test with: hlvm run ${entryPoint}
 //   3. Publish with: hlvm hql publish
 //
-// For more info: https://github.com/hlvm-dev/hlvm
+// For more info: https://github.com/hlvm-dev/hql
 
 // Sample function - replace with your own code
 (fn greet [name]

@@ -481,7 +481,7 @@ hlvm ask --allowedTools read_file --allowedTools search_code --allowedTools edit
 
 - **HLVM Documentation:** [Agent System](./agent.md), [CLI Permissions](./cli-permissions.md)
 - **Claude Code Docs:** https://docs.claude.ai/
-- **Report Issues:** https://github.com/hlvm-dev/hlvm/issues
+- **Report Issues:** https://github.com/hlvm-dev/hql/issues
 
 ---
 

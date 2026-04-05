@@ -46,6 +46,11 @@ Verify:
 ./hlvm --version
 ```
 
+This binary is now the SSOT build artifact for both:
+
+- standalone CLI/runtime use
+- the macOS GUI wrapper at `~/dev/HLVM`, which copies this exact binary into `HLVM/Resources/hlvm`
+
 ## Build Commands
 
 ### Build for Current Platform
@@ -147,19 +152,32 @@ Creates all binaries:
 
 If you don't have `make`:
 
-### Step 1: Embed Packages
+### Step 1: Prepare Embedded AI Runtime
+
+```bash
+make setup-ai
+```
+
+This downloads the pinned embedded Ollama runtime into `resources/ai-engine/`.
+The download is idempotent: if the pinned runtime is already present, later runs
+reuse it instead of re-downloading.
+
+### Step 2: Embed Packages
 
 ```bash
 ./scripts/embed-packages.ts
 ```
 
-### Step 2: Compile Binary
+### Step 3: Compile Binary
 
 ```bash
-deno compile --allow-all --no-check --output hlvm src/hlvm/cli/cli.ts
+deno compile --allow-all --no-check --config deno.json \
+  --include resources/ai-engine \
+  --include src/hql/lib/stdlib/js/index.js \
+  --output hlvm src/hlvm/cli/cli.ts
 ```
 
-### Step 3: Test
+### Step 4: Test
 
 ```bash
 ./hlvm --version
@@ -173,7 +191,10 @@ deno compile --allow-all --no-check --output hlvm src/hlvm/cli/cli.ts
 Include source maps:
 
 ```bash
-deno compile --allow-all --output hlvm src/hlvm/cli/cli.ts
+deno compile --allow-all --config deno.json \
+  --include resources/ai-engine \
+  --include src/hql/lib/stdlib/js/index.js \
+  --output hlvm src/hlvm/cli/cli.ts
 ```
 
 Note: Larger binary, better error messages.
@@ -183,7 +204,10 @@ Note: Larger binary, better error messages.
 Fastest compilation (production):
 
 ```bash
-deno compile --allow-all --no-check --output hlvm src/hlvm/cli/cli.ts
+deno compile --allow-all --no-check --config deno.json \
+  --include resources/ai-engine \
+  --include src/hql/lib/stdlib/js/index.js \
+  --output hlvm src/hlvm/cli/cli.ts
 ```
 
 Note: Default, skips type checking.
@@ -207,11 +231,34 @@ deno compile --allow-all --target x86_64-apple-darwin --output hlvm src/hlvm/cli
 
 Typical sizes:
 
-- macOS: ~90MB
-- Linux: ~95MB
-- Windows: ~85MB
+- macOS: ~587MB with the embedded AI runtime payload
+- Linux: platform-dependent, but substantially larger than the old sub-100MB builds
+- Windows: platform-dependent; offline bundling is still out of scope for this pass
 
-Note: Includes Deno runtime and all dependencies.
+Note: The binary now includes the Deno runtime, all dependencies, and the
+embedded Ollama runtime payload used by the one-shot local-AI install flow.
+
+## GUI Binary Sync
+
+`~/dev/hql` is the only SSOT build source for `hlvm`.
+
+If you are also working with the macOS GUI wrapper in `~/dev/HLVM`:
+
+- Xcode no longer compiles its own alternate `hlvm`
+- the GUI build phase calls `scripts/sync-gui-binary.sh`
+- that script builds `~/dev/hql/hlvm` if needed, then copies it into `HLVM/Resources/hlvm`
+
+Optional developer convenience hook:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+That enables the tracked `.githooks/post-commit` wrapper, which syncs the
+bundled binary into a sibling `../HLVM` checkout after commits.
+
+The hook is convenience only. The Xcode build phase remains the correctness
+path, because it always copies the SSOT binary before the app is built.
 
 ## Troubleshooting
 

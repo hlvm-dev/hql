@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+if command -v git-lfs >/dev/null 2>&1; then
+  git lfs post-commit "$@"
+fi
+
+REPO_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+SYNC_SCRIPT="$REPO_DIR/scripts/sync-gui-binary.sh"
+DEFAULT_GUI_REPO="$REPO_DIR/../HLVM"
+
+if [ ! -x "$SYNC_SCRIPT" ]; then
+  echo "[post-commit] sync script missing at $SYNC_SCRIPT" >&2
+  exit 1
+fi
+
+if [ ! -d "$DEFAULT_GUI_REPO" ]; then
+  echo "[post-commit] sibling HLVM repo not found; skipping GUI binary sync"
+  exit 0
+fi
+
+"$SYNC_SCRIPT" "$DEFAULT_GUI_REPO"

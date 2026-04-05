@@ -13,7 +13,7 @@ permissions:
 
 env:
   REPO: ${{ github.repository }}
-  HF_REPO: hlvm-dev/hlvm-releases
+  HF_REPO: HLVM/hlvm-releases
 
 jobs:
   publish:

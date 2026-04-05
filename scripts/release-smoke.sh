@@ -20,8 +20,8 @@ set -e
 
 MODE="${1:-}"
 TAG="${2:-}"
-REPO="${HLVM_SMOKE_REPO:-hlvm-dev/hlvm}"
-HF_REPO="${HLVM_SMOKE_HF_REPO:-hlvm-dev/hlvm-releases}"
+REPO="${HLVM_SMOKE_REPO:-hlvm-dev/hql}"
+HF_REPO="${HLVM_SMOKE_HF_REPO:-HLVM/hlvm-releases}"
 INSTALLER_URL="${HLVM_SMOKE_INSTALLER_URL:-https://hlvm.dev/install.sh}"
 SMOKE_PROMPT="${HLVM_SMOKE_PROMPT:-hello}"
 
@@ -32,6 +32,20 @@ need_cmd() {
   fi
 }
 
+cleanup() {
+  status=$?
+  if [ -n "${SMOKE_ROOT:-}" ] && [ -d "${SMOKE_ROOT}" ]; then
+    if [ "$status" -eq 0 ]; then
+      rm -rf "${SMOKE_ROOT}"
+    else
+      printf 'Smoke failed; preserving %s for inspection\n' "${SMOKE_ROOT}" >&2
+    fi
+  fi
+  exit "$status"
+}
+
+trap cleanup EXIT INT TERM
+
 usage() {
   cat <<EOF
 Usage:
@@ -39,7 +53,7 @@ Usage:
   scripts/release-smoke.sh offline <tag>
 
 Environment:
-  HLVM_SMOKE_REPO            GitHub repo for draft assets (default: hlvm-dev/hlvm)
+  HLVM_SMOKE_REPO            GitHub repo for draft assets (default: hlvm-dev/hql)
   HLVM_SMOKE_HF_REPO         Hugging Face repo for offline bundles
   HLVM_SMOKE_INSTALLER_URL   Installer URL (default: https://hlvm.dev/install.sh)
   HLVM_SMOKE_PROMPT          Prompt used for hlvm ask (default: hello)
@@ -142,7 +156,6 @@ main() {
 
   need_cmd curl
   need_cmd gh
-  need_cmd sh
 
   detect_platform
 
