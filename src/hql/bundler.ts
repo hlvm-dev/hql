@@ -29,6 +29,7 @@ import {
   checkForHqlImports,
   findActualFilePath,
   getErrorMessage,
+  normalizePath,
   readFile,
 } from "../common/utils.ts";
 import { initializeRuntime } from "../common/runtime-initializer.ts";
@@ -510,7 +511,14 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
       build.onResolve(
         { filter: /^file:\/\// },
         async (args: OnResolveArgs): Promise<OnResolveResult | null> => {
-          const filePath = args.path.replace("file://", "");
+          let filePath: string;
+          try {
+            filePath = pathUtil().fromFileUrl(args.path);
+          } catch {
+            logger.warn(`Invalid file URL: ${args.path}`);
+            return { path: args.path, external: true };
+          }
+
           logger.debug(`Converting file:// URL: ${args.path} → ${filePath}`);
 
           if (await fsUtil().exists(filePath)) {
@@ -925,7 +933,12 @@ async function postProcessBundleOutput(outputPath: string): Promise<void> {
     if (content.includes("file://")) {
       content = content.replace(
         /(["'])file:\/\/\/([^"']+)\1/g,
-        (_m, q, p) => `${q}/${p}${q}`,
+        (_m, q, p) => {
+          const normalizedPath = normalizePath(
+            pathUtil().fromFileUrl(`file:///${p}`),
+          );
+          return `${q}${normalizedPath}${q}`;
+        },
       );
       modified = true;
       logger.debug("Normalized file:// URLs in bundle output");

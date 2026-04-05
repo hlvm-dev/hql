@@ -123,9 +123,15 @@ function buildCachePath(
 const inProgressHql = new Set<string>();
 const inProgressJs = new Set<string>();
 
-function registerHqlImportMappings(hqlSource: string, cachedPath: string): void {
+function registerHqlImportMappings(
+  hqlSource: string,
+  cachedPath: string,
+): void {
   registerImportMapping(hqlSource, cachedPath);
-  registerImportMapping(hqlSource.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"), cachedPath);
+  registerImportMapping(
+    hqlSource.replace(HLVM_HQL_EXTENSION_REGEX, ".ts"),
+    cachedPath,
+  );
 }
 
 /**
@@ -301,14 +307,17 @@ async function processCachedImports(
     const fullImport = match[0];
     const importPath = match[1];
 
-    // Normalize file URL imports to plain absolute paths to avoid leaking file:// into bundles
+    // Canonicalize file URL imports without stripping the scheme.
+    // Raw Windows paths inside ESM import strings introduce backslash escape issues.
     if (importPath.startsWith("file://")) {
       try {
-        const fsPath = path().fromFileUrl(importPath);
-        const newImport = fullImport.replace(importPath, fsPath);
+        const canonicalImportPath = toFileUrlHref(
+          path().fromFileUrl(importPath),
+        );
+        const newImport = fullImport.replace(importPath, canonicalImportPath);
         modifiedContent = modifiedContent.replace(fullImport, newImport);
         logger.debug(
-          `Normalized file URL import: ${fullImport} -> ${newImport}`,
+          `Canonicalized file URL import: ${fullImport} -> ${newImport}`,
         );
       } catch {
         // If parsing fails, leave as is
@@ -1071,7 +1080,9 @@ async function processNestedImports(
           );
           modifiedContent = modifiedContent.replace(fullImport, newImport);
           logger.debug(
-            `Rewritten nested import: ${importPath} -> ${toFileUrlHref(processedHqlPath)}`,
+            `Rewritten nested import: ${importPath} -> ${
+              toFileUrlHref(processedHqlPath)
+            }`,
           );
         }
       } // Handle JavaScript imports specially to ensure they reference cached versions
@@ -1097,7 +1108,9 @@ async function processNestedImports(
           );
           modifiedContent = modifiedContent.replace(fullImport, newImport);
           logger.debug(
-            `Rewritten nested TS import: ${importPath} -> ${toFileUrlHref(cachedImportPath)}`,
+            `Rewritten nested TS import: ${importPath} -> ${
+              toFileUrlHref(cachedImportPath)
+            }`,
           );
         }
       } // Handle JavaScript imports
@@ -1117,7 +1130,9 @@ async function processNestedImports(
             );
             modifiedContent = modifiedContent.replace(fullImport, newImport);
             logger.debug(
-              `Rewritten nested JS import: ${importPath} -> ${toFileUrlHref(cachedJsPath)}`,
+              `Rewritten nested JS import: ${importPath} -> ${
+                toFileUrlHref(cachedJsPath)
+              }`,
             );
           } else {
             // Use the original path but with file:// prefix for absolute imports
@@ -1127,7 +1142,9 @@ async function processNestedImports(
             );
             modifiedContent = modifiedContent.replace(fullImport, newImport);
             logger.debug(
-              `Rewritten JS import to absolute path: ${importPath} -> ${toFileUrlHref(resolvedImportPath)}`,
+              `Rewritten JS import to absolute path: ${importPath} -> ${
+                toFileUrlHref(resolvedImportPath)
+              }`,
             );
           }
         }
@@ -1173,7 +1190,10 @@ async function processHqlFile(sourceFile: string): Promise<string> {
     });
 
     // Check if we need to process this file
-    if (await fs().exists(cachedTsPath) && !await needsRegeneration(sourceFile, ".ts")) {
+    if (
+      await fs().exists(cachedTsPath) &&
+      !await needsRegeneration(sourceFile, ".ts")
+    ) {
       logger.debug(
         `Using cached JavaScript for ${sourceFile}: ${cachedTsPath}`,
       );
