@@ -13,7 +13,12 @@ import { http } from "../../../common/http-client.ts";
 import { parseJsonLine } from "../../../common/jsonl.ts";
 import { createAbortError } from "../../../common/timeout-utils.ts";
 import { API_TIMEOUT_MS, JSON_HEADERS, throwOnHttpError } from "../common.ts";
-import type { ModelInfo, ProviderStatus, PullProgress } from "../types.ts";
+import type {
+  ModelInfo,
+  ProviderCapability,
+  ProviderStatus,
+  PullProgress,
+} from "../types.ts";
 
 // ============================================================================
 // Response Types
@@ -51,6 +56,12 @@ interface OllamaRunningModel {
   context_length?: number;
 }
 
+interface OllamaShowResponse extends OllamaModel {
+  details?: OllamaModel["details"];
+  model_info?: Record<string, unknown>;
+  capabilities?: string[];
+}
+
 function normalizeModelName(modelName: string): string {
   const normalized = modelName.trim().toLowerCase();
   const slashIdx = normalized.indexOf("/");
@@ -60,6 +71,49 @@ function normalizeModelName(modelName: string): string {
 function modelBaseName(modelName: string): string {
   const colonIdx = modelName.indexOf(":");
   return colonIdx >= 0 ? modelName.slice(0, colonIdx) : modelName;
+}
+
+function extractCapabilities(
+  rawCapabilities: string[] | undefined,
+  hasVision: boolean,
+): ProviderCapability[] {
+  const capabilities = new Set<ProviderCapability>();
+  const raw = rawCapabilities ?? [];
+
+  for (const capability of raw) {
+    switch (capability) {
+      case "completion":
+        capabilities.add("generate");
+        capabilities.add("chat");
+        break;
+      case "chat":
+        capabilities.add("chat");
+        break;
+      case "tools":
+        capabilities.add("tools");
+        break;
+      case "vision":
+        capabilities.add("vision");
+        break;
+      case "thinking":
+        capabilities.add("thinking");
+        break;
+      case "audio":
+        capabilities.add("media.audioInput");
+        break;
+      default:
+        break;
+    }
+  }
+
+  if (!capabilities.has("chat")) {
+    capabilities.add("chat");
+  }
+  if (hasVision) {
+    capabilities.add("vision");
+  }
+
+  return [...capabilities];
 }
 
 // ============================================================================
@@ -267,13 +321,14 @@ export async function getModel(
   const loadedContext = await getLoadedModelContext(endpoint, name);
 
   try {
-    const result = await jsonRequest<
-      OllamaModel & { details: unknown; model_info?: Record<string, unknown> }
-    >(
+    const result = await jsonRequest<OllamaShowResponse>(
       endpoint,
       "/api/show",
       { name },
     );
+
+    const families = (result.details as { families?: string[] })?.families ?? [];
+    const hasVision = families.some((f) => f === "clip" || f === "mllama");
 
     // Extract context_length from model_info (key varies by architecture, e.g. "llama.context_length")
     let contextWindow: number | undefined;
@@ -295,7 +350,11 @@ export async function getModel(
         ?.parameter_size,
       quantization: (result.details as { quantization_level?: string })
         ?.quantization_level,
-      metadata: result.details,
+      capabilities: extractCapabilities(result.capabilities, hasVision),
+      metadata: {
+        details: result.details,
+        capabilities: result.capabilities,
+      },
       contextWindow,
     };
   } catch {

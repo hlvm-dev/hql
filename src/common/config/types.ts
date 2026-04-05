@@ -12,7 +12,8 @@ import { THEME_NAMES } from "../../hlvm/cli/theme/palettes.ts";
 export const DEFAULT_MODEL_ID = "ollama/mistral-large-3:675b-cloud";
 export const DEFAULT_MODEL_PROVIDER = DEFAULT_MODEL_ID.split("/")[0];
 export const DEFAULT_MODEL_NAME = DEFAULT_MODEL_ID.split("/")[1];
-export const DEFAULT_OLLAMA_ENDPOINT = "http://localhost:11434";
+export const DEFAULT_OLLAMA_HOST = "127.0.0.1:11439";
+export const DEFAULT_OLLAMA_ENDPOINT = `http://${DEFAULT_OLLAMA_HOST}`;
 
 /** Single source of truth for the user-agent string across all web tools. */
 export const DEFAULT_USER_AGENT =

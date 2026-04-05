@@ -10,6 +10,9 @@ import { hasHelpFlag } from "../utils/common-helpers.ts";
 import { RuntimeError } from "../../../common/error.ts";
 import { withRetry } from "../../../common/retry.ts";
 import { pushSSEEvent } from "../../store/sse-store.ts";
+import { verifyBootstrap } from "../../runtime/bootstrap-verify.ts";
+import { recoverBootstrap } from "../../runtime/bootstrap-recovery.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
 /** Resolves when runtime is initialized; rejects permanently if all retries fail. */
 let runtimeReady: Promise<void> | null = null;
@@ -18,6 +21,13 @@ let runtimeReadinessManaged = false;
 /** Tracks runtime readiness state for /health endpoint */
 export let runtimeReadyState: "pending" | "ready" | "failed" = "pending";
 
+/** Whether the bootstrap substrate has been verified. */
+let bootstrapVerified = false;
+
+function emitModelsReadyEvent(): void {
+  pushSSEEvent("__models__", "models_updated", { reason: "runtime_ready" });
+}
+
 /** Whether serveCommand manages runtime readiness for this process. */
 export function isRuntimeReadinessManaged(): boolean {
   return runtimeReadinessManaged;
@@ -25,7 +35,7 @@ export function isRuntimeReadinessManaged(): boolean {
 
 /** Whether AI runtime should accept runtime-dependent requests right now. */
 export function isRuntimeReadyForAiRequests(): boolean {
-  return !runtimeReadinessManaged || runtimeReadyState === "ready";
+  return !runtimeReadinessManaged || (runtimeReadyState === "ready" && bootstrapVerified);
 }
 
 /** Returns the runtime readiness promise. Endpoints can await this before using AI. */
@@ -51,6 +61,7 @@ export async function serveCommand(args: string[]): Promise<number> {
   try {
     runtimeReadinessManaged = true;
     runtimeReadyState = "pending";
+    bootstrapVerified = false;
 
     // Start server FIRST so the port is open immediately for GUI clients.
     // Deno.serve() binds the port synchronously — no "Connection refused" race.
@@ -61,11 +72,67 @@ export async function serveCommand(args: string[]): Promise<number> {
     runtimeReady = withRetry(
       async () => {
         await initializeRuntime({ ai: true, stdlib: true, cache: true });
+
+        // Verify bootstrap substrate (engine + fallback model)
+        const verification = await verifyBootstrap();
+        if (verification.state === "verified") {
+          bootstrapVerified = true;
+        } else if (verification.state === "degraded") {
+          // Bootstrap exists but is broken — attempt recovery.
+          // bootstrapVerified stays false until recovery actually succeeds.
+          recoverBootstrap(verification.manifest, verification).then((r) => {
+            if (r.success) {
+              bootstrapVerified = true;
+              log.info?.("Bootstrap recovery completed.");
+              emitModelsReadyEvent();
+            } else {
+              log.warn?.(`Bootstrap recovery failed: ${r.message}. ` +
+                `Run 'hlvm bootstrap --repair' to fix.`);
+            }
+          }).catch((err) => {
+            log.warn?.(`Bootstrap recovery error: ${(err as Error).message}`);
+          });
+        } else {
+          // Uninitialized — no manifest exists. Check if this build has an
+          // embedded engine. Compiled HLVM binaries must fail closed here:
+          // uninitialized bootstrap means local AI is not ready.
+          //
+          // Source-mode `deno run` development builds are the only bypass case.
+          try {
+            const execName = getPlatform().path.basename(
+              getPlatform().process.execPath(),
+            ).toLowerCase();
+            const isDenoDrivenDevBuild = execName.includes("deno");
+            if (isDenoDrivenDevBuild) {
+              bootstrapVerified = true;
+            } else {
+              const {
+                extractAIEngine,
+                resolveEmbeddedEnginePath,
+              } = await import("../../runtime/ai-runtime.ts");
+              await extractAIEngine();
+              const embeddedEnginePath = await resolveEmbeddedEnginePath();
+              if (embeddedEnginePath) {
+                log.warn?.("Embedded engine found but bootstrap not run. " +
+                  "Run 'hlvm bootstrap' to set up local AI.");
+              } else {
+                log.warn?.(
+                  "Compiled HLVM build does not have a verified embedded AI runtime. " +
+                  "Run 'hlvm bootstrap' after reinstalling the AI-enabled binary.",
+                );
+              }
+            }
+          } catch (error) {
+            log.warn?.(`Failed to determine embedded engine status: ${
+              error instanceof Error ? error.message : String(error)
+            }`);
+          }
+        }
+
         runtimeReadyState = "ready";
-        // Notify connected SSE clients that models are now queryable.
-        // This fixes a race where GUI connects before runtime is ready,
-        // refreshModels() gets 503, and models stay empty forever.
-        pushSSEEvent("__models__", "models_updated", { reason: "runtime_ready" });
+        if (bootstrapVerified) {
+          emitModelsReadyEvent();
+        }
       },
       {
         maxAttempts: 3,

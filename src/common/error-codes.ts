@@ -189,6 +189,16 @@ export enum HLVMErrorCode {
   STREAM_ERROR = 5010,
   /** Local AI engine startup or validation failure */
   AI_ENGINE_STARTUP_FAILED = 5011,
+  /** Bootstrap materialization (engine + model) failed */
+  BOOTSTRAP_FAILED = 5020,
+  /** Fallback model pull during bootstrap failed */
+  BOOTSTRAP_MODEL_PULL_FAILED = 5021,
+  /** Bootstrap verification found missing or corrupt assets */
+  BOOTSTRAP_VERIFICATION_FAILED = 5022,
+  /** Bootstrap recovery could not repair degraded state */
+  BOOTSTRAP_RECOVERY_FAILED = 5023,
+  /** Bootstrap manifest file is missing or unparseable */
+  BOOTSTRAP_MANIFEST_CORRUPT = 5024,
 }
 
 export enum ProviderErrorCode {
@@ -889,12 +899,74 @@ const HLVM_ERROR_INFO: Record<HLVMErrorCode, ErrorInfo> = {
     causes: [
       "Cached embedded engine binary is invalid or from the wrong program",
       "Embedded AI engine resource is missing or corrupted",
-      "System Ollama was unavailable or failed to become reachable on localhost:11434",
+      "The HLVM-owned local AI endpoint was unavailable or failed to become reachable on 127.0.0.1:11439",
     ],
     fixes: [
       "Remove the cached embedded engine so HLVM can extract a fresh copy",
       "Verify the embedded AI engine resource or rebuild HLVM with a valid Ollama binary",
-      "Check whether system Ollama can start and respond on localhost:11434",
+      "Check whether the embedded Ollama runtime can start and respond on 127.0.0.1:11439",
+    ],
+  },
+  [HLVMErrorCode.BOOTSTRAP_FAILED]: {
+    description: "Bootstrap materialization (engine extraction + model pull) failed.",
+    causes: [
+      "Embedded AI engine resource is missing or corrupted in the binary",
+      "Disk space insufficient for model download",
+      "Network unavailable during model pull",
+    ],
+    fixes: [
+      "Run `hlvm bootstrap --repair` to retry",
+      "Ensure sufficient disk space (~5 GB for the fallback model)",
+      "Check network connectivity and retry",
+    ],
+  },
+  [HLVMErrorCode.BOOTSTRAP_MODEL_PULL_FAILED]: {
+    description: "The fallback model could not be pulled during bootstrap.",
+    causes: [
+      "AI engine not running or not reachable on 127.0.0.1:11439",
+      "Model name is invalid or unavailable in the Ollama registry",
+      "Download interrupted or disk full",
+    ],
+    fixes: [
+      "Verify the AI engine is running: `hlvm bootstrap --status`",
+      "Check network connectivity and disk space",
+      "Run `hlvm bootstrap --repair` to retry the model pull",
+    ],
+  },
+  [HLVMErrorCode.BOOTSTRAP_VERIFICATION_FAILED]: {
+    description: "Bootstrap verification found missing or corrupt assets.",
+    causes: [
+      "Engine binary was deleted or overwritten",
+      "Model files were removed from the HLVM model store",
+      "Manifest hashes no longer match the files on disk",
+    ],
+    fixes: [
+      "Run `hlvm bootstrap --repair` to restore missing assets",
+      "Run `hlvm bootstrap` for a full re-materialization",
+    ],
+  },
+  [HLVMErrorCode.BOOTSTRAP_RECOVERY_FAILED]: {
+    description: "Bootstrap recovery could not repair the degraded state.",
+    causes: [
+      "Embedded engine resource is missing from the binary",
+      "Repeated model pull failures",
+      "File system permissions prevent writing to ~/.hlvm/.runtime/",
+    ],
+    fixes: [
+      "Check file permissions on ~/.hlvm/.runtime/",
+      "Rebuild HLVM with an embedded AI engine and reinstall",
+      "Run `hlvm bootstrap` manually with verbose logging",
+    ],
+  },
+  [HLVMErrorCode.BOOTSTRAP_MANIFEST_CORRUPT]: {
+    description: "The bootstrap manifest file is missing or unparseable.",
+    causes: [
+      "manifest.json was manually edited or deleted",
+      "Disk corruption or incomplete write",
+    ],
+    fixes: [
+      "Run `hlvm bootstrap` to create a fresh manifest",
+      "Run `hlvm bootstrap --repair` to regenerate from existing assets",
     ],
   },
 };

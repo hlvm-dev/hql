@@ -23,6 +23,8 @@ import { ensureModelAvailability } from "./model-availability.ts";
 import { getPlatform } from "../platform/platform.ts";
 import { RuntimeError } from "./error.ts";
 import { parseModelParameterSize } from "./model-ranking.ts";
+import { isFallbackModelAvailable } from "../hlvm/runtime/bootstrap-verify.ts";
+import { LOCAL_FALLBACK_MODEL } from "../hlvm/runtime/bootstrap-manifest.ts";
 
 let defaultModelEnsured = false;
 const CLAUDE_CODE_PROVIDER = "claude-code";
@@ -88,6 +90,15 @@ function isAutomaticDefaultCandidate(
   snapshot: Pick<HlvmConfig, "model" | "modelConfigured">,
 ): boolean {
   if (snapshot.modelConfigured) return false;
+  if (snapshot.model === DEFAULT_MODEL_ID) return true;
+  return typeof snapshot.model === "string" &&
+    LEGACY_DEFAULT_MODEL_IDS.has(snapshot.model);
+}
+
+function shouldPreferBootstrappedLocalFallback(
+  snapshot: Pick<HlvmConfig, "model" | "modelConfigured">,
+): boolean {
+  if (isAutomaticDefaultCandidate(snapshot)) return true;
   if (snapshot.model === DEFAULT_MODEL_ID) return true;
   return typeof snapshot.model === "string" &&
     LEGACY_DEFAULT_MODEL_IDS.has(snapshot.model);
@@ -311,6 +322,43 @@ function getOllamaCloudBootstrapDeps(): OllamaCloudBootstrapDeps {
   };
 }
 
+interface LocalFallbackBootstrapDeps {
+  getSnapshot: () => Pick<
+    HlvmConfig,
+    "model" | "modelConfigured" | "agentMode"
+  >;
+  patchConfig: (updates: Partial<Record<ConfigKey, unknown>>) => Promise<void>;
+}
+
+function getLocalFallbackBootstrapDeps(): LocalFallbackBootstrapDeps {
+  return {
+    getSnapshot: () => config.snapshot,
+    patchConfig: async (updates) => {
+      await config.patch(updates);
+    },
+  };
+}
+
+export async function autoConfigureInitialLocalFallbackModel(
+  depsOverride: Partial<LocalFallbackBootstrapDeps> = {},
+): Promise<string | null> {
+  const deps = { ...getLocalFallbackBootstrapDeps(), ...depsOverride };
+  const snapshot = deps.getSnapshot();
+  if (!shouldPreferBootstrappedLocalFallback(snapshot)) return null;
+
+  let available = false;
+  try {
+    available = await isFallbackModelAvailable();
+  } catch {
+    return null;
+  }
+  if (!available) return null;
+
+  const selectedModelId = `${OLLAMA_PROVIDER}/${LOCAL_FALLBACK_MODEL}`;
+  await deps.patchConfig(buildSelectedModelConfigUpdates(selectedModelId));
+  return selectedModelId;
+}
+
 /**
  * Auto-select the strongest Ollama cloud model for first-time users when
  * Claude Code is unavailable. This avoids silently defaulting back to a local
@@ -347,6 +395,7 @@ export interface EnsureInitialModelConfiguredResult {
   model: string;
   modelConfigured: boolean;
   autoConfiguredClaude: boolean;
+  autoConfiguredLocalFallback: boolean;
   autoConfiguredOllamaCloud: boolean;
   firstRunConfigured: boolean;
   reconciledClaudeModel: boolean;
@@ -389,6 +438,7 @@ export async function ensureInitialModelConfigured(
   const deps = { ...getInitialModelConfigDeps(), ...depsOverride };
   let snapshot = deps.getSnapshot();
   let autoConfiguredClaude = false;
+  let autoConfiguredLocalFallback = false;
   let autoConfiguredOllamaCloud = false;
   let firstRunConfigured = false;
   let reconciledClaudeModel = false;
@@ -415,6 +465,17 @@ export async function ensureInitialModelConfigured(
     const setupModel = await options.runFirstTimeSetup();
     if (setupModel) {
       firstRunConfigured = true;
+      snapshot = await deps.syncSnapshot();
+    }
+  }
+
+  if (isAutomaticDefaultCandidate(snapshot)) {
+    const localModel = await autoConfigureInitialLocalFallbackModel({
+      getSnapshot: deps.getSnapshot,
+      patchConfig: deps.patchConfig,
+    });
+    if (localModel) {
+      autoConfiguredLocalFallback = true;
       snapshot = await deps.syncSnapshot();
     }
   }
@@ -451,6 +512,7 @@ export async function ensureInitialModelConfigured(
     }),
     modelConfigured: snapshot.modelConfigured === true,
     autoConfiguredClaude,
+    autoConfiguredLocalFallback,
     autoConfiguredOllamaCloud,
     firstRunConfigured,
     reconciledClaudeModel,

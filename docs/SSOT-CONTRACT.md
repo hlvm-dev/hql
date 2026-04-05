@@ -22,6 +22,7 @@ This prevents fragmentation, simplifies maintenance, and enables consistent beha
 | **Sessions** | `globalThis.session` | `src/hlvm/api/session.ts` | None |
 | **Bindings** | `globalThis.bindings` | `src/hlvm/api/bindings.ts` | None |
 | **History** | `globalThis.history` | `src/hlvm/api/history.ts` | None |
+| **Local Fallback Substrate** | `materializeBootstrap()` + `verifyBootstrap()` | `src/hlvm/runtime/bootstrap-*.ts` | None |
 
 ## Forbidden Patterns
 

@@ -23,8 +23,11 @@ npm run test:e2e    # E2E tests (Playwright)
 
 Automatic via GitHub Actions on push to `main` when `docs/**`, `website/**`, or `firebase.json` change.
 
-Manual: `node scripts/sync-docs.mjs && npm run build && cd .. && npx firebase deploy`
+Manual: `node scripts/sync-docs.mjs && npm run build && npm run sync:installers && cd .. && npx firebase deploy`
 
-Firebase now serves Next static export output from `website/out`.
+Firebase now serves Next static export output from `website/out`, including the stable installer URLs:
+
+- `https://hlvm.dev/install.sh`
+- `https://hlvm.dev/install.ps1`
 
 See `docs/DOCS-PUBLISHING.md` for the full pipeline documentation.

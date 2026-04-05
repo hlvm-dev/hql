@@ -74,6 +74,7 @@ const RULES: Rule[] = [
     pattern: /\bfetch\s*\(/g,
     allowedPaths: [
       "src/common/http-client.ts",
+      "scripts/package-offline-bundle.ts", // standalone build tool, no platform layer
     ],
     excludePatterns: [
       /\/\/.*fetch\s*\(/, // Comments

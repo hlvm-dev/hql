@@ -384,6 +384,16 @@ export async function ensureRuntimeDir(): Promise<void> {
   await getPlatform().fs.mkdir(getRuntimeDir(), { recursive: true });
 }
 
+/** Absolute path to the HLVM-owned model store (inside the runtime dir). */
+export function getModelsDir(): string {
+  return join(getRuntimeDir(), "models");
+}
+
+/** Ensure the models directory exists. */
+export async function ensureModelsDir(): Promise<void> {
+  await getPlatform().fs.mkdir(getModelsDir(), { recursive: true });
+}
+
 // ── Agent Team Paths ──────────────────────────────────────────────────
 
 /**

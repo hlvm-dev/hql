@@ -1,0 +1,85 @@
+name: Offline Bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to package (for example v0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  REPO: ${{ github.repository }}
+  HF_REPO: hlvm-dev/hlvm-releases
+
+jobs:
+  bundle:
+    name: Build offline bundle (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin-aarch64
+            binary: hlvm-mac-arm
+
+          - os: macos-13
+            platform: darwin-x86_64
+            binary: hlvm-mac-intel
+
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            binary: hlvm-linux
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
+
+      - name: Download release binary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ inputs.tag }}" \
+            --repo "${{ env.REPO }}" \
+            --pattern "${{ matrix.binary }}" \
+            --dir .
+          mv "${{ matrix.binary }}" hlvm
+          chmod +x hlvm
+
+      - name: Package offline bundle
+        run: |
+          deno run -A scripts/package-offline-bundle.ts ./hlvm . \
+            "hlvm-${{ inputs.tag }}-${{ matrix.platform }}-full.tar.gz"
+
+      - name: Upload to HuggingFace
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "${HF_TOKEN}" ]; then
+            echo "HF_TOKEN is required to publish offline bundles."
+            exit 1
+          fi
+          BUNDLE="hlvm-${{ inputs.tag }}-${{ matrix.platform }}-full.tar.gz"
+          if [ ! -f "$BUNDLE" ]; then
+            echo "No bundle found at $BUNDLE."
+            exit 1
+          fi
+          VERSION="${{ inputs.tag }}"
+          DEST="hlvm-${VERSION}-${{ matrix.platform }}-full.tar.gz"
+
+          # Upload via HuggingFace API
+          curl -fsSL -X PUT \
+            -H "Authorization: Bearer ${HF_TOKEN}" \
+            -H "Content-Type: application/gzip" \
+            --data-binary "@${BUNDLE}" \
+            "https://huggingface.co/api/repos/${{ env.HF_REPO }}/upload/main/${DEST}"
+
+          echo "Uploaded ${DEST} to HuggingFace."

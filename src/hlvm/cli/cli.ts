@@ -24,6 +24,7 @@ import { ollamaCommand, showOllamaHelp } from "./commands/ollama.ts";
 import { serveCommand, showServeHelp } from "./commands/serve.ts";
 import { mcpCommand, showMcpHelp } from "./commands/mcp.ts";
 import { modelCommand, showModelHelp } from "./commands/model.ts";
+import { bootstrapCommand, showBootstrapHelp } from "./commands/bootstrap.ts";
 
 import { run as runCommand } from "./run.ts";
 import { startInkRepl } from "./repl-ink/index.tsx";
@@ -134,7 +135,14 @@ const COMMANDS: Record<string, CommandEntry> = {
   serve: { run: serveCommand, help: showServeHelp },
   mcp: { run: mcpCommand, help: showMcpHelp },
   model: { run: modelCommand, help: showModelHelp },
+  bootstrap: { run: bootstrapCommand, help: showBootstrapHelp },
 };
+
+function exitIfNonZero(result: unknown): void {
+  if (typeof result === "number" && result !== 0) {
+    getPlatform().process.exit(result);
+  }
+}
 
 /**
  * Main CLI entry point
@@ -154,7 +162,7 @@ async function main(): Promise<void> {
 
   // Default: start REPL when no arguments (for GUI compatibility)
   if (args.length === 0) {
-    await replCommand([]);
+    exitIfNonZero(await replCommand([]));
     return;
   }
 
@@ -164,13 +172,13 @@ async function main(): Promise<void> {
   const entry = COMMANDS[command];
   if (!entry) {
     // Default: assume it's a file or expression to run
-    await runCommand(args);
+    exitIfNonZero(await runCommand(args));
     return;
   }
   if (entry.help && hasHelpFlag(commandArgs)) {
     entry.help();
   } else {
-    await entry.run(commandArgs);
+    exitIfNonZero(await entry.run(commandArgs));
   }
 }
 

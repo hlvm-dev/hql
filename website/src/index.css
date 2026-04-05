@@ -180,6 +180,13 @@ body {
   gap: 0.625rem;
 }
 
+.hero-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
 .hero-availability {
   font-size: 0.875rem;
   color: var(--hlvm-text-secondary);
@@ -187,9 +194,65 @@ body {
   letter-spacing: -0.01em;
   margin: 0;
   transition: color 0.3s ease;
+  max-width: 42rem;
 }
 
 .hero-cta { padding: 0.75rem 2rem; font-size: 1.125rem; }
+
+.hero-install-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.hero-install-card {
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid var(--hlvm-border);
+  background: var(--hlvm-bg-secondary);
+  text-align: left;
+}
+
+.hero-install-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.hero-install-title {
+  margin: 0;
+  color: var(--hlvm-text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.hero-install-note {
+  margin: 0.35rem 0 0;
+  color: var(--hlvm-text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.hero-install-copy {
+  flex-shrink: 0;
+}
+
+.hero-install-command {
+  display: block;
+  margin-top: 1rem;
+  padding: 0.875rem 1rem;
+  border-radius: 0.875rem;
+  background: var(--hlvm-bg-primary);
+  border: 1px solid var(--hlvm-border);
+  color: var(--hlvm-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 
 .navbar {
   position: fixed;

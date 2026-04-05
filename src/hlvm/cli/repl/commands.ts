@@ -311,8 +311,7 @@ export const commands: Record<string, Command> = {
           context.output(`  ${DIM_GRAY}none configured${RESET}`);
         } else {
           for (const s of servers) {
-            const icon = s.reachable ? ok : fail;
-            context.output(`  ${icon} ${s.name} (${s.scopeLabel})`);
+            context.output(`  ${ok} ${s.name} (${s.scopeLabel})`);
           }
         }
       } catch (err: unknown) {

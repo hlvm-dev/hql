@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write  # Required to create releases and upload assets
 
+env:
+  EMBEDDED_OLLAMA_VERSION_FILE: embedded-ollama-version.txt
+
 jobs:
   build:
     name: Build ${{ matrix.target }}
@@ -19,21 +22,29 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             binary: hlvm-mac-arm
+            ollama_asset: ollama-darwin.tgz
+            ollama_binary: ollama
 
           # macOS Intel
-          - os: macos-latest
+          - os: macos-13
             target: x86_64-apple-darwin
             binary: hlvm-mac-intel
+            ollama_asset: ollama-darwin.tgz
+            ollama_binary: ollama
 
           # Linux
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             binary: hlvm-linux
+            ollama_asset: ollama-linux-amd64.tgz
+            ollama_binary: ollama
 
           # Windows
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             binary: hlvm-windows.exe
+            ollama_asset: ollama-windows-amd64.zip
+            ollama_binary: ollama.exe
 
     steps:
       - name: Checkout code
@@ -44,6 +55,50 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Load embedded Ollama version
+        shell: bash
+        run: |
+          echo "OLLAMA_VERSION=$(tr -d '\n' < "${{ env.EMBEDDED_OLLAMA_VERSION_FILE }}")" >> "$GITHUB_ENV"
+
+      - name: Download Ollama runtime (pinned ${{ env.OLLAMA_VERSION }})
+        shell: bash
+        run: |
+          mkdir -p resources/ai-engine
+          ARCHIVE_PATH="resources/${{ matrix.ollama_asset }}"
+          curl -fsSL -o "$ARCHIVE_PATH" \
+            "https://github.com/ollama/ollama/releases/download/${{ env.OLLAMA_VERSION }}/${{ matrix.ollama_asset }}"
+
+          case "${{ matrix.ollama_asset }}" in
+            *.tgz)
+              tar -xzf "$ARCHIVE_PATH" -C resources/ai-engine
+              ;;
+            *.zip)
+              unzip -q "$ARCHIVE_PATH" -d resources/ai-engine
+              ;;
+            *)
+              echo "Unsupported Ollama archive: ${{ matrix.ollama_asset }}"
+              exit 1
+              ;;
+          esac
+
+          rm -f "$ARCHIVE_PATH"
+          deno eval '
+            const files = [];
+            for await (const entry of Deno.readDir("resources/ai-engine")) {
+              if (entry.isFile) files.push(entry.name);
+            }
+            files.sort();
+            await Deno.writeTextFile(
+              "resources/ai-engine/manifest.json",
+              JSON.stringify({ files }, null, 2),
+            );
+          '
+          chmod +x "resources/ai-engine/${{ matrix.ollama_binary }}" 2>/dev/null || true
+          ls -lah resources/ai-engine
+
+      - name: Build stdlib
+        run: deno run -A scripts/build-stdlib.ts
+
       - name: Embed HLVM packages
         run: deno run --allow-read --allow-write scripts/embed-packages.ts
 
@@ -53,7 +108,11 @@ jobs:
           deno compile \
             --allow-all \
             --no-check \
+            --config deno.json \
             --target ${{ matrix.target }} \
+            --v8-flags=--max-old-space-size=4096 \
+            --include resources/ai-engine \
+            --include src/hql/lib/stdlib/js/index.js \
             --output ${{ matrix.binary }} \
             src/hlvm/cli/cli.ts
 
@@ -93,33 +152,44 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          draft: false
+          draft: true
           prerelease: false
           generate_release_notes: true
           body: |
             # HLVM ${{ github.ref_name }}
 
-            HLVM runtime platform with HQL and JavaScript.
+            AI-native runtime infrastructure with embedded local AI.
 
             ## Installation
 
-            **macOS / Linux:**
+            **Standard (recommended):**
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.sh | sh
+            curl -fsSL https://hlvm.dev/install.sh | sh
             ```
+
+            Downloads the GitHub Release binary and prepares the local AI fallback during install.
+
+            **Full Offline:**
+            ```bash
+            curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full
+            ```
+
+            Larger download. No post-download network dependency after the bundle is downloaded.
 
             **Windows (PowerShell):**
             ```powershell
-            irm https://raw.githubusercontent.com/hlvm-dev/hlvm/main/install.ps1 | iex
+            irm https://hlvm.dev/install.ps1 | iex
             ```
+
+            After install, `hlvm ask "hello"` works immediately.
 
             ## What's Included
 
-            - HLVM runtime platform
+            - HLVM runtime platform with embedded AI engine
             - HQL and JavaScript REPL
             - Complete standard library
-            - Macro system
-            - JavaScript interop
+            - AI agent SDK with MCP tool servers
+            - Local fallback model prepared during install
 
             ## Binaries
 
@@ -131,6 +201,9 @@ jobs:
             ## Quick Start
 
             ```bash
+            # AI assistant
+            hlvm ask "hello"
+
             # Start REPL
             hlvm repl
 
@@ -145,6 +218,8 @@ jobs:
             hlvm-mac-intel
             hlvm-linux
             hlvm-windows.exe
+            install.sh
+            install.ps1
             checksums.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

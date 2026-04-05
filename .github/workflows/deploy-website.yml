@@ -6,6 +6,8 @@ on:
     paths:
       - "docs/**"
       - "website/**"
+      - "install.sh"
+      - "install.ps1"
       - "firebase.json"
       - "CONTRIBUTING.md"
   workflow_dispatch:
@@ -40,6 +42,10 @@ jobs:
       - name: Build
         working-directory: website
         run: npm run build
+
+      - name: Sync installers
+        working-directory: website
+        run: npm run sync:installers
 
       - name: Install Playwright browsers
         working-directory: website

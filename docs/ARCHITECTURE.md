@@ -65,11 +65,11 @@ Runtime-first architecture:
                                       │
                           ┌───────────┼───────────┐
                           ▼           ▼           ▼
-                    ┌──────────┐ ┌─────────┐ ┌──────────┐
-                    │  Ollama  │ │  Cloud  │ │   MCP    │
-                    │ (local)  │ │Providers│ │ Servers  │
-                    │ :11434   │ │ (APIs)  │ │(stdio/http)│
-                    └──────────┘ └─────────┘ └──────────┘
+                    ┌───────────────┐ ┌─────────┐ ┌──────────┐
+                    │   Ollama      │ │  Cloud  │ │   MCP    │
+                    │ system :11434 │ │Providers│ │ Servers  │
+                    │ HLVM  :11439  │ │ (APIs)  │ │(stdio/http)│
+                    └───────────────┘ └─────────┘ └──────────┘
 ```
 
 ---
@@ -844,6 +844,25 @@ Cloud providers use the `createCloudProvider()` factory (collapsed from 4 classe
 - **Auto-extraction**: Regex baseline (all models) + LLM extraction (frontier only)
 - **Pre-compaction flush**: Orchestrator injects save prompt before compaction
 - **Full details**: See `docs/memory-system-final.md`
+
+---
+
+## Local AI Substrate
+
+The bootstrap system ensures `hlvm ask "hello"` works immediately after install.
+
+- **Model store**: `~/.hlvm/.runtime/models/` (HLVM-owned, isolated from system Ollama)
+- **Engine isolation**: `startAIEngine()` sets `OLLAMA_MODELS` env to redirect storage
+- **HLVM-owned endpoint**: `http://127.0.0.1:11439` for the embedded fallback runtime; `11434` remains the system/default Ollama endpoint
+- **Pinned fallback**: `gemma4:e4b` with a pinned Ollama manifest digest prefix and published size sanity bound
+- **Manifest**: `~/.hlvm/.runtime/manifest.json` — tracks engine + model state, hashes
+- **States**: `uninitialized` → `verified` (healthy) or `degraded` (missing assets)
+- **Adopt-or-pull bootstrap**: `hlvm bootstrap` reuses a preloaded pinned model when present and only pulls when it is absent
+- **Readiness**: `/health.aiReady` is only true when the fallback is actually verified and usable
+- **Recovery**: `hlvm bootstrap --repair` re-materializes missing/corrupt assets
+- **Model resolution chain**: Claude Code → Ollama Cloud → **local fallback** (new)
+- **Install**: `curl -fsSL https://hlvm.dev/install.sh | sh` (standard) or `--full` (offline)
+- **Full details**: See `docs/vision/single-binary-local-ai.md`
 
 ---
 

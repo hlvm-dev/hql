@@ -247,7 +247,7 @@ function renderWebToolGuidance(
       "- fetch_url is for raw HTML/markdown or low-level inspection, not the default page reader.",
     );
   }
-  if (hasSearch && hasWebFetch) {
+  if (hasWebSearch && hasWebFetch) {
     lines.push(
       "- When search results already contain a promising official URL, call web_fetch on that URL instead of inventing a derived URL.",
     );

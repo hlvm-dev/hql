@@ -24,20 +24,22 @@ openapi:
 	@deno task openapi
 
 # Quick build for current computer (always clean — no stale cache)
-build: clean stdlib embed-packages
-	@echo "🔨 Building HLVM binary (clean)..."
+build: clean setup-ai stdlib embed-packages
+	@echo "🔨 Building HLVM binary with embedded AI engine (clean)..."
 	@DENO_DIR=$$(mktemp -d) deno compile --allow-all --no-check --config deno.json \
 		--v8-flags=--max-old-space-size=4096 \
+		--include resources/ai-engine \
 		--include src/hql/lib/stdlib/js/index.js \
 		--output $(BINARY) $(CLI_ENTRY)
 	@echo "✅ Done! Binary: ./$(BINARY)"
 	@ls -lh $(BINARY)
 
 # Fast build — uses cached DENO_DIR, skips clean
-build-fast: stdlib embed-packages
-	@echo "🔨 Building HLVM binary (cached)..."
+build-fast: setup-ai stdlib embed-packages
+	@echo "🔨 Building HLVM binary with embedded AI engine (cached)..."
 	@deno compile --allow-all --no-check --config deno.json \
 		--v8-flags=--max-old-space-size=4096 \
+		--include resources/ai-engine \
 		--include src/hql/lib/stdlib/js/index.js \
 		--output $(BINARY) $(CLI_ENTRY)
 	@echo "✅ Done! Binary: ./$(BINARY)"
@@ -105,42 +107,63 @@ all: build-mac-intel build-mac-arm build-linux build-windows
 	@echo ""
 	@echo "✅ Ready to distribute!"
 
-# Build with AI (includes embedded Ollama)
-# Requires: resources/ai-engine (Ollama binary)
-build-ai: stdlib embed-packages
-	@if [ ! -f resources/ai-engine ]; then \
-		echo "❌ Missing resources/ai-engine"; \
-		echo "   Run: make setup-ai"; \
-		exit 1; \
-	fi
-	@echo "🤖 Building HLVM with AI (includes Ollama)..."
-	@deno compile --allow-all --no-check --config deno.json \
-		--include resources/ai-engine \
-		--output $(BINARY) $(CLI_ENTRY)
-	@echo "✅ Done! AI-enabled binary: ./$(BINARY)"
-	@ls -lh $(BINARY)
+# Build with AI (compatibility alias for the default build)
+build-ai: build
+	@true
+
+# Pinned Ollama version — SSOT shared with GitHub Actions.
+OLLAMA_VERSION ?= $(strip $(shell cat embedded-ollama-version.txt))
 
 # Setup AI engine (download Ollama for embedding)
 setup-ai:
-	@echo "📥 Setting up AI engine..."
+	@echo "📥 Setting up AI engine (Ollama $(OLLAMA_VERSION))..."
 	@mkdir -p resources
-	@if [ -f /usr/local/bin/ollama ]; then \
-		echo "   Using system Ollama..."; \
-		cp /usr/local/bin/ollama resources/ai-engine; \
-	elif [ -f $(HOME)/.ollama/ollama ]; then \
-		echo "   Using user Ollama..."; \
-		cp $(HOME)/.ollama/ollama resources/ai-engine; \
-	elif command -v ollama >/dev/null 2>&1; then \
-		echo "   Copying from PATH..."; \
-		cp $$(which ollama) resources/ai-engine; \
+	@rm -rf resources/ai-engine
+	@mkdir -p resources/ai-engine
+	@set -e; \
+	UNAME_S=$$(uname -s); UNAME_M=$$(uname -m); \
+	OLLAMA_BASE="https://github.com/ollama/ollama/releases/download/$(OLLAMA_VERSION)"; \
+	if [ "$$UNAME_S" = "Darwin" ]; then \
+		OLLAMA_ASSET="ollama-darwin.tgz"; \
+	elif [ "$$UNAME_S" = "Linux" ] && [ "$$UNAME_M" = "x86_64" ]; then \
+		OLLAMA_ASSET="ollama-linux-amd64.tgz"; \
+	elif [ "$$UNAME_S" = "Linux" ] && [ "$$UNAME_M" = "aarch64" ]; then \
+		OLLAMA_ASSET="ollama-linux-arm64.tgz"; \
 	else \
-		echo "❌ Ollama not found. Install it first:"; \
-		echo "   curl -fsSL https://ollama.com/install.sh | sh"; \
+		echo "❌ No official Ollama binary for $$UNAME_S/$$UNAME_M."; \
+		echo "   Falling back to system Ollama..."; \
+		if command -v ollama >/dev/null 2>&1; then \
+			cp $$(which ollama) resources/ai-engine/ollama; \
+			chmod +x resources/ai-engine/ollama; \
+			OLLAMA_ASSET=""; \
+		else \
+			echo "❌ Ollama not found. Install from: https://ollama.ai"; \
+			exit 1; \
+		fi; \
+	fi; \
+	if [ -n "$$OLLAMA_ASSET" ]; then \
+		OLLAMA_URL="$$OLLAMA_BASE/$$OLLAMA_ASSET"; \
+		ARCHIVE_PATH="resources/$$OLLAMA_ASSET"; \
+		echo "   Downloading from $$OLLAMA_URL..."; \
+		curl -fsSL -o "$$ARCHIVE_PATH" "$$OLLAMA_URL"; \
+		tar -xzf "$$ARCHIVE_PATH" -C resources/ai-engine; \
+		rm -f "$$ARCHIVE_PATH"; \
+	fi; \
+	if [ ! -f resources/ai-engine/ollama ] && [ ! -f resources/ai-engine/ollama.exe ]; then \
+		echo "❌ Extracted Ollama runtime is missing the main executable."; \
 		exit 1; \
 	fi
-	@chmod +x resources/ai-engine
-	@echo "✅ AI engine ready: resources/ai-engine"
-	@ls -lh resources/ai-engine
+	@deno eval '\
+		const files = [];\
+		for await (const entry of Deno.readDir("resources/ai-engine")) {\
+			if (entry.isFile) files.push(entry.name);\
+		}\
+		files.sort();\
+		await Deno.writeTextFile("resources/ai-engine/manifest.json", JSON.stringify({ files }, null, 2));\
+	'
+	@chmod +x resources/ai-engine/ollama 2>/dev/null || true
+	@echo "✅ AI engine ready: resources/ai-engine (Ollama $(OLLAMA_VERSION))"
+	@ls -lah resources/ai-engine
 
 # Test AI features
 test-ai: build-ai
@@ -159,8 +182,8 @@ help:
 	@echo "HLVM Build System"
 	@echo ""
 	@echo "Commands:"
-	@echo "  make              - Build for current computer (clean)"
-	@echo "  make fast         - Build + REPL with cached deps (fast)"
+	@echo "  make              - Build for current computer with embedded AI (clean)"
+	@echo "  make fast         - Build + REPL with embedded AI using cached deps"
 	@echo "  make repl         - Build + REPL from clean slate"
 	@echo "  make ink          - Build + Ink REPL (experimental)"
 	@echo "  make install      - Install system-wide"
@@ -168,9 +191,9 @@ help:
 	@echo "  make all          - Build for all platforms"
 	@echo "  make clean        - Remove build files"
 	@echo ""
-	@echo "AI-Enabled Build (includes Ollama):"
+	@echo "Embedded AI engine:"
 	@echo "  make setup-ai     - Setup AI engine (copy Ollama)"
-	@echo "  make build-ai     - Build with embedded AI"
+	@echo "  make build-ai     - Compatibility alias for 'make'"
 	@echo "  make test-ai      - Test AI features"
 	@echo ""
 	@echo "Platform-specific builds:"

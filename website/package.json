@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "sync:installers": "node scripts/sync-installers.mjs out",
     "start": "next dev",
     "lint": "eslint .",
     "preview": "next dev",

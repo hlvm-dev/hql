@@ -4,11 +4,26 @@ import { useRef, useState, lazy, Suspense } from 'react';
 import HLVMLogo from './HLVMLogo';
 const FeatureDemoOverlay = lazy(() => import('./FeatureDemoOverlay'));
 
+const INSTALL_COMMANDS = {
+  standard: 'curl -fsSL https://hlvm.dev/install.sh | sh',
+  offline: 'curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full',
+};
+
 function Hero() {
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState('');
   const watchBtnRef = useRef(null);
 
   const handleWatchClick = () => { setIsOverlayOpen(true); };
+  const handleCopyCommand = async (mode) => {
+    try {
+      await navigator.clipboard.writeText(INSTALL_COMMANDS[mode]);
+      setCopiedCommand(mode);
+      globalThis.setTimeout(() => setCopiedCommand((current) => current === mode ? '' : current), 1600);
+    } catch {
+      setCopiedCommand('');
+    }
+  };
 
   return (
     <section className="hero">
@@ -23,23 +38,60 @@ function Hero() {
           </h1>
 
           <p className="hero-tagline">
-            One search bar. unlimited power.
+            One command. Ready on completion.
           </p>
 
           <div className="hero-download">
-            <button
-              ref={watchBtnRef}
-              className="btn btn-primary hero-cta"
-              onClick={handleWatchClick}
-              aria-haspopup="dialog"
-              aria-controls="feature-demo-overlay"
-            >
-              Watch Demo
-            </button>
-
+            <div className="hero-action-row">
+              <button
+                ref={watchBtnRef}
+                className="btn btn-primary hero-cta"
+                onClick={handleWatchClick}
+                aria-haspopup="dialog"
+                aria-controls="feature-demo-overlay"
+              >
+                Watch Demo
+              </button>
+            </div>
             <p className="hero-availability">
-              on YouTube
+              Standard install prepares local AI during install. Full Offline avoids any post-download network dependency.
             </p>
+          </div>
+
+          <div className="hero-install-grid">
+            <div className="hero-install-card">
+              <div className="hero-install-header">
+                <div>
+                  <p className="hero-install-title">Standard</p>
+                  <p className="hero-install-note">Recommended. Downloads the GitHub release binary and prepares the local fallback during install.</p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-compact hero-install-copy"
+                  onClick={() => handleCopyCommand('standard')}
+                >
+                  {copiedCommand === 'standard' ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <code className="hero-install-command">{INSTALL_COMMANDS.standard}</code>
+            </div>
+
+            <div className="hero-install-card">
+              <div className="hero-install-header">
+                <div>
+                  <p className="hero-install-title">Full Offline</p>
+                  <p className="hero-install-note">Larger download. After the offline bundle is downloaded, install finishes without needing the network.</p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-compact hero-install-copy"
+                  onClick={() => handleCopyCommand('offline')}
+                >
+                  {copiedCommand === 'offline' ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <code className="hero-install-command">{INSTALL_COMMANDS.offline}</code>
+            </div>
           </div>
         </div>
       </div>
