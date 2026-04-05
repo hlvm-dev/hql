@@ -105,26 +105,19 @@ function validateImportPath(
   }
 
   // Allow absolute paths - user explicitly specified the full path
-  if (modulePath.startsWith("/")) {
+  const platformPath = path();
+  if (platformPath.isAbsolute(modulePath)) {
     return;
   }
 
   // For relative paths, verify they don't escape baseDir
-  // Use resolve() instead of normalize() for baseDir to handle "." correctly
-  // resolve(".") returns the absolute cwd, while normalize(".") returns "."
-  const normalizedResolved = path().normalize(resolvedPath);
-  const normalizedBase = path().normalize(path().resolve(baseDir));
-
-  // Ensure base path ends with separator for proper boundary check
-  // This prevents "/Users/project-backup" from matching "/Users/project"
-  const baseDirWithSep = normalizedBase.endsWith("/")
-    ? normalizedBase
-    : normalizedBase + "/";
-
-  // Check if resolved path is within baseDir (with proper path boundary)
-  // Allow exact match (resolvedPath === baseDir) or proper subdirectory
-  const isWithinBase = normalizedResolved === normalizedBase ||
-    normalizedResolved.startsWith(baseDirWithSep);
+  const normalizedResolved = platformPath.normalize(resolvedPath);
+  const normalizedBase = platformPath.normalize(platformPath.resolve(baseDir));
+  const relativeToBase = platformPath.relative(normalizedBase, normalizedResolved);
+  const isWithinBase = relativeToBase === "" ||
+    (!relativeToBase.startsWith("..") &&
+      relativeToBase !== ".." &&
+      !platformPath.isAbsolute(relativeToBase));
 
   if (!isWithinBase) {
     throw new ImportError(
