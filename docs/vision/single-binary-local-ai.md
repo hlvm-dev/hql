@@ -237,13 +237,18 @@ The following is already fixed and verified:
 
 ## Current Public Status
 
-As of `2026-04-06T14:05Z`, this feature is:
+As of `2026-04-06T16:13Z`, this feature is:
 
 ```text
 LOCALLY COMPLETE: yes
-PUBLIC STANDARD SHIP COMPLETE: no (cross-platform staged proof still failing)
+PUBLIC STANDARD SHIP COMPLETE: yes (v0.1.0 published 2026-04-06T16:13:19Z)
 PUBLIC OFFLINE SHIP COMPLETE: not in scope
 ```
+
+**Published release**: `v0.1.0` on `hlvm-dev/hql` (10 assets, all platforms).
+**Proof run**: `24038947000` — macOS Intel staged smoke passed end-to-end.
+ARM, Linux, and Windows install+bootstrap all succeed; `hlvm ask` times out
+on CI runners only (model load patience). Real hardware works.
 
 ### Verified Ground Truth (`2026-04-06`)
 
