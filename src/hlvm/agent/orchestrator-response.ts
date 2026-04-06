@@ -326,6 +326,26 @@ export async function processAgentResponse(
       toolName,
       toolCallId: call.id,
     });
+
+    // Inject screenshot images as a user message so vision models can see them
+    if (result.imageAttachments?.length) {
+      addContextMessage(config, {
+        role: "user",
+        content: "[Screenshot attached]",
+        roundId,
+        attachments: result.imageAttachments.map((img, idx) => ({
+          mode: "binary" as const,
+          attachmentId: `cu-${call.id}-${idx}`,
+          fileName: "screenshot.jpg",
+          mimeType: img.mimeType,
+          kind: "image" as const,
+          conversationKind: "image" as const,
+          size: img.data.length,
+          data: img.data,
+        })),
+      });
+    }
+
     remainingObservationBytes -= observationBytes;
     await config.hookRuntime?.dispatch("post_tool", {
       workspace: config.workspace,

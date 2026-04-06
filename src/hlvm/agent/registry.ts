@@ -24,6 +24,7 @@ import { GIT_TOOLS } from "./tools/git-tools.ts";
 import { DELEGATE_TOOLS } from "./tools/delegate-tools.ts";
 import { ACTIVITY_TOOLS } from "./tools/activity-tools.ts";
 import { AGENT_TEAM_TOOLS } from "./tools/agent-team-tools.ts";
+import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
 import type { AgentPolicy } from "./policy.ts";
@@ -533,6 +534,7 @@ const BUILTIN_TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...DELEGATE_TOOLS,
   ...ACTIVITY_TOOLS,
   ...AGENT_TEAM_TOOLS,
+  ...COMPUTER_USE_TOOLS,
 } as Record<string, ToolMetadata>;
 
 export const TOOL_REGISTRY: Record<string, ToolMetadata> =

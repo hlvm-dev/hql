@@ -39,6 +39,13 @@ export interface ToolExecutionResult {
   error?: string;
   stopReason?: "plan_review_cancelled";
   recovery?: EditFileRecovery;
+  /** Image attachments from tools like cu_screenshot (base64 JPEG). */
+  imageAttachments?: Array<{
+    data: string;
+    mimeType: string;
+    width?: number;
+    height?: number;
+  }>;
 }
 
 /** Mutable state for the ReAct loop, consolidated from 16 local variables */

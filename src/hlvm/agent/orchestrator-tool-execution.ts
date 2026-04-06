@@ -1123,11 +1123,26 @@ export async function executeToolCall(
       });
     }
 
+    // Extract image attachments from computer-use tools (e.g., cu_screenshot)
+    const imageAttachments = result &&
+        typeof result === "object" &&
+        "_imageAttachment" in (result as Record<string, unknown>)
+      ? [
+        (result as Record<string, unknown>)._imageAttachment as {
+          data: string;
+          mimeType: string;
+          width?: number;
+          height?: number;
+        },
+      ]
+      : undefined;
+
     return {
       success: true,
       result,
       ...outputs,
       recovery,
+      ...(imageAttachments ? { imageAttachments } : {}),
     };
   } catch (error) {
     return buildToolErrorResult(
