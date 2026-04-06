@@ -88,13 +88,14 @@ jobs:
               raise SystemExit(f"No bundle found at {bundle}.")
 
           destination = bundle
+          repo_id = "${{ env.HF_REPO }}"
           api = HfApi(token=token)
           api.upload_file(
               path_or_fileobj=bundle,
               path_in_repo=destination,
-              repo_id="${{ env.HF_REPO }}",
+              repo_id=repo_id,
               repo_type="model",
               commit_message=f"Add {destination}",
           )
-          print(f"Uploaded {destination} to ${{{{ env.HF_REPO }}}}.")
+          print(f"Uploaded {destination} to {repo_id}.")
           PY
