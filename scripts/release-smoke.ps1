@@ -52,6 +52,9 @@ $installDir = Join-Path $smokeRoot "bin"
 $installerPath = Join-Path $smokeRoot "install.ps1"
 $binaryPath = Join-Path $installDir "hlvm.exe"
 $serverProcess = $null
+$previousHome = $env:HOME
+$previousUserProfile = $env:USERPROFILE
+$previousHlvmDir = $env:HLVM_DIR
 
 New-Item -ItemType Directory -Path $assetDir, $homeDir, $installDir -Force | Out-Null
 
@@ -94,6 +97,10 @@ try {
         Remove-Item Env:HLVM_INSTALL_CHECKSUM_URL -ErrorAction SilentlyContinue
     }
 
+    $env:HOME = $homeDir
+    $env:USERPROFILE = $homeDir
+    $env:HLVM_DIR = Join-Path $homeDir ".hlvm"
+
     & $installerPath
     if ($LASTEXITCODE -ne 0) {
         throw "Installer failed"
@@ -111,6 +118,21 @@ try {
     Remove-Item Env:HLVM_INSTALL_BINARY_BASE_URL -ErrorAction SilentlyContinue
     Remove-Item Env:HLVM_INSTALL_CHECKSUM_URL -ErrorAction SilentlyContinue
     Remove-Item Env:HLVM_INSTALL_DIR -ErrorAction SilentlyContinue
+    if ($null -ne $previousHome) {
+        $env:HOME = $previousHome
+    } else {
+        Remove-Item Env:HOME -ErrorAction SilentlyContinue
+    }
+    if ($null -ne $previousUserProfile) {
+        $env:USERPROFILE = $previousUserProfile
+    } else {
+        Remove-Item Env:USERPROFILE -ErrorAction SilentlyContinue
+    }
+    if ($null -ne $previousHlvmDir) {
+        $env:HLVM_DIR = $previousHlvmDir
+    } else {
+        Remove-Item Env:HLVM_DIR -ErrorAction SilentlyContinue
+    }
 
     if (Test-Path $smokeRoot) {
         Remove-Item -Recurse -Force $smokeRoot

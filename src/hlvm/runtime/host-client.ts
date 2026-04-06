@@ -61,6 +61,7 @@ import {
 
 const STREAM_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const HEALTH_POLL_ATTEMPTS = 60;
+const AI_READY_POLL_ATTEMPTS = 600;
 const HEALTH_POLL_DELAY_MS = 100;
 const RUNTIME_SHUTDOWN_POLL_ATTEMPTS = 30;
 const RUNTIME_START_LOCK_WAIT_ATTEMPTS = 120;
@@ -605,7 +606,7 @@ async function ensureRuntimeAiReady(): Promise<{
   const health = await waitForRuntimeHost(
     runtime.baseUrl,
     undefined,
-    HEALTH_POLL_ATTEMPTS,
+    AI_READY_POLL_ATTEMPTS,
     true,
   );
   if (!health?.authToken) {

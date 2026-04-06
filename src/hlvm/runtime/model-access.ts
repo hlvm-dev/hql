@@ -10,6 +10,18 @@ interface ModelAccessProbeResult {
   error?: string;
 }
 
+export interface WaitForModelAccessOptions {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+}
+
+const MODEL_ACCESS_TIMEOUT_MS = 60_000;
+const MODEL_ACCESS_POLL_INTERVAL_MS = 2_000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Probe model access with a tiny non-streaming chat request on the runtime side. */
 export async function probeModelAccess(
   modelId: string,
@@ -42,7 +54,7 @@ export async function probeModelAccess(
     if (isOllamaAuthErrorMessage(message)) {
       return { available: false, authRequired: true };
     }
-    log.error(`Cloud access check failed: ${message}`);
+    log.error(`Model access probe failed: ${message}`);
     return { available: false, error: message };
   } finally {
     try {
@@ -51,4 +63,25 @@ export async function probeModelAccess(
       // Iterator already closed.
     }
   }
+}
+
+export async function waitForModelAccess(
+  modelId: string,
+  options: WaitForModelAccessOptions = {},
+): Promise<ModelAccessProbeResult> {
+  const timeoutMs = options.timeoutMs ?? MODEL_ACCESS_TIMEOUT_MS;
+  const pollIntervalMs = options.pollIntervalMs ?? MODEL_ACCESS_POLL_INTERVAL_MS;
+  const deadline = Date.now() + timeoutMs;
+
+  let result = await probeModelAccess(modelId);
+  while (
+    !result.available &&
+    !result.authRequired &&
+    Date.now() < deadline
+  ) {
+    await delay(pollIntervalMs);
+    result = await probeModelAccess(modelId);
+  }
+
+  return result;
 }

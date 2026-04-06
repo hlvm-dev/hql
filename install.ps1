@@ -146,13 +146,13 @@ Write-Info "Bootstrapping local AI substrate..."
 # Cleanup temp dir regardless of bootstrap outcome
 Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue
 
-$bootstrapOk = $false
+$bootstrapError = $null
 try {
     & "$InstallDir\$BinaryName" bootstrap
-    if ($LASTEXITCODE -eq 0) { $bootstrapOk = $true }
 } catch {
-    # bootstrap command failed
+    $bootstrapError = $_
 }
+$bootstrapOk = ($null -eq $bootstrapError) -and ($LASTEXITCODE -eq 0)
 
 if ($bootstrapOk) {
     Write-Host ""
@@ -164,6 +164,9 @@ if ($bootstrapOk) {
     Write-Host "    hlvm --help"
     Write-Host ""
 } else {
+    if ($bootstrapError) {
+        Write-Err ("Bootstrap error: " + $bootstrapError.Exception.Message)
+    }
     Write-Host ""
     Write-Err "HLVM $version installed, but bootstrap failed."
     Write-Err "The local AI fallback is NOT ready."

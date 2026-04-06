@@ -48,8 +48,11 @@ export interface AIEngineLifecycle {
 // ============================================================================
 
 const SYSTEM_AI_ENGINE = "ollama";
-const AI_STARTUP_MAX_POLLS = 30;
 const AI_STARTUP_POLL_INTERVAL_MS = 300;
+const AI_STARTUP_TIMEOUT_MS = 60_000;
+const AI_STARTUP_MAX_POLLS = Math.ceil(
+  AI_STARTUP_TIMEOUT_MS / AI_STARTUP_POLL_INTERVAL_MS,
+);
 const textDecoder = new TextDecoder();
 
 let initPromise: Promise<void> | null = null;

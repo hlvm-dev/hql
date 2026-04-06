@@ -11,10 +11,17 @@
 import { log } from "../../api/log.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 import { verifyBootstrap } from "../../runtime/bootstrap-verify.ts";
-import { readBootstrapManifest } from "../../runtime/bootstrap-manifest.ts";
+import {
+  LOCAL_FALLBACK_MODEL,
+  readBootstrapManifest,
+} from "../../runtime/bootstrap-manifest.ts";
 import { materializeBootstrap, type MaterializeProgress } from "../../runtime/bootstrap-materialize.ts";
 import { recoverBootstrap } from "../../runtime/bootstrap-recovery.ts";
+import { aiEngine } from "../../runtime/ai-runtime.ts";
+import { waitForModelAccess } from "../../runtime/model-access.ts";
 import { autoConfigureInitialLocalFallbackModel } from "../../../common/ai-default-model.ts";
+
+const LOCAL_FALLBACK_MODEL_ID = `ollama/${LOCAL_FALLBACK_MODEL}`;
 
 function showBootstrapHelp(): void {
   log.info(`
@@ -101,6 +108,25 @@ export async function bootstrapCommand(args: string[]): Promise<number> {
     if (configuredLocalFallback) {
       log.info(`Configured initial model: ${configuredLocalFallback}`);
     }
+    log.info(`Warming local fallback: ${LOCAL_FALLBACK_MODEL_ID}`);
+    const engineReady = await aiEngine.ensureRunning();
+    if (!engineReady) {
+      log.error(
+        "Bootstrap completed, but the local AI engine could not be started for readiness verification.",
+      );
+      return 1;
+    }
+    const access = await waitForModelAccess(LOCAL_FALLBACK_MODEL_ID);
+    if (!access.available) {
+      const reason = access.authRequired
+        ? "authentication is unexpectedly required"
+        : access.error ?? "the model did not answer a readiness probe in time";
+      log.error(
+        `Bootstrap completed, but ${LOCAL_FALLBACK_MODEL_ID} is not ready for requests: ${reason}`,
+      );
+      return 1;
+    }
+    log.info(`Ready: ${LOCAL_FALLBACK_MODEL_ID} answered a probe request.`);
     log.info(`Bootstrap complete. State: ${manifest.state}`);
     log.info(`Engine:  ${manifest.engine.adapter} (${manifest.engine.path})`);
     for (const m of manifest.models) {
