@@ -79,18 +79,7 @@ function Wait-HttpServerReady(
     throw "Timed out waiting for local asset server at $probeUrl"
 }
 
-function Kill-OrphanRuntime {
-    # Bootstrap may leave an orphan Ollama/engine process that holds the
-    # runtime port (11439) and consumes memory.  Kill it before hlvm ask
-    # tries to start a fresh instance.
-    Get-Process | Where-Object { $_.ProcessName -match '^(ollama|engine)$' } |
-        Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
-}
-
 function Run-PostChecks([string]$BinaryPath, [string]$HomeDir) {
-    Kill-OrphanRuntime
-
     & $BinaryPath bootstrap --verify
     if ($LASTEXITCODE -ne 0) {
         throw "bootstrap --verify failed"
