@@ -26,6 +26,9 @@ need_cmd() {
 
 cleanup() {
   status=$?
+  # Ensure no orphan runtime processes survive the smoke test.
+  pkill -f '.hlvm.*engine' 2>/dev/null || true
+  pkill -f 'ollama serve' 2>/dev/null || true
   if [ -n "${SMOKE_ROOT:-}" ] && [ -d "${SMOKE_ROOT}" ]; then
     if [ "$status" -eq 0 ]; then
       rm -rf "${SMOKE_ROOT}"
@@ -103,7 +106,17 @@ run_install() {
     sh "$INSTALLER_PATH"
 }
 
+kill_orphan_runtime() {
+  # Bootstrap may leave an orphan Ollama/engine process that holds the
+  # runtime port (11439) and consumes memory.  Kill it before hlvm ask
+  # tries to start a fresh instance.
+  pkill -f '.hlvm.*engine' 2>/dev/null || true
+  pkill -f 'ollama serve' 2>/dev/null || true
+  sleep 2
+}
+
 run_post_checks() {
+  kill_orphan_runtime
   HOME="$HOME_DIR" PATH="$INSTALL_BIN:$PATH" "$INSTALL_BIN/hlvm" bootstrap --verify
   HOME="$HOME_DIR" PATH="$INSTALL_BIN:$PATH" "$INSTALL_BIN/hlvm" ask "$SMOKE_PROMPT"
 }
