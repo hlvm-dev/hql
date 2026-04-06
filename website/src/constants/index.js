@@ -1,6 +1,6 @@
 // URLs
 export const URLS = {
-  GITHUB_REPO: 'https://github.com/hlvm-dev/hlvm',
+  GITHUB_REPO: 'https://github.com/hlvm-dev/hql',
   DISCORD: 'https://discord.gg/C6qfeudedY',
   EMAIL: 'mailto:contact@hlvm.dev',
   LINKEDIN: 'https://www.linkedin.com/company/hlvm-dev',

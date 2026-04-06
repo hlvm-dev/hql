@@ -1,0 +1,84 @@
+name: Release Proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to prove (for example v0.1.0)
+        required: true
+        type: string
+      mode:
+        description: Whether to prove draft assets or the published public release
+        required: true
+        type: choice
+        options:
+          - staged
+          - public
+
+permissions:
+  contents: read
+
+env:
+  REPO: hlvm-dev/hql
+  HF_REPO: HLVM/hlvm-releases
+  SMOKE_PROMPT: hello
+
+jobs:
+  unix:
+    name: Unix ${{ matrix.platform }} (${{ inputs.mode }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin-aarch64
+          - os: macos-15-intel
+            platform: darwin-x86_64
+          - os: ubuntu-latest
+            platform: linux-x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate published latest tag
+        if: inputs.mode == 'public'
+        shell: bash
+        run: |
+          actual=$(curl -fsSL "https://api.github.com/repos/${{ env.REPO }}/releases/latest" | jq -r '.tag_name')
+          [ "$actual" = "${{ inputs.tag }}" ]
+
+      - name: Staged Unix smoke
+        if: inputs.mode == 'staged'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+          HLVM_SMOKE_REPO: ${{ env.REPO }}
+          HLVM_SMOKE_HF_REPO: ${{ env.HF_REPO }}
+          HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
+        run: |
+          sh scripts/release-smoke.sh standard "${{ inputs.tag }}"
+          sh scripts/release-smoke.sh offline "${{ inputs.tag }}"
+
+      - name: Public Unix smoke
+        if: inputs.mode == 'public'
+        shell: bash
+        env:
+          HLVM_PUBLIC_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
+        run: |
+          sh scripts/public-release-smoke.sh standard
+          sh scripts/public-release-smoke.sh offline
+
+  windows:
+    name: Windows x86_64 (${{ inputs.mode }})
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Windows smoke
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+          HLVM_SMOKE_REPO: ${{ env.REPO }}
+          HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
+        run: |
+          ./scripts/release-smoke.ps1 -Mode "${{ inputs.mode }}" -Tag "${{ inputs.tag }}"

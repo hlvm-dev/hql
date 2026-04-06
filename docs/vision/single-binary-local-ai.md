@@ -193,8 +193,10 @@ Ship-finish plumbing:
 
 - [x] `install.sh` supports internal release-staging overrides for binary/checksum/bundle sources
 - [x] `install.ps1` supports internal release-staging overrides for binary/checksum sources
-- [x] website deploy copies repo-root `install.sh` and `install.ps1` into `website/out/`
-- [x] `hlvm.dev/install.sh` and `hlvm.dev/install.ps1` are now treated as deploy artifacts, not GitHub-only URLs
+- [x] website deploy is designed to copy repo-root `install.sh` and `install.ps1` into `website/out/`
+- [x] current `website/out/` contents and live hosting have been refreshed so installer files are present
+- [x] `hlvm.dev/install.sh` and `hlvm.dev/install.ps1` now serve script content instead of landing-page HTML
+- [x] public `v0.1.0` draft release exists on `hlvm-dev/hql`
 - [x] GitHub release flow creates a **draft** release first
 - [x] offline bundle publishing is a separate manual workflow that packages from the staged draft tag
 - [x] explicit publish workflow validates installer URLs + bundle URLs before publishing the draft release
@@ -218,7 +220,7 @@ GUI runtime conflict policy:
 
 ## Current Handoff Status
 
-As of `2026-04-06`, this feature is **complete in code** and **locally end-to-end proven** on the development machine.
+As of `2026-04-06`, this feature is **complete in code** and **locally end-to-end proven** on the development machine, but it is **not publicly shipped yet**.
 
 Mission status:
 
@@ -228,11 +230,27 @@ Mission status:
   - truthful readiness semantics
   - offline bundle path
   - repair path
-- **Not yet exercised publicly**
-  - published GitHub Release asset download/install
-  - published Hugging Face offline bundle download/install
+- **Blocked publicly**
+  - `hlvm-dev/hql` is now the only allowed release/install repo target
+  - the public `latest` release on `hlvm-dev/hql` is still `v0.0.1`, so the one-line installer cannot deliver `v0.1.0` yet
+  - `gh release view v0.1.0 --repo hlvm-dev/hql` shows a draft release with assets, but it was built from the old repo-target configuration and must be replaced
+  - `HLVM/hlvm-releases` still has no offline bundles for `v0.1.0` and currently contains only `.gitattributes`
+  - staged smoke and public smoke have never been completed against real `v0.1.0` artifacts
+  - `PUBLIC_RELEASE_TOKEN` and `HF_TOKEN` are configured as repo secrets on `hlvm-dev/hql`, but their values are not readable back through GitHub
 
 This is the current authoritative summary for any future LLM or engineer taking over the work.
+
+### Verified Ground Truth (`2026-04-06`)
+
+- `curl -I https://hlvm.dev/install.sh` returns `content-type: application/x-sh`
+- `curl -I https://hlvm.dev/install.ps1` returns `content-type: application/x-powershell`
+- both live installer URLs now return the real script bodies rather than the landing page HTML
+- `gh release list --repo hlvm-dev/hql --limit 5` reports `v0.0.1` as the latest published release and `v0.1.0` as a draft
+- `gh release view v0.1.0 --repo hlvm-dev/hql` shows the required draft assets, but they still reference the wrong repo target
+- `https://huggingface.co/api/models/HLVM/hlvm-releases` currently reports a single sibling: `.gitattributes`
+- `gh repo view hlvm-dev/hql --json visibility` reports `PUBLIC`
+- `PUBLIC_RELEASE_TOKEN` and `HF_TOKEN` both exist as repo secrets on `hlvm-dev/hql`
+- the remaining local changes are isolated to ship-status updates in the repo, not unrelated feature work
 
 ### What Was Proven Locally
 
@@ -326,7 +344,7 @@ new runtime-owner protocols.
 
 ### Ship Validation Flow
 
-The current ship sequence is now:
+The intended automated ship sequence is still:
 
 ```text
 1. push vX.Y.Z tag
@@ -353,6 +371,19 @@ The current ship sequence is now:
    -> validate installer URLs
    -> validate Hugging Face bundle URLs
    -> publish the draft release
+```
+
+Because GitHub Actions minutes are currently exhausted, the manual recovery sequence is:
+
+```text
+1. update the shared handoff doc with verified public-ship truth
+2. fix and manually deploy the website so hlvm.dev/install.sh and install.ps1 are real files
+3. use `hlvm-dev/hql` as the only release/install repo target and rely on its configured repo secrets for release publication
+4. manually create the v0.1.0 draft release using release.yml as the SSOT
+5. manually package and upload the offline bundles to HLVM/hlvm-releases
+6. run staged smoke against the draft release and staged bundles
+7. publish the draft release
+8. run real public macOS, Linux, and Windows smoke before claiming the ship is complete
 ```
 
 Operational boundary:
@@ -395,13 +426,20 @@ ownership safer and more honest.
 
 The next person or model taking over should treat the feature as implemented and focus on ship validation:
 
-- publish GitHub Release binaries
-- publish the Hugging Face offline bundle
-- run one public standard install smoke:
+- fix and deploy the website first so the live installer URLs stop serving HTML
+- obtain publish credentials before attempting GitHub Release or Hugging Face upload work
+- replace the stale `v0.1.0` draft release on `hlvm-dev/hql`
+- publish the Hugging Face offline bundles to `HLVM/hlvm-releases`
+- run staged smoke on macOS against the draft assets:
+  - `scripts/release-smoke.sh standard v0.1.0`
+  - `scripts/release-smoke.sh offline v0.1.0`
+- publish the draft release only after staged smoke passes
+- run one real public standard install smoke on macOS:
   - `curl -fsSL https://hlvm.dev/install.sh | sh`
-- run one public offline install smoke:
+- run one real public offline install smoke on macOS:
   - `curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full`
-- confirm README / landing / release notes match the published artifact reality
+- run one real public standard install smoke on Linux x86_64 and one on Windows x86_64
+- confirm README / landing / release notes match the published artifact reality before marking the public ship complete
 
 ### Canonical Product Contract
 

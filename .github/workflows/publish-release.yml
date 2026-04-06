@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 env:
-  REPO: hlvm-dev/hlvm
+  REPO: hlvm-dev/hql
   HF_REPO: HLVM/hlvm-releases
 
 jobs:

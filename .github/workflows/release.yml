@@ -11,7 +11,7 @@ permissions:
 env:
   EMBEDDED_OLLAMA_VERSION_FILE: embedded-ollama-version.txt
   MAX_RELEASE_ASSET_BYTES: 1900000000
-  PUBLIC_RELEASE_REPO: hlvm-dev/hlvm
+  PUBLIC_RELEASE_REPO: hlvm-dev/hql
 
 jobs:
   build:

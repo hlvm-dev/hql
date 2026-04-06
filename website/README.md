@@ -23,9 +23,9 @@ npm run test:e2e    # E2E tests (Playwright)
 
 Automatic via GitHub Actions on push to `main` when `docs/**`, `website/**`, or `firebase.json` change.
 
-Manual: `node scripts/sync-docs.mjs && npm run build && npm run sync:installers && cd .. && npx firebase deploy`
+Manual: `node scripts/sync-docs.mjs && npm run build && npm run sync:installers && cd .. && npx firebase deploy --only hosting`
 
-Firebase now serves Next static export output from `website/out`, including the stable installer URLs:
+The deploy target is Firebase hosting from `website/out`. A correct deploy must include the synced installer artifacts:
 
 - `https://hlvm.dev/install.sh`
 - `https://hlvm.dev/install.ps1`

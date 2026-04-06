@@ -13,8 +13,8 @@ Thank you for your interest in contributing to HLVM.
 
 Clone the repository:
 ```bash
-git clone https://github.com/hlvm-dev/hlvm.git
-cd hlvm
+git clone https://github.com/hlvm-dev/hql.git
+cd hql
 ```
 
 Build:

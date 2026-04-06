@@ -16,6 +16,32 @@
     ],
     "headers": [
       {
+        "source": "install.sh",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-sh"
+          },
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "install.ps1",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-powershell"
+          },
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
         "source": "_next/static/**",
         "headers": [
           {
