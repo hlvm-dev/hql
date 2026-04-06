@@ -123,11 +123,30 @@ jobs:
             --target ${{ matrix.target }} \
             --output ${{ matrix.binary }}
 
+      - name: Package release asset
+        shell: bash
+        run: |
+          mkdir -p release-asset
+          size=$(stat -f%z "${{ matrix.binary }}")
+
+          if [ "$size" -gt "${{ env.MAX_RELEASE_ASSET_BYTES }}" ]; then
+            echo "Splitting ${{ matrix.binary }} (${size} bytes) into release parts..."
+            split -b "${{ env.MAX_RELEASE_ASSET_BYTES }}" -d -a 3 \
+              "${{ matrix.binary }}" \
+              "release-asset/${{ matrix.binary }}.part-"
+            rm -f "${{ matrix.binary }}"
+          else
+            echo "Staging ${{ matrix.binary }} (${size} bytes) as a direct release asset..."
+            mv "${{ matrix.binary }}" "release-asset/${{ matrix.binary }}"
+          fi
+
+          ls -lah release-asset
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.binary }}
-          path: ${{ matrix.binary }}
+          path: release-asset/*
 
   release:
     name: Create Release
@@ -142,47 +161,48 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
-
-      - name: Move binaries to root
-        run: |
-          mv artifacts/hlvm-mac-arm/hlvm-mac-arm .
-          mv artifacts/hlvm-mac-intel/hlvm-mac-intel .
-          mv artifacts/hlvm-linux/hlvm-linux .
-          mv artifacts/hlvm-windows.exe/hlvm-windows.exe .
-          chmod +x hlvm-mac-arm hlvm-mac-intel hlvm-linux
+          path: release-assets
+          merge-multiple: true
 
       - name: Generate checksums
-        run: |
-          sha256sum hlvm-mac-arm hlvm-mac-intel hlvm-linux hlvm-windows.exe > checksums.sha256
-          echo "Generated checksums:"
-          cat checksums.sha256
-
-      - name: Stage release assets
         shell: bash
         run: |
-          mkdir -p release-assets
-
-          stage_binary() {
+          checksum_binary() {
             binary=$1
-            size=$(stat -c%s "$binary")
+            direct="release-assets/${binary}"
 
-            if [ "$size" -gt "${{ env.MAX_RELEASE_ASSET_BYTES }}" ]; then
-              echo "Splitting ${binary} (${size} bytes) into release parts..."
-              split -b "${{ env.MAX_RELEASE_ASSET_BYTES }}" -d -a 3 "$binary" "release-assets/${binary}.part-"
-            else
-              echo "Staging ${binary} (${size} bytes) as a direct release asset..."
-              mv "$binary" "release-assets/${binary}"
+            if [ -f "$direct" ]; then
+              checksum=$(sha256sum "$direct" | awk '{print $1}')
+              printf '%s  %s\n' "$checksum" "$binary" >> release-assets/checksums.sha256
+              return
             fi
+
+            shopt -s nullglob
+            parts=( "release-assets/${binary}".part-* )
+            if [ "${#parts[@]}" -eq 0 ]; then
+              echo "Missing release asset for ${binary}" >&2
+              exit 1
+            fi
+
+            checksum=$(cat "${parts[@]}" | sha256sum | awk '{print $1}')
+            printf '%s  %s\n' "$checksum" "$binary" >> release-assets/checksums.sha256
           }
 
-          stage_binary hlvm-mac-arm
-          stage_binary hlvm-mac-intel
-          stage_binary hlvm-linux
-          stage_binary hlvm-windows.exe
+          : > release-assets/checksums.sha256
+          checksum_binary hlvm-mac-arm
+          checksum_binary hlvm-mac-intel
+          checksum_binary hlvm-linux
+          checksum_binary hlvm-windows.exe
 
-          mv install.sh install.ps1 checksums.sha256 release-assets/
+          echo "Generated checksums:"
+          cat release-assets/checksums.sha256
 
+      - name: Add installer scripts
+        run: |
+          cp install.sh install.ps1 release-assets/
+
+      - name: Show release assets
+        run: |
           echo "Release assets:"
           ls -lah release-assets
 
