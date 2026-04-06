@@ -1,6 +1,10 @@
 name: Release Proof
 
 on:
+  push:
+    tags:
+      - proof-staged-v*
+      - proof-public-v*
   workflow_dispatch:
     inputs:
       tag:
@@ -28,7 +32,7 @@ env:
 
 jobs:
   resolve:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.action == 'published' || github.event.release.draft == true }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.action == 'published' || github.event.release.draft == true }}
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
@@ -40,6 +44,25 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
             echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            ref="${{ github.ref_name }}"
+            case "$ref" in
+              proof-staged-*)
+                echo "tag=${ref#proof-staged-}" >> "$GITHUB_OUTPUT"
+                echo "mode=staged" >> "$GITHUB_OUTPUT"
+                ;;
+              proof-public-*)
+                echo "tag=${ref#proof-public-}" >> "$GITHUB_OUTPUT"
+                echo "mode=public" >> "$GITHUB_OUTPUT"
+                ;;
+              *)
+                echo "Unsupported proof trigger tag: $ref" >&2
+                exit 1
+                ;;
+            esac
             exit 0
           fi
 
