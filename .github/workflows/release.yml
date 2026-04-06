@@ -18,6 +18,7 @@ jobs:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           # macOS ARM (Apple Silicon M1/M2/M3)
@@ -87,8 +88,11 @@ jobs:
         run: |
           mkdir -p resources/ai-engine
           ARCHIVE_PATH="resources/${{ matrix.ollama_asset }}"
-          curl -fsSL -o "$ARCHIVE_PATH" \
-            "https://github.com/ollama/ollama/releases/download/${{ env.OLLAMA_VERSION }}/${{ matrix.ollama_asset }}"
+          bash scripts/with-retry.sh --attempts 5 --delay 3 -- \
+            curl --fail --silent --show-error --location \
+              --retry 5 --retry-delay 2 --retry-all-errors \
+              -o "$ARCHIVE_PATH" \
+              "https://github.com/ollama/ollama/releases/download/${{ env.OLLAMA_VERSION }}/${{ matrix.ollama_asset }}"
 
           case "${{ matrix.ollama_asset }}" in
             *.tgz)
@@ -112,10 +116,10 @@ jobs:
           ls -lah resources/ai-engine
 
       - name: Build stdlib
-        run: deno run -A scripts/build-stdlib.ts
+        run: bash scripts/with-retry.sh --attempts 3 --delay 5 -- deno run -A scripts/build-stdlib.ts
 
       - name: Embed HLVM packages
-        run: deno run --allow-read --allow-write scripts/embed-packages.ts
+        run: bash scripts/with-retry.sh --attempts 3 --delay 5 -- deno run --allow-read --allow-write scripts/embed-packages.ts
 
       - name: Build binary
         shell: bash

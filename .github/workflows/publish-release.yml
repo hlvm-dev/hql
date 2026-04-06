@@ -61,14 +61,20 @@ jobs:
 
       - name: Validate installer URLs
         run: |
-          curl -fsSLI https://hlvm.dev/install.sh >/dev/null
-          curl -fsSLI https://hlvm.dev/install.ps1 >/dev/null
+          curl --fail --silent --show-error --location \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            --head https://hlvm.dev/install.sh >/dev/null
+          curl --fail --silent --show-error --location \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            --head https://hlvm.dev/install.ps1 >/dev/null
 
       - name: Validate offline bundles
         run: |
           for platform in darwin-aarch64 darwin-x86_64 linux-x86_64
           do
-            curl -fsSLI \
+            curl --fail --silent --show-error --location \
+              --retry 5 --retry-delay 2 --retry-all-errors \
+              --head \
               "https://huggingface.co/${{ env.HF_REPO }}/resolve/main/hlvm-${{ inputs.tag }}-${platform}-full.tar.gz" \
               >/dev/null
           done

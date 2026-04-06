@@ -20,6 +20,7 @@ jobs:
     name: Build offline bundle (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
@@ -51,16 +52,17 @@ jobs:
           deno-version: v2.x
 
       - name: Install Hugging Face Hub client
-        run: python -m pip install --upgrade pip huggingface_hub
+        run: bash scripts/with-retry.sh --attempts 3 --delay 5 -- python -m pip install --upgrade pip huggingface_hub
 
       - name: Download release binary
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         run: |
-          gh release download "${{ inputs.tag }}" \
-            --repo "${{ env.REPO }}" \
-            --pattern "${{ matrix.binary }}*" \
-            --dir .
+          bash scripts/with-retry.sh --attempts 3 --delay 5 -- \
+            gh release download "${{ inputs.tag }}" \
+              --repo "${{ env.REPO }}" \
+              --pattern "${{ matrix.binary }}*" \
+              --dir .
           bash scripts/assemble-release-binary.sh . "${{ matrix.binary }}" ./hlvm
           chmod +x hlvm
 
