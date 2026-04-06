@@ -10,6 +10,7 @@ permissions:
 
 env:
   EMBEDDED_OLLAMA_VERSION_FILE: embedded-ollama-version.txt
+  MAX_RELEASE_ASSET_BYTES: 1900000000
 
 jobs:
   build:
@@ -157,6 +158,34 @@ jobs:
           echo "Generated checksums:"
           cat checksums.sha256
 
+      - name: Stage release assets
+        shell: bash
+        run: |
+          mkdir -p release-assets
+
+          stage_binary() {
+            binary=$1
+            size=$(stat -c%s "$binary")
+
+            if [ "$size" -gt "${{ env.MAX_RELEASE_ASSET_BYTES }}" ]; then
+              echo "Splitting ${binary} (${size} bytes) into release parts..."
+              split -b "${{ env.MAX_RELEASE_ASSET_BYTES }}" -d -a 3 "$binary" "release-assets/${binary}.part-"
+            else
+              echo "Staging ${binary} (${size} bytes) as a direct release asset..."
+              mv "$binary" "release-assets/${binary}"
+            fi
+          }
+
+          stage_binary hlvm-mac-arm
+          stage_binary hlvm-mac-intel
+          stage_binary hlvm-linux
+          stage_binary hlvm-windows.exe
+
+          mv install.sh install.ps1 checksums.sha256 release-assets/
+
+          echo "Release assets:"
+          ls -lah release-assets
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -203,8 +232,8 @@ jobs:
 
             - `hlvm-mac-arm` - macOS Apple Silicon (M1/M2/M3)
             - `hlvm-mac-intel` - macOS Intel
-            - `hlvm-linux` - Linux x86_64
-            - `hlvm-windows.exe` - Windows x86_64
+            - `hlvm-linux` - Linux x86_64 (published as split GitHub assets when needed)
+            - `hlvm-windows.exe` - Windows x86_64 (published as split GitHub assets when needed)
 
             ## Quick Start
 
@@ -222,12 +251,6 @@ jobs:
             hlvm --help
             ```
           files: |
-            hlvm-mac-arm
-            hlvm-mac-intel
-            hlvm-linux
-            hlvm-windows.exe
-            install.sh
-            install.ps1
-            checksums.sha256
+            release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

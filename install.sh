@@ -34,6 +34,46 @@ need_cmd() {
   fi
 }
 
+download_binary_asset() {
+  base_url=$1
+  binary_name=$2
+  output_path=$3
+
+  direct_url="${base_url}/${binary_name}"
+  if curl -fsSL -o "$output_path" "$direct_url"; then
+    return 0
+  fi
+
+  info "Direct asset unavailable; trying split download..."
+  rm -f "$output_path"
+
+  part_index=0
+  found_any=0
+  while :; do
+    part_name=$(printf '%s.part-%03d' "$binary_name" "$part_index")
+    part_path="${output_path}.part-${part_index}"
+    part_url="${base_url}/${part_name}"
+
+    if curl -fsSL -o "$part_path" "$part_url"; then
+      cat "$part_path" >> "$output_path"
+      rm -f "$part_path"
+      found_any=1
+      part_index=$((part_index + 1))
+      continue
+    fi
+
+    rm -f "$part_path"
+    break
+  done
+
+  if [ "$found_any" -eq 0 ]; then
+    err "Could not download ${binary_name} from ${base_url}"
+    exit 1
+  fi
+
+  info "Reassembled ${binary_name} from ${part_index} release part(s)."
+}
+
 # ---------------------------------------------------------------------------
 # Platform detection
 # ---------------------------------------------------------------------------
@@ -97,10 +137,10 @@ install_standard() {
 
   # Download binary
   if [ -n "$STANDARD_BASE_URL" ]; then
-    DOWNLOAD_URL="${STANDARD_BASE_URL}/${BINARY}"
+    DOWNLOAD_BASE_URL="${STANDARD_BASE_URL}"
     CHECKSUM_URL="${CHECKSUM_URL_OVERRIDE:-${STANDARD_BASE_URL}/checksums.sha256}"
   else
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY}"
+    DOWNLOAD_BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
     CHECKSUM_URL="${CHECKSUM_URL_OVERRIDE:-https://github.com/${REPO}/releases/download/${VERSION}/checksums.sha256}"
   fi
 
@@ -108,7 +148,7 @@ install_standard() {
   trap 'rm -rf "$TMPDIR"' EXIT
 
   info "Downloading ${BINARY}..."
-  curl -fsSL -o "${TMPDIR}/${BINARY}" "$DOWNLOAD_URL"
+  download_binary_asset "$DOWNLOAD_BASE_URL" "$BINARY" "${TMPDIR}/${BINARY}"
 
   # Verify checksum
   info "Verifying checksum..."

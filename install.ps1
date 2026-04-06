@@ -19,6 +19,63 @@ function Write-Info($msg)  { Write-Host "  > $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)    { Write-Host "  ✓ $msg" -ForegroundColor Green }
 function Write-Err($msg)   { Write-Host "  ✗ $msg" -ForegroundColor Red }
 
+function Download-BinaryAsset {
+    param(
+        [string]$BaseUrl,
+        [string]$BinaryName,
+        [string]$OutputPath
+    )
+
+    $directUrl = "$BaseUrl/$BinaryName"
+    try {
+        Invoke-WebRequest -Uri $directUrl -OutFile $OutputPath -UseBasicParsing
+        return
+    } catch {
+        Remove-Item $OutputPath -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Info "Direct asset unavailable; trying split download..."
+
+    $partFiles = @()
+    $partIndex = 0
+    while ($true) {
+        $partName = "{0}.part-{1:D3}" -f $BinaryName, $partIndex
+        $partPath = Join-Path (Split-Path -Parent $OutputPath) $partName
+        try {
+            Invoke-WebRequest -Uri "$BaseUrl/$partName" -OutFile $partPath -UseBasicParsing
+            $partFiles += $partPath
+            $partIndex++
+        } catch {
+            Remove-Item $partPath -Force -ErrorAction SilentlyContinue
+            break
+        }
+    }
+
+    if ($partFiles.Count -eq 0) {
+        throw "Could not download $BinaryName from $BaseUrl"
+    }
+
+    $outputStream = [System.IO.File]::Open($OutputPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    try {
+        foreach ($partPath in ($partFiles | Sort-Object)) {
+            $inputStream = [System.IO.File]::OpenRead($partPath)
+            try {
+                $inputStream.CopyTo($outputStream)
+            } finally {
+                $inputStream.Dispose()
+            }
+        }
+    } finally {
+        $outputStream.Dispose()
+    }
+
+    foreach ($partPath in $partFiles) {
+        Remove-Item $partPath -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Info "Reassembled $BinaryName from $($partFiles.Count) release part(s)."
+}
+
 # Get latest version
 Write-Host "`nHLVM Installer`n" -ForegroundColor White
 Write-Info "Detecting latest version..."
@@ -38,10 +95,10 @@ Write-Info "Version: $version"
 
 # Download
 if ($BinaryBaseUrl) {
-    $downloadUrl = "$BinaryBaseUrl/$Binary"
+    $downloadBaseUrl = $BinaryBaseUrl
     $checksumUrl = if ($ChecksumUrlOverride) { $ChecksumUrlOverride } else { "$BinaryBaseUrl/checksums.sha256" }
 } else {
-    $downloadUrl = "https://github.com/$Repo/releases/download/$version/$Binary"
+    $downloadBaseUrl = "https://github.com/$Repo/releases/download/$version"
     $checksumUrl = if ($ChecksumUrlOverride) {
         $ChecksumUrlOverride
     } else {
@@ -53,7 +110,7 @@ $tmpDir = Join-Path $env:TEMP "hlvm-install-$(Get-Random)"
 New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
 
 Write-Info "Downloading $Binary..."
-Invoke-WebRequest -Uri $downloadUrl -OutFile "$tmpDir\$Binary" -UseBasicParsing
+Download-BinaryAsset -BaseUrl $downloadBaseUrl -BinaryName $Binary -OutputPath "$tmpDir\$Binary"
 
 # Verify checksum
 Write-Info "Verifying checksum..."

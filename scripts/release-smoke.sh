@@ -97,7 +97,7 @@ detect_platform() {
 download_draft_assets() {
   gh release download "$TAG" \
     --repo "$REPO" \
-    --pattern "$BINARY" \
+    --pattern "$BINARY*" \
     --pattern "checksums.sha256" \
     --dir "$ASSET_DIR"
 }

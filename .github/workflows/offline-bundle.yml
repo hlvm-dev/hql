@@ -59,9 +59,9 @@ jobs:
         run: |
           gh release download "${{ inputs.tag }}" \
             --repo "${{ env.REPO }}" \
-            --pattern "${{ matrix.binary }}" \
+            --pattern "${{ matrix.binary }}*" \
             --dir .
-          mv "${{ matrix.binary }}" hlvm
+          bash scripts/assemble-release-binary.sh . "${{ matrix.binary }}" ./hlvm
           chmod +x hlvm
 
       - name: Package offline bundle

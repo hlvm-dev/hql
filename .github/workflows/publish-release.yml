@@ -30,17 +30,34 @@ jobs:
 
           jq -e '.isDraft == true' release.json >/dev/null
 
+          has_asset() {
+            jq -e --arg name "$1" '.assets[] | select(.name == $name)' release.json >/dev/null
+          }
+
+          has_direct_or_split_asset() {
+            name="$1"
+            if has_asset "$name"; then
+              return 0
+            fi
+
+            jq -e --arg prefix "${name}.part-" \
+              '[.assets[] | select(.name | startswith($prefix))] | length > 0' \
+              release.json \
+              >/dev/null
+          }
+
           for asset in \
             hlvm-mac-arm \
             hlvm-mac-intel \
-            hlvm-linux \
-            hlvm-windows.exe \
             checksums.sha256 \
             install.sh \
             install.ps1
           do
-            jq -e --arg name "$asset" '.assets[] | select(.name == $name)' release.json >/dev/null
+            has_asset "$asset"
           done
+
+          has_direct_or_split_asset hlvm-linux
+          has_direct_or_split_asset hlvm-windows.exe
 
       - name: Validate installer URLs
         run: |
