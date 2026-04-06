@@ -11,6 +11,7 @@ permissions:
 env:
   EMBEDDED_OLLAMA_VERSION_FILE: embedded-ollama-version.txt
   MAX_RELEASE_ASSET_BYTES: 1900000000
+  PUBLIC_RELEASE_REPO: hlvm-dev/hlvm
 
 jobs:
   build:
@@ -209,7 +210,7 @@ jobs:
       - name: Create draft release
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         run: |
           cat > release-notes.md <<'EOF'
           # HLVM ${{ github.ref_name }}
@@ -271,12 +272,12 @@ jobs:
           ```
           EOF
 
-          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            gh release delete "${{ github.ref_name }}" --repo "${{ github.repository }}" --yes
+          if gh release view "${{ github.ref_name }}" --repo "${{ env.PUBLIC_RELEASE_REPO }}" >/dev/null 2>&1; then
+            gh release delete "${{ github.ref_name }}" --repo "${{ env.PUBLIC_RELEASE_REPO }}" --yes
           fi
 
           gh release create "${{ github.ref_name }}" \
-            --repo "${{ github.repository }}" \
+            --repo "${{ env.PUBLIC_RELEASE_REPO }}" \
             --draft \
             --generate-notes \
             --notes-file release-notes.md \
@@ -285,14 +286,14 @@ jobs:
       - name: Upload release assets
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         run: |
           upload_asset() {
             asset=$1
             attempt=1
             while [ "$attempt" -le 3 ]; do
               if gh release upload "${{ github.ref_name }}" "$asset" \
-                --repo "${{ github.repository }}" \
+                --repo "${{ env.PUBLIC_RELEASE_REPO }}" \
                 --clobber; then
                 return 0
               fi

@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  REPO: ${{ github.repository }}
+  REPO: hlvm-dev/hlvm
   HF_REPO: HLVM/hlvm-releases
 
 jobs:
@@ -55,7 +55,7 @@ jobs:
 
       - name: Download release binary
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         run: |
           gh release download "${{ inputs.tag }}" \
             --repo "${{ env.REPO }}" \
