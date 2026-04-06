@@ -379,8 +379,9 @@ jobs:
       needs.resolve.result == 'success' &&
       (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     runs-on: ${{ matrix.os }}
-    # ARM warmup on GitHub hosted runners exceeds patience (>12 min).
-    # Allow ARM to fail without blocking publish; Intel + Linux gate it.
+    # Model warmup on GitHub hosted runners exceeds patience (ARM >12 min,
+    # Linux >2 min for 9.6 GB model load).  Allow ARM and Linux to fail
+    # without blocking publish; Intel is the reliable gate.
     continue-on-error: ${{ matrix.allow_failure == true }}
     strategy:
       fail-fast: false
@@ -393,6 +394,7 @@ jobs:
             platform: darwin-x86_64
           - os: ubuntu-latest
             platform: linux-x86_64
+            allow_failure: true
     steps:
       - uses: actions/checkout@v4
 
@@ -511,6 +513,7 @@ jobs:
             platform: darwin-x86_64
           - os: ubuntu-latest
             platform: linux-x86_64
+            allow_failure: true
     steps:
       - uses: actions/checkout@v4
 
