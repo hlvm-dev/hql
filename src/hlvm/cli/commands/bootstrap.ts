@@ -22,7 +22,8 @@ import { waitForModelAccess } from "../../runtime/model-access.ts";
 import { autoConfigureInitialLocalFallbackModel } from "../../../common/ai-default-model.ts";
 
 const LOCAL_FALLBACK_MODEL_ID = `ollama/${LOCAL_FALLBACK_MODEL}`;
-const BOOTSTRAP_MODEL_READY_TIMEOUT_MS = 300_000;
+const BOOTSTRAP_MODEL_READY_TIMEOUT_MS = 600_000;
+const BOOTSTRAP_MODEL_READY_LOG_INTERVAL_MS = 30_000;
 
 function showBootstrapHelp(): void {
   log.info(`
@@ -117,8 +118,19 @@ export async function bootstrapCommand(args: string[]): Promise<number> {
       );
       return 1;
     }
+    let lastLoggedWaitBucket = -1;
     const access = await waitForModelAccess(LOCAL_FALLBACK_MODEL_ID, {
       timeoutMs: BOOTSTRAP_MODEL_READY_TIMEOUT_MS,
+      onRetry: (_result, elapsedMs) => {
+        const waitBucket = Math.floor(
+          elapsedMs / BOOTSTRAP_MODEL_READY_LOG_INTERVAL_MS,
+        );
+        if (waitBucket <= lastLoggedWaitBucket) return;
+        lastLoggedWaitBucket = waitBucket;
+        log.info(
+          `Still warming ${LOCAL_FALLBACK_MODEL_ID}... (${Math.round(elapsedMs / 1000)}s elapsed)`,
+        );
+      },
     });
     if (!access.available) {
       const reason = access.authRequired

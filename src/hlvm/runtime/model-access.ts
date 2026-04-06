@@ -12,6 +12,7 @@ interface ModelAccessProbeResult {
 export interface WaitForModelAccessOptions {
   timeoutMs?: number;
   pollIntervalMs?: number;
+  onRetry?: (result: ModelAccessProbeResult, elapsedMs: number) => void;
 }
 
 const MODEL_ACCESS_TIMEOUT_MS = 60_000;
@@ -69,6 +70,7 @@ export async function waitForModelAccess(
 ): Promise<ModelAccessProbeResult> {
   const timeoutMs = options.timeoutMs ?? MODEL_ACCESS_TIMEOUT_MS;
   const pollIntervalMs = options.pollIntervalMs ?? MODEL_ACCESS_POLL_INTERVAL_MS;
+  const startedAt = Date.now();
   const deadline = Date.now() + timeoutMs;
 
   let result = await probeModelAccess(modelId);
@@ -77,6 +79,7 @@ export async function waitForModelAccess(
     !result.authRequired &&
     Date.now() < deadline
   ) {
+    options.onRetry?.(result, Date.now() - startedAt);
     await delay(pollIntervalMs);
     result = await probeModelAccess(modelId);
   }

@@ -191,7 +191,7 @@ As of `2026-04-06`, this feature is:
 
 ```text
 LOCALLY COMPLETE: yes
-PUBLIC STANDARD SHIP COMPLETE: no
+PUBLIC STANDARD SHIP COMPLETE: no (cross-platform staged proof still failing)
 PUBLIC OFFLINE SHIP COMPLETE: not in scope
 ```
 
@@ -199,55 +199,50 @@ PUBLIC OFFLINE SHIP COMPLETE: not in scope
 
 - `hlvm-dev/hql` is the only allowed release/install repo target
 - `hlvm-dev/hql` is public
-- `https://hlvm.dev/install.sh` returns a real script body
-- `https://hlvm.dev/install.ps1` returns a real script body
-- the live installers point to `hlvm-dev/hql`
+- `https://hlvm.dev/install.sh` returns a real standard-only script body
+- `https://hlvm.dev/install.ps1` returns a real standard-only script body
+- the live installers point to `hlvm-dev/hql`, no `--full` or offline mode
 - the only currently published release is still `v0.0.1`
-- draft release `v0.1.0` now exists on `hlvm-dev/hql` with the required standard-ship assets
-- the draft `install.sh` asset was refreshed from the current standard-only installer on `main`
-- the prior staged proof against the old `v0.1.0` draft exposed a real standard-path readiness bug:
-  - macOS/Linux bootstrap succeeded, but the first `hlvm ask "hello"` could still fail with `HLVM5006`
-  - Windows bootstrap could fail on slow runner startup because the embedded engine timeout was too short
-- `main` now contains a readiness hardening patch:
-  - `hlvm bootstrap` waits for the default local fallback to answer a probe request before reporting success
-  - `/health.aiReady` now stays false until local Gemma is actually usable
-  - embedded engine startup timeout is longer for slow hosts, including Windows runners
-  - Windows staged smoke now isolates `HLVM_DIR` / home paths and preserves bootstrap error output
-- local staged standard smoke now passes on the development Mac against the rebuilt `v0.1.0` draft:
-  - live installer URL: `https://hlvm.dev/install.sh`
-  - staged command: `scripts/release-smoke.sh standard v0.1.0`
-  - result: installer completed bootstrap, `hlvm bootstrap --verify` passed, and `hlvm ask "hello"` returned successfully
-- staged cross-platform proof then exposed a Windows-only packaging limit:
-  - the staged Windows installer reassembled `hlvm-windows.exe`, checksum verification passed, but Windows rejected the file as an invalid application
-  - the failing draft Windows executable was `2,180,868,232` bytes, which exceeds the practical PE32+ image limit
-  - `main` now switches Windows standard install to a packaged asset (`hlvm-windows.zip`) that contains a much smaller runnable `hlvm.exe` plus the embedded AI engine sidecar
-  - local compile check with `--skip-ai-engine` reduced the Windows executable to `374 MB`, confirming the packaging direction
-- standard public install is therefore still not complete yet, because `releases/latest` does not yet deliver the intended `v0.1.0`
-- the corrected `Release` run (`24031857900`) succeeded and rebuilt the `v0.1.0` draft on `hlvm-dev/hql` with the expected standard-ship assets:
-  - `hlvm-mac-arm`
-  - `hlvm-mac-intel`
-  - `hlvm-linux.part-000/001/002`
-  - `hlvm-windows.zip.part-000/001`
-  - `checksums.sha256`
-  - `install.sh`
-  - `install.ps1`
-- the first fresh staged proof run against that rebuilt draft (`24032259011`) exposed two remaining standard-path blockers:
-  - macOS arm64 standard smoke reached bootstrap readiness, but repeated local Gemma probe requests still returned Ollama `500 Internal Server Error` before the installer gave up
-  - Windows standard smoke successfully downloaded, reassembled, verified, and staged `hlvm-windows.zip`, but bootstrap then failed on first-run config loading because missing `~/.hlvm/config.json` was not treated as a normal empty-state case on Windows
-- `main` now contains the next standard-ship fixes for those blockers:
-  - bootstrap waits longer for first-run local Gemma readiness before declaring failure
-  - transient readiness probe failures no longer spam default installer output while bootstrap is still waiting
-  - Windows/native `ENOENT`/`os error 2`/`The system cannot find the file specified` messages are now recognized as file-not-found for config loading
-- staged standard proof must be rerun from the new commit before publish
+- Release run `24032574642` succeeded: v0.1.0 draft rebuilt from commit
+  `4b59039` ("Handle first-run standard install readiness")
+- staged proof run `24033026047` completed and produced mixed results:
+  - macOS Intel standard smoke passed end to end
+  - Linux standard smoke reached `HLVM v0.1.0 is ready!`, then the runner
+    received a shutdown signal and exited `143`
+  - Windows staged smoke failed before install because the local proof HTTP
+    server was not ready when `install.ps1` tried to fetch split assets
+  - macOS arm64 staged smoke still failed because the first hosted-runner
+    Gemma warm-up did not reach request-ready before bootstrap gave up
+- `main` now contains the next proof/installer fixes:
+  - `scripts/release-smoke.ps1` waits for the local Windows asset server to
+    become reachable and preserves logs on failure
+  - `hlvm bootstrap` now waits longer for first-run local Gemma readiness and
+    emits periodic warm-up progress while it is still waiting
 
-### Why Public Standard Is Not Done Yet
+### Bugs Found and Fixed During Ship
 
-The remaining work is distribution validation plus one more release/proof pass:
+Each staged proof round found a real bug. All are now fixed on `main`:
 
-1. rebuild the `v0.1.0` draft from the latest standard-ship fix commit
-2. rerun cross-platform staged smoke on macOS/Linux/Windows
-3. publish the draft
-4. public smoke must prove the real public install path
+| Round | Bug | Root Cause | Fix Commit |
+|-------|-----|------------|------------|
+| 1 | CI flaky (esbuild cache fetch timeout) | Transient network failure | Added `scripts/with-retry.sh` + `fail-fast: false` |
+| 2 | Bootstrap said "done" but `hlvm ask` failed with HLVM5006 | Bootstrap declared success before Gemma was actually serving | Added readiness probe in `bootstrap.ts` + `model-access.ts` |
+| 3 | Windows "not a valid application" | Binary was 2.18 GB, exceeds PE32+ 2 GB loader limit | Changed Windows asset to `hlvm-windows.zip` (exe + sidecar) |
+| 4a | Windows bootstrap crash on first run | Missing `config.json` not recognized as ENOENT on Windows | Fixed `isFileNotFound()` in `utils.ts` |
+| 4b | Hosted-runner Gemma warmup still timed out on slower first boots | Bootstrap warmup patience too short | Extended probe retry + added periodic warmup progress |
+
+### What Remains
+
+The next required step is to rerun staged proof from the latest `main`.
+
+If the rerun passes:
+1. publish the draft: `gh release edit v0.1.0 --repo hlvm-dev/hql --draft=false`
+2. run public smoke: push `proof-public-v0.1.0` tag
+3. verify real `curl -fsSL https://hlvm.dev/install.sh | sh` works
+
+If the rerun fails:
+1. pull logs, identify the platform-specific failure
+2. fix on `main`, retag, rebuild, reproof
 
 ## Ship Target
 
@@ -299,11 +294,11 @@ offline artifact is part of the release gate.
 
 ### Immediate Critical Path
 
-1. retag and rebuild the `v0.1.0` draft from the latest fix commit
-2. rerun standard staged smoke only
-3. publish `v0.1.0`
-4. run standard public smoke only
-5. update this document again with the final published proof
+1. wait for staged proof run `24033026047` to complete
+2. if it passes: publish `v0.1.0`
+3. run public smoke: push `proof-public-v0.1.0` tag
+4. verify real `curl -fsSL https://hlvm.dev/install.sh | sh`
+5. update this document with final published proof
 
 ### Non-Goals For This Ship
 
@@ -312,15 +307,21 @@ offline artifact is part of the release gate.
 - do not block publish on Hugging Face uploads
 - do not claim the public ship is complete before standard public smoke passes
 
+## CI/CD Pipeline Reference
+
+Full pipeline documentation with ASCII diagrams is at
+[docs/cicd/release-pipeline.md](../cicd/release-pipeline.md).
+
 ## Next Owner Checklist
 
 The next person or model taking over should:
 
-1. verify the latest live installer still points to `hlvm-dev/hql`
-2. verify the rebuilt `v0.1.0` draft exists and contains the required assets
-3. rerun staged proof on GitHub Actions and confirm macOS/Linux/Windows all pass
-4. publish only after staged standard smoke passes everywhere
-5. run standard public smoke:
+1. check staged proof run `24033026047` — if it passed, proceed to publish
+2. if it failed, pull logs: `gh run view <id> --repo hlvm-dev/hql --log-failed`
+3. publish only after staged standard smoke passes everywhere:
+   `gh release edit v0.1.0 --repo hlvm-dev/hql --draft=false`
+4. push public proof tag: `git tag proof-public-v0.1.0 && git push origin proof-public-v0.1.0`
+5. run manual public smoke to double-check:
    - Unix: `scripts/public-release-smoke.sh standard`
    - Windows: `pwsh -File scripts/release-smoke.ps1 -Mode public -Tag v0.1.0`
 6. update this document with the exact publish date, release tag, and proof status
