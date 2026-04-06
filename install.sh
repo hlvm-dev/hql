@@ -209,12 +209,6 @@ install_standard() {
 
 main() {
   case "${1:-}" in
-    --full)
-      err "Offline bundle install is not part of the current public release."
-      err "Use the supported one-shot install instead:"
-      echo "  curl -fsSL https://hlvm.dev/install.sh | sh"
-      exit 1
-      ;;
     --help)
       echo "HLVM Installer"
       echo ""
@@ -222,7 +216,15 @@ main() {
       echo "  curl -fsSL https://hlvm.dev/install.sh | sh"
       echo ""
       ;;
-    *)       install_standard ;;
+    "")
+      install_standard
+      ;;
+    *)
+      err "Unsupported argument: $1"
+      err "Use the supported one-shot install instead:"
+      echo "  curl -fsSL https://hlvm.dev/install.sh | sh"
+      exit 1
+      ;;
   esac
 }
 

@@ -19,19 +19,12 @@ curl -fsSL https://hlvm.dev/install.sh | sh
 
 Downloads the GitHub Release binary and prepares the local AI fallback during install.
 
-Offline (pre-bundled model, no network after download):
-```bash
-curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full
-```
-
-Larger download. No post-download network dependency after the offline bundle is downloaded.
-
 Windows (PowerShell):
 ```powershell
 irm https://hlvm.dev/install.ps1 | iex
 ```
 
-After either install finishes successfully, `hlvm ask "hello"` works immediately.
+After install finishes successfully, `hlvm ask "hello"` works immediately.
 
 For building from source, see the [build guide](./docs/BUILD.md).
 

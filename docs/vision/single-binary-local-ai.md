@@ -61,17 +61,12 @@ Expected result:
 
 ### Unsupported Public UX
 
-Public offline bundle install is not part of the current ship target.
+There is no supported public offline install mode for this ship.
 
-Do not advertise or require:
-
-```bash
-curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full
-```
-
-Offline packaging work may remain in the repository for future use, but it is
-not part of the current release gate and must not block the standard public
-ship.
+Do not advertise, document, gate, or block release on any alternate
+pre-bundled install path. The only supported public experience is the standard
+installer, which must finish binary install plus Gemma bootstrap before it
+returns.
 
 ## Architecture
 
@@ -196,14 +191,22 @@ PUBLIC OFFLINE SHIP COMPLETE: not in scope
 - `https://hlvm.dev/install.ps1` returns a real script body
 - the live installers point to `hlvm-dev/hql`
 - the only currently published release is still `v0.0.1`
-- `v0.1.0` is being rebuilt from the corrected repo-target + manifest-discovery code
+- the prior staged proof against the old `v0.1.0` draft exposed a real standard-path readiness bug:
+  - macOS/Linux bootstrap succeeded, but the first `hlvm ask "hello"` could still fail with `HLVM5006`
+  - Windows bootstrap could fail on slow runner startup because the embedded engine timeout was too short
+- `main` now contains a readiness hardening patch:
+  - `hlvm bootstrap` waits for the default local fallback to answer a probe request before reporting success
+  - `/health.aiReady` now stays false until local Gemma is actually usable
+  - embedded engine startup timeout is longer for slow hosts, including Windows runners
+  - Windows staged smoke now isolates `HLVM_DIR` / home paths and preserves bootstrap error output
+- `v0.1.0` is being rebuilt again from the readiness fix on commit `994754d`
 - standard public install is therefore not complete yet, because `releases/latest` does not yet deliver the intended `v0.1.0`
 
 ### Why Public Standard Is Not Done Yet
 
 The remaining work is distribution validation, not core runtime design:
 
-1. the corrected `v0.1.0` draft must finish rebuilding
+1. the corrected `v0.1.0` draft must finish rebuilding from `994754d`
 2. staged smoke must prove the draft release on macOS/Linux/Windows
 3. the draft must be published
 4. public smoke must prove the real public install path
@@ -223,7 +226,8 @@ The standard public ship requires these GitHub release assets on
 - `install.sh`
 - `install.ps1`
 
-No Hugging Face bundles are required for the current ship target.
+No Hugging Face bundles are required for the current ship target, and no public
+offline artifact is part of the release gate.
 
 ## Ship Flow
 
@@ -266,7 +270,7 @@ No Hugging Face bundles are required for the current ship target.
 
 ### Non-Goals For This Ship
 
-- do not block publish on offline bundles
+- do not add or advertise a public offline install mode
 - do not block publish on Hugging Face uploads
 - do not claim the public ship is complete before standard public smoke passes
 
@@ -275,7 +279,7 @@ No Hugging Face bundles are required for the current ship target.
 The next person or model taking over should:
 
 1. verify the latest live installer still points to `hlvm-dev/hql`
-2. verify the rebuilt `v0.1.0` draft exists and contains the required assets
+2. verify the rebuilt `v0.1.0` draft exists and contains the required assets and was built from `994754d`
 3. run standard staged smoke:
    - Unix: `scripts/release-smoke.sh standard v0.1.0`
    - Windows: `pwsh -File scripts/release-smoke.ps1 -Mode staged -Tag v0.1.0`
@@ -293,6 +297,7 @@ The only public contract that matters for this ship is:
 curl -fsSL https://hlvm.dev/install.sh | sh
   -> installer downloads the correct binary
   -> installer shows bootstrap progress
+  -> installer extracts the embedded Ollama runtime
   -> installer prepares Gemma during install
   -> command returns only when HLVM is ready
   -> hlvm ask works immediately

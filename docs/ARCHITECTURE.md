@@ -866,7 +866,7 @@ The bootstrap system ensures `hlvm ask "hello"` works immediately after install.
 - **Readiness**: `/health.aiReady` is only true when the fallback is actually verified and usable
 - **Recovery**: `hlvm bootstrap --repair` re-materializes missing/corrupt assets
 - **Model resolution chain**: Claude Code → Ollama Cloud → **local fallback** (new)
-- **Install**: `curl -fsSL https://hlvm.dev/install.sh | sh` (standard) or `--full` (offline)
+- **Install**: `curl -fsSL https://hlvm.dev/install.sh | sh` installs the binary and completes local Gemma bootstrap before returning
 - **Full details**: See `docs/vision/single-binary-local-ai.md`
 
 ---
