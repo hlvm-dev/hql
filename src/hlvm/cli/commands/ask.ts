@@ -19,6 +19,7 @@ import {
   stripPlanEnvelopeBlocks,
 } from "../../agent/model-compat.ts";
 import { describeErrorForDisplay } from "../../agent/error-taxonomy.ts";
+import { isAutoModel } from "../../agent/auto-select.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import {
   createAttachment,
@@ -588,7 +589,7 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   const attachmentIds = await resolveAskAttachmentIds(attachmentArgs);
-  if (!fixturePath && attachmentIds?.length && modelOverride) {
+  if (!fixturePath && attachmentIds?.length && modelOverride && !isAutoModel(modelOverride)) {
     await ensureModelAttachmentSupport(modelOverride, attachmentIds);
   }
 
@@ -625,13 +626,15 @@ export async function askCommand(args: string[]): Promise<void> {
 
   const contextWindow = runtimeConfig.getContextWindow();
 
-  if (!fixturePath && attachmentIds?.length) {
+  const isAuto = isAutoModel(resolvedModel);
+
+  if (!fixturePath && attachmentIds?.length && !isAuto) {
     await ensureModelAttachmentSupport(resolvedModel, attachmentIds);
   }
 
-  // Paid provider consent gate
+  // Paid provider consent gate (skipped for auto — concrete model not yet known)
   if (
-    !fixturePath &&
+    !fixturePath && !isAuto &&
     runtimeConfig.evaluateProviderApproval(resolvedModel).status ===
       "approval_required"
   ) {

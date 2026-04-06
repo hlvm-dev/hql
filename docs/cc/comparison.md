@@ -1075,7 +1075,6 @@ Both projects are at parity here.
 | Fact conflict auto-invalidation | Jaccard similarity detection + auto-invalidation |
 | Paredit input editing | Structural editing for Lisp (slurp, barf, raise, splice, transpose, kill) |
 | Modular orchestrator | 6 focused files vs CC's monolithic QueryEngine |
-| Execution surface abstraction | Route tools to native provider capabilities vs fallback |
 | Auto-generated tool routing table | From `replaces` metadata on tools |
 | Auto-generated permission tiers | From `safetyLevel` metadata |
 | Adaptive tool phasing | Filter tools by inferred phase (weak models only) |
@@ -1083,7 +1082,6 @@ Both projects are at parity here.
 | Pre-compaction memory flush | Give model one turn to save context before compaction |
 | HQL language REPL | Built-in programming language with transpilation |
 | ModelTier classification | weak/mid/frontier with tier-filtered prompts |
-| Execution surface viewer overlay | Visual tool routing/capability display |
 | O(1) tool registry with generation counter | Cached lookups invalidated on mutation |
 | Transport-agnostic agent runner | Single `runAgentQuery()` for CLI, HTTP, and GUI |
 
@@ -1486,17 +1484,16 @@ Where Each Wins
 ║  Streaming tool exec      ║  (6 files vs monolithic       ║
 ║  (tools start during      ║   QueryEngine)                ║
 ║   API response)           ║                               ║
-║                           ║  Execution surface routing    ║
-║  20+ lifecycle hooks      ║  (native vs fallback per      ║
-║  (user-extensible)        ║   provider capability)        ║
+║  20+ lifecycle hooks      ║  Adaptive tool phasing        ║
+║  (user-extensible)        ║  (weak model support)         ║
 ║                           ║                               ║
-║  Rust NAPI diff render    ║  Adaptive tool phasing        ║
-║  Per-tool custom TUI      ║  (weak model support)         ║
-║  Vim mode                 ║                               ║
-║  IDE bridge (VSCode/JB)   ║  Paredit input editing        ║
-║  Skills/plugins system    ║  3-stage loop detection       ║
-║  AI permission classifier ║  Pre-compaction memory flush  ║
-║  Cost tracking            ║  ModelTier classification     ║
+║  Rust NAPI diff render    ║  Paredit input editing        ║
+║  Per-tool custom TUI      ║  3-stage loop detection       ║
+║  Vim mode                 ║  Pre-compaction memory flush  ║
+║  IDE bridge (VSCode/JB)   ║  ModelTier classification     ║
+║  Skills/plugins system    ║                               ║
+║  AI permission classifier ║                               ║
+║  Cost tracking            ║                               ║
 ╚═══════════════════════════╩═══════════════════════════════╝
 Key Subsystem Differences
 TOOL DEFINITION

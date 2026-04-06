@@ -117,6 +117,10 @@ export function summarizeTraceEvent(
         openaiReasoningEffort: event.openaiReasoningEffort,
         googleThinkingLevel: event.googleThinkingLevel,
       };
+    case "auto_select":
+      return { type: event.type, model: event.model, fallbacks: event.fallbacks, reason: event.reason };
+    case "auto_fallback":
+      return { type: event.type, from: event.fromModel, to: event.toModel, reason: event.reason };
     default:
       return { type: event.type };
   }

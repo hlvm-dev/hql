@@ -128,6 +128,12 @@ export interface HlvmConfig {
   permissionMode?: PermissionMode; // Agent tool permission mode: "default" | "acceptEdits" | "plan" | "bypassPermissions" | "dontAsk"
   agentMaxThreads?: number; // Max concurrent background delegate agents (default: 4)
   agentMaxDepth?: number; // Max delegation nesting depth (default: 1, range 1-3)
+  autoSelect?: {
+    preferCheap?: boolean;
+    preferQuality?: boolean;
+    localOnly?: boolean;
+    noUpload?: boolean;
+  };
 }
 
 // ============================================================
@@ -200,6 +206,7 @@ export const CONFIG_KEYS = [
   "permissionMode",
   "agentMaxThreads",
   "agentMaxDepth",
+  "autoSelect",
 ] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 
@@ -366,6 +373,13 @@ export function validateValue(
       }
       if (value < 1 || value > 3) {
         return { valid: false, error: "agentMaxDepth must be between 1 and 3" };
+      }
+      return { valid: true };
+
+    case "autoSelect":
+      if (value === undefined) return { valid: true }; // optional field
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { valid: false, error: "autoSelect must be an object" };
       }
       return { valid: true };
 

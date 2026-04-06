@@ -398,7 +398,8 @@ export async function handleChat(req: Request): Promise<Response> {
   let modelDiscoveryFailed = false;
   let modelDiscoveryError: string | null = null;
   const hasMediaAttachments = requestHasMediaAttachments(body.messages);
-  if (resolvedModel && !fixturePath) {
+  const isAutoSelect = resolvedModel === "auto";
+  if (resolvedModel && !fixturePath && !isAutoSelect) {
     const [parsedProvider, parsedModelName] = parseModelString(resolvedModel);
     try {
       resolvedModelInfo = await ai.models.get(
@@ -471,6 +472,7 @@ export async function handleChat(req: Request): Promise<Response> {
     !isEvalMode &&
     !fixturePath &&
     resolvedModel &&
+    !isAutoSelect &&
     evaluateProviderApproval(resolvedModel, config.snapshot.approvedProviders)
         .status === "approval_required"
   ) {

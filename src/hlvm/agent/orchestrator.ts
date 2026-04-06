@@ -263,6 +263,8 @@ export type TraceEvent =
     message?: string;
   }
   | { type: "transient_retry"; attempt: number; error: string }
+  | { type: "auto_select"; model: string; fallbacks: string[]; reason: string }
+  | { type: "auto_fallback"; fromModel: string; toModel: string; reason: string }
   | {
     type: "prompt_compiled";
     mode: import("../prompt/types.ts").PromptMode;
@@ -633,6 +635,12 @@ export interface OrchestratorConfig {
   /** Lead member ID for the current team runtime. */
   teamLeadMemberId?: string;
   delegateTokenBudget?: DelegateTokenBudget;
+  /** Fallback model IDs for auto-select mode (tried on transient failures). */
+  autoFallbacks?: string[];
+  /** Factory to create an LLM function for a fallback model. */
+  onAutoFallback?: (model: string) => LLMFunction;
+  /** Last-resort local model when all scored fallbacks are exhausted. */
+  autoLastResort?: { model: string; isAvailable: () => Promise<boolean> };
 }
 
 function memoryWriteAvailable(config: OrchestratorConfig): boolean {
@@ -1193,21 +1201,29 @@ async function runLlmResponsePass(
   });
   onTrace?.({ type: "llm_call", messageCount: messages.length });
 
-  const agentResponse = await callLLMWithRetry(
-    llmFunction,
-    messages,
-    {
-      timeout: lc.llmTimeout,
-      maxRetries: lc.maxRetries,
-      signal: config.signal,
-      callOptions,
-      onContextOverflowRetry: () => {
-        state.compactionReason = "overflow_retry";
-      },
+  const retryConfig = {
+    timeout: lc.llmTimeout,
+    maxRetries: lc.maxRetries,
+    signal: config.signal,
+    callOptions,
+    onContextOverflowRetry: () => {
+      state.compactionReason = "overflow_retry";
     },
-    onTrace,
-    config.context,
-  );
+  };
+
+  const agentResponse = config.autoFallbacks?.length && config.onAutoFallback
+    ? await (async () => {
+        const { callLLMWithModelFallback } = await import("./auto-select.ts");
+        return callLLMWithModelFallback(
+          () => callLLMWithRetry(llmFunction, messages, retryConfig, onTrace, config.context),
+          config.autoFallbacks!,
+          config.onAutoFallback!,
+          (fbLLM) => callLLMWithRetry(fbLLM, messages, retryConfig, onTrace, config.context),
+          onTrace,
+          config.autoLastResort,
+        );
+      })()
+    : await callLLMWithRetry(llmFunction, messages, retryConfig, onTrace, config.context);
 
   const responseText = agentResponse.content ?? "";
   const usage = agentResponse.usage

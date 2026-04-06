@@ -572,6 +572,25 @@ export async function runAgentQuery(
     "default";
   let model = options.model ?? getConfiguredModel();
   model = await resolveCompatibleClaudeCodeModel(model);
+
+  // Auto model resolution — dynamic import to avoid loading provider listing when not needed
+  let autoDecision: import("./auto-select.ts").AutoDecision | null = null;
+  if (model === "auto") {
+    const { resolveAutoModel } = await import("./auto-select.ts");
+    const { loadConfig } = await import("../../common/config/storage.ts");
+    const config = await loadConfig();
+    const policy = config.autoSelect as
+      | import("./auto-select.ts").AutoSelectPolicy
+      | undefined;
+    autoDecision = await resolveAutoModel(query, options.attachments, policy);
+    model = autoDecision.model;
+    traceReplMainThreadForSource(options.querySource, "agent.auto_select", {
+      model: autoDecision.model,
+      fallbacks: autoDecision.fallbacks,
+      reason: autoDecision.reason,
+    });
+  }
+
   if (!supportsAgentExecution(model, options.modelInfo)) {
     throw new ValidationError(
       "Weak models do not support agent mode. Use direct chat mode instead.",
@@ -1216,6 +1235,24 @@ export async function runAgentQuery(
         toolOwnerId: session.toolOwnerId,
         delegateOwnerId,
         ensureMcpLoaded: session.ensureMcpLoaded,
+        autoFallbacks: autoDecision?.fallbacks,
+        onAutoFallback: autoDecision?.fallbacks?.length
+          ? (fallbackModel: string) => {
+              const fbConfig = { ...session.llmConfig!, model: fallbackModel };
+              return (session.engine ?? getAgentEngine()).createLLM(fbConfig);
+            }
+          : undefined,
+        autoLastResort: autoDecision
+          ? {
+              model: "ollama/gemma4:e4b",
+              isAvailable: async () => {
+                const { isFallbackModelAvailable } = await import(
+                  "../runtime/bootstrap-verify.ts"
+                );
+                return isFallbackModelAvailable();
+              },
+            }
+          : undefined,
       } satisfies Parameters<typeof runReActLoop>[1];
       text = await runReActLoop(
         query,
