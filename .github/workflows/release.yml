@@ -25,29 +25,41 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             binary: hlvm-mac-arm
+            release_asset: hlvm-mac-arm
             ollama_asset: ollama-darwin.tgz
             ollama_binary: ollama
+            embed_ai_engine: true
+            package_kind: direct
 
           # macOS Intel
           - os: macos-15-intel
             target: x86_64-apple-darwin
             binary: hlvm-mac-intel
+            release_asset: hlvm-mac-intel
             ollama_asset: ollama-darwin.tgz
             ollama_binary: ollama
+            embed_ai_engine: true
+            package_kind: direct
 
           # Linux
           - os: macos-latest
             target: x86_64-unknown-linux-gnu
             binary: hlvm-linux
+            release_asset: hlvm-linux
             ollama_asset: ollama-linux-amd64.tar.zst
             ollama_binary: bin/ollama
+            embed_ai_engine: true
+            package_kind: direct
 
           # Windows
           - os: macos-latest
             target: x86_64-pc-windows-msvc
             binary: hlvm-windows.exe
+            release_asset: hlvm-windows.zip
             ollama_asset: ollama-windows-amd64.zip
             ollama_binary: ollama.exe
+            embed_ai_engine: false
+            package_kind: windows-zip
 
     steps:
       - name: Checkout code
@@ -124,25 +136,48 @@ jobs:
       - name: Build binary
         shell: bash
         run: |
-          ./scripts/compile-hlvm.sh \
-            --target ${{ matrix.target }} \
-            --output ${{ matrix.binary }}
+          args=(
+            ./scripts/compile-hlvm.sh
+            --target "${{ matrix.target }}"
+            --output "${{ matrix.binary }}"
+          )
+
+          if [ "${{ matrix.embed_ai_engine }}" != "true" ]; then
+            args+=(--skip-ai-engine)
+          fi
+
+          "${args[@]}"
 
       - name: Package release asset
         shell: bash
         run: |
           mkdir -p release-asset
-          size=$(stat -f%z "${{ matrix.binary }}")
+          asset_path="${{ matrix.binary }}"
+
+          if [ "${{ matrix.package_kind }}" = "windows-zip" ]; then
+            package_dir="release-package"
+            rm -rf "$package_dir"
+            mkdir -p "$package_dir/ai-engine"
+            mv "${{ matrix.binary }}" "$package_dir/hlvm.exe"
+            cp -R resources/ai-engine/. "$package_dir/ai-engine/"
+            (
+              cd "$package_dir"
+              zip -qr "../${{ matrix.release_asset }}" .
+            )
+            asset_path="${{ matrix.release_asset }}"
+          fi
+
+          size=$(stat -f%z "$asset_path")
 
           if [ "$size" -gt "${{ env.MAX_RELEASE_ASSET_BYTES }}" ]; then
-            echo "Splitting ${{ matrix.binary }} (${size} bytes) into release parts..."
+            echo "Splitting $asset_path (${size} bytes) into release parts..."
             split -b "${{ env.MAX_RELEASE_ASSET_BYTES }}" -d -a 3 \
-              "${{ matrix.binary }}" \
-              "release-asset/${{ matrix.binary }}.part-"
-            rm -f "${{ matrix.binary }}"
+              "$asset_path" \
+              "release-asset/${{ matrix.release_asset }}.part-"
+            rm -f "$asset_path"
           else
-            echo "Staging ${{ matrix.binary }} (${size} bytes) as a direct release asset..."
-            mv "${{ matrix.binary }}" "release-asset/${{ matrix.binary }}"
+            echo "Staging $asset_path (${size} bytes) as a direct release asset..."
+            mv "$asset_path" "release-asset/${{ matrix.release_asset }}"
           fi
 
           ls -lah release-asset
@@ -197,7 +232,7 @@ jobs:
           checksum_binary hlvm-mac-arm
           checksum_binary hlvm-mac-intel
           checksum_binary hlvm-linux
-          checksum_binary hlvm-windows.exe
+          checksum_binary hlvm-windows.zip
 
           echo "Generated checksums:"
           cat release-assets/checksums.sha256
@@ -250,7 +285,7 @@ jobs:
           - `hlvm-mac-arm` - macOS Apple Silicon (M1/M2/M3)
           - `hlvm-mac-intel` - macOS Intel
           - `hlvm-linux` - Linux x86_64 (published as split GitHub assets when needed)
-          - `hlvm-windows.exe` - Windows x86_64 (published as split GitHub assets when needed)
+          - `hlvm-windows.zip` - Windows x86_64 package (contains `hlvm.exe` plus embedded AI engine files)
 
           ## Quick Start
 

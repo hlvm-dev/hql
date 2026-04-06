@@ -135,6 +135,9 @@ make build-windows
 
 Output: `hlvm-windows.exe`
 
+Release packaging on Windows wraps that executable together with the embedded
+AI engine files as `hlvm-windows.zip`.
+
 ### Build All Platforms
 
 ```bash
@@ -146,7 +149,7 @@ Creates all binaries:
 - `hlvm-mac-intel`
 - `hlvm-mac-arm`
 - `hlvm-linux`
-- `hlvm-windows.exe`
+- `hlvm-windows.zip`
 
 ## Manual Build (Without Make)
 

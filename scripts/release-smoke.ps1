@@ -66,7 +66,7 @@ try {
         Require-Command "gh"
         Require-Command "python"
 
-        gh release download $Tag --repo $Repo --pattern "hlvm-windows.exe*" --pattern "checksums.sha256" --dir $assetDir
+        gh release download $Tag --repo $Repo --pattern "hlvm-windows.zip*" --pattern "checksums.sha256" --dir $assetDir
 
         $port = Get-FreePort
         $stdoutPath = Join-Path $smokeRoot "http.stdout.log"

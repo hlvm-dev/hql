@@ -8,7 +8,7 @@
 $ErrorActionPreference = "Stop"
 
 $Repo = if ($env:HLVM_INSTALL_REPO) { $env:HLVM_INSTALL_REPO } else { "hlvm-dev/hql" }
-$Binary = "hlvm-windows.exe"
+$Package = "hlvm-windows.zip"
 $BinaryName = "hlvm.exe"
 $PinnedVersion = $env:HLVM_INSTALL_VERSION
 $BinaryBaseUrl = $env:HLVM_INSTALL_BINARY_BASE_URL
@@ -19,14 +19,14 @@ function Write-Info($msg)  { Write-Host "  > $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)    { Write-Host "  ✓ $msg" -ForegroundColor Green }
 function Write-Err($msg)   { Write-Host "  ✗ $msg" -ForegroundColor Red }
 
-function Download-BinaryAsset {
+function Download-ReleaseAsset {
     param(
         [string]$BaseUrl,
-        [string]$BinaryName,
+        [string]$AssetName,
         [string]$OutputPath
     )
 
-    $directUrl = "$BaseUrl/$BinaryName"
+    $directUrl = "$BaseUrl/$AssetName"
     try {
         Invoke-WebRequest -Uri $directUrl -OutFile $OutputPath -UseBasicParsing
         return
@@ -39,7 +39,7 @@ function Download-BinaryAsset {
     $partFiles = @()
     $partIndex = 0
     while ($true) {
-        $partName = "{0}.part-{1:D3}" -f $BinaryName, $partIndex
+        $partName = "{0}.part-{1:D3}" -f $AssetName, $partIndex
         $partPath = Join-Path (Split-Path -Parent $OutputPath) $partName
         try {
             Invoke-WebRequest -Uri "$BaseUrl/$partName" -OutFile $partPath -UseBasicParsing
@@ -52,7 +52,7 @@ function Download-BinaryAsset {
     }
 
     if ($partFiles.Count -eq 0) {
-        throw "Could not download $BinaryName from $BaseUrl"
+        throw "Could not download $AssetName from $BaseUrl"
     }
 
     $outputStream = [System.IO.File]::Open($OutputPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
@@ -73,7 +73,38 @@ function Download-BinaryAsset {
         Remove-Item $partPath -Force -ErrorAction SilentlyContinue
     }
 
-    Write-Info "Reassembled $BinaryName from $($partFiles.Count) release part(s)."
+    Write-Info "Reassembled $AssetName from $($partFiles.Count) release part(s)."
+}
+
+function Get-HlvmDir {
+    if ($env:HLVM_DIR) {
+        return $env:HLVM_DIR
+    }
+    if ($env:HOME) {
+        return Join-Path $env:HOME ".hlvm"
+    }
+    return Join-Path $env:USERPROFILE ".hlvm"
+}
+
+function Stage-EmbeddedAiEngine {
+    param(
+        [string]$ExtractedRoot
+    )
+
+    $sourceEngineDir = Join-Path $ExtractedRoot "ai-engine"
+    if (-not (Test-Path $sourceEngineDir)) {
+        throw "Windows package is missing ai-engine payload."
+    }
+
+    $runtimeDir = Join-Path (Get-HlvmDir) ".runtime"
+    $targetEngineDir = Join-Path $runtimeDir "engine"
+    New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
+    if (Test-Path $targetEngineDir) {
+        Remove-Item -Recurse -Force $targetEngineDir
+    }
+    New-Item -ItemType Directory -Path $targetEngineDir -Force | Out-Null
+    Copy-Item (Join-Path $sourceEngineDir "*") $targetEngineDir -Recurse -Force
+    Write-Ok "Staged embedded AI engine at $targetEngineDir"
 }
 
 # Get latest version
@@ -109,15 +140,15 @@ if ($BinaryBaseUrl) {
 $tmpDir = Join-Path $env:TEMP "hlvm-install-$(Get-Random)"
 New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
 
-Write-Info "Downloading $Binary..."
-Download-BinaryAsset -BaseUrl $downloadBaseUrl -BinaryName $Binary -OutputPath "$tmpDir\$Binary"
+Write-Info "Downloading $Package..."
+Download-ReleaseAsset -BaseUrl $downloadBaseUrl -AssetName $Package -OutputPath "$tmpDir\$Package"
 
 # Verify checksum
 Write-Info "Verifying checksum..."
 try {
     Invoke-WebRequest -Uri $checksumUrl -OutFile "$tmpDir\checksums.sha256" -UseBasicParsing
-    $expected = (Get-Content "$tmpDir\checksums.sha256" | Select-String $Binary).ToString().Split(" ")[0]
-    $actual = (Get-FileHash "$tmpDir\$Binary" -Algorithm SHA256).Hash.ToLower()
+    $expected = (Get-Content "$tmpDir\checksums.sha256" | Select-String $Package).ToString().Split(" ")[0]
+    $actual = (Get-FileHash "$tmpDir\$Package" -Algorithm SHA256).Hash.ToLower()
     if ($expected -and $actual -ne $expected) {
         Write-Err "Checksum mismatch! Expected: $expected, Got: $actual"
         exit 1
@@ -128,9 +159,19 @@ try {
 }
 
 # Install
+$extractDir = Join-Path $tmpDir "package"
+Expand-Archive -Path "$tmpDir\$Package" -DestinationPath $extractDir -Force
+
+$packagedBinary = Join-Path $extractDir $BinaryName
+if (-not (Test-Path $packagedBinary)) {
+    Write-Err "Windows package did not contain $BinaryName."
+    exit 1
+}
+
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-Copy-Item "$tmpDir\$Binary" "$InstallDir\$BinaryName" -Force
+Copy-Item $packagedBinary "$InstallDir\$BinaryName" -Force
 Write-Ok "Installed to $InstallDir\$BinaryName"
+Stage-EmbeddedAiEngine -ExtractedRoot $extractDir
 
 # Add to PATH if not already present
 $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")

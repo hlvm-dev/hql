@@ -56,7 +56,7 @@ jobs:
           done
 
           has_direct_or_split_asset hlvm-linux
-          has_direct_or_split_asset hlvm-windows.exe
+          has_direct_or_split_asset hlvm-windows.zip
 
       - name: Validate installer URLs
         run: |

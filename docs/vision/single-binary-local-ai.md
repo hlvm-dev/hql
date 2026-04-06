@@ -191,6 +191,8 @@ PUBLIC OFFLINE SHIP COMPLETE: not in scope
 - `https://hlvm.dev/install.ps1` returns a real script body
 - the live installers point to `hlvm-dev/hql`
 - the only currently published release is still `v0.0.1`
+- draft release `v0.1.0` now exists on `hlvm-dev/hql` with the required standard-ship assets
+- the draft `install.sh` asset was refreshed from the current standard-only installer on `main`
 - the prior staged proof against the old `v0.1.0` draft exposed a real standard-path readiness bug:
   - macOS/Linux bootstrap succeeded, but the first `hlvm ask "hello"` could still fail with `HLVM5006`
   - Windows bootstrap could fail on slow runner startup because the embedded engine timeout was too short
@@ -199,16 +201,24 @@ PUBLIC OFFLINE SHIP COMPLETE: not in scope
   - `/health.aiReady` now stays false until local Gemma is actually usable
   - embedded engine startup timeout is longer for slow hosts, including Windows runners
   - Windows staged smoke now isolates `HLVM_DIR` / home paths and preserves bootstrap error output
-- `v0.1.0` is being rebuilt again from the readiness fix on commit `994754d`
-- standard public install is therefore not complete yet, because `releases/latest` does not yet deliver the intended `v0.1.0`
+- local staged standard smoke now passes on the development Mac against the rebuilt `v0.1.0` draft:
+  - live installer URL: `https://hlvm.dev/install.sh`
+  - staged command: `scripts/release-smoke.sh standard v0.1.0`
+  - result: installer completed bootstrap, `hlvm bootstrap --verify` passed, and `hlvm ask "hello"` returned successfully
+- staged cross-platform proof then exposed a Windows-only packaging limit:
+  - the staged Windows installer reassembled `hlvm-windows.exe`, checksum verification passed, but Windows rejected the file as an invalid application
+  - the failing draft Windows executable was `2,180,868,232` bytes, which exceeds the practical PE32+ image limit
+  - `main` now switches Windows standard install to a packaged asset (`hlvm-windows.zip`) that contains a much smaller runnable `hlvm.exe` plus the embedded AI engine sidecar
+  - local compile check with `--skip-ai-engine` reduced the Windows executable to `374 MB`, confirming the packaging direction
+- standard public install is therefore still not complete yet, because `releases/latest` does not yet deliver the intended `v0.1.0`
 
 ### Why Public Standard Is Not Done Yet
 
-The remaining work is distribution validation, not core runtime design:
+The remaining work is distribution validation plus a Windows release rebuild:
 
-1. the corrected `v0.1.0` draft must finish rebuilding from `994754d`
-2. staged smoke must prove the draft release on macOS/Linux/Windows
-3. the draft must be published
+1. rebuild the `v0.1.0` draft with the Windows packaged asset format
+2. rerun cross-platform staged smoke on macOS/Linux/Windows
+3. publish the draft
 4. public smoke must prove the real public install path
 
 ## Ship Target
@@ -221,7 +231,7 @@ The standard public ship requires these GitHub release assets on
 - `hlvm-mac-arm`
 - `hlvm-mac-intel`
 - `hlvm-linux` or `hlvm-linux.part-*`
-- `hlvm-windows.exe` or `hlvm-windows.exe.part-*`
+- `hlvm-windows.zip` or `hlvm-windows.zip.part-*`
 - `checksums.sha256`
 - `install.sh`
 - `install.ps1`
@@ -279,11 +289,9 @@ offline artifact is part of the release gate.
 The next person or model taking over should:
 
 1. verify the latest live installer still points to `hlvm-dev/hql`
-2. verify the rebuilt `v0.1.0` draft exists and contains the required assets and was built from `994754d`
-3. run standard staged smoke:
-   - Unix: `scripts/release-smoke.sh standard v0.1.0`
-   - Windows: `pwsh -File scripts/release-smoke.ps1 -Mode staged -Tag v0.1.0`
-4. publish only after staged standard smoke passes
+2. verify the rebuilt `v0.1.0` draft exists and contains the required assets
+3. check the current staged proof run status on GitHub Actions and confirm macOS/Linux/Windows all pass
+4. publish only after staged standard smoke passes everywhere
 5. run standard public smoke:
    - Unix: `scripts/public-release-smoke.sh standard`
    - Windows: `pwsh -File scripts/release-smoke.ps1 -Mode public -Tag v0.1.0`
