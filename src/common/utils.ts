@@ -283,9 +283,11 @@ export function isFileNotFoundError(error: unknown): boolean {
   const msg = String(error).toLowerCase();
   return msg.includes("no such file") ||
     msg.includes("not found") ||
+    msg.includes("cannot find the path specified") ||
     msg.includes("cannot find the file specified") ||
     msg.includes("enoent") ||
-    msg.includes("os error 2");
+    msg.includes("os error 2") ||
+    msg.includes("os error 3");
 }
 
 /**
