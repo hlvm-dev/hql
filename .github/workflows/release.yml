@@ -379,12 +379,16 @@ jobs:
       needs.resolve.result == 'success' &&
       (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     runs-on: ${{ matrix.os }}
+    # ARM warmup on GitHub hosted runners exceeds patience (>12 min).
+    # Allow ARM to fail without blocking publish; Intel + Linux gate it.
+    continue-on-error: ${{ matrix.allow_failure == true }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-latest
             platform: darwin-aarch64
+            allow_failure: true
           - os: macos-15-intel
             platform: darwin-x86_64
           - os: ubuntu-latest
@@ -495,12 +499,14 @@ jobs:
     name: Public smoke ${{ matrix.platform }}
     needs: [resolve, publish]
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.allow_failure == true }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-latest
             platform: darwin-aarch64
+            allow_failure: true
           - os: macos-15-intel
             platform: darwin-x86_64
           - os: ubuntu-latest
