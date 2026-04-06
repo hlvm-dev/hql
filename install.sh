@@ -9,7 +9,7 @@
 #
 set -e
 
-REPO="${HLVM_INSTALL_REPO:-hlvm-dev/hql}"
+REPO="${HLVM_INSTALL_REPO:-hlvm-dev/hlvm}"
 INSTALL_DIR="${HLVM_INSTALL_DIR:-/usr/local/bin}"
 BINARY_NAME="hlvm"
 HF_REPO="${HLVM_INSTALL_HF_REPO:-HLVM/hlvm-releases}"

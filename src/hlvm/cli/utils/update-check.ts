@@ -4,7 +4,7 @@
 
 import { compareVersions } from "../publish/utils.ts";
 
-export const GITHUB_RELEASES_API = "https://api.github.com/repos/hlvm-dev/hql/releases/latest";
+export const GITHUB_RELEASES_API = "https://api.github.com/repos/hlvm-dev/hlvm/releases/latest";
 
 /**
  * Compare semantic versions.

@@ -7,7 +7,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$Repo = if ($env:HLVM_INSTALL_REPO) { $env:HLVM_INSTALL_REPO } else { "hlvm-dev/hql" }
+$Repo = if ($env:HLVM_INSTALL_REPO) { $env:HLVM_INSTALL_REPO } else { "hlvm-dev/hlvm" }
 $Binary = "hlvm-windows.exe"
 $BinaryName = "hlvm.exe"
 $PinnedVersion = $env:HLVM_INSTALL_VERSION
