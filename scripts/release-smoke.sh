@@ -4,24 +4,16 @@
 # Standard mode:
 #   scripts/release-smoke.sh standard v0.1.0
 #
-# Offline mode:
-#   scripts/release-smoke.sh offline v0.1.0
-#
 # Notes:
 # - The installer itself is always fetched from hlvm.dev by default.
 # - Standard mode downloads draft release assets locally via `gh release download`
 #   and feeds them into install.sh via file:// overrides.
-# - Offline mode downloads the Hugging Face bundle once, then points install.sh at
-#   the local file:// bundle path so the install no longer depends on the bundle URL.
-# - To hard-prove "no network after download", disable network after the bundle is
-#   downloaded and before rerunning the offline install step.
 
 set -e
 
 MODE="${1:-}"
 TAG="${2:-}"
 REPO="${HLVM_SMOKE_REPO:-hlvm-dev/hql}"
-HF_REPO="${HLVM_SMOKE_HF_REPO:-HLVM/hlvm-releases}"
 INSTALLER_URL="${HLVM_SMOKE_INSTALLER_URL:-https://hlvm.dev/install.sh}"
 SMOKE_PROMPT="${HLVM_SMOKE_PROMPT:-hello}"
 
@@ -50,14 +42,11 @@ usage() {
   cat <<EOF
 Usage:
   scripts/release-smoke.sh standard <tag>
-  scripts/release-smoke.sh offline <tag>
 
 Environment:
   HLVM_SMOKE_REPO            GitHub repo for release assets (default: hlvm-dev/hql)
-  HLVM_SMOKE_HF_REPO         Hugging Face repo for offline bundles
   HLVM_SMOKE_INSTALLER_URL   Installer URL (default: https://hlvm.dev/install.sh)
   HLVM_SMOKE_PROMPT          Prompt used for hlvm ask (default: hello)
-  HLVM_SMOKE_OFFLINE_BUNDLE  Optional local offline bundle path for offline mode
 EOF
 }
 
@@ -102,45 +91,16 @@ download_draft_assets() {
     --dir "$ASSET_DIR"
 }
 
-download_offline_bundle_if_needed() {
-  if [ -n "${HLVM_SMOKE_OFFLINE_BUNDLE:-}" ]; then
-    OFFLINE_BUNDLE_PATH="${HLVM_SMOKE_OFFLINE_BUNDLE}"
-    return
-  fi
-
-  OFFLINE_BUNDLE_PATH="${ASSET_DIR}/hlvm-${TAG}-${PLATFORM}-full.tar.gz"
-  if [ -f "$OFFLINE_BUNDLE_PATH" ]; then
-    return
-  fi
-
-  curl -fsSL \
-    -o "$OFFLINE_BUNDLE_PATH" \
-    "https://huggingface.co/${HF_REPO}/resolve/main/hlvm-${TAG}-${PLATFORM}-full.tar.gz"
-}
-
 run_install() {
-  if [ "$MODE" = "offline" ]; then
-    env \
-      HOME="$HOME_DIR" \
-      PATH="$INSTALL_BIN:$PATH" \
-      HLVM_INSTALL_REPO="$REPO" \
-      HLVM_INSTALL_VERSION="$TAG" \
-      HLVM_INSTALL_DIR="$INSTALL_BIN" \
-      HLVM_INSTALL_BINARY_BASE_URL="file://${ASSET_DIR}" \
-      HLVM_INSTALL_CHECKSUM_URL="file://${ASSET_DIR}/checksums.sha256" \
-      HLVM_INSTALL_OFFLINE_BUNDLE_URL="file://${OFFLINE_BUNDLE_PATH}" \
-      sh "$INSTALLER_PATH" --full
-  else
-    env \
-      HOME="$HOME_DIR" \
-      PATH="$INSTALL_BIN:$PATH" \
-      HLVM_INSTALL_REPO="$REPO" \
-      HLVM_INSTALL_VERSION="$TAG" \
-      HLVM_INSTALL_DIR="$INSTALL_BIN" \
-      HLVM_INSTALL_BINARY_BASE_URL="file://${ASSET_DIR}" \
-      HLVM_INSTALL_CHECKSUM_URL="file://${ASSET_DIR}/checksums.sha256" \
-      sh "$INSTALLER_PATH"
-  fi
+  env \
+    HOME="$HOME_DIR" \
+    PATH="$INSTALL_BIN:$PATH" \
+    HLVM_INSTALL_REPO="$REPO" \
+    HLVM_INSTALL_VERSION="$TAG" \
+    HLVM_INSTALL_DIR="$INSTALL_BIN" \
+    HLVM_INSTALL_BINARY_BASE_URL="file://${ASSET_DIR}" \
+    HLVM_INSTALL_CHECKSUM_URL="file://${ASSET_DIR}/checksums.sha256" \
+    sh "$INSTALLER_PATH"
 }
 
 run_post_checks() {
@@ -175,18 +135,10 @@ main() {
   printf 'Downloading staged draft assets for %s (%s)\n' "$TAG" "$BINARY"
   download_draft_assets
 
-  case "$MODE" in
-    standard)
-      ;;
-    offline)
-      download_offline_bundle_if_needed
-      printf 'Offline bundle ready at %s\n' "$OFFLINE_BUNDLE_PATH"
-      ;;
-    *)
-      usage
-      exit 1
-      ;;
-  esac
+  if [ "$MODE" != "standard" ]; then
+    usage
+    exit 1
+  fi
 
   run_install
   run_post_checks

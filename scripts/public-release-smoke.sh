@@ -3,7 +3,6 @@
 #
 # Usage:
 #   scripts/public-release-smoke.sh standard
-#   scripts/public-release-smoke.sh offline
 
 set -e
 
@@ -29,7 +28,6 @@ usage() {
   cat <<EOF
 Usage:
   scripts/public-release-smoke.sh standard
-  scripts/public-release-smoke.sh offline
 EOF
 }
 
@@ -41,19 +39,11 @@ need_cmd() {
 }
 
 run_install() {
-  if [ "$MODE" = "offline" ]; then
-    env \
-      HOME="$HOME_DIR" \
-      PATH="$INSTALL_BIN:$PATH" \
-      HLVM_INSTALL_DIR="$INSTALL_BIN" \
-      sh "$INSTALLER_PATH" --full
-  else
-    env \
-      HOME="$HOME_DIR" \
-      PATH="$INSTALL_BIN:$PATH" \
-      HLVM_INSTALL_DIR="$INSTALL_BIN" \
-      sh "$INSTALLER_PATH"
-  fi
+  env \
+    HOME="$HOME_DIR" \
+    PATH="$INSTALL_BIN:$PATH" \
+    HLVM_INSTALL_DIR="$INSTALL_BIN" \
+    sh "$INSTALLER_PATH"
 }
 
 run_post_checks() {
@@ -62,7 +52,7 @@ run_post_checks() {
 }
 
 main() {
-  if [ "$MODE" != "standard" ] && [ "$MODE" != "offline" ]; then
+  if [ "$MODE" != "standard" ]; then
     usage
     exit 1
   fi

@@ -13,7 +13,6 @@ permissions:
 
 env:
   REPO: hlvm-dev/hql
-  HF_REPO: HLVM/hlvm-releases
 
 jobs:
   publish:
@@ -67,17 +66,6 @@ jobs:
           curl --fail --silent --show-error --location \
             --retry 5 --retry-delay 2 --retry-all-errors \
             --head https://hlvm.dev/install.ps1 >/dev/null
-
-      - name: Validate offline bundles
-        run: |
-          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64
-          do
-            curl --fail --silent --show-error --location \
-              --retry 5 --retry-delay 2 --retry-all-errors \
-              --head \
-              "https://huggingface.co/${{ env.HF_REPO }}/resolve/main/hlvm-${{ inputs.tag }}-${platform}-full.tar.gz" \
-              >/dev/null
-          done
 
       - name: Publish release
         env:

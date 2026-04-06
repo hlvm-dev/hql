@@ -1,22 +1,20 @@
 #!/bin/sh
 # HLVM Installer — one command, ready on completion.
 #
-# Standard install (downloads binary, pulls fallback model):
+# Supported public install:
 #   curl -fsSL https://hlvm.dev/install.sh | sh
 #
-# Offline install (pre-bundled model, no network after download):
-#   curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full
+# This command installs the binary, bootstraps the embedded local AI runtime,
+# pulls Gemma during install when needed, and returns only when HLVM is ready.
 #
 set -e
 
 REPO="${HLVM_INSTALL_REPO:-hlvm-dev/hql}"
 INSTALL_DIR="${HLVM_INSTALL_DIR:-/usr/local/bin}"
 BINARY_NAME="hlvm"
-HF_REPO="${HLVM_INSTALL_HF_REPO:-HLVM/hlvm-releases}"
 PINNED_VERSION="${HLVM_INSTALL_VERSION:-}"
 STANDARD_BASE_URL="${HLVM_INSTALL_BINARY_BASE_URL:-}"
 CHECKSUM_URL_OVERRIDE="${HLVM_INSTALL_CHECKSUM_URL:-}"
-OFFLINE_BUNDLE_URL_OVERRIDE="${HLVM_INSTALL_OFFLINE_BUNDLE_URL:-}"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -209,95 +207,19 @@ install_standard() {
   fi
 }
 
-# ---------------------------------------------------------------------------
-# Offline (full) install
-# ---------------------------------------------------------------------------
-
-install_full() {
-  bold "HLVM Installer (Offline Bundle)"
-  echo ""
-
-  detect_platform
-  info "Platform: ${OS}/${ARCH} → ${BINARY}"
-
-  get_latest_version
-  info "Version:  ${VERSION}"
-
-  # Determine bundle name
-  BUNDLE="hlvm-${VERSION}-${OS}-${ARCH}-full.tar.gz"
-  BUNDLE_URL="${OFFLINE_BUNDLE_URL_OVERRIDE:-https://huggingface.co/${HF_REPO}/resolve/main/${BUNDLE}}"
-
-  TMPDIR=$(mktemp -d)
-  trap 'rm -rf "$TMPDIR"' EXIT
-
-  info "Downloading offline bundle (this may take a few minutes)..."
-  curl -fsSL -o "${TMPDIR}/${BUNDLE}" "$BUNDLE_URL" || {
-    err "Offline bundle not found at ${BUNDLE_URL}"
-    err "Try the standard install: curl -fsSL https://hlvm.dev/install.sh | sh"
-    exit 1
-  }
-
-  info "Extracting..."
-  tar -xzf "${TMPDIR}/${BUNDLE}" -C "${TMPDIR}"
-
-  # Install binary
-  chmod +x "${TMPDIR}/${BINARY_NAME}"
-  if [ -w "$INSTALL_DIR" ]; then
-    cp "${TMPDIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
-  else
-    info "Elevated permissions required to install to ${INSTALL_DIR}."
-    sudo cp "${TMPDIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
-  fi
-  ok "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
-
-  # Copy pre-pulled models
-  HLVM_MODELS="$HOME/.hlvm/.runtime/models"
-  if [ -d "${TMPDIR}/models" ]; then
-    mkdir -p "$HLVM_MODELS"
-    cp -r "${TMPDIR}/models/"* "$HLVM_MODELS/"
-    ok "Models installed to ${HLVM_MODELS}"
-  else
-    err "Offline bundle missing models directory."
-    exit 1
-  fi
-
-  # Run bootstrap to extract engine + write manifest with correct paths.
-  # The model pull is a no-op since blobs are already in place.
-  info "Bootstrapping (extracting engine, verifying model)..."
-  if "${INSTALL_DIR}/${BINARY_NAME}" bootstrap; then
-    echo ""
-    ok "HLVM ${VERSION} is ready (offline bundle)!"
-    echo ""
-    echo "  Get started:"
-    echo "    hlvm ask \"hello\""
-    echo "    hlvm repl"
-    echo "    hlvm --help"
-    echo ""
-  else
-    echo ""
-    err "HLVM ${VERSION} installed, but bootstrap failed."
-    err "The pre-bundled model may be corrupt."
-    echo ""
-    echo "  To repair:"
-    echo "    hlvm bootstrap --repair"
-    echo ""
-    exit 1
-  fi
-}
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
 main() {
   case "${1:-}" in
-    --full)  install_full ;;
+    --full)
+      err "Offline bundle install is not part of the current public release."
+      err "Use the supported one-shot install instead:"
+      echo "  curl -fsSL https://hlvm.dev/install.sh | sh"
+      exit 1
+      ;;
     --help)
       echo "HLVM Installer"
       echo ""
       echo "Usage:"
-      echo "  curl -fsSL https://hlvm.dev/install.sh | sh              # Standard"
-      echo "  curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full # Offline"
+      echo "  curl -fsSL https://hlvm.dev/install.sh | sh"
       echo ""
       ;;
     *)       install_standard ;;

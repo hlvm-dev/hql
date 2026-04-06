@@ -1,95 +1,130 @@
-# Single-Binary Local AI — Vision & Spec
+# Single-Binary Local AI — Vision & Ship SSOT
 
 ## Goal
 
-Two first-class install modes. Both one command. Both ready on completion.
+There is one supported public install path:
 
-```
-STANDARD:    curl -fsSL https://hlvm.dev/install.sh | sh
-OFFLINE:     curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full
+```bash
+curl -fsSL https://hlvm.dev/install.sh | sh
 ```
 
-After either install finishes successfully:
+That single command must:
+
+1. download the correct platform binary from `hlvm-dev/hql`
+2. install `hlvm`
+3. bootstrap the embedded local AI runtime
+4. prepare the default local fallback model `gemma4:e4b`
+5. show progress while that work happens
+6. return only when HLVM is genuinely ready
+
+After install finishes successfully:
 
 - `hlvm ask "hello"` works immediately
-- `/health.aiReady` is true only when the local fallback is genuinely usable
-- there is no first-run model download surprise
+- `/health.aiReady` is true only when the local fallback is actually usable
+- there is no post-install "surprise" model download
+- users do not need to understand Ollama, model stores, or extra setup steps
 
 Installed result:
 
 ```text
-/usr/local/bin/hlvm              (or LOCALAPPDATA\\HLVM\\bin\\hlvm.exe on Windows)
+/usr/local/bin/hlvm              (or LOCALAPPDATA\HLVM\bin\hlvm.exe on Windows)
 ~/.hlvm/.runtime/
   ├── engine
   ├── models/
   └── manifest.json
 ```
 
+## Product Contract
+
+### Supported Public UX
+
+```text
+User runs:
+  curl -fsSL https://hlvm.dev/install.sh | sh
+
+Installer then:
+  - detects platform
+  - resolves the latest published release on hlvm-dev/hql
+  - downloads the matching binary
+  - verifies checksums
+  - installs hlvm
+  - runs `hlvm bootstrap`
+  - shows bootstrap progress, including local AI preparation
+  - exits only after Gemma is installed and verified
+
+User then runs:
+  hlvm ask "hello"
+
+Expected result:
+  Works immediately, out of the box, with Gemma available by default.
+```
+
+### Unsupported Public UX
+
+Public offline bundle install is not part of the current ship target.
+
+Do not advertise or require:
+
+```bash
+curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full
+```
+
+Offline packaging work may remain in the repository for future use, but it is
+not part of the current release gate and must not block the standard public
+ship.
+
 ## Architecture
 
-### Current → Target
+### Current Target
 
-```
-BEFORE                              AFTER
-──────                              ─────
-┌──────────┐                        ┌──────────┐
-│ HLVM CLI │                        │ HLVM CLI │
-│  binary  │                        │  binary  │
-│          │                        │          │
-│ embedded │   system Ollama        │ embedded │    ~/.hlvm/.runtime/
-│  engine  │──▶ default store       │  engine  │──▶ models/ (HLVM-owned)
-│          │   (~/.ollama/)         │          │    manifest.json
-│ no model │                        │ gemma4   │
-│ guarantee│                        │ verified │
-└──────────┘                        └──────────┘
+```text
+┌──────────┐
+│ HLVM CLI │
+│  binary  │
+│          │
+│ embedded │
+│  engine  │──▶ ~/.hlvm/.runtime/
+│          │    ├── engine
+│ gemma4   │    ├── models/
+│ verified │    └── manifest.json
+└──────────┘
 ```
 
 ### Key Invariants
 
-1. **OLLAMA_MODELS override** — `startAIEngine()` sets `OLLAMA_MODELS` to `~/.hlvm/.runtime/models/`. The embedded engine uses HLVM-owned storage.
-2. **Pinned fallback identity** — `gemma4:e4b` is pinned by Ollama manifest digest prefix `c6eb396dbd59` and a published 9.6GB size sanity bound.
-3. **Adopt-or-pull bootstrap** — `hlvm bootstrap` first checks whether the pinned model is already present locally, then pulls only when needed.
-4. **HLVM-owned local endpoint** — the embedded Ollama runtime binds to `127.0.0.1:11439`, not the system default `11434`, so bootstrap and runtime traffic never depend on a separate system Ollama process.
-5. **Local fallback as last resort** — added after Claude Code → Ollama Cloud chain in `ensureInitialModelConfigured()`.
-6. **Installer calls `hlvm bootstrap`** — the binary itself handles all AI preparation.
-7. **No build-id model subdirectories** — the model store stays at `~/.hlvm/.runtime/models/`; the manifest tracks what is verified there.
+1. `hlvm bootstrap` is the single install-time preparation entrypoint.
+2. The embedded AI engine uses HLVM-owned storage under `~/.hlvm/.runtime/models/`.
+3. The fallback model is `gemma4:e4b`.
+4. Bootstrap is adopt-or-pull:
+   - if the pinned fallback is already present, adopt it
+   - otherwise pull it during bootstrap
+5. The embedded runtime binds to `127.0.0.1:11439`, not the system Ollama default.
+6. `/health.aiReady` is true only after the fallback is genuinely ready.
+7. The installer is not complete until bootstrap has finished successfully.
 
-## Install-Time Bootstrap Contract
+## Install-Time Contract
 
 ### Standard Flow (`install.sh`)
 
-```
+```text
 1. detect_platform()
 2. get_latest_version()
 3. download + verify checksum
-4. install to /usr/local/bin/hlvm
-5. hlvm bootstrap
+4. install hlvm to the target bin dir
+5. run `hlvm bootstrap`
    ├── extractAIEngine()
-   ├── start engine with OLLAMA_MODELS=~/.hlvm/.runtime/models/
+   ├── start embedded engine with OLLAMA_MODELS=~/.hlvm/.runtime/models/
    ├── adopt existing pinned gemma4:e4b OR pull it via 127.0.0.1:11439/api/pull
-   ├── hash engine + read Ollama manifest digest/size
-   └── write manifest.json
-6. "Ready!"
+   ├── verify model identity on disk
+   ├── hash engine + record authoritative model digest/size
+   └── write ~/.hlvm/.runtime/manifest.json
+6. print ready message
 ```
 
-### Offline Flow (`install.sh --full`)
+The command must remain one-shot from the user's point of view, even if the
+bootstrap step takes time.
 
-```
-1. detect_platform()
-2. download offline bundle from HuggingFace
-3. extract binary + models/
-4. install binary to /usr/local/bin/hlvm
-5. copy models/ to ~/.hlvm/.runtime/models/
-6. hlvm bootstrap
-   ├── extractAIEngine()
-   ├── start engine with OLLAMA_MODELS=~/.hlvm/.runtime/models/
-   ├── detect pinned gemma4:e4b already present locally
-   ├── skip /api/pull entirely
-   └── write manifest.json with machine-correct engine path
-7. "Ready!"
-```
-
-## Bootstrap Manifest
+## Runtime Manifest
 
 Location: `~/.hlvm/.runtime/manifest.json`
 
@@ -104,357 +139,161 @@ Location: `~/.hlvm/.runtime/manifest.json`
   "models": [{
     "modelId": "gemma4:e4b",
     "size": 9600000000,
-    "hash": "sha256:c6eb396dbd59..."
+    "hash": "sha256:..."
   }],
   "buildId": "0.1.0",
-  "createdAt": "2026-04-05T12:00:00Z",
-  "lastVerifiedAt": "2026-04-05T12:00:00Z"
+  "createdAt": "2026-04-06T00:00:00Z",
+  "lastVerifiedAt": "2026-04-06T00:00:00Z"
 }
 ```
 
-### States
+States:
 
 | State | Meaning |
 |-------|---------|
 | `uninitialized` | No manifest exists |
-| `verified` | Engine + model present and hashes match |
-| `degraded` | Some assets missing or corrupt |
+| `verified` | Engine + fallback model present and verified |
+| `degraded` | Some required local AI assets are missing or corrupt |
 
-## CLI Commands
+## What Is Already Proven
 
-```bash
-hlvm bootstrap              # Full materialization
-hlvm bootstrap --verify     # Check integrity
-hlvm bootstrap --repair     # Re-materialize missing assets
-hlvm bootstrap --status     # Print manifest as JSON
-```
+### Local Runtime Proof
 
-## Files
+The following has already been proven locally on the development machine:
 
-### New
-- `src/hlvm/runtime/bootstrap-manifest.ts` — Types, constants, manifest I/O
-- `src/hlvm/runtime/bootstrap-verify.ts` — Verification logic
-- `src/hlvm/runtime/bootstrap-materialize.ts` — Model pull + hashing
-- `src/hlvm/runtime/bootstrap-recovery.ts` — Repair logic
-- `src/hlvm/cli/commands/bootstrap.ts` — CLI command
-- `install.sh` — macOS/Linux installer
-- `install.ps1` — Windows installer
-- `scripts/package-offline-bundle.ts` — Offline bundle packaging
-- `.github/workflows/offline-bundle.yml` — CI for offline bundles
+1. `hlvm serve` on a clean home reports `/health.aiReady = false`
+2. `hlvm bootstrap` extracts the embedded engine and prepares HLVM-owned model storage
+3. bootstrap writes a verified manifest under `~/.hlvm/.runtime/manifest.json`
+4. `hlvm ask "hello"` works immediately after bootstrap
+5. `/health.aiReady = true` only after verified bootstrap
+6. `hlvm bootstrap --repair` restores a degraded install
+7. GUI bundling is deterministic and uses the SSOT binary from this repo
+8. the macOS GUI refuses port conflicts instead of killing a foreign runtime
 
-### Modified
-- `src/common/paths.ts` — `getModelsDir()`, `ensureModelsDir()`
-- `src/common/error-codes.ts` — Bootstrap error codes 5020-5024
-- `src/hlvm/runtime/ai-runtime.ts` — `OLLAMA_MODELS` env in `startAIEngine()`
-- `src/hlvm/cli/cli.ts` — `bootstrap` command registration
-- `src/hlvm/cli/commands/serve.ts` — Bootstrap verification in readiness
-- `src/common/ai-default-model.ts` — Local fallback model resolution
-- `.github/workflows/release.yml` — Embed engine, add install scripts
-- `Makefile` — Download engine from official URLs
+### Website / Installer Hosting Proof
 
-## Decision Log
+The following is already fixed and verified:
 
-| Decision | Rationale |
-|----------|-----------|
-| Ollama as adapter, not contract | Future engines (llama.cpp, etc.) can be swapped via `adapter` field |
-| `gemma4:e4b` as default | Strong enough local fallback quality while still fitting the one-shot install story |
-| Fallback is pinned by digest prefix | Prevents silent drift when the upstream tag changes |
-| Published size is a sanity bound | Ollama exposes the public size as 9.6GB; digest is the strict identity check |
-| Adopt-or-pull bootstrap | Makes the offline bundle truly offline after download while preserving one shared bootstrap path |
-| Bootstrap is idempotent | Re-running `hlvm bootstrap` is always safe |
-| Recovery does full re-materialize | Partial recovery adds complexity for marginal benefit |
-| Embedded Ollama version is file-backed SSOT | `embedded-ollama-version.txt` feeds both Makefile and GitHub Actions |
+1. `https://hlvm.dev/install.sh` serves the real shell script
+2. `https://hlvm.dev/install.ps1` serves the real PowerShell script
+3. both live installer scripts now default to `hlvm-dev/hql`
 
-## Progress
+## Current Public Status
 
-- [x] Phase 1: Docs, SSOT, Contracts
-- [x] Phase 2: Core Bootstrap Substrate
-- [x] Phase 3: Standard Install Path
-- [x] Phase 4: Full Offline Path
-- [x] Phase 5: Landing, Releases, Recovery
-
-Verification snapshot:
-
-- [x] `deno task ssot:check`
-- [x] targeted `deno check` on bootstrap/install surfaces
-- [x] `sh -n install.sh`
-- [x] clean-home standard bootstrap with the current built binary
-- [x] `hlvm ask "hello"` works immediately after standard bootstrap
-- [x] `/health.aiReady` is false before bootstrap and true after verified bootstrap
-- [x] locally built full offline bundle extracted on a clean home
-- [x] `hlvm ask "hello"` works immediately after offline bootstrap
-- [x] `hlvm bootstrap --repair` restores a degraded install to verified
-
-Release-hosting note:
-
-- [ ] Published GitHub Release / Hugging Face URLs exercised after release publication
-
-Ship-finish plumbing:
-
-- [x] `install.sh` supports internal release-staging overrides for binary/checksum/bundle sources
-- [x] `install.ps1` supports internal release-staging overrides for binary/checksum sources
-- [x] website deploy is designed to copy repo-root `install.sh` and `install.ps1` into `website/out/`
-- [x] current `website/out/` contents and live hosting have been refreshed so installer files are present
-- [x] `hlvm.dev/install.sh` and `hlvm.dev/install.ps1` now serve script content instead of landing-page HTML
-- [x] public `v0.1.0` draft release exists on `hlvm-dev/hql`
-- [x] GitHub release flow creates a **draft** release first
-- [x] offline bundle publishing is a separate manual workflow that packages from the staged draft tag
-- [x] explicit publish workflow validates installer URLs + bundle URLs before publishing the draft release
-- [x] operator smoke helper exists at `scripts/release-smoke.sh`
-- [ ] Public release smoke completed against published artifacts
-
-Deterministic GUI bundling:
-
-- [x] `~/dev/hql` is the SSOT build source for `hlvm`
-- [x] the macOS GUI repo copies that exact binary into `HLVM/Resources/hlvm`
-- [x] the Xcode build phase no longer compiles a divergent app-local `hlvm`
-- [x] tracked convenience sync exists at `scripts/sync-gui-binary.sh` and `.githooks/post-commit`
-- [ ] `git config core.hooksPath .githooks` enabled in every clone that wants the convenience hook
-
-GUI runtime conflict policy:
-
-- [x] `HLVM.app` probes `127.0.0.1:11435` before launch
-- [x] if the port is occupied, the app refuses instead of killing a foreign `hlvm serve`
-- [x] conflict is surfaced as a user-visible GUI alert
-- [x] live GUI conflict smoke completed against a running foreign `hlvm serve`
-
-## Current Handoff Status
-
-As of `2026-04-06`, this feature is **complete in code** and **locally end-to-end proven** on the development machine, but it is **not publicly shipped yet**.
-
-Mission status:
-
-- **Completed locally**
-  - standard bootstrap path
-  - local fallback ownership under `~/.hlvm/.runtime`
-  - truthful readiness semantics
-  - offline bundle path
-  - repair path
-- **Blocked publicly**
-  - `hlvm-dev/hql` is now the only allowed release/install repo target
-  - the public `latest` release on `hlvm-dev/hql` is still `v0.0.1`, so the one-line installer cannot deliver `v0.1.0` yet
-  - `gh release view v0.1.0 --repo hlvm-dev/hql` shows a draft release with assets, but it was built from the old repo-target configuration and must be replaced
-  - `HLVM/hlvm-releases` still has no offline bundles for `v0.1.0` and currently contains only `.gitattributes`
-  - staged smoke and public smoke have never been completed against real `v0.1.0` artifacts
-  - `PUBLIC_RELEASE_TOKEN` and `HF_TOKEN` are configured as repo secrets on `hlvm-dev/hql`, but their values are not readable back through GitHub
-
-This is the current authoritative summary for any future LLM or engineer taking over the work.
-
-### Verified Ground Truth (`2026-04-06`)
-
-- `curl -I https://hlvm.dev/install.sh` returns `content-type: application/x-sh`
-- `curl -I https://hlvm.dev/install.ps1` returns `content-type: application/x-powershell`
-- both live installer URLs now return the real script bodies rather than the landing page HTML
-- `gh release list --repo hlvm-dev/hql --limit 5` reports `v0.0.1` as the latest published release and `v0.1.0` as a draft
-- `gh release view v0.1.0 --repo hlvm-dev/hql` shows the required draft assets, but they still reference the wrong repo target
-- `https://huggingface.co/api/models/HLVM/hlvm-releases` currently reports a single sibling: `.gitattributes`
-- `gh repo view hlvm-dev/hql --json visibility` reports `PUBLIC`
-- `PUBLIC_RELEASE_TOKEN` and `HF_TOKEN` both exist as repo secrets on `hlvm-dev/hql`
-- the remaining local changes are isolated to ship-status updates in the repo, not unrelated feature work
-
-### What Was Proven Locally
-
-The following runtime proofs were completed with the current built binary:
-
-1. **Clean-home readiness before bootstrap**
-   - `hlvm serve` on a fresh home reports `/health.aiReady = false`
-2. **Standard bootstrap**
-   - `hlvm bootstrap` extracts the embedded engine into `~/.hlvm/.runtime/engine`
-   - the embedded Ollama runtime uses the HLVM-owned endpoint `127.0.0.1:11439`
-   - the fallback model is stored in `~/.hlvm/.runtime/models`
-   - `~/.hlvm/.runtime/manifest.json` is written in `state: "verified"`
-3. **Immediate post-bootstrap usage**
-   - `hlvm ask "hello"` works immediately after bootstrap on a clean home
-4. **Readiness truthfulness**
-   - `/health.aiReady = false` before bootstrap
-   - `/health.aiReady = true` after verified bootstrap
-5. **Offline bundle**
-   - a real offline bundle was built locally
-   - that bundle was extracted into a new clean home
-   - `hlvm bootstrap`, `hlvm bootstrap --verify`, and `hlvm ask "hello"` all succeeded there
-6. **Repair**
-   - after deleting the extracted engine from the verified offline home
-   - `hlvm bootstrap --repair` restored the install
-   - `hlvm bootstrap --verify` returned success again
-   - `hlvm ask "hello"` worked again
-7. **GUI runtime conflict**
-   - with a foreign runtime already holding `127.0.0.1:11435`, launching `HLVM.app` did not kill it
-   - `HLVM.app` refused startup on the occupied port
-   - the user-visible runtime-conflict alert was shown
-8. **GUI normal startup**
-   - with `127.0.0.1:11435` free, launching the debug `HLVM.app` started its bundled `Resources/hlvm serve`
-   - `/health` responded from that exact bundled binary on `127.0.0.1:11435`
-
-### Important Scope Boundary
-
-This feature should now be considered:
+As of `2026-04-06`, this feature is:
 
 ```text
 LOCALLY COMPLETE: yes
-PUBLICLY PUBLISHED + PUBLIC URL SMOKED: not yet
+PUBLIC STANDARD SHIP COMPLETE: no
+PUBLIC OFFLINE SHIP COMPLETE: not in scope
 ```
 
-The remaining work is release/distribution validation, not core feature implementation.
+### Verified Ground Truth (`2026-04-06`)
 
-### Deterministic GUI Bundling
+- `hlvm-dev/hql` is the only allowed release/install repo target
+- `hlvm-dev/hql` is public
+- `https://hlvm.dev/install.sh` returns a real script body
+- `https://hlvm.dev/install.ps1` returns a real script body
+- the live installers point to `hlvm-dev/hql`
+- the only currently published release is still `v0.0.1`
+- `v0.1.0` is being rebuilt from the corrected repo-target + manifest-discovery code
+- standard public install is therefore not complete yet, because `releases/latest` does not yet deliver the intended `v0.1.0`
 
-The single-binary architecture now has one build SSOT:
+### Why Public Standard Is Not Done Yet
 
-```text
-~/dev/hql
-  -> make build / make build-fast
-  -> produces ./hlvm
+The remaining work is distribution validation, not core runtime design:
 
-~/dev/HLVM
-  -> never compiles a divergent hlvm
-  -> copies ~/dev/hql/hlvm into HLVM/Resources/hlvm
-```
+1. the corrected `v0.1.0` draft must finish rebuilding
+2. staged smoke must prove the draft release on macOS/Linux/Windows
+3. the draft must be published
+4. public smoke must prove the real public install path
 
-Supporting pieces:
+## Ship Target
 
-- `scripts/sync-gui-binary.sh` is the tracked sync entrypoint
-- `.githooks/post-commit` is an optional convenience wrapper for sibling-checkout sync
-- the Xcode build phase is still the correctness path because it always syncs the SSOT binary before building the app
+### Release Assets Required
 
-Hook activation is intentionally opt-in:
+The standard public ship requires these GitHub release assets on
+`hlvm-dev/hql`:
 
-```bash
-git config core.hooksPath .githooks
-```
+- `hlvm-mac-arm`
+- `hlvm-mac-intel`
+- `hlvm-linux` or `hlvm-linux.part-*`
+- `hlvm-windows.exe` or `hlvm-windows.exe.part-*`
+- `checksums.sha256`
+- `install.sh`
+- `install.ps1`
 
-That keeps the workflow reproducible across clones without making correctness depend on an untracked local `.git/hooks/post-commit`.
+No Hugging Face bundles are required for the current ship target.
 
-### GUI Runtime Conflict Policy
+## Ship Flow
 
-`HLVM.app` now follows a strict **probe and refuse** rule on `127.0.0.1:11435`:
-
-```text
-if :11435 is free:
-  launch bundled Resources/hlvm serve
-
-if :11435 is occupied:
-  do not kill the foreign process
-  do not attach to it
-  show a clear runtime-conflict alert
-```
-
-This is intentionally simpler and safer than the old kill/reclaim behavior.
-It fixes the GUI-side ownership bug without changing CLI host behavior or adding
-new runtime-owner protocols.
-
-### Ship Validation Flow
-
-The intended automated ship sequence is still:
+### Standard-Only Release Flow
 
 ```text
 1. push vX.Y.Z tag
    -> .github/workflows/release.yml
-   -> build binaries
-   -> create DRAFT GitHub release
+   -> build 4-platform binaries
+   -> create DRAFT GitHub release on hlvm-dev/hql
 
-2. run .github/workflows/offline-bundle.yml with the same tag
-   -> download staged draft binary
-   -> package offline bundles
-   -> upload bundles to Hugging Face
+2. run staged smoke against the draft release
+   -> macOS arm standard smoke
+   -> macOS intel standard smoke
+   -> Linux x86_64 standard smoke
+   -> Windows x86_64 standard smoke
 
-3. deploy website
-   -> website/out/install.sh
-   -> website/out/install.ps1
-   -> hlvm.dev/install.sh
-   -> hlvm.dev/install.ps1
-
-4. smoke staged assets
-   -> scripts/release-smoke.sh standard vX.Y.Z
-   -> scripts/release-smoke.sh offline vX.Y.Z
-
-5. run .github/workflows/publish-release.yml with the same tag
+3. publish the draft release
+   -> validate draft assets
    -> validate installer URLs
-   -> validate Hugging Face bundle URLs
-   -> publish the draft release
+   -> mark release live
+
+4. run public smoke against the published release
+   -> real `curl -fsSL https://hlvm.dev/install.sh | sh`
+   -> real `irm https://hlvm.dev/install.ps1 | iex`
+   -> `hlvm bootstrap --verify`
+   -> `hlvm ask "hello"`
 ```
 
-Because GitHub Actions minutes are currently exhausted, the manual recovery sequence is:
+## Remaining Work
+
+### Immediate Critical Path
+
+1. wait for the corrected `v0.1.0` release rebuild to finish
+2. verify the new draft assets are present on `hlvm-dev/hql`
+3. run standard staged smoke only
+4. publish `v0.1.0`
+5. run standard public smoke only
+6. update this document again with the final published proof
+
+### Non-Goals For This Ship
+
+- do not block publish on offline bundles
+- do not block publish on Hugging Face uploads
+- do not claim the public ship is complete before standard public smoke passes
+
+## Next Owner Checklist
+
+The next person or model taking over should:
+
+1. verify the latest live installer still points to `hlvm-dev/hql`
+2. verify the rebuilt `v0.1.0` draft exists and contains the required assets
+3. run standard staged smoke:
+   - Unix: `scripts/release-smoke.sh standard v0.1.0`
+   - Windows: `pwsh -File scripts/release-smoke.ps1 -Mode staged -Tag v0.1.0`
+4. publish only after staged standard smoke passes
+5. run standard public smoke:
+   - Unix: `scripts/public-release-smoke.sh standard`
+   - Windows: `pwsh -File scripts/release-smoke.ps1 -Mode public -Tag v0.1.0`
+6. update this document with the exact publish date, release tag, and proof status
+
+## Canonical Product Contract
+
+The only public contract that matters for this ship is:
 
 ```text
-1. update the shared handoff doc with verified public-ship truth
-2. fix and manually deploy the website so hlvm.dev/install.sh and install.ps1 are real files
-3. use `hlvm-dev/hql` as the only release/install repo target and rely on its configured repo secrets for release publication
-4. manually create the v0.1.0 draft release using release.yml as the SSOT
-5. manually package and upload the offline bundles to HLVM/hlvm-releases
-6. run staged smoke against the draft release and staged bundles
-7. publish the draft release
-8. run real public macOS, Linux, and Windows smoke before claiming the ship is complete
-```
-
-Operational boundary:
-
-- The feature remains **locally proven** already.
-- The remaining work is now strictly **distribution/publication** work.
-- Do not mark the public-proof checkbox complete until the staged smoke and publish sequence above has been exercised on real release artifacts.
-
-### Known Operational Notes
-
-- The HLVM-owned fallback runtime is isolated on `127.0.0.1:11439`.
-- System Ollama remains separate on the default `11434` endpoint.
-- On this macOS environment, direct `ollama --help` / `ollama --version` probing was not a safe validity check for the embedded runtime because the MLX path can crash before printing stable help/version output.
-- The runtime-safe proof is:
-  - extract engine
-  - start engine
-  - verify endpoint readiness
-  - verify bootstrap manifest
-- The GUI/runtime boundary remains unchanged:
-  - GUI talks only to `hlvm serve` on `127.0.0.1:11435`
-  - embedded Ollama remains internal to `hlvm` on `127.0.0.1:11439`
-
-### Shared-State Compatibility Boundary
-
-Both standalone `hlvm` and the app-bundled `Resources/hlvm` read the same
-on-disk state under `~/.hlvm/`.
-
-That is fine for this branch because it does not intentionally introduce a
-breaking on-disk schema change. But this is an architectural compatibility
-boundary:
-
-- no migration work is required for the current branch
-- any future breaking change to shared on-disk formats must ship with explicit
-  migration or compatibility handling
-
-Port-conflict policy does not remove that requirement. It only makes runtime
-ownership safer and more honest.
-
-### Next Owner Checklist
-
-The next person or model taking over should treat the feature as implemented and focus on ship validation:
-
-- fix and deploy the website first so the live installer URLs stop serving HTML
-- obtain publish credentials before attempting GitHub Release or Hugging Face upload work
-- replace the stale `v0.1.0` draft release on `hlvm-dev/hql`
-- publish the Hugging Face offline bundles to `HLVM/hlvm-releases`
-- run staged smoke on macOS against the draft assets:
-  - `scripts/release-smoke.sh standard v0.1.0`
-  - `scripts/release-smoke.sh offline v0.1.0`
-- publish the draft release only after staged smoke passes
-- run one real public standard install smoke on macOS:
-  - `curl -fsSL https://hlvm.dev/install.sh | sh`
-- run one real public offline install smoke on macOS:
-  - `curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full`
-- run one real public standard install smoke on Linux x86_64 and one on Windows x86_64
-- confirm README / landing / release notes match the published artifact reality before marking the public ship complete
-
-### Canonical Product Contract
-
-The expected user-facing experience remains:
-
-```text
-STANDARD
 curl -fsSL https://hlvm.dev/install.sh | sh
-  -> installer downloads binary
-  -> installer prepares local AI during install
-  -> hlvm ask works immediately after install
-
-FULL OFFLINE
-curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full
-  -> installer downloads offline bundle
-  -> installer adopts preloaded local fallback
-  -> hlvm ask works immediately offline
+  -> installer downloads the correct binary
+  -> installer shows bootstrap progress
+  -> installer prepares Gemma during install
+  -> command returns only when HLVM is ready
+  -> hlvm ask works immediately
 ```

@@ -20,7 +20,6 @@ permissions:
 
 env:
   REPO: hlvm-dev/hql
-  HF_REPO: HLVM/hlvm-releases
   SMOKE_PROMPT: hello
 
 jobs:
@@ -53,11 +52,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           HLVM_SMOKE_REPO: ${{ env.REPO }}
-          HLVM_SMOKE_HF_REPO: ${{ env.HF_REPO }}
           HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
         run: |
           sh scripts/release-smoke.sh standard "${{ inputs.tag }}"
-          sh scripts/release-smoke.sh offline "${{ inputs.tag }}"
 
       - name: Public Unix smoke
         if: inputs.mode == 'public'
@@ -66,7 +63,6 @@ jobs:
           HLVM_PUBLIC_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
         run: |
           sh scripts/public-release-smoke.sh standard
-          sh scripts/public-release-smoke.sh offline
 
   windows:
     name: Windows x86_64 (${{ inputs.mode }})

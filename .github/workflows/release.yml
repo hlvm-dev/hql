@@ -228,14 +228,7 @@ jobs:
           curl -fsSL https://hlvm.dev/install.sh | sh
           ```
 
-          Downloads the GitHub Release binary and prepares the local AI fallback during install.
-
-          **Full Offline:**
-          ```bash
-          curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full
-          ```
-
-          Larger download. No post-download network dependency after the bundle is downloaded.
+          Downloads the GitHub Release binary, bootstraps the embedded local AI runtime, and prepares the default Gemma fallback during install.
 
           **Windows (PowerShell):**
           ```powershell
