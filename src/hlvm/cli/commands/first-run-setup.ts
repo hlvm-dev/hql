@@ -1,53 +1,17 @@
 /**
- * First-Run Auto-Setup
- *
- * Zero-config setup: user presses Y once, everything auto-configures.
- * Uses the AIEngineLifecycle abstraction — works with embedded or system Ollama.
- * Picks best cloud model, pulls it, saves config.
- * Falls back to model browser on any failure or user decline.
+ * First-run setup now follows the same Gemma-first policy as the runtime host:
+ * prepare the embedded local AI substrate and return the default local model.
  */
 
 import { log } from "../../api/log.ts";
-import { selectPreferredOllamaCloudModel } from "../../../common/ai-default-model.ts";
-import { getPlatform } from "../../../platform/platform.ts";
-import { readSingleKey } from "../utils/input.ts";
-import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
+import { DEFAULT_MODEL_ID } from "../../../common/config/types.ts";
 import type { AIEngineLifecycle } from "../../runtime/ai-runtime.ts";
-import type { ModelInfo } from "../../providers/types.ts";
-import {
-  ensureRuntimeHostReady,
-  getRuntimeConfigApi,
-  getRuntimeModelDiscovery,
-} from "../../runtime/host-client.ts";
-import {
-  ensureOllamaCloudAccess,
-  runOllamaCloudSignin,
-  verifyOllamaCloudAccess,
-} from "../../runtime/ollama-cloud-access.ts";
-import { ensureRuntimeModelAvailable } from "../../runtime/model-availability.ts";
-import { OLLAMA_SETTINGS_URL } from "./shared.ts";
+import { materializeBootstrap } from "../../runtime/bootstrap-materialize.ts";
+import { parseModelString } from "../../providers/index.ts";
 import { ANSI_COLORS } from "../ansi.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 
-const { RESET, BOLD, DIM, CYAN, GREEN, YELLOW } = ANSI_COLORS;
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-const TOTAL_SETUP_STEPS = 4;
-
-const HOST_RUNTIME_ENGINE: AIEngineLifecycle = {
-  isRunning: async () => true,
-  ensureRunning: async () => {
-    await ensureRuntimeHostReady();
-    return true;
-  },
-  getEnginePath: async () => "",
-};
-
-// ============================================================================
-// Helpers
-// ============================================================================
+const { RESET, BOLD, CYAN, DIM, GREEN } = ANSI_COLORS;
 
 function isInteractiveTerminal(): boolean {
   return getPlatform().terminal.stdin.isTerminal();
@@ -58,232 +22,38 @@ function style(message: string, ...codes: string[]): string {
   return `${codes.join("")}${message}${RESET}`;
 }
 
-function printSetupBanner(logRaw: (message: string) => void): void {
-  logRaw(
-    style(
-      "============================================================",
-      CYAN,
-    ),
-  );
-  logRaw(style("Welcome to HLVM!", BOLD, CYAN));
-  logRaw("Setup will configure the best cloud model (free, no GPU needed).");
-  logRaw(
-    style(
-      "============================================================",
-      CYAN,
-    ),
-  );
-  logRaw("");
-}
-
-function printSetupStep(
-  logRaw: (message: string) => void,
-  step: number,
-  message: string,
-): void {
-  logRaw(
-    style(`[${step}/${TOTAL_SETUP_STEPS}] ${message}`, BOLD, CYAN),
-  );
-}
-
-/** Prompt "Continue? [Y/n]" and return true for Y/Enter, false for N. */
-async function confirmSetup(): Promise<boolean> {
-  if (getPlatform().env.get("HLVM_FORCE_SETUP") === "1") return true;
-
-  log.raw.log(style("Continue? [Y/n] ", BOLD, YELLOW));
-  const key = await readSingleKey();
+function printSetupBanner(): void {
+  log.raw.log(style("============================================================", CYAN));
+  log.raw.log(style("Preparing local Gemma fallback for HLVM...", BOLD, CYAN));
+  log.raw.log("Fresh installs now default to the bundled local model.");
+  log.raw.log(style("============================================================", CYAN));
   log.raw.log("");
-  return key !== "n";
 }
 
-/** Parse parameter size string ("3B" -> 3, "671B" -> 671, unknown -> Infinity). */
-export function parseParamSize(size: string | undefined): number {
-  if (!size) return Infinity;
-  const match = size.match(/^(\d+(?:\.\d+)?)\s*[Bb]/);
-  return match ? parseFloat(match[1]) : Infinity;
-}
-
-/** Pick the best cloud model with tool-calling from the catalog (dynamic, no hardcoded list). */
-export async function pickBestCloudModel(): Promise<ModelInfo | null> {
-  const snapshot = await getRuntimeModelDiscovery();
-  const candidates = [...snapshot.remoteModels, ...snapshot.cloudModels];
-  const preferredName = selectPreferredOllamaCloudModel(candidates);
-  if (!preferredName) return null;
-
-  return candidates.find((model) => {
-    const normalizedName = model.name.includes("/")
-      ? model.name.split("/").slice(1).join("/")
-      : model.name;
-    return normalizedName === preferredName;
-  }) ?? null;
-}
-
-/** Run Ollama sign-in through the runtime host. */
-export async function runOllamaSignin(
-  _engine?: AIEngineLifecycle,
-): Promise<boolean> {
-  log.raw.log(style("  -> Signing in to Ollama...", YELLOW));
-  return await runOllamaCloudSignin({
-    onOutput: (line) => log.raw.log(line),
-  });
-}
-
-/** Probe cloud model access with a tiny non-streaming chat request. */
-export async function verifyOllamaCloudModelAccess(
-  modelId: string,
-): Promise<boolean> {
-  return await verifyOllamaCloudAccess(modelId, {
-    onError: (message) => log.error(`Cloud access check failed: ${message}`),
-  });
-}
-
-/**
- * Ensure cloud auth is truly completed for a model.
- * `ollama signin` may exit successfully before browser completion, so verify after signin.
- */
-export async function ensureCloudAccessWithSignin(
-  modelId: string,
-  _engine?: AIEngineLifecycle,
-): Promise<boolean> {
-  const result = await ensureOllamaCloudAccess(modelId, {
-    runSignin: () => runOllamaSignin(),
-    verifyAccess: verifyOllamaCloudModelAccess,
-    onWaiting: () =>
-      log.raw.log(
-        style("  -> Waiting for cloud sign-in completion...", DIM),
-      ),
-  });
-  if (!result.ok && result.status === "verification_failed") {
-    log.error(
-      "Cloud sign-in not completed. Open the URL above and try again.",
-    );
-    log.raw.log(
-      style(`  -> Check cloud usage/sign-in: ${OLLAMA_SETTINGS_URL}`, DIM),
-    );
-  }
-  return result.ok;
-}
-
-/** Fall back to the model browser (existing behavior). */
-async function fallbackToModelBrowser(): Promise<string | null> {
-  log.raw.log(style("Opening model browser...\n", YELLOW));
-  const { startModelBrowser } = await import("../repl-ink/model-browser.tsx");
-  const result = await startModelBrowser();
-  return result.selectedModel ?? null;
-}
-
-export interface FirstRunSetupDeps {
-  confirmSetup: () => Promise<boolean>;
-  ensureEngineRunning: (engine: AIEngineLifecycle) => Promise<boolean>;
-  pickBestCloudModel: () => Promise<ModelInfo | null>;
-  ensureSelectedModelAvailable: (
-    modelId: string,
-    engine: AIEngineLifecycle,
-  ) => Promise<boolean>;
-  fallbackToModelBrowser: () => Promise<string | null>;
-  saveConfiguredModel: (modelId: string) => Promise<void>;
-  logRaw: (message: string) => void;
-  logError: (message: string) => void;
-}
-
-function getDefaultFirstRunSetupDeps(): FirstRunSetupDeps {
-  return {
-    confirmSetup,
-    ensureEngineRunning: (engine: AIEngineLifecycle) => engine.ensureRunning(),
-    pickBestCloudModel,
-    ensureSelectedModelAvailable: async (
-      modelId: string,
-      _engine: AIEngineLifecycle,
-    ) => {
-      const result = await ensureRuntimeModelAvailable(modelId, {
-        pull: true,
-        requireCloudAccess: true,
-        log: (message) => log.raw.log(message),
-        onCloudWaiting: () =>
-          log.raw.log(
-            style("  -> Waiting for cloud sign-in completion...", DIM),
-          ),
-        onCloudError: (message) =>
-          log.error(`Cloud access check failed: ${message}`),
-        onCloudOutput: (line) => log.raw.log(line),
-      });
-      return result.ok;
-    },
-    fallbackToModelBrowser,
-    saveConfiguredModel: async (modelId: string) => {
-      await persistSelectedModelConfig(getRuntimeConfigApi(), modelId);
-    },
-    logRaw: (message: string) => log.raw.log(message),
-    logError: (message: string) => log.error(message),
-  };
-}
-
-// ============================================================================
-// Main
-// ============================================================================
-
-/**
- * Run the first-time auto-setup flow.
- * Depends on AIEngineLifecycle abstraction — works with embedded or system engine.
- * Returns model ID on success, null on abort/failure.
- */
 export async function runFirstTimeSetup(
-  engine?: AIEngineLifecycle,
-  depsOverride: Partial<FirstRunSetupDeps> = {},
+  _engine?: AIEngineLifecycle,
 ): Promise<string | null> {
-  const resolvedEngine = engine ?? HOST_RUNTIME_ENGINE;
-  const deps = { ...getDefaultFirstRunSetupDeps(), ...depsOverride };
+  printSetupBanner();
 
-  printSetupBanner(deps.logRaw);
+  try {
+    const [, modelName] = parseModelString(DEFAULT_MODEL_ID);
+    log.raw.log(style("[1/2] Bootstrapping embedded local AI...", BOLD, CYAN));
+    await materializeBootstrap({
+      onProgress: (progress) => {
+        const suffix = typeof progress.percent === "number"
+          ? ` ${progress.percent}%`
+          : "";
+        log.raw.log(style(`  -> ${progress.message}${suffix}`, DIM));
+      },
+    });
 
-  // 1. Confirm
-  if (!(await deps.confirmSetup())) {
-    return await deps.fallbackToModelBrowser();
-  }
-
-  // 2. Ensure AI engine running (embedded extraction + start, or system fallback)
-  printSetupStep(deps.logRaw, 1, "Starting AI engine...");
-  if (!(await deps.ensureEngineRunning(resolvedEngine))) {
-    deps.logError("Could not start AI engine. Falling back to model browser.");
-    return await deps.fallbackToModelBrowser();
-  }
-
-  // 3. Pick best cloud model
-  printSetupStep(deps.logRaw, 2, "Selecting best cloud model...");
-  const model = await deps.pickBestCloudModel();
-  if (!model) {
-    deps.logError(
-      "No suitable cloud model found. Falling back to model browser.",
+    log.raw.log(style("[2/2] Selecting default local model...", BOLD, CYAN));
+    log.raw.log(style(`  -> ${modelName} is now the default HLVM model.`, GREEN));
+    return DEFAULT_MODEL_ID;
+  } catch (error) {
+    log.error(
+      `Local AI setup failed: ${error instanceof Error ? error.message : String(error)}`,
     );
-    return await deps.fallbackToModelBrowser();
+    return null;
   }
-  deps.logRaw(
-    style(`  -> Selected: ${model.displayName ?? model.name}`, DIM),
-  );
-
-  // 4. Ensure selected model is usable
-  printSetupStep(deps.logRaw, 3, "Pulling selected model...");
-  const modelId = `ollama/${model.name}`;
-  if (!(await deps.ensureSelectedModelAvailable(modelId, resolvedEngine))) {
-    deps.logError("Model pull failed. Falling back to model browser.");
-    return await deps.fallbackToModelBrowser();
-  }
-
-  // 5. Save config
-  printSetupStep(deps.logRaw, 4, "Saving configuration...");
-  await deps.saveConfiguredModel(modelId);
-
-  deps.logRaw(
-    `\n${style("Ready! Using", BOLD, GREEN)} ${
-      model.displayName ?? model.name
-    }\n`,
-  );
-  deps.logRaw(style(`Cloud usage & limits: ${OLLAMA_SETTINGS_URL}`, DIM));
-  deps.logRaw(
-    style(
-      "Tip: if cloud quota is exhausted, switch to a local model in model browser.",
-      DIM,
-    ),
-  );
-  return modelId;
 }

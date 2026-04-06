@@ -10,6 +10,7 @@ import type { ModelInfo } from "../hlvm/providers/types.ts";
 import {
   type ConfigKey,
   DEFAULT_MODEL_ID,
+  DEFAULT_OLLAMA_ENDPOINT,
   type HlvmConfig,
 } from "./config/types.ts";
 import {
@@ -23,7 +24,6 @@ import { ensureModelAvailability } from "./model-availability.ts";
 import { getPlatform } from "../platform/platform.ts";
 import { RuntimeError } from "./error.ts";
 import { parseModelParameterSize } from "./model-ranking.ts";
-import { isFallbackModelAvailable } from "../hlvm/runtime/bootstrap-verify.ts";
 import { LOCAL_FALLBACK_MODEL } from "../hlvm/runtime/bootstrap-manifest.ts";
 
 let defaultModelEnsured = false;
@@ -34,7 +34,9 @@ const CLAUDE_DATE_SUFFIX_REGEX = /-20\d{6}$/;
 const CLAUDE_BOOTSTRAP_CACHE_MS = 30_000;
 const LEGACY_DEFAULT_MODEL_IDS = new Set([
   "ollama/llama3.1:8b",
+  "ollama/mistral-large-3:675b-cloud",
 ]);
+const LOCAL_FALLBACK_MODEL_ID = `${OLLAMA_PROVIDER}/${LOCAL_FALLBACK_MODEL}`;
 let claudeBootstrapProbeAt = 0;
 let claudeBootstrapProbeResult: string | null = null;
 
@@ -346,17 +348,15 @@ export async function autoConfigureInitialLocalFallbackModel(
   const snapshot = deps.getSnapshot();
   if (!shouldPreferBootstrappedLocalFallback(snapshot)) return null;
 
-  let available = false;
-  try {
-    available = await isFallbackModelAvailable();
-  } catch {
-    return null;
-  }
-  if (!available) return null;
-
-  const selectedModelId = `${OLLAMA_PROVIDER}/${LOCAL_FALLBACK_MODEL}`;
-  await deps.patchConfig(buildSelectedModelConfigUpdates(selectedModelId));
-  return selectedModelId;
+  await deps.patchConfig({
+    model: LOCAL_FALLBACK_MODEL_ID,
+    endpoint: DEFAULT_OLLAMA_ENDPOINT,
+    agentMode: "hlvm",
+  });
+  await deps.patchConfig({
+    modelConfigured: false,
+  });
+  return LOCAL_FALLBACK_MODEL_ID;
 }
 
 /**
@@ -437,39 +437,13 @@ export async function ensureInitialModelConfigured(
 ): Promise<EnsureInitialModelConfiguredResult> {
   const deps = { ...getInitialModelConfigDeps(), ...depsOverride };
   let snapshot = deps.getSnapshot();
-  let autoConfiguredClaude = false;
+  const autoConfiguredClaude = false;
   let autoConfiguredLocalFallback = false;
-  let autoConfiguredOllamaCloud = false;
+  const autoConfiguredOllamaCloud = false;
   let firstRunConfigured = false;
   let reconciledClaudeModel = false;
 
-  if (shouldAutoBootstrapClaude(snapshot)) {
-    const autoModel = await autoConfigureInitialClaudeCodeModel({
-      getSnapshot: deps.getSnapshot,
-      getStatus: deps.getStatus,
-      listModels: deps.listModels,
-      patchConfig: deps.patchConfig,
-      now: deps.now,
-    });
-    if (autoModel) {
-      autoConfiguredClaude = true;
-      snapshot = await deps.syncSnapshot();
-    }
-  }
-
-  if (
-    isAutomaticDefaultCandidate(snapshot) &&
-    options.allowFirstRunSetup &&
-    typeof options.runFirstTimeSetup === "function"
-  ) {
-    const setupModel = await options.runFirstTimeSetup();
-    if (setupModel) {
-      firstRunConfigured = true;
-      snapshot = await deps.syncSnapshot();
-    }
-  }
-
-  if (isAutomaticDefaultCandidate(snapshot)) {
+  if (shouldPreferBootstrappedLocalFallback(snapshot)) {
     const localModel = await autoConfigureInitialLocalFallbackModel({
       getSnapshot: deps.getSnapshot,
       patchConfig: deps.patchConfig,
@@ -481,18 +455,22 @@ export async function ensureInitialModelConfigured(
   }
 
   if (isAutomaticDefaultCandidate(snapshot)) {
-    const autoModel = await autoConfigureInitialOllamaCloudModel({
-      getSnapshot: deps.getSnapshot,
-      listCatalogModels: deps.listCatalogModels,
-      patchConfig: deps.patchConfig,
-    });
-    if (autoModel) {
-      autoConfiguredOllamaCloud = true;
+    if (
+      options.allowFirstRunSetup &&
+      typeof options.runFirstTimeSetup === "function"
+    ) {
+      const setupModel = await options.runFirstTimeSetup();
+      if (setupModel) {
+        firstRunConfigured = true;
+      }
       snapshot = await deps.syncSnapshot();
     }
   }
 
-  if (snapshot.model) {
+  if (
+    typeof snapshot.model === "string" &&
+    snapshot.model.startsWith(`${CLAUDE_CODE_PROVIDER}/`)
+  ) {
     const repaired = await reconcileConfiguredClaudeCodeModel({
       getSnapshot: () => ({ model: snapshot.model }),
       listModels: deps.listModels,

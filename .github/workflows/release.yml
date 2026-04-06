@@ -1,27 +1,51 @@
 name: Release
 
+# One tag, one workflow: build → draft → staged proof → publish → public proof
 on:
   push:
     tags:
-      - 'v*'  # Triggers on version tags like v0.1.0, v1.0.0, etc.
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing draft release tag (e.g. v0.1.0). Skips build, runs proof → publish → public proof.'
+        required: true
+        type: string
 
 permissions:
-  contents: write  # Required to create releases and upload assets
+  contents: write
 
 env:
   EMBEDDED_OLLAMA_VERSION_FILE: embedded-ollama-version.txt
   MAX_RELEASE_ASSET_BYTES: 1900000000
   PUBLIC_RELEASE_REPO: hlvm-dev/hql
+  SMOKE_PROMPT: hello
 
 jobs:
+  # ─── Resolve release tag from trigger ───────────────────────────────────
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ─── Phase 1: Build (tag push only) ─────────────────────────────────────
   build:
+    if: github.event_name == 'push'
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # macOS ARM (Apple Silicon M1/M2/M3)
           - os: macos-latest
             target: aarch64-apple-darwin
             binary: hlvm-mac-arm
@@ -31,7 +55,6 @@ jobs:
             embed_ai_engine: true
             package_kind: direct
 
-          # macOS Intel
           - os: macos-15-intel
             target: x86_64-apple-darwin
             binary: hlvm-mac-intel
@@ -41,7 +64,6 @@ jobs:
             embed_ai_engine: true
             package_kind: direct
 
-          # Linux
           - os: macos-latest
             target: x86_64-unknown-linux-gnu
             binary: hlvm-linux
@@ -51,7 +73,6 @@ jobs:
             embed_ai_engine: true
             package_kind: direct
 
-          # Windows
           - os: macos-latest
             target: x86_64-pc-windows-msvc
             binary: hlvm-windows.exe
@@ -188,8 +209,10 @@ jobs:
           name: ${{ matrix.binary }}
           path: release-asset/*
 
-  release:
-    name: Create Release
+  # ─── Phase 2: Create draft release (tag push only) ──────────────────────
+  create-release:
+    if: github.event_name == 'push'
+    name: Create Draft Release
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -251,6 +274,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         run: |
+          TAG="${{ github.ref_name }}"
+
           cat > release-notes.md <<'EOF'
           # HLVM ${{ github.ref_name }}
 
@@ -304,16 +329,16 @@ jobs:
           ```
           EOF
 
-          if gh release view "${{ github.ref_name }}" --repo "${{ env.PUBLIC_RELEASE_REPO }}" >/dev/null 2>&1; then
-            gh release delete "${{ github.ref_name }}" --repo "${{ env.PUBLIC_RELEASE_REPO }}" --yes
+          if gh release view "$TAG" --repo "${{ env.PUBLIC_RELEASE_REPO }}" >/dev/null 2>&1; then
+            gh release delete "$TAG" --repo "${{ env.PUBLIC_RELEASE_REPO }}" --yes
           fi
 
-          gh release create "${{ github.ref_name }}" \
+          gh release create "$TAG" \
             --repo "${{ env.PUBLIC_RELEASE_REPO }}" \
             --draft \
             --generate-notes \
             --notes-file release-notes.md \
-            --title "HLVM ${{ github.ref_name }}"
+            --title "HLVM $TAG"
 
       - name: Upload release assets
         shell: bash
@@ -344,3 +369,168 @@ jobs:
           for asset in release-assets/*; do
             upload_asset "$asset"
           done
+
+  # ─── Phase 3: Staged smoke test ─────────────────────────────────────────
+  staged-unix:
+    name: Staged smoke ${{ matrix.platform }}
+    needs: [resolve, create-release]
+    if: |
+      !cancelled() &&
+      needs.resolve.result == 'success' &&
+      (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin-aarch64
+          - os: macos-15-intel
+            platform: darwin-x86_64
+          - os: ubuntu-latest
+            platform: linux-x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Staged Unix smoke
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+          HLVM_SMOKE_REPO: hlvm-dev/hql
+          HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
+        run: |
+          sh scripts/release-smoke.sh standard "${{ needs.resolve.outputs.tag }}"
+
+  staged-windows:
+    name: Staged smoke windows
+    needs: [resolve, create-release]
+    if: |
+      !cancelled() &&
+      needs.resolve.result == 'success' &&
+      (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Windows staged smoke
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+          HLVM_SMOKE_REPO: hlvm-dev/hql
+          HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
+        run: |
+          ./scripts/release-smoke.ps1 -Mode "staged" -Tag "${{ needs.resolve.outputs.tag }}"
+
+  # ─── Phase 4: Publish draft → live ──────────────────────────────────────
+  publish:
+    name: Publish Release
+    needs: [resolve, staged-unix, staged-windows]
+    if: |
+      !cancelled() &&
+      needs.staged-unix.result == 'success' &&
+      needs.staged-windows.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate draft release assets
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+        run: |
+          TAG="${{ needs.resolve.outputs.tag }}"
+          gh release view "$TAG" \
+            --repo "${{ env.PUBLIC_RELEASE_REPO }}" \
+            --json isDraft,assets \
+            > release.json
+
+          jq -e '.isDraft == true' release.json >/dev/null
+
+          has_asset() {
+            jq -e --arg name "$1" '.assets[] | select(.name == $name)' release.json >/dev/null
+          }
+
+          has_direct_or_split_asset() {
+            name="$1"
+            if has_asset "$name"; then
+              return 0
+            fi
+
+            jq -e --arg prefix "${name}.part-" \
+              '[.assets[] | select(.name | startswith($prefix))] | length > 0' \
+              release.json \
+              >/dev/null
+          }
+
+          for asset in \
+            hlvm-mac-arm \
+            hlvm-mac-intel \
+            checksums.sha256 \
+            install.sh \
+            install.ps1
+          do
+            has_asset "$asset"
+          done
+
+          has_direct_or_split_asset hlvm-linux
+          has_direct_or_split_asset hlvm-windows.zip
+
+      - name: Validate installer URLs
+        run: |
+          curl --fail --silent --show-error --location \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            --head https://hlvm.dev/install.sh >/dev/null
+          curl --fail --silent --show-error --location \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            --head https://hlvm.dev/install.ps1 >/dev/null
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+        run: |
+          TAG="${{ needs.resolve.outputs.tag }}"
+          gh release edit "$TAG" \
+            --repo "${{ env.PUBLIC_RELEASE_REPO }}" \
+            --draft=false
+
+  # ─── Phase 5: Public smoke test ─────────────────────────────────────────
+  public-unix:
+    name: Public smoke ${{ matrix.platform }}
+    needs: [resolve, publish]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin-aarch64
+          - os: macos-15-intel
+            platform: darwin-x86_64
+          - os: ubuntu-latest
+            platform: linux-x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate published release is latest
+        shell: bash
+        run: |
+          actual=$(curl -fsSL "https://api.github.com/repos/${{ env.PUBLIC_RELEASE_REPO }}/releases/latest" | jq -r '.tag_name')
+          [ "$actual" = "${{ needs.resolve.outputs.tag }}" ]
+
+      - name: Public Unix smoke
+        env:
+          HLVM_PUBLIC_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
+        run: sh scripts/public-release-smoke.sh standard
+
+  public-windows:
+    name: Public smoke windows
+    needs: [resolve, publish]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Windows public smoke
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+          HLVM_SMOKE_REPO: hlvm-dev/hql
+          HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
+        run: |
+          ./scripts/release-smoke.ps1 -Mode "public" -Tag "${{ needs.resolve.outputs.tag }}"

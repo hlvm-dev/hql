@@ -3,6 +3,7 @@ import {
   ConfigError,
   type ConfigKey,
   DEFAULT_MODEL_ID,
+  DEFAULT_OLLAMA_ENDPOINT,
   type HlvmConfig,
   normalizeModelId,
 } from "./types.ts";
@@ -15,7 +16,9 @@ interface ModelSelectionConfigApi {
 }
 
 interface BaseModelSelectionUpdates
-  extends Pick<HlvmConfig, "model" | "modelConfigured"> {}
+  extends Pick<HlvmConfig, "model" | "modelConfigured"> {
+  endpoint?: string;
+}
 
 interface ModelSelectionUpdates
   extends BaseModelSelectionUpdates, Pick<HlvmConfig, "agentMode"> {}
@@ -132,6 +135,9 @@ export function buildSelectedModelConfigUpdates(
   return {
     model: normalizedModel,
     modelConfigured: true,
+    endpoint: normalizedModel.startsWith("ollama/")
+      ? DEFAULT_OLLAMA_ENDPOINT
+      : undefined,
     agentMode: resolveAgentModeForModel(normalizedModel),
   };
 }
@@ -147,6 +153,9 @@ export function buildSelectedModelConfigUpdatesPreservingAgentMode(
   return {
     model: normalizedModel,
     modelConfigured: true,
+    endpoint: normalizedModel.startsWith("ollama/")
+      ? DEFAULT_OLLAMA_ENDPOINT
+      : undefined,
   };
 }
 

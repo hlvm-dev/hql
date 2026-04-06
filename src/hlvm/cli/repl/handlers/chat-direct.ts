@@ -4,6 +4,12 @@
  */
 
 import { ai } from "../../../api/ai.ts";
+import { RuntimeError } from "../../../../common/error.ts";
+import {
+  isProviderErrorCode,
+  parseErrorCodeFromMessage,
+  ProviderErrorCode,
+} from "../../../../common/error-codes.ts";
 import {
   getMessage,
   getSession,
@@ -26,6 +32,24 @@ import {
   scheduleWeakDirectChatSummaryMaintenance,
 } from "./direct-chat-history.ts";
 import { traceReplMainThreadForSource } from "../../../repl-main-thread-trace.ts";
+import { LOCAL_FALLBACK_MODEL } from "../../../runtime/bootstrap-manifest.ts";
+import { isRuntimeReadyForAiRequests } from "../../commands/serve.ts";
+
+const LOCAL_FALLBACK_MODEL_ID = `ollama/${LOCAL_FALLBACK_MODEL}`;
+const LOCAL_FALLBACK_READY_MESSAGE =
+  "Local Gemma 4 is still preparing. Try again in a moment.";
+const LOCAL_FALLBACK_RETRY_MESSAGE =
+  "Selected model failed. Retrying once with local Gemma 4.";
+const LOCAL_FALLBACK_PREPARING_MESSAGE =
+  "Selected model failed, and local Gemma 4 is still preparing. Try again in a moment.";
+const RETRYABLE_LOCAL_FALLBACK_CODES = new Set<ProviderErrorCode>([
+  ProviderErrorCode.AUTH_FAILED,
+  ProviderErrorCode.RATE_LIMITED,
+  ProviderErrorCode.SERVICE_UNAVAILABLE,
+  ProviderErrorCode.NETWORK_ERROR,
+  ProviderErrorCode.REQUEST_TIMEOUT,
+  ProviderErrorCode.REQUEST_FAILED,
+]);
 
 /** Drain a token iterator with abort support, forwarding each chunk. */
 async function drainTokenStream(
@@ -68,6 +92,114 @@ async function drainTokenStream(
   }
 
   return fullText;
+}
+
+function isLocalFallbackModel(modelId: string | undefined): boolean {
+  return modelId === LOCAL_FALLBACK_MODEL_ID;
+}
+
+function extractProviderErrorCode(error: unknown): ProviderErrorCode | null {
+  const directCode = typeof (error as { code?: unknown })?.code === "number"
+    ? (error as { code: number }).code
+    : null;
+  if (directCode !== null && isProviderErrorCode(directCode)) {
+    return directCode;
+  }
+  if (error instanceof Error) {
+    const parsed = parseErrorCodeFromMessage(error.message);
+    if (parsed !== null && isProviderErrorCode(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function shouldRetryWithLocalFallback(
+  error: unknown,
+  selectedModel: string | undefined,
+): boolean {
+  if (!selectedModel || selectedModel.startsWith("ollama/")) {
+    return false;
+  }
+  const code = extractProviderErrorCode(error);
+  return code !== null && RETRYABLE_LOCAL_FALLBACK_CODES.has(code);
+}
+
+function createChatTokenIterator(
+  providerMessages: Awaited<ReturnType<typeof buildChatProviderMessages>>["messages"],
+  modelId: string | undefined,
+  body: ChatRequest,
+  weakContextRawLimit: number | undefined,
+  signal: AbortSignal,
+): AsyncIterator<string> {
+  const cfgSnapshot = config.snapshot;
+  return ai.chat(providerMessages, {
+    model: modelId,
+    temperature: body.temperature ?? cfgSnapshot.temperature,
+    maxTokens: body.max_tokens ?? cfgSnapshot.maxTokens,
+    signal,
+    ...(typeof weakContextRawLimit === "number"
+      ? { raw: { num_ctx: weakContextRawLimit } }
+      : {}),
+  })[Symbol.asyncIterator]();
+}
+
+async function streamChatWithFallback(
+  providerMessages: Awaited<ReturnType<typeof buildChatProviderMessages>>["messages"],
+  resolvedModel: string | undefined,
+  body: ChatRequest,
+  signal: AbortSignal,
+  emit: (obj: unknown) => void,
+  onChunk: (token: string) => void,
+  weakContextRawLimit?: number,
+): Promise<string> {
+  if (isLocalFallbackModel(resolvedModel) && !isRuntimeReadyForAiRequests()) {
+    throw new RuntimeError(LOCAL_FALLBACK_READY_MESSAGE);
+  }
+
+  let emittedAnyToken = false;
+  const forwardChunk = (token: string) => {
+    emittedAnyToken = true;
+    onChunk(token);
+    emit({ event: "token", text: token });
+  };
+
+  try {
+    return await drainTokenStream(
+      createChatTokenIterator(
+        providerMessages,
+        resolvedModel,
+        body,
+        weakContextRawLimit,
+        signal,
+      ),
+      signal,
+      forwardChunk,
+    );
+  } catch (error) {
+    if (emittedAnyToken || !shouldRetryWithLocalFallback(error, resolvedModel)) {
+      throw error;
+    }
+    if (!isRuntimeReadyForAiRequests()) {
+      throw new RuntimeError(LOCAL_FALLBACK_PREPARING_MESSAGE, {
+        originalError: error instanceof Error ? error : undefined,
+      });
+    }
+
+    emit({ event: "warning", message: LOCAL_FALLBACK_RETRY_MESSAGE });
+
+    return await drainTokenStream(
+      createChatTokenIterator(
+        providerMessages,
+        LOCAL_FALLBACK_MODEL_ID,
+        body,
+        weakContextRawLimit,
+        signal,
+      ),
+      signal,
+      forwardChunk,
+    );
+  }
 }
 
 function getChatSystemPrompt(): string {
@@ -133,24 +265,15 @@ export async function handleChatMode(
     numCtx: weakContext ? resolvedContextBudget.rawLimit : null,
   });
 
-  const cfgSnapshot = config.snapshot;
-  const tokenIterator = ai.chat(providerMessages, {
-    model: resolvedModel,
-    temperature: body.temperature ?? cfgSnapshot.temperature,
-    maxTokens: body.max_tokens ?? cfgSnapshot.maxTokens,
+  const fullText = await streamChatWithFallback(
+    providerMessages,
+    resolvedModel,
+    body,
     signal,
-    // For weak local models, pass num_ctx to cap Ollama's KV cache pre-allocation.
-    // Without this, Ollama uses the full loaded context (e.g. 32768) even for tiny
-    // payloads, adding 10-20s of unnecessary TTFT latency.
-    ...(weakContext
-      ? { raw: { num_ctx: resolvedContextBudget.rawLimit } }
-      : {}),
-  })[Symbol.asyncIterator]();
-
-  const fullText = await drainTokenStream(tokenIterator, signal, (token) => {
-    onPartial(token);
-    emit({ event: "token", text: token });
-  });
+    emit,
+    onPartial,
+    weakContext ? resolvedContextBudget.rawLimit : undefined,
+  );
 
   if (!signal.aborted) {
     updateMessage(assistantMessageId, { content: fullText });
@@ -181,7 +304,6 @@ export async function streamDirectChatFallback(
   onPartial: (text: string) => void,
   modelInfo?: ModelInfo | null,
 ): Promise<string> {
-  const cfgSnapshot = config.snapshot;
   const storedMessages = shouldHonorRequestMessages(requestMessages)
     ? []
     : loadAllMessages(sessionId);
@@ -198,15 +320,12 @@ export async function streamDirectChatFallback(
     content: getChatSystemPrompt(),
   });
 
-  const tokenIterator = ai.chat(providerMessages, {
-    model: resolvedModel,
-    temperature: body.temperature ?? cfgSnapshot.temperature,
-    maxTokens: body.max_tokens ?? cfgSnapshot.maxTokens,
+  return await streamChatWithFallback(
+    providerMessages,
+    resolvedModel,
+    body,
     signal,
-  })[Symbol.asyncIterator]();
-
-  return drainTokenStream(tokenIterator, signal, (token) => {
-    onPartial(token);
-    emit({ event: "token", text: token });
-  });
+    emit,
+    onPartial,
+  );
 }

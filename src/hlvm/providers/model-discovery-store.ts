@@ -12,6 +12,10 @@ import {
   listAllProviderModels,
   tagModelsForProvider,
 } from "./model-list.ts";
+import {
+  LOCAL_FALLBACK_IDENTITY,
+  LOCAL_FALLBACK_MODEL,
+} from "../runtime/bootstrap-manifest.ts";
 
 export interface ModelDiscoverySnapshot {
   timestamp: number;
@@ -45,6 +49,42 @@ const EMPTY_MODEL_DISCOVERY_SNAPSHOT: ModelDiscoverySnapshot = {
   cloudModels: [],
 };
 
+function buildPinnedDefaultLocalModel(): ModelInfo {
+  const [family = LOCAL_FALLBACK_MODEL, parameterSize = ""] =
+    LOCAL_FALLBACK_MODEL.split(":");
+  const [tagged] = tagModelsForProvider("ollama", [{
+    name: LOCAL_FALLBACK_MODEL,
+    displayName: "Gemma 4",
+    family,
+    parameterSize: parameterSize.toUpperCase(),
+    size: LOCAL_FALLBACK_IDENTITY.publishedTotalSizeBytes,
+    capabilities: ["generate", "chat"],
+    metadata: {
+      description:
+        "HLVM pinned local default model. Prepared automatically during local bootstrap.",
+      sizes: ["9.6GB"],
+      defaultPinned: true,
+      localFallback: true,
+    },
+  }]);
+  return tagged;
+}
+
+function injectPinnedDefaultRemoteModel(models: ModelInfo[]): ModelInfo[] {
+  return dedupeModelList([
+    buildPinnedDefaultLocalModel(),
+    ...models,
+  ]);
+}
+
+function normalizeSnapshot(snapshot: ModelDiscoverySnapshot): ModelDiscoverySnapshot {
+  return {
+    timestamp: snapshot.timestamp,
+    remoteModels: injectPinnedDefaultRemoteModel(snapshot.remoteModels),
+    cloudModels: dedupeModelList(snapshot.cloudModels),
+  };
+}
+
 function getDefaultDeps(): ModelDiscoveryStoreDeps {
   const fs = getPlatform().fs;
   return {
@@ -73,11 +113,11 @@ function getDefaultDeps(): ModelDiscoveryStoreDeps {
 function cloneSnapshot(
   snapshot: ModelDiscoverySnapshot,
 ): ModelDiscoverySnapshot {
-  return {
+  return normalizeSnapshot({
     timestamp: snapshot.timestamp,
     remoteModels: [...snapshot.remoteModels],
     cloudModels: [...snapshot.cloudModels],
-  };
+  });
 }
 
 function hasDiscoveryData(snapshot: ModelDiscoverySnapshot): boolean {
@@ -98,8 +138,8 @@ function parsePersistedSnapshot(
     }
     return {
       timestamp: parsed.timestamp,
-      remoteModels: parsed.remoteModels as ModelInfo[],
-      cloudModels: parsed.cloudModels as ModelInfo[],
+      remoteModels: injectPinnedDefaultRemoteModel(parsed.remoteModels as ModelInfo[]),
+      cloudModels: dedupeModelList(parsed.cloudModels as ModelInfo[]),
     };
   } catch {
     return null;
@@ -266,8 +306,8 @@ export function createModelDiscoveryStore(
         timestamp: (!remoteFailed || !cloudFailed)
           ? resolvedDeps.now()
           : current.timestamp,
-        remoteModels,
-        cloudModels,
+        remoteModels: injectPinnedDefaultRemoteModel(remoteModels),
+        cloudModels: dedupeModelList(cloudModels),
       };
 
       cachedSnapshot = nextSnapshot;

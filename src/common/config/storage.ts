@@ -10,6 +10,7 @@ import {
   createDefaultWebFetchConfig,
   createDefaultWebSearchConfig,
   DEFAULT_CONFIG,
+  DEFAULT_OLLAMA_ENDPOINT,
   type HlvmConfig,
   type KeybindingsConfig,
   normalizeModelId,
@@ -69,6 +70,20 @@ function normalizeEndpoint(value: unknown): string | undefined {
   if (!trimmed) return undefined;
   if (/^https?:\/\//.test(trimmed)) return trimmed;
   return `http://${trimmed}`;
+}
+
+function canonicalizeLocalOllamaEndpoint(endpoint: string): string {
+  try {
+    const parsed = new URL(endpoint);
+    const host = parsed.hostname.toLowerCase();
+    const isLoopbackHost = host === "localhost" || host === "127.0.0.1";
+    if (isLoopbackHost && (parsed.port === "11434" || parsed.port === "11439")) {
+      return DEFAULT_OLLAMA_ENDPOINT;
+    }
+  } catch {
+    // Keep the original value if URL parsing fails.
+  }
+  return endpoint;
 }
 
 function normalizeNumber(value: unknown): number | undefined {
@@ -199,7 +214,7 @@ function normalizeConfigInput(
 
   const endpoint = normalizeEndpoint(raw.endpoint);
   if (endpoint && validateValue("endpoint", endpoint).valid) {
-    normalized.endpoint = endpoint;
+    normalized.endpoint = canonicalizeLocalOllamaEndpoint(endpoint);
   }
 
   const temperature = normalizeNumber(raw.temperature);

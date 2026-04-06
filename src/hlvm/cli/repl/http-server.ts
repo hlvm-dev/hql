@@ -446,8 +446,23 @@ function requiresAiRuntime(method: string, pathname: string): boolean {
   if (!pathname.startsWith("/api/models")) {
     return false;
   }
-  // Model stream is event replay only; allow it even while runtime is warming up.
-  return pathname !== "/api/models/stream";
+  // Model browsing and status endpoints should stay available while local AI
+  // is still bootstrapping; only mutating/runtime-bound model operations need
+  // aiReady gating.
+  if (
+    method === "GET" &&
+    (
+      pathname === "/api/models" ||
+      pathname === "/api/models/catalog" ||
+      pathname === "/api/models/discovery" ||
+      pathname === "/api/models/status" ||
+      pathname === "/api/models/installed" ||
+      pathname === "/api/models/stream"
+    )
+  ) {
+    return false;
+  }
+  return true;
 }
 
 async function maybeGateAiRoute(

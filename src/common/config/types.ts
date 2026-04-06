@@ -9,7 +9,7 @@ import { THEME_NAMES } from "../../hlvm/cli/theme/palettes.ts";
 // Model Defaults
 // ============================================================
 
-export const DEFAULT_MODEL_ID = "ollama/mistral-large-3:675b-cloud";
+export const DEFAULT_MODEL_ID = "ollama/gemma4:e4b";
 export const DEFAULT_MODEL_PROVIDER = DEFAULT_MODEL_ID.split("/")[0];
 export const DEFAULT_MODEL_NAME = DEFAULT_MODEL_ID.split("/")[1];
 export const DEFAULT_OLLAMA_HOST = "127.0.0.1:11439";
