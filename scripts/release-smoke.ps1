@@ -25,12 +25,58 @@ function Require-Command([string]$Name) {
     }
 }
 
+function Get-CommandPath([string]$Name) {
+    $command = Get-Command $Name -ErrorAction Stop
+    if ($command.Source) {
+        return $command.Source
+    }
+    return $command.Path
+}
+
 function Get-FreePort {
     $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
     $listener.Start()
     $port = ($listener.LocalEndpoint).Port
     $listener.Stop()
     return $port
+}
+
+function Show-ServerLogs([string]$StdoutPath, [string]$StderrPath) {
+    if (Test-Path $StdoutPath) {
+        Write-Host "---- http stdout ----"
+        Get-Content $StdoutPath
+    }
+    if (Test-Path $StderrPath) {
+        Write-Host "---- http stderr ----"
+        Get-Content $StderrPath
+    }
+}
+
+function Wait-HttpServerReady(
+    [string]$BaseUrl,
+    [string]$ProbePath,
+    [System.Diagnostics.Process]$Process,
+    [string]$StdoutPath,
+    [string]$StderrPath
+) {
+    $probeUrl = "$BaseUrl/$ProbePath"
+
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        if ($Process.HasExited) {
+            Show-ServerLogs -StdoutPath $StdoutPath -StderrPath $StderrPath
+            throw "Local asset server exited before it became ready."
+        }
+
+        try {
+            Invoke-WebRequest -Uri $probeUrl -UseBasicParsing | Out-Null
+            return
+        } catch {
+            Start-Sleep -Seconds 1
+        }
+    }
+
+    Show-ServerLogs -StdoutPath $StdoutPath -StderrPath $StderrPath
+    throw "Timed out waiting for local asset server at $probeUrl"
 }
 
 function Run-PostChecks([string]$BinaryPath, [string]$HomeDir) {
@@ -52,6 +98,7 @@ $installDir = Join-Path $smokeRoot "bin"
 $installerPath = Join-Path $smokeRoot "install.ps1"
 $binaryPath = Join-Path $installDir "hlvm.exe"
 $serverProcess = $null
+$smokeSucceeded = $false
 $previousHome = $env:HOME
 $previousUserProfile = $env:USERPROFILE
 $previousHlvmDir = $env:HLVM_DIR
@@ -71,13 +118,19 @@ try {
         $port = Get-FreePort
         $stdoutPath = Join-Path $smokeRoot "http.stdout.log"
         $stderrPath = Join-Path $smokeRoot "http.stderr.log"
-        $serverProcess = Start-Process python `
+        $pythonPath = Get-CommandPath "python"
+        $serverProcess = Start-Process $pythonPath `
             -ArgumentList "-m", "http.server", $port, "--bind", "127.0.0.1", "--directory", $assetDir `
             -PassThru `
             -RedirectStandardOutput $stdoutPath `
             -RedirectStandardError $stderrPath
 
-        Start-Sleep -Seconds 2
+        Wait-HttpServerReady `
+            -BaseUrl "http://127.0.0.1:$port" `
+            -ProbePath "checksums.sha256" `
+            -Process $serverProcess `
+            -StdoutPath $stdoutPath `
+            -StderrPath $stderrPath
 
         $env:HLVM_INSTALL_REPO = $Repo
         $env:HLVM_INSTALL_VERSION = $Tag
@@ -107,6 +160,7 @@ try {
     }
 
     Run-PostChecks -BinaryPath $binaryPath -HomeDir $homeDir
+    $smokeSucceeded = $true
     Write-Host "`nWindows smoke succeeded."
 } finally {
     if ($serverProcess -and -not $serverProcess.HasExited) {
@@ -134,7 +188,7 @@ try {
         Remove-Item Env:HLVM_DIR -ErrorAction SilentlyContinue
     }
 
-    if (Test-Path $smokeRoot) {
+    if ($smokeSucceeded -and (Test-Path $smokeRoot)) {
         Remove-Item -Recurse -Force $smokeRoot
     }
 }

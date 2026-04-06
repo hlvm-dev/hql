@@ -2,13 +2,18 @@
 
 ## Goal
 
-There is one supported public install path:
+There is one supported public install contract, with platform-specific entry
+commands:
 
 ```bash
 curl -fsSL https://hlvm.dev/install.sh | sh
 ```
 
-That single command must:
+```powershell
+irm https://hlvm.dev/install.ps1 | iex
+```
+
+That standard install command must:
 
 1. download the correct platform binary from `hlvm-dev/hql`
 2. install `hlvm`
@@ -23,6 +28,8 @@ After install finishes successfully:
 - `/health.aiReady` is true only when the local fallback is actually usable
 - there is no post-install "surprise" model download
 - users do not need to understand Ollama, model stores, or extra setup steps
+- there is no separate public `--full` mode because standard install is already
+  the full install
 
 Installed result:
 
@@ -41,6 +48,8 @@ Installed result:
 ```text
 User runs:
   curl -fsSL https://hlvm.dev/install.sh | sh
+  or
+  irm https://hlvm.dev/install.ps1 | iex
 
 Installer then:
   - detects platform
@@ -58,6 +67,9 @@ User then runs:
 Expected result:
   Works immediately, out of the box, with Gemma available by default.
 ```
+
+This standard flow is the complete supported install. There is no separate
+public "full" mode, bundle mode, or offline mode for this ship.
 
 ### Unsupported Public UX
 
@@ -99,7 +111,7 @@ returns.
 
 ## Install-Time Contract
 
-### Standard Flow (`install.sh`)
+### Standard Flow (full install via `install.sh` / `install.ps1`)
 
 ```text
 1. detect_platform()
@@ -296,6 +308,7 @@ offline artifact is part of the release gate.
 ### Non-Goals For This Ship
 
 - do not add or advertise a public offline install mode
+- do not add or advertise a public `--full` mode
 - do not block publish on Hugging Face uploads
 - do not claim the public ship is complete before standard public smoke passes
 
