@@ -13,46 +13,15 @@
  * 3. Packages binary + models/ into a .tar.gz
  */
 
-import { join, basename } from "https://deno.land/std/path/mod.ts";
-import { DEFAULT_OLLAMA_ENDPOINT, DEFAULT_OLLAMA_HOST } from "../src/common/config/types.ts";
-
-const LOCAL_FALLBACK_MODEL = "gemma4:e4b";
-
-/**
- * Read Ollama's on-disk model manifest for a pulled model.
- * Returns { digest, totalSize } or null.
- */
-async function readOllamaManifest(
-  modelsDir: string,
-  modelId: string,
-): Promise<{ digest: string; totalSize: number } | null> {
-  const [name, tag = "latest"] = modelId.split(":");
-  const manifestPath = join(
-    modelsDir, "manifests", "registry.ollama.ai", "library", name, tag,
-  );
-  try {
-    const raw = await Deno.readTextFile(manifestPath);
-    const data = JSON.parse(raw);
-    let digest = "";
-    let totalSize = 0;
-    if (Array.isArray(data?.layers)) {
-      for (const layer of data.layers) {
-        totalSize += layer?.size ?? 0;
-        if (
-          !digest &&
-          layer?.mediaType === "application/vnd.ollama.image.model" &&
-          typeof layer?.digest === "string"
-        ) {
-          digest = layer.digest;
-        }
-      }
-    }
-    if (!digest) return null;
-    return { digest, totalSize };
-  } catch {
-    return null;
-  }
-}
+import { basename, join } from "https://deno.land/std/path/mod.ts";
+import {
+  DEFAULT_OLLAMA_ENDPOINT,
+  DEFAULT_OLLAMA_HOST,
+} from "../src/common/config/types.ts";
+import {
+  findOllamaModelManifest,
+  LOCAL_FALLBACK_MODEL,
+} from "../src/hlvm/runtime/bootstrap-manifest.ts";
 const ENGINE_STARTUP_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 500;
 
@@ -97,18 +66,25 @@ async function pullModel(modelId: string): Promise<void> {
         const evt = JSON.parse(line);
         if (evt.total && evt.completed) {
           const pct = Math.round((evt.completed / evt.total) * 100);
-          Deno.stdout.writeSync(new TextEncoder().encode(`\r  ${evt.status ?? "pulling"} ${pct}%`));
+          Deno.stdout.writeSync(
+            new TextEncoder().encode(`\r  ${evt.status ?? "pulling"} ${pct}%`),
+          );
         }
         if (evt.error) throw new Error(evt.error);
       } catch (e) {
-        if ((e as Error).message && !(e as Error).message.startsWith("Unexpected")) throw e;
+        if (
+          (e as Error).message && !(e as Error).message.startsWith("Unexpected")
+        ) throw e;
       }
     }
   }
   console.log(`\n  ${modelId} pulled successfully.`);
 }
 
-async function copyDirectory(sourceDir: string, destDir: string): Promise<void> {
+async function copyDirectory(
+  sourceDir: string,
+  destDir: string,
+): Promise<void> {
   const cp = new Deno.Command("cp", {
     args: ["-R", sourceDir, destDir],
   });
@@ -133,7 +109,10 @@ function resolveCandidateSourceModelsDir(): string[] {
 
 async function seedModelsDirIfAvailable(tmpModels: string): Promise<boolean> {
   for (const candidate of resolveCandidateSourceModelsDir()) {
-    const manifest = await readOllamaManifest(candidate, LOCAL_FALLBACK_MODEL);
+    const manifest = await findOllamaModelManifest(
+      candidate,
+      LOCAL_FALLBACK_MODEL,
+    );
     if (!manifest) continue;
     console.log(`Using existing verified fallback model from ${candidate}`);
     await Deno.remove(tmpModels, { recursive: true }).catch(() => {});
@@ -149,7 +128,9 @@ async function main() {
   const explicitBundleName = Deno.args[2];
 
   if (!binaryPath) {
-    console.error("Usage: package-offline-bundle.ts <binary-path> [output-dir] [bundle-name]");
+    console.error(
+      "Usage: package-offline-bundle.ts <binary-path> [output-dir] [bundle-name]",
+    );
     Deno.exit(1);
   }
 
@@ -182,15 +163,23 @@ async function main() {
     }
 
     // Read real digest + size from Ollama's on-disk manifest
-    const ollamaManifest = await readOllamaManifest(tmpModels, LOCAL_FALLBACK_MODEL);
+    const ollamaManifest = await findOllamaModelManifest(
+      tmpModels,
+      LOCAL_FALLBACK_MODEL,
+    );
     if (!ollamaManifest) {
       throw new Error(
         "Model pull completed but Ollama manifest not found on disk. " +
-        "The model may not have been saved correctly.",
+          "The model may not have been saved correctly.",
       );
     }
-    console.log(`Model digest: ${ollamaManifest.digest}`);
-    console.log(`Model size:   ${(ollamaManifest.totalSize / 1024 / 1024).toFixed(1)} MB`);
+    console.log(`Model manifest: ${ollamaManifest.path}`);
+    console.log(`Model digest: ${ollamaManifest.manifest.digest}`);
+    console.log(
+      `Model size:   ${
+        (ollamaManifest.manifest.totalSize / 1024 / 1024).toFixed(1)
+      } MB`,
+    );
 
     // Package: binary + pre-pulled models only.
     // NO manifest.json in the bundle — the installer runs `hlvm bootstrap`
@@ -222,13 +211,19 @@ async function main() {
     }
 
     const stat = await Deno.stat(bundlePath);
-    console.log(`Bundle created: ${bundlePath} (${(stat.size / 1024 / 1024).toFixed(1)} MB)`);
+    console.log(
+      `Bundle created: ${bundlePath} (${
+        (stat.size / 1024 / 1024).toFixed(1)
+      } MB)`,
+    );
 
     // Cleanup staging
     await Deno.remove(stageDir, { recursive: true }).catch(() => {});
   } finally {
     // Kill engine
-    try { proc?.kill("SIGTERM"); } catch { /* best-effort */ }
+    try {
+      proc?.kill("SIGTERM");
+    } catch { /* best-effort */ }
     // Cleanup temp models
     await Deno.remove(tmpModels, { recursive: true }).catch(() => {});
   }

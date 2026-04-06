@@ -6,7 +6,10 @@
  * so this module talks directly to the embedded Ollama engine via HTTP.
  */
 
-import { getPlatform, type PlatformCommandProcess } from "../../platform/platform.ts";
+import {
+  getPlatform,
+  type PlatformCommandProcess,
+} from "../../platform/platform.ts";
 import { ensureRuntimeDir, getModelsDir } from "../../common/paths.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../common/config/types.ts";
 import { http } from "../../common/http-client.ts";
@@ -14,10 +17,11 @@ import { log } from "../api/log.ts";
 import { VERSION } from "../../version.ts";
 import {
   type BootstrapManifest,
+  findOllamaModelManifest,
   getOllamaModelManifestPath,
-  matchesPinnedFallbackIdentity,
   LOCAL_FALLBACK_MODEL,
-  readOllamaModelManifest,
+  matchesPinnedFallbackIdentity,
+  type OllamaModelManifestInfo,
   writeBootstrapManifest,
 } from "./bootstrap-manifest.ts";
 
@@ -59,12 +63,16 @@ async function ensureEngine(
   onProgress?.({ phase: "extract", message: "Extracting AI engine..." });
 
   // Dynamic import to break circular dependency with ai-runtime.ts
-  const { extractAIEngine, resolveEmbeddedEnginePath } = await import("./ai-runtime.ts");
+  const { extractAIEngine, resolveEmbeddedEnginePath } = await import(
+    "./ai-runtime.ts"
+  );
   await extractAIEngine();
 
   const enginePath = await resolveEmbeddedEnginePath();
   if (!enginePath) {
-    throw new Error("Failed to extract embedded AI engine — no valid binary found.");
+    throw new Error(
+      "Failed to extract embedded AI engine — no valid binary found.",
+    );
   }
   return enginePath;
 }
@@ -108,7 +116,9 @@ async function startEngineForBootstrap(
   });
 
   if (!(await waitForAIEngineReady(expectedVersion ?? undefined))) {
-    try { proc.kill?.("SIGTERM"); } catch { /* best-effort */ }
+    try {
+      proc.kill?.("SIGTERM");
+    } catch { /* best-effort */ }
     throw new Error("AI engine did not become ready within timeout.");
   }
 
@@ -191,31 +201,47 @@ async function pullModel(
 
 async function ensurePinnedFallbackModel(
   options?: MaterializeOptions,
-): Promise<NonNullable<Awaited<ReturnType<typeof readOllamaModelManifest>>>> {
+): Promise<OllamaModelManifestInfo> {
   const modelsDir = getModelsDir();
-  const ollamaManifestPath = getOllamaModelManifestPath(modelsDir, LOCAL_FALLBACK_MODEL);
-  const existingManifest = await readOllamaModelManifest(ollamaManifestPath);
+  const ollamaManifestPath = getOllamaModelManifestPath(
+    modelsDir,
+    LOCAL_FALLBACK_MODEL,
+  );
+  const existingManifest = await findOllamaModelManifest(
+    modelsDir,
+    LOCAL_FALLBACK_MODEL,
+  );
 
-  if (existingManifest && matchesPinnedFallbackIdentity(existingManifest)) {
+  if (
+    existingManifest && matchesPinnedFallbackIdentity(existingManifest.manifest)
+  ) {
     options?.onProgress?.({
       phase: "pull_model",
-      message: `Using existing ${LOCAL_FALLBACK_MODEL} from the HLVM model store.`,
+      message:
+        `Using existing ${LOCAL_FALLBACK_MODEL} from the HLVM model store.`,
       percent: 100,
     });
-    return existingManifest;
+    return existingManifest.manifest;
   }
 
   await pullModel(LOCAL_FALLBACK_MODEL, options);
 
-  const pulledManifest = await readOllamaModelManifest(ollamaManifestPath);
-  if (!pulledManifest || !matchesPinnedFallbackIdentity(pulledManifest)) {
+  const pulledManifest = await findOllamaModelManifest(
+    modelsDir,
+    LOCAL_FALLBACK_MODEL,
+  );
+  if (
+    !pulledManifest || !matchesPinnedFallbackIdentity(pulledManifest.manifest)
+  ) {
     throw new Error(
       `Pulled ${LOCAL_FALLBACK_MODEL}, but the saved Ollama manifest did not ` +
-      `match the pinned fallback identity at ${ollamaManifestPath}.`,
+        `match the pinned fallback identity at ${
+          pulledManifest?.path ?? ollamaManifestPath
+        }.`,
     );
   }
 
-  return pulledManifest;
+  return pulledManifest.manifest;
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +273,10 @@ export async function materializeBootstrap(
     const ollamaManifest = await ensurePinnedFallbackModel(options);
 
     // 4. Hash — read Ollama's own model manifest for authoritative digest + size
-    options?.onProgress?.({ phase: "hash", message: "Computing integrity hashes..." });
+    options?.onProgress?.({
+      phase: "hash",
+      message: "Computing integrity hashes...",
+    });
     const engineHash = await hashFile(enginePath);
 
     const modelHash = ollamaManifest.digest;
@@ -275,7 +304,9 @@ export async function materializeBootstrap(
   } finally {
     // Kill the bootstrap engine process — the normal runtime lifecycle will
     // start its own engine via `initAIRuntime()`.
-    try { proc?.kill?.("SIGTERM"); } catch { /* best-effort */ }
+    try {
+      proc?.kill?.("SIGTERM");
+    } catch { /* best-effort */ }
   }
 }
 

@@ -81,6 +81,11 @@ export interface OllamaModelManifestInfo {
   totalSize: number;
 }
 
+export interface ResolvedOllamaModelManifest {
+  path: string;
+  manifest: OllamaModelManifestInfo;
+}
+
 // ---------------------------------------------------------------------------
 // Manifest path
 // ---------------------------------------------------------------------------
@@ -99,10 +104,17 @@ export function getManifestPath(): string {
  * Returns the path where Ollama writes its model manifest after a pull.
  * Ollama stores manifests at: `<models>/manifests/registry.ollama.ai/library/<name>/<tag>`
  */
-export function getOllamaModelManifestPath(modelsDir: string, modelId: string): string {
+export function getOllamaModelManifestPath(
+  modelsDir: string,
+  modelId: string,
+): string {
   const [name, tag = "latest"] = modelId.split(":");
   const { join } = getPlatform().path;
-  return join(modelsDir, "manifests", "registry.ollama.ai", "library", name, tag);
+  const nameSegments = name.split("/").filter(Boolean);
+  const registrySegments = nameSegments.length > 1
+    ? ["registry.ollama.ai", ...nameSegments]
+    : ["registry.ollama.ai", "library", ...nameSegments];
+  return join(modelsDir, "manifests", ...registrySegments, tag);
 }
 
 /**
@@ -137,6 +149,85 @@ export async function readOllamaModelManifest(
   }
 }
 
+function toPathSegments(path: string): string[] {
+  return path.replaceAll("\\", "/").split("/").filter(Boolean);
+}
+
+function pathEndsWithSegments(path: string, suffixSegments: string[]): boolean {
+  const pathSegments = toPathSegments(path);
+  if (pathSegments.length < suffixSegments.length) return false;
+  const start = pathSegments.length - suffixSegments.length;
+  return suffixSegments.every((segment, index) =>
+    pathSegments[start + index] === segment
+  );
+}
+
+async function collectManifestPaths(rootDir: string): Promise<string[]> {
+  const platform = getPlatform();
+  const paths: string[] = [];
+
+  async function walk(dir: string): Promise<void> {
+    try {
+      for await (const entry of platform.fs.readDir(dir)) {
+        const fullPath = platform.path.join(dir, entry.name);
+        if (entry.isSymlink) continue;
+        if (entry.isDirectory) {
+          await walk(fullPath);
+          continue;
+        }
+        if (entry.isFile) {
+          paths.push(fullPath);
+        }
+      }
+    } catch {
+      // Ignore unreadable directories and keep looking elsewhere.
+    }
+  }
+
+  await walk(rootDir);
+  paths.sort();
+  return paths;
+}
+
+/**
+ * Resolve an Ollama model manifest even if Ollama changes the exact on-disk
+ * registry nesting. Prefer the canonical path, then fall back to scanning the
+ * manifests tree for a file whose trailing path matches `<name>/<tag>`.
+ */
+export async function findOllamaModelManifest(
+  modelsDir: string,
+  modelId: string,
+): Promise<ResolvedOllamaModelManifest | null> {
+  const platform = getPlatform();
+  const preferredPath = getOllamaModelManifestPath(modelsDir, modelId);
+  const preferredManifest = await readOllamaModelManifest(preferredPath);
+  if (preferredManifest) {
+    return { path: preferredPath, manifest: preferredManifest };
+  }
+
+  const manifestsRoot = platform.path.join(modelsDir, "manifests");
+  const [name, tag = "latest"] = modelId.split(":");
+  const suffixSegments = [...name.split("/").filter(Boolean), tag];
+  const fallbackMatches: ResolvedOllamaModelManifest[] = [];
+  const validManifests: ResolvedOllamaModelManifest[] = [];
+
+  for (const manifestPath of await collectManifestPaths(manifestsRoot)) {
+    const manifest = await readOllamaModelManifest(manifestPath);
+    if (!manifest) continue;
+    const resolved = { path: manifestPath, manifest };
+    validManifests.push(resolved);
+    if (pathEndsWithSegments(manifestPath, suffixSegments)) {
+      fallbackMatches.push(resolved);
+    }
+  }
+
+  if (fallbackMatches.length > 0) {
+    return fallbackMatches[0];
+  }
+
+  return validManifests.length === 1 ? validManifests[0] : null;
+}
+
 /** Whether Ollama's on-disk manifest matches the pinned fallback identity. */
 export function matchesPinnedFallbackIdentity(
   manifest: OllamaModelManifestInfo | null,
@@ -158,7 +249,9 @@ export function matchesPinnedFallbackIdentity(
  * Read the bootstrap manifest from disk.
  * Returns `null` if the file does not exist or is unparseable.
  */
-export async function readBootstrapManifest(): Promise<BootstrapManifest | null> {
+export async function readBootstrapManifest(): Promise<
+  BootstrapManifest | null
+> {
   const fs = getPlatform().fs;
   try {
     const raw = await fs.readTextFile(getManifestPath());

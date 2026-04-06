@@ -9,11 +9,10 @@ import { log } from "../api/log.ts";
 import {
   type BootstrapManifest,
   type BootstrapState,
-  getOllamaModelManifestPath,
+  findOllamaModelManifest,
   LOCAL_FALLBACK_MODEL,
   matchesPinnedFallbackIdentity,
   readBootstrapManifest,
-  readOllamaModelManifest,
 } from "./bootstrap-manifest.ts";
 
 // ---------------------------------------------------------------------------
@@ -85,8 +84,10 @@ export async function verifyBootstrap(): Promise<BootstrapVerificationResult> {
       const hash = await hashFile(manifest.engine.path);
       engineOk = hash === manifest.engine.hash;
       if (!engineOk) {
-        log.debug?.("Engine hash mismatch — expected " +
-          manifest.engine.hash + ", got " + hash);
+        log.debug?.(
+          "Engine hash mismatch — expected " +
+            manifest.engine.hash + ", got " + hash,
+        );
       }
     } catch (err) {
       log.debug?.(`Engine hash check failed: ${(err as Error).message}`);
@@ -102,39 +103,54 @@ export async function verifyBootstrap(): Promise<BootstrapVerificationResult> {
     modelOk = true;
     for (const m of manifest.models) {
       if (!m.hash || !m.size) {
-        log.debug?.(`Model ${m.modelId}: manifest record has empty hash or zero size`);
+        log.debug?.(
+          `Model ${m.modelId}: manifest record has empty hash or zero size`,
+        );
         modelOk = false;
         break;
       }
-      const ollamaPath = getOllamaModelManifestPath(modelsDir, m.modelId);
-      const ollamaManifest = await readOllamaModelManifest(ollamaPath);
-      if (!ollamaManifest) {
-        log.debug?.(`Model ${m.modelId}: Ollama manifest not found at ${ollamaPath}`);
+      const resolvedManifest = await findOllamaModelManifest(
+        modelsDir,
+        m.modelId,
+      );
+      if (!resolvedManifest) {
+        log.debug?.(
+          `Model ${m.modelId}: Ollama manifest not found anywhere under ${modelsDir}`,
+        );
         modelOk = false;
         break;
       }
-      if (m.modelId === LOCAL_FALLBACK_MODEL && !matchesPinnedFallbackIdentity(ollamaManifest)) {
-        log.debug?.(`Model ${m.modelId}: does not match the pinned fallback identity`);
+      const ollamaManifest = resolvedManifest.manifest;
+      if (
+        m.modelId === LOCAL_FALLBACK_MODEL &&
+        !matchesPinnedFallbackIdentity(ollamaManifest)
+      ) {
+        log.debug?.(
+          `Model ${m.modelId}: does not match the pinned fallback identity`,
+        );
         modelOk = false;
         break;
       }
       if (ollamaManifest.digest !== m.hash) {
-        log.debug?.(`Model ${m.modelId}: digest mismatch — ` +
-          `expected ${m.hash}, got ${ollamaManifest.digest}`);
+        log.debug?.(
+          `Model ${m.modelId}: digest mismatch — ` +
+            `expected ${m.hash}, got ${ollamaManifest.digest}`,
+        );
         modelOk = false;
         break;
       }
       if (ollamaManifest.totalSize !== m.size) {
-        log.debug?.(`Model ${m.modelId}: size mismatch — ` +
-          `expected ${m.size}, got ${ollamaManifest.totalSize}`);
+        log.debug?.(
+          `Model ${m.modelId}: size mismatch — ` +
+            `expected ${m.size}, got ${ollamaManifest.totalSize}`,
+        );
         modelOk = false;
         break;
       }
     }
   }
 
-  const state: BootstrapState =
-    engineOk && modelOk ? "verified" : "degraded";
+  const state: BootstrapState = engineOk && modelOk ? "verified" : "degraded";
 
   const parts: string[] = [];
   if (!engineOk) parts.push("engine missing or corrupt");
@@ -154,9 +170,11 @@ export async function verifyBootstrap(): Promise<BootstrapVerificationResult> {
 export async function isFallbackModelAvailable(): Promise<boolean> {
   try {
     const modelsDir = getModelsDir();
-    const manifestPath = getOllamaModelManifestPath(modelsDir, LOCAL_FALLBACK_MODEL);
-    const manifest = await readOllamaModelManifest(manifestPath);
-    return matchesPinnedFallbackIdentity(manifest);
+    const manifest = await findOllamaModelManifest(
+      modelsDir,
+      LOCAL_FALLBACK_MODEL,
+    );
+    return matchesPinnedFallbackIdentity(manifest?.manifest ?? null);
   } catch {
     return false;
   }
