@@ -206,71 +206,108 @@ jobs:
           echo "Release assets:"
           ls -lah release-assets
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          draft: true
-          prerelease: false
-          generate_release_notes: true
-          body: |
-            # HLVM ${{ github.ref_name }}
-
-            AI-native runtime infrastructure with embedded local AI.
-
-            ## Installation
-
-            **Standard (recommended):**
-            ```bash
-            curl -fsSL https://hlvm.dev/install.sh | sh
-            ```
-
-            Downloads the GitHub Release binary and prepares the local AI fallback during install.
-
-            **Full Offline:**
-            ```bash
-            curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full
-            ```
-
-            Larger download. No post-download network dependency after the bundle is downloaded.
-
-            **Windows (PowerShell):**
-            ```powershell
-            irm https://hlvm.dev/install.ps1 | iex
-            ```
-
-            After install, `hlvm ask "hello"` works immediately.
-
-            ## What's Included
-
-            - HLVM runtime platform with embedded AI engine
-            - HQL and JavaScript REPL
-            - Complete standard library
-            - AI agent SDK with MCP tool servers
-            - Local fallback model prepared during install
-
-            ## Binaries
-
-            - `hlvm-mac-arm` - macOS Apple Silicon (M1/M2/M3)
-            - `hlvm-mac-intel` - macOS Intel
-            - `hlvm-linux` - Linux x86_64 (published as split GitHub assets when needed)
-            - `hlvm-windows.exe` - Windows x86_64 (published as split GitHub assets when needed)
-
-            ## Quick Start
-
-            ```bash
-            # AI assistant
-            hlvm ask "hello"
-
-            # Start REPL
-            hlvm repl
-
-            # Run a file
-            hlvm run hello.hql
-
-            # Show help
-            hlvm --help
-            ```
-          files: |
-            release-assets/*
+      - name: Create draft release
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          # HLVM ${{ github.ref_name }}
+
+          AI-native runtime infrastructure with embedded local AI.
+
+          ## Installation
+
+          **Standard (recommended):**
+          ```bash
+          curl -fsSL https://hlvm.dev/install.sh | sh
+          ```
+
+          Downloads the GitHub Release binary and prepares the local AI fallback during install.
+
+          **Full Offline:**
+          ```bash
+          curl -fsSL https://hlvm.dev/install.sh | sh -s -- --full
+          ```
+
+          Larger download. No post-download network dependency after the bundle is downloaded.
+
+          **Windows (PowerShell):**
+          ```powershell
+          irm https://hlvm.dev/install.ps1 | iex
+          ```
+
+          After install, `hlvm ask "hello"` works immediately.
+
+          ## What's Included
+
+          - HLVM runtime platform with embedded AI engine
+          - HQL and JavaScript REPL
+          - Complete standard library
+          - AI agent SDK with MCP tool servers
+          - Local fallback model prepared during install
+
+          ## Binaries
+
+          - `hlvm-mac-arm` - macOS Apple Silicon (M1/M2/M3)
+          - `hlvm-mac-intel` - macOS Intel
+          - `hlvm-linux` - Linux x86_64 (published as split GitHub assets when needed)
+          - `hlvm-windows.exe` - Windows x86_64 (published as split GitHub assets when needed)
+
+          ## Quick Start
+
+          ```bash
+          # AI assistant
+          hlvm ask "hello"
+
+          # Start REPL
+          hlvm repl
+
+          # Run a file
+          hlvm run hello.hql
+
+          # Show help
+          hlvm --help
+          ```
+          EOF
+
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release delete "${{ github.ref_name }}" --repo "${{ github.repository }}" --yes
+          fi
+
+          gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --draft \
+            --generate-notes \
+            --notes-file release-notes.md \
+            --title "HLVM ${{ github.ref_name }}"
+
+      - name: Upload release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          upload_asset() {
+            asset=$1
+            attempt=1
+            while [ "$attempt" -le 3 ]; do
+              if gh release upload "${{ github.ref_name }}" "$asset" \
+                --repo "${{ github.repository }}" \
+                --clobber; then
+                return 0
+              fi
+
+              if [ "$attempt" -eq 3 ]; then
+                echo "Failed to upload ${asset} after ${attempt} attempts." >&2
+                return 1
+              fi
+
+              echo "Retrying ${asset} (attempt $((attempt + 1)) of 3)..."
+              sleep 5
+              attempt=$((attempt + 1))
+            done
+          }
+
+          for asset in release-assets/*; do
+            upload_asset "$asset"
+          done
