@@ -281,7 +281,11 @@ export function getErrorMessage(error: unknown): string {
  */
 export function isFileNotFoundError(error: unknown): boolean {
   const msg = String(error).toLowerCase();
-  return msg.includes("no such file") || msg.includes("not found");
+  return msg.includes("no such file") ||
+    msg.includes("not found") ||
+    msg.includes("cannot find the file specified") ||
+    msg.includes("enoent") ||
+    msg.includes("os error 2");
 }
 
 /**
@@ -435,4 +439,3 @@ export function areListsEqual(a?: string[], b?: string[]): boolean {
   }
   return true;
 }
-

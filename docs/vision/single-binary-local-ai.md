@@ -211,12 +211,28 @@ PUBLIC OFFLINE SHIP COMPLETE: not in scope
   - `main` now switches Windows standard install to a packaged asset (`hlvm-windows.zip`) that contains a much smaller runnable `hlvm.exe` plus the embedded AI engine sidecar
   - local compile check with `--skip-ai-engine` reduced the Windows executable to `374 MB`, confirming the packaging direction
 - standard public install is therefore still not complete yet, because `releases/latest` does not yet deliver the intended `v0.1.0`
+- the corrected `Release` run (`24031857900`) succeeded and rebuilt the `v0.1.0` draft on `hlvm-dev/hql` with the expected standard-ship assets:
+  - `hlvm-mac-arm`
+  - `hlvm-mac-intel`
+  - `hlvm-linux.part-000/001/002`
+  - `hlvm-windows.zip.part-000/001`
+  - `checksums.sha256`
+  - `install.sh`
+  - `install.ps1`
+- the first fresh staged proof run against that rebuilt draft (`24032259011`) exposed two remaining standard-path blockers:
+  - macOS arm64 standard smoke reached bootstrap readiness, but repeated local Gemma probe requests still returned Ollama `500 Internal Server Error` before the installer gave up
+  - Windows standard smoke successfully downloaded, reassembled, verified, and staged `hlvm-windows.zip`, but bootstrap then failed on first-run config loading because missing `~/.hlvm/config.json` was not treated as a normal empty-state case on Windows
+- `main` now contains the next standard-ship fixes for those blockers:
+  - bootstrap waits longer for first-run local Gemma readiness before declaring failure
+  - transient readiness probe failures no longer spam default installer output while bootstrap is still waiting
+  - Windows/native `ENOENT`/`os error 2`/`The system cannot find the file specified` messages are now recognized as file-not-found for config loading
+- staged standard proof must be rerun from the new commit before publish
 
 ### Why Public Standard Is Not Done Yet
 
-The remaining work is distribution validation plus a Windows release rebuild:
+The remaining work is distribution validation plus one more release/proof pass:
 
-1. rebuild the `v0.1.0` draft with the Windows packaged asset format
+1. rebuild the `v0.1.0` draft from the latest standard-ship fix commit
 2. rerun cross-platform staged smoke on macOS/Linux/Windows
 3. publish the draft
 4. public smoke must prove the real public install path
@@ -271,12 +287,11 @@ offline artifact is part of the release gate.
 
 ### Immediate Critical Path
 
-1. wait for the corrected `v0.1.0` release rebuild to finish
-2. verify the new draft assets are present on `hlvm-dev/hql`
-3. run standard staged smoke only
-4. publish `v0.1.0`
-5. run standard public smoke only
-6. update this document again with the final published proof
+1. retag and rebuild the `v0.1.0` draft from the latest fix commit
+2. rerun standard staged smoke only
+3. publish `v0.1.0`
+4. run standard public smoke only
+5. update this document again with the final published proof
 
 ### Non-Goals For This Ship
 
@@ -290,7 +305,7 @@ The next person or model taking over should:
 
 1. verify the latest live installer still points to `hlvm-dev/hql`
 2. verify the rebuilt `v0.1.0` draft exists and contains the required assets
-3. check the current staged proof run status on GitHub Actions and confirm macOS/Linux/Windows all pass
+3. rerun staged proof on GitHub Actions and confirm macOS/Linux/Windows all pass
 4. publish only after staged standard smoke passes everywhere
 5. run standard public smoke:
    - Unix: `scripts/public-release-smoke.sh standard`

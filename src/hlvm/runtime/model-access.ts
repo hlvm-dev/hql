@@ -2,7 +2,6 @@ import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../common/ai-messages.ts";
 import { isOllamaAuthErrorMessage } from "../../common/ollama-auth.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import { ai } from "../api/ai.ts";
-import { log } from "../api/log.ts";
 
 interface ModelAccessProbeResult {
   available: boolean;
@@ -54,7 +53,6 @@ export async function probeModelAccess(
     if (isOllamaAuthErrorMessage(message)) {
       return { available: false, authRequired: true };
     }
-    log.error(`Model access probe failed: ${message}`);
     return { available: false, error: message };
   } finally {
     try {
