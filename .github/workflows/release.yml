@@ -33,11 +33,11 @@ jobs:
             ollama_binary: ollama
 
           # Linux
-          - os: ubuntu-latest
+          - os: macos-15-intel
             target: x86_64-unknown-linux-gnu
             binary: hlvm-linux
             ollama_asset: ollama-linux-amd64.tar.zst
-            ollama_binary: ollama
+            ollama_binary: bin/ollama
 
           # Windows
           - os: windows-latest
@@ -62,6 +62,24 @@ jobs:
         run: |
           echo "OLLAMA_VERSION=$(tr -d '\n' < "${{ env.EMBEDDED_OLLAMA_VERSION_FILE }}")" >> "$GITHUB_ENV"
 
+      - name: Ensure zstd is available
+        if: endsWith(matrix.ollama_asset, '.tar.zst')
+        shell: bash
+        run: |
+          if command -v zstd >/dev/null 2>&1; then
+            zstd --version
+            exit 0
+          fi
+
+          if command -v brew >/dev/null 2>&1; then
+            brew install zstd
+            zstd --version
+            exit 0
+          fi
+
+          echo "zstd is required to extract ${{ matrix.ollama_asset }}"
+          exit 1
+
       - name: Download Ollama runtime (pinned ${{ env.OLLAMA_VERSION }})
         shell: bash
         run: |
@@ -75,7 +93,7 @@ jobs:
               tar -xzf "$ARCHIVE_PATH" -C resources/ai-engine
               ;;
             *.tar.zst)
-              tar --zstd -xf "$ARCHIVE_PATH" -C resources/ai-engine
+              zstd -dc "$ARCHIVE_PATH" | tar -xf - -C resources/ai-engine
               ;;
             *.zip)
               unzip -q "$ARCHIVE_PATH" -d resources/ai-engine
