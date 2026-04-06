@@ -82,6 +82,9 @@ interface FooterLeftStateInput {
   conversationQueueCount?: number;
   localEvalQueueCount?: number;
   submitAction?: SubmitAction;
+  teamActive?: boolean;
+  teamAttentionCount?: number;
+  teamWorkerSummary?: string;
 }
 
 interface FooterLeftState {
