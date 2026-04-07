@@ -634,7 +634,7 @@ embedding files but the binary crashes on load above ~2 GB.
  ┌──────────────────────────────────▼──────────────────────────────────┐
  │  STEP 2: Upload to HuggingFace                                      │
  │  - Generate SHA-256 checksums                                       │
- │  - Upload tarball + checksums via huggingface-cli                   │
+ │  - Upload tarball + checksums via Python HfApi                      │
  │  - Repo: HLVM/hlvm-releases                                      │
  │  - Revision: <tag> (e.g. v0.1.0)                                    │
  └─────────────────────────────────────────────────────────────────────┘
@@ -722,6 +722,24 @@ gh workflow run release.yml --repo hlvm-dev/hql -f tag=v0.1.0
 # Actions → Release → Run workflow → enter tag → Run
 ```
 
+### Upload Bundled Sidecar (after standard release)
+
+```bash
+# Manually trigger the bundled pipeline
+gh workflow run release-bundled.yml --repo hlvm-dev/hql -f tag=v0.1.0
+
+# Monitor
+gh run list --repo hlvm-dev/hql --workflow "Release Bundled" --limit 5
+
+# Verify tarball is accessible
+curl -sI "https://huggingface.co/HLVM/hlvm-releases/resolve/v0.1.0/hlvm-model.tar" | head -5
+# Should return HTTP 302 (redirect to CDN)
+
+# Test bundled install end-to-end
+curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled
+hlvm ask "hello"
+```
+
 ### Rebuild After a Fix
 
 ```bash
@@ -750,3 +768,68 @@ git push origin main v0.1.0
 | 2026-04-07 | Downgraded to Ollama v0.20.1, v0.1.0 retagged at `b878a45` |
 | 2026-04-07 | v0.1.0 re-published (run `24041696520`), Intel staged pass |
 | 2026-04-07 | Full end-to-end verified on real macOS ARM: both `release-smoke.sh` and `public-release-smoke.sh` passed |
+| 2026-04-07 | Bundled sidecar bootstrap ordering fix: extract tarball BEFORE Ollama starts (step 1.5) |
+| 2026-04-07 | Bundled CI pipeline: 7 attempts, 6 bug fixes (curl SIGPIPE, HF CLI PATH, pip/python mismatch, PEP 668 venv) |
+| 2026-04-07 | Bundled pipeline succeeded (run `24084392859`): tarball uploaded to HuggingFace `HLVM/hlvm-releases` |
+
+---
+
+## Handoff: Next Release Checklist
+
+For the next LLM agent or developer continuing this work:
+
+### Standard Release (v0.1.1+)
+
+```bash
+# 1. Bump version in src/common/version.ts
+# 2. Tag and push — full pipeline runs automatically
+git tag v0.1.1 && git push origin v0.1.1
+
+# 3. Monitor
+gh run list --repo hlvm-dev/hql --workflow release.yml --limit 5
+
+# 4. After pipeline completes, verify
+curl -fsSL https://hlvm.dev/install.sh | sh
+hlvm ask "hello"
+```
+
+### Bundled Release (after standard is published)
+
+```bash
+# 1. Trigger bundled pipeline manually
+gh workflow run release-bundled.yml --repo hlvm-dev/hql -f tag=v0.1.1
+
+# 2. Monitor (takes ~30+ min for 9.6 GB model pull)
+gh run list --repo hlvm-dev/hql --workflow "Release Bundled" --limit 5
+
+# 3. Verify HuggingFace upload
+curl -sI "https://huggingface.co/HLVM/hlvm-releases/resolve/v0.1.1/hlvm-model.tar"
+# Should return HTTP 302
+
+# 4. Test bundled install
+curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled
+hlvm ask "hello"
+```
+
+### Key Things to Know
+
+1. **Bootstrap ordering is critical**: In `bootstrap-materialize.ts`, sidecar
+   extraction (step 1.5) MUST happen before `startEngineForBootstrap()` (step 2).
+   Ollama discovers models at startup — moving extraction after engine start
+   causes HTTP 404 "model not found".
+
+2. **CI Python environment**: macOS CI runners use `externally-managed-environment`
+   (PEP 668). Always use `python3 -m venv` for pip installs. Never use bare `pip`.
+
+3. **Ollama version pinning**: Check `embedded-ollama-version.txt`. v0.20.2 has
+   an upstream bug (server reports as v0.19.0). Verify new versions before upgrading
+   (see "Embedded Ollama Version" section above).
+
+4. **HuggingFace credentials**: `HF_TOKEN` secret is configured in GitHub Actions
+   at `hlvm-dev/hql`. The HF repo is `HLVM/hlvm-releases`.
+
+5. **Warm model reuse**: After bootstrap, Ollama keeps running with model in RAM.
+   Do NOT kill it between bootstrap and `hlvm ask` (see "Warm Model Reuse" section).
+
+6. **Sidecar tarball search**: `findSidecarModelTarball()` in `ai-runtime.ts`
+   looks for `hlvm-model.tar` in 3 locations: beside the binary, `~/.hlvm/`, CWD.

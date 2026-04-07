@@ -71,14 +71,33 @@ Expected result:
 This standard flow is the complete supported install. There is no separate
 public "full" mode, bundle mode, or offline mode for this ship.
 
-### Unsupported Public UX
+### Bundled Install UX (offline-capable)
 
-There is no supported public offline install mode for this ship.
+A second install path exists for air-gapped or slow-network environments:
 
-Do not advertise, document, gate, or block release on any alternate
-pre-bundled install path. The only supported public experience is the standard
-installer, which must finish binary install plus Gemma bootstrap before it
-returns.
+```text
+User runs:
+  curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled
+
+Installer then:
+  - detects platform
+  - downloads standard binary from GitHub Releases (~587 MB)
+  - downloads sidecar model tarball from HuggingFace (~8.9 GB)
+  - verifies checksums for both
+  - installs hlvm
+  - runs `hlvm bootstrap`
+  - bootstrap extracts model from sidecar (no Ollama network pull)
+  - deletes sidecar tarball (reclaims ~8.9 GB)
+  - exits after Gemma is verified
+
+User then runs:
+  hlvm ask "hello"
+
+Expected result:
+  Works immediately, identical to standard install.
+```
+
+The bundled path never blocks the standard release. It is additive.
 
 ## Architecture
 
@@ -287,6 +306,21 @@ the Ollama engine starts (`materializeBootstrap()` step 1.5). Ollama
 discovers model files at startup — placing them on disk after the engine is
 running results in HTTP 404 "model not found".
 
+### Bundled CI Pipeline Proof (macOS, 2026-04-07)
+
+CI run `24084392859` — bundled pipeline succeeded end-to-end:
+
+```text
+release-bundled.yml (workflow_dispatch, tag=v0.1.0)
+  ✓ Setup AI engine (embedded Ollama v0.20.1)
+  ✓ Pull gemma4:e4b via Ollama CLI
+  ✓ Package hlvm-model.tar (8.9 GB)
+  ✓ Upload tarball to HuggingFace (HLVM/hlvm-releases, revision v0.1.0)
+  ✓ Upload checksums-bundled.sha256
+```
+
+Tarball live at: `https://huggingface.co/HLVM/hlvm-releases/resolve/v0.1.0/hlvm-model.tar`
+
 ### Website / Installer Hosting Proof
 
 1. `https://hlvm.dev/install.sh` serves the real shell script
@@ -300,12 +334,14 @@ As of `2026-04-07`, this feature is:
 ```text
 LOCALLY COMPLETE:              yes
 PUBLIC STANDARD SHIP COMPLETE: yes (v0.1.0 published 2026-04-06T17:38:30Z)
-PUBLIC OFFLINE SHIP COMPLETE:  not in scope
+PUBLIC BUNDLED SHIP COMPLETE:  yes (sidecar tarball uploaded to HuggingFace 2026-04-07)
 ```
 
 **Published release**: `v0.1.0` on `hlvm-dev/hql` (10 assets, all platforms).
 **Embedded Ollama**: v0.20.1 (v0.20.2 has upstream packaging bug — see bug #9).
 **CI proof run**: `24041696520` — macOS Intel staged smoke passed end-to-end.
+**Bundled CI run**: `24084392859` — sidecar tarball uploaded to HuggingFace.
+**HuggingFace tarball**: `https://huggingface.co/HLVM/hlvm-releases/resolve/v0.1.0/hlvm-model.tar`
 **Local proof**: macOS ARM — both CI smoke scripts passed on real hardware:
 - `scripts/release-smoke.sh standard v0.1.0` → Smoke succeeded.
 - `scripts/public-release-smoke.sh standard` → Public smoke succeeded.
@@ -384,6 +420,11 @@ Every staged proof round found a real bug. All are fixed on `main`:
 | 7 | macOS arm64 first-boot warmup still too short | Hosted runners need more patience | Extended staged warmup proofing (`2a16714`) |
 | 8 | Windows `os error 3` during legacy config read | Windows path-missing error is different from narrower ENOENT forms | Extended `isFileNotFoundError()` to handle `os error 3` (`b33111a`) |
 | 9 | Bootstrap 412 pulling gemma4:e4b | Ollama v0.20.2 upstream packaging bug: darwin tgz server binary reports as v0.19.0 | Downgraded to Ollama v0.20.1 (`b878a45`) |
+| 10 | Sidecar model not found after bootstrap | Sidecar extracted AFTER Ollama started — Ollama discovers models at startup | Moved extraction to step 1.5, before engine start |
+| 11 | CI curl pipe SIGPIPE cancels model download | `curl /api/pull \| while read` breaks pipe when consumer exits | Replaced with direct `ollama pull` CLI command |
+| 12 | CI huggingface-cli not in PATH | pip scripts dir not in PATH on macOS CI runners | Rewrote upload to use Python `HfApi` directly |
+| 13 | CI pip/python3 different installations | `pip install` → Python X, `python3` → Python Y | Changed to `python3 -m pip install` |
+| 14 | CI externally-managed-environment | macOS CI blocks global pip install (PEP 668) | Use `python3 -m venv` for isolated install |
 
 ### What Still Fails on CI and Why
 
@@ -527,11 +568,13 @@ v0.1.0 is published and verified. No further action needed for this release.
    reports correct server version. Upgrade `embedded-ollama-version.txt`
    when available.
 
-6. **Bundled mode**: Sidecar tarball approach validated end-to-end on macOS ARM.
-   `deno compile --include` hits a 2 GB Mach-O limit, so the model ships as a
-   separate `hlvm-model.tar` placed beside the binary. Bootstrap extracts the
-   tarball before starting Ollama, then deletes it. Remaining: set up
-   HuggingFace repo and test `install.sh --bundled` from real HF URLs.
+6. **Bundled mode**: DONE. Sidecar tarball approach validated end-to-end.
+   CI workflow `release-bundled.yml` run `24084392859` succeeded: model pulled,
+   tarball packaged, uploaded to HuggingFace (`HLVM/hlvm-releases`). Local E2E
+   test on macOS ARM confirmed sidecar bootstrap + `hlvm ask` works. Standard
+   regression verified. Seven CI bugs were fixed during implementation (curl
+   pipe SIGPIPE, huggingface-cli PATH issues, pip/python3 mismatch, macOS
+   externally-managed-environment).
 
 ### Non-Goals For This Ship
 
@@ -559,7 +602,12 @@ For the next release (v0.1.1+):
    hlvm ask "hello"
    ```
 
-4. **Post-publish follow-ups** (not blocking):
+4. **Upload bundled sidecar** (after standard publish):
+   ```bash
+   gh workflow run release-bundled.yml --repo hlvm-dev/hql -f tag=v0.1.1
+   ```
+
+5. **Post-publish follow-ups** (not blocking):
    - Re-add CC auto-detect in `ai-default-model.ts`
    - Monitor Ollama upstream for v0.20.2+ server version fix
 
