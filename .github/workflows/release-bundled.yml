@@ -48,5 +48,7 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          python3 -m pip install huggingface-hub
+          python3 -m venv /tmp/hf-venv
+          /tmp/hf-venv/bin/pip install huggingface-hub
+          export PATH="/tmp/hf-venv/bin:$PATH"
           ./scripts/upload-bundled.sh ${{ inputs.tag }} ./hlvm-model.tar
