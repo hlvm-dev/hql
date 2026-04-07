@@ -1,4 +1,4 @@
-import { VERSION } from "../../version.ts";
+import { VERSION } from "../../common/version.ts";
 import { getPlatform } from "../../platform/platform.ts";
 
 const CLI_ENTRY_URL = new URL("../cli/cli.ts", import.meta.url);

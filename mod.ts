@@ -1244,7 +1244,7 @@ export async function runFile(
 }
 
 // Version imported from single source of truth
-import { VERSION } from "./src/version.ts";
+import { VERSION } from "./src/common/version.ts";
 export const version = VERSION;
 
 const hql: HQLModule = {

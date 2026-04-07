@@ -209,7 +209,7 @@ export function resolveLoopConfig(config: OrchestratorConfig): LoopConfig {
     planningConfig: config.planning ?? { mode: "off" },
     loopDeadline: Date.now() + totalTimeout,
     totalTimeout,
-    modelTier: config.modelTier ?? "mid",
+    modelTier: config.modelTier ?? "standard",
   };
 }
 

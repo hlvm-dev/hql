@@ -363,7 +363,7 @@ export async function createAgentSession(
 
   // Compute model tier BEFORE MCP loading (weak models skip MCP entirely)
   const isFrontier = isFrontierProvider(options.model);
-  const modelTier = classifyModelTier(modelInfo, isFrontier);
+  const modelTier = classifyModelTier(modelInfo, options.model);
   const effectiveToolDenylist = options.toolDenylist?.length
     ? [...options.toolDenylist]
     : [...DEFAULT_TOOL_DENYLIST];
@@ -428,7 +428,7 @@ export async function createAgentSession(
   };
 
   const ensureMcpLoaded = async (signal?: AbortSignal): Promise<void> => {
-    if (modelTier === "weak") return;
+    if (modelTier === "constrained") return;
     if (signal?.aborted) throw new Error("MCP load aborted");
     const waitForLoad = async (
       promise: Promise<Awaited<ReturnType<typeof loadMcpTools>>>,
@@ -491,8 +491,8 @@ export async function createAgentSession(
     }
   };
 
-  if (modelTier === "weak") {
-    getAgentLogger().info("MCP: skipped (weak model tier)");
+  if (modelTier === "constrained") {
+    getAgentLogger().info("MCP: skipped (constrained model tier)");
   } else {
     getAgentLogger().debug("MCP: lazy load enabled");
   }

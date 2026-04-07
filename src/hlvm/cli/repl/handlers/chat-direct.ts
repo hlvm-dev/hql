@@ -198,7 +198,7 @@ async function streamChatWithFallback(
 function getChatSystemPrompt(): string {
   return compilePrompt({
     mode: "chat",
-    tier: "mid",
+    tier: "standard",
     tools: {},
     instructions: EMPTY_INSTRUCTIONS,
   }).text;

@@ -8,12 +8,12 @@ import type { ToolMetadata } from "../agent/registry.ts";
 import { isObjectValue } from "../../common/utils.ts";
 import { invalidateAllFacts, invalidateFactsByCategory, replaceInFacts } from "./facts.ts";
 import { retrieveMemory } from "./retrieve.ts";
-import { type MemoryModelTier } from "./invalidate.ts";
+import { type ModelTier } from "../agent/constants.ts";
 import { writeMemoryFact } from "./pipeline.ts";
 
-let _memoryModelTier: MemoryModelTier = "mid";
+let _memoryModelTier: ModelTier = "standard";
 
-export function setMemoryModelTier(tier: MemoryModelTier): void {
+export function setMemoryModelTier(tier: ModelTier): void {
   _memoryModelTier = tier;
 }
 

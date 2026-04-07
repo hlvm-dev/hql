@@ -3,8 +3,7 @@
  */
 
 import { invalidateFact, searchFactsFts } from "./facts.ts";
-
-export type MemoryModelTier = "weak" | "mid" | "frontier";
+import { type ModelTier } from "../agent/constants.ts";
 
 interface ConflictCandidate {
   factId: number;
@@ -57,9 +56,9 @@ export function detectConflicts(content: string, category: string): ConflictCand
 
 export function autoInvalidateConflicts(
   candidates: ConflictCandidate[],
-  modelTier: MemoryModelTier,
+  modelTier: ModelTier,
 ): number[] {
-  if (modelTier !== "frontier") return [];
+  if (modelTier !== "enhanced") return [];
 
   const invalidated: number[] = [];
   for (const candidate of candidates) {

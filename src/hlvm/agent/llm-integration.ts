@@ -138,7 +138,7 @@ export interface SystemPromptOptions {
 export function compileSystemPrompt(
   options: SystemPromptOptions = {},
 ): CompiledPrompt {
-  const tier = options.modelTier ?? "mid";
+  const tier = options.modelTier ?? "standard";
   const tools = resolveTools({
     allowlist: options.toolAllowlist,
     denylist: options.toolDenylist,

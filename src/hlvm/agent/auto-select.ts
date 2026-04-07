@@ -8,7 +8,7 @@
  * All scoring is pure (no side effects). Only `resolveAutoModel()` performs I/O.
  */
 
-import { classifyModelTier, isFrontierProvider } from "./constants.ts";
+import { classifyModelTier } from "./constants.ts";
 import { classifyForLocalFallback } from "../runtime/local-fallback.ts";
 import { ValidationError } from "../../common/error.ts";
 import type { ModelInfo } from "../providers/types.ts";
@@ -136,29 +136,45 @@ export function isAutoModel(model: string): boolean {
 }
 
 /** Extract task signals from prompt and attachments using LLM classification. */
-export async function buildTaskProfile(
+/** Instant profile — non-LLM fields only (for pre-filtering before classification). */
+export function buildBaseProfile(
   query: string,
   attachments?: Array<{ kind?: string; mimeType?: string }>,
   policy?: AutoSelectPolicy,
-): Promise<TaskProfile> {
-  const hasImage = attachments?.some((a) =>
-    a.kind === "image" || a.mimeType?.startsWith("image/")
-  ) ?? false;
-
-  const { classifyTask } = await import("../runtime/local-llm.ts");
-  const classification = await classifyTask(query);
-
+): TaskProfile {
   return {
-    hasImage,
+    hasImage: attachments?.some((a) =>
+      a.kind === "image" || a.mimeType?.startsWith("image/")
+    ) ?? false,
     promptIsLarge: query.length > 4000,
     preferCheap: policy?.preferCheap ?? false,
     preferQuality: policy?.preferQuality ?? false,
     localOnly: policy?.localOnly ?? false,
     noUpload: policy?.noUpload ?? false,
+    needsStructuredOutput: false,
+    isCodeTask: false,
+    isReasoningTask: false,
+    estimatedTokens: Math.ceil(query.length / 4),
+  };
+}
+
+/** Full profile with LLM classification (~500ms, only needed when 2+ models available). */
+export async function buildTaskProfile(
+  query: string,
+  attachments?: Array<{ kind?: string; mimeType?: string }>,
+  policy?: AutoSelectPolicy,
+): Promise<TaskProfile> {
+  const base = buildBaseProfile(query, attachments, policy);
+  if (!query.trim()) return base;
+
+  const { classifyTask } = await import("../runtime/local-llm.ts");
+  const classification = await classifyTask(query);
+
+  return {
+    ...base,
     needsStructuredOutput: classification.needsStructuredOutput,
     isCodeTask: classification.isCodeTask,
     isReasoningTask: classification.isReasoningTask,
-    estimatedTokens: Math.ceil(query.length / 4),
   };
 }
 
@@ -184,10 +200,10 @@ export function modelInfoToModelCaps(modelId: string, info: ModelInfo): ModelCap
   const isLocal = provider === "ollama" && !info.metadata?.cloud;
   const overrides = lookupOverrides(info.name);
 
-  const tier = classifyModelTier(info, isFrontierProvider(`${provider}/${info.name}`));
-  const defaultCodingStrength: CodingStrength = tier === "frontier"
+  const tier = classifyModelTier(info, `${provider}/${info.name}`);
+  const defaultCodingStrength: CodingStrength = tier === "enhanced"
     ? "strong"
-    : tier === "weak"
+    : tier === "constrained"
     ? "weak"
     : "mid";
 
@@ -288,9 +304,9 @@ export async function chooseAutoModel(
   policy: AutoSelectPolicy | undefined,
   models: ModelInfo[],
 ): Promise<AutoDecision> {
-  const profile = await buildTaskProfile(query, attachments, policy);
+  // Phase 1: instant — filter by hard constraints (no LLM call)
+  const baseProfile = buildBaseProfile(query, attachments, policy);
 
-  // Convert to ModelCaps
   const allCaps = models.map((info) => {
     const provider = typeof info.metadata?.provider === "string"
       ? info.metadata.provider
@@ -299,14 +315,26 @@ export async function chooseAutoModel(
     return modelInfoToModelCaps(id, info);
   });
 
-  // Filter by hard constraints
-  const eligible = filterModels(allCaps, profile);
+  const eligible = filterModels(allCaps, baseProfile);
   if (eligible.length === 0) {
     throw new ValidationError(
       "No eligible models found for auto selection. Check that at least one provider is configured with a tool-calling model.",
       "auto_select",
     );
   }
+
+  // Short-circuit: only one eligible model — no classification needed
+  if (eligible.length === 1) {
+    const only = eligible[0];
+    return {
+      model: only.id,
+      fallbacks: [],
+      reason: `Selected ${only.id} (only eligible model)`,
+    };
+  }
+
+  // Phase 2: LLM classification (~500ms) — only when there's a real choice
+  const profile = await buildTaskProfile(query, attachments, policy);
 
   // Score and sort (descending score, then tie-break by cost/provider)
   const scored = eligible

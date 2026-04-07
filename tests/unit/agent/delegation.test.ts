@@ -2247,10 +2247,10 @@ Deno.test("report_result: requires summary", async () => {
 
 import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
 
-Deno.test("renderDelegation: frontier tier generates multi-paragraph prompt", () => {
-  // Generate prompt with delegate_agent available (frontier)
+Deno.test("renderDelegation: enhanced tier generates multi-paragraph prompt", () => {
+  // Generate prompt with delegate_agent available (enhanced)
   const prompt = generateSystemPrompt({
-    modelTier: "frontier",
+    modelTier: "enhanced",
     toolAllowlist: ["delegate_agent"],
   });
   assertStringIncludes(prompt, "When to Delegate");
@@ -2260,14 +2260,14 @@ Deno.test("renderDelegation: frontier tier generates multi-paragraph prompt", ()
   assertStringIncludes(prompt, "Available Agents");
 });
 
-Deno.test("renderDelegation: weak tier generates abbreviated prompt", () => {
+Deno.test("renderDelegation: constrained tier generates abbreviated prompt", () => {
   const prompt = generateSystemPrompt({
-    modelTier: "weak",
+    modelTier: "constrained",
     toolAllowlist: ["delegate_agent"],
   });
   // Should have agent list but NOT the full guidance
   assertStringIncludes(prompt, "Delegation");
-  // Weak tier should NOT include the detailed sections
+  // Constrained tier should NOT include the detailed sections
   assertEquals(prompt.includes("When to Delegate"), false);
   assertEquals(prompt.includes("Coordination Patterns"), false);
 });

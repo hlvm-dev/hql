@@ -84,12 +84,12 @@ function makeConfig(
 // Tests
 // ---------------------------------------------------------------------------
 
-Deno.test("applyAdaptiveToolPhase skips filtering for mid-tier models", () => {
+Deno.test("applyAdaptiveToolPhase skips filtering for standard-tier models", () => {
   registerTestTool(`${testToolPrefix}read`, "read");
   registerTestTool(`${testToolPrefix}write`, "write");
   try {
     const state = makeLoopState({ lastToolNames: [] });
-    const config = makeConfig({ modelTier: "mid" });
+    const config = makeConfig({ modelTier: "standard" });
     const phase = applyAdaptiveToolPhase(state, config, "fix the bug");
     // Phase is derived but tool filtering is NOT applied —
     // toolFilterState.allowlist remains undefined.
@@ -100,12 +100,12 @@ Deno.test("applyAdaptiveToolPhase skips filtering for mid-tier models", () => {
   }
 });
 
-Deno.test("applyAdaptiveToolPhase skips filtering for frontier-tier models", () => {
+Deno.test("applyAdaptiveToolPhase skips filtering for enhanced-tier models", () => {
   registerTestTool(`${testToolPrefix}read`, "read");
   registerTestTool(`${testToolPrefix}shell`, "shell");
   try {
     const state = makeLoopState({ lastToolNames: [] });
-    const config = makeConfig({ modelTier: "frontier" });
+    const config = makeConfig({ modelTier: "enhanced" });
     applyAdaptiveToolPhase(state, config, "run the tests");
     assertEquals(config.toolFilterState?.allowlist, undefined);
   } finally {
@@ -113,29 +113,29 @@ Deno.test("applyAdaptiveToolPhase skips filtering for frontier-tier models", () 
   }
 });
 
-Deno.test("applyAdaptiveToolPhase applies filtering for weak-tier models", () => {
+Deno.test("applyAdaptiveToolPhase applies filtering for constrained-tier models", () => {
   registerTestTool(`${testToolPrefix}read`, "read");
   registerTestTool(`${testToolPrefix}write`, "write");
   try {
     const state = makeLoopState({ lastToolNames: [] });
-    const config = makeConfig({ modelTier: "weak" });
+    const config = makeConfig({ modelTier: "constrained" });
     applyAdaptiveToolPhase(state, config, "read the file");
-    // For weak models, phase filtering IS applied — allowlist gets populated.
+    // For constrained models, phase filtering IS applied — allowlist gets populated.
     assertEquals(Array.isArray(config.toolFilterState?.allowlist), true);
   } finally {
     cleanupTestTools();
   }
 });
 
-Deno.test("weak-model EDIT phase includes shell category", () => {
+Deno.test("constrained-model EDIT phase includes shell category", () => {
   assertEquals(EDIT_PHASE_CATEGORIES.has("shell"), true);
 });
 
-Deno.test("weak-model VERIFY phase includes write category", () => {
+Deno.test("constrained-model VERIFY phase includes write category", () => {
   assertEquals(VERIFY_PHASE_CATEGORIES.has("write"), true);
 });
 
-Deno.test("weak-model COMPLETE phase includes shell category", () => {
+Deno.test("constrained-model COMPLETE phase includes shell category", () => {
   assertEquals(COMPLETE_PHASE_CATEGORIES.has("shell"), true);
 });
 
@@ -160,7 +160,7 @@ Deno.test("tool_search narrowing uses baseline allowlist", async () => {
   try {
     const state = makeLoopState({ lastToolNames: [searchTool] });
     const config = makeConfig({
-      modelTier: "weak",
+      modelTier: "constrained",
       // Baseline includes both tools; phase filtering might exclude write.
       toolFilterBaseline: {
         allowlist: [readTool, writeTool, searchTool],
@@ -219,7 +219,7 @@ Deno.test("tool_search narrowing does not persist via toolSearchAllowlist", asyn
   try {
     const state = makeLoopState({ lastToolNames: [searchTool] });
     const config = makeConfig({
-      modelTier: "weak",
+      modelTier: "constrained",
       toolFilterBaseline: {
         allowlist: [readTool, searchTool],
         denylist: undefined,
@@ -270,7 +270,7 @@ Deno.test("tool_search discovery can expand the session baseline before turn-loc
 
   const state = makeLoopState({ lastToolNames: [searchTool] });
   const config = makeConfig({
-    modelTier: "mid",
+    modelTier: "standard",
     toolFilterBaseline: {
       allowlist: [searchTool],
       denylist: undefined,

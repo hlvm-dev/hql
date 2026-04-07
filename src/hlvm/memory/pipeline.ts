@@ -11,14 +11,14 @@ import { linkFactEntities } from "./entities.ts";
 import {
   autoInvalidateConflicts,
   detectConflicts,
-  type MemoryModelTier,
 } from "./invalidate.ts";
+import { type ModelTier } from "../agent/constants.ts";
 import { normalizeWhitespace } from "./store.ts";
 
 export interface WriteMemoryFactOptions extends InsertFactOptions {
   linkEntities?: boolean;
   invalidateConflicts?: boolean;
-  modelTier?: MemoryModelTier;
+  modelTier?: ModelTier;
 }
 
 interface WriteMemoryFactResult {
@@ -83,7 +83,7 @@ export function writeMemoryFact(
   const invalidated = normalized.invalidateConflicts === true
     ? autoInvalidateConflicts(
       detectConflicts(normalized.content, normalized.category ?? "General"),
-      normalized.modelTier ?? "mid",
+      normalized.modelTier ?? "standard",
     ).length
     : 0;
 
@@ -117,7 +117,7 @@ export function writeMemoryFacts(
  * Internal callers that need raw DB-only insertion should import from facts.ts.
  */
 export function insertFact(
-  opts: InsertFactOptions & { modelTier?: MemoryModelTier },
+  opts: InsertFactOptions & { modelTier?: ModelTier },
 ): number {
   return writeMemoryFact({
     ...opts,

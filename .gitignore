@@ -92,8 +92,13 @@ test_resource.txt
 /resources/
 
 # Documentation examples - ignore compiled files
-doc/examples/**/*.js
 mod.js
+
+# Dotfile temp directory (distinct from tmp/ which covers non-dotfile variant)
+/.tmp/
+
+# Prevent accidental ~/Desktop-style artifacts from shell expansion
+~/
 
 # Website (Node.js project — exempt from *.js ignore)
 !website/**/*.js

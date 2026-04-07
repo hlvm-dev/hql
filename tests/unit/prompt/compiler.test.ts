@@ -14,7 +14,7 @@ function agentInput(
 ): PromptCompilerInput {
   return {
     mode: "agent",
-    tier: "mid",
+    tier: "standard",
     tools: {},
     instructions: EMPTY_INSTRUCTIONS,
     ...overrides,
@@ -68,7 +68,7 @@ Deno.test("compiler: backward compat — custom instructions passed through hier
 Deno.test("compiler: chat mode produces minimal 2-section prompt", () => {
   const result = compilePrompt({
     mode: "chat",
-    tier: "mid",
+    tier: "standard",
     tools: {},
     instructions: EMPTY_INSTRUCTIONS,
   });
@@ -85,7 +85,7 @@ Deno.test("compiler: chat mode produces minimal 2-section prompt", () => {
 });
 
 Deno.test("compiler: agent mode produces full section set", () => {
-  const result = compilePrompt(agentInput({ tier: "frontier" }));
+  const result = compilePrompt(agentInput({ tier: "enhanced" }));
 
   assertEquals(result.mode, "agent");
   const sectionIds = result.sections.map((s) => s.id);
@@ -101,40 +101,40 @@ Deno.test("compiler: agent mode produces full section set", () => {
 // Tier Filtering
 // ============================================================
 
-Deno.test("compiler: weak tier skips mid/frontier sections like Tips", () => {
-  const weak = compilePrompt(agentInput({ tier: "weak" }));
-  const sectionIds = weak.sections.map((s) => s.id);
+Deno.test("compiler: constrained tier skips standard/enhanced sections like Tips", () => {
+  const constrained = compilePrompt(agentInput({ tier: "constrained" }));
+  const sectionIds = constrained.sections.map((s) => s.id);
 
-  // Tips has minTier: "mid" — should be excluded
+  // Tips has minTier: "standard" — should be excluded
   assertEquals(sectionIds.includes("tips"), false);
-  // Examples has minTier: "weak" — should be included
+  // Examples has minTier: "constrained" — should be included
   assertEquals(sectionIds.includes("examples"), true);
 });
 
-Deno.test("compiler: mid tier includes mid sections like Tips", () => {
-  const mid = compilePrompt(agentInput({ tier: "mid" }));
-  const sectionIds = mid.sections.map((s) => s.id);
+Deno.test("compiler: standard tier includes standard sections like Tips", () => {
+  const standard = compilePrompt(agentInput({ tier: "standard" }));
+  const sectionIds = standard.sections.map((s) => s.id);
 
   assertEquals(sectionIds.includes("tips"), true);
   assertEquals(sectionIds.includes("examples"), true);
 });
 
-Deno.test("compiler: frontier tier includes all sections", () => {
-  const frontier = compilePrompt(agentInput({ tier: "frontier" }));
-  const sectionIds = frontier.sections.map((s) => s.id);
+Deno.test("compiler: enhanced tier includes all sections", () => {
+  const enhanced = compilePrompt(agentInput({ tier: "enhanced" }));
+  const sectionIds = enhanced.sections.map((s) => s.id);
 
   assertEquals(sectionIds.includes("tips"), true);
   assertEquals(sectionIds.includes("examples"), true);
   assertEquals(sectionIds.includes("footer"), true);
 });
 
-Deno.test("compiler: weak < mid < frontier in text length for agent mode", () => {
-  const weak = compilePrompt(agentInput({ tier: "weak" }));
-  const mid = compilePrompt(agentInput({ tier: "mid" }));
-  const frontier = compilePrompt(agentInput({ tier: "frontier" }));
+Deno.test("compiler: constrained < standard < enhanced in text length for agent mode", () => {
+  const constrained = compilePrompt(agentInput({ tier: "constrained" }));
+  const standard = compilePrompt(agentInput({ tier: "standard" }));
+  const enhanced = compilePrompt(agentInput({ tier: "enhanced" }));
 
-  assertEquals(weak.text.length < mid.text.length, true);
-  assertEquals(frontier.text.length >= mid.text.length, true);
+  assertEquals(constrained.text.length < standard.text.length, true);
+  assertEquals(enhanced.text.length >= standard.text.length, true);
 });
 
 // ============================================================
@@ -152,7 +152,7 @@ Deno.test("compiler: different mode produces different signatureHash", () => {
   const agent = compilePrompt(agentInput({ mode: "agent" }));
   const chat = compilePrompt({
     mode: "chat",
-    tier: "mid",
+    tier: "standard",
     tools: {},
     instructions: EMPTY_INSTRUCTIONS,
   });
@@ -166,7 +166,7 @@ Deno.test("compiler: signatureHash format is mode:tier:hex", () => {
   const parts = result.signatureHash.split(":");
   assertEquals(parts.length, 3);
   assertEquals(parts[0], "agent");
-  assertEquals(parts[1], "mid");
+  assertEquals(parts[1], "standard");
   assertEquals(/^[0-9a-f]{8}$/.test(parts[2]), true);
 });
 
@@ -333,7 +333,7 @@ Deno.test("compiler: collectSections returns PromptSection[] with id, content, m
     assertEquals(typeof section.id, "string");
     assertEquals(typeof section.content, "string");
     assertEquals(
-      ["weak", "mid", "frontier"].includes(section.minTier),
+      ["constrained", "standard", "enhanced"].includes(section.minTier),
       true,
     );
     assertEquals(["static", "session", "turn"].includes(section.stability), true);
@@ -396,8 +396,8 @@ Deno.test("compiler: session-stable changes do not churn the static cache segmen
 });
 
 Deno.test("compiler: tier changes churn the static cache segment hash", () => {
-  const weak = agentInput({ tier: "weak" });
-  const mid = agentInput({ tier: "mid" });
+  const constrained = agentInput({ tier: "constrained" });
+  const standard = agentInput({ tier: "standard" });
 
-  assertEquals(segmentHash(weak, "static") === segmentHash(mid, "static"), false);
+  assertEquals(segmentHash(constrained, "static") === segmentHash(standard, "static"), false);
 });

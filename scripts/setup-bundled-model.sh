@@ -87,29 +87,9 @@ for i in $(seq 1 120); do
 done
 echo "   Ollama ready."
 
-# Pull the model
+# Pull the model using the ollama CLI (handles streaming + retries internally)
 echo "   Pulling $MODEL_ID (this may take a while for ~9.6 GB)..."
-curl -sf "http://127.0.0.1:$BOOTSTRAP_PORT/api/pull" \
-  -d "{\"name\": \"$MODEL_ID\"}" \
-  --no-buffer | while IFS= read -r line; do
-    status=$(echo "$line" | grep -o '"status":"[^"]*"' | head -1 | sed 's/"status":"//;s/"//')
-    completed=$(echo "$line" | grep -o '"completed":[0-9]*' | head -1 | sed 's/"completed"://')
-    total=$(echo "$line" | grep -o '"total":[0-9]*' | head -1 | sed 's/"total"://')
-    error=$(echo "$line" | grep -o '"error":"[^"]*"' | head -1 | sed 's/"error":"//;s/"//')
-
-    if [ -n "$error" ]; then
-      echo "   ❌ Pull error: $error"
-      exit 1
-    fi
-
-    if [ -n "$completed" ] && [ -n "$total" ] && [ "$total" -gt 0 ]; then
-      pct=$((completed * 100 / total))
-      printf "\r   %s... %d%%" "$status" "$pct"
-    elif [ -n "$status" ]; then
-      printf "\r   %s                    " "$status"
-    fi
-  done
-echo ""
+"$ENGINE_BIN" pull "$MODEL_ID"
 
 # Kill Ollama — we just needed it for pulling
 kill -TERM "$ENGINE_PID" 2>/dev/null || true

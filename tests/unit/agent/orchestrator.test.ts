@@ -153,7 +153,7 @@ function makeLoopConfig(overrides: Partial<LoopConfig> = {}): LoopConfig {
     planningConfig: { mode: "off", requireStepMarkers: false },
     loopDeadline: Date.now() + 600_000,
     totalTimeout: 600_000,
-    modelTier: "mid" as ModelTier,
+    modelTier: "standard" as ModelTier,
     ...overrides,
   };
 }
@@ -2430,7 +2430,7 @@ Deno.test({
       });
       const injected = maybeInjectReminder(
         state,
-        makeLoopConfig({ modelTier: "weak" }),
+        makeLoopConfig({ modelTier: "constrained" }),
         config,
       );
 
@@ -2447,7 +2447,7 @@ Deno.test({
       const { config, context } = makeReminderHarness();
       const periodic = maybeInjectReminder(
         makeLoopState({ iterations: 7, iterationsSinceReminder: 3 }),
-        makeLoopConfig({ modelTier: "mid" }),
+        makeLoopConfig({ modelTier: "standard" }),
         config,
       );
       assertEquals(periodic, false);
@@ -2498,7 +2498,7 @@ Deno.test({
             workspace: TEST_WORKSPACE,
             context,
             permissionMode: "bypassPermissions",
-            modelTier: "mid",
+            modelTier: "standard",
           },
           async () => {
             llmCalls += 1;

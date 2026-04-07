@@ -2,7 +2,7 @@
 // Use patched esbuild-wasm browser version
 // @ts-ignore: Local patched JS file
 import * as esbuild from "../vendor/esbuild-browser.js";
-import { getEsbuildWasmModule } from "../esbuild-wasm-embedded.ts";
+import { getEsbuildWasmModule } from "./bundler/esbuild-wasm-embedded.ts";
 import type {
   BuildOptions,
   LogLevel,

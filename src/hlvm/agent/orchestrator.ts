@@ -845,7 +845,7 @@ export function applyAdaptiveToolPhase(
 
   // Mid/frontier tiers keep their normal allowlist, but still benefit from
   // targeted denylist pruning once the loop is clearly in edit/verify mode.
-  if ((config.modelTier ?? "mid") !== "weak") {
+  if ((config.modelTier ?? "standard") !== "constrained") {
     const currentAllowlist = config.toolFilterState.allowlist ??
       config.toolAllowlist;
     const phaseDenylist = phase === "editing" || phase === "verifying" ||

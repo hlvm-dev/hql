@@ -28,7 +28,7 @@ import { bootstrapCommand, showBootstrapHelp } from "./commands/bootstrap.ts";
 
 import { run as runCommand } from "./run.ts";
 import { startInkRepl } from "./repl-ink/index.tsx";
-import { VERSION } from "../../version.ts";
+import { VERSION } from "../../common/version.ts";
 
 /**
  * Handle `hlvm repl` command

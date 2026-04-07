@@ -105,7 +105,7 @@ export function isWeakLocalDirectChatModel(
   modelInfo?: ModelInfo | null,
 ): boolean {
   return !isFrontierProvider(modelKey) &&
-    classifyModelTier(modelInfo, false) === "weak";
+    classifyModelTier(modelInfo) === "constrained";
 }
 
 export function resolveWeakDirectChatBudget(

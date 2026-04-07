@@ -421,36 +421,87 @@ export function isGroundingMode(value: unknown): value is GroundingMode {
   return typeof value === "string" && GROUNDING_MODES_SET.has(value);
 }
 
-export type ModelTier = "weak" | "mid" | "frontier";
+/**
+ * Model experience tier — controls what features the system enables.
+ *
+ * constrained: Resource-limited (< 3B, < 8K context, or no tools).
+ *              Short prompt, 16 core tools, no MCP, 3-6K budget.
+ *
+ * standard:    Full capability with deterministic features.
+ *              Full prompt, all tools, MCP, deterministic search.
+ *
+ * enhanced:    Full capability with LLM-powered features.
+ *              Full prompt, all tools, MCP, LLM search & memory cleanup.
+ */
+export type ModelTier = "constrained" | "standard" | "enhanced";
 
 /** Returns true if `tier` meets or exceeds `minTier`. */
 export function tierMeetsMinimum(tier: ModelTier, minTier: ModelTier): boolean {
-  const order: Record<ModelTier, number> = { weak: 0, mid: 1, frontier: 2 };
+  const order: Record<ModelTier, number> = {
+    constrained: 0,
+    standard: 1,
+    enhanced: 2,
+  };
   return order[tier] >= order[minTier];
 }
 
+/** Extract parameter count in billions from a string like "8B" or "70.6B". */
+function parseParamBillions(parameterSize?: string): number | undefined {
+  if (!parameterSize) return undefined;
+  const match = parameterSize.match(/^(\d+(?:\.\d+)?)\s*[bB]/);
+  return match ? parseFloat(match[1]) : undefined;
+}
+
 /**
- * Classify a model into weak / mid / frontier tier.
+ * Classify a model into constrained / standard / enhanced tier.
  *
- * - frontier: any API-hosted provider (anthropic/openai/google/claude-code)
- * - weak: local model with <3B parameters (truly tiny models)
- * - mid: everything else (safe default)
+ * Classification priority:
+ * 1. No tools capability (capabilities present but no "tools") → constrained
+ * 2. Context window < 8K → constrained
+ * 3. Parameter count < 3B → constrained
+ * 4. Cloud provider → enhanced
+ * 5. Large local model (≥ 30B) with tools → enhanced
+ * 6. Everything else → standard (safe default)
  */
 export function classifyModelTier(
-  modelInfo?: { parameterSize?: string; contextWindow?: number; costTier?: string } | null,
-  isFrontier?: boolean,
+  modelInfo?: {
+    parameterSize?: string;
+    contextWindow?: number;
+    capabilities?: string[];
+  } | null,
+  model?: string,
 ): ModelTier {
-  if (isFrontier) return "frontier";
-  if (modelInfo?.costTier === "premium") return "frontier";
-  if (modelInfo?.parameterSize) {
-    const match = modelInfo.parameterSize.match(/^(\d+(?:\.\d+)?)\s*[bB]/);
-    if (match && parseFloat(match[1]) < 3) return "weak";
-    if (match) return "mid";
+  // 1. Capabilities ground truth: has data but no tools → constrained
+  if (
+    modelInfo?.capabilities?.length &&
+    !modelInfo.capabilities.includes("tools")
+  ) {
+    return "constrained";
   }
-  if (modelInfo?.contextWindow && modelInfo.contextWindow >= 128_000) {
-    return "frontier";
+
+  // 2. Context window too small → constrained
+  if (modelInfo?.contextWindow && modelInfo.contextWindow < 8_000) {
+    return "constrained";
   }
-  return "mid"; // safe default
+
+  // 3. Tiny model → constrained
+  const billions = parseParamBillions(modelInfo?.parameterSize);
+  if (billions !== undefined && billions < 3) return "constrained";
+
+  // 4. Cloud provider → enhanced (fast enough for LLM-powered features)
+  if (isFrontierProvider(model)) return "enhanced";
+
+  // 5. Large local model with tools → enhanced
+  if (
+    billions !== undefined &&
+    billions >= 30 &&
+    modelInfo?.capabilities?.includes("tools")
+  ) {
+    return "enhanced";
+  }
+
+  // 6. Default → standard
+  return "standard";
 }
 
 export function supportsAgentExecution(
@@ -468,7 +519,7 @@ export function supportsAgentExecution(
     return modelInfo.capabilities.includes("tools");
   }
   // No capability data → fall back to tier heuristic
-  return classifyModelTier(modelInfo, false) !== "weak";
+  return classifyModelTier(modelInfo) !== "constrained";
 }
 
 // ============================================================
@@ -500,15 +551,15 @@ export const DEFAULT_TOOL_DENYLIST = [
 ] as const;
 
 // ============================================================
-// Weak-Tier Tool Cap
+// Constrained-Tier Tool Cap
 // ============================================================
 
 /**
- * Core tools for weak-tier models (< 3B params).
+ * Core tools for constrained-tier models (< 3B params, < 8K context, or no tools).
  * Keeps tool count low to avoid context overflow and tool selection confusion.
- * Mid/frontier models get ALL tools (no cap).
+ * Standard/enhanced models get ALL tools (no cap).
  */
-const WEAK_TIER_CORE_TOOLS: readonly string[] = [
+const CONSTRAINED_CORE_TOOLS: readonly string[] = [
   "read_file", "write_file", "edit_file", "list_files",
   "search_code", "ask_user", "complete_task",
   "git_status", "git_diff", "git_log",
@@ -518,16 +569,16 @@ const WEAK_TIER_CORE_TOOLS: readonly string[] = [
 
 /**
  * Compute tier-aware tool filter.
- * - weak: restricts to WEAK_TIER_CORE_TOOLS (unless user provides explicit allowlist)
- * - mid/frontier: passthrough (no filtering)
+ * - constrained: restricts to CONSTRAINED_CORE_TOOLS (unless user provides explicit allowlist)
+ * - standard/enhanced: passthrough (no filtering)
  */
 export function computeTierToolFilter(
   tier: ModelTier,
   userAllowlist?: string[],
   userDenylist?: string[],
 ): { allowlist?: string[]; denylist?: string[] } {
-  if (tier !== "weak") return { allowlist: userAllowlist, denylist: userDenylist };
-  const baseAllowlist = userAllowlist?.length ? userAllowlist : [...WEAK_TIER_CORE_TOOLS];
+  if (tier !== "constrained") return { allowlist: userAllowlist, denylist: userDenylist };
+  const baseAllowlist = userAllowlist?.length ? userAllowlist : [...CONSTRAINED_CORE_TOOLS];
   return { allowlist: baseAllowlist, denylist: userDenylist };
 }
 

@@ -77,7 +77,7 @@ Deno.test("LLM integration: prompt omits memory exceptions when memory tools are
 });
 
 Deno.test("LLM integration: prompt includes team coordination guidance when team tools are available", () => {
-  const prompt = generateSystemPrompt({ modelTier: "mid" });
+  const prompt = generateSystemPrompt({ modelTier: "standard" });
 
   assertStringIncludes(prompt, "# Agent Teams");
   assertStringIncludes(prompt, "Teammate");
@@ -125,17 +125,17 @@ Deno.test("LLM integration: generateSystemPrompt remains a text-only compatibili
 
 Deno.test("LLM integration: model tiers classify and compare correctly", () => {
   // Tier classification
-  assertEquals(classifyModelTier(null, true), "frontier");
-  assertEquals(classifyModelTier({ parameterSize: "2B" }), "weak");
-  assertEquals(classifyModelTier({ parameterSize: "7B" }), "mid");
-  assertEquals(classifyModelTier({ parameterSize: "13B" }), "mid");
-  assertEquals(classifyModelTier({ contextWindow: 128_000 }), "frontier");
-  assertEquals(classifyModelTier({ costTier: "premium" }), "frontier");
+  assertEquals(classifyModelTier(null, "anthropic/claude-sonnet"), "enhanced");
+  assertEquals(classifyModelTier({ parameterSize: "2B" }), "constrained");
+  assertEquals(classifyModelTier({ parameterSize: "7B" }), "standard");
+  assertEquals(classifyModelTier({ parameterSize: "13B" }), "standard");
+  assertEquals(classifyModelTier({ contextWindow: 128_000 }), "standard");
+  assertEquals(classifyModelTier(null, "openai/gpt-4o"), "enhanced");
 
   // Tier comparison
-  assertEquals(tierMeetsMinimum("weak", "mid"), false);
-  assertEquals(tierMeetsMinimum("mid", "weak"), true);
-  assertEquals(tierMeetsMinimum("frontier", "frontier"), true);
+  assertEquals(tierMeetsMinimum("constrained", "standard"), false);
+  assertEquals(tierMeetsMinimum("standard", "constrained"), true);
+  assertEquals(tierMeetsMinimum("enhanced", "enhanced"), true);
 });
 
 Deno.test("LLM integration: supportsAgentExecution uses capabilities ground truth", () => {
@@ -165,25 +165,25 @@ Deno.test("LLM integration: supportsAgentExecution uses capabilities ground trut
   // No capability data → fallback to tier heuristic
   assertEquals(
     supportsAgentExecution("ollama/unknown", { parameterSize: "1B" }),
-    false, // 1B < 3B = weak = no agent
+    false, // 1B < 3B = constrained = no agent
   );
   assertEquals(
     supportsAgentExecution("ollama/unknown", { parameterSize: "8B" }),
-    true, // 8B >= 3B = mid = agent supported
+    true, // 8B >= 3B = standard = agent supported
   );
 });
 
 Deno.test("LLM integration: prompt content scales by tier", () => {
-  const weak = generateSystemPrompt({ modelTier: "weak" });
-  const mid = generateSystemPrompt({ modelTier: "mid" });
-  const frontier = generateSystemPrompt({ modelTier: "frontier" });
+  const constrained = generateSystemPrompt({ modelTier: "constrained" });
+  const standard = generateSystemPrompt({ modelTier: "standard" });
+  const enhanced = generateSystemPrompt({ modelTier: "enhanced" });
 
-  assertStringIncludes(weak, "# Examples");
-  assertEquals(weak.includes("# Tips"), false);
-  assertStringIncludes(mid, "# Tips");
-  assertStringIncludes(frontier, "# Tips");
-  assertEquals(weak.length < mid.length, true);
-  assertEquals(frontier.length >= mid.length, true);
+  assertStringIncludes(constrained, "# Examples");
+  assertEquals(constrained.includes("# Tips"), false);
+  assertStringIncludes(standard, "# Tips");
+  assertStringIncludes(enhanced, "# Tips");
+  assertEquals(constrained.length < standard.length, true);
+  assertEquals(enhanced.length >= standard.length, true);
 });
 
 Deno.test("LLM integration: buildToolDefinitions caches until the registry changes", () => {

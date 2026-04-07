@@ -130,7 +130,7 @@ Deno.test({
           permissionMode: "bypassPermissions",
           toolFilterState,
           toolFilterBaseline: {},
-          modelTier: "weak",
+          modelTier: "constrained",
         },
         async () => {
           llmCalls += 1;

@@ -6,7 +6,7 @@
  * NOTE: HLVM upgrades require rebuilding from source.
  */
 
-import { VERSION } from "../../../version.ts";
+import { VERSION } from "../../../common/version.ts";
 import { log } from "../../api/log.ts";
 import { http } from "../../../common/http-client.ts";
 import { platformExit } from "../utils/platform-helpers.ts";

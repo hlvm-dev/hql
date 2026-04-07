@@ -100,7 +100,7 @@ function createAgentSession(context: ContextManager): AgentSession {
     dispose: () => Promise.resolve(),
     profile: ENGINE_PROFILES.normal,
     isFrontierModel: false,
-    modelTier: "mid",
+    modelTier: "standard",
     todoState: createTodoState(),
     resolvedContextBudget: {
       budget: 32000,
