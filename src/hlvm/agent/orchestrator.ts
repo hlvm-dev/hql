@@ -113,7 +113,7 @@ export {
   processAgentResponse,
 } from "./orchestrator-response.ts";
 
-import { callLLMWithRetry, type LLMFunction } from "./orchestrator-llm.ts";
+import { callLLM, type LLMFunction } from "./orchestrator-llm.ts";
 import {
   cloneToolList,
   effectiveAllowlist,
@@ -1205,7 +1205,7 @@ async function runLlmResponsePass(
   });
   onTrace?.({ type: "llm_call", messageCount: messages.length });
 
-  const retryConfig = {
+  const llmCallConfig = {
     timeout: lc.llmTimeout,
     signal: config.signal,
     callOptions,
@@ -1218,15 +1218,15 @@ async function runLlmResponsePass(
     ? await (async () => {
         const { callLLMWithModelFallback } = await import("./auto-select.ts");
         return callLLMWithModelFallback(
-          () => callLLMWithRetry(llmFunction, messages, retryConfig, onTrace, config.context),
+          () => callLLM(llmFunction, messages, llmCallConfig, onTrace, config.context),
           config.autoFallbacks ?? [],
           config.createFallbackLLM!,
-          (fbLLM) => callLLMWithRetry(fbLLM, messages, retryConfig, onTrace, config.context),
+          (fbLLM) => callLLM(fbLLM, messages, llmCallConfig, onTrace, config.context),
           onTrace,
           config.localLastResort,
         );
       })()
-    : await callLLMWithRetry(llmFunction, messages, retryConfig, onTrace, config.context);
+    : await callLLM(llmFunction, messages, llmCallConfig, onTrace, config.context);
 
   const responseText = agentResponse.content ?? "";
   const usage = agentResponse.usage
@@ -1854,7 +1854,7 @@ export async function runReActLoop(
       // covers the chat call itself; errors thrown during response parsing or
       // tool execution are unretried without this guard.
       const classified = await classifyError(error);
-      // Provider-side context overflow (after callLLMWithRetry already tried
+      // Provider-side context overflow (after callLLM already tried
       // trimming once) — treat like ContextOverflowError: return gracefully.
       if (classified.class === "context_overflow") {
         return state.lastResponse ||

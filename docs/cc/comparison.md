@@ -233,9 +233,10 @@ while (state.iterations < maxIterations) {
                                      (researching | editing | verifying | delegating | completing)
 
   // LLM CALL:
-  callLLMWithRetry(llm, messages, ...)
-    — exponential backoff, up to 2 retries
-    — ContextOverflowError → graceful return (no retry)
+  callLLM(llm, messages, ...)
+    — single attempt, no retries
+    — ContextOverflowError → compact context + one recovery attempt
+    — Other errors → propagate to withFallbackChain
     — llm() closure from SdkAgentEngine:
       - 5 provider routing (Ollama/OpenAI/Anthropic/Google/Claude Code)
       - cached model + tools (rebuild on registry generation change)
@@ -822,10 +823,10 @@ async function* withRetry<T>(getClient, operation, options): AsyncGenerator<Erro
 
 ### HLVM: Basic
 
-`callLLMWithRetry()`:
-- Exponential backoff, up to 2 retries
-- `ContextOverflowError` → graceful return (no retry)
-- Transient errors → backoff + retry
+`callLLM()`:
+- Single attempt, no retries
+- `ContextOverflowError` → compact context + one recovery attempt
+- All other errors → propagate to `withFallbackChain` for model switching
 - No subscriber-aware handling
 - No 529 handling
 - No persistent retry
@@ -1293,7 +1294,7 @@ Both projects are at parity here.
 ║  │    └────────────────────────────────────────────────────────┘ │        ║
 ║  │                         │                                     │        ║
 ║  │    ┌─── LLM CALL ──────▼──────────────────────────────────┐ │        ║
-║  │    │ callLLMWithRetry(llm, messages)                       │ │        ║
+║  │    │ callLLM(llm, messages)                       │ │        ║
 ║  │    │ ├─ exp backoff, up to 2 retries                       │ │        ║
 ║  │    │ ├─ ContextOverflowError → graceful return             │ │        ║
 ║  │    │ │                                                     │ │        ║
@@ -1908,7 +1909,7 @@ runAgentQuery() → runReActLoop()
 │
 ├─── LLM CALL ──────────────────────────────────────────────────
 │
-│  callLLMWithRetry(llm, messages, ...)
+│  callLLM(llm, messages, ...)
 │  - Exponential backoff, up to 2 retries
 │  - ContextOverflowError → graceful return (no retry)
 │

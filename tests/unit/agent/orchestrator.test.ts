@@ -18,7 +18,7 @@ import {
   runReActLoop,
   type ToolCall,
 } from "../../../src/hlvm/agent/orchestrator.ts";
-import { callLLMWithRetry } from "../../../src/hlvm/agent/orchestrator-llm.ts";
+import { callLLM } from "../../../src/hlvm/agent/orchestrator-llm.ts";
 import {
   buildToolResultOutputs,
   buildToolSignature,
@@ -1932,13 +1932,13 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: callLLMWithRetry propagates rate limit immediately",
+  name: "Orchestrator: callLLM propagates rate limit immediately",
   async fn() {
     let calls = 0;
 
     await assertRejects(
       () =>
-        callLLMWithRetry(
+        callLLM(
           async () => {
             calls += 1;
             throw new Error("Rate limit exceeded (429)");

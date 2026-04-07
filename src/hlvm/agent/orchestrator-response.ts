@@ -70,7 +70,7 @@ import {
   stringifyToolResult,
 } from "./orchestrator-tool-formatting.ts";
 import { executeToolCalls } from "./orchestrator-tool-execution.ts";
-import { callLLMWithRetry, type LLMFunction } from "./orchestrator-llm.ts";
+import { callLLM, type LLMFunction } from "./orchestrator-llm.ts";
 import type { ToolUse } from "./grounding.ts";
 import { isMutatingTool } from "./security/safety.ts";
 
@@ -1200,7 +1200,7 @@ export async function handlePostToolExecution(
   state.lastToolNames = executedNames;
 
   if (anyDeniedThisTurn && allToolsBlocked && result.toolCalls.length > 0) {
-    const finalResponse = await callLLMWithRetry(
+    const finalResponse = await callLLM(
       llmFunction,
       config.context.getMessages(),
       {

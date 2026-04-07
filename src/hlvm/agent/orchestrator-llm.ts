@@ -2,9 +2,9 @@
  * LLM call wrappers: single-attempt with timeout.
  *
  * No retry loop. On failure, the error propagates to `withFallbackChain`
- * (local-fallback.ts) which handles model switching. The only exception is
- * context_overflow — that gets one compaction recovery (modifies the input,
- * not a blind retry).
+ * (local-fallback.ts) which handles model switching. The only special case
+ * is context_overflow — that gets one compaction recovery (modifies the
+ * input, not a blind retry).
  */
 
 import { type ContextManager } from "./context.ts";
@@ -53,10 +53,10 @@ async function callLLMWithTimeout(
 /**
  * Call LLM once. On failure, throw immediately for `withFallbackChain` to handle.
  *
- * The only special case is context_overflow: compact the context and retry once.
- * This is recovery (modifies input), not a blind retry of the same request.
+ * The only special case is context_overflow: compact the context and try once
+ * more. This is recovery (modifies input), not a blind retry of the same request.
  */
-export async function callLLMWithRetry(
+export async function callLLM(
   llmFn: LLMFunction,
   initialMessages: Message[],
   config: {
