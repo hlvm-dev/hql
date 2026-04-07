@@ -45,6 +45,10 @@ Thumbs.db
 # Claude Code
 .claude/
 
+# AI agent config (local only, not for public repo)
+CLAUDE.md
+AGENTS.md
+
 # Serena MCP (AI assistant tool-specific)
 .serena/
 
@@ -68,6 +72,7 @@ verify-output.log
 tmp/
 temp/
 *.tmp
+hlvm.tmp-*
 
 # Playwright / MCP local artifacts
 .playwright-mcp/
