@@ -362,10 +362,10 @@ Deno.test({
 
 Deno.test({
   name: "Planning: shouldPlanRequest auto heuristic",
-  fn() {
-    assertEquals(shouldPlanRequest("First do A, then B", "auto"), true);
-    assertEquals(shouldPlanRequest("short task", "auto"), false);
-    assertEquals(shouldPlanRequest("short task", "always"), true);
+  async fn() {
+    assertEquals(await shouldPlanRequest("First do A, then B", "auto"), true);
+    assertEquals(await shouldPlanRequest("short task", "auto"), false);
+    assertEquals(await shouldPlanRequest("short task", "always"), true);
   },
 });
 

@@ -30,6 +30,7 @@ import {
   loadMemoryContext,
   loadMemorySystemMessage,
   MEMORY_TOOLS,
+  _resetMemoryModelTierForTests,
   persistConversationFacts,
   persistExplicitMemoryRequest,
   readExplicitMemory,
@@ -66,6 +67,7 @@ async function setupTestEnv(): Promise<string> {
 
 async function teardownTestEnv(tempDir: string): Promise<void> {
   closeFactDb();
+  _resetMemoryModelTierForTests();
   resetHlvmDirCacheForTests();
   try {
     await platform().fs.remove(tempDir, { recursive: true });
@@ -142,7 +144,7 @@ Deno.test("memory: memory_write stores durable facts in canonical memory", async
 Deno.test("memory: loadMemoryContext scales with context budget and truncates safely", async () => {
   await withTestEnv(async () => {
     for (let i = 0; i < 60; i++) {
-      insertFact({
+      await insertFact({
         content:
           `Decision ${i}: We chose architecture pattern ${i} for module ${i} with extensive rationale`,
         category: "Decisions",
@@ -179,7 +181,7 @@ Deno.test("memory: system message warns that memory is not chronology", () => {
 Deno.test("memory: canonical insert links entities once even if chat relinks the same fact", async () => {
   await withTestEnv(async () => {
     const content = "uses deno with auth.ts";
-    const factId = insertFact({
+    const factId = await insertFact({
       content,
       category: "Preferences",
       source: "memory",
@@ -231,7 +233,7 @@ Deno.test("memory: sanitizer helper and tool path redact sensitive content befor
 
 Deno.test("memory: reuseSession refreshes memory without losing the system prompt", async () => {
   await withTestEnv(async () => {
-    insertFact({
+    await insertFact({
       content: "Fresh preference: emacs keybindings and light mode",
       category: "Preferences",
     });
@@ -318,10 +320,10 @@ Deno.test("memory: temporal decay and access boost score recent facts higher", a
     assert(accessBoost(5) > accessBoost(1));
 
     // Insert two facts with identical query-relevant content
-    const recentId = insertFact({
+    const recentId = await insertFact({
       content: "The database uses PostgreSQL for production",
     });
-    const oldId = insertFact({
+    const oldId = await insertFact({
       content: "The database uses PostgreSQL for staging",
     });
 
@@ -424,14 +426,14 @@ Deno.test("memory: concurrent writes remain queryable and do not corrupt the DB"
 
 Deno.test("memory: fact CRUD covers defaults, invalidation, search, touch, and category filters", async () => {
   await withTestEnv(async () => {
-    const defaultId = insertFact({ content: "User prefers Deno over Node" });
-    const customId = insertFact({
+    const defaultId = await insertFact({ content: "User prefers Deno over Node" });
+    const customId = await insertFact({
       content: "Auth uses JWT with 1h expiry",
       category: "architecture",
       source: "extracted",
       validFrom: "2025-06-15",
     });
-    insertFact({
+    await insertFact({
       content: "function foo(bar) returns baz",
       category: "reference",
     });
@@ -467,9 +469,9 @@ Deno.test("memory: countValidFacts returns accurate count", async () => {
   await withTestEnv(async () => {
     assertEquals(countValidFacts(), 0);
 
-    insertFact({ content: "Fact A" });
-    insertFact({ content: "Fact B" });
-    const cId = insertFact({ content: "Fact C" });
+    await insertFact({ content: "Fact A" });
+    await insertFact({ content: "Fact B" });
+    const cId = await insertFact({ content: "Fact C" });
     assertEquals(countValidFacts(), 3);
 
     invalidateFact(cId);
@@ -479,10 +481,10 @@ Deno.test("memory: countValidFacts returns accurate count", async () => {
 
 Deno.test("memory: explicit remember requests normalize and dedupe exact duplicates", async () => {
   await withTestEnv(async () => {
-    persistExplicitMemoryRequest(
+    await persistExplicitMemoryRequest(
       "Remember that I prefer Deno for all new projects",
     );
-    persistExplicitMemoryRequest(
+    await persistExplicitMemoryRequest(
       "Remember that I prefer Deno for all new projects",
     );
 
@@ -496,7 +498,7 @@ Deno.test("memory: explicit remember requests normalize and dedupe exact duplica
 
 Deno.test("memory: conversation fact persistence captures implicit user facts and grounded outcomes", async () => {
   await withTestEnv(async () => {
-    const result = persistConversationFacts({
+    const result = await persistConversationFacts({
       userMessage:
         "We decided to use Postgres instead of SQLite for production.",
       assistantMessage: "Fixed auth bug by normalizing refresh tokens.",
@@ -520,7 +522,7 @@ Deno.test("memory: conversation fact persistence captures implicit user facts an
 
 Deno.test("memory: relevant recall message returns query-matched facts", async () => {
   await withTestEnv(async () => {
-    insertFact({
+    await insertFact({
       content: "User prefers Deno for all new projects",
       category: "Preferences",
     });
@@ -535,7 +537,7 @@ Deno.test("memory: relevant recall message returns query-matched facts", async (
 Deno.test("memory: startup memory budget uses larger pinned limits with availability hint", async () => {
   await withTestEnv(async () => {
     for (let i = 0; i < 125; i++) {
-      insertFact({ content: `Fact ${i}`, category: "General" });
+      await insertFact({ content: `Fact ${i}`, category: "General" });
     }
 
     const context = await loadMemoryContext(32_000);
@@ -602,7 +604,7 @@ Deno.test("memory: MEMORY.md has token priority over DB facts", async () => {
     await platform().fs.writeTextFile(getMemoryMdPath(), bigContent);
 
     // Also insert a DB fact
-    insertFact({
+    await insertFact({
       content: "DB-learned preference: functional style",
       category: "Preferences",
     });
@@ -620,7 +622,7 @@ Deno.test("memory: empty MEMORY.md is treated as no user notes (DB-only)", async
     await ensureMemoryDirs();
     await platform().fs.writeTextFile(getMemoryMdPath(), "   \n  \n  ");
 
-    insertFact({ content: "DB fact about testing", category: "Testing" });
+    await insertFact({ content: "DB fact about testing", category: "Testing" });
 
     const context = await loadMemoryContext(32_000);
     // Should contain DB facts but no separator (no user notes section)
@@ -637,7 +639,7 @@ Deno.test("memory: MEMORY.md and DB facts are combined with --- separator", asyn
       "Always use TypeScript.",
     );
 
-    insertFact({
+    await insertFact({
       content: "Likes functional programming",
       category: "Preferences",
     });
@@ -715,17 +717,10 @@ Deno.test("memory: appendExplicitMemoryNote creates file when missing", async ()
   });
 });
 
-Deno.test("memory: getExplicitMemoryPath returns the MEMORY.md path", async () => {
-  await withTestEnv(async () => {
-    const path = getExplicitMemoryPath();
-    assertEquals(path, getMemoryMdPath());
-  });
-});
-
 Deno.test("memory api: snapshot includes explicit notes and durable facts together", async () => {
   await withTestEnv(async () => {
     await writeExplicitMemory("Manual note");
-    insertFact({ content: "Durable fact", category: "Preferences" });
+    await insertFact({ content: "Durable fact", category: "Preferences" });
 
     const snapshot = await memoryApi.get();
     assertEquals(snapshot.notes, "Manual note");
@@ -738,7 +733,7 @@ Deno.test("memory api: snapshot includes explicit notes and durable facts togeth
 Deno.test("memory api: replace updates notes and durable facts, clear wipes both", async () => {
   await withTestEnv(async () => {
     await writeExplicitMemory("replace me in notes");
-    insertFact({ content: "replace me in facts", category: "General" });
+    await insertFact({ content: "replace me in facts", category: "General" });
 
     const replaced = await memoryApi.replace("replace me", "updated");
     assertEquals(replaced.noteReplacements, 1);

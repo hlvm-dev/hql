@@ -584,7 +584,7 @@ export async function handleChat(req: Request): Promise<Response> {
       };
 
       const emitErrorState = async (error: unknown): Promise<void> => {
-        const described = describeErrorForDisplay(error);
+        const described = await describeErrorForDisplay(error);
         const errorMsg = described.message;
         traceReplMainThreadForSource(body.query_source, "server.chat.error", {
           requestId,
@@ -690,7 +690,7 @@ export async function handleChat(req: Request): Promise<Response> {
           !runnerHandlesMemoryCapture
         ) {
           try {
-            persistExplicitMemoryRequest(currentUserMessage.content);
+            await persistExplicitMemoryRequest(currentUserMessage.content);
           } catch (error) {
             log.warn("Failed to persist explicit user memory request", error);
           }
@@ -757,18 +757,48 @@ export async function handleChat(req: Request): Promise<Response> {
           );
         } else if (effectiveMode === "agent") {
           if (supportsAgentExecution(resolvedModel, resolvedModelInfo)) {
-            resultStats = await handleAgentMode(
-              body,
-              sessionId,
-              resolvedModel!,
-              assistantMessageId,
-              controller.signal,
-              emit,
-              onPartial,
-              requestId,
-              preTurnSessionVersion,
-              resolvedModelInfo,
-            );
+            try {
+              resultStats = await handleAgentMode(
+                body,
+                sessionId,
+                resolvedModel!,
+                assistantMessageId,
+                controller.signal,
+                emit,
+                onPartial,
+                requestId,
+                preTurnSessionVersion,
+                resolvedModelInfo,
+              );
+            } catch (agentError) {
+              // Auto-downgrade: if agent mode fails on first call (model
+              // can't actually use tools), fall back to chat mode gracefully
+              // instead of crashing. Covers unknown models with no capability data.
+              const { classifyError } = await import(
+                "../../../agent/error-taxonomy.ts"
+              );
+              const classified = await classifyError(agentError);
+              if (classified.class === "permanent") {
+                emit({
+                  event: "trace",
+                  kind: "agent_downgrade",
+                  detail: `Agent mode failed (${classified.message.slice(0, 80)}), falling back to chat mode`,
+                });
+                await handleChatMode(
+                  body,
+                  resolvedModel,
+                  sessionId,
+                  assistantMessageId,
+                  controller.signal,
+                  emit,
+                  onPartial,
+                  requestId,
+                  resolvedModelInfo,
+                );
+              } else {
+                throw agentError;
+              }
+            }
           } else {
             await handleChatMode(
               body,
@@ -805,7 +835,7 @@ export async function handleChat(req: Request): Promise<Response> {
             !runnerHandlesMemoryCapture
           ) {
             try {
-              persistConversationFacts({
+              await persistConversationFacts({
                 userMessage: currentUserMessage.content,
                 assistantMessage: partialText,
               });

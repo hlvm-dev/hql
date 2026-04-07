@@ -42,10 +42,10 @@ import {
   selectSearchResultsWithLlm,
 } from "./search-result-selector.ts";
 import {
-  annotateSearchResultSources,
+  annotateSearchResultSourcesAsync,
 } from "./source-authority.ts";
 import {
-  detectSearchQueryIntent,
+  detectSearchQueryIntentAsync,
   prefersSingleHostSources,
 } from "./query-strategy.ts";
 import { hasStructuredEvidence, isAuthoritativeSourceClass, resultHost } from "./web-utils.ts";
@@ -337,7 +337,7 @@ export class DdgSearchBackend implements WebSearchBackend {
     } = request;
 
     const candidatePoolLimit = resolveCandidatePoolLimit(limit, shouldPrefetch);
-    const intent = detectSearchQueryIntent(query);
+    const intent = await detectSearchQueryIntentAsync(query);
     const result = await provider.search(query, {
       limit: candidatePoolLimit,
       timeoutMs: timeout,
@@ -627,7 +627,7 @@ export class DdgSearchBackend implements WebSearchBackend {
       }
     }
 
-    const annotatedResults = annotateSearchResultSources(
+    const annotatedResults = await annotateSearchResultSourcesAsync(
       result.results,
       allowedDomains,
     );

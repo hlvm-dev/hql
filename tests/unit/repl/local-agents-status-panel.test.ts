@@ -94,6 +94,7 @@ Deno.test("buildLocalAgentsManagerModel keeps preview rows for manager-only mode
   assertEquals(model?.leader.treePrefix, "╒═");
   assertEquals(model?.leader.hintText, " · enter to view · esc back");
   assertEquals(model?.agents[0]?.previewLines, [
+    "Inspecting agent graph",
     "Read src/hlvm/agent/session.ts",
   ]);
 });

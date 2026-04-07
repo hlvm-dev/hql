@@ -17,7 +17,12 @@ export function setMemoryModelTier(tier: ModelTier): void {
   _memoryModelTier = tier;
 }
 
-function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
+/** @internal Reset to default tier between tests. */
+export function _resetMemoryModelTierForTests(): void {
+  _memoryModelTier = "standard";
+}
+
+async function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
   if (!isToolArgsObject(args)) {
     throw new ValidationError("args must be an object", "memory_write");
   }
@@ -42,7 +47,7 @@ function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
     ? record.section.trim()
     : "";
   const category = section || "General";
-  const { factId, linkedEntities, invalidated } = writeMemoryFact({
+  const { factId, linkedEntities, invalidated } = await writeMemoryFact({
     content: content.trim(),
     category,
     source: target,
@@ -50,14 +55,14 @@ function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
     modelTier: _memoryModelTier,
   });
 
-  return Promise.resolve({
+  return {
     written: true,
     target,
     section: section || undefined,
     factId,
     linkedEntities,
     invalidated,
-  });
+  };
 }
 
 function memorySearch(args: unknown): Promise<Record<string, unknown>> {
@@ -88,7 +93,7 @@ function memorySearch(args: unknown): Promise<Record<string, unknown>> {
   });
 }
 
-function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
+async function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
   if (!isToolArgsObject(args)) {
     throw new ValidationError("args must be an object", "memory_edit");
   }
@@ -106,12 +111,12 @@ function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
     }
 
     const invalidated = invalidateFactsByCategory(section.trim());
-    return Promise.resolve({
+    return {
       edited: invalidated > 0,
       action: "delete_section",
       section,
       invalidated,
-    });
+    };
   }
 
   if (action === "clear_all") {
@@ -122,11 +127,11 @@ function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
       );
     }
     const invalidated = invalidateAllFacts();
-    return Promise.resolve({
+    return {
       edited: invalidated > 0,
       action: "clear_all",
       invalidated,
-    });
+    };
   }
 
   if (action === "replace") {
@@ -145,12 +150,12 @@ function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
       );
     }
 
-    const count = replaceInFacts(find, replaceWith);
-    return Promise.resolve({
+    const count = await replaceInFacts(find, replaceWith);
+    return {
       edited: count > 0,
       action: "replace",
       replacements: count,
-    });
+    };
   }
 
   throw new ValidationError(

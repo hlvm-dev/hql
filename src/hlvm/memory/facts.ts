@@ -3,7 +3,7 @@
  */
 
 import { getFactDb } from "./db.ts";
-import { normalizeWhitespace, sanitizeSensitiveContent, todayDate, warnMemory } from "./store.ts";
+import { normalizeWhitespace, sanitizeSensitiveContentAsync, todayDate, warnMemory } from "./store.ts";
 import { ValidationError } from "../../common/error.ts";
 
 export interface FactRecord {
@@ -100,11 +100,11 @@ function parseFactRow(row: RawFactRow): FactRecord {
   };
 }
 
-export function insertFact(opts: InsertFactOptions): number {
+export async function insertFact(opts: InsertFactOptions): Promise<number> {
   const category = opts.category?.trim() || "General";
   const source = opts.source?.trim() || "memory";
   const validFrom = opts.validFrom?.trim() || todayDate();
-  const { sanitized, stripped } = sanitizeSensitiveContent(opts.content ?? "");
+  const { sanitized, stripped } = await sanitizeSensitiveContentAsync(opts.content ?? "");
   const content = normalizeFactContent(sanitized);
 
   if (!content) {
@@ -270,9 +270,9 @@ export function touchFact(factId: number): void {
   ).run(factId);
 }
 
-export function replaceInFacts(findText: string, replaceWith: string): number {
+export async function replaceInFacts(findText: string, replaceWith: string): Promise<number> {
   const db = getFactDb();
-  const { sanitized } = sanitizeSensitiveContent(replaceWith);
+  const { sanitized } = await sanitizeSensitiveContentAsync(replaceWith);
 
   return withTransaction(() => {
     const rows = db.prepare(

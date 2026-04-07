@@ -138,7 +138,6 @@ function makeLoopConfig(overrides: Partial<LoopConfig> = {}): LoopConfig {
     maxIterations: 50,
     maxDenials: 3,
     llmTimeout: 60_000,
-    maxRetries: 3,
     groundingMode: "off",
     llmLimiter: null,
     toolRateLimiter: null,
@@ -1846,31 +1845,32 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: runReActLoop retries transient provider rate limits",
+  name:
+    "Orchestrator: runReActLoop propagates transient rate limit without retry",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
     let calls = 0;
 
-    const result = await runReActLoop(
-      "Rate limit task",
-      {
-        workspace: TEST_WORKSPACE,
-        context,
-        permissionMode: "bypassPermissions",
-        maxRetries: 2,
-      },
-      async () => {
-        calls += 1;
-        if (calls < 2) {
-          throw new Error("Rate limit exceeded (429)");
-        }
-        return makeResponse("done");
-      },
+    await assertRejects(
+      () =>
+        runReActLoop(
+          "Rate limit task",
+          {
+            workspace: TEST_WORKSPACE,
+            context,
+            permissionMode: "bypassPermissions",
+          },
+          async () => {
+            calls += 1;
+            throw new Error("Rate limit exceeded (429)");
+          },
+        ),
+      Error,
     );
 
-    assertEquals(result, "done");
-    assertEquals(calls, 2);
+    // Single attempt — no retries.
+    assertEquals(calls, 1);
   },
 });
 
@@ -1889,7 +1889,6 @@ Deno.test({
             workspace: TEST_WORKSPACE,
             context: new ContextManager(),
             permissionMode: "bypassPermissions",
-            maxRetries: 3,
           },
           async () => {
             abortCalls += 1;
@@ -1933,33 +1932,26 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Orchestrator: callLLMWithRetry aborts during retry backoff",
+  name: "Orchestrator: callLLMWithRetry propagates rate limit immediately",
   async fn() {
-    const controller = new AbortController();
     let calls = 0;
-    const startedAt = Date.now();
 
-    const abortTimer = setTimeout(() => controller.abort(), 50);
-    try {
-      await assertRejects(
-        () =>
-          callLLMWithRetry(
-            async () => {
-              calls += 1;
-              throw new Error("Rate limit exceeded (429)");
-            },
-            [],
-            { timeout: 2000, maxRetries: 4, signal: controller.signal },
-          ),
-        Error,
-        "aborted",
-      );
-    } finally {
-      clearTimeout(abortTimer);
-    }
+    await assertRejects(
+      () =>
+        callLLMWithRetry(
+          async () => {
+            calls += 1;
+            throw new Error("Rate limit exceeded (429)");
+          },
+          [],
+          { timeout: 2000 },
+        ),
+      Error,
+      "Rate limit",
+    );
 
+    // Single attempt — no retries, no backoff.
     assertEquals(calls, 1);
-    assertEquals(Date.now() - startedAt < 900, true);
   },
 });
 
@@ -2138,7 +2130,6 @@ Deno.test({
         workspace: TEST_WORKSPACE,
         context,
         permissionMode: "bypassPermissions",
-        maxRetries: 3,
       },
       async (
         messages: import("../../../src/hlvm/agent/context.ts").Message[],

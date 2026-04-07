@@ -65,7 +65,7 @@ const ERROR_PATTERNS: ReadonlyArray<
   { re: RegExp; class: ErrorClass; retryable: boolean }
 > = [
   {
-    re: /api key not configured|api key not valid|incorrect api key|invalid api key|invalid x-api-key|authentication_error|exceeded your current quota|insufficient_quota|http 40[13]/,
+    re: /api key not configured|api key not valid|api key is missing|incorrect api key|invalid api key|invalid x-api-key|authentication_error|exceeded your current quota|insufficient_quota|http 40[13]/,
     class: "permanent",
     retryable: false,
   },
@@ -232,7 +232,22 @@ export function renderEditFileRecoveryPrompt(
   ].join("\n");
 }
 
-export function classifyError(err: unknown): ClassifiedError {
+/** Map LLM error class names to retryable status */
+function isRetryable(errorClass: ErrorClass): boolean {
+  switch (errorClass) {
+    case "rate_limit":
+    case "timeout":
+    case "context_overflow":
+    case "transient":
+    case "unknown":
+      return true;
+    case "abort":
+    case "permanent":
+      return false;
+  }
+}
+
+export async function classifyError(err: unknown): Promise<ClassifiedError> {
   const message = getErrorMessage(err).toLowerCase();
 
   if (isTimeoutError(err, message)) {
@@ -318,6 +333,19 @@ export function classifyError(err: unknown): ClassifiedError {
     return { class: "permanent", retryable: false, message };
   }
 
+  // ── LLM fallback for unrecognized error messages ──
+  try {
+    const { classifyErrorMessage } = await import("../runtime/local-llm.ts");
+    const llmResult = await classifyErrorMessage(message);
+    if (llmResult.errorClass !== "unknown") {
+      // Map LLM "auth" class to our "permanent" ErrorClass
+      const mappedClass: ErrorClass = llmResult.errorClass === "auth"
+        ? "permanent"
+        : llmResult.errorClass as ErrorClass;
+      return { class: mappedClass, retryable: isRetryable(mappedClass), message };
+    }
+  } catch { /* fall through to unknown */ }
+
   return { class: "unknown", retryable: true, message };
 }
 
@@ -356,16 +384,29 @@ const RECOVERY_HINT_RULES: readonly [string[], string][] = [
   [["exit code"], "Command failed. Check the error output for details and fix the command."],
 ];
 
-/**
- * Get an actionable recovery hint for a tool error message.
- * Helps the model self-correct instead of blindly retrying.
- */
-export function getRecoveryHint(errorMessage: string): string | null {
+/** Static rule matching for recovery hints (fast path). */
+function matchStaticRecoveryRule(errorMessage: string): string | null {
   const msg = errorMessage.toLowerCase();
   for (const [keywords, hint] of RECOVERY_HINT_RULES) {
     if (keywords.every((kw) => msg.includes(kw))) return hint;
   }
   return null;
+}
+
+/**
+ * Get an actionable recovery hint for a tool error message.
+ * Helps the model self-correct instead of blindly retrying.
+ */
+export async function getRecoveryHint(errorMessage: string): Promise<string | null> {
+  // Fast path: static rules
+  const staticHint = matchStaticRecoveryRule(errorMessage);
+  if (staticHint) return staticHint;
+
+  // LLM fallback: generate contextual hint
+  try {
+    const { suggestRecoveryHint } = await import("../runtime/local-llm.ts");
+    return await suggestRecoveryHint(errorMessage);
+  } catch { return null; }
 }
 
 function extractStructuredErrorCode(
@@ -385,14 +426,14 @@ export interface DisplayableError {
   retryable: boolean;
 }
 
-export function describeErrorForDisplay(err: unknown): DisplayableError {
+export async function describeErrorForDisplay(err: unknown): Promise<DisplayableError> {
   const rawMessage = getErrorMessage(err);
-  const classified = classifyError(err);
+  const classified = await classifyError(err);
   const code = extractStructuredErrorCode(err, rawMessage);
   const message = stripErrorCodeFromMessage(rawMessage).trim() ||
     rawMessage.trim() ||
     "Unknown error";
-  const hint = getRecoveryHint(message) ??
+  const hint = await getRecoveryHint(message) ??
     (code != null ? getErrorFixes(code)[0] ?? null : null);
 
   return {

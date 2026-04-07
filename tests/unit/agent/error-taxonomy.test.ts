@@ -13,27 +13,27 @@ import {
 } from "../../../src/hlvm/agent/error-taxonomy.ts";
 import { TimeoutError } from "../../../src/common/timeout-utils.ts";
 
-Deno.test("error taxonomy: aborts and timeouts map to their dedicated classes", () => {
+Deno.test("error taxonomy: aborts and timeouts map to their dedicated classes", async () => {
   const aborted = new Error("aborted");
   aborted.name = "AbortError";
 
-  assertEquals(classifyError(aborted).class, "abort");
-  assertEquals(classifyError(aborted).retryable, false);
+  assertEquals((await classifyError(aborted)).class, "abort");
+  assertEquals((await classifyError(aborted)).retryable, false);
 
-  const timeout = classifyError(new TimeoutError("LLM call", 1000));
+  const timeout = await classifyError(new TimeoutError("LLM call", 1000));
   assertEquals(timeout.class, "timeout");
   assertEquals(timeout.retryable, true);
 });
 
-Deno.test("error taxonomy: string-based fallback classification covers rate limits, context, transient, and permanent failures", () => {
-  assertEquals(classifyError(new Error("Rate limit exceeded (429)")).class, "rate_limit");
-  assertEquals(classifyError(new Error("This model exceeds the maximum context length")).class, "context_overflow");
-  assertEquals(classifyError(new Error("Provider HTTP 503: unavailable")).class, "transient");
-  assertEquals(classifyError(new Error("Invalid request payload")).class, "permanent");
-  assertEquals(classifyError(new TypeError("bad type")).class, "permanent");
+Deno.test("error taxonomy: string-based fallback classification covers rate limits, context, transient, and permanent failures", async () => {
+  assertEquals((await classifyError(new Error("Rate limit exceeded (429)"))).class, "rate_limit");
+  assertEquals((await classifyError(new Error("This model exceeds the maximum context length"))).class, "context_overflow");
+  assertEquals((await classifyError(new Error("Provider HTTP 503: unavailable"))).class, "transient");
+  assertEquals((await classifyError(new Error("Invalid request payload"))).class, "permanent");
+  assertEquals((await classifyError(new TypeError("bad type"))).class, "permanent");
 });
 
-Deno.test("error taxonomy: connection-death errors classify as retryable transient", () => {
+Deno.test("error taxonomy: connection-death errors classify as retryable transient", async () => {
   const connectionErrors = [
     "error reading a body from connection",
     "connection was closed before message completed",
@@ -43,28 +43,28 @@ Deno.test("error taxonomy: connection-death errors classify as retryable transie
     "network error",
   ];
   for (const msg of connectionErrors) {
-    const result = classifyError(new Error(msg));
+    const result = await classifyError(new Error(msg));
     assertEquals(result.class, "transient", `"${msg}" should be transient`);
     assertEquals(result.retryable, true, `"${msg}" should be retryable`);
   }
 });
 
-Deno.test("error taxonomy: APICallError uses structured status codes before string matching", () => {
-  const rateLimited = classifyError(new APICallError({
+Deno.test("error taxonomy: APICallError uses structured status codes before string matching", async () => {
+  const rateLimited = await classifyError(new APICallError({
     statusCode: 429,
     message: "Too many requests",
     url: "http://api.test",
     requestBodyValues: {},
     isRetryable: true,
   }));
-  const unauthorized = classifyError(new APICallError({
+  const unauthorized = await classifyError(new APICallError({
     statusCode: 401,
     message: "Unauthorized",
     url: "http://api.test",
     requestBodyValues: {},
     isRetryable: false,
   }));
-  const contextOverflow = classifyError(new APICallError({
+  const contextOverflow = await classifyError(new APICallError({
     statusCode: 400,
     message: "This model's maximum context length is exceeded",
     url: "http://api.test",
@@ -80,60 +80,60 @@ Deno.test("error taxonomy: APICallError uses structured status codes before stri
   assertEquals(contextOverflow.retryable, true);
 });
 
-Deno.test("error taxonomy: SDK-specific auth, no-content, and missing-model errors stay stable", () => {
+Deno.test("error taxonomy: SDK-specific auth, no-content, and missing-model errors stay stable", async () => {
   assertEquals(
-    classifyError(new LoadAPIKeyError({ message: "Missing OPENAI_API_KEY" })).class,
+    (await classifyError(new LoadAPIKeyError({ message: "Missing OPENAI_API_KEY" }))).class,
     "permanent",
   );
   assertEquals(
-    classifyError(new NoContentGeneratedError({ message: "No output generated" })).class,
+    (await classifyError(new NoContentGeneratedError({ message: "No output generated" }))).class,
     "transient",
   );
   assertEquals(
-    classifyError(
+    (await classifyError(
       new NoSuchModelError({
         message: "Model not found",
         modelId: "missing",
         modelType: "languageModel",
       }),
-    ).class,
+    )).class,
     "permanent",
   );
 });
 
-Deno.test("error taxonomy: recovery hints cover filesystem and command errors", () => {
+Deno.test("error taxonomy: recovery hints cover filesystem and command errors", async () => {
   assertStringIncludes(
-    getRecoveryHint("ENOENT: No such file or directory: /tmp/missing.txt") ?? "",
+    await getRecoveryHint("ENOENT: No such file or directory: /tmp/missing.txt") ?? "",
     "list_files",
   );
   assertStringIncludes(
-    getRecoveryHint("Permission denied: /etc/shadow") ?? "",
+    await getRecoveryHint("Permission denied: /etc/shadow") ?? "",
     "Permission denied",
   );
   assertStringIncludes(
-    getRecoveryHint("bash: foo: command not found") ?? "",
+    await getRecoveryHint("bash: foo: command not found") ?? "",
     "alternative command",
   );
 });
 
-Deno.test("error taxonomy: recovery hints cover network, auth, schema, and user-denial flows", () => {
+Deno.test("error taxonomy: recovery hints cover network, auth, schema, and user-denial flows", async () => {
   assertStringIncludes(
-    getRecoveryHint("Operation timed out after 30000ms") ?? "",
+    await getRecoveryHint("Operation timed out after 30000ms") ?? "",
     "smaller steps",
   );
   assertStringIncludes(
-    getRecoveryHint("Provider HTTP 401: Unauthorized") ?? "",
+    await getRecoveryHint("Provider HTTP 401: Unauthorized") ?? "",
     "API key",
   );
   assertStringIncludes(
-    getRecoveryHint("Invalid tool schema for search_code") ?? "",
+    await getRecoveryHint("Invalid tool schema for search_code") ?? "",
     "schema",
   );
   assertStringIncludes(
-    getRecoveryHint("Action denied by user") ?? "",
+    await getRecoveryHint("Action denied by user") ?? "",
     "alternative approach",
   );
-  assertEquals(getRecoveryHint("Some completely novel error"), null);
+  assertEquals(await getRecoveryHint("Some completely novel error"), null);
 });
 
 Deno.test("error taxonomy: buildEditFileRecovery produces a structured recovery payload for missing edit targets", () => {

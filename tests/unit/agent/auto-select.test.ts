@@ -15,6 +15,7 @@ import {
   classifyForLocalFallback,
   isLocalFallbackWorthy,
   LOCAL_FALLBACK_MODEL_ID,
+  withFallbackChain,
 } from "../../../src/hlvm/runtime/local-fallback.ts";
 import {
   classifyTask,
@@ -335,51 +336,51 @@ Deno.test("chooseAutoModel: tie-break prefers lower cost then anthropic", async 
 // isLocalFallbackWorthy
 // ============================================================
 
-Deno.test("isLocalFallbackWorthy: rate_limit error is fallback-worthy", () => {
-  assertEquals(isLocalFallbackWorthy(new Error("rate limit exceeded (429)")), true);
+Deno.test("isLocalFallbackWorthy: rate_limit error is fallback-worthy", async () => {
+  assertEquals(await isLocalFallbackWorthy(new Error("rate limit exceeded (429)")), true);
 });
 
-Deno.test("isLocalFallbackWorthy: transient network error is fallback-worthy", () => {
-  assertEquals(isLocalFallbackWorthy(new Error("ECONNREFUSED")), true);
+Deno.test("isLocalFallbackWorthy: transient network error is fallback-worthy", async () => {
+  assertEquals(await isLocalFallbackWorthy(new Error("ECONNREFUSED")), true);
 });
 
-Deno.test("isLocalFallbackWorthy: timeout error is fallback-worthy", () => {
-  assertEquals(isLocalFallbackWorthy(new Error("request timeout")), true);
+Deno.test("isLocalFallbackWorthy: timeout error is fallback-worthy", async () => {
+  assertEquals(await isLocalFallbackWorthy(new Error("request timeout")), true);
 });
 
-Deno.test("isLocalFallbackWorthy: permanent error is not fallback-worthy", () => {
-  assertEquals(isLocalFallbackWorthy(new Error("HTTP 401 Unauthorized")), false);
+Deno.test("isLocalFallbackWorthy: permanent error is not fallback-worthy", async () => {
+  assertEquals(await isLocalFallbackWorthy(new Error("HTTP 401 Unauthorized")), false);
 });
 
-Deno.test("isLocalFallbackWorthy: abort error is not fallback-worthy", () => {
+Deno.test("isLocalFallbackWorthy: abort error is not fallback-worthy", async () => {
   const abortErr = new DOMException("Aborted", "AbortError");
-  assertEquals(isLocalFallbackWorthy(abortErr), false);
+  assertEquals(await isLocalFallbackWorthy(abortErr), false);
 });
 
-Deno.test("isLocalFallbackWorthy: auth error WITH statusCode is fallback-worthy", () => {
+Deno.test("isLocalFallbackWorthy: auth error WITH statusCode is fallback-worthy", async () => {
   // Message must match permanent pattern AND have statusCode for the auth-exception path
   const authErr = Object.assign(new Error("HTTP 401 Unauthorized"), { statusCode: 401 });
-  assertEquals(isLocalFallbackWorthy(authErr), true);
+  assertEquals(await isLocalFallbackWorthy(authErr), true);
 });
 
-Deno.test("isLocalFallbackWorthy: 403 error WITH statusCode is fallback-worthy", () => {
+Deno.test("isLocalFallbackWorthy: 403 error WITH statusCode is fallback-worthy", async () => {
   const authErr = Object.assign(new Error("HTTP 403 Forbidden"), { statusCode: 403 });
-  assertEquals(isLocalFallbackWorthy(authErr), true);
+  assertEquals(await isLocalFallbackWorthy(authErr), true);
 });
 
-Deno.test("isLocalFallbackWorthy: context_overflow is not fallback-worthy", () => {
-  assertEquals(isLocalFallbackWorthy(new Error("maximum context length exceeded")), false);
+Deno.test("isLocalFallbackWorthy: context_overflow is not fallback-worthy", async () => {
+  assertEquals(await isLocalFallbackWorthy(new Error("maximum context length exceeded")), false);
 });
 
-Deno.test("classifyForLocalFallback: returns error class string when worthy", () => {
-  assertEquals(classifyForLocalFallback(new Error("rate limit exceeded (429)")), "rate_limit");
-  assertEquals(classifyForLocalFallback(new Error("ECONNREFUSED")), "transient");
-  assertEquals(classifyForLocalFallback(new Error("request timeout")), "timeout");
+Deno.test("classifyForLocalFallback: returns error class string when worthy", async () => {
+  assertEquals(await classifyForLocalFallback(new Error("rate limit exceeded (429)")), "rate_limit");
+  assertEquals(await classifyForLocalFallback(new Error("ECONNREFUSED")), "transient");
+  assertEquals(await classifyForLocalFallback(new Error("request timeout")), "timeout");
 });
 
-Deno.test("classifyForLocalFallback: returns null when not worthy", () => {
-  assertEquals(classifyForLocalFallback(new Error("maximum context length exceeded")), null);
-  assertEquals(classifyForLocalFallback(new DOMException("Aborted", "AbortError")), null);
+Deno.test("classifyForLocalFallback: returns null when not worthy", async () => {
+  assertEquals(await classifyForLocalFallback(new Error("maximum context length exceeded")), null);
+  assertEquals(await classifyForLocalFallback(new DOMException("Aborted", "AbortError")), null);
 });
 
 // ============================================================
@@ -400,7 +401,7 @@ Deno.test("callLLMWithModelFallback: primary success returns immediately", async
   assertEquals(result.content, "ok");
 });
 
-Deno.test("callLLMWithModelFallback: falls back on transient error", async () => {
+Deno.test("callLLMWithModelFallback: degraded path tries fallbacks when no last-resort", async () => {
   const transientError = new Error("rate limit exceeded (429)");
   let fallbackCalled = false;
   const result = await callLLMWithModelFallback(
@@ -432,7 +433,7 @@ Deno.test("callLLMWithModelFallback: no fallback on permanent error", async () =
   }
 });
 
-Deno.test("callLLMWithModelFallback: all fallbacks exhausted throws original error", async () => {
+Deno.test("callLLMWithModelFallback: degraded path exhausted throws original error", async () => {
   const original = new Error("rate limit exceeded (429)");
   let callCount = 0;
 
@@ -448,12 +449,12 @@ Deno.test("callLLMWithModelFallback: all fallbacks exhausted throws original err
     );
     assertEquals(true, false); // should not reach
   } catch (err) {
-    assertEquals(callCount, 2); // both fallbacks tried
+    assertEquals(callCount, 2); // both fallbacks tried (no last-resort available)
     assertEquals((err as Error).message, original.message);
   }
 });
 
-Deno.test("callLLMWithModelFallback: last-resort local model tried when all fallbacks fail", async () => {
+Deno.test("callLLMWithModelFallback: last-resort used immediately when available", async () => {
   let lastResortCalled = false;
   const result = await callLLMWithModelFallback(
     () => Promise.reject(new Error("rate limit exceeded (429)")),
@@ -524,6 +525,91 @@ Deno.test("callLLMWithModelFallback: permanent error skips lastResort even when 
     assertEquals(true, false); // should not reach
   } catch (err) {
     assertEquals((err as Error).message, "HTTP 401 Unauthorized");
+  }
+});
+
+// ============================================================
+// withFallbackChain (SSOT — local-fallback.ts)
+// ============================================================
+
+Deno.test("withFallbackChain: any error skips cloud fallbacks when last-resort ready", async () => {
+  for (const errorMsg of [
+    "rate limit exceeded (429)",
+    "Connection reset (ECONNRESET)",
+    "Request timed out after 30s",
+  ]) {
+    let fallbackCallCount = 0;
+    let lastResortCalled = false;
+
+    const result = await withFallbackChain<string>({
+      tryPrimary: () => Promise.reject(new Error(errorMsg)),
+      fallbacks: ["cloud-fb-1", "cloud-fb-2"],
+      tryFallback: () => {
+        fallbackCallCount++;
+        return Promise.reject(new Error("should not reach"));
+      },
+      lastResort: { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: () => Promise.resolve(true) },
+      tryLastResort: () => {
+        lastResortCalled = true;
+        return Promise.resolve("from-gemma");
+      },
+    });
+
+    assertEquals(fallbackCallCount, 0, `cloud fallbacks skipped for: ${errorMsg}`);
+    assertEquals(lastResortCalled, true);
+    assertEquals(result, "from-gemma");
+  }
+});
+
+Deno.test("withFallbackChain: tries cloud fallbacks when last-resort unavailable", async () => {
+  let fallbackCallCount = 0;
+
+  const result = await withFallbackChain<string>({
+    tryPrimary: () => Promise.reject(new Error("Connection reset (ECONNRESET)")),
+    fallbacks: ["cloud-fb-1"],
+    tryFallback: () => {
+      fallbackCallCount++;
+      return Promise.resolve("fallback-ok");
+    },
+    lastResort: { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: () => Promise.resolve(false) },
+  });
+
+  assertEquals(fallbackCallCount, 1, "cloud fallback tried when last-resort unavailable");
+  assertEquals(result, "fallback-ok");
+});
+
+Deno.test("withFallbackChain: onLastResortUnavailable called when chain exhausted", async () => {
+  try {
+    await withFallbackChain<string>({
+      tryPrimary: () => Promise.reject(new Error("rate limit exceeded (429)")),
+      fallbacks: [],
+      tryFallback: () => Promise.reject(new Error("unreachable")),
+      lastResort: { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: () => Promise.resolve(false) },
+      onLastResortUnavailable: () => {
+        throw new Error("gemma4 still preparing");
+      },
+    });
+    assertEquals(true, false); // should not reach
+  } catch (err) {
+    assertEquals((err as Error).message, "gemma4 still preparing");
+  }
+});
+
+Deno.test("withFallbackChain: permanent error throws immediately, no fallback", async () => {
+  let fallbackCalled = false;
+  try {
+    await withFallbackChain<string>({
+      tryPrimary: () => Promise.reject(new Error("invalid request format")),
+      fallbacks: ["cloud-fb-1"],
+      tryFallback: () => {
+        fallbackCalled = true;
+        return Promise.resolve("should not reach");
+      },
+      lastResort: { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: () => Promise.resolve(true) },
+    });
+    assertEquals(true, false);
+  } catch {
+    assertEquals(fallbackCalled, false, "no fallback for permanent errors");
   }
 });
 

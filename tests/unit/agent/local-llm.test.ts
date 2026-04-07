@@ -3,6 +3,16 @@ import {
   classifyFollowUp,
   classifyResponseIntent,
   classifyTask,
+  classifyPlanNeed,
+  classifyDelegation,
+  classifyToolInstruction,
+  classifyFactConflicts,
+  classifyGroundedness,
+  classifySearchIntent,
+  classifyErrorMessage,
+  suggestRecoveryHint,
+  classifySensitiveContent,
+  classifySourceAuthorities,
   extractJson,
   getLocalModelDisplayName,
   type TaskClassification,
@@ -79,6 +89,25 @@ Deno.test("extractJson: only first object extracted", () => {
   assertEquals(extractJson(input), '{"a":1}');
 });
 
+Deno.test("extractJson: nested JSON object", () => {
+  const input = '{"a":{"b":1}}';
+  assertEquals(extractJson(input), '{"a":{"b":1}}');
+});
+
+Deno.test("extractJson: nested JSON with preamble", () => {
+  const input = 'Result: {"conflicts":[{"i":0,"s":0.8}]}';
+  assertEquals(extractJson(input), '{"conflicts":[{"i":0,"s":0.8}]}');
+});
+
+Deno.test("extractJson: deeply nested JSON", () => {
+  const input = '{"a":{"b":{"c":true},"d":2}}';
+  assertEquals(extractJson(input), '{"a":{"b":{"c":true},"d":2}}');
+});
+
+Deno.test("extractJson: unmatched open brace returns empty", () => {
+  assertEquals(extractJson("{unclosed"), "{}");
+});
+
 // ============================================================
 // classifyTask
 // ============================================================
@@ -129,4 +158,148 @@ Deno.test("classifyResponseIntent: whitespace-only returns defaults", async () =
   const result = await classifyResponseIntent("   ");
   assertEquals(result.asksQuestion, false);
   assertEquals(result.needsConcreteTask, false);
+});
+
+// ============================================================
+// classifyPlanNeed (Step 1)
+// ============================================================
+
+Deno.test("classifyPlanNeed: empty query returns defaults (no LLM call)", async () => {
+  const result = await classifyPlanNeed("");
+  assertEquals(result.needsPlan, false);
+});
+
+Deno.test("classifyPlanNeed: whitespace-only returns defaults", async () => {
+  const result = await classifyPlanNeed("   ");
+  assertEquals(result.needsPlan, false);
+});
+
+// ============================================================
+// classifyDelegation (Step 2)
+// ============================================================
+
+Deno.test("classifyDelegation: empty query returns defaults (no LLM call)", async () => {
+  const result = await classifyDelegation("");
+  assertEquals(result.shouldDelegate, false);
+  assertEquals(result.pattern, "none");
+});
+
+Deno.test("classifyDelegation: whitespace-only returns defaults", async () => {
+  const result = await classifyDelegation("   ");
+  assertEquals(result.shouldDelegate, false);
+  assertEquals(result.pattern, "none");
+});
+
+// ============================================================
+// classifyToolInstruction (Step 3)
+// ============================================================
+
+Deno.test("classifyToolInstruction: empty text returns defaults (no LLM call)", async () => {
+  const result = await classifyToolInstruction("");
+  assertEquals(result.isInstruction, false);
+});
+
+Deno.test("classifyToolInstruction: whitespace-only returns defaults", async () => {
+  const result = await classifyToolInstruction("   ");
+  assertEquals(result.isInstruction, false);
+});
+
+// ============================================================
+// classifyFactConflicts (Step 4)
+// ============================================================
+
+Deno.test("classifyFactConflicts: empty new fact returns defaults (no LLM call)", async () => {
+  const result = await classifyFactConflicts("", ["old fact"]);
+  assertEquals(result.conflicts.length, 0);
+});
+
+Deno.test("classifyFactConflicts: empty existing facts returns defaults", async () => {
+  const result = await classifyFactConflicts("new fact", []);
+  assertEquals(result.conflicts.length, 0);
+});
+
+// ============================================================
+// classifyGroundedness (Step 5)
+// ============================================================
+
+Deno.test("classifyGroundedness: empty response returns defaults (no LLM call)", async () => {
+  const result = await classifyGroundedness("", "tool data");
+  assertEquals(result.incorporatesData, false);
+});
+
+Deno.test("classifyGroundedness: whitespace-only returns defaults", async () => {
+  const result = await classifyGroundedness("   ", "tool data");
+  assertEquals(result.incorporatesData, false);
+});
+
+// ============================================================
+// classifySearchIntent (Step 6)
+// ============================================================
+
+Deno.test("classifySearchIntent: empty query returns defaults (no LLM call)", async () => {
+  const result = await classifySearchIntent("");
+  assertEquals(result.officialDocs, false);
+  assertEquals(result.comparison, false);
+  assertEquals(result.recency, false);
+  assertEquals(result.versionSpecific, false);
+  assertEquals(result.releaseNotes, false);
+  assertEquals(result.reference, false);
+});
+
+Deno.test("classifySearchIntent: whitespace-only returns defaults", async () => {
+  const result = await classifySearchIntent("   ");
+  assertEquals(result.officialDocs, false);
+});
+
+// ============================================================
+// classifyErrorMessage (Step 7)
+// ============================================================
+
+Deno.test("classifyErrorMessage: empty message returns defaults (no LLM call)", async () => {
+  const result = await classifyErrorMessage("");
+  assertEquals(result.errorClass, "unknown");
+});
+
+Deno.test("classifyErrorMessage: whitespace-only returns defaults", async () => {
+  const result = await classifyErrorMessage("   ");
+  assertEquals(result.errorClass, "unknown");
+});
+
+// ============================================================
+// suggestRecoveryHint (Step 8)
+// ============================================================
+
+Deno.test("suggestRecoveryHint: empty message returns null (no LLM call)", async () => {
+  const result = await suggestRecoveryHint("");
+  assertEquals(result, null);
+});
+
+Deno.test("suggestRecoveryHint: whitespace-only returns null", async () => {
+  const result = await suggestRecoveryHint("   ");
+  assertEquals(result, null);
+});
+
+// ============================================================
+// classifySensitiveContent (Step 9)
+// ============================================================
+
+Deno.test("classifySensitiveContent: empty text returns defaults (no LLM call)", async () => {
+  const result = await classifySensitiveContent("");
+  assertEquals(result.additionalPII, false);
+  assertEquals(result.types.length, 0);
+});
+
+Deno.test("classifySensitiveContent: whitespace-only returns defaults", async () => {
+  const result = await classifySensitiveContent("   ");
+  assertEquals(result.additionalPII, false);
+  assertEquals(result.types.length, 0);
+});
+
+// ============================================================
+// classifySourceAuthorities (Step 10)
+// ============================================================
+
+Deno.test("classifySourceAuthorities: empty results returns defaults (no LLM call)", async () => {
+  const result = await classifySourceAuthorities([]);
+  assertEquals(result.results.length, 0);
 });

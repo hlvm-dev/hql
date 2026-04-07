@@ -241,24 +241,6 @@ export const DELEGATE_MAX_ITERATIONS = 10;
 export const DELEGATE_TOTAL_TIMEOUT = 120_000;
 
 /**
- * Maximum retries for failed LLM calls
- *
- * Handles transient errors (network issues, rate limits).
- * Uses exponential backoff between retries.
- *
- * Used by:
- * - orchestrator.ts: LLM call retry logic
- *
- * @example
- * ```ts
- * import { MAX_RETRIES } from "./constants.ts";
- *
- * const retries = config.maxRetries ?? MAX_RETRIES;
- * ```
- */
-export const MAX_RETRIES = 3;
-
-/**
  * Default maximum tool calls per turn
  *
  * Used by:

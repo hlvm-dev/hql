@@ -18,10 +18,6 @@ const RE_TOOL_CALL_TEXT_ENVELOPE =
   /^\s*[a-z_][\w.]*\s*\(\s*\{[\s\S]*\}\s*\)\s*$/i;
 const RE_TOOL_CALL_TEXT_ENVELOPE_CAPTURE =
   /^\s*([a-z_][\w.]*)\s*\(\s*(\{[\s\S]*\})\s*\)\s*$/i;
-const RE_JSON_OBJECT_TOOL = /\bjson object\b/;
-const RE_TOOL_WORD = /\btool\b/;
-const RE_FUNCTION_TOOL_CALL = /\b(function|tool)\s+call(ing)?\s*[:\(]/i;
-const RE_INVOKE_TOOL = /\b(invoke|execute)\s+the\s+\w+\s+tool\b/;
 const RE_PLAN_ENVELOPE = /^PLAN\s*(?:\r?\n)[\s\S]*?(?:\r?\n)END_PLAN\s*$/;
 const RE_PLAN_BLOCK = /PLAN\s*(?:\r?\n)[\s\S]*?(?:\r?\n)END_PLAN\s*/g;
 
@@ -81,16 +77,14 @@ export function stripPlanEnvelopeBlocks(text: string): string {
 }
 
 /**
- * Detect explicit instructional patterns about tool calling in text.
- * Matches patterns like "json object ... tool", "function call:", "invoke the X tool".
+ * Detect explicit instructional patterns about tool calling in text
+ * using LLM classification. Falls back to false on error.
  */
-function looksLikeToolInstruction(text: string): boolean {
-  const lower = text.toLowerCase();
-  // Only match explicit instructional patterns, not natural language
-  if (RE_JSON_OBJECT_TOOL.test(lower) && RE_TOOL_WORD.test(lower)) return true;
-  if (RE_FUNCTION_TOOL_CALL.test(lower)) return true;
-  if (RE_INVOKE_TOOL.test(lower)) return true;
-  return false;
+async function looksLikeToolInstruction(text: string): Promise<boolean> {
+  if (!text.trim()) return false;
+  const { classifyToolInstruction } = await import("../runtime/local-llm.ts");
+  const result = await classifyToolInstruction(text);
+  return result.isInstruction;
 }
 
 /**
@@ -108,12 +102,12 @@ export async function responseAsksQuestion(response: string): Promise<boolean> {
  * Determine if a final response should be suppressed (not shown to user).
  * Suppresses empty responses, raw tool call JSON, and tool instructions.
  */
-export function shouldSuppressFinalResponse(response: string): boolean {
+export async function shouldSuppressFinalResponse(response: string): Promise<boolean> {
   if (!response.trim()) return true;
   if (looksLikeToolCallJsonAnywhere(response)) return true;
   if (looksLikeToolCallTextEnvelope(response)) return true;
   if (looksLikePlanEnvelope(response)) return true;
-  if (looksLikeToolInstruction(response)) return true;
+  if (await looksLikeToolInstruction(response)) return true;
   return false;
 }
 
@@ -229,15 +223,15 @@ interface AgentFinalResponseClassification {
  * Classify final agent output using canonical orchestrator messages (SSOT).
  * This avoids prefix/string-guess based routing decisions in higher layers.
  */
-export function classifyAgentFinalResponse(
+export async function classifyAgentFinalResponse(
   response: string,
-): AgentFinalResponseClassification {
+): Promise<AgentFinalResponseClassification> {
   const trimmed = response.trim();
   const failureMatch = ORCHESTRATOR_FAILURE_ENTRIES.find(([, message]) =>
     message === trimmed
   );
   return {
-    suppressFinalResponse: shouldSuppressFinalResponse(trimmed),
+    suppressFinalResponse: await shouldSuppressFinalResponse(trimmed),
     orchestratorFailureCode: failureMatch?.[0] ?? null,
   };
 }

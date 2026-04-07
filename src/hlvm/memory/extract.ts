@@ -254,11 +254,11 @@ export function extractConversationFacts(options: {
   return facts;
 }
 
-function persistFacts(facts: ExtractedMemoryFact[]): PersistMemoryResult {
+async function persistFacts(facts: ExtractedMemoryFact[]): Promise<PersistMemoryResult> {
   if (facts.length === 0) {
     return { written: 0, linkedEntities: 0, invalidated: 0, factIds: [], facts: [] };
   }
-  const result = writeMemoryFacts(
+  const result = await writeMemoryFacts(
     facts.map((fact) => ({
       content: fact.content,
       category: fact.category,
@@ -269,15 +269,15 @@ function persistFacts(facts: ExtractedMemoryFact[]): PersistMemoryResult {
   return { ...result, facts };
 }
 
-export function persistConversationFacts(options: {
+export async function persistConversationFacts(options: {
   userMessage: string;
   assistantMessage?: string;
-}): PersistMemoryResult {
-  return persistFacts(extractConversationFacts(options));
+}): Promise<PersistMemoryResult> {
+  return await persistFacts(extractConversationFacts(options));
 }
 
-export function persistExplicitMemoryRequest(
+export async function persistExplicitMemoryRequest(
   userMessage: string,
-): PersistMemoryResult {
-  return persistFacts(extractExplicitMemoryRequests(userMessage));
+): Promise<PersistMemoryResult> {
+  return await persistFacts(extractExplicitMemoryRequests(userMessage));
 }

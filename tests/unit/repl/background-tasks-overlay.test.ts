@@ -260,7 +260,7 @@ Deno.test("buildBackgroundTasksSummaryRows prioritizes local agent counts when p
 
   assertEquals(primary.includes("2 local agents"), true);
   assertEquals(primary.includes("1 working"), true);
-  assertEquals(secondary.includes("Agent manager"), true);
+  assertEquals(secondary.includes("Task manager"), true);
 });
 
 Deno.test("buildBackgroundTasksSummaryRows clarifies shared tasks when agents and tasks coexist", () => {

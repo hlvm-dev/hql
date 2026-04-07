@@ -224,3 +224,49 @@ export function annotateSearchResultSources(
 ): SearchResult[] {
   return results.map((result) => annotateSearchResultSource(result, allowedDomains));
 }
+
+/**
+ * Async source classification: sync heuristic first, then LLM for "other" results.
+ * Returns annotated SearchResult[] with refined sourceClass where LLM improved on heuristics.
+ */
+export async function annotateSearchResultSourcesAsync(
+  results: SearchResult[],
+  allowedDomains?: string[],
+): Promise<SearchResult[]> {
+  // First: run sync heuristic on all results
+  const annotated = annotateSearchResultSources(results, allowedDomains);
+
+  // Find "other" results that need LLM refinement
+  const uncertain = annotated
+    .map((r, i) => ({ result: r, originalIndex: i }))
+    .filter(({ result }) => result.sourceClass === "other");
+
+  if (uncertain.length === 0) return annotated;
+
+  // LLM batch classification for uncertain results
+  try {
+    const { classifySourceAuthorities } = await import("../../../runtime/local-llm.ts");
+    const llmResult = await classifySourceAuthorities(
+      uncertain.map(({ result }) => ({
+        url: result.url ?? "",
+        title: result.title ?? "",
+        snippet: result.snippet ?? "",
+      })),
+    );
+    const validClasses = new Set<string>([
+      "official_docs", "vendor_docs", "repo_docs", "technical_article", "forum", "other",
+    ]);
+    const refined = [...annotated];
+    for (const r of llmResult.results) {
+      if (r.index >= 0 && r.index < uncertain.length && validClasses.has(r.sourceClass)) {
+        const targetIndex = uncertain[r.index].originalIndex;
+        refined[targetIndex] = {
+          ...refined[targetIndex],
+          sourceClass: r.sourceClass as SearchResultSourceClass,
+        };
+      }
+    }
+    return refined;
+  } catch { /* keep sync results */ }
+  return annotated;
+}

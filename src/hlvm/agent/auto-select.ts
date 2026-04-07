@@ -9,7 +9,10 @@
  */
 
 import { classifyModelTier } from "./constants.ts";
-import { classifyForLocalFallback } from "../runtime/local-fallback.ts";
+import {
+  type LastResortFallback,
+  withFallbackChain,
+} from "../runtime/local-fallback.ts";
 import { ValidationError } from "../../common/error.ts";
 import type { ModelInfo } from "../providers/types.ts";
 import type { LLMFunction } from "./orchestrator-llm.ts";
@@ -401,16 +404,12 @@ export function invalidateAutoModelCache(): void {
 // Fallback Mechanism
 // ============================================================
 
-/** Last-resort local model fallback (e.g. gemma4:e4b) */
-export interface LastResortFallback {
-  model: string;
-  isAvailable: () => Promise<boolean>;
-}
+// Re-export for existing importers (orchestrator.ts, tests).
+export type { LastResortFallback } from "../runtime/local-fallback.ts";
 
 /**
  * Wrap a primary LLM call with model fallback on transient errors.
- * Iterates through fallback models if the primary fails with a fallback-worthy error.
- * When all scored fallbacks are exhausted, tries the local last-resort model if available.
+ * Thin wrapper around `withFallbackChain` — the SSOT in local-fallback.ts.
  */
 export async function callLLMWithModelFallback(
   primaryCall: () => Promise<LLMResponse>,
@@ -420,42 +419,20 @@ export async function callLLMWithModelFallback(
   onTrace?: (event: TraceEvent) => void,
   lastResort?: LastResortFallback,
 ): Promise<LLMResponse> {
-  try {
-    return await primaryCall();
-  } catch (error) {
-    const reason = classifyForLocalFallback(error);
-    if (!reason) throw error;
-
-    for (const fallbackModel of fallbacks) {
-      onTrace?.({
-        type: "auto_fallback",
-        fromModel: "primary",
-        toModel: fallbackModel,
-        reason,
-      } as TraceEvent);
-
-      try {
-        const fbLLM = createFallbackLLM(fallbackModel);
-        return await callWithRetry(fbLLM);
-      } catch (fbError) {
-        if (!classifyForLocalFallback(fbError)) throw fbError;
-        // Continue to next fallback
-      }
-    }
-
-    // All scored fallbacks exhausted — try local last-resort if available
-    if (lastResort && await lastResort.isAvailable()) {
-      onTrace?.({
-        type: "auto_fallback",
-        fromModel: "primary",
-        toModel: lastResort.model,
-        reason: "last_resort",
-      } as TraceEvent);
-
-      const lrLLM = createFallbackLLM(lastResort.model);
-      return await callWithRetry(lrLLM);
-    }
-
-    throw error;
-  }
+  return withFallbackChain({
+    tryPrimary: primaryCall,
+    fallbacks,
+    tryFallback: (model) => callWithRetry(createFallbackLLM(model)),
+    lastResort,
+    tryLastResort: (model) => callWithRetry(createFallbackLLM(model)),
+    onTrace: onTrace
+      ? (from, to, reason) =>
+        onTrace({
+          type: "auto_fallback",
+          fromModel: from,
+          toModel: to,
+          reason,
+        } as TraceEvent)
+      : undefined,
+  });
 }

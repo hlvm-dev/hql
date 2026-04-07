@@ -87,8 +87,8 @@ Deno.test({
       const toolName = "mcp_test_echo";
       const session = await createAgentSession({
         workspace,
-        model: "ollama/llama3.2:1b",
-        modelInfo: { name: "llama3.2:1b", parameterSize: "7B" },
+        model: "ollama/tinyllama:1b",
+        modelInfo: { name: "tinyllama:1b", parameterSize: "1B" },
       });
 
       try {

@@ -597,7 +597,7 @@ export async function runAgentQuery(
 
   if (!supportsAgentExecution(model, options.modelInfo)) {
     throw new ValidationError(
-      "Weak models do not support agent mode. Use direct chat mode instead.",
+      "Constrained models do not support agent mode. Use direct chat mode instead.",
       "agent_runner",
     );
   }
@@ -845,7 +845,7 @@ export async function runAgentQuery(
     setMemoryModelTier(session.modelTier);
     if (persistentMemoryEnabled) {
       try {
-        persistExplicitMemoryRequest(query);
+        await persistExplicitMemoryRequest(query);
       } catch {
         // Best-effort only; memory capture must not block agent execution.
       }
@@ -1221,9 +1221,7 @@ export async function runAgentQuery(
           session.llmConfig?.toolDenylist,
         toolFilterState: session.toolFilterState,
         toolFilterBaseline: runtimeToolFilterBaseline,
-        toolSearchUniverseAllowlist: isMainThreadQuerySource(querySource)
-          ? (requestedToolAllowlist ?? [])
-          : requestedToolAllowlist,
+        toolSearchUniverseAllowlist: requestedToolAllowlist,
         toolSearchUniverseDenylist: effectiveToolDenylist,
         onToolSearchDiscovered: (toolNames: readonly string[]) =>
           persistDeferredToolDiscoveriesForSession({
@@ -1359,7 +1357,7 @@ export async function runAgentQuery(
 
     if (persistentMemoryEnabled) {
       try {
-        persistConversationFacts({
+        await persistConversationFacts({
           userMessage: query,
           assistantMessage: text,
         });
@@ -1368,7 +1366,7 @@ export async function runAgentQuery(
       }
     }
 
-    const finalResponseState = classifyAgentFinalResponse(text);
+    const finalResponseState = await classifyAgentFinalResponse(text);
     keepSessionAlive = options.retainSessionForReuse === true ||
       isReusableSession;
     traceReplMainThreadForSource(querySource, "agent.run.done", {

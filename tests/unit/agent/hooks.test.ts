@@ -135,6 +135,7 @@ Deno.test({
         model: "ollama/test-fixture",
         fixturePath,
         workspace,
+        toolDenylist: ["delegate_agent"],
         callbacks: {},
       });
 
@@ -182,6 +183,7 @@ Deno.test({
         model: "ollama/test-fixture",
         fixturePath,
         workspace,
+        toolDenylist: ["delegate_agent"],
         callbacks: {},
       });
 
@@ -214,6 +216,7 @@ Deno.test({
         model: "ollama/test-fixture",
         fixturePath,
         workspace,
+        toolDenylist: ["delegate_agent"],
         callbacks: {},
       });
 

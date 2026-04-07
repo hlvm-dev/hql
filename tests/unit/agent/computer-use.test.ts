@@ -25,6 +25,8 @@ import {
   releaseComputerUseLock,
   isLockHeldLocally,
   checkComputerUseLock,
+  _setLockPathForTests,
+  _resetLockStateForTests,
 } from "../../../src/hlvm/agent/computer-use/lock.ts";
 import {
   cleanupComputerUse,
@@ -361,94 +363,115 @@ Deno.test("tools: cu_screenshot returns error on non-macOS", async () => {
 // 6. Lock Tests (CC-clone API)
 // ============================================================
 
+// Helper: isolate each lock test with its own temp directory and clean state
+async function withIsolatedLock(fn: () => Promise<void>): Promise<void> {
+  const tmpDir = await Deno.makeTempDir({ prefix: "hlvm-lock-test-" });
+  const lockPath = `${tmpDir}/computer-use.lock`;
+  _setLockPathForTests(lockPath);
+  _resetLockStateForTests();
+  try {
+    await fn();
+  } finally {
+    _resetLockStateForTests();
+    _setLockPathForTests(undefined);
+    try {
+      await Deno.remove(tmpDir, { recursive: true });
+    } catch { /* ignore */ }
+  }
+}
+
 Deno.test({
   name: "lock: tryAcquire returns acquired+fresh on first call",
-  fn: async () => {
-    const sessionId = `test-acquire-${Date.now()}`;
-    try {
-      const result = await tryAcquireComputerUseLock(sessionId);
-      assertEquals(result.kind, "acquired");
-      if (result.kind === "acquired") {
-        assertEquals(result.fresh, true);
+  fn: () =>
+    withIsolatedLock(async () => {
+      const sessionId = `test-acquire-${Date.now()}`;
+      try {
+        const result = await tryAcquireComputerUseLock(sessionId);
+        assertEquals(result.kind, "acquired");
+        if (result.kind === "acquired") {
+          assertEquals(result.fresh, true);
+        }
+      } finally {
+        await releaseComputerUseLock();
       }
-    } finally {
-      await releaseComputerUseLock();
-    }
-  },
+    }),
   sanitizeOps: false,
   sanitizeResources: false,
 });
 
 Deno.test({
   name: "lock: tryAcquire returns acquired+reentrant on same session",
-  fn: async () => {
-    const sessionId = `test-reentrant-${Date.now()}`;
-    try {
-      await tryAcquireComputerUseLock(sessionId);
-      const result = await tryAcquireComputerUseLock(sessionId);
-      assertEquals(result.kind, "acquired");
-      if (result.kind === "acquired") {
-        assertEquals(result.fresh, false);
+  fn: () =>
+    withIsolatedLock(async () => {
+      const sessionId = `test-reentrant-${Date.now()}`;
+      try {
+        await tryAcquireComputerUseLock(sessionId);
+        const result = await tryAcquireComputerUseLock(sessionId);
+        assertEquals(result.kind, "acquired");
+        if (result.kind === "acquired") {
+          assertEquals(result.fresh, false);
+        }
+      } finally {
+        await releaseComputerUseLock();
       }
-    } finally {
-      await releaseComputerUseLock();
-    }
-  },
+    }),
   sanitizeOps: false,
   sanitizeResources: false,
 });
 
 Deno.test({
   name: "lock: isLockHeldLocally tracks state",
-  fn: async () => {
-    const before = isLockHeldLocally();
-    assertEquals(before, false);
-    const sessionId = `test-local-${Date.now()}`;
-    await tryAcquireComputerUseLock(sessionId);
-    assertEquals(isLockHeldLocally(), true);
-    await releaseComputerUseLock();
-    assertEquals(isLockHeldLocally(), false);
-  },
+  fn: () =>
+    withIsolatedLock(async () => {
+      const before = isLockHeldLocally();
+      assertEquals(before, false);
+      const sessionId = `test-local-${Date.now()}`;
+      await tryAcquireComputerUseLock(sessionId);
+      assertEquals(isLockHeldLocally(), true);
+      await releaseComputerUseLock();
+      assertEquals(isLockHeldLocally(), false);
+    }),
   sanitizeOps: false,
   sanitizeResources: false,
 });
 
 Deno.test({
   name: "lock: checkComputerUseLock returns free when no lock",
-  fn: async () => {
-    // Ensure clean state
-    await releaseComputerUseLock();
-    const result = await checkComputerUseLock();
-    assertEquals(result.kind, "free");
-  },
+  fn: () =>
+    withIsolatedLock(async () => {
+      const result = await checkComputerUseLock();
+      assertEquals(result.kind, "free");
+    }),
   sanitizeOps: false,
   sanitizeResources: false,
 });
 
 Deno.test({
   name: "lock: release is idempotent",
-  fn: async () => {
-    const first = await releaseComputerUseLock();
-    const second = await releaseComputerUseLock();
-    // Both should return false (nothing to release)
-    assertEquals(first, false);
-    assertEquals(second, false);
-  },
+  fn: () =>
+    withIsolatedLock(async () => {
+      const first = await releaseComputerUseLock();
+      const second = await releaseComputerUseLock();
+      // Both should return false (nothing to release)
+      assertEquals(first, false);
+      assertEquals(second, false);
+    }),
   sanitizeOps: false,
   sanitizeResources: false,
 });
 
 Deno.test({
   name: "lock: cleanup releases lock",
-  fn: async () => {
-    const sessionId = `test-cleanup-${Date.now()}`;
-    await tryAcquireComputerUseLock(sessionId);
-    await cleanupComputerUse();
-    // Should be able to re-acquire after cleanup
-    const result = await tryAcquireComputerUseLock(sessionId);
-    assertEquals(result.kind, "acquired");
-    await releaseComputerUseLock();
-  },
+  fn: () =>
+    withIsolatedLock(async () => {
+      const sessionId = `test-cleanup-${Date.now()}`;
+      await tryAcquireComputerUseLock(sessionId);
+      await cleanupComputerUse();
+      // Should be able to re-acquire after cleanup
+      const result = await tryAcquireComputerUseLock(sessionId);
+      assertEquals(result.kind, "acquired");
+      await releaseComputerUseLock();
+    }),
   sanitizeOps: false,
   sanitizeResources: false,
 });

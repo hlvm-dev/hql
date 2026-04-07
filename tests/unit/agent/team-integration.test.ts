@@ -85,8 +85,8 @@ Deno.test("Team Integration", async (t) => {
   });
 
   // ── Test 4: Heuristic - Multi-file Fan-out ────────────────────────────
-  await t.step("heuristic - multi-file request yields fan-out", () => {
-    const signal = evaluateDelegationSignal(
+  await t.step("heuristic - multi-file request yields fan-out", async () => {
+    const signal = await evaluateDelegationSignal(
       "refactor auth.ts login.ts session.ts concurrently",
     );
     assertEquals(signal.shouldDelegate, true, "multi-file concurrent request should delegate");
@@ -94,8 +94,8 @@ Deno.test("Team Integration", async (t) => {
   });
 
   // ── Test 5: Heuristic - Small Task No Delegation ─────────────────────
-  await t.step("heuristic - small task does not delegate", () => {
-    const signal = evaluateDelegationSignal("fix typo in README");
+  await t.step("heuristic - small task does not delegate", async () => {
+    const signal = await evaluateDelegationSignal("fix typo in README");
     assertEquals(signal.shouldDelegate, false, "small task should not delegate");
   });
 

@@ -64,19 +64,16 @@ export const PLAN_START = "PLAN";
 export const PLAN_END = "END_PLAN";
 const STEP_DONE_PATTERN = /STEP_DONE\s*[:\-]?\s*([a-z0-9_-]+)/i;
 
-export function shouldPlanRequest(
+export async function shouldPlanRequest(
   request: string,
   mode: PlanningMode,
-): boolean {
+): Promise<boolean> {
   if (mode === "always") return true;
   if (mode === "off") return false;
 
-  const lower = request.toLowerCase();
-  const hasMultiStepCue = lower.includes(" and ") || lower.includes(" then ") ||
-    lower.includes(" steps") || lower.includes("first ") ||
-    lower.includes("second ");
-  const isLong = request.length >= 160;
-  return hasMultiStepCue || isLong;
+  const { classifyPlanNeed } = await import("../runtime/local-llm.ts");
+  const result = await classifyPlanNeed(request);
+  return result.needsPlan;
 }
 
 export function buildPlanModeReminder(

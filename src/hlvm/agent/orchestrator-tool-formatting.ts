@@ -393,21 +393,21 @@ function isToolResultFailure(content: string): boolean {
   return false;
 }
 
-export function buildToolObservation(
+export async function buildToolObservation(
   toolCall: ToolCall,
   toolResult: ToolExecutionResult,
   requestedObservation?: string,
-): {
+): Promise<{
   observation: string;
   resultText: string;
   toolName: string;
   usedRequestedObservation: boolean;
-} {
+}> {
   if (toolResult.success) {
     const fullResultText = toolResult.llmContent ??
       stringifyToolResult(toolResult.result);
     if (isToolResultFailure(fullResultText)) {
-      const hint = getRecoveryHint(fullResultText);
+      const hint = await getRecoveryHint(fullResultText);
       const observation = hint
         ? `${fullResultText}\nHint: ${hint}`
         : fullResultText;
@@ -429,7 +429,7 @@ export function buildToolObservation(
   }
 
   const errorText = toolResult.error ?? "Unknown error";
-  const hint = getRecoveryHint(errorText);
+  const hint = await getRecoveryHint(errorText);
   const observation = hint
     ? `Error: ${errorText}\nHint: ${hint}`
     : `Error: ${errorText}`;
@@ -890,7 +890,10 @@ function extractOpenIntentTarget(call: ToolCall): string | null {
     : "";
   if (!command.trim()) return null;
   try {
-    const parsed = parseShellCommand(command);
+    const home = getPlatform().env.get("HOME");
+    const env: Record<string, string> = {};
+    if (home) env.HOME = home;
+    const parsed = parseShellCommand(command, env);
     if (parsed.hasChaining || parsed.hasPipes || parsed.hasRedirects) {
       return null;
     }

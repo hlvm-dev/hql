@@ -118,7 +118,10 @@ function preValidate(input: string): void {
  * // => { ..., hasPipes: true, ... }
  * ```
  */
-export function parseShellCommand(command: string): ParsedCommand {
+export function parseShellCommand(
+  command: string,
+  env?: Record<string, string>,
+): ParsedCommand {
   const trimmed = command.trim();
 
   if (!trimmed) {
@@ -128,7 +131,7 @@ export function parseShellCommand(command: string): ParsedCommand {
   // shell-quote silently absorbs unclosed quotes — validate first
   preValidate(trimmed);
 
-  const tokens = shellParse(trimmed);
+  const tokens = env ? shellParse(trimmed, env) : shellParse(trimmed);
   const args: string[] = [];
   let hasPipes = false;
   let hasChaining = false;

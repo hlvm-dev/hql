@@ -178,18 +178,18 @@ function canDegradeObservationToSummary(
   return toolResult.presentationKind !== "edit";
 }
 
-function resolveContextObservation(
+async function resolveContextObservation(
   toolCall: ToolCall,
   toolResult: ToolExecutionResult,
   remainingObservationBytes: number,
   ownerId?: string,
-): {
+): Promise<{
   observation: string;
   resultText: string;
   toolName: string;
   observationBytes: number;
   observationMode: "full" | "summary";
-} {
+}> {
   const fullObservation = toolResult.llmContent ??
     stringifyToolResult(toolResult.result);
   const summaryObservation = toolResult.summaryDisplay ?? fullObservation;
@@ -204,7 +204,7 @@ function resolveContextObservation(
       remainingObservationBytes <= 0 ||
       (fullBytes > remainingObservationBytes && summaryBytes < fullBytes)
     );
-  const built = buildToolObservation(
+  const built = await buildToolObservation(
     toolCall,
     toolResult,
     shouldUseSummary ? summaryObservation : fullObservation,
@@ -312,7 +312,7 @@ export async function processAgentResponse(
       toolName,
       observationBytes,
       observationMode,
-    } = resolveContextObservation(
+    } = await resolveContextObservation(
       call,
       result,
       remainingObservationBytes,
@@ -1089,7 +1089,7 @@ export async function handleFinalResponse(
 
   // Grounding checks
   if (lc.groundingMode !== "off" && state.toolUses.length > 0) {
-    const grounding = checkGrounding(
+    const grounding = await checkGrounding(
       finalResponse,
       state.toolUses,
       groundingCitations,
@@ -1205,7 +1205,6 @@ export async function handlePostToolExecution(
       config.context.getMessages(),
       {
         timeout: lc.llmTimeout,
-        maxRetries: lc.maxRetries,
         signal: config.signal,
       },
       config.onTrace,

@@ -1235,7 +1235,7 @@ export async function askCommand(args: string[]): Promise<void> {
 
     if (verbose) {
       if (
-        visibleResultText && !shouldSuppressFinalResponse(visibleResultText)
+        visibleResultText && !(await shouldSuppressFinalResponse(visibleResultText))
       ) {
         log.raw.log(`\nResult:\n${visibleResultText}\n`);
       }
@@ -1268,7 +1268,7 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   if (jsonOutput) {
-    const described = describeErrorForDisplay(executionError);
+    const described = await describeErrorForDisplay(executionError);
     const errorPayload = {
       type: "error",
       message: described.message,
@@ -1305,7 +1305,7 @@ export async function askCommand(args: string[]): Promise<void> {
   if (recovery.recovered) return;
 
   if (executionError instanceof Error) {
-    const described = describeErrorForDisplay(executionError);
+    const described = await describeErrorForDisplay(executionError);
     log.error(`Agent error (${described.class}): ${described.message}`);
     if (described.hint) log.error(`Hint: ${described.hint}`);
     throw executionError;

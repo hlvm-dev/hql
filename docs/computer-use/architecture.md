@@ -102,24 +102,34 @@ This is the critical path that makes screenshots visible to the LLM:
    └─────────────────────────────────────┘
                     │
 2. Orchestrator extracts _imageAttachment
-   (orchestrator-tool-execution.ts:1126-1138)
+   (orchestrator-tool-execution.ts)
    → ToolExecutionResult.imageAttachments[]
                     │
-3. Response builder injects as user message
-   (orchestrator-response.ts:330-346)
+3. Vision gating (orchestrator-response.ts)
+   ┌──────────────────────────────────────────────┐
+   │  if (config.visionCapable !== false)          │
+   │    → inject as user message with attachment   │
+   │  else                                         │
+   │    → text fallback: "[Screenshot captured     │
+   │       (WxHpx) — not shown: model lacks vision]│
+   └──────────────────────────────────────────────┘
+                    │ (vision path)
+4. Response builder injects as user message
    → { role: "user",
        content: "[Screenshot attached]",
        attachments: [{ mode: "binary", kind: "image", data }] }
                     │
-4. SDK converts to provider format
+5. SDK converts to provider format
    (sdk-runtime.ts convertToSdkMessages)
    → { type: "image", image: base64data }
                     │
-5. Provider sends to LLM API
+6. Provider sends to LLM API
    → Model sees screenshot, decides next action
 ```
 
 **Tools that return images:** `cu_screenshot`, `cu_zoom`, `cu_wait`
+
+**Note:** Non-vision models never reach step 3 for CU tools because `session.ts` adds all `cu_*` tools to `effectiveToolDenylist` when `!visionCapable`. The text fallback in step 3 is defense-in-depth for edge cases where an image attachment comes from a non-CU source.
 
 ## Session Lock
 
@@ -139,6 +149,37 @@ Session B retries → acquired
 
 Lock is reentrant (same session can re-acquire). Released on cleanup or session end.
 
+## Vision Gating Pipeline
+
+Non-vision models are automatically blocked from CU tools. This is derived in `session.ts`:
+
+```
+session.ts: createAgentLLMConfig()
+  │
+  ├─ modelInfo?.capabilities?.includes("vision") → true/false
+  │    OR
+  ├─ isFrontier (anthropic/openai/google) → default true
+  │    OR
+  └─ local model without modelInfo → default false
+  │
+  ▼
+visionCapable = true                    visionCapable = false
+  │                                       │
+  ├─ CU tools available                   ├─ cu_* added to effectiveToolDenylist
+  ├─ CU system prompt section rendered    ├─ CU system prompt section suppressed
+  ├─ Images injected as attachments       ├─ Images → text fallback
+  └─ Full CU functionality                └─ CU completely hidden from model
+```
+
+Threading path:
+```
+session.ts (derive visionCapable)
+  ├─→ buildCompiledPromptArtifacts → compileSystemPrompt → sections.ts
+  │     (CU prompt section gated on visionCapable)
+  └─→ AgentSession.visionCapable → agent-runner.ts → OrchestratorConfig
+        → orchestrator-response.ts (image injection gated)
+```
+
 ## CC vs HLVM Differences
 
 | Aspect | Claude Code | HLVM |
@@ -153,3 +194,6 @@ Lock is reentrant (same session can re-acquire). Released on cleanup or session 
 | Feature gates | GrowthBook | Always enabled on macOS |
 | Coordinate mode | Configurable (pixels/normalized) | Always pixels |
 | State caching | `ScreenshotDims` in AppState | None (stateless) |
+| Vision gating | N/A (Claude always has vision) | Auto-derive from modelInfo |
+| LLM flexibility | Claude only | Any vision-capable LLM |
+| CU system prompt | Injected by Anthropic API backend | Self-contained in `sections.ts` |

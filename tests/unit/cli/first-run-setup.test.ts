@@ -15,8 +15,9 @@ Deno.test("runFirstTimeSetup: is exported as an async function", () => {
   assertEquals(typeof runFirstTimeSetup, "function");
 });
 
-Deno.test("runFirstTimeSetup: accepts zero arguments", () => {
-  // Verify the function signature accepts 0 args (engine is optional).
+Deno.test("runFirstTimeSetup: accepts optional engine argument", () => {
+  // Verify the function signature (engine?: AIEngineLifecycle).
+  // TS optional params without defaults still count toward .length.
   // We don't call it because it triggers real bootstrap I/O.
-  assertEquals(runFirstTimeSetup.length, 0);
+  assertEquals(runFirstTimeSetup.length, 1);
 });

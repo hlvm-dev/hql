@@ -734,7 +734,6 @@ If no provider prefix is given, the default provider is used.
 | `src/hlvm/api/index.ts` | `agent` alias + `registerApis()` |
 | `src/common/stream-utils.ts` | `collectAsyncGenerator` utility |
 | `src/hql/lib/stdlib/js/core.js` | 5 async HOFs |
-| `tests/e2e/real-user-e2e.ts` | 16 real E2E tests (Claude Haiku 4.5) |
-| `tests/e2e/real-user-e2e-v2.ts` | 9 complex schema + agent E2E tests |
+| `tests/e2e/ai-callable-e2e.test.ts` | E2E tests (real providers) |
 | `tests/unit/api/ai-callable.test.ts` | 19 behavioral unit tests |
 | `tests/unit/stdlib/async-hofs.test.ts` | 15 async HOF unit tests |

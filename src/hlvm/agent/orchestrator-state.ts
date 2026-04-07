@@ -7,7 +7,6 @@ import {
   DEFAULT_TIMEOUTS,
   type GroundingMode,
   MAX_ITERATIONS,
-  MAX_RETRIES,
   type ModelTier,
   RATE_LIMITS,
   RESOURCE_LIMITS,
@@ -109,7 +108,6 @@ export interface LoopConfig {
   maxIterations: number;
   maxDenials: number;
   llmTimeout: number;
-  maxRetries: number;
   groundingMode: GroundingMode;
   llmLimiter: SlidingWindowRateLimiter | null;
   toolRateLimiter: SlidingWindowRateLimiter | null;
@@ -193,7 +191,6 @@ export function resolveLoopConfig(config: OrchestratorConfig): LoopConfig {
     maxIterations: config.maxIterations ?? MAX_ITERATIONS,
     maxDenials: config.maxDenials ?? 3,
     llmTimeout: config.llmTimeout ?? DEFAULT_TIMEOUTS.llm,
-    maxRetries: config.maxRetries ?? MAX_RETRIES,
     groundingMode,
     llmLimiter,
     toolRateLimiter,

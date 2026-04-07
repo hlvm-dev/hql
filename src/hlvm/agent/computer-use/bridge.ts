@@ -270,7 +270,12 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
 
     async typeText(text: string): Promise<void> {
       // Direct keystroke typing (not via clipboard)
-      const escaped = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      const escaped = text
+        .replace(/\\/g, "\\\\")
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, "\\n")
+        .replace(/\r/g, "\\r")
+        .replace(/\t/g, "\\t");
       await osascript(
         `tell application "System Events" to keystroke "${escaped}"`,
       );
@@ -387,23 +392,31 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
       },
 
       async listInstalled(): Promise<InstalledApp[]> {
+        // CC uses Spotlight/LSCopyApplicationURLsForBundleIdentifier (Swift).
+        // HLVM: use mdfind to query Spotlight for .app bundles, then read
+        // bundle IDs via defaults read. Falls back to running apps with paths.
         try {
           const raw = await jxa(`
             ObjC.import('AppKit');
-            var ws = $.NSWorkspace.sharedWorkspace;
-            var urls = ws.runningApplications;
+            ObjC.import('CoreServices');
+            var fm = $.NSFileManager.defaultManager;
+            var appDirs = ['/Applications', '/System/Applications'];
+            var home = ObjC.unwrap($.NSHomeDirectory());
+            if (home) appDirs.push(home + '/Applications');
             var result = [];
-            for (var i = 0; i < urls.count; i++) {
-              var app = urls.objectAtIndex(i);
-              var bid = ObjC.unwrap(app.bundleIdentifier);
-              var name = ObjC.unwrap(app.localizedName);
-              var url = app.bundleURL;
-              if (bid && name && url) {
-                result.push({
-                  bundleId: bid,
-                  displayName: name,
-                  path: ObjC.unwrap(url.path)
-                });
+            for (var d = 0; d < appDirs.length; d++) {
+              var dir = appDirs[d];
+              var contents = fm.contentsOfDirectoryAtPathError(dir, null);
+              if (!contents) continue;
+              for (var i = 0; i < contents.count; i++) {
+                var name = ObjC.unwrap(contents.objectAtIndex(i));
+                if (!name.endsWith('.app')) continue;
+                var path = dir + '/' + name;
+                var bundle = $.NSBundle.bundleWithPath(path);
+                if (!bundle) continue;
+                var bid = ObjC.unwrap(bundle.bundleIdentifier);
+                var displayName = name.replace(/\\.app$/, '');
+                if (bid) result.push({ bundleId: bid, displayName: displayName, path: path });
               }
             }
             JSON.stringify(result);
@@ -482,9 +495,9 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
     },
   };
 
-  // Async init: populate display cache
-  initDisplayCache().catch(() => {});
-  initRunningAppsCache().catch(() => {});
+  // Async init: populate caches
+  _displayCacheReady = initDisplayCache().catch(() => {});
+  _runningAppsReady = initRunningAppsCache().catch(() => {});
 
   return _swiftInstance;
 }
@@ -494,6 +507,8 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
 let _cachedDisplaySize: DisplayGeometry | undefined;
 let _cachedDisplayList: DisplayGeometry[] | undefined;
 let _cachedRunningApps: RunningApp[] | undefined;
+let _displayCacheReady: Promise<void> | undefined;
+let _runningAppsReady: Promise<void> | undefined;
 
 async function initDisplayCache(): Promise<void> {
   try {
@@ -554,6 +569,18 @@ async function initRunningAppsCache(): Promise<void> {
 /** Refresh display cache. Called before screenshot to ensure accurate dims. */
 export async function refreshDisplayCache(): Promise<void> {
   await initDisplayCache();
+}
+
+/** Ensure display cache is populated. Await before reading getSize(). */
+export async function ensureDisplayCache(): Promise<void> {
+  if (_displayCacheReady) await _displayCacheReady;
+  if (!_cachedDisplaySize) await initDisplayCache();
+}
+
+/** Ensure running apps cache is populated. Await before reading listRunning(). */
+export async function ensureRunningAppsCache(): Promise<void> {
+  if (_runningAppsReady) await _runningAppsReady;
+  if (!_cachedRunningApps) await initRunningAppsCache();
 }
 
 // ── Screenshot implementation ────────────────────────────────────────────

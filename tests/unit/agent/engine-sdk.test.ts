@@ -289,7 +289,7 @@ Deno.test("engine sdk: applyPromptCaching decorates anthropic stable prompt segm
   const sessionSegmentProviderOptions =
     decoratedSystem[1].providerOptions as Record<string, unknown>;
   const turnSegmentProviderOptions = decoratedSystem[2]
-    .providerOptions as Record<string, unknown> | undefined;
+    ?.providerOptions as Record<string, unknown> | undefined;
   const lastMessageContent = (decorated.messages[0] as Record<string, unknown>)
     .content as Array<Record<string, unknown>>;
   const lastMessagePartOptions = lastMessageContent[0]

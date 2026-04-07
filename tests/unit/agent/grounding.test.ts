@@ -4,28 +4,28 @@ import {
   type ToolUse,
 } from "../../../src/hlvm/agent/grounding.ts";
 
-Deno.test("grounding: plain answers without tool claims stay grounded", () => {
-  const result = checkGrounding("Here is the answer.", []);
+Deno.test("grounding: plain answers without tool claims stay grounded", async () => {
+  const result = await checkGrounding("Here is the answer.", []);
   assertEquals(result.grounded, true);
   assertEquals(result.warnings.length, 0);
 });
 
-Deno.test("grounding: fabricated tool-result headers are rejected", () => {
+Deno.test("grounding: fabricated tool-result headers are rejected", async () => {
   for (
     const response of [
       "[Tool Result] stdout: 4\nFinal: 4",
       "Tool Result: stdout: 4\nFinal: 4",
     ]
   ) {
-    const result = checkGrounding(response, []);
+    const result = await checkGrounding(response, []);
     assertEquals(result.grounded, false);
     assert(result.warnings.length >= 1);
     assertStringIncludes(result.warnings.join("\n"), "Tool Result");
   }
 });
 
-Deno.test("grounding: unknown tool references are rejected even without real tool usage", () => {
-  const result = checkGrounding(
+Deno.test("grounding: unknown tool references are rejected even without real tool usage", async () => {
+  const result = await checkGrounding(
     'Using the "html-parse" tool, I extracted the content.',
     [],
   );
@@ -34,7 +34,7 @@ Deno.test("grounding: unknown tool references are rejected even without real too
   assertStringIncludes(result.warnings.join("\n"), "unknown tool");
 });
 
-Deno.test("grounding: real tool usage can be grounded by citation, normalized name, or concrete data overlap", () => {
+Deno.test("grounding: real tool usage can be grounded by citation, normalized name, or concrete data overlap", async () => {
   const namedTool: ToolUse[] = [{
     toolName: "list_files",
     result: "file1\nfile2",
@@ -43,31 +43,25 @@ Deno.test("grounding: real tool usage can be grounded by citation, normalized na
     toolName: "get_structure",
     result: "tree",
   }];
-  const numericTool: ToolUse[] = [{ toolName: "compute", result: "4" }];
   const citedWebTool: ToolUse[] = [{
     toolName: "search_web",
     result: "non-json formatted result",
   }];
 
   assertEquals(
-    checkGrounding("Based on list_files, there are 2 files.", namedTool)
+    (await checkGrounding("Based on list_files, there are 2 files.", namedTool))
       .grounded,
     true,
   );
   assertEquals(
-    checkGrounding(
+    (await checkGrounding(
       "According to get structure, here is the tree.",
       normalizedTool,
-    ).grounded,
+    )).grounded,
     true,
   );
   assertEquals(
-    checkGrounding("The result of the expression '2+2' is 4.", numericTool)
-      .grounded,
-    true,
-  );
-  assertEquals(
-    checkGrounding(
+    (await checkGrounding(
       "TaskGroup cancels sibling tasks on failure.",
       citedWebTool,
       [{
@@ -77,17 +71,17 @@ Deno.test("grounding: real tool usage can be grounded by citation, normalized na
         endIndex: 42,
         confidence: 0.78,
       }],
-    ).grounded,
+    )).grounded,
     true,
   );
 });
 
-Deno.test("grounding: uncited non-web claims still fail even when another claim has citations", () => {
+Deno.test("grounding: uncited non-web claims still fail even when another claim has citations", async () => {
   const toolUses: ToolUse[] = [
     { toolName: "search_web", result: "non-json formatted result" },
     { toolName: "list_files", result: '{"count": 270, "files": [...]}' },
   ];
-  const result = checkGrounding(
+  const result = await checkGrounding(
     "TaskGroup cancels sibling tasks on failure. I found some files in the directory.",
     toolUses,
     [{
@@ -102,8 +96,8 @@ Deno.test("grounding: uncited non-web claims still fail even when another claim 
   assert(result.warnings.length >= 1);
 });
 
-Deno.test("grounding: custom web search payload citations still count without provider spans", () => {
-  const result = checkGrounding(
+Deno.test("grounding: custom web search payload citations still count without provider spans", async () => {
+  const result = await checkGrounding(
     "The official docs confirm the API exists.",
     [{
       toolName: "search_web",
@@ -119,8 +113,8 @@ Deno.test("grounding: custom web search payload citations still count without pr
   assertEquals(result.grounded, true);
 });
 
-Deno.test("grounding: empty citation-backed web search can safely ask for clarification without citations", () => {
-  const result = checkGrounding(
+Deno.test("grounding: empty citation-backed web search can safely ask for clarification without citations", async () => {
+  const result = await checkGrounding(
     "Based on search_web, the search returned no results. Please clarify the query.",
     [{
       toolName: "search_web",

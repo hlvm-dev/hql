@@ -23,7 +23,7 @@ export {
 } from "./recall.ts";
 
 // Tools
-export { MEMORY_TOOLS, setMemoryModelTier } from "./tools.ts";
+export { MEMORY_TOOLS, setMemoryModelTier, _resetMemoryModelTierForTests } from "./tools.ts";
 
 // Shared write pipeline
 export { insertFact } from "./pipeline.ts";

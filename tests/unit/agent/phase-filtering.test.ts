@@ -84,13 +84,13 @@ function makeConfig(
 // Tests
 // ---------------------------------------------------------------------------
 
-Deno.test("applyAdaptiveToolPhase skips filtering for standard-tier models", () => {
+Deno.test("applyAdaptiveToolPhase skips filtering for standard-tier models", async () => {
   registerTestTool(`${testToolPrefix}read`, "read");
   registerTestTool(`${testToolPrefix}write`, "write");
   try {
     const state = makeLoopState({ lastToolNames: [] });
     const config = makeConfig({ modelTier: "standard" });
-    const phase = applyAdaptiveToolPhase(state, config, "fix the bug");
+    const phase = await applyAdaptiveToolPhase(state, config, "fix the bug");
     // Phase is derived but tool filtering is NOT applied —
     // toolFilterState.allowlist remains undefined.
     assertEquals(config.toolFilterState?.allowlist, undefined);
@@ -100,26 +100,26 @@ Deno.test("applyAdaptiveToolPhase skips filtering for standard-tier models", () 
   }
 });
 
-Deno.test("applyAdaptiveToolPhase skips filtering for enhanced-tier models", () => {
+Deno.test("applyAdaptiveToolPhase skips filtering for enhanced-tier models", async () => {
   registerTestTool(`${testToolPrefix}read`, "read");
   registerTestTool(`${testToolPrefix}shell`, "shell");
   try {
     const state = makeLoopState({ lastToolNames: [] });
     const config = makeConfig({ modelTier: "enhanced" });
-    applyAdaptiveToolPhase(state, config, "run the tests");
+    await applyAdaptiveToolPhase(state, config, "run the tests");
     assertEquals(config.toolFilterState?.allowlist, undefined);
   } finally {
     cleanupTestTools();
   }
 });
 
-Deno.test("applyAdaptiveToolPhase applies filtering for constrained-tier models", () => {
+Deno.test("applyAdaptiveToolPhase applies filtering for constrained-tier models", async () => {
   registerTestTool(`${testToolPrefix}read`, "read");
   registerTestTool(`${testToolPrefix}write`, "write");
   try {
     const state = makeLoopState({ lastToolNames: [] });
     const config = makeConfig({ modelTier: "constrained" });
-    applyAdaptiveToolPhase(state, config, "read the file");
+    await applyAdaptiveToolPhase(state, config, "read the file");
     // For constrained models, phase filtering IS applied — allowlist gets populated.
     assertEquals(Array.isArray(config.toolFilterState?.allowlist), true);
   } finally {

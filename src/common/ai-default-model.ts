@@ -438,7 +438,7 @@ export async function ensureInitialModelConfigured(
   let snapshot = deps.getSnapshot();
   const autoConfiguredClaude = false;
   let autoConfiguredLocalFallback = false;
-  const autoConfiguredOllamaCloud = false;
+  let autoConfiguredOllamaCloud = false;
   let firstRunConfigured = false;
   let reconciledClaudeModel = false;
 
@@ -462,6 +462,18 @@ export async function ensureInitialModelConfigured(
       if (setupModel) {
         firstRunConfigured = true;
       }
+      snapshot = await deps.syncSnapshot();
+    }
+  }
+
+  if (isAutomaticDefaultCandidate(snapshot)) {
+    const cloudModel = await autoConfigureInitialOllamaCloudModel({
+      getSnapshot: deps.getSnapshot,
+      listCatalogModels: deps.listCatalogModels,
+      patchConfig: deps.patchConfig,
+    });
+    if (cloudModel) {
+      autoConfiguredOllamaCloud = true;
       snapshot = await deps.syncSnapshot();
     }
   }

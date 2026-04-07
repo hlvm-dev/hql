@@ -65,9 +65,9 @@ function dedupeWriteOptions(
   return deduped;
 }
 
-export function writeMemoryFact(
+export async function writeMemoryFact(
   opts: WriteMemoryFactOptions,
-): WriteMemoryFactResult {
+): Promise<WriteMemoryFactResult> {
   const normalized = normalizeWriteOptions(opts);
   const existing = findExactActiveFact(
     normalized.content,
@@ -76,13 +76,13 @@ export function writeMemoryFact(
   if (existing) {
     return { factId: existing.id, linkedEntities: 0, invalidated: 0 };
   }
-  const factId = insertFactRecord(normalized);
+  const factId = await insertFactRecord(normalized);
   const linkedEntities = normalized.linkEntities === false
     ? 0
     : linkFactEntities(factId, normalized.content);
   const invalidated = normalized.invalidateConflicts === true
     ? autoInvalidateConflicts(
-      detectConflicts(normalized.content, normalized.category ?? "General"),
+      await detectConflicts(normalized.content, normalized.category ?? "General"),
       normalized.modelTier ?? "standard",
     ).length
     : 0;
@@ -90,15 +90,15 @@ export function writeMemoryFact(
   return { factId, linkedEntities, invalidated };
 }
 
-export function writeMemoryFacts(
+export async function writeMemoryFacts(
   entries: WriteMemoryFactOptions[],
-): WriteMemoryFactsResult {
+): Promise<WriteMemoryFactsResult> {
   let linkedEntities = 0;
   let invalidated = 0;
   const factIds: number[] = [];
 
   for (const entry of dedupeWriteOptions(entries)) {
-    const result = writeMemoryFact(entry);
+    const result = await writeMemoryFact(entry);
     factIds.push(result.factId);
     linkedEntities += result.linkedEntities;
     invalidated += result.invalidated;
@@ -116,12 +116,13 @@ export function writeMemoryFacts(
  * Canonical public insert used by external consumers via memory/mod.ts.
  * Internal callers that need raw DB-only insertion should import from facts.ts.
  */
-export function insertFact(
+export async function insertFact(
   opts: InsertFactOptions & { modelTier?: ModelTier },
-): number {
-  return writeMemoryFact({
+): Promise<number> {
+  const result = await writeMemoryFact({
     ...opts,
     linkEntities: true,
     invalidateConflicts: false,
-  }).factId;
+  });
+  return result.factId;
 }

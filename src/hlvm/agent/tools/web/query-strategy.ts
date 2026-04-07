@@ -268,8 +268,36 @@ export function generateQueryVariants(query: string, maxVariants = 2): string[] 
   return variants.slice(0, limit);
 }
 
+/** Derive computed intent fields from primary LLM-classified fields. */
+function deriveIntentFields(
+  trimmed: string,
+  primary: {
+    wantsOfficialDocs: boolean;
+    wantsComparison: boolean;
+    wantsRecency: boolean;
+    wantsVersionSpecific: boolean;
+    wantsReleaseNotes: boolean;
+    wantsReference: boolean;
+  },
+): SearchQueryIntent {
+  const wantsAuthoritativeBias = primary.wantsOfficialDocs || primary.wantsReference || primary.wantsReleaseNotes;
+  const wantsMultiSourceSynthesis = primary.wantsComparison || primary.wantsReleaseNotes;
+  const wantsQueryDecomposition = primary.wantsComparison ||
+    primary.wantsReleaseNotes ||
+    ((primary.wantsOfficialDocs || primary.wantsReference) && trimmed.split(/\s+/).length >= 5) ||
+    (primary.wantsRecency && wantsAuthoritativeBias && trimmed.split(/\s+/).length >= 6);
+  const wantsFetchFirst = wantsAuthoritativeBias || wantsMultiSourceSynthesis || primary.wantsRecency;
+  return {
+    ...primary,
+    wantsQueryDecomposition,
+    wantsFetchFirst,
+    wantsMultiSourceSynthesis,
+    wantsAuthoritativeBias,
+  };
+}
+
 /**
- * Detects search intent signals from a query string.
+ * Detects search intent signals from a query string (sync, for formatting hot path).
  *
  * All patterns are English-only (see intent-patterns.ts). Non-English queries produce
  * all-false intent booleans, resulting in generic unbiased search. The `locale` parameter
@@ -283,25 +311,33 @@ export function detectSearchQueryIntent(query: string): SearchQueryIntent {
   const wantsReleaseNotes = RELEASE_NOTES_RE.test(trimmed);
   const wantsReference = REFERENCE_RE.test(trimmed);
   const wantsRecency = RECENCY_RE.test(trimmed) || (YEAR_RE.test(trimmed) && !wantsVersionSpecific);
-  const wantsAuthoritativeBias = wantsOfficialDocs || wantsReference || wantsReleaseNotes;
-  const wantsMultiSourceSynthesis = wantsComparison || wantsReleaseNotes;
-  const wantsQueryDecomposition = wantsComparison ||
-    wantsReleaseNotes ||
-    ((wantsOfficialDocs || wantsReference) && trimmed.split(/\s+/).length >= 5) ||
-    (wantsRecency && wantsAuthoritativeBias && trimmed.split(/\s+/).length >= 6);
-  const wantsFetchFirst = wantsAuthoritativeBias || wantsMultiSourceSynthesis || wantsRecency;
-  return {
-    wantsOfficialDocs,
-    wantsComparison,
-    wantsRecency,
-    wantsVersionSpecific,
-    wantsReleaseNotes,
-    wantsReference,
-    wantsQueryDecomposition,
-    wantsFetchFirst,
-    wantsMultiSourceSynthesis,
-    wantsAuthoritativeBias,
-  };
+  return deriveIntentFields(trimmed, {
+    wantsOfficialDocs, wantsComparison, wantsRecency,
+    wantsVersionSpecific, wantsReleaseNotes, wantsReference,
+  });
+}
+
+/**
+ * Detects search intent signals using LLM classification (async, for search pipeline).
+ * Falls back to regex-based detection on LLM failure.
+ */
+export async function detectSearchQueryIntentAsync(query: string): Promise<SearchQueryIntent> {
+  const trimmed = query.trim();
+  if (!trimmed) return detectSearchQueryIntent(query);
+  try {
+    const { classifySearchIntent } = await import("../../../runtime/local-llm.ts");
+    const result = await classifySearchIntent(trimmed);
+    return deriveIntentFields(trimmed, {
+      wantsOfficialDocs: result.officialDocs,
+      wantsComparison: result.comparison,
+      wantsRecency: result.recency,
+      wantsVersionSpecific: result.versionSpecific,
+      wantsReleaseNotes: result.releaseNotes,
+      wantsReference: result.reference,
+    });
+  } catch {
+    return detectSearchQueryIntent(query);
+  }
 }
 
 export function prefersSingleHostSources(
@@ -317,13 +353,36 @@ export function prefersSingleHostSources(
   return /\b(official|api|manual|spec)\b/i.test(query);
 }
 
+export async function prefersSingleHostSourcesAsync(
+  query: string,
+  intent?: SearchQueryIntent,
+  allowedDomains?: string[],
+): Promise<boolean> {
+  const resolvedIntent = intent ?? await detectSearchQueryIntentAsync(query);
+  return prefersSingleHostSources(query, resolvedIntent, allowedDomains);
+}
+
+export async function buildFollowupQueriesAsync(
+  input: FollowupQueryInput,
+): Promise<string[]> {
+  const intent = await detectSearchQueryIntentAsync(input.userQuery.trim());
+  return buildFollowupQueriesWithIntent({ ...input, intent });
+}
+
 export function buildFollowupQueries(
-  { userQuery, confidenceReason, currentResults: _currentResults, maxQueries }: FollowupQueryInput,
+  input: FollowupQueryInput,
+): string[] {
+  return buildFollowupQueriesWithIntent(input);
+}
+
+function buildFollowupQueriesWithIntent(
+  { userQuery, confidenceReason, currentResults: _currentResults, maxQueries, intent: precomputedIntent }:
+    FollowupQueryInput & { intent?: SearchQueryIntent },
 ): string[] {
   const trimmed = userQuery.trim();
   if (!trimmed || maxQueries <= 0) return [];
 
-  const intent = detectSearchQueryIntent(trimmed);
+  const intent = precomputedIntent ?? detectSearchQueryIntent(trimmed);
   const seen = new Set<string>([trimmed.toLowerCase()]);
   const queries: string[] = [];
 

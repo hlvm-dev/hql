@@ -3,7 +3,11 @@ import {
   createModelDiscoveryStore,
   getModelDiscoveryModels,
 } from "../../../src/hlvm/providers/model-discovery-store.ts";
+import { LOCAL_FALLBACK_MODEL } from "../../../src/hlvm/runtime/bootstrap-manifest.ts";
 import { withTempHlvmDir } from "../helpers.ts";
+
+/** The pinned default local model is always injected into remote model lists. */
+const PINNED_MODEL = LOCAL_FALLBACK_MODEL; // "gemma4:e4b"
 
 Deno.test("model discovery store reads persisted snapshot before refresh", async () => {
   await withTempHlvmDir(async () => {
@@ -38,6 +42,7 @@ Deno.test("model discovery store reads persisted snapshot before refresh", async
 
     assertEquals(snapshot.timestamp, 123);
     assertEquals(snapshot.remoteModels.map((model) => model.name), [
+      PINNED_MODEL,
       "qwen3:latest",
     ]);
     assertEquals(snapshot.cloudModels.map((model) => model.name), [
@@ -100,21 +105,21 @@ Deno.test("model discovery store preserves cached cloud models when refresh fail
 
     assertEquals(result.failed, true);
     assertEquals(result.snapshot.timestamp, 200);
-    assertEquals(result.snapshot.remoteModels.map((model) => model.name), [
-      "new-remote",
-    ]);
+    const remoteNames = result.snapshot.remoteModels.map((model) => model.name);
+    assert(remoteNames.includes(PINNED_MODEL), "Pinned model should be injected");
+    assert(remoteNames.includes("new-remote"), "New remote model should be present");
     assertEquals(result.snapshot.cloudModels.map((model) => model.name), [
       "claude-sonnet-4.5",
     ]);
-    assertEquals(JSON.parse(writtenSnapshot), {
-      timestamp: 200,
-      remoteModels: [{ name: "new-remote", displayName: "New Remote" }],
-      cloudModels: [{
-        name: "claude-sonnet-4.5",
-        displayName: "Claude Sonnet 4.5",
-        metadata: { provider: "anthropic" },
-      }],
-    });
+    const written = JSON.parse(writtenSnapshot);
+    assertEquals(written.timestamp, 200);
+    assert(written.remoteModels.some((m: { name: string }) => m.name === "new-remote"));
+    assert(written.remoteModels.some((m: { name: string }) => m.name === PINNED_MODEL));
+    assertEquals(written.cloudModels, [{
+      name: "claude-sonnet-4.5",
+      displayName: "Claude Sonnet 4.5",
+      metadata: { provider: "anthropic" },
+    }]);
   });
 });
 
@@ -157,13 +162,14 @@ Deno.test("model discovery store clears stale models after a successful empty re
 
     assertEquals(result.failed, false);
     assertEquals(result.snapshot.timestamp, 200);
-    assertEquals(result.snapshot.remoteModels, []);
+    // Remote models still contain the pinned default even when authoritative empty
+    assertEquals(result.snapshot.remoteModels.map((m) => m.name), [PINNED_MODEL]);
     assertEquals(result.snapshot.cloudModels, []);
-    assertEquals(JSON.parse(writtenSnapshot), {
-      timestamp: 200,
-      remoteModels: [],
-      cloudModels: [],
-    });
+    const written = JSON.parse(writtenSnapshot);
+    assertEquals(written.timestamp, 200);
+    assertEquals(written.remoteModels.length, 1);
+    assertEquals(written.remoteModels[0].name, PINNED_MODEL);
+    assertEquals(written.cloudModels, []);
   });
 });
 
@@ -205,6 +211,7 @@ Deno.test("model discovery store preserves cached models on ambiguous empty refr
     assertEquals(result.failed, true);
     assertEquals(result.snapshot.timestamp, 100);
     assertEquals(result.snapshot.remoteModels.map((model) => model.name), [
+      PINNED_MODEL,
       "old-remote",
     ]);
     assertEquals(result.snapshot.cloudModels.map((model) => model.name), [

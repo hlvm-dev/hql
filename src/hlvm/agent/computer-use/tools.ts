@@ -90,11 +90,18 @@ function parseCoordinate(
   coord: unknown,
   name = "coordinate",
 ): { x: number; y: number } {
-  if (!Array.isArray(coord) || coord.length !== 2) {
+  // Models sometimes send "[640, 360]" as a string instead of [640, 360] array
+  let parsed = coord;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch { /* fall through to validation */ }
+  }
+  if (!Array.isArray(parsed) || parsed.length !== 2) {
     throw new Error(`${name} must be a [x, y] tuple`);
   }
-  const [x, y] = coord as [number, number];
-  if (typeof x !== "number" || typeof y !== "number") {
+  const [x, y] = [Number(parsed[0]), Number(parsed[1])];
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
     throw new Error(`${name} values must be numbers`);
   }
   return { x, y };
@@ -258,14 +265,16 @@ const cuTypeFn = cuTool("Type failed", async (args, exec) => {
 
 const cuKeyFn = cuTool("Key press failed", async (args, exec) => {
   const { text, repeat } = args as { text: string; repeat?: number };
-  await exec.key(text, repeat);
-  return okTool({ pressed: text, repeat: repeat ?? 1 });
+  const rpt = repeat != null ? (Number(repeat) || 1) : undefined;
+  await exec.key(text, rpt);
+  return okTool({ pressed: text, repeat: rpt ?? 1 });
 });
 
 const cuHoldKeyFn = cuTool("Hold key failed", async (args, exec) => {
   const { text, duration } = args as { text: string; duration: number };
-  await exec.holdKey([text], duration * 1000);
-  return okTool({ held: text, duration_seconds: duration });
+  const dur = Number(duration) || 1;
+  await exec.holdKey([text], dur * 1000);
+  return okTool({ held: text, duration_seconds: dur });
 });
 
 const cuWriteClipboardFn = cuTool("Clipboard write failed", async (args, exec) => {
@@ -281,9 +290,10 @@ const cuScrollFn = cuTool("Scroll failed", async (args, exec) => {
     scroll_amount: number;
   };
   const { x, y } = parseCoordinate(coordinate);
-  const { dx, dy } = scrollDirectionToDeltas(scroll_direction, scroll_amount);
+  const amount = Number(scroll_amount) || 3;
+  const { dx, dy } = scrollDirectionToDeltas(scroll_direction, amount);
   await exec.scroll(x, y, dx, dy);
-  return okTool({ scrolled: { x, y, direction: scroll_direction, amount: scroll_amount } });
+  return okTool({ scrolled: { x, y, direction: scroll_direction, amount } });
 });
 
 const cuLeftClickDragFn = cuTool("Drag failed", async (args, exec) => {
@@ -300,24 +310,32 @@ const cuLeftClickDragFn = cuTool("Drag failed", async (args, exec) => {
 });
 
 const cuZoomFn = cuTool("Zoom failed", async (args, exec) => {
-  const { region } = args as { region: [number, number, number, number] };
+  let { region } = args as { region: unknown };
+  if (typeof region === "string") {
+    try { region = JSON.parse(region); } catch { /* fall through */ }
+  }
   if (!Array.isArray(region) || region.length !== 4) {
     throw new Error("region must be a [x1, y1, x2, y2] tuple");
   }
-  const [x1, y1, x2, y2] = region;
+  const [x1, y1, x2, y2] = region.map(Number);
   const result = await exec.zoom({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 }, []);
   return imageResult({ width: result.width, height: result.height }, result);
 });
 
 const cuOpenApplicationFn = cuTool("Open application failed", async (args, exec) => {
   const { bundle_id } = args as { bundle_id: string };
+  // Sanitize: bundle IDs are reverse-DNS (letters, digits, dots, hyphens)
+  if (!/^[\w.-]+$/.test(bundle_id)) {
+    throw new Error(`Invalid bundle ID: "${bundle_id}"`);
+  }
   await exec.openApp(bundle_id);
   return okTool({ opened: bundle_id });
 });
 
 const cuRequestAccessFn = cuTool("Request access failed", async (args, _exec) => {
-  const { apps } = args as { apps: Array<{ displayName?: string }> };
-  const names = apps.map((a) => a.displayName ?? "unknown").join(", ");
+  const { apps } = args as { apps?: unknown };
+  const appList = Array.isArray(apps) ? apps : [];
+  const names = appList.map((a: any) => a?.displayName ?? "unknown").join(", ") || "requested apps";
   return okTool({
     message: `Access request noted for: ${names}. Use System Preferences > Privacy & Security to grant accessibility access.`,
   });
@@ -325,7 +343,7 @@ const cuRequestAccessFn = cuTool("Request access failed", async (args, _exec) =>
 
 const cuWaitFn = cuTool("Wait failed", async (args, exec) => {
   const { duration } = args as { duration: number };
-  const cappedDuration = Math.min(duration, 100);
+  const cappedDuration = Math.min(Number(duration) || 2, 100);
   await sleep(cappedDuration * 1000);
   const result = await exec.screenshot({ allowedBundleIds: [] });
   return imageResult(

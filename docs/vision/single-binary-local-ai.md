@@ -68,8 +68,8 @@ Expected result:
   Works immediately, out of the box, with Gemma available by default.
 ```
 
-This standard flow is the complete supported install. There is no separate
-public "full" mode, bundle mode, or offline mode for this ship.
+This standard flow is the primary supported install. A secondary `--bundled`
+mode exists for offline/air-gapped environments (see Bundled Install UX below).
 
 ### Bundled Install UX (offline-capable)
 
@@ -323,9 +323,25 @@ Tarball live at: `https://huggingface.co/HLVM/hlvm-releases/resolve/v0.1.0/hlvm-
 
 ### Website / Installer Hosting Proof
 
-1. `https://hlvm.dev/install.sh` serves the real shell script
+1. `https://hlvm.dev/install.sh` serves the real shell script (standard + `--bundled`)
 2. `https://hlvm.dev/install.ps1` serves the real PowerShell script
 3. both live installer scripts default to `hlvm-dev/hql`
+4. `--bundled` mode downloads sidecar tarball from HuggingFace (`HLVM/hlvm-releases`)
+
+### Website Deploy Proof (Firebase, 2026-04-07)
+
+CI run `24089965535` — website deploy succeeded end-to-end:
+
+```text
+deploy-website.yml (push to main)
+  ✓ Build website (npm run build)
+  ✓ Sync install.sh + install.ps1 to website/out/
+  ✓ E2E tests passed (17/17 Playwright tests)
+  ✓ Firebase deploy to hlvm.dev
+```
+
+Verified: `curl -fsSL https://hlvm.dev/install.sh | grep -c "bundled"` → 11 occurrences.
+The `--bundled` flag is live on hlvm.dev.
 
 ## Current Public Status
 
@@ -335,12 +351,18 @@ As of `2026-04-07`, this feature is:
 LOCALLY COMPLETE:              yes
 PUBLIC STANDARD SHIP COMPLETE: yes (v0.1.0 published 2026-04-06T17:38:30Z)
 PUBLIC BUNDLED SHIP COMPLETE:  yes (sidecar tarball uploaded to HuggingFace 2026-04-07)
+WEBSITE DEPLOY WORKING:        yes (Firebase deploy run 24089965535 on 2026-04-07)
+ALL CI/CD PIPELINES:           ✅ ALL 3 OPERATIONAL
+  - release.yml:               ✅ standard release (tag push → build → staged → publish → public)
+  - release-bundled.yml:       ✅ bundled sidecar upload to HuggingFace (manual trigger)
+  - deploy-website.yml:        ✅ website + install.sh deploy to Firebase (auto on push)
 ```
 
 **Published release**: `v0.1.0` on `hlvm-dev/hql` (10 assets, all platforms).
 **Embedded Ollama**: v0.20.1 (v0.20.2 has upstream packaging bug — see bug #9).
 **CI proof run**: `24041696520` — macOS Intel staged smoke passed end-to-end.
 **Bundled CI run**: `24084392859` — sidecar tarball uploaded to HuggingFace.
+**Website deploy run**: `24089965535` — Firebase deploy succeeded, install.sh live with `--bundled`.
 **HuggingFace tarball**: `https://huggingface.co/HLVM/hlvm-releases/resolve/v0.1.0/hlvm-model.tar`
 **Local proof**: macOS ARM — both CI smoke scripts passed on real hardware:
 - `scripts/release-smoke.sh standard v0.1.0` → Smoke succeeded.
@@ -364,9 +386,9 @@ Windows x86_64  │ timeout    │ timeout    │ (not tested)
 
 - `hlvm-dev/hql` is the only allowed release/install repo target
 - `hlvm-dev/hql` is public
-- `https://hlvm.dev/install.sh` returns a real standard-only script body
-- `https://hlvm.dev/install.ps1` returns a real standard-only script body
-- the live installers point to `hlvm-dev/hql`, no `--full` or offline mode
+- `https://hlvm.dev/install.sh` returns a real script with standard + `--bundled` modes
+- `https://hlvm.dev/install.ps1` returns a real script with standard install
+- the live installers point to `hlvm-dev/hql`; `--bundled` downloads sidecar from HuggingFace
 - the latest published release is `v0.1.0`
 - embedded Ollama is v0.20.1 (v0.20.2 has upstream server version bug)
 
@@ -449,15 +471,21 @@ locally tested end-to-end).
 
 See `docs/cicd/release-pipeline.md` for thorough pipeline documentation.
 
-Summary: one workflow (`release.yml`), one tag push triggers everything:
+Three workflows, all operational:
 
 ```text
-push vX.Y.Z tag ──▶ resolve → build (4 platforms) → create-release (draft)
-                     → staged smoke (4 platforms) → publish → public smoke
+1. release.yml (standard release — auto on tag push)
+   push vX.Y.Z tag ──▶ resolve → build (4 platforms) → create-release (draft)
+                        → staged smoke (4 platforms) → publish → public smoke
+   macOS Intel staged smoke MUST pass (gate).
+   ARM/Linux/Windows = continue-on-error (CI patience limits).
 
-  macOS Intel staged smoke MUST pass (gate).
-  ARM/Linux/Windows = continue-on-error (CI patience limits).
-  workflow_dispatch skips build, re-runs proof → publish → public proof.
+2. release-bundled.yml (bundled sidecar — manual trigger)
+   workflow_dispatch ──▶ pull model → package hlvm-model.tar → upload to HuggingFace
+
+3. deploy-website.yml (website + install scripts — auto on push to main)
+   push to main ──▶ build website → E2E tests → Firebase deploy to hlvm.dev
+   Updates install.sh, install.ps1, landing page, and docs.
 ```
 
 ## Two Install Modes

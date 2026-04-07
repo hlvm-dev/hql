@@ -54,7 +54,23 @@ function isComputerUseLock(value: unknown): value is ComputerUseLock {
   );
 }
 
+// ── Test isolation hooks ─────────────────────────────────────────────
+let _lockPathOverride: string | undefined;
+
+/** @internal Override lock file path for test isolation. Pass undefined to reset. */
+export function _setLockPathForTests(path: string | undefined): void {
+  _lockPathOverride = path;
+}
+
+/** @internal Reset module-level state between tests. */
+export function _resetLockStateForTests(): void {
+  unregisterCleanup?.();
+  unregisterCleanup = undefined;
+  _currentSessionId = undefined;
+}
+
 function getLockPath(): string {
+  if (_lockPathOverride) return _lockPathOverride;
   const platform = getPlatform();
   const home = platform.env.get("HOME") ?? "/tmp";
   return platform.path.join(home, ".hlvm", LOCK_FILENAME);

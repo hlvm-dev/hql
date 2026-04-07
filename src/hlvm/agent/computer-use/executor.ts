@@ -33,7 +33,7 @@ import type {
 
 import { API_RESIZE_PARAMS, targetImageSize } from "./types.ts";
 import { getAgentLogger } from "../logger.ts";
-import { execFileNoThrow, requireComputerUseInput, requireComputerUseSwift } from "./bridge.ts";
+import { ensureDisplayCache, ensureRunningAppsCache, execFileNoThrow, requireComputerUseInput, requireComputerUseSwift } from "./bridge.ts";
 import {
   CLI_CU_CAPABILITIES,
   CLI_HOST_BUNDLE_ID,
@@ -367,6 +367,7 @@ export function createCliExecutor(opts: {
       allowedBundleIds: string[];
       displayId?: number;
     }): Promise<ScreenshotResult> {
+      await ensureDisplayCache();
       const d = cu.display.getSize(opts2.displayId);
       const [targetW, targetH] = computeTargetDims(
         d.width,
@@ -389,6 +390,7 @@ export function createCliExecutor(opts: {
       allowedBundleIds: string[],
       displayId?: number,
     ): Promise<{ base64: string; width: number; height: number }> {
+      await ensureDisplayCache();
       const d = cu.display.getSize(displayId);
       const [outW, outH] = computeTargetDims(
         regionLogical.w,
@@ -578,6 +580,7 @@ export function createCliExecutor(opts: {
     },
 
     async listRunningApps(): Promise<RunningApp[]> {
+      await ensureRunningAppsCache();
       return cu.apps.listRunning();
     },
 

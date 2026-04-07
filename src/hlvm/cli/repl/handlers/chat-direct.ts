@@ -29,8 +29,8 @@ import {
 import { traceReplMainThreadForSource } from "../../../repl-main-thread-trace.ts";
 import {
   isLocalFallbackReady,
-  isLocalFallbackWorthy,
   LOCAL_FALLBACK_MODEL_ID,
+  withFallbackChain,
 } from "../../../runtime/local-fallback.ts";
 import { getLocalModelDisplayName } from "../../../runtime/local-llm.ts";
 
@@ -141,58 +141,35 @@ async function streamChatWithFallback(
     emit({ event: "token", text: token });
   };
 
-  try {
-    return await drainTokenStream(
-      createChatTokenIterator(
-        providerMessages,
-        resolvedModel,
-        body,
-        weakContextRawLimit,
-        signal,
-      ),
+  const tryStream = (model: string | undefined) =>
+    drainTokenStream(
+      createChatTokenIterator(providerMessages, model, body, weakContextRawLimit, signal),
       signal,
       forwardChunk,
     );
-  } catch (error) {
-    if (emittedAnyToken || !isLocalFallbackWorthy(error) || resolvedModel?.startsWith("ollama/")) {
-      throw error;
-    }
 
-    // Try scored fallbacks first (auto mode)
-    for (const fallbackModel of scoredFallbacks) {
-      try {
-        emit({ event: "warning", message: `Switching to ${fallbackModel}...` });
-        return await drainTokenStream(
-          createChatTokenIterator(providerMessages, fallbackModel, body, weakContextRawLimit, signal),
-          signal,
-          forwardChunk,
-        );
-      } catch (fbError) {
-        if (!isLocalFallbackWorthy(fbError)) throw fbError;
-      }
-    }
-
-    // Last resort: local gemma4
-    if (!(await isLocalFallbackReady())) {
+  return withFallbackChain<string>({
+    tryPrimary: () => tryStream(resolvedModel),
+    fallbacks: emittedAnyToken || resolvedModel?.startsWith("ollama/")
+      ? []
+      : scoredFallbacks,
+    tryFallback: (model) => {
+      emit({ event: "warning", message: `Switching to ${model}...` });
+      return tryStream(model);
+    },
+    lastResort: emittedAnyToken || resolvedModel?.startsWith("ollama/")
+      ? undefined
+      : { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: isLocalFallbackReady },
+    tryLastResort: (model) => {
+      emit({ event: "warning", message: LOCAL_FALLBACK_RETRY_MESSAGE });
+      return tryStream(model);
+    },
+    onLastResortUnavailable: (err) => {
       throw new RuntimeError(LOCAL_FALLBACK_PREPARING_MESSAGE, {
-        originalError: error instanceof Error ? error : undefined,
+        originalError: err instanceof Error ? err : undefined,
       });
-    }
-
-    emit({ event: "warning", message: LOCAL_FALLBACK_RETRY_MESSAGE });
-
-    return await drainTokenStream(
-      createChatTokenIterator(
-        providerMessages,
-        LOCAL_FALLBACK_MODEL_ID,
-        body,
-        weakContextRawLimit,
-        signal,
-      ),
-      signal,
-      forwardChunk,
-    );
-  }
+    },
+  });
 }
 
 function getChatSystemPrompt(): string {

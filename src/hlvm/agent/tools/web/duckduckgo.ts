@@ -23,7 +23,7 @@ import {
   type SearchCallOptions,
   type SearchResult as ProviderSearchResult,
 } from "./search-provider.ts";
-import { buildFollowupQueries } from "./query-strategy.ts";
+import { buildFollowupQueriesAsync } from "./query-strategy.ts";
 import type { SearchConfidenceReason } from "./search-ranking.ts";
 export { generateQueryVariants } from "./query-strategy.ts";
 
@@ -422,7 +422,7 @@ async function duckDuckGoSearch(
   // Follow-up queries: reformulated searches when still low confidence after page-2 merge.
   // Complementary to page-2 retry (page-2 = more of same query, follow-up = different query).
   if (reformulate && mergedConfidence.lowConfidence) {
-    followupQueries = buildFollowupQueries({
+    followupQueries = await buildFollowupQueriesAsync({
       userQuery: query,
       confidenceReason: mergedConfidence.reason as SearchConfidenceReason,
       currentResults: topResults as unknown as ProviderSearchResult[],

@@ -12,46 +12,31 @@ interface ConflictCandidate {
   score: number;
 }
 
-const NON_ALPHANUMERIC_RE = /[^a-z0-9\s]/g;
-
-function tokenize(text: string): Set<string> {
-  return new Set(
-    text.toLowerCase()
-      .replace(NON_ALPHANUMERIC_RE, " ")
-      .split(/\s+/)
-      .filter((w) => w.length > 2),
-  );
-}
-
-function jaccard(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 || b.size === 0) return 0;
-  let intersection = 0;
-  for (const item of a) {
-    if (b.has(item)) intersection++;
-  }
-  const union = a.size + b.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-}
-
-export function detectConflicts(content: string, category: string): ConflictCandidate[] {
+export async function detectConflicts(content: string, category: string): Promise<ConflictCandidate[]> {
   const categoryTrimmed = category.trim();
-  const contentTokens = tokenize(content);
-  const candidates = searchFactsFts(content, 12)
+  const ftsResults = searchFactsFts(content, 12)
     .filter((fact) => fact.category === categoryTrimmed)
-    .filter((fact) => fact.content !== content)
-    .map((fact) => {
-      const overlap = jaccard(contentTokens, tokenize(fact.content));
-      return {
-        factId: fact.id,
-        content: fact.content,
-        category: fact.category,
-        score: overlap,
-      } satisfies ConflictCandidate;
-    })
-    .filter((candidate) => candidate.score > 0.4)
-    .sort((a, b) => b.score - a.score);
+    .filter((fact) => fact.content !== content);
 
-  return candidates;
+  if (ftsResults.length === 0) return [];
+
+  const existingContents = ftsResults.map((f) => f.content);
+  const { classifyFactConflicts } = await import("../runtime/local-llm.ts");
+  const llmResult = await classifyFactConflicts(content, existingContents);
+
+  const candidates: ConflictCandidate[] = [];
+  for (const conflict of llmResult.conflicts) {
+    const fact = ftsResults[conflict.index];
+    if (!fact) continue;
+    candidates.push({
+      factId: fact.id,
+      content: fact.content,
+      category: fact.category,
+      score: conflict.score,
+    });
+  }
+
+  return candidates.sort((a, b) => b.score - a.score);
 }
 
 export function autoInvalidateConflicts(

@@ -243,7 +243,7 @@ Deno.test("Item 2: generateArgsSummary humanizes agent-team tools for the transc
       operation: "spawnTeam",
       team_name: "cleanup-team",
     }),
-    "spawn team cleanup-team",
+    "cleanup-team",
   );
   assertEquals(
     generateArgsSummary("Teammate", {
@@ -251,7 +251,7 @@ Deno.test("Item 2: generateArgsSummary humanizes agent-team tools for the transc
       name: "trash-emptier",
       agent_type: "shell",
     }),
-    "spawn trash-emptier (shell)",
+    "trash-emptier (shell)",
   );
   assertEquals(
     generateArgsSummary("TaskCreate", {
@@ -266,7 +266,7 @@ Deno.test("Item 2: generateArgsSummary humanizes agent-team tools for the transc
       status: "in_progress",
       owner: "desktop-cleaner",
     }),
-    "task 7 · in_progress · owner desktop-cleaner",
+    "#7 · in_progress · owner desktop-cleaner",
   );
   assertEquals(
     generateArgsSummary("SendMessage", {

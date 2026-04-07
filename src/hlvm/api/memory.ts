@@ -158,7 +158,7 @@ function createMemoryApi(): MemoryCallable {
       }
       const normalizedCategory = category?.trim() || "General";
       return {
-        factId: insertFact({
+        factId: await insertFact({
           content: trimmed,
           category: normalizedCategory,
           source: "memory",
@@ -196,7 +196,7 @@ function createMemoryApi(): MemoryCallable {
         );
       }
       const noteReplacements = await replaceExplicitMemoryText(findText, replaceWith);
-      const factReplacements = replaceInFacts(findText, replaceWith);
+      const factReplacements = await replaceInFacts(findText, replaceWith);
       return { noteReplacements, factReplacements };
     },
 

@@ -536,7 +536,6 @@ export interface OrchestratorConfig {
   onToken?: (text: string) => void;
   llmTimeout?: number;
   toolTimeout?: number;
-  maxRetries?: number;
   maxToolCallRepeat?: number;
   continueOnError?: boolean;
   groundingMode?: GroundingMode;
@@ -725,9 +724,11 @@ function requestImpliesEditing(query: string): boolean {
     .test(query);
 }
 
-function requestImpliesDelegation(query: string): boolean {
-  return /\b(delegate|delegation|multiple agents|spawn .*agent|parallel|concurrent|concurrently|team)\b/i
-    .test(query) || evaluateDelegationSignal(query).shouldDelegate;
+async function requestImpliesDelegation(query: string): Promise<boolean> {
+  if (/\b(delegate|delegation|multiple agents|spawn .*agent|parallel|concurrent|concurrently|team)\b/i
+    .test(query)) return true;
+  const signal = await evaluateDelegationSignal(query);
+  return signal.shouldDelegate;
 }
 
 // Pre-defined tool name sets for O(1) phase classification
@@ -746,11 +747,11 @@ const READ_TOOLS = new Set([
   "tool_search",
 ]);
 
-function deriveRuntimePhase(
+async function deriveRuntimePhase(
   state: LoopState,
   config: OrchestratorConfig,
   userRequest: string,
-): RuntimeToolPhase {
+): Promise<RuntimeToolPhase> {
   // Single pass: classify last tool names into categories
   let hasWrite = false;
   let hasComplete = false;
@@ -776,7 +777,7 @@ function deriveRuntimePhase(
   if (hasComplete) return "completing";
   if (hasDelegate) return "delegating";
   if (hasRead && requestImpliesEditing(userRequest)) return "editing";
-  if (requestImpliesDelegation(userRequest)) return "delegating";
+  if (await requestImpliesDelegation(userRequest)) return "delegating";
   if (requestImpliesEditing(userRequest)) return "editing";
   if (requestImpliesVerification(userRequest)) return "verifying";
   return "researching";
@@ -799,12 +800,12 @@ function getPhaseCategories(phase: RuntimeToolPhase): Set<string> {
 }
 
 /** @internal Exported for unit testing only. */
-export function applyAdaptiveToolPhase(
+export async function applyAdaptiveToolPhase(
   state: LoopState,
   config: OrchestratorConfig,
   userRequest: string,
-): RuntimeToolPhase {
-  const phase = deriveRuntimePhase(state, config, userRequest);
+): Promise<RuntimeToolPhase> {
+  const phase = await deriveRuntimePhase(state, config, userRequest);
   state.runtimePhase = phase;
 
   if (config.planModeState?.active || state.planState) {
@@ -924,11 +925,11 @@ function maybeInjectMemoryRecall(
   }
 }
 
-function maybeInjectDelegationHint(
+async function maybeInjectDelegationHint(
   state: LoopState,
   userRequest: string,
   config: OrchestratorConfig,
-): void {
+): Promise<void> {
   if (state.delegationHintInjected) return;
   state.delegationHintInjected = true;
 
@@ -940,7 +941,7 @@ function maybeInjectDelegationHint(
   }
   if (denied?.includes("delegate_agent")) return;
 
-  const signal = evaluateDelegationSignal(userRequest);
+  const signal = await evaluateDelegationSignal(userRequest);
   if (!signal.shouldDelegate) return;
 
   addContextMessage(config, {
@@ -1206,7 +1207,6 @@ async function runLlmResponsePass(
 
   const retryConfig = {
     timeout: lc.llmTimeout,
-    maxRetries: lc.maxRetries,
     signal: config.signal,
     callOptions,
     onContextOverflowRetry: () => {
@@ -1373,7 +1373,7 @@ export async function runReActLoop(
     !config.planModeState?.active &&
     !state.planState &&
     lc.planningConfig.mode !== "off" &&
-    shouldPlanRequest(userRequest, lc.planningConfig.mode!)
+    await shouldPlanRequest(userRequest, lc.planningConfig.mode!)
   ) {
     try {
       const agentNames = (config.agentProfiles ?? []).map((agent) =>
@@ -1590,7 +1590,7 @@ export async function runReActLoop(
       if (autoMemoryRecall) {
         maybeInjectMemoryRecall(state, userRequest, config);
       }
-      maybeInjectDelegationHint(state, userRequest, config);
+      await maybeInjectDelegationHint(state, userRequest, config);
 
       const urgentThresholdPercent = Math.round(
         context.getConfig().compactionThreshold * 100,
@@ -1661,7 +1661,7 @@ export async function runReActLoop(
         }
       }
 
-      const runtimePhase = applyAdaptiveToolPhase(state, config, userRequest);
+      const runtimePhase = await applyAdaptiveToolPhase(state, config, userRequest);
       const contextStats = context.getStats();
       if (config.thinkingState) {
         config.thinkingState.iteration = state.iterations;
@@ -1853,7 +1853,7 @@ export async function runReActLoop(
       // delegation) at the orchestrator loop level.  The LLM-level retry only
       // covers the chat call itself; errors thrown during response parsing or
       // tool execution are unretried without this guard.
-      const classified = classifyError(error);
+      const classified = await classifyError(error);
       // Provider-side context overflow (after callLLMWithRetry already tried
       // trimming once) — treat like ContextOverflowError: return gracefully.
       if (classified.class === "context_overflow") {

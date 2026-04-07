@@ -50,6 +50,7 @@ Deno.test("buildSelectedModelConfigUpdates normalizes model and derives state", 
     {
       model: "ollama/llama3.2:latest",
       modelConfigured: true,
+      endpoint: "http://127.0.0.1:11439",
       agentMode: "hlvm",
     },
   );
@@ -60,6 +61,7 @@ Deno.test("buildSelectedModelConfigUpdates normalizes model and derives state", 
     {
       model: "claude-code/claude-sonnet-4-5-20250929:agent",
       modelConfigured: true,
+      endpoint: undefined,
       agentMode: "claude-code-agent",
     },
   );
@@ -73,6 +75,7 @@ Deno.test("buildSelectedModelConfigUpdatesPreservingAgentMode omits agent mode w
     {
       model: "claude-code/claude-sonnet-4-5-20250929",
       modelConfigured: true,
+      endpoint: undefined,
     },
   );
 });

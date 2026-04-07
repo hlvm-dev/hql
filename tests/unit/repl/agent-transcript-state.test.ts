@@ -826,7 +826,7 @@ Deno.test("agent transcript state clears prior-turn reasoning when later turns r
   );
 });
 
-Deno.test("agent transcript state collapses repeated assistant blocks within one user turn", () => {
+Deno.test("agent transcript state preserves finalized assistant blocks across tool groups within one user turn", () => {
   const state = withItems([
     {
       type: "user",
@@ -900,16 +900,20 @@ Deno.test("agent transcript state collapses repeated assistant blocks within one
     isPending: false,
   });
 
+  // Finalized assistant blocks between tool calls are preserved (no consolidation).
+  // turn_stats items are removed when a new assistant_text arrives.
   assertEquals(next.items.map((item) => item.type), [
     "user",
     "tool_group",
+    "assistant",
     "tool_group",
     "assistant",
+    "assistant",
   ]);
-  assertEquals(next.items[3]?.type, "assistant");
-  if (next.items[3]?.type === "assistant") {
-    assertEquals(next.items[3].text, "Final answer");
-    assertEquals(next.items[3].id, "a2");
+  const lastItem = next.items[next.items.length - 1];
+  assertEquals(lastItem?.type, "assistant");
+  if (lastItem?.type === "assistant") {
+    assertEquals(lastItem.text, "Final answer");
   }
 });
 

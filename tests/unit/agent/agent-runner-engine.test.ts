@@ -256,7 +256,10 @@ Deno.test({
         let callCount = 0;
         return async () => {
           callCount += 1;
-          if (factoryIndex === 2 && callCount === 1) {
+          // Factory #1: createAgentSession (setup)
+          // Factory #2: refreshReusableAgentSession (reuseSession in first runAgentQuery)
+          // Factory #3: runAgentQuery re-creates LLM with updated onToken → used in the loop
+          if (factoryIndex === 3 && callCount === 1) {
             return {
               content: "",
               toolCalls: [{
@@ -272,13 +275,14 @@ Deno.test({
     };
 
     let reusableSession: Awaited<ReturnType<typeof createAgentSession>> | null = null;
+    setAgentEngine(engine);
     try {
       reusableSession = await createAgentSession({
         workspace,
-        model: "anthropic/claude-sonnet-4-5-20250929",
+        model: "ollama/test-model",
         modelInfo: {
-          name: "claude-sonnet-4-5-20250929",
-          capabilities: ["chat", "tools"],
+          name: "test-model",
+          capabilities: ["chat", "tools", "vision"],
         },
         engine,
         querySource: "repl_main_thread",
@@ -286,10 +290,10 @@ Deno.test({
 
       await runAgentQuery({
         query: "Find the web tool",
-        model: "anthropic/claude-sonnet-4-5-20250929",
+        model: "ollama/test-model",
         modelInfo: {
-          name: "claude-sonnet-4-5-20250929",
-          capabilities: ["chat", "tools"],
+          name: "test-model",
+          capabilities: ["chat", "tools", "vision"],
         },
         workspace,
         querySource: "repl_main_thread",
@@ -303,10 +307,10 @@ Deno.test({
 
       await runAgentQuery({
         query: "Answer directly",
-        model: "anthropic/claude-sonnet-4-5-20250929",
+        model: "ollama/test-model",
         modelInfo: {
-          name: "claude-sonnet-4-5-20250929",
-          capabilities: ["chat", "tools"],
+          name: "test-model",
+          capabilities: ["chat", "tools", "vision"],
         },
         workspace,
         querySource: "repl_main_thread",
@@ -315,8 +319,11 @@ Deno.test({
         callbacks: {},
       });
 
-      assertEquals(observedAllowlists[2]?.includes("search_web"), true);
+      // Factory #4: refreshReusableAgentSession (second runAgentQuery)
+      // Factory #5: runAgentQuery re-creates LLM → the LLM for the second query's loop
+      assertEquals(observedAllowlists[4]?.includes("search_web"), true);
     } finally {
+      resetAgentEngine();
       await reusableSession?.dispose();
       await platform.fs.remove(workspace, { recursive: true });
     }
@@ -325,19 +332,19 @@ Deno.test({
 
 Deno.test({
   name:
-    "agent-runner: runAgentQuery rejects weak models before agent execution",
+    "agent-runner: runAgentQuery rejects constrained models before agent execution",
   async fn() {
     await assertRejects(
       () =>
         runAgentQuery({
           query: "search the web for latest release notes",
-          model: "ollama/llama3.2:1b",
-          modelInfo: { name: "llama3.2:1b", parameterSize: "7B" },
+          model: "ollama/tinyllama:1b",
+          modelInfo: { name: "tinyllama:1b", parameterSize: "1B" },
           callbacks: {},
           workspace: getPlatform().process.cwd(),
         }),
       ValidationError,
-      "Weak models do not support agent mode",
+      "Constrained models do not support agent mode",
     );
   },
 });

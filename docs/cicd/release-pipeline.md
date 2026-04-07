@@ -543,6 +543,8 @@ Reverted in commit `4c85023`.
 | Secret | Purpose |
 |--------|---------|
 | `PUBLIC_RELEASE_TOKEN` | GitHub PAT with `contents: write` on `hlvm-dev/hql`. Used for creating/editing releases and downloading draft assets. |
+| `HF_TOKEN` | HuggingFace API token with write access to `HLVM/hlvm-releases`. Used by `release-bundled.yml` to upload sidecar model tarball. |
+| `FIREBASE_SERVICE_ACCOUNT` | Firebase service account JSON key for `hlvm.dev` project. Used by `deploy-website.yml` to deploy website + install scripts to Firebase Hosting. Generated from Firebase Console → Project Settings → Service Accounts → Generate New Private Key. |
 
 ### Workflow Environment Variables
 
@@ -581,10 +583,10 @@ Reverted in commit `4c85023`.
 
 | File | Purpose |
 |------|---------|
-| `.github/workflows/release.yml` | Standard: build + proof + publish + public proof (all-in-one) |
-| `.github/workflows/release-bundled.yml` | Bundled: manual build + upload to HuggingFace |
+| `.github/workflows/release.yml` | Standard: build + proof + publish + public proof (all-in-one). Trigger: tag push `v*` or `workflow_dispatch`. |
+| `.github/workflows/release-bundled.yml` | Bundled: pull model + package tarball + upload to HuggingFace. Trigger: `workflow_dispatch` only. |
 | `.github/workflows/ci.yml` | Test/lint on push to main |
-| `.github/workflows/deploy-website.yml` | Deploy hlvm.dev (Firebase) |
+| `.github/workflows/deploy-website.yml` | Website + install scripts deploy to Firebase Hosting (hlvm.dev). Trigger: push to main when docs/website/install scripts change. Requires `FIREBASE_SERVICE_ACCOUNT` secret. |
 
 ## Smoke Scripts
 
@@ -660,6 +662,71 @@ embedding files but the binary crashes on load above ~2 GB.
 GitHub Releases has a 2 GB per-asset limit. The sidecar model tarball is
 ~8.9 GB. HuggingFace's free tier supports unlimited file sizes for public
 repos, making it ideal for hosting large model files.
+
+---
+
+## Website Deploy Pipeline (Auto-Deploy)
+
+The website deploy pipeline automatically deploys hlvm.dev (Firebase Hosting)
+whenever relevant files are pushed to main. This is how `install.sh` and
+`install.ps1` reach users at `https://hlvm.dev/`.
+
+```
+══════════════════════════════════════════════════════════════════════════
+ WEBSITE DEPLOY PIPELINE — AUTO ON PUSH TO MAIN
+══════════════════════════════════════════════════════════════════════════
+
+ Trigger: push to main that changes any of:
+   docs/** | website/** | install.sh | install.ps1 | firebase.json
+          │
+          ▼
+ ┌─────────────────────────────────────────────────────────────────────┐
+ │  STEP 1: Build website                                              │
+ │  - npm ci && npm run build                                          │
+ │  - Copies install.sh + install.ps1 into website/out/                │
+ │    (via scripts/sync-installers.mjs)                                │
+ └──────────────────────────────────┬──────────────────────────────────┘
+                                    │
+ ┌──────────────────────────────────▼──────────────────────────────────┐
+ │  STEP 2: E2E tests (Playwright)                                     │
+ │  - 17 tests covering landing page, docs, search, navigation,       │
+ │    mobile responsive, theme toggle, 404 page                        │
+ │  - Runs headless Chromium against Vite dev server                   │
+ └──────────────────────────────────┬──────────────────────────────────┘
+                                    │
+ ┌──────────────────────────────────▼──────────────────────────────────┐
+ │  STEP 3: Firebase deploy                                            │
+ │  - Uses FirebaseExtended/action-hosting-deploy@v0                   │
+ │  - Deploys website/out/ to hlvm.dev                                │
+ │  - Requires FIREBASE_SERVICE_ACCOUNT secret                         │
+ └─────────────────────────────────────────────────────────────────────┘
+
+ Result:
+   https://hlvm.dev/install.sh  → updated with latest install script
+   https://hlvm.dev/install.ps1 → updated with latest install script
+   https://hlvm.dev/            → updated landing page + docs
+```
+
+### Website Deploy Secrets
+
+| Secret | Purpose |
+|--------|---------|
+| `FIREBASE_SERVICE_ACCOUNT` | Firebase service account JSON key. Required for Firebase Hosting deploy. |
+
+### What Gets Deployed
+
+```
+website/out/           (built by npm run build)
+├── index.html         Landing page
+├── docs/              Documentation site (React SPA)
+├── install.sh         Copied from repo root by sync-installers.mjs
+├── install.ps1        Copied from repo root by sync-installers.mjs
+└── assets/            CSS, JS, images
+```
+
+Firebase custom headers (from `firebase.json`):
+- `install.sh`: `Content-Type: text/plain`, `Cache-Control: no-cache`
+- `install.ps1`: `Content-Type: text/plain`, `Cache-Control: no-cache`
 
 ---
 
@@ -771,6 +838,11 @@ git push origin main v0.1.0
 | 2026-04-07 | Bundled sidecar bootstrap ordering fix: extract tarball BEFORE Ollama starts (step 1.5) |
 | 2026-04-07 | Bundled CI pipeline: 7 attempts, 6 bug fixes (curl SIGPIPE, HF CLI PATH, pip/python mismatch, PEP 668 venv) |
 | 2026-04-07 | Bundled pipeline succeeded (run `24084392859`): tarball uploaded to HuggingFace `HLVM/hlvm-releases` |
+| 2026-04-07 | README.md + website Hero updated with bundled install command |
+| 2026-04-07 | Website E2E test fix: search open changed from raw Event dispatch to button click (fixes CI flake) |
+| 2026-04-07 | `FIREBASE_SERVICE_ACCOUNT` secret added to GitHub Actions |
+| 2026-04-07 | Website deploy succeeded (run `24089965535`): Firebase deploy to hlvm.dev, install.sh live with `--bundled` |
+| 2026-04-07 | All 3 CI/CD pipelines operational: release.yml, release-bundled.yml, deploy-website.yml |
 
 ---
 
@@ -833,3 +905,10 @@ hlvm ask "hello"
 
 6. **Sidecar tarball search**: `findSidecarModelTarball()` in `ai-runtime.ts`
    looks for `hlvm-model.tar` in 3 locations: beside the binary, `~/.hlvm/`, CWD.
+
+7. **Website deploy**: `deploy-website.yml` auto-deploys hlvm.dev on push to main.
+   Requires `FIREBASE_SERVICE_ACCOUNT` secret (Firebase service account JSON key).
+   If deploys fail, check that the secret is present in GitHub Actions settings.
+
+8. **Three secrets needed**: `PUBLIC_RELEASE_TOKEN` (GitHub releases), `HF_TOKEN`
+   (HuggingFace uploads), `FIREBASE_SERVICE_ACCOUNT` (Firebase website deploy).

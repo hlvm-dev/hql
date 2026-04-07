@@ -40,52 +40,6 @@ interface GroundingCheckResult {
 
 const TOOL_NAME_PATTERN = "[a-zA-Z0-9_-]{2,}";
 
-/** Common English words to exclude from token matching (module-level constant) */
-const COMMON_WORDS = new Set([
-  "this",
-  "that",
-  "with",
-  "from",
-  "have",
-  "been",
-  "were",
-  "will",
-  "your",
-  "their",
-  "about",
-  "would",
-  "there",
-  "could",
-  "other",
-  "which",
-  "when",
-  "each",
-  "make",
-  "like",
-  "into",
-  "over",
-  "such",
-  "after",
-  "also",
-  "most",
-  "some",
-  "than",
-  "them",
-  "then",
-  "true",
-  "false",
-  "null",
-  "undefined",
-  "string",
-  "number",
-  "result",
-  "error",
-  "success",
-  "found",
-  "total",
-  "count",
-]);
-
 const TOOL_CLAIM_PATTERNS: RegExp[] = [
   new RegExp(`\\bTool:\\s*(${TOOL_NAME_PATTERN})`, "gi"),
   new RegExp(`\\btool\\s+call\\s*[:\\s]+(${TOOL_NAME_PATTERN})`, "gi"),
@@ -110,88 +64,22 @@ function extractClaimedToolNames(response: string): string[] {
 }
 
 /**
- * Check if the response incorporates specific data values from tool results.
- *
- * Extracts numbers and significant tokens from tool results and checks
- * if any appear in the response. This handles cases where the model
- * correctly uses tool data without explicitly citing tool names.
- *
- * Example: Tool returns "4", response says "The result is 4" → grounded.
+ * Check if the response incorporates specific data values from tool results
+ * using LLM classification. Falls back to false on error.
  */
-function responseIncorporatesToolData(
+async function responseIncorporatesToolData(
   response: string,
   toolUses: ToolUse[],
-): boolean {
-  // Pre-filter: skip tools with empty results
+): Promise<boolean> {
   const nonEmptyTools = toolUses.filter((t) => t.result && t.result.length > 0);
   if (nonEmptyTools.length === 0) return false;
 
-  // Tokenize response once into Sets for O(1) lookups.
-  // Keep numbers separate so trailing sentence punctuation like "4."
-  // still matches a tool result value of "4".
-  const responseLower = response.toLowerCase();
-  const responseNumbers = new Set(
-    responseLower.match(/\b\d+(?:\.\d+)?\b/g) ?? [],
-  );
-  const responseTokens = new Set(
-    responseLower.match(/[a-z_][\w.-]*/g)?.map((t) => t.toLowerCase()) ?? [],
-  );
-  if (responseNumbers.size === 0 && responseTokens.size === 0) return false;
-
-  // Single-pass: collect unique numbers and significant tokens across all tool results
-  const numberSet = new Set<string>();
-  const tokenSet = new Set<string>();
-
-  const MAX_NUMBERS = 20;
-  const MAX_TOKENS = 50;
-
-  for (const tool of nonEmptyTools) {
-    const result = tool.result;
-
-    // Extract numbers (integers and decimals), capped
-    if (numberSet.size < MAX_NUMBERS) {
-      const numbers = result.match(/\b\d+(?:\.\d+)?\b/g);
-      if (numbers) {
-        for (const n of numbers) {
-          if (numberSet.size >= MAX_NUMBERS) break;
-          const num = parseFloat(n);
-          if (num > 1 || n.includes(".")) {
-            numberSet.add(n);
-          }
-        }
-      }
-    }
-
-    // Extract significant tokens (4+ char words, not common English), capped
-    if (tokenSet.size < MAX_TOKENS) {
-      const tokens = result.match(/[a-zA-Z_][\w.-]{3,}/g);
-      if (tokens) {
-        for (const t of tokens) {
-          if (tokenSet.size >= MAX_TOKENS) break;
-          const lower = t.toLowerCase();
-          if (!COMMON_WORDS.has(lower)) {
-            tokenSet.add(lower);
-          }
-        }
-      }
-    }
-  }
-
-  // Check numbers first (cheaper — typically fewer)
-  for (const n of numberSet) {
-    if (responseNumbers.has(n)) return true;
-  }
-
-  // Check significant tokens — require at least 2 matches
-  let matches = 0;
-  for (const token of tokenSet) {
-    if (responseTokens.has(token)) {
-      matches++;
-      if (matches >= 2) return true;
-    }
-  }
-
-  return false;
+  const { classifyGroundedness } = await import("../runtime/local-llm.ts");
+  const toolSummaries = nonEmptyTools
+    .map((t) => `${t.toolName}: ${JSON.stringify(t.result).slice(0, 100)}`)
+    .join("\n");
+  const result = await classifyGroundedness(response, toolSummaries);
+  return result.incorporatesData;
 }
 
 function toolUseHasCitationPayload(toolUse: ToolUse): boolean {
@@ -243,11 +131,11 @@ function hasCitationData(
   return toolUses.length > 0 && toolUses.every(isCitationBackedToolUse);
 }
 
-export function checkGrounding(
+export async function checkGrounding(
   response: string,
   toolUses: ToolUse[],
   citationSpans: Citation[] = [],
-): GroundingCheckResult {
+): Promise<GroundingCheckResult> {
   const warnings: string[] = [];
   const lower = response.toLowerCase();
 
@@ -287,7 +175,7 @@ export function checkGrounding(
       const normalized = tool.toolName.replace(/_/g, " ");
       return lower.includes(normalized) || lower.includes(tool.toolName);
     });
-    const incorporatesData = responseIncorporatesToolData(response, toolUses);
+    const incorporatesData = await responseIncorporatesToolData(response, toolUses);
     const citationBackedOnly = usesOnlyCitationBackedWebTools(toolUses);
     const emptyCitationBackedResultsOnly = citationBackedOnly &&
       toolUses.every(toolUseIndicatesEmptyCitationBackedResult);
