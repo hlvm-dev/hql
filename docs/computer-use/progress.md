@@ -5,9 +5,9 @@ Last updated: 2026-04-07
 ## Status Summary
 
 ```
-Phase 1: Tool Layer (CC Clone)          ████████████████████ 100%  DONE
-Phase 2: Vision Capability Gating       ░░░░░░░░░░░░░░░░░░░░   0%  TODO
-Phase 3: Agent Loop E2E                 ░░░░░░░░░░░░░░░░░░░░   0%  TODO
+Phase 1: Tool Layer (CC Clone)          ████████████████████ 100%  DONE  (ef1ae38, 22a5fe5)
+Phase 2: Vision Capability Gating       ████████████████████ 100%  DONE  (162ef7e)
+Phase 3: Agent Loop E2E                 ████████████████████ 100%  DONE  (162ef7e)
 Phase 4: Hybrid Playwright + CU         ░░░░░░░░░░░░░░░░░░░░   0%  TODO
 Phase 5: Cross-Platform                 ░░░░░░░░░░░░░░░░░░░░   0%  FUTURE (CC is also macOS-only)
 ```
