@@ -48,6 +48,5 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          pip install huggingface-hub
-          export PATH="$(python3 -m site --user-base)/bin:$PATH"
+          python3 -m pip install huggingface-hub
           ./scripts/upload-bundled.sh ${{ inputs.tag }} ./hlvm-model.tar
