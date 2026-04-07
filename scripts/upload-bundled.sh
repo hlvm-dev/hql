@@ -5,7 +5,7 @@
 #   scripts/upload-bundled.sh <version> <tarball-path>
 #
 # Requirements:
-#   - huggingface-cli installed (pip install huggingface-hub)
+#   - python3 with huggingface_hub installed (pip install huggingface-hub)
 #   - HF_TOKEN environment variable set
 #
 # Example:
@@ -41,18 +41,6 @@ if [ -z "${HF_TOKEN:-}" ]; then
   exit 1
 fi
 
-# Resolve the HF CLI command — huggingface-cli may not be in PATH on CI
-if command -v huggingface-cli >/dev/null 2>&1; then
-  HF_CLI="huggingface-cli"
-else
-  # Fallback: invoke via Python module directly
-  HF_CLI="python3 -m huggingface_hub.cli"
-  if ! $HF_CLI version >/dev/null 2>&1; then
-    echo "Error: huggingface-cli not found. Install with: pip install huggingface-hub" >&2
-    exit 1
-  fi
-fi
-
 TARBALL_NAME=$(basename "$TARBALL_PATH")
 
 # Generate checksum
@@ -68,21 +56,50 @@ fi
 
 echo "   Checksum: ${CHECKSUM}  ${TARBALL_NAME}"
 
-# Upload tarball
+# Upload using Python HuggingFace Hub API (avoids PATH issues with huggingface-cli)
 echo "Uploading ${TARBALL_NAME} to ${HF_REPO} (revision: ${VERSION})..."
-$HF_CLI upload "$HF_REPO" "$TARBALL_PATH" "$TARBALL_NAME" \
-  --revision "$VERSION" \
-  --token "$HF_TOKEN"
 
-# Upload checksum as a separate file
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 echo "${CHECKSUM}  ${TARBALL_NAME}" > "${TMPDIR}/checksums-bundled.sha256"
 
-echo "Uploading checksums-bundled.sha256..."
-$HF_CLI upload "$HF_REPO" "${TMPDIR}/checksums-bundled.sha256" "checksums-bundled.sha256" \
-  --revision "$VERSION" \
-  --token "$HF_TOKEN"
+python3 -c "
+import os, sys
+from huggingface_hub import HfApi
+
+api = HfApi(token=os.environ['HF_TOKEN'])
+repo = '${HF_REPO}'
+revision = '${VERSION}'
+
+# Create revision (branch) if it doesn't exist
+try:
+    api.create_branch(repo, branch=revision, repo_type='model')
+    print(f'   Created revision: {revision}')
+except Exception:
+    print(f'   Revision {revision} already exists')
+
+# Upload tarball
+print(f'   Uploading ${TARBALL_NAME}...')
+api.upload_file(
+    path_or_fileobj='${TARBALL_PATH}',
+    path_in_repo='${TARBALL_NAME}',
+    repo_id=repo,
+    revision=revision,
+    repo_type='model',
+)
+
+# Upload checksum
+print('   Uploading checksums-bundled.sha256...')
+api.upload_file(
+    path_or_fileobj='${TMPDIR}/checksums-bundled.sha256',
+    path_in_repo='checksums-bundled.sha256',
+    repo_id=repo,
+    revision=revision,
+    repo_type='model',
+)
+
+print('Done.')
+"
 
 echo ""
 echo "Uploaded to HuggingFace!"
