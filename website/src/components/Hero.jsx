@@ -6,6 +6,7 @@ const FeatureDemoOverlay = lazy(() => import('./FeatureDemoOverlay'));
 
 const INSTALL_COMMANDS = {
   standard: 'curl -fsSL https://hlvm.dev/install.sh | sh',
+  bundled: 'curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled',
 };
 
 function Hero() {
@@ -62,7 +63,7 @@ function Hero() {
               <div className="hero-install-header">
                 <div>
                   <p className="hero-install-title">Standard</p>
-                  <p className="hero-install-note">Recommended. One command installs HLVM and prepares the default local Gemma fallback before returning.</p>
+                  <p className="hero-install-note">Recommended. Downloads HLVM and pulls the local Gemma model during install.</p>
                 </div>
                 <button
                   type="button"
@@ -73,6 +74,22 @@ function Hero() {
                 </button>
               </div>
               <code className="hero-install-command">{INSTALL_COMMANDS.standard}</code>
+            </div>
+            <div className="hero-install-card">
+              <div className="hero-install-header">
+                <div>
+                  <p className="hero-install-title">Offline / Air-gapped</p>
+                  <p className="hero-install-note">Includes pre-packaged model (~9.6 GB). No network pull during bootstrap.</p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-compact hero-install-copy"
+                  onClick={() => handleCopyCommand('bundled')}
+                >
+                  {copiedCommand === 'bundled' ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <code className="hero-install-command">{INSTALL_COMMANDS.bundled}</code>
             </div>
           </div>
         </div>

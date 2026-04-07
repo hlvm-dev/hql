@@ -16,7 +16,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { DOCS_EVENTS } from '../../src/constants/events.js';
+
 
 // ═══════════════════════════════════════════════════════
 // LANDING PAGE
@@ -238,9 +238,10 @@ test.describe('Search', () => {
   // Ctrl+K / Cmd+K can be intercepted by the browser before reaching the page,
   // so we dispatch the custom event the app already listens for.
   async function openSearch(page) {
-    await page.evaluate((eventName) => {
-      window.dispatchEvent(new Event(eventName));
-    }, DOCS_EVENTS.OPEN_SEARCH);
+    // Click the search trigger button instead of dispatching a raw event.
+    // Raw Event dispatch races with React's useEffect listener attachment.
+    const searchBtn = page.locator('.docs-search-trigger');
+    await searchBtn.click();
   }
 
   test('search opens, typing finds relevant docs', async ({ page }) => {
