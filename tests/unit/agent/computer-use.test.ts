@@ -156,21 +156,33 @@ Deno.test("types: targetImageSize preserves small images", () => {
 });
 
 // ============================================================
-// 4. Tool Registration Tests
+// 4. Tool Registration Tests (V2: 22 CC-parity tools)
 // ============================================================
 
-Deno.test("tools: all 10 cu_* tools are exported", () => {
+Deno.test("tools: all 22 cu_* tools are exported", () => {
   const expectedTools = [
     "cu_screenshot",
-    "cu_click",
+    "cu_cursor_position",
+    "cu_left_mouse_down",
+    "cu_left_mouse_up",
+    "cu_list_granted_applications",
+    "cu_read_clipboard",
+    "cu_left_click",
+    "cu_right_click",
+    "cu_middle_click",
+    "cu_double_click",
+    "cu_triple_click",
+    "cu_mouse_move",
     "cu_type",
     "cu_key",
+    "cu_hold_key",
+    "cu_write_clipboard",
     "cu_scroll",
-    "cu_move_mouse",
-    "cu_drag",
-    "cu_get_frontmost_app",
-    "cu_clipboard_read",
-    "cu_clipboard_write",
+    "cu_left_click_drag",
+    "cu_zoom",
+    "cu_open_application",
+    "cu_request_access",
+    "cu_wait",
   ];
   for (const name of expectedTools) {
     assertExists(
@@ -178,24 +190,53 @@ Deno.test("tools: all 10 cu_* tools are exported", () => {
       `Missing tool: ${name}`,
     );
   }
-  assertEquals(Object.keys(COMPUTER_USE_TOOLS).length, 10);
+  assertEquals(Object.keys(COMPUTER_USE_TOOLS).length, 22);
 });
 
-Deno.test("tools: read-only tools have correct safety levels", () => {
-  assertEquals(COMPUTER_USE_TOOLS.cu_screenshot.safetyLevel, "L1");
-  assertEquals(COMPUTER_USE_TOOLS.cu_get_frontmost_app.safetyLevel, "L0");
-  assertEquals(COMPUTER_USE_TOOLS.cu_clipboard_read.safetyLevel, "L0");
+Deno.test("tools: L0 read-only tools have correct safety levels", () => {
+  const l0Tools = [
+    "cu_cursor_position",
+    "cu_list_granted_applications",
+    "cu_read_clipboard",
+  ];
+  for (const name of l0Tools) {
+    assertEquals(
+      COMPUTER_USE_TOOLS[name].safetyLevel,
+      "L0",
+      `${name} should be L0`,
+    );
+  }
+});
+
+Deno.test("tools: L1 capture/wait tools have correct safety levels", () => {
+  const l1Tools = ["cu_screenshot", "cu_zoom", "cu_wait"];
+  for (const name of l1Tools) {
+    assertEquals(
+      COMPUTER_USE_TOOLS[name].safetyLevel,
+      "L1",
+      `${name} should be L1`,
+    );
+  }
 });
 
 Deno.test("tools: write tools have L2 safety level", () => {
   const l2Tools = [
-    "cu_click",
+    "cu_left_mouse_down",
+    "cu_left_mouse_up",
+    "cu_left_click",
+    "cu_right_click",
+    "cu_middle_click",
+    "cu_double_click",
+    "cu_triple_click",
+    "cu_mouse_move",
     "cu_type",
     "cu_key",
+    "cu_hold_key",
+    "cu_write_clipboard",
     "cu_scroll",
-    "cu_move_mouse",
-    "cu_drag",
-    "cu_clipboard_write",
+    "cu_left_click_drag",
+    "cu_open_application",
+    "cu_request_access",
   ];
   for (const name of l2Tools) {
     assertEquals(
@@ -207,56 +248,93 @@ Deno.test("tools: write tools have L2 safety level", () => {
 });
 
 Deno.test("tools: read tools are concurrency-safe", () => {
-  assertEquals(
-    COMPUTER_USE_TOOLS.cu_screenshot.execution?.concurrencySafe,
-    true,
-  );
-  assertEquals(
-    COMPUTER_USE_TOOLS.cu_get_frontmost_app.execution?.concurrencySafe,
-    true,
-  );
-  assertEquals(
-    COMPUTER_USE_TOOLS.cu_clipboard_read.execution?.concurrencySafe,
-    true,
-  );
+  const concurrentTools = [
+    "cu_screenshot",
+    "cu_cursor_position",
+    "cu_list_granted_applications",
+    "cu_read_clipboard",
+    "cu_zoom",
+    "cu_wait",
+  ];
+  for (const name of concurrentTools) {
+    assertEquals(
+      COMPUTER_USE_TOOLS[name].execution?.concurrencySafe,
+      true,
+      `${name} should be concurrency-safe`,
+    );
+  }
 });
 
-Deno.test("tools: all tools have descriptions", () => {
+Deno.test("tools: all tools have descriptions and fn", () => {
   for (const [name, meta] of Object.entries(COMPUTER_USE_TOOLS)) {
     assertExists(meta.description, `${name} missing description`);
     assertExists(meta.fn, `${name} missing fn`);
   }
 });
 
-Deno.test("tools: cu_screenshot has formatResult", () => {
+Deno.test("tools: cu_screenshot has formatResult with CC summary", () => {
   const meta = COMPUTER_USE_TOOLS.cu_screenshot;
   assertExists(meta.formatResult);
   const formatted = meta.formatResult!({ width: 1280, height: 720 });
   assertExists(formatted);
-  assertEquals(formatted!.summaryDisplay, "Screenshot 1280x720");
+  assertEquals(formatted!.summaryDisplay, "Captured 1280x720");
 });
 
-Deno.test("tools: cu_click supports modifiers arg", () => {
-  const meta = COMPUTER_USE_TOOLS.cu_click;
-  assertExists(meta.args?.modifiers);
+Deno.test("tools: click tools use coordinate arg", () => {
+  const clickTools = [
+    "cu_left_click",
+    "cu_right_click",
+    "cu_middle_click",
+    "cu_double_click",
+    "cu_triple_click",
+  ];
+  for (const name of clickTools) {
+    assertExists(
+      COMPUTER_USE_TOOLS[name].args?.coordinate,
+      `${name} missing coordinate arg`,
+    );
+  }
 });
 
-Deno.test("tools: cu_type supports via_clipboard arg", () => {
-  const meta = COMPUTER_USE_TOOLS.cu_type;
-  assertExists(meta.args?.via_clipboard);
+Deno.test("tools: cu_scroll has direction and amount args", () => {
+  const meta = COMPUTER_USE_TOOLS.cu_scroll;
+  assertExists(meta.args?.coordinate);
+  assertExists(meta.args?.scroll_direction);
+  assertExists(meta.args?.scroll_amount);
 });
 
-Deno.test("tools: cu_key supports repeat arg", () => {
+Deno.test("tools: cu_left_click_drag has coordinate and start_coordinate args", () => {
+  const meta = COMPUTER_USE_TOOLS.cu_left_click_drag;
+  assertExists(meta.args?.coordinate);
+  assertExists(meta.args?.start_coordinate);
+  assertEquals(meta.args!.start_coordinate!.includes("optional"), true);
+});
+
+Deno.test("tools: cu_key uses text param (CC schema)", () => {
   const meta = COMPUTER_USE_TOOLS.cu_key;
+  assertExists(meta.args?.text);
   assertExists(meta.args?.repeat);
 });
 
-Deno.test("tools: cu_drag supports optional from coordinates", () => {
-  const meta = COMPUTER_USE_TOOLS.cu_drag;
-  assertExists(meta.args?.from_x);
-  assertExists(meta.args?.from_y);
-  // Description should mention "optional"
-  assertEquals(meta.args!.from_x!.includes("optional"), true);
+Deno.test("tools: cu_hold_key has text and duration args", () => {
+  const meta = COMPUTER_USE_TOOLS.cu_hold_key;
+  assertExists(meta.args?.text);
+  assertExists(meta.args?.duration);
+});
+
+Deno.test("tools: cu_zoom has region arg", () => {
+  const meta = COMPUTER_USE_TOOLS.cu_zoom;
+  assertExists(meta.args?.region);
+});
+
+Deno.test("tools: cu_open_application has bundle_id arg", () => {
+  const meta = COMPUTER_USE_TOOLS.cu_open_application;
+  assertExists(meta.args?.bundle_id);
+});
+
+Deno.test("tools: cu_wait has duration arg", () => {
+  const meta = COMPUTER_USE_TOOLS.cu_wait;
+  assertExists(meta.args?.duration);
 });
 
 // ============================================================

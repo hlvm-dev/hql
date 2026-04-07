@@ -1246,10 +1246,12 @@ export async function runAgentQuery(
           ? {
               model: "ollama/gemma4:e4b",
               isAvailable: async () => {
-                const { isFallbackModelAvailable } = await import(
-                  "../runtime/bootstrap-verify.ts"
-                );
-                return isFallbackModelAvailable();
+                const [{ isFallbackModelAvailable }, { isRuntimeReadyForAiRequests }] =
+                  await Promise.all([
+                    import("../runtime/bootstrap-verify.ts"),
+                    import("../cli/commands/serve.ts"),
+                  ]);
+                return isRuntimeReadyForAiRequests() && await isFallbackModelAvailable();
               },
             }
           : undefined,

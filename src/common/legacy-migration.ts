@@ -33,28 +33,3 @@ export function getLegacyMemoryPath(): string {
 export function getLegacyHistoryPath(): string {
   return join(getLegacyHqlDir(), "history.jsonl");
 }
-
-// Internal helpers (not exported)
-function getLegacyRuntimeDir(): string {
-  return join(getLegacyHqlDir(), ".runtime");
-}
-
-function getLegacyRuntimeEnginePath(): string {
-  return join(getLegacyRuntimeDir(), "engine");
-}
-
-function getLegacyRuntimeOllamaPath(): string {
-  return join(getLegacyRuntimeDir(), "ollama");
-}
-
-export async function findLegacyRuntimeEngine(): Promise<string | null> {
-  const enginePath = getLegacyRuntimeEnginePath();
-  if (await getPlatform().fs.exists(enginePath)) {
-    return enginePath;
-  }
-  const ollamaPath = getLegacyRuntimeOllamaPath();
-  if (await getPlatform().fs.exists(ollamaPath)) {
-    return ollamaPath;
-  }
-  return null;
-}

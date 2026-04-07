@@ -18,7 +18,6 @@ import {
   getModelsDir,
   getRuntimeDir,
 } from "../../common/paths.ts";
-import { findLegacyRuntimeEngine } from "../../common/legacy-migration.ts";
 import {
   getPlatform,
   type PlatformCommandProcess,
@@ -390,40 +389,6 @@ export async function extractAIEngine(platform = getPlatform()): Promise<void> {
   }
 
   try {
-    const legacyEnginePath = await findLegacyRuntimeEngine();
-    if (legacyEnginePath) {
-      if (await matchesSelfBinarySize(legacyEnginePath, platform)) {
-        log.debug?.(
-          "Legacy engine binary matches HLVM CLI size — skipping copy",
-        );
-        // Fall through to embedded resource extraction below
-      } else {
-        const invalidLegacyReason = await describeInvalidEngine(
-          legacyEnginePath,
-          platform,
-        );
-        if (invalidLegacyReason) {
-          log.debug?.(
-            `Skipping legacy AI engine at ${legacyEnginePath}: ${invalidLegacyReason}`,
-          );
-        } else {
-          const embeddedEnginePath = getEmbeddedEnginePath(platform);
-          await ensureRuntimeDir();
-          await platform.fs.remove(getEmbeddedEngineDir(platform), {
-            recursive: true,
-          }).catch(() => {});
-          await platform.fs.mkdir(getEmbeddedEngineDir(platform), {
-            recursive: true,
-          });
-          await platform.fs.copyFile(legacyEnginePath, embeddedEnginePath);
-          await platform.fs.chmod(embeddedEnginePath, 0o755);
-          if (await resolveEmbeddedEnginePath(platform)) {
-            return;
-          }
-        }
-      }
-    }
-
     const bundledFiles = await readBundledEngineManifest(platform);
     const embeddedEngineDir = getEmbeddedEngineDir(platform);
     const embeddedEnginePath = getEmbeddedEnginePath(platform);
