@@ -24,12 +24,16 @@ When the user sets `--model auto`, HLVM automatically picks the best available m
 
 ```
 User prompt + attachments + policy
-  → 1. Build TaskProfile (obvious signals only)
-  → 2. Filter impossible models (hard constraints)
-  → 3. Score remaining models (simple additive)
-  → 4. Pick top scorer
-  → 5. Keep 1-2 fallbacks for hard failure only
+  -> 1. Build TaskProfile (LLM-classified via local gemma4, ~50-200ms)
+  -> 2. Filter impossible models (hard constraints)
+  -> 3. Score remaining models (simple additive)
+  -> 4. Pick top scorer
+  -> 5. Keep 1-2 fallbacks for hard failure only
 ```
+
+> **Implementation note (2026-04-07)**: Step 1 was originally regex-based ("obvious signals only").
+> Now uses `classifyTask()` via `ai.chat(gemma4)` for semantic classification.
+> `buildTaskProfile()` and `chooseAutoModel()` are now async. See `docs/route/auto.md` for details.
 
 ## Core Types
 
@@ -111,13 +115,18 @@ Auto must NOT be treated as just another model ID flowing through existing resol
 
 ### New Code
 
-One file: `src/hlvm/agent/auto-select.ts`
+Two files:
+- `src/hlvm/agent/auto-select.ts` — model scoring, ranking, fallback wrapper
+- `src/hlvm/runtime/local-llm.ts` — LLM-based classification engine
 
 Contains:
-- `buildTaskProfile()` — extract obvious signals from prompt/attachments
+- `buildTaskProfile()` — **async**, classifies via `classifyTask()` LLM call (was regex)
 - `filterModels()` — remove impossible candidates
-- `scoreModel()` — simple additive scoring
-- `chooseAutoModel()` — top-level entry point, returns AutoDecision
+- `scoreModel()` — simple additive scoring (pure, sync)
+- `chooseAutoModel()` — **async**, top-level entry point, returns AutoDecision
+- `classifyTask()` — LLM classification: code/reasoning/structured (local-llm.ts)
+- `classifyFollowUp()` — LLM classification: asks/binary/generic (local-llm.ts)
+- `classifyResponseIntent()` — LLM classification: asksQuestion/needsConcreteTask (local-llm.ts)
 
 ## Model Catalog: Hybrid Approach
 

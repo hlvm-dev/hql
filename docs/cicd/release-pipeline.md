@@ -581,7 +581,8 @@ Reverted in commit `4c85023`.
 
 | File | Purpose |
 |------|---------|
-| `.github/workflows/release.yml` | Build + proof + publish + public proof (all-in-one) |
+| `.github/workflows/release.yml` | Standard: build + proof + publish + public proof (all-in-one) |
+| `.github/workflows/release-bundled.yml` | Bundled: manual build + upload to HuggingFace |
 | `.github/workflows/ci.yml` | Test/lint on push to main |
 | `.github/workflows/deploy-website.yml` | Deploy hlvm.dev (Firebase) |
 
@@ -593,10 +594,72 @@ Reverted in commit `4c85023`.
 | `scripts/release-smoke.ps1` | staged-windows, public-windows | Same for Windows (python http.server for local assets) |
 | `scripts/public-release-smoke.sh` | public-unix | Real public install from hlvm.dev, bootstrap, `hlvm ask` |
 | `scripts/with-retry.sh` | build | Retry wrapper for flaky CI steps (curl, deno run) |
-| `scripts/compile-hlvm.sh` | build | Deno compile with target + AI engine embedding |
+| `scripts/compile-hlvm.sh` | build | Deno compile with target + AI engine/model embedding |
 | `scripts/write-ai-engine-manifest.ts` | build | Generate manifest.json for embedded AI engine |
+| `scripts/write-ai-model-manifest.ts` | build-bundled | Generate manifest.json for embedded model |
+| `scripts/setup-bundled-model.sh` | build-bundled | Pull model for bundled build |
+| `scripts/upload-bundled.sh` | release-bundled | Upload bundled binary to HuggingFace |
 | `scripts/build-stdlib.ts` | build | Transpile stdlib.hql → self-hosted.js |
 | `scripts/embed-packages.ts` | build | Bundle HLVM packages into binary resources |
+
+---
+
+## Bundled Release Pipeline (Separate Workflow)
+
+The bundled pipeline creates a sidecar model tarball (`hlvm-model.tar`) and
+uploads it to HuggingFace. The standard binary is unchanged — the sidecar
+tarball is downloaded separately during `install.sh --bundled`. This is
+completely independent from the standard release.
+
+**Why sidecar instead of a fat binary?** macOS Mach-O and Windows PE32+
+have a hard 2 GB binary size limit. `deno compile --include` works for
+embedding files but the binary crashes on load above ~2 GB.
+
+```
+══════════════════════════════════════════════════════════════════════════
+ BUNDLED RELEASE PIPELINE — MANUAL TRIGGER ONLY
+══════════════════════════════════════════════════════════════════════════
+
+ GitHub Actions → workflow_dispatch
+   Input: tag (e.g. v0.1.0)
+          │
+          ▼
+ ┌─────────────────────────────────────────────────────────────────────┐
+ │  STEP 1: Build sidecar tarball                                      │
+ │  - Setup AI engine (embedded Ollama)                                │
+ │  - Pull model via setup-bundled-model.sh                            │
+ │  - Package model store into hlvm-model.tar (~8.9 GB)                │
+ └──────────────────────────────────┬──────────────────────────────────┘
+                                    │
+ ┌──────────────────────────────────▼──────────────────────────────────┐
+ │  STEP 2: Upload to HuggingFace                                      │
+ │  - Generate SHA-256 checksums                                       │
+ │  - Upload tarball + checksums via huggingface-cli                   │
+ │  - Repo: HLVM/hlvm-releases                                      │
+ │  - Revision: <tag> (e.g. v0.1.0)                                    │
+ └─────────────────────────────────────────────────────────────────────┘
+
+ Hosted on:
+   https://huggingface.co/HLVM/hlvm-releases/resolve/<tag>/hlvm-model.tar
+
+ Installed via:
+   curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled
+     → downloads standard binary from GitHub Releases
+     → downloads hlvm-model.tar from HuggingFace
+     → bootstrap extracts tarball, starts engine, verifies model
+```
+
+### Bundled Workflow Secrets
+
+| Secret | Purpose |
+|--------|---------|
+| `HF_TOKEN` | HuggingFace API token with write access to `HLVM/hlvm-releases` |
+
+### Why HuggingFace?
+
+GitHub Releases has a 2 GB per-asset limit. The sidecar model tarball is
+~8.9 GB. HuggingFace's free tier supports unlimited file sizes for public
+repos, making it ideal for hosting large model files.
 
 ---
 
@@ -607,7 +670,7 @@ Reverted in commit `4c85023`.
  ├── install.sh     5 KB
  └── install.ps1    5 KB
 
- GitHub Releases (github.com/hlvm-dev/hql/releases):
+ GitHub Releases — Standard (github.com/hlvm-dev/hql/releases):
  ├── hlvm-mac-arm              587 MB
  ├── hlvm-mac-intel            587 MB
  ├── hlvm-linux.part-000/1/2   ~2 GB (split)
@@ -616,7 +679,11 @@ Reverted in commit `4c85023`.
  ├── install.sh                ~5 KB (backup)
  └── install.ps1               ~5 KB (backup)
 
- User's machine after install:
+ HuggingFace — Bundled Sidecar (huggingface.co/HLVM/hlvm-releases):
+ ├── hlvm-model.tar             ~8.9 GB  (platform-independent model store)
+ └── checksums-bundled.sha256   ~1 KB
+
+ User's machine after install (either mode):
  ├── /usr/local/bin/hlvm
  └── ~/.hlvm/.runtime/
      ├── engine/       Ollama v0.20.1 binary + libs

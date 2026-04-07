@@ -16,6 +16,7 @@ import {
   LOCAL_FALLBACK_IDENTITY,
   LOCAL_FALLBACK_MODEL,
 } from "../runtime/bootstrap-manifest.ts";
+import { getLocalModelDisplayName } from "../runtime/local-llm.ts";
 
 export interface ModelDiscoverySnapshot {
   timestamp: number;
@@ -54,7 +55,7 @@ function buildPinnedDefaultLocalModel(): ModelInfo {
     LOCAL_FALLBACK_MODEL.split(":");
   const [tagged] = tagModelsForProvider("ollama", [{
     name: LOCAL_FALLBACK_MODEL,
-    displayName: "Gemma 4",
+    displayName: getLocalModelDisplayName(),
     family,
     parameterSize: parameterSize.toUpperCase(),
     size: LOCAL_FALLBACK_IDENTITY.publishedTotalSizeBytes,

@@ -24,7 +24,7 @@ import { ensureModelAvailability } from "./model-availability.ts";
 import { getPlatform } from "../platform/platform.ts";
 import { RuntimeError } from "./error.ts";
 import { parseModelParameterSize } from "./model-ranking.ts";
-import { LOCAL_FALLBACK_MODEL } from "../hlvm/runtime/bootstrap-manifest.ts";
+import { LOCAL_FALLBACK_MODEL_ID } from "../hlvm/runtime/local-fallback.ts";
 
 let defaultModelEnsured = false;
 const CLAUDE_CODE_PROVIDER = "claude-code";
@@ -36,7 +36,6 @@ const LEGACY_DEFAULT_MODEL_IDS = new Set([
   "ollama/llama3.1:8b",
   "ollama/mistral-large-3:675b-cloud",
 ]);
-const LOCAL_FALLBACK_MODEL_ID = `${OLLAMA_PROVIDER}/${LOCAL_FALLBACK_MODEL}`;
 let claudeBootstrapProbeAt = 0;
 let claudeBootstrapProbeResult: string | null = null;
 

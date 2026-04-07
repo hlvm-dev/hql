@@ -262,6 +262,31 @@ using the exact same setup as GitHub Actions:
   ✓ Public smoke succeeded.
 ```
 
+### Bundled (Sidecar) Local Proof (macOS ARM, 2026-04-07)
+
+Sidecar tarball approach validated end-to-end:
+
+```text
+  1. Standard binary compiled (587 MB, --skip-ai-engine for fast rebuild)
+  2. Sidecar tarball created from model store (8.9 GB hlvm-model.tar)
+  3. Both placed beside each other in temp dir
+  4. Existing model store backed up (clean slate)
+  5. hlvm bootstrap:
+     ✓ Sidecar tarball found beside binary
+     ✓ Extracted to ~/.hlvm/.runtime/models/ (tar -xf)
+     ✓ Tarball deleted after extraction (reclaimed 8.9 GB)
+     ✓ Ollama started, discovered pre-extracted model
+     ✓ Model verified, manifest.json written (state: verified)
+  6. hlvm ask "Say hi in exactly 3 words" → "Hello there friend."
+  7. Regression: standard bootstrap (no sidecar) → still works
+  8. Regression: hlvm ask "What is 2+2?" → "Four."
+```
+
+**Critical fix during validation**: Sidecar extraction must happen BEFORE
+the Ollama engine starts (`materializeBootstrap()` step 1.5). Ollama
+discovers model files at startup — placing them on disk after the engine is
+running results in HTTP 404 "model not found".
+
 ### Website / Installer Hosting Proof
 
 1. `https://hlvm.dev/install.sh` serves the real shell script
@@ -394,6 +419,84 @@ push vX.Y.Z tag ──▶ resolve → build (4 platforms) → create-release (dr
   workflow_dispatch skips build, re-runs proof → publish → public proof.
 ```
 
+## Two Install Modes
+
+HLVM supports two install paths. The standard path is the default and is the
+only mode that matters for the standard release. The bundled path is additive
+and never blocks the standard release.
+
+### Standard Install (default)
+
+```bash
+curl -fsSL https://hlvm.dev/install.sh | sh
+```
+
+Downloads a ~587 MB binary from GitHub Releases, then pulls `gemma4:e4b`
+(~9.6 GB) from the Ollama registry during `hlvm bootstrap`.
+
+### Bundled Install (offline-capable, sidecar tarball)
+
+```bash
+curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled
+```
+
+Downloads the standard ~587 MB binary from GitHub Releases plus a sidecar
+model tarball (`hlvm-model.tar`, ~8.9 GB) from HuggingFace. During
+`hlvm bootstrap`, the model is extracted from the sidecar tarball — no
+Ollama network pull needed. The tarball is deleted after extraction to
+reclaim disk space.
+
+**Why sidecar instead of a single fat binary?** macOS Mach-O and Windows
+PE32+ both have a hard 2 GB binary size limit. `deno compile --include`
+works correctly for embedding files, but the resulting binary crashes on
+load when total size exceeds ~2 GB (`dyld cache '(null)' not loaded`).
+Tested boundary: 1.9 GB works, 1.95 GB crashes.
+
+### Architecture: Bundled Mode (Sidecar)
+
+```text
+install.sh --bundled downloads TWO files:
+
+  GitHub Releases                  HuggingFace
+  ──────────────                   ───────────
+  hlvm-mac-arm  (~587 MB)          hlvm-model.tar  (~8.9 GB)
+       │                                │
+       └──────────┬─────────────────────┘
+                  │  placed in INSTALL_DIR
+                  ▼
+  /usr/local/bin/
+  ├── hlvm              (standard binary)
+  └── hlvm-model.tar    (sidecar, deleted after bootstrap)
+
+  hlvm bootstrap:
+    1. Extract engine from binary → ~/.hlvm/.runtime/engine/
+    2. Find hlvm-model.tar beside binary → extract to models/
+    3. Delete hlvm-model.tar (reclaim ~8.9 GB)
+    4. Start Ollama (discovers pre-extracted model on disk)
+    5. Verify model → write manifest.json
+```
+
+### When to Use Which
+
+| Use Case | Mode |
+|----------|------|
+| Normal install (have internet) | Standard |
+| Air-gapped / restricted network | Bundled |
+| Slow or metered connections | Bundled |
+| CI with pre-built binaries | Standard |
+| Enterprise distribution | Bundled |
+
+### Hosting
+
+| Mode | Host | Download Size |
+|------|------|---------------|
+| Standard | GitHub Releases (`hlvm-dev/hql`) | ~587 MB binary |
+| Bundled | GitHub Releases + HuggingFace (`HLVM/hlvm-releases`) | ~587 MB binary + ~8.9 GB tarball |
+
+HuggingFace is used for the sidecar model tarball because GitHub Releases
+has a 2 GB per-asset limit. HuggingFace's free tier supports unlimited file
+sizes for public repos.
+
 ## Remaining Work
 
 ### v0.1.0 — SHIPPED
@@ -424,10 +527,14 @@ v0.1.0 is published and verified. No further action needed for this release.
    reports correct server version. Upgrade `embedded-ollama-version.txt`
    when available.
 
+6. **Bundled mode**: Sidecar tarball approach validated end-to-end on macOS ARM.
+   `deno compile --include` hits a 2 GB Mach-O limit, so the model ships as a
+   separate `hlvm-model.tar` placed beside the binary. Bootstrap extracts the
+   tarball before starting Ollama, then deletes it. Remaining: set up
+   HuggingFace repo and test `install.sh --bundled` from real HF URLs.
+
 ### Non-Goals For This Ship
 
-- do not add or advertise a public offline install mode
-- do not add or advertise a public `--full` mode
 - do not block publish on Hugging Face uploads
 - do not claim the public ship is complete before standard public smoke passes
 
@@ -458,14 +565,20 @@ For the next release (v0.1.1+):
 
 ## Canonical Product Contract
 
-The only public contract that matters for this ship is:
+Two supported install paths:
 
 ```text
-curl -fsSL https://hlvm.dev/install.sh | sh
-  -> installer downloads the correct binary
-  -> installer shows bootstrap progress
-  -> installer extracts the embedded Ollama runtime
-  -> installer prepares Gemma during install
-  -> command returns only when HLVM is ready
-  -> hlvm ask works immediately
+Standard:
+  curl -fsSL https://hlvm.dev/install.sh | sh
+    -> downloads ~587 MB binary from GitHub Releases
+    -> bootstraps: extracts engine + pulls gemma4:e4b (~9.6 GB)
+    -> hlvm ask works immediately
+
+Bundled (sidecar tarball):
+  curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled
+    -> downloads ~587 MB binary from GitHub Releases
+    -> downloads ~8.9 GB sidecar tarball from HuggingFace
+    -> bootstraps: extracts engine + model from sidecar (no Ollama pull)
+    -> deletes sidecar tarball after extraction
+    -> hlvm ask works immediately
 ```

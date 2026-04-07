@@ -433,7 +433,7 @@ export function tierMeetsMinimum(tier: ModelTier, minTier: ModelTier): boolean {
  * Classify a model into weak / mid / frontier tier.
  *
  * - frontier: any API-hosted provider (anthropic/openai/google/claude-code)
- * - weak: local model with <13B parameters
+ * - weak: local model with <3B parameters (truly tiny models)
  * - mid: everything else (safe default)
  */
 export function classifyModelTier(
@@ -444,7 +444,7 @@ export function classifyModelTier(
   if (modelInfo?.costTier === "premium") return "frontier";
   if (modelInfo?.parameterSize) {
     const match = modelInfo.parameterSize.match(/^(\d+(?:\.\d+)?)\s*[bB]/);
-    if (match && parseFloat(match[1]) < 13) return "weak";
+    if (match && parseFloat(match[1]) < 3) return "weak";
     if (match) return "mid";
   }
   if (modelInfo?.contextWindow && modelInfo.contextWindow >= 128_000) {
@@ -455,9 +455,20 @@ export function classifyModelTier(
 
 export function supportsAgentExecution(
   model?: string,
-  modelInfo?: { parameterSize?: string; contextWindow?: number } | null,
+  modelInfo?: {
+    parameterSize?: string;
+    contextWindow?: number;
+    capabilities?: string[];
+  } | null,
 ): boolean {
-  return classifyModelTier(modelInfo, isFrontierProvider(model)) !== "weak";
+  // Cloud providers always support agent execution
+  if (isFrontierProvider(model)) return true;
+  // Ground truth: provider reports capabilities → use them
+  if (modelInfo?.capabilities?.length) {
+    return modelInfo.capabilities.includes("tools");
+  }
+  // No capability data → fall back to tier heuristic
+  return classifyModelTier(modelInfo, false) !== "weak";
 }
 
 // ============================================================
@@ -493,7 +504,7 @@ export const DEFAULT_TOOL_DENYLIST = [
 // ============================================================
 
 /**
- * Core tools for weak-tier models (< 13B params).
+ * Core tools for weak-tier models (< 3B params).
  * Keeps tool count low to avoid context overflow and tool selection confusion.
  * Mid/frontier models get ALL tools (no cap).
  */

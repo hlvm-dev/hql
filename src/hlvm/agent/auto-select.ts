@@ -9,7 +9,7 @@
  */
 
 import { classifyModelTier, isFrontierProvider } from "./constants.ts";
-import { classifyError } from "./error-taxonomy.ts";
+import { classifyForLocalFallback } from "../runtime/local-fallback.ts";
 import { ValidationError } from "../../common/error.ts";
 import type { ModelInfo } from "../providers/types.ts";
 import type { LLMFunction } from "./orchestrator-llm.ts";
@@ -29,6 +29,9 @@ export interface TaskProfile {
   localOnly: boolean;
   noUpload: boolean;
   needsStructuredOutput: boolean;
+  isCodeTask: boolean;
+  isReasoningTask: boolean;
+  estimatedTokens: number;
 }
 
 export type CodingStrength = "weak" | "mid" | "strong";
@@ -45,6 +48,8 @@ export interface ModelCaps {
   local: boolean;
   costTier: CostTier;
   codingStrength: CodingStrength;
+  /** Whether the model has chain-of-thought/thinking capability (o1, o3, deepseek-r1). */
+  reasoning: boolean;
   /** Whether the provider has a valid API key (cloud models require this). */
   apiKeyConfigured: boolean;
 }
@@ -70,7 +75,7 @@ export interface AutoSelectPolicy {
 
 interface ModelOverride {
   pattern: RegExp;
-  caps: Partial<Pick<ModelCaps, "codingStrength" | "costTier" | "structuredOutput">>;
+  caps: Partial<Pick<ModelCaps, "codingStrength" | "costTier" | "structuredOutput" | "reasoning">>;
 }
 
 /**
@@ -87,7 +92,7 @@ const MODEL_OVERRIDES: readonly ModelOverride[] = [
   // OpenAI
   { pattern: /gpt-4o(?!-mini)/i, caps: { codingStrength: "strong", costTier: "mid", structuredOutput: true } },
   { pattern: /gpt-4o-mini/i, caps: { codingStrength: "mid", costTier: "cheap", structuredOutput: true } },
-  { pattern: /o[134]-(?:mini|preview|pro)/i, caps: { codingStrength: "strong", costTier: "premium" } },
+  { pattern: /o[134]-(?:mini|preview|pro)/i, caps: { codingStrength: "strong", costTier: "premium", reasoning: true } },
   { pattern: /gpt-4-turbo/i, caps: { codingStrength: "strong", costTier: "mid" } },
   { pattern: /gpt-3\.5/i, caps: { codingStrength: "weak", costTier: "cheap" } },
 
@@ -100,6 +105,7 @@ const MODEL_OVERRIDES: readonly ModelOverride[] = [
 
   // Ollama local models
   { pattern: /codellama|code-?llama/i, caps: { codingStrength: "mid", costTier: "free" } },
+  { pattern: /deepseek-r1/i, caps: { codingStrength: "strong", costTier: "free", reasoning: true } },
   { pattern: /deepseek-coder/i, caps: { codingStrength: "mid", costTier: "free" } },
   { pattern: /qwen2\.5-coder/i, caps: { codingStrength: "mid", costTier: "free" } },
   { pattern: /llama3\.[\d]/i, caps: { codingStrength: "mid", costTier: "free" } },
@@ -113,7 +119,7 @@ const MODEL_OVERRIDES: readonly ModelOverride[] = [
 
 function lookupOverrides(
   modelId: string,
-): Partial<Pick<ModelCaps, "codingStrength" | "costTier" | "structuredOutput">> {
+): Partial<Pick<ModelCaps, "codingStrength" | "costTier" | "structuredOutput" | "reasoning">> {
   for (const entry of MODEL_OVERRIDES) {
     if (entry.pattern.test(modelId)) return entry.caps;
   }
@@ -129,15 +135,18 @@ export function isAutoModel(model: string): boolean {
   return model === "auto";
 }
 
-/** Extract task signals from prompt and attachments */
-export function buildTaskProfile(
+/** Extract task signals from prompt and attachments using LLM classification. */
+export async function buildTaskProfile(
   query: string,
   attachments?: Array<{ kind?: string; mimeType?: string }>,
   policy?: AutoSelectPolicy,
-): TaskProfile {
+): Promise<TaskProfile> {
   const hasImage = attachments?.some((a) =>
     a.kind === "image" || a.mimeType?.startsWith("image/")
   ) ?? false;
+
+  const { classifyTask } = await import("../runtime/local-llm.ts");
+  const classification = await classifyTask(query);
 
   return {
     hasImage,
@@ -146,7 +155,10 @@ export function buildTaskProfile(
     preferQuality: policy?.preferQuality ?? false,
     localOnly: policy?.localOnly ?? false,
     noUpload: policy?.noUpload ?? false,
-    needsStructuredOutput: false,
+    needsStructuredOutput: classification.needsStructuredOutput,
+    isCodeTask: classification.isCodeTask,
+    isReasoningTask: classification.isReasoningTask,
+    estimatedTokens: Math.ceil(query.length / 4),
   };
 }
 
@@ -192,6 +204,7 @@ export function modelInfoToModelCaps(modelId: string, info: ModelInfo): ModelCap
     local: isLocal,
     costTier: overrides.costTier ?? costTierFromInfo ?? (isLocal ? "free" : "mid"),
     codingStrength: overrides.codingStrength ?? defaultCodingStrength,
+    reasoning: overrides.reasoning ?? caps.includes("thinking"),
     apiKeyConfigured,
   };
 }
@@ -201,16 +214,23 @@ export function filterModels(
   models: ModelCaps[],
   profile: TaskProfile,
 ): ModelCaps[] {
-  return models.filter((m) => {
+  const baseFilter = (m: ModelCaps): boolean => {
     if (!m.apiKeyConfigured) return false;
     // Exclude Claude Code passthrough (:agent suffix) — different execution path
     if (m.id.endsWith(":agent")) return false;
     if (profile.hasImage && !m.vision) return false;
     if (profile.localOnly && !m.local) return false;
     if (!m.toolCalling) return false;
-    if (m.codingStrength === "weak") return false;
     return true;
-  });
+  };
+
+  const strong = models.filter((m) => baseFilter(m) && m.codingStrength !== "weak");
+
+  // Fallback: if no mid/strong models, allow weak ones (better suboptimal than nothing)
+  if (strong.length === 0) {
+    return models.filter(baseFilter);
+  }
+  return strong;
 }
 
 const COST_SCORES: Record<CostTier, number> = {
@@ -237,7 +257,7 @@ export function scoreModel(model: ModelCaps, profile: TaskProfile): number {
   if (profile.hasImage && model.vision) score += 3;
 
   // Long context bonus for large prompts
-  if (profile.promptIsLarge && model.longContext) score += 2;
+  if (profile.estimatedTokens > 4000 && model.longContext) score += 2;
 
   // Cost preference
   if (profile.preferCheap) {
@@ -252,17 +272,23 @@ export function scoreModel(model: ModelCaps, profile: TaskProfile): number {
   // Structured output bonus
   if (model.structuredOutput) score += 1;
 
+  // Code task bonus — strong coders get extra credit
+  if (profile.isCodeTask && model.codingStrength === "strong") score += 2;
+
+  // Reasoning task bonus — reasoning models shine
+  if (profile.isReasoningTask && model.reasoning) score += 3;
+
   return score;
 }
 
 /** Pure entry point: score and rank models, return best + fallbacks */
-export function chooseAutoModel(
+export async function chooseAutoModel(
   query: string,
   attachments: Array<{ kind?: string; mimeType?: string }> | undefined,
   policy: AutoSelectPolicy | undefined,
   models: ModelInfo[],
-): AutoDecision {
-  const profile = buildTaskProfile(query, attachments, policy);
+): Promise<AutoDecision> {
+  const profile = await buildTaskProfile(query, attachments, policy);
 
   // Convert to ModelCaps
   const allCaps = models.map((info) => {
@@ -304,6 +330,8 @@ export function chooseAutoModel(
   reasons.push(`cost=${best.caps.costTier}`);
   if (profile.hasImage) reasons.push("image-capable");
   if (profile.promptIsLarge) reasons.push("long-context");
+  if (profile.isCodeTask) reasons.push("code-task");
+  if (profile.isReasoningTask) reasons.push("reasoning-task");
   if (profile.preferCheap) reasons.push("prefer-cheap");
   if (profile.preferQuality) reasons.push("prefer-quality");
   reasons.push(`score=${best.score}`);
@@ -315,27 +343,35 @@ export function chooseAutoModel(
   };
 }
 
-/** Async wrapper that queries all providers then calls chooseAutoModel */
+// Provider discovery cache — avoids re-querying all providers on every call
+let cachedModels: ModelInfo[] | null = null;
+let cachedAt = 0;
+const MODEL_CACHE_TTL_MS = 60_000; // 1 minute
+
+/** Async wrapper that queries all providers (with caching) then calls chooseAutoModel */
 export async function resolveAutoModel(
   query: string,
   attachments?: Array<{ kind?: string; mimeType?: string }>,
   policy?: AutoSelectPolicy,
 ): Promise<AutoDecision> {
-  const { listAllProviderModels } = await import("../providers/model-list.ts");
-  const models = await listAllProviderModels();
-  return chooseAutoModel(query, attachments, policy, models);
+  const now = Date.now();
+  if (!cachedModels || now - cachedAt > MODEL_CACHE_TTL_MS) {
+    const { listAllProviderModels } = await import("../providers/model-list.ts");
+    cachedModels = await listAllProviderModels();
+    cachedAt = now;
+  }
+  return await chooseAutoModel(query, attachments, policy, cachedModels);
+}
+
+/** Clear the provider model cache (e.g. after provider config changes). */
+export function invalidateAutoModelCache(): void {
+  cachedModels = null;
+  cachedAt = 0;
 }
 
 // ============================================================
 // Fallback Mechanism
 // ============================================================
-
-const FALLBACK_WORTHY_CLASSES = new Set(["rate_limit", "transient", "timeout"]);
-
-/** Returns true if the error class warrants trying a fallback model */
-export function isFallbackWorthy(errorClass: string): boolean {
-  return FALLBACK_WORTHY_CLASSES.has(errorClass);
-}
 
 /** Last-resort local model fallback (e.g. gemma4:e4b) */
 export interface LastResortFallback {
@@ -359,28 +395,23 @@ export async function callLLMWithModelFallback(
   try {
     return await primaryCall();
   } catch (error) {
-    const classified = classifyError(error);
-    if (!isFallbackWorthy(classified.class) && !lastResort) {
-      throw error;
-    }
+    const reason = classifyForLocalFallback(error);
+    if (!reason) throw error;
 
-    if (isFallbackWorthy(classified.class)) {
-      for (const fallbackModel of fallbacks) {
-        onTrace?.({
-          type: "auto_fallback",
-          fromModel: "primary",
-          toModel: fallbackModel,
-          reason: classified.class,
-        } as TraceEvent);
+    for (const fallbackModel of fallbacks) {
+      onTrace?.({
+        type: "auto_fallback",
+        fromModel: "primary",
+        toModel: fallbackModel,
+        reason,
+      } as TraceEvent);
 
-        try {
-          const fbLLM = createFallbackLLM(fallbackModel);
-          return await callWithRetry(fbLLM);
-        } catch (fbError) {
-          const fbClassified = classifyError(fbError);
-          if (!isFallbackWorthy(fbClassified.class)) throw fbError;
-          // Continue to next fallback
-        }
+      try {
+        const fbLLM = createFallbackLLM(fallbackModel);
+        return await callWithRetry(fbLLM);
+      } catch (fbError) {
+        if (!classifyForLocalFallback(fbError)) throw fbError;
+        // Continue to next fallback
       }
     }
 

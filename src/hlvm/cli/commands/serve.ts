@@ -10,13 +10,12 @@ import { hasHelpFlag } from "../utils/common-helpers.ts";
 import { RuntimeError } from "../../../common/error.ts";
 import { withRetry } from "../../../common/retry.ts";
 import { pushSSEEvent } from "../../store/sse-store.ts";
-import { LOCAL_FALLBACK_MODEL } from "../../runtime/bootstrap-manifest.ts";
 import { verifyBootstrap } from "../../runtime/bootstrap-verify.ts";
 import { recoverBootstrap } from "../../runtime/bootstrap-recovery.ts";
 import { waitForModelAccess } from "../../runtime/model-access.ts";
 import { getPlatform } from "../../../platform/platform.ts";
-
-const LOCAL_FALLBACK_MODEL_ID = `ollama/${LOCAL_FALLBACK_MODEL}`;
+import { LOCAL_FALLBACK_MODEL_ID } from "../../runtime/local-fallback.ts";
+import { getLocalModelDisplayName } from "../../runtime/local-llm.ts";
 
 /** Resolves when runtime is initialized; rejects permanently if all retries fail. */
 let runtimeReady: Promise<void> | null = null;
@@ -53,7 +52,7 @@ async function ensureLocalFallbackReady(): Promise<boolean> {
     ? "authentication is unexpectedly required"
     : result.error ?? "the model did not answer a readiness probe in time";
   log.warn?.(
-    `Local Gemma fallback is not ready for requests yet: ${reason}`,
+    `Local ${getLocalModelDisplayName()} fallback is not ready for requests yet: ${reason}`,
   );
   return false;
 }
@@ -145,7 +144,7 @@ export async function serveCommand(args: string[]): Promise<number> {
               if (embeddedEnginePath) {
                 log.info?.(
                   "Embedded engine found without a verified bootstrap. " +
-                    "Starting Gemma-first local AI bootstrap in the background...",
+                    `Starting ${getLocalModelDisplayName()}-first local AI bootstrap in the background...`,
                 );
                 recoverBootstrap(verification.manifest, verification).then(async (r) => {
                   if (r.success) {

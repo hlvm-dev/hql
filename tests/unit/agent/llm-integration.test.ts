@@ -11,6 +11,7 @@ import {
 } from "../../../src/hlvm/agent/llm-integration.ts";
 import {
   classifyModelTier,
+  supportsAgentExecution,
   tierMeetsMinimum,
 } from "../../../src/hlvm/agent/constants.ts";
 import {
@@ -123,14 +124,53 @@ Deno.test("LLM integration: generateSystemPrompt remains a text-only compatibili
 });
 
 Deno.test("LLM integration: model tiers classify and compare correctly", () => {
+  // Tier classification
   assertEquals(classifyModelTier(null, true), "frontier");
-  assertEquals(classifyModelTier({ parameterSize: "7B" }), "weak");
+  assertEquals(classifyModelTier({ parameterSize: "2B" }), "weak");
+  assertEquals(classifyModelTier({ parameterSize: "7B" }), "mid");
   assertEquals(classifyModelTier({ parameterSize: "13B" }), "mid");
   assertEquals(classifyModelTier({ contextWindow: 128_000 }), "frontier");
+  assertEquals(classifyModelTier({ costTier: "premium" }), "frontier");
 
+  // Tier comparison
   assertEquals(tierMeetsMinimum("weak", "mid"), false);
   assertEquals(tierMeetsMinimum("mid", "weak"), true);
   assertEquals(tierMeetsMinimum("frontier", "frontier"), true);
+});
+
+Deno.test("LLM integration: supportsAgentExecution uses capabilities ground truth", () => {
+  // Cloud providers always support agent execution
+  assertEquals(supportsAgentExecution("anthropic/haiku", null), true);
+  assertEquals(supportsAgentExecution("openai/gpt-4o", null), true);
+  assertEquals(supportsAgentExecution("google/gemini-2.5-pro", null), true);
+
+  // Capability-driven: model reports "tools" → agent supported
+  assertEquals(
+    supportsAgentExecution("ollama/gemma4:e4b", {
+      capabilities: ["chat", "tools"],
+      parameterSize: "8B",
+    }),
+    true,
+  );
+
+  // Capability-driven: model reports NO "tools" → agent blocked
+  assertEquals(
+    supportsAgentExecution("ollama/notools:8b", {
+      capabilities: ["chat"],
+      parameterSize: "8B",
+    }),
+    false,
+  );
+
+  // No capability data → fallback to tier heuristic
+  assertEquals(
+    supportsAgentExecution("ollama/unknown", { parameterSize: "1B" }),
+    false, // 1B < 3B = weak = no agent
+  );
+  assertEquals(
+    supportsAgentExecution("ollama/unknown", { parameterSize: "8B" }),
+    true, // 8B >= 3B = mid = agent supported
+  );
 });
 
 Deno.test("LLM integration: prompt content scales by tier", () => {

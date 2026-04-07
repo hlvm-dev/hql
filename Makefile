@@ -9,6 +9,8 @@ BINARY := hlvm
 CLI_ENTRY := src/hlvm/cli/cli.ts
 AI_ENGINE_DIR := resources/ai-engine
 AI_ENGINE_STAMP := $(AI_ENGINE_DIR)/.ollama-source
+AI_MODEL_DIR := resources/ai-model
+AI_MODEL_STAMP := $(AI_MODEL_DIR)/.model-source
 COMPILE_SCRIPT := ./scripts/compile-hlvm.sh
 
 # Transpile stdlib.hql → self-hosted.js
@@ -168,6 +170,28 @@ setup-ai:
 	@echo "✅ AI engine ready: $(AI_ENGINE_DIR) (Ollama $(OLLAMA_VERSION))"
 	@ls -lah "$(AI_ENGINE_DIR)"
 
+# Setup bundled model (pull gemma4:e4b into resources/ai-model/)
+setup-model: setup-ai
+	@echo "📥 Setting up bundled model..."
+	@./scripts/setup-bundled-model.sh
+
+# Package sidecar model tarball for bundled install
+# The binary stays standard (~587 MB); the model ships as a separate tarball.
+# macOS/Windows Mach-O/PE32+ limit is 2 GB — embedding ~9.6 GB is impossible.
+package-bundled-model: setup-model
+	@echo "📦 Packaging sidecar model tarball..."
+	@tar -cf hlvm-model.tar -C resources/ai-model .
+	@echo "✅ Done! Sidecar: ./hlvm-model.tar"
+	@ls -lh hlvm-model.tar
+
+# Build standard binary + sidecar model for bundled distribution
+build-bundled: clean setup-ai setup-model stdlib embed-packages
+	@echo "🔨 Building HLVM binary + sidecar model..."
+	@DENO_DIR=$$(mktemp -d) $(COMPILE_SCRIPT) --output $(BINARY)
+	@tar -cf hlvm-model.tar -C resources/ai-model .
+	@echo "✅ Done! Binary: ./$(BINARY) + Sidecar: ./hlvm-model.tar"
+	@ls -lh $(BINARY) hlvm-model.tar
+
 # Test AI features
 test-ai: build-ai
 	@echo "🧪 Testing HLVM AI features..."
@@ -199,6 +223,11 @@ help:
 	@echo "  make build-ai     - Compatibility alias for 'make'"
 	@echo "  make test-ai      - Test AI features"
 	@echo ""
+	@echo "Bundled model (sidecar model for offline install):"
+	@echo "  make setup-model          - Pull gemma4:e4b into resources/ai-model/"
+	@echo "  make package-bundled-model - Create sidecar hlvm-model.tar"
+	@echo "  make build-bundled        - Build binary + sidecar model"
+	@echo ""
 	@echo "Platform-specific builds:"
 	@echo "  make build-mac-intel"
 	@echo "  make build-mac-arm"
@@ -207,4 +236,4 @@ help:
 
 .PHONY: stdlib embed-packages openapi build build-fast install repl fast ink test all clean help
 .PHONY: build-mac-intel build-mac-arm build-linux build-windows
-.PHONY: build-ai setup-ai test-ai
+.PHONY: build-ai setup-ai test-ai setup-model package-bundled-model build-bundled

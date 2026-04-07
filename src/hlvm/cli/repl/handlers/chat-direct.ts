@@ -6,11 +6,6 @@
 import { ai } from "../../../api/ai.ts";
 import { RuntimeError } from "../../../../common/error.ts";
 import {
-  isProviderErrorCode,
-  parseErrorCodeFromMessage,
-  ProviderErrorCode,
-} from "../../../../common/error-codes.ts";
-import {
   getMessage,
   getSession,
   updateMessage,
@@ -32,24 +27,36 @@ import {
   scheduleWeakDirectChatSummaryMaintenance,
 } from "./direct-chat-history.ts";
 import { traceReplMainThreadForSource } from "../../../repl-main-thread-trace.ts";
-import { LOCAL_FALLBACK_MODEL } from "../../../runtime/bootstrap-manifest.ts";
-import { isRuntimeReadyForAiRequests } from "../../commands/serve.ts";
+import {
+  isLocalFallbackReady,
+  isLocalFallbackWorthy,
+  LOCAL_FALLBACK_MODEL_ID,
+} from "../../../runtime/local-fallback.ts";
+import { getLocalModelDisplayName } from "../../../runtime/local-llm.ts";
 
-const LOCAL_FALLBACK_MODEL_ID = `ollama/${LOCAL_FALLBACK_MODEL}`;
 const LOCAL_FALLBACK_READY_MESSAGE =
-  "Local Gemma 4 is still preparing. Try again in a moment.";
+  `Local ${getLocalModelDisplayName()} is still preparing. Try again in a moment.`;
 const LOCAL_FALLBACK_RETRY_MESSAGE =
-  "Selected model failed. Retrying once with local Gemma 4.";
+  `Selected model failed. Retrying once with local ${getLocalModelDisplayName()}.`;
 const LOCAL_FALLBACK_PREPARING_MESSAGE =
-  "Selected model failed, and local Gemma 4 is still preparing. Try again in a moment.";
-const RETRYABLE_LOCAL_FALLBACK_CODES = new Set<ProviderErrorCode>([
-  ProviderErrorCode.AUTH_FAILED,
-  ProviderErrorCode.RATE_LIMITED,
-  ProviderErrorCode.SERVICE_UNAVAILABLE,
-  ProviderErrorCode.NETWORK_ERROR,
-  ProviderErrorCode.REQUEST_TIMEOUT,
-  ProviderErrorCode.REQUEST_FAILED,
-]);
+  `Selected model failed, and local ${getLocalModelDisplayName()} is still preparing. Try again in a moment.`;
+
+/** Resolve "auto" to a real model ID with scored fallbacks, or pass through unchanged. */
+async function resolveAutoForChat(
+  model: string | undefined,
+  body: ChatRequest,
+  emit: (obj: unknown) => void,
+): Promise<{ effectiveModel: string | undefined; scoredFallbacks: string[] }> {
+  if (model !== "auto") return { effectiveModel: model, scoredFallbacks: [] };
+
+  const { resolveAutoModel } = await import("../../../agent/auto-select.ts");
+  const query = body.messages?.find((m) => m.role === "user")?.content ?? "";
+  const autoDecision = await resolveAutoModel(
+    typeof query === "string" ? query : "",
+  );
+  emit({ event: "trace", kind: "auto_select", detail: autoDecision.reason });
+  return { effectiveModel: autoDecision.model, scoredFallbacks: autoDecision.fallbacks };
+}
 
 /** Drain a token iterator with abort support, forwarding each chunk. */
 async function drainTokenStream(
@@ -94,37 +101,6 @@ async function drainTokenStream(
   return fullText;
 }
 
-function isLocalFallbackModel(modelId: string | undefined): boolean {
-  return modelId === LOCAL_FALLBACK_MODEL_ID;
-}
-
-function extractProviderErrorCode(error: unknown): ProviderErrorCode | null {
-  const directCode = typeof (error as { code?: unknown })?.code === "number"
-    ? (error as { code: number }).code
-    : null;
-  if (directCode !== null && isProviderErrorCode(directCode)) {
-    return directCode;
-  }
-  if (error instanceof Error) {
-    const parsed = parseErrorCodeFromMessage(error.message);
-    if (parsed !== null && isProviderErrorCode(parsed)) {
-      return parsed;
-    }
-  }
-  return null;
-}
-
-function shouldRetryWithLocalFallback(
-  error: unknown,
-  selectedModel: string | undefined,
-): boolean {
-  if (!selectedModel || selectedModel.startsWith("ollama/")) {
-    return false;
-  }
-  const code = extractProviderErrorCode(error);
-  return code !== null && RETRYABLE_LOCAL_FALLBACK_CODES.has(code);
-}
-
 function createChatTokenIterator(
   providerMessages: Awaited<ReturnType<typeof buildChatProviderMessages>>["messages"],
   modelId: string | undefined,
@@ -152,8 +128,9 @@ async function streamChatWithFallback(
   emit: (obj: unknown) => void,
   onChunk: (token: string) => void,
   weakContextRawLimit?: number,
+  scoredFallbacks: string[] = [],
 ): Promise<string> {
-  if (isLocalFallbackModel(resolvedModel) && !isRuntimeReadyForAiRequests()) {
+  if (resolvedModel === LOCAL_FALLBACK_MODEL_ID && !(await isLocalFallbackReady())) {
     throw new RuntimeError(LOCAL_FALLBACK_READY_MESSAGE);
   }
 
@@ -177,10 +154,26 @@ async function streamChatWithFallback(
       forwardChunk,
     );
   } catch (error) {
-    if (emittedAnyToken || !shouldRetryWithLocalFallback(error, resolvedModel)) {
+    if (emittedAnyToken || !isLocalFallbackWorthy(error) || resolvedModel?.startsWith("ollama/")) {
       throw error;
     }
-    if (!isRuntimeReadyForAiRequests()) {
+
+    // Try scored fallbacks first (auto mode)
+    for (const fallbackModel of scoredFallbacks) {
+      try {
+        emit({ event: "warning", message: `Switching to ${fallbackModel}...` });
+        return await drainTokenStream(
+          createChatTokenIterator(providerMessages, fallbackModel, body, weakContextRawLimit, signal),
+          signal,
+          forwardChunk,
+        );
+      } catch (fbError) {
+        if (!isLocalFallbackWorthy(fbError)) throw fbError;
+      }
+    }
+
+    // Last resort: local gemma4
+    if (!(await isLocalFallbackReady())) {
       throw new RuntimeError(LOCAL_FALLBACK_PREPARING_MESSAGE, {
         originalError: error instanceof Error ? error : undefined,
       });
@@ -222,9 +215,16 @@ export async function handleChatMode(
   requestId?: string,
   modelInfo?: ModelInfo | null,
 ): Promise<void> {
+  // Resolve "auto" to a concrete model before passing to ai.chat()
+  const { effectiveModel, scoredFallbacks } = await resolveAutoForChat(
+    resolvedModel,
+    body,
+    emit,
+  );
+
   const requestOverridesStoredHistory = shouldHonorRequestMessages(body.messages);
   const weakLocalDirectChat = isWeakLocalDirectChatModel(
-    resolvedModel,
+    effectiveModel,
     modelInfo,
   );
   const weakContext = weakLocalDirectChat && !requestOverridesStoredHistory
@@ -244,7 +244,7 @@ export async function handleChatMode(
     assistantMessageId,
     disablePersistentMemory: body.disable_persistent_memory === true,
     modelInfo,
-    modelKey: resolvedModel,
+    modelKey: effectiveModel,
     prependReplayMessages: weakContext?.prependReplayMessages,
     contextBudgetOverride: weakContext?.resolvedContextBudget,
   });
@@ -267,12 +267,13 @@ export async function handleChatMode(
 
   const fullText = await streamChatWithFallback(
     providerMessages,
-    resolvedModel,
+    effectiveModel,
     body,
     signal,
     emit,
     onPartial,
     weakContext ? resolvedContextBudget.rawLimit : undefined,
+    scoredFallbacks,
   );
 
   if (!signal.aborted) {
@@ -304,6 +305,13 @@ export async function streamDirectChatFallback(
   onPartial: (text: string) => void,
   modelInfo?: ModelInfo | null,
 ): Promise<string> {
+  // Resolve "auto" to a concrete model before passing to ai.chat()
+  const { effectiveModel, scoredFallbacks } = await resolveAutoForChat(
+    resolvedModel,
+    body,
+    emit,
+  );
+
   const storedMessages = shouldHonorRequestMessages(requestMessages)
     ? []
     : loadAllMessages(sessionId);
@@ -313,7 +321,7 @@ export async function streamDirectChatFallback(
     assistantMessageId,
     disablePersistentMemory: body.disable_persistent_memory === true,
     modelInfo,
-    modelKey: resolvedModel,
+    modelKey: effectiveModel,
   });
   providerMessages.unshift({
     role: "system",
@@ -322,10 +330,12 @@ export async function streamDirectChatFallback(
 
   return await streamChatWithFallback(
     providerMessages,
-    resolvedModel,
+    effectiveModel,
     body,
     signal,
     emit,
     onPartial,
+    undefined,
+    scoredFallbacks,
   );
 }

@@ -433,6 +433,116 @@ export async function extractAIEngine(platform = getPlatform()): Promise<void> {
   }
 }
 
+// ============================================================================
+// Sidecar model extraction — for bundled install mode
+// ============================================================================
+//
+// macOS Mach-O and Windows PE32+ have a hard 2 GB binary size limit, so we
+// cannot embed ~9.6 GB of model weights via `deno compile --include`.
+//
+// Instead, bundled install ships a standard binary + sidecar tarball:
+//   hlvm-model.tar  (~9.6 GB, placed beside the binary or in ~/.hlvm/)
+//
+// The runtime detects the sidecar, extracts it to ~/.hlvm/.runtime/models/,
+// and deletes the tarball after successful extraction.
+
+const SIDECAR_MODEL_FILENAME = "hlvm-model.tar";
+
+/**
+ * Search for the sidecar model tarball in well-known locations:
+ * 1. Beside the hlvm binary (e.g. /usr/local/bin/hlvm-model.tar)
+ * 2. In ~/.hlvm/hlvm-model.tar
+ * 3. In the current working directory
+ */
+async function findSidecarModelTarball(
+  platform = getPlatform(),
+): Promise<string | null> {
+  const candidates: string[] = [];
+
+  // 1. Beside the hlvm binary
+  const execPath = platform.process.execPath?.();
+  if (execPath) {
+    candidates.push(
+      platform.path.join(
+        platform.path.dirname(execPath),
+        SIDECAR_MODEL_FILENAME,
+      ),
+    );
+  }
+
+  // 2. In ~/.hlvm/
+  const homeDir = platform.env.get("HOME") ??
+    platform.env.get("USERPROFILE") ?? "";
+  if (homeDir) {
+    candidates.push(
+      platform.path.join(homeDir, ".hlvm", SIDECAR_MODEL_FILENAME),
+    );
+  }
+
+  // 3. Current working directory
+  candidates.push(SIDECAR_MODEL_FILENAME);
+
+  for (const candidate of candidates) {
+    if (await platform.fs.exists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Whether a sidecar model tarball is available for extraction.
+ */
+export async function hasBundledModel(
+  platform = getPlatform(),
+): Promise<boolean> {
+  return (await findSidecarModelTarball(platform)) !== null;
+}
+
+/**
+ * Extract sidecar model tarball to the HLVM-owned model store (~/.hlvm/.runtime/models/).
+ *
+ * Uses the system `tar` command for extraction (available on all supported platforms).
+ * Deletes the tarball after successful extraction to reclaim disk space.
+ */
+export async function extractBundledModel(
+  platform = getPlatform(),
+  onProgress?: (message: string) => void,
+): Promise<void> {
+  const tarballPath = await findSidecarModelTarball(platform);
+  if (!tarballPath) return;
+
+  const modelsDir = getModelsDir();
+  await platform.fs.mkdir(modelsDir, { recursive: true });
+
+  onProgress?.("Extracting sidecar model tarball...");
+  log.info?.(`Extracting sidecar model from ${tarballPath} to ${modelsDir}`);
+
+  const result = await platform.command.output({
+    cmd: ["tar", "-xf", tarballPath, "-C", modelsDir],
+    stdin: "null",
+    stdout: "piped",
+    stderr: "piped",
+  });
+
+  const stderr = new TextDecoder().decode(result.stderr).trim();
+  if (!result.success) {
+    throw new Error(`Failed to extract sidecar model tarball: ${stderr}`);
+  }
+
+  onProgress?.("Sidecar model extracted successfully.");
+  log.info?.(`Sidecar model extracted to ${modelsDir}`);
+
+  // Delete tarball to reclaim ~9.6 GB of disk space
+  try {
+    await platform.fs.remove(tarballPath);
+    log.info?.(`Deleted sidecar tarball: ${tarballPath}`);
+  } catch {
+    log.debug?.(`Could not delete sidecar tarball (read-only?): ${tarballPath}`);
+  }
+}
+
 export async function waitForAIEngineReady(
   expectedVersion?: string,
 ): Promise<boolean> {

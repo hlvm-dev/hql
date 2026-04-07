@@ -1,0 +1,52 @@
+name: Release Bundled
+
+# Manual trigger only — never blocks standard release.
+# Pulls the model, packages as sidecar tarball, uploads to HuggingFace.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.1.0) — used as HuggingFace revision'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  EMBEDDED_OLLAMA_VERSION_FILE: embedded-ollama-version.txt
+
+jobs:
+  package-and-upload:
+    name: Package sidecar model + upload to HuggingFace
+    runs-on: macos-latest
+    continue-on-error: true
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Setup AI engine
+        shell: bash
+        run: make setup-ai
+
+      - name: Pull model for bundled tarball
+        shell: bash
+        run: make setup-model
+
+      - name: Package sidecar tarball
+        shell: bash
+        run: make package-bundled-model
+
+      - name: Show tarball size
+        run: ls -lh hlvm-model.tar
+
+      - name: Upload to HuggingFace
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install huggingface-hub
+          ./scripts/upload-bundled.sh ${{ inputs.tag }} ./hlvm-model.tar

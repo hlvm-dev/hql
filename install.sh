@@ -15,6 +15,7 @@ BINARY_NAME="hlvm"
 PINNED_VERSION="${HLVM_INSTALL_VERSION:-}"
 STANDARD_BASE_URL="${HLVM_INSTALL_BINARY_BASE_URL:-}"
 CHECKSUM_URL_OVERRIDE="${HLVM_INSTALL_CHECKSUM_URL:-}"
+BUNDLED_BASE_URL="${HLVM_INSTALL_BUNDLED_BASE_URL:-}"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -94,9 +95,9 @@ detect_platform() {
 
   # Map to release binary names
   case "${OS}_${ARCH}" in
-    darwin_aarch64) BINARY="hlvm-mac-arm" ;;
-    darwin_x86_64)  BINARY="hlvm-mac-intel" ;;
-    linux_x86_64)   BINARY="hlvm-linux" ;;
+    darwin_aarch64) BINARY="hlvm-mac-arm";         BUNDLED_BINARY="hlvm-mac-arm-bundled" ;;
+    darwin_x86_64)  BINARY="hlvm-mac-intel";       BUNDLED_BINARY="hlvm-mac-intel-bundled" ;;
+    linux_x86_64)   BINARY="hlvm-linux";           BUNDLED_BINARY="hlvm-linux-bundled" ;;
     *)              err "No pre-built binary for ${OS}_${ARCH}"; exit 1 ;;
   esac
 }
@@ -207,22 +208,155 @@ install_standard() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# Bundled install (standard binary + sidecar model tarball from HuggingFace)
+# ---------------------------------------------------------------------------
+#
+# Downloads the standard binary from GitHub Releases plus a sidecar model
+# tarball from HuggingFace. Places the tarball beside the binary so bootstrap
+# extracts from it instead of pulling over the network.
+#
+# The sidecar is deleted after extraction to reclaim ~9.6 GB of disk space.
+
+install_bundled() {
+  bold "HLVM Installer (bundled mode)"
+  echo ""
+  info "Bundled mode: standard binary + sidecar model tarball."
+  info "Model is extracted locally during bootstrap — no Ollama pull needed."
+  echo ""
+
+  detect_platform
+  info "Platform: ${OS}/${ARCH} → ${BINARY} + hlvm-model.tar"
+
+  get_latest_version
+  info "Version:  ${VERSION}"
+
+  # --- Download standard binary from GitHub Releases (same as standard install) ---
+  if [ -n "$STANDARD_BASE_URL" ]; then
+    DOWNLOAD_BASE_URL="${STANDARD_BASE_URL}"
+    CHECKSUM_URL="${CHECKSUM_URL_OVERRIDE:-${STANDARD_BASE_URL}/checksums.sha256}"
+  else
+    DOWNLOAD_BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
+    CHECKSUM_URL="${CHECKSUM_URL_OVERRIDE:-https://github.com/${REPO}/releases/download/${VERSION}/checksums.sha256}"
+  fi
+
+  TMPDIR=$(mktemp -d)
+  trap 'rm -rf "$TMPDIR"' EXIT
+
+  info "Downloading ${BINARY}..."
+  download_binary_asset "$DOWNLOAD_BASE_URL" "$BINARY" "${TMPDIR}/${BINARY}"
+
+  # Verify binary checksum
+  info "Verifying binary checksum..."
+  curl -fsSL -o "${TMPDIR}/checksums.sha256" "$CHECKSUM_URL"
+  EXPECTED=$(grep "$BINARY" "${TMPDIR}/checksums.sha256" | awk '{print $1}')
+  if [ -n "$EXPECTED" ]; then
+    if command -v sha256sum >/dev/null 2>&1; then
+      ACTUAL=$(sha256sum "${TMPDIR}/${BINARY}" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+      ACTUAL=$(shasum -a 256 "${TMPDIR}/${BINARY}" | awk '{print $1}')
+    else
+      info "No sha256sum available — skipping checksum verification."
+      ACTUAL="$EXPECTED"
+    fi
+    if [ "$ACTUAL" != "$EXPECTED" ]; then
+      err "Binary checksum mismatch! Expected: ${EXPECTED}, Got: ${ACTUAL}"
+      exit 1
+    fi
+    ok "Binary checksum verified."
+  else
+    info "No checksum entry found for ${BINARY} — skipping verification."
+  fi
+
+  # --- Download sidecar model tarball from HuggingFace ---
+  if [ -n "$BUNDLED_BASE_URL" ]; then
+    MODEL_BASE_URL="${BUNDLED_BASE_URL}"
+  else
+    MODEL_BASE_URL="https://huggingface.co/HLVM/hlvm-releases/resolve/${VERSION}"
+  fi
+
+  info "Downloading sidecar model tarball (~9.6 GB, this may take a while)..."
+  if ! curl -fsSL -o "${TMPDIR}/hlvm-model.tar" "${MODEL_BASE_URL}/hlvm-model.tar"; then
+    err "Failed to download sidecar model tarball from ${MODEL_BASE_URL}/hlvm-model.tar"
+    err "You can install without the bundled model using the standard install:"
+    echo "  curl -fsSL https://hlvm.dev/install.sh | sh"
+    exit 1
+  fi
+  ok "Sidecar model downloaded."
+
+  # Install binary
+  chmod +x "${TMPDIR}/${BINARY}"
+
+  if [ -w "$INSTALL_DIR" ]; then
+    cp "${TMPDIR}/${BINARY}" "${INSTALL_DIR}/${BINARY_NAME}"
+  else
+    info "Elevated permissions required to install to ${INSTALL_DIR}."
+    sudo cp "${TMPDIR}/${BINARY}" "${INSTALL_DIR}/${BINARY_NAME}"
+  fi
+  ok "Installed binary to ${INSTALL_DIR}/${BINARY_NAME}"
+
+  # Place sidecar model tarball beside the binary for bootstrap to find
+  if [ -w "$INSTALL_DIR" ]; then
+    cp "${TMPDIR}/hlvm-model.tar" "${INSTALL_DIR}/hlvm-model.tar"
+  else
+    sudo cp "${TMPDIR}/hlvm-model.tar" "${INSTALL_DIR}/hlvm-model.tar"
+  fi
+  ok "Sidecar model placed at ${INSTALL_DIR}/hlvm-model.tar"
+
+  # Bootstrap (extract sidecar model — no network pull)
+  info "Bootstrapping local AI substrate (extracting sidecar model)..."
+  if "${INSTALL_DIR}/${BINARY_NAME}" bootstrap; then
+    echo ""
+    ok "HLVM ${VERSION} is ready! (bundled mode — model extracted from sidecar)"
+    echo ""
+    echo "  Get started:"
+    echo "    hlvm ask \"hello\""
+    echo "    hlvm repl"
+    echo "    hlvm --help"
+    echo ""
+  else
+    echo ""
+    err "HLVM ${VERSION} installed, but bootstrap failed."
+    err "The local AI fallback is NOT ready."
+    echo ""
+    echo "  To retry:"
+    echo "    hlvm bootstrap"
+    echo ""
+    echo "  Cloud providers still work:"
+    echo "    hlvm ask --model openai/gpt-4o \"hello\""
+    echo ""
+    exit 1
+  fi
+}
+
 main() {
   case "${1:-}" in
     --help)
       echo "HLVM Installer"
       echo ""
       echo "Usage:"
-      echo "  curl -fsSL https://hlvm.dev/install.sh | sh"
+      echo "  Standard (downloads model during install):"
+      echo "    curl -fsSL https://hlvm.dev/install.sh | sh"
       echo ""
+      echo "  Bundled (model weights included, no download during bootstrap):"
+      echo "    curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled"
+      echo ""
+      ;;
+    --bundled)
+      install_bundled
       ;;
     "")
       install_standard
       ;;
     *)
       err "Unsupported argument: $1"
-      err "Use the supported one-shot install instead:"
-      echo "  curl -fsSL https://hlvm.dev/install.sh | sh"
+      echo ""
+      echo "  Standard install:"
+      echo "    curl -fsSL https://hlvm.dev/install.sh | sh"
+      echo ""
+      echo "  Bundled install (includes model weights):"
+      echo "    curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled"
+      echo ""
       exit 1
       ;;
   esac

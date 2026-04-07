@@ -14,7 +14,7 @@ import { ensureRuntimeDir, getModelsDir } from "../../common/paths.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../common/config/types.ts";
 import { http } from "../../common/http-client.ts";
 import { log } from "../api/log.ts";
-import { VERSION } from "../../version.ts";
+import { VERSION } from "../../common/version.ts";
 import {
   type BootstrapManifest,
   findOllamaModelManifest,
@@ -224,6 +224,10 @@ async function ensurePinnedFallbackModel(
     return existingManifest.manifest;
   }
 
+  // Sidecar extraction (if any) already happened before the engine was
+  // started (see materializeBootstrap step 1.5).  If a sidecar was extracted,
+  // the existingManifest check above should have already returned.
+  // Fall back to a network pull.
   await pullModel(LOCAL_FALLBACK_MODEL, options);
 
   const pulledManifest = await findOllamaModelManifest(
@@ -250,11 +254,12 @@ async function ensurePinnedFallbackModel(
 
 /**
  * Full bootstrap materialization:
- * 1. Extract AI engine
- * 2. Start engine with HLVM-owned model dir
- * 3. Adopt existing pinned fallback or pull it once
- * 4. Hash engine + model blobs
- * 5. Write manifest
+ * 1.   Extract AI engine
+ * 1.5. Extract sidecar model tarball (if present) — before engine start
+ * 2.   Start engine with HLVM-owned model dir
+ * 3.   Adopt existing pinned fallback or pull it once
+ * 4.   Hash engine + model blobs
+ * 5.   Write manifest
  */
 export async function materializeBootstrap(
   options?: MaterializeOptions,
@@ -263,6 +268,23 @@ export async function materializeBootstrap(
 
   // 1. Extract engine
   const enginePath = await ensureEngine(options?.onProgress);
+
+  // 1.5. Extract sidecar model BEFORE starting the engine.
+  //      Ollama discovers model files at startup — placing them on disk after
+  //      the engine is running would require a restart.
+  const { hasBundledModel, extractBundledModel } = await import(
+    "./ai-runtime.ts"
+  );
+  if (await hasBundledModel()) {
+    options?.onProgress?.({
+      phase: "pull_model",
+      message: `Extracting bundled ${LOCAL_FALLBACK_MODEL} (sidecar)...`,
+      percent: 0,
+    });
+    await extractBundledModel(undefined, (message) => {
+      options?.onProgress?.({ phase: "pull_model", message, percent: 50 });
+    });
+  }
 
   // 2. Start engine
   let proc: PlatformCommandProcess | null = null;

@@ -4,12 +4,13 @@
  */
 
 import { THEME_NAMES } from "../../hlvm/cli/theme/palettes.ts";
+import { LOCAL_FALLBACK_MODEL_ID } from "../../hlvm/runtime/local-fallback.ts";
 
 // ============================================================
 // Model Defaults
 // ============================================================
 
-export const DEFAULT_MODEL_ID = "ollama/gemma4:e4b";
+export const DEFAULT_MODEL_ID = LOCAL_FALLBACK_MODEL_ID;
 export const DEFAULT_MODEL_PROVIDER = DEFAULT_MODEL_ID.split("/")[0];
 export const DEFAULT_MODEL_NAME = DEFAULT_MODEL_ID.split("/")[1];
 export const DEFAULT_OLLAMA_HOST = "127.0.0.1:11439";

@@ -1,5 +1,5 @@
 /**
- * First-run setup now follows the same Gemma-first policy as the runtime host:
+ * First-run setup now follows the same local-model-first policy as the runtime host:
  * prepare the embedded local AI substrate and return the default local model.
  */
 
@@ -10,6 +10,7 @@ import { materializeBootstrap } from "../../runtime/bootstrap-materialize.ts";
 import { parseModelString } from "../../providers/index.ts";
 import { ANSI_COLORS } from "../ansi.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { getLocalModelDisplayName } from "../../runtime/local-llm.ts";
 
 const { RESET, BOLD, CYAN, DIM, GREEN } = ANSI_COLORS;
 
@@ -24,7 +25,7 @@ function style(message: string, ...codes: string[]): string {
 
 function printSetupBanner(): void {
   log.raw.log(style("============================================================", CYAN));
-  log.raw.log(style("Preparing local Gemma fallback for HLVM...", BOLD, CYAN));
+  log.raw.log(style(`Preparing local ${getLocalModelDisplayName()} fallback for HLVM...`, BOLD, CYAN));
   log.raw.log("Fresh installs now default to the bundled local model.");
   log.raw.log(style("============================================================", CYAN));
   log.raw.log("");

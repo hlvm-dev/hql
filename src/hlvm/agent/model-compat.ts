@@ -94,13 +94,14 @@ function looksLikeToolInstruction(text: string): boolean {
 }
 
 /**
- * Check if a response ends with a question mark (likely asking the user).
+ * Check if a response asks the user a question using LLM classification.
+ * Falls back to false on LLM failure (safe default — won't trigger follow-up interaction).
  */
-export function responseAsksQuestion(response: string): boolean {
+export async function responseAsksQuestion(response: string): Promise<boolean> {
   if (!response) return false;
-  // Only trigger if the last sentence is a question (avoid false positives from "?" in data)
-  const trimmed = response.trim();
-  return trimmed.endsWith("?");
+  const { classifyResponseIntent } = await import("../runtime/local-llm.ts");
+  const intent = await classifyResponseIntent(response);
+  return intent.asksQuestion;
 }
 
 /**

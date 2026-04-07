@@ -12,16 +12,15 @@ import { log } from "../../api/log.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
 import { verifyBootstrap } from "../../runtime/bootstrap-verify.ts";
 import {
-  LOCAL_FALLBACK_MODEL,
   readBootstrapManifest,
 } from "../../runtime/bootstrap-manifest.ts";
+import { LOCAL_FALLBACK_MODEL_ID } from "../../runtime/local-fallback.ts";
 import { materializeBootstrap, type MaterializeProgress } from "../../runtime/bootstrap-materialize.ts";
 import { recoverBootstrap } from "../../runtime/bootstrap-recovery.ts";
 import { aiEngine } from "../../runtime/ai-runtime.ts";
 import { waitForModelAccess } from "../../runtime/model-access.ts";
 import { autoConfigureInitialLocalFallbackModel } from "../../../common/ai-default-model.ts";
 
-const LOCAL_FALLBACK_MODEL_ID = `ollama/${LOCAL_FALLBACK_MODEL}`;
 const BOOTSTRAP_MODEL_READY_TIMEOUT_MS = 600_000;
 const BOOTSTRAP_MODEL_READY_LOG_INTERVAL_MS = 30_000;
 
