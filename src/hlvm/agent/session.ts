@@ -56,6 +56,7 @@ import {
 } from "../memory/mod.ts";
 import { cloneToolList } from "./orchestrator-state.ts";
 import { releaseToolOwner } from "./registry.ts";
+import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
 import { FileStateCache } from "./file-state-cache.ts";
 import {
   REPL_MAIN_THREAD_QUERY_SOURCE,
@@ -126,6 +127,8 @@ export interface AgentSession {
   thinkingState?: ThinkingState;
   /** Whether the active model supports provider-native reasoning/thinking. */
   thinkingCapable?: boolean;
+  /** Whether the active model supports vision (image) inputs. */
+  visionCapable?: boolean;
   /** The engine used for LLM creation (for rebuilding in reuseSession) */
   engine?: AgentEngine;
   /** Shared mutable tool filter state used by orchestrator + engine. */
@@ -202,6 +205,7 @@ function buildCompiledPromptArtifacts(options: {
   instructions?: InstructionHierarchy;
   modelTier: ModelTier;
   agentProfiles?: readonly AgentProfile[];
+  visionCapable?: boolean;
 }): {
   compiledPrompt: NonNullable<AgentLLMConfig["compiledPrompt"]>;
   compiledPromptMeta: AgentSession["compiledPromptMeta"];
@@ -215,6 +219,7 @@ function buildCompiledPromptArtifacts(options: {
     instructions: options.instructions,
     modelTier: options.modelTier,
     agentProfiles: options.agentProfiles,
+    visionCapable: options.visionCapable,
   });
 
   return {
@@ -362,6 +367,16 @@ export async function createAgentSession(
   const effectiveToolDenylist = options.toolDenylist?.length
     ? [...options.toolDenylist]
     : [...DEFAULT_TOOL_DENYLIST];
+  const visionCapable = modelInfo?.capabilities?.includes("vision") ??
+    isFrontier;
+  // Deny CU tools for non-vision models (they can't process screenshots)
+  if (!visionCapable) {
+    for (const name of Object.keys(COMPUTER_USE_TOOLS)) {
+      if (!effectiveToolDenylist.includes(name)) {
+        effectiveToolDenylist.push(name);
+      }
+    }
+  }
   const baselineToolAllowlist = resolveMainThreadBaselineToolAllowlist({
     querySource: options.querySource,
     toolAllowlist: options.toolAllowlist,
@@ -513,6 +528,7 @@ export async function createAgentSession(
     modelTier,
     instructions: options.instructions,
     agentProfiles: options.agentProfiles,
+    visionCapable,
   });
   context.addMessage({
     role: "system",
@@ -594,6 +610,7 @@ export async function createAgentSession(
     llmConfig,
     thinkingState,
     thinkingCapable,
+    visionCapable,
     engine,
     toolFilterState,
     toolFilterBaseline,

@@ -127,6 +127,8 @@ export interface SystemPromptOptions {
   agentProfiles?: readonly AgentProfile[];
   /** Full instruction hierarchy (overrides customInstructions when provided). */
   instructions?: InstructionHierarchy;
+  /** Whether the active model supports vision inputs. */
+  visionCapable?: boolean;
 }
 
 /**
@@ -153,6 +155,7 @@ export function compileSystemPrompt(
     instructions,
     agentProfiles: options.agentProfiles,
     querySource: options.querySource,
+    visionCapable: options.visionCapable,
   });
 }
 

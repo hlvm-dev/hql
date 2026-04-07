@@ -125,6 +125,10 @@ import {
   type SdkConvertibleMessage,
 } from "../providers/sdk-runtime.ts";
 import { resolveSdkModelSpec, toSdkRuntimeModelSpec } from "./engine-sdk.ts";
+import {
+  isLocalFallbackReady,
+  LOCAL_FALLBACK_MODEL_ID,
+} from "../runtime/local-fallback.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -1231,30 +1235,20 @@ export async function runAgentQuery(
           }),
         thinkingState: session.thinkingState,
         thinkingCapable: session.thinkingCapable,
+        visionCapable: session.visionCapable,
         planModeState,
         toolOwnerId: session.toolOwnerId,
         delegateOwnerId,
         ensureMcpLoaded: session.ensureMcpLoaded,
         autoFallbacks: autoDecision?.fallbacks,
-        onAutoFallback: autoDecision?.fallbacks?.length
-          ? (fallbackModel: string) => {
-              const fbConfig = { ...session.llmConfig!, model: fallbackModel };
-              return (session.engine ?? getAgentEngine()).createLLM(fbConfig);
-            }
-          : undefined,
-        autoLastResort: autoDecision
-          ? {
-              model: "ollama/gemma4:e4b",
-              isAvailable: async () => {
-                const [{ isFallbackModelAvailable }, { isRuntimeReadyForAiRequests }] =
-                  await Promise.all([
-                    import("../runtime/bootstrap-verify.ts"),
-                    import("../cli/commands/serve.ts"),
-                  ]);
-                return isRuntimeReadyForAiRequests() && await isFallbackModelAvailable();
-              },
-            }
-          : undefined,
+        createFallbackLLM: (fallbackModel: string) => {
+          const fbConfig = { ...session.llmConfig!, model: fallbackModel };
+          return (session.engine ?? getAgentEngine()).createLLM(fbConfig);
+        },
+        localLastResort: {
+          model: LOCAL_FALLBACK_MODEL_ID,
+          isAvailable: isLocalFallbackReady,
+        },
       } satisfies Parameters<typeof runReActLoop>[1];
       text = await runReActLoop(
         query,

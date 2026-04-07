@@ -55,6 +55,7 @@ export interface PromptCompilerInput {
   instructions: InstructionHierarchy;
   agentProfiles?: readonly AgentProfile[];
   querySource?: string;
+  visionCapable?: boolean;
 }
 
 /** Section metadata in the compiled output. */

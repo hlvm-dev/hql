@@ -51,6 +51,7 @@ const SECTION_STABILITY: Record<string, PromptSectionStability> = {
   custom: "session",
   delegation: "session",
   team_coordination: "session",
+  computer_use: "session",
 };
 
 const WEB_SEARCH_TOOL_NAME = "search_web";
@@ -456,6 +457,47 @@ function renderFooter(): RawPromptSection {
   };
 }
 
+function renderComputerUseGuidance(
+  tools: Record<string, ToolMetadata>,
+  visionCapable?: boolean,
+): RawPromptSection {
+  const hasCuTools = Object.keys(tools).some((n) => n.startsWith("cu_"));
+  if (!hasCuTools || visionCapable === false) {
+    return { id: "computer_use", content: "", minTier: "mid" };
+  }
+
+  return {
+    id: "computer_use",
+    content: `# Computer Use
+You have computer control tools (cu_* prefix) for GUI automation on macOS.
+
+## Workflow
+1. ALWAYS call cu_screenshot first to see the current screen state
+2. Use coordinates from the LATEST screenshot only — screen content changes between screenshots
+3. After performing an action (click, type, key), take another screenshot to verify the result
+4. If the screen changed unexpectedly, take a fresh screenshot before deciding the next step
+
+## Best Practices
+- Click at the CENTER of UI elements, not at edges
+- After clicking a menu or button, use cu_wait if content needs time to load
+- Use cu_zoom to inspect small or ambiguous UI regions before clicking
+- For text input: cu_left_click the target field first, then cu_type
+- Use cu_key for keyboard shortcuts (e.g. "command+c", "command+v", "command+l")
+- Use cu_scroll at the coordinates of the scrollable area
+- Prefer keyboard shortcuts over mouse navigation when well-known
+
+## Coordinate System
+- Coordinates are absolute pixel positions: [x, y] where (0,0) is top-left
+- Use cu_cursor_position to check current cursor location
+- Use cu_list_granted_applications to see running apps
+
+## Safety
+- Minimize unnecessary actions — each tool call requires approval
+- Avoid typing sensitive data — use cu_write_clipboard + cu_key "command+v" instead`,
+    minTier: "mid",
+  };
+}
+
 // ============================================================
 // Section Collection
 // ============================================================
@@ -488,6 +530,7 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
     renderInstructions(tier),
     renderToolRouting(tools),
     renderWebToolGuidance(tools),
+    renderComputerUseGuidance(tools, input.visionCapable),
     renderPermissionTiers(tools),
     renderEnvironment(),
   ];

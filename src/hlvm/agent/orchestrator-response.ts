@@ -329,21 +329,32 @@ export async function processAgentResponse(
 
     // Inject screenshot images as a user message so vision models can see them
     if (result.imageAttachments?.length) {
-      addContextMessage(config, {
-        role: "user",
-        content: "[Screenshot attached]",
-        roundId,
-        attachments: result.imageAttachments.map((img, idx) => ({
-          mode: "binary" as const,
-          attachmentId: `cu-${call.id}-${idx}`,
-          fileName: "screenshot.jpg",
-          mimeType: img.mimeType,
-          kind: "image" as const,
-          conversationKind: "image" as const,
-          size: img.data.length,
-          data: img.data,
-        })),
-      });
+      if (config.visionCapable !== false) {
+        addContextMessage(config, {
+          role: "user",
+          content: "[Screenshot attached]",
+          roundId,
+          attachments: result.imageAttachments.map((img, idx) => ({
+            mode: "binary" as const,
+            attachmentId: `cu-${call.id}-${idx}`,
+            fileName: "screenshot.jpg",
+            mimeType: img.mimeType,
+            kind: "image" as const,
+            conversationKind: "image" as const,
+            size: img.data.length,
+            data: img.data,
+          })),
+        });
+      } else {
+        const dims = result.imageAttachments
+          .map((img) => `${img.width ?? "?"}x${img.height ?? "?"}`)
+          .join(", ");
+        addContextMessage(config, {
+          role: "user",
+          content: `[Screenshot captured (${dims}px) — not shown: model lacks vision]`,
+          roundId,
+        });
+      }
     }
 
     remainingObservationBytes -= observationBytes;
@@ -774,25 +785,18 @@ function extractClarifyingQuestion(response: string): string | null {
   return null;
 }
 
-function responseNeedsConcreteTask(response: string): boolean {
-  return /\b(no specific task|no task to plan|nothing to plan|not a task i can act on|actual question or task|what would you like to (accomplish|work on|plan)|what can i help you with|could you tell me what you'd like)\b/i
-    .test(response);
+async function responseNeedsConcreteTask(response: string): Promise<boolean> {
+  const { classifyResponseIntent } = await import("../runtime/local-llm.ts");
+  const intent = await classifyResponseIntent(response);
+  return intent.needsConcreteTask;
 }
 
-function isBinaryFollowUpQuestion(question: string): boolean {
-  return /\b(would you like|do you want|want me to|should i|can i|may i)\b/i
-    .test(question);
-}
-
-function isGenericConversationalFollowUp(question: string): boolean {
-  return /\b(help with anything else|anything else i can help with|anything else|anything more|something else i can help with|do anything else for you)\b/i
-    .test(question);
-}
-
-function buildDefaultFollowUpOptions(
+async function buildDefaultFollowUpOptions(
   question: string,
-): InteractionOption[] | undefined {
-  if (!isBinaryFollowUpQuestion(question)) {
+): Promise<InteractionOption[] | undefined> {
+  const { classifyFollowUp } = await import("../runtime/local-llm.ts");
+  const followUp = await classifyFollowUp(question);
+  if (!followUp.isBinaryQuestion) {
     return undefined;
   }
   return [
@@ -810,20 +814,21 @@ function buildDefaultFollowUpOptions(
   ];
 }
 
-function shouldConvertDefaultFollowUpToInteraction(
+async function shouldConvertDefaultFollowUpToInteraction(
   response: string,
   state: LoopState,
   config: OrchestratorConfig,
-): boolean {
+): Promise<boolean> {
   if (!config.onInteraction) return false;
   if (config.planModeState?.active) return false;
   if (state.planState) return false;
   if (state.toolUses.length === 0) return false;
-  if (!responseAsksQuestion(response)) return false;
-  if (isGenericConversationalFollowUp(response)) return false;
-  return isBinaryFollowUpQuestion(response) ||
-    /\b(how would you like|which option|which would you prefer|what should i do next)\b/i
-      .test(response);
+  if (!(await responseAsksQuestion(response))) return false;
+
+  const { classifyFollowUp } = await import("../runtime/local-llm.ts");
+  const followUp = await classifyFollowUp(response);
+  if (followUp.isGenericConversational) return false;
+  return followUp.isBinaryQuestion || followUp.asksFollowUp;
 }
 
 /**
@@ -903,7 +908,7 @@ export async function handleFinalResponse(
     }
 
     const clarificationQuestion = extractClarifyingQuestion(finalResponse);
-    if (clarificationQuestion || responseNeedsConcreteTask(finalResponse)) {
+    if (clarificationQuestion || (await responseNeedsConcreteTask(finalResponse))) {
       const question = clarificationQuestion ??
         "What concrete task do you want me to plan?";
       if (config.onInteraction) {
@@ -952,7 +957,7 @@ export async function handleFinalResponse(
     };
   }
 
-  if (shouldConvertDefaultFollowUpToInteraction(finalResponse, state, config)) {
+  if (await shouldConvertDefaultFollowUpToInteraction(finalResponse, state, config)) {
     const question = extractClarifyingQuestion(finalResponse) ??
       "How would you like to proceed?";
     const interaction = await config.onInteraction!({
@@ -960,7 +965,7 @@ export async function handleFinalResponse(
       requestId: crypto.randomUUID(),
       mode: "question",
       question,
-      options: buildDefaultFollowUpOptions(question),
+      options: await buildDefaultFollowUpOptions(question),
     });
     const answer = interaction.userInput?.trim();
     if (answer) {
@@ -1024,7 +1029,7 @@ export async function handleFinalResponse(
     !lc.skipCompensation &&
     lc.noInputEnabled &&
     state.noInputRetries < lc.maxNoInputRetries &&
-    responseAsksQuestion(finalResponse)
+    (await responseAsksQuestion(finalResponse))
   ) {
     state.noInputRetries++;
     addContextMessage(config, {

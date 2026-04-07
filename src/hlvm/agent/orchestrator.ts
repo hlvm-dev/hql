@@ -86,6 +86,7 @@ import { resolveThinkingProfile } from "./thinking-profile.ts";
 import type { AgentHookRuntime } from "./hooks.ts";
 import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
+import type { LastResortFallback } from "./auto-select.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -576,6 +577,8 @@ export interface OrchestratorConfig {
   thinkingState?: ThinkingState;
   /** Whether the active model can use provider-native reasoning/thinking. */
   thinkingCapable?: boolean;
+  /** Whether the active model supports vision (image) inputs. */
+  visionCapable?: boolean;
   l1Confirmations?: Map<string, boolean>;
   toolOwnerId?: string;
   /** Top-level delegate owner used to scope background agent control tools. */
@@ -638,9 +641,9 @@ export interface OrchestratorConfig {
   /** Fallback model IDs for auto-select mode (tried on transient failures). */
   autoFallbacks?: string[];
   /** Factory to create an LLM function for a fallback model. */
-  onAutoFallback?: (model: string) => LLMFunction;
+  createFallbackLLM?: (model: string) => LLMFunction;
   /** Last-resort local model when all scored fallbacks are exhausted. */
-  autoLastResort?: { model: string; isAvailable: () => Promise<boolean> };
+  localLastResort?: LastResortFallback;
 }
 
 function memoryWriteAvailable(config: OrchestratorConfig): boolean {
@@ -1211,16 +1214,16 @@ async function runLlmResponsePass(
     },
   };
 
-  const agentResponse = config.autoFallbacks?.length && config.onAutoFallback
+  const agentResponse = config.localLastResort && config.createFallbackLLM
     ? await (async () => {
         const { callLLMWithModelFallback } = await import("./auto-select.ts");
         return callLLMWithModelFallback(
           () => callLLMWithRetry(llmFunction, messages, retryConfig, onTrace, config.context),
-          config.autoFallbacks!,
-          config.onAutoFallback!,
+          config.autoFallbacks ?? [],
+          config.createFallbackLLM!,
           (fbLLM) => callLLMWithRetry(fbLLM, messages, retryConfig, onTrace, config.context),
           onTrace,
-          config.autoLastResort,
+          config.localLastResort,
         );
       })()
     : await callLLMWithRetry(llmFunction, messages, retryConfig, onTrace, config.context);
