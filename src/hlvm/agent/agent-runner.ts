@@ -58,6 +58,8 @@ import {
 } from "./orchestrator.ts";
 import type { AgentPolicy } from "./policy.ts";
 import {
+  classifyModelTier,
+  computeTierToolFilter,
   DEFAULT_TOOL_DENYLIST,
   ENGINE_PROFILES,
   extractModelSuffix,
@@ -462,6 +464,14 @@ function updateSessionBaselineAllowlist(
   return nextAllowlist;
 }
 
+/** Append names from `source` into `target` (mutates), skipping duplicates. */
+function appendNewNames(target: string[], source: Iterable<string>): void {
+  const existing = new Set(target);
+  for (const name of source) {
+    if (!existing.has(name)) target.push(name);
+  }
+}
+
 function persistDeferredToolDiscoveriesForSession(options: {
   session: AgentSession;
   discoveredToolNames: readonly string[];
@@ -469,39 +479,63 @@ function persistDeferredToolDiscoveriesForSession(options: {
   toolDenylist?: string[];
   sessionKey?: string | null;
 }): string[] | undefined {
-  if (!isMainThreadQuerySource(options.session.querySource)) {
-    return options.session.toolFilterBaseline?.allowlist ??
-      options.session.llmConfig?.toolAllowlist;
+  // Enhanced tier: no allowlist filtering, nothing to discover.
+  const baseline = options.session.toolFilterBaseline;
+  if (!baseline?.allowlist) return undefined;
+
+  if (isMainThreadQuerySource(options.session.querySource)) {
+    // REPL path: merge via resolveMainThreadBaselineToolAllowlist (unchanged).
+    const eagerOnly = new Set(
+      resolveMainThreadBaselineToolAllowlist({
+        querySource: options.session.querySource,
+        toolAllowlist: options.toolAllowlist,
+        ownerId: options.session.toolOwnerId,
+      }) ?? [],
+    );
+    let changed = false;
+    for (const name of options.discoveredToolNames) {
+      if (eagerOnly.has(name)) continue;
+      if (!options.session.discoveredDeferredTools.has(name)) {
+        options.session.discoveredDeferredTools.add(name);
+        changed = true;
+      }
+    }
+    const nextBaseline = updateSessionBaselineAllowlist(
+      options.session,
+      options.toolAllowlist,
+    );
+    if (changed && options.sessionKey) {
+      persistDiscoveredDeferredTools(
+        options.sessionKey,
+        options.session.discoveredDeferredTools,
+      );
+    }
+    return nextBaseline;
   }
 
-  const eagerOnly = new Set(
-    resolveMainThreadBaselineToolAllowlist({
-      querySource: options.session.querySource,
-      toolAllowlist: options.toolAllowlist,
-      ownerId: options.session.toolOwnerId,
-    }) ?? [],
-  );
+  // Non-REPL path (agent mode): directly add discovered tools to baseline allowlist.
   let changed = false;
   for (const name of options.discoveredToolNames) {
-    if (eagerOnly.has(name)) {
-      continue;
-    }
     if (!options.session.discoveredDeferredTools.has(name)) {
       options.session.discoveredDeferredTools.add(name);
       changed = true;
     }
   }
-  const nextBaseline = updateSessionBaselineAllowlist(
-    options.session,
-    options.toolAllowlist,
-  );
-  if (changed && options.sessionKey) {
-    persistDiscoveredDeferredTools(
-      options.sessionKey,
-      options.session.discoveredDeferredTools,
-    );
+  if (changed) {
+    appendNewNames(baseline.allowlist, options.session.discoveredDeferredTools);
+    if (options.session.llmConfig) {
+      options.session.llmConfig.toolAllowlist = [...baseline.allowlist];
+      options.session.llmConfig.discoveredDeferredToolCount =
+        options.session.discoveredDeferredTools.size;
+    }
+    if (options.sessionKey) {
+      persistDiscoveredDeferredTools(
+        options.sessionKey,
+        options.session.discoveredDeferredTools,
+      );
+    }
   }
-  return nextBaseline;
+  return baseline.allowlist;
 }
 
 interface AgentRunnerResult {
@@ -653,17 +687,24 @@ export async function runAgentQuery(
 
   if (
     options.reusableSession &&
-    isMainThreadQuerySource(querySource) &&
     restoredSessionMetadata.discoveredDeferredTools?.length
   ) {
     options.reusableSession.querySource = querySource;
     for (const name of restoredSessionMetadata.discoveredDeferredTools) {
       options.reusableSession.discoveredDeferredTools.add(name);
     }
-    updateSessionBaselineAllowlist(
-      options.reusableSession,
-      requestedToolAllowlist,
-    );
+    if (isMainThreadQuerySource(querySource)) {
+      updateSessionBaselineAllowlist(
+        options.reusableSession,
+        requestedToolAllowlist,
+      );
+    } else if (options.reusableSession.toolFilterBaseline?.allowlist) {
+      // Non-REPL: directly add discovered tools to baseline allowlist.
+      appendNewNames(
+        options.reusableSession.toolFilterBaseline.allowlist,
+        restoredSessionMetadata.discoveredDeferredTools,
+      );
+    }
   }
 
   const matchingReusableSession = persistentMemoryEnabled &&
@@ -732,13 +773,7 @@ export async function runAgentQuery(
   session.querySource = querySource;
   if (session.llmConfig) {
     session.llmConfig.querySource = querySource;
-    session.llmConfig.eagerToolCount = isMainThreadQuerySource(querySource)
-      ? resolveMainThreadBaselineToolAllowlist({
-        querySource,
-        toolAllowlist: requestedToolAllowlist,
-        ownerId: session.toolOwnerId,
-      })?.length
-      : undefined;
+    session.llmConfig.eagerToolCount = session.toolFilterBaseline?.allowlist?.length;
     session.llmConfig.discoveredDeferredToolCount =
       session.discoveredDeferredTools.size;
   }
@@ -1192,13 +1227,7 @@ export async function runAgentQuery(
         sessionId: sessionKey ?? undefined,
         turnId,
         querySource,
-        eagerToolCount: isMainThreadQuerySource(querySource)
-          ? resolveMainThreadBaselineToolAllowlist({
-            querySource,
-            toolAllowlist: requestedToolAllowlist,
-            ownerId: session.toolOwnerId,
-          })?.length
-          : undefined,
+        eagerToolCount: session.toolFilterBaseline?.allowlist?.length,
         discoveredDeferredToolCount: session.discoveredDeferredTools.size,
         currentUserRequest: query,
         signal: options.signal,
@@ -1240,7 +1269,20 @@ export async function runAgentQuery(
         ensureMcpLoaded: session.ensureMcpLoaded,
         autoFallbacks: autoDecision?.fallbacks,
         createFallbackLLM: (fallbackModel: string) => {
-          const fbConfig = { ...session.llmConfig!, model: fallbackModel };
+          // Recalculate tier-based tool filter for the fallback model.
+          // The primary model may be enhanced (all tools) but the fallback
+          // may be standard (eager core + tool_search for discovery).
+          const fbTier = classifyModelTier(undefined, fallbackModel);
+          const fbToolFilter = computeTierToolFilter(fbTier);
+          const fbConfig = {
+            ...session.llmConfig!,
+            model: fallbackModel,
+            // Override tool filters: toolFilterState takes precedence in engine-sdk,
+            // so null it out and set toolAllowlist/toolDenylist from the fallback tier.
+            toolFilterState: fbToolFilter.allowlist
+              ? { allowlist: fbToolFilter.allowlist, denylist: fbToolFilter.denylist }
+              : undefined,
+          };
           return (session.engine ?? getAgentEngine()).createLLM(fbConfig);
         },
         localLastResort: {

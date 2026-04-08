@@ -1156,7 +1156,6 @@ From Vercel AI SDK v6:
 |----------|-------|---------|
 | `MAX_ITERATIONS` | 20 | Parent/lead agent |
 | `DELEGATE_MAX_ITERATIONS` | 10 | Delegated child agent |
-| `MAX_RETRIES` | 3 | LLM call retries |
 | `DEFAULT_MAX_TOOL_CALLS` | 50 | Tools per turn |
 
 ### Timeouts

@@ -1,26 +1,10 @@
+import { STANDARD_EAGER_TOOLS } from "./constants.ts";
 import { getAllTools } from "./registry.ts";
 
 export const REPL_MAIN_THREAD_QUERY_SOURCE = "repl_main_thread";
 
-const REPL_MAIN_THREAD_EAGER_CORE = [
-  "ask_user",
-  "tool_search",
-  "todo_read",
-  "todo_write",
-  "list_files",
-  "read_file",
-  "search_code",
-  "find_symbol",
-  "get_structure",
-  "edit_file",
-  "write_file",
-  "git_status",
-  "git_diff",
-  "git_log",
-  "shell_exec",
-  "shell_script",
-  "open_path",
-] as const;
+/** REPL main thread uses the same eager core as standard tier (SSOT in constants.ts). */
+const REPL_MAIN_THREAD_EAGER_CORE = STANDARD_EAGER_TOOLS;
 
 /** Deduplicate and validate a tool allowlist. */
 export function resolveQueryToolAllowlist(

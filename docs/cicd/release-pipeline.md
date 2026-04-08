@@ -404,8 +404,9 @@ No draft tokens. No file:// overrides. Real public URLs end to end.
    │          ▼                                                      │
    │  Step 9: hlvm bootstrap                                         │
    │          ├─ extract embedded Ollama → ~/.hlvm/.runtime/engine   │
+   │          ├─ extract/download Chromium → ~/.hlvm/.runtime/chromium│
    │          ├─ start engine on localhost:11439                     │
-   │          ├─ pull gemma4:e4b (~9.6 GB)                           │
+   │          ├─ auto-detect hardware → pull best-fit model          │
    │          ├─ probe: wait for model to be request-ready           │
    │          ├─ write manifest.json { "state": "verified" }         │
    │          └─ keep Ollama running (warm model for hlvm ask)       │
@@ -428,19 +429,25 @@ No draft tokens. No file:// overrides. Real public URLs end to end.
  │  ├── CLI (ask, repl, serve)              │
  │  ├── AI agent + orchestrator             │
  │  ├── MCP tool server support             │
+ │  ├── Playwright bridge (pw_* tools)      │
  │  └── HQL transpiler + evaluator          │
  │                                          │
  │  HQL Standard Library  ~1 MB             │
+ │                                          │
+ │  npm deps (baked in at compile)          │
+ │  ├── playwright-core  ~3 MB (API only)   │
+ │  └── ... other deps                      │
  │                                          │
  │  Embedded Ollama v0.20.1  ~500 MB        │
  │  (pinned in embedded-ollama-version.txt) │
  └──────────────────────────────────────────┘
         │
-        │  hlvm bootstrap extracts engine, pulls model
+        │  hlvm bootstrap extracts engine, pulls model + Chromium
         ▼
  ~/.hlvm/.runtime/
  ├── engine/          Ollama binary + libs (libmlx, metal, etc.)
- ├── models/          gemma4:e4b (~9.6 GB)
+ ├── models/          auto-selected model (680 MB — 9.6 GB)
+ ├── chromium/        Chromium browser binary (~200 MB)
  └── manifest.json    { "state": "verified" }
 
 
@@ -627,28 +634,31 @@ embedding files but the binary crashes on load above ~2 GB.
           │
           ▼
  ┌─────────────────────────────────────────────────────────────────────┐
- │  STEP 1: Build sidecar tarball                                      │
+ │  STEP 1: Build sidecar tarballs                                     │
  │  - Setup AI engine (embedded Ollama)                                │
  │  - Pull model via setup-bundled-model.sh                            │
  │  - Package model store into hlvm-model.tar (~8.9 GB)                │
+ │  - Download Chromium via playwright-core for each platform          │
+ │  - Package into hlvm-chromium.tar (~200 MB, platform-specific)      │
  └──────────────────────────────────┬──────────────────────────────────┘
                                     │
  ┌──────────────────────────────────▼──────────────────────────────────┐
  │  STEP 2: Upload to HuggingFace                                      │
  │  - Generate SHA-256 checksums                                       │
- │  - Upload tarball + checksums via Python HfApi                      │
+ │  - Upload tarballs + checksums via Python HfApi                     │
  │  - Repo: HLVM/hlvm-releases                                      │
  │  - Revision: <tag> (e.g. v0.1.0)                                    │
  └─────────────────────────────────────────────────────────────────────┘
 
  Hosted on:
    https://huggingface.co/HLVM/hlvm-releases/resolve/<tag>/hlvm-model.tar
+   https://huggingface.co/HLVM/hlvm-releases/resolve/<tag>/hlvm-chromium.tar
 
  Installed via:
    curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled
      → downloads standard binary from GitHub Releases
-     → downloads hlvm-model.tar from HuggingFace
-     → bootstrap extracts tarball, starts engine, verifies model
+     → downloads hlvm-model.tar + hlvm-chromium.tar from HuggingFace
+     → bootstrap extracts tarballs, starts engine, verifies model + browser
 ```
 
 ### Bundled Workflow Secrets
@@ -748,13 +758,15 @@ Firebase custom headers (from `firebase.json`):
 
  HuggingFace — Bundled Sidecar (huggingface.co/HLVM/hlvm-releases):
  ├── hlvm-model.tar             ~8.9 GB  (platform-independent model store)
+ ├── hlvm-chromium.tar          ~200 MB  (platform-specific Chromium browser)
  └── checksums-bundled.sha256   ~1 KB
 
  User's machine after install (either mode):
  ├── /usr/local/bin/hlvm
  └── ~/.hlvm/.runtime/
      ├── engine/       Ollama v0.20.1 binary + libs
-     ├── models/       gemma4:e4b (~9.6 GB)
+     ├── models/       auto-selected model (680 MB — 9.6 GB)
+     ├── chromium/     Chromium browser binary (~200 MB)
      └── manifest.json { "state": "verified" }
 ```
 

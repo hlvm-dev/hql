@@ -25,6 +25,7 @@ import { DELEGATE_TOOLS } from "./tools/delegate-tools.ts";
 import { ACTIVITY_TOOLS } from "./tools/activity-tools.ts";
 import { AGENT_TEAM_TOOLS } from "./tools/agent-team-tools.ts";
 import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
+import { PLAYWRIGHT_TOOLS } from "./playwright/mod.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
 import type { AgentPolicy } from "./policy.ts";
@@ -535,6 +536,7 @@ const BUILTIN_TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...ACTIVITY_TOOLS,
   ...AGENT_TEAM_TOOLS,
   ...COMPUTER_USE_TOOLS,
+  ...PLAYWRIGHT_TOOLS,
 } as Record<string, ToolMetadata>;
 
 export const TOOL_REGISTRY: Record<string, ToolMetadata> =

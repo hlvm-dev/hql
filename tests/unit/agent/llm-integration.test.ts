@@ -11,6 +11,8 @@ import {
 } from "../../../src/hlvm/agent/llm-integration.ts";
 import {
   classifyModelTier,
+  computeTierToolFilter,
+  STANDARD_EAGER_TOOLS,
   supportsAgentExecution,
   tierMeetsMinimum,
 } from "../../../src/hlvm/agent/constants.ts";
@@ -136,6 +138,61 @@ Deno.test("LLM integration: model tiers classify and compare correctly", () => {
   assertEquals(tierMeetsMinimum("constrained", "standard"), false);
   assertEquals(tierMeetsMinimum("standard", "constrained"), true);
   assertEquals(tierMeetsMinimum("enhanced", "enhanced"), true);
+});
+
+Deno.test("LLM integration: computeTierToolFilter returns correct tools per tier", () => {
+  // Enhanced: passthrough (no filtering)
+  const enhanced = computeTierToolFilter("enhanced");
+  assertEquals(enhanced.allowlist, undefined);
+  assertEquals(enhanced.denylist, undefined);
+
+  // Enhanced with user allowlist: passthrough
+  const enhancedWithAllow = computeTierToolFilter("enhanced", ["read_file"]);
+  assertEquals(enhancedWithAllow.allowlist, ["read_file"]);
+
+  // Standard: eager core tools (includes tool_search for discovery)
+  const standard = computeTierToolFilter("standard");
+  assertEquals(standard.allowlist?.length, STANDARD_EAGER_TOOLS.length);
+  assertEquals(standard.allowlist?.includes("tool_search"), true);
+  assertEquals(standard.allowlist?.includes("read_file"), true);
+  assertEquals(standard.allowlist?.includes("shell_exec"), true);
+  // Deferred tools NOT in eager core:
+  assertEquals(standard.allowlist?.includes("search_web"), false);
+  assertEquals(standard.allowlist?.includes("memory_write"), false);
+  assertEquals(standard.allowlist?.includes("cu_screenshot"), false);
+
+  // Standard with user allowlist (e.g. from REPL with discovered tools): passthrough
+  const standardWithAllow = computeTierToolFilter("standard", ["read_file", "search_web"]);
+  assertEquals(standardWithAllow.allowlist, ["read_file", "search_web"]);
+
+  // Constrained: hard cap (no tool_search)
+  const constrained = computeTierToolFilter("constrained");
+  assertEquals(constrained.allowlist?.includes("tool_search"), false);
+  assertEquals(constrained.allowlist?.includes("read_file"), true);
+
+  // Constrained with user allowlist: user override
+  const constrainedWithAllow = computeTierToolFilter("constrained", ["read_file"]);
+  assertEquals(constrainedWithAllow.allowlist, ["read_file"]);
+});
+
+Deno.test("LLM integration: fallback model tier recalculation gives standard tools to local model", () => {
+  // Simulates what createFallbackLLM does: classify the fallback model, get its tool filter
+  const gemma4Tier = classifyModelTier(undefined, "ollama/gemma4:e4b");
+  assertEquals(gemma4Tier, "standard");
+  const gemma4Filter = computeTierToolFilter(gemma4Tier);
+  assertEquals(gemma4Filter.allowlist?.length, STANDARD_EAGER_TOOLS.length);
+  assertEquals(gemma4Filter.allowlist?.includes("tool_search"), true);
+
+  // Cloud model remains enhanced (all tools, no filtering)
+  const claudeTier = classifyModelTier(undefined, "anthropic/claude-sonnet");
+  assertEquals(claudeTier, "enhanced");
+  const claudeFilter = computeTierToolFilter(claudeTier);
+  assertEquals(claudeFilter.allowlist, undefined);
+
+  // "Double apply" scenario: enhanced primary falls back to standard.
+  // Fallback recalculates its own tier → independent filter, no conflict.
+  assertEquals(computeTierToolFilter("enhanced").allowlist, undefined);
+  assertEquals(computeTierToolFilter("standard").allowlist?.length, STANDARD_EAGER_TOOLS.length);
 });
 
 Deno.test("LLM integration: supportsAgentExecution uses capabilities ground truth", () => {

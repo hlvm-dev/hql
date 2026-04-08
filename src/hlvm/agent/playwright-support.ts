@@ -22,8 +22,18 @@ export function isPlaywrightMissingError(message: string): boolean {
   return PLAYWRIGHT_ERROR_MARKERS.some((marker) => lower.includes(marker));
 }
 
-/** Run `npx playwright install chromium` */
+/** Check HLVM-managed Chromium first, then fall back to npx install */
 async function runPlaywrightInstall(): Promise<boolean> {
+  // 1. Check HLVM-managed Chromium (from hlvm bootstrap)
+  try {
+    const { isChromiumReady } = await import("../runtime/chromium-runtime.ts");
+    if (await isChromiumReady()) {
+      getAgentLogger().info("Using HLVM-managed Chromium");
+      return true;
+    }
+  } catch { /* chromium-runtime not available */ }
+
+  // 2. Fall back to npx playwright install
   const platform = getPlatform();
   try {
     const process = platform.command.run({
@@ -45,7 +55,7 @@ async function runPlaywrightInstall(): Promise<boolean> {
 
 /**
  * Ensure Playwright Chromium is installed.
- * Attempts automatic install once per session when missing.
+ * Checks HLVM-managed Chromium first, then attempts npx install once per session.
  *
  * @param config Must have `workspace` and `playwrightInstallAttempted` fields
  */

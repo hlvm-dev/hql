@@ -1195,7 +1195,7 @@ Deno.test({
       {
         call: { toolName: "search_code", args: { pattern: "test" } },
         config: { toolAllowlist: ["read_file"] },
-        expected: "Tool not allowed",
+        expected: "Tool not available",
       },
       {
         call: { toolName: "read_file", args: { path: "README.md" } },
@@ -1203,7 +1203,7 @@ Deno.test({
           toolAllowlist: ["read_file"],
           toolDenylist: ["read_file"],
         },
-        expected: "Tool not allowed",
+        expected: "Tool not available",
       },
     ];
 
@@ -1889,6 +1889,7 @@ Deno.test({
             workspace: TEST_WORKSPACE,
             context: new ContextManager(),
             permissionMode: "bypassPermissions",
+            toolDenylist: ["delegate_agent"],
           },
           async () => {
             abortCalls += 1;
@@ -1919,6 +1920,7 @@ Deno.test({
                 workspace: TEST_WORKSPACE,
                 context: new ContextManager(),
                 permissionMode: "bypassPermissions",
+                toolDenylist: ["delegate_agent"],
                 llmRateLimit: { maxCalls: 1, windowMs: 1000 },
               },
               async () => makeResponse("", [{ toolName, args: {} }]),

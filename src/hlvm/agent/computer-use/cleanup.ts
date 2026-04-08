@@ -99,6 +99,15 @@ export async function cleanupComputerUseAfterTurn(
     // HLVM bridge: log instead (no OS notification API)
     log.info("Computer use session ended — released lock");
   }
+
+  // Close Playwright browser if active (zero-cost no-op if no browser was launched)
+  try {
+    const { closeBrowser, isBrowserActive } = await import("../playwright/mod.ts");
+    if (isBrowserActive()) {
+      await closeBrowser();
+      log.info("Browser session closed");
+    }
+  } catch { /* playwright module not loaded — nothing to clean up */ }
 }
 
 // ── Legacy API (backward compat with existing code) ──────────────────────

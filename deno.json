@@ -43,7 +43,8 @@
     "he": "npm:he@^1.2.0",
     "ajv": "npm:ajv@^8.18.0",
     "shell-quote": "npm:shell-quote@^1.8.0",
-    "diff": "npm:diff@^7"
+    "diff": "npm:diff@^7",
+    "playwright-core": "npm:playwright-core@1.52.0"
   },
   "lint": {
     "include": ["src/", "tests/", "scripts/"],

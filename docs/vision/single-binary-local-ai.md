@@ -38,6 +38,7 @@ Installed result:
 ~/.hlvm/.runtime/
   ├── engine
   ├── models/
+  ├── chromium/
   └── manifest.json
 ```
 
@@ -112,7 +113,8 @@ The bundled path never blocks the standard release. It is additive.
 │  engine  │──▶ ~/.hlvm/.runtime/
 │          │    ├── engine
 │ gemma4   │    ├── models/
-│ verified │    └── manifest.json
+│ verified │    ├── chromium/
+│          │    └── manifest.json
 └──────────┘
 ```
 
@@ -155,13 +157,15 @@ user's persisted config.
 
 1. `hlvm bootstrap` is the single install-time preparation entrypoint.
 2. The embedded AI engine uses HLVM-owned storage under `~/.hlvm/.runtime/models/`.
-3. The fallback model is `gemma4:e4b`.
+3. The fallback model is selected by hardware auto-detection (see Model Auto-Select).
 4. Bootstrap is adopt-or-pull:
    - if the pinned fallback is already present, adopt it
    - otherwise pull it during bootstrap
 5. The embedded runtime binds to `127.0.0.1:11439`, not the system Ollama default.
 6. `/health.aiReady` is true only after the fallback is genuinely ready.
 7. The installer is not complete until bootstrap has finished successfully.
+8. Chromium is pulled or extracted alongside the model during bootstrap.
+9. `pw_*` tools are gated on Chromium availability — missing Chromium = CU-only mode.
 
 ### Key Source Files
 
@@ -189,10 +193,12 @@ user's persisted config.
 4. install hlvm to the target bin dir
 5. run `hlvm bootstrap`
    ├── extractAIEngine()
+   ├── extractBundledChromium() OR downloadChromium()
    ├── start embedded engine with OLLAMA_MODELS=~/.hlvm/.runtime/models/
-   ├── adopt existing pinned gemma4:e4b OR pull it via 127.0.0.1:11439/api/pull
+   ├── adopt existing model OR pull auto-selected model
    ├── verify model identity on disk
-   ├── hash engine + record authoritative model digest/size
+   ├── verify Chromium binary on disk
+   ├── hash engine + model + chromium
    └── write ~/.hlvm/.runtime/manifest.json
 6. print ready message
 ```
@@ -217,6 +223,12 @@ Location: `~/.hlvm/.runtime/manifest.json`
     "size": 9600000000,
     "hash": "sha256:..."
   }],
+  "browsers": [{
+    "browser": "chromium",
+    "path": "/Users/user/.hlvm/.runtime/chromium",
+    "hash": "sha256:...",
+    "revision": "1148"
+  }],
   "buildId": "0.1.0",
   "createdAt": "2026-04-06T00:00:00Z",
   "lastVerifiedAt": "2026-04-06T00:00:00Z"
@@ -228,8 +240,8 @@ States:
 | State | Meaning |
 |-------|---------|
 | `uninitialized` | No manifest exists |
-| `verified` | Engine + fallback model present and verified |
-| `degraded` | Some required local AI assets are missing or corrupt |
+| `verified` | Engine + fallback model + Chromium present and verified |
+| `degraded` | Some required local AI assets are missing or corrupt (e.g., Chromium missing = degraded, not broken — CU-only mode still works) |
 
 ## What Is Already Proven
 
@@ -566,6 +578,165 @@ HuggingFace is used for the sidecar model tarball because GitHub Releases
 has a 2 GB per-asset limit. HuggingFace's free tier supports unlimited file
 sizes for public repos.
 
+## Phase 4: Hybrid Playwright + CU (Browser Automation)
+
+### What
+
+7 `pw_*` Playwright tools alongside 22 existing `cu_*` Computer Use tools.
+Chromium bundled via the same sidecar pattern as Ollama + Gemma. The LLM
+picks the best tool per action — Playwright for fast deterministic DOM
+operations, CU for visual tasks (CAPTCHAs, native dialogs).
+
+### Chromium Runtime
+
+```text
+~/.hlvm/.runtime/
+  ├── engine/        Ollama (exists)
+  ├── models/        LLM weights (exists)
+  ├── chromium/      Browser binary (NEW)
+  │   └── Chromium.app/  (macOS) or chrome (Linux) or chrome.exe (Windows)
+  └── manifest.json  Extended with browsers[] field
+```
+
+Chromium is ~200 MB. On a ~10 GB total install, this is under 2%.
+
+### Install Paths (extended)
+
+```text
+Standard:
+  hlvm bootstrap → pulls model (auto-sized) + Chromium (~200 MB)
+  Chromium source: Playwright CDN (same CDN Playwright uses internally)
+
+Bundled:
+  Sidecar includes hlvm-model.tar + hlvm-chromium.tar
+  Both extracted locally, no downloads
+```
+
+### Tool Architecture
+
+```text
+  LLM picks best tool per action:
+   │
+   ├──▶ pw_goto        Navigate to URL               ~500ms
+   ├──▶ pw_click       Click by CSS selector          instant
+   ├──▶ pw_fill        Fill form field by selector    instant
+   ├──▶ pw_content     Read page text/HTML            instant
+   ├──▶ pw_wait_for    Wait for selector/network      varies
+   ├──▶ pw_screenshot  Page screenshot (PNG)          ~100ms
+   ├──▶ pw_evaluate    Run JS in page context         instant
+   │         │
+   │         ▼  (same headed Chromium window)
+   │
+   ├──▶ cu_screenshot  Full-screen screenshot         ~300ms
+   ├──▶ cu_left_click  Click at pixel coordinates     instant
+   ├──▶ cu_type        Type keystrokes                instant
+   └──▶ ... 19 more cu_* tools
+```
+
+Both layers operate on the same visible Chromium window. Playwright via
+CDP (Chrome DevTools Protocol), CU via pixels (screenshot + CGEvent).
+
+### Gating
+
+- `pw_*` tools require `minTier: "standard"` — constrained models never see them
+- `pw_*` tools gated on `isChromiumReady()` — missing Chromium = CU-only mode
+- If Chromium fails at runtime, `pw_*` returns error → LLM switches to `cu_*`
+
+### Platform Expansion
+
+| Platform | CU (22 tools) | PW (7 tools) | Net |
+|----------|---------------|--------------|-----|
+| macOS | yes | yes | Full hybrid |
+| Linux | no | yes | Browser automation only |
+| Windows | no | yes | Browser automation only |
+
+Linux/Windows get browser automation for the first time. CU stays macOS-only.
+
+### Dependency
+
+`npm:playwright-core` (~3 MB API library, baked into binary at compile time).
+Connects to our managed Chromium via CDP. No Node.js needed — works in Deno.
+**Proven**: spike test confirmed all 7 operations work in Deno with external
+Chrome binary (2026-04-08).
+
+### Key Source Files (planned)
+
+| File | Role |
+|------|------|
+| `src/hlvm/runtime/chromium-runtime.ts` | Download, extract, verify Chromium |
+| `src/hlvm/agent/playwright/browser-manager.ts` | Browser singleton (launch, reuse, close) |
+| `src/hlvm/agent/playwright/tools.ts` | 7 pw_* tool definitions |
+| `src/hlvm/agent/playwright/mod.ts` | Barrel re-export |
+
+## Model Auto-Select Strategy (Future)
+
+### Problem
+
+The current default model is `gemma4:e4b` (12B, ~9.6 GB). This works well on
+machines with >= 16 GB RAM but is:
+- Too large for 8 GB laptops (thrashes swap, unusable)
+- Too slow to download for first impressions (~30 min)
+- Unnecessary for 90% of local model usage (classification tasks that work
+  fine with 1B models)
+
+### Proposed: Hardware-Aware Auto-Select
+
+Bootstrap detects available RAM and picks the best model the hardware can run:
+
+```text
+┌──────────────────────────────┬───────────────────────────────┐
+│ Hardware                     │ Model selected                │
+├──────────────────────────────┼───────────────────────────────┤
+│ RAM >= 16 GB                 │ gemma4:12b  (9.6 GB, best)    │
+│ RAM >= 8 GB                  │ gemma3:4b   (2.5 GB, good)    │
+│ RAM < 8 GB                   │ gemma3:1b   (680 MB, fast)    │
+└──────────────────────────────┴───────────────────────────────┘
+```
+
+User sees:
+```text
+> Detected 32 GB RAM → installing gemma4:12b (best quality)
+> Detected 8 GB RAM → installing gemma3:1b (lightweight, fast)
+```
+
+### Impact on Install Paths
+
+```text
+Standard:  auto-detect hardware → pull best-fit model + Chromium
+           8 GB laptop:  ~1.5 GB total, ~2 min
+           32 GB pro:    ~10.4 GB total, ~30 min
+
+Bundled:   always ships gemma4:12b + Chromium (max offline capability)
+           ~10.4 GB total, ~5 min (local extraction)
+```
+
+Still two paths (standard + bundled). The standard path just gets smarter.
+Users can always override with `hlvm pull <model>` after install.
+
+### Why Not Three Install Modes?
+
+Considered: standard (small), bundled-lite (1B), bundled-full (12B). Rejected
+because:
+- Three modes = three CI pipelines, three smoke tests, three sidecar tarballs
+- User has to choose without understanding the tradeoffs
+- Auto-detect eliminates the need to choose — the system picks for you
+- Bundled mode serves offline/airgap users who want max capability regardless
+
+### Classification Tasks vs Chat Quality
+
+The local model serves two purposes:
+
+1. **Classification** (90% of usage): `classifyTask`, `classifyFollowUp`,
+   `classifyResponseIntent`, etc. Temperature 0, maxTokens 64, simple JSON
+   responses. A 1B model handles this fine.
+
+2. **Local chat** (10% of usage): When no cloud API key is configured. Quality
+   scales with model size. Users who want good local chat can `hlvm pull`
+   a larger model.
+
+Auto-select optimizes for the common case (classification) while letting
+power users upgrade for the rare case (local chat).
+
 ## Remaining Work
 
 ### v0.1.0 — SHIPPED
@@ -647,14 +818,20 @@ Two supported install paths:
 Standard:
   curl -fsSL https://hlvm.dev/install.sh | sh
     -> downloads ~587 MB binary from GitHub Releases
-    -> bootstraps: extracts engine + pulls gemma4:e4b (~9.6 GB)
+    -> bootstraps:
+       extracts engine
+     + auto-detects hardware → pulls best-fit model (680 MB — 9.6 GB)
+     + pulls Chromium (~200 MB)
     -> hlvm ask works immediately
+    -> pw_* browser tools available immediately
 
 Bundled (sidecar tarball):
   curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled
     -> downloads ~587 MB binary from GitHub Releases
-    -> downloads ~8.9 GB sidecar tarball from HuggingFace
-    -> bootstraps: extracts engine + model from sidecar (no Ollama pull)
-    -> deletes sidecar tarball after extraction
+    -> downloads ~8.9 GB model sidecar from HuggingFace
+    -> downloads ~200 MB Chromium sidecar from HuggingFace
+    -> bootstraps: extracts engine + model + Chromium from sidecars
+    -> deletes sidecar tarballs after extraction
     -> hlvm ask works immediately
+    -> pw_* browser tools available immediately
 ```

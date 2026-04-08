@@ -60,6 +60,18 @@ export interface BootstrapModelRecord {
   hash: string;
 }
 
+/** Metadata for a bundled browser (e.g. Chromium for Playwright). */
+export interface BootstrapBrowserRecord {
+  /** Browser name (currently always "chromium"). */
+  browser: "chromium";
+  /** Absolute path to the browser executable. */
+  path: string;
+  /** SHA-256 hex digest of the browser binary. */
+  hash: string;
+  /** Playwright browser revision string. */
+  revision: string;
+}
+
 /** Persistent manifest written to `~/.hlvm/.runtime/manifest.json`. */
 export interface BootstrapManifest {
   /** Current bootstrap state. */
@@ -68,6 +80,8 @@ export interface BootstrapManifest {
   engine: BootstrapEngineRecord;
   /** Pulled model records. */
   models: BootstrapModelRecord[];
+  /** Bundled browser records (optional — Chromium for Playwright hybrid). */
+  browsers?: BootstrapBrowserRecord[];
   /** HLVM build identifier that created this manifest. */
   buildId: string;
   /** ISO-8601 timestamp when the manifest was first written. */

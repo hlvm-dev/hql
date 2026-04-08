@@ -421,6 +421,9 @@ export function createCliExecutor(opts: {
     async key(keySequence: string, repeat?: number): Promise<void> {
       const input = requireComputerUseInput();
       const parts = keySequence.split("+").filter((p) => p.length > 0);
+      if (parts.length === 0) {
+        throw new Error("Empty key sequence");
+      }
       const isEsc = isBareEscape(parts);
       const n = repeat ?? 1;
       await drainRunLoop(async () => {

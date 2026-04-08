@@ -112,16 +112,22 @@ function parseModifiers(text?: string): string[] | undefined {
   return text.split("+").map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
+const VALID_SCROLL_DIRECTIONS = new Set(["up", "down", "left", "right"]);
+
 function scrollDirectionToDeltas(
   direction: string,
   amount: number,
 ): { dx: number; dy: number } {
-  switch (direction) {
+  const dir = typeof direction === "string" ? direction.toLowerCase().trim() : "";
+  if (!VALID_SCROLL_DIRECTIONS.has(dir)) {
+    throw new Error(`Invalid scroll direction: "${direction}". Must be "up", "down", "left", or "right".`);
+  }
+  switch (dir) {
     case "up": return { dx: 0, dy: -amount };
     case "down": return { dx: 0, dy: amount };
     case "left": return { dx: -amount, dy: 0 };
     case "right": return { dx: amount, dy: 0 };
-    default: throw new Error(`Invalid scroll direction: ${direction}`);
+    default: throw new Error(`Invalid scroll direction: ${dir}`);
   }
 }
 
@@ -272,7 +278,8 @@ const cuKeyFn = cuTool("Key press failed", async (args, exec) => {
 
 const cuHoldKeyFn = cuTool("Hold key failed", async (args, exec) => {
   const { text, duration } = args as { text: string; duration: number };
-  const dur = Number(duration) || 1;
+  const raw = Number(duration);
+  const dur = Number.isFinite(raw) ? Math.max(raw, 0) : 1;
   await exec.holdKey([text], dur * 1000);
   return okTool({ held: text, duration_seconds: dur });
 });
@@ -318,6 +325,9 @@ const cuZoomFn = cuTool("Zoom failed", async (args, exec) => {
     throw new Error("region must be a [x1, y1, x2, y2] tuple");
   }
   const [x1, y1, x2, y2] = region.map(Number);
+  if (x2 <= x1 || y2 <= y1) {
+    throw new Error(`Invalid region: x2 must be > x1 and y2 must be > y1 (got [${x1},${y1},${x2},${y2}])`);
+  }
   const result = await exec.zoom({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 }, []);
   return imageResult({ width: result.width, height: result.height }, result);
 });
@@ -325,8 +335,8 @@ const cuZoomFn = cuTool("Zoom failed", async (args, exec) => {
 const cuOpenApplicationFn = cuTool("Open application failed", async (args, exec) => {
   const { bundle_id } = args as { bundle_id: string };
   // Sanitize: bundle IDs are reverse-DNS (letters, digits, dots, hyphens)
-  if (!/^[\w.-]+$/.test(bundle_id)) {
-    throw new Error(`Invalid bundle ID: "${bundle_id}"`);
+  if (!bundle_id || bundle_id.length < 3 || !/^[\w.-]+$/.test(bundle_id)) {
+    throw new Error(`Invalid bundle ID: "${bundle_id}". Must be reverse-DNS format (e.g. "com.apple.Safari").`);
   }
   await exec.openApp(bundle_id);
   return okTool({ opened: bundle_id });
@@ -343,7 +353,8 @@ const cuRequestAccessFn = cuTool("Request access failed", async (args, _exec) =>
 
 const cuWaitFn = cuTool("Wait failed", async (args, exec) => {
   const { duration } = args as { duration: number };
-  const cappedDuration = Math.min(Number(duration) || 2, 100);
+  const raw = Number(duration);
+  const cappedDuration = Math.min(Number.isFinite(raw) ? Math.max(raw, 0) : 2, 100);
   await sleep(cappedDuration * 1000);
   const result = await exec.screenshot({ allowedBundleIds: [] });
   return imageResult(

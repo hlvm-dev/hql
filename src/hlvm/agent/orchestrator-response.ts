@@ -907,47 +907,47 @@ export async function handleFinalResponse(
       return directive;
     }
 
-    const clarificationQuestion = extractClarifyingQuestion(finalResponse);
-    if (clarificationQuestion || (await responseNeedsConcreteTask(finalResponse))) {
-      const question = clarificationQuestion ??
-        "What concrete task do you want me to plan?";
-      if (config.onInteraction) {
-        const interaction = await config.onInteraction({
-          type: "interaction_request",
-          requestId: crypto.randomUUID(),
-          mode: "question",
-          question,
-        });
-        const answer = interaction.userInput?.trim();
-        if (answer) {
-          addContextMessage(config, {
-            role: "user",
-            content: `[Clarification] ${answer}`,
+    // Check if the model is asking a clarifying question or the response needs
+    // a concrete task — but only BEFORE the format retry is exhausted.
+    if (state.finalResponseFormatRetries < 1) {
+      const clarificationQuestion = extractClarifyingQuestion(finalResponse);
+      if (clarificationQuestion || (await responseNeedsConcreteTask(finalResponse))) {
+        const question = clarificationQuestion ??
+          "What concrete task do you want me to plan?";
+        if (config.onInteraction) {
+          const interaction = await config.onInteraction({
+            type: "interaction_request",
+            requestId: crypto.randomUUID(),
+            mode: "question",
+            question,
           });
-          return { action: "continue" };
+          const answer = interaction.userInput?.trim();
+          if (answer) {
+            addContextMessage(config, {
+              role: "user",
+              content: `[Clarification] ${answer}`,
+            });
+            return { action: "continue" };
+          }
         }
+        // No interaction handler — nudge the model with a format retry instead
+        // of immediately giving up.
       }
-      emitFinalResponseMeta();
-      return {
-        action: "return",
-        value:
-          "Plan mode needs a concrete task to plan. Describe what you want implemented, changed, or researched, or exit plan mode for general questions.",
-      };
-    }
 
-    if (finalResponse.trim() && state.finalResponseFormatRetries < 1) {
-      state.finalResponseFormatRetries++;
-      config.onAgentEvent?.({
-        type: "planning_update",
-        iteration: state.iterations,
-        summary: finalResponse.slice(0, 300),
-      });
-      addContextMessage(config, {
-        role: "user",
-        content:
-          "You are still in plan mode. Do not answer directly. Either ask one concise clarification with ask_user or return ONLY a PLAN ... END_PLAN block.",
-      });
-      return { action: "continue" };
+      if (finalResponse.trim()) {
+        state.finalResponseFormatRetries++;
+        config.onAgentEvent?.({
+          type: "planning_update",
+          iteration: state.iterations,
+          summary: finalResponse.slice(0, 300),
+        });
+        addContextMessage(config, {
+          role: "user",
+          content:
+            "You are still in plan mode. Do not answer directly. Either ask one concise clarification with ask_user or return ONLY a PLAN ... END_PLAN block.",
+        });
+        return { action: "continue" };
+      }
     }
     emitFinalResponseMeta();
     return {
@@ -1243,6 +1243,17 @@ export async function handlePostToolExecution(
           config.toolFilterBaseline?.denylist ?? config.toolDenylist,
         ),
       };
+      // Propagate newly discovered tools into the active filter state
+      // so they are available on the current turn (not just in the baseline).
+      if (config.toolFilterState) {
+        const currentFilterSet = new Set(
+          config.toolFilterState.allowlist ?? [],
+        );
+        for (const name of updatedBaselineAllowlist) {
+          currentFilterSet.add(name);
+        }
+        config.toolFilterState.allowlist = [...currentFilterSet];
+      }
     }
 
     const currentAllowlist = config.toolFilterBaseline?.allowlist ??

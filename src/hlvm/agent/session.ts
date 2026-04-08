@@ -57,6 +57,7 @@ import {
 import { cloneToolList } from "./orchestrator-state.ts";
 import { releaseToolOwner } from "./registry.ts";
 import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
+import { PLAYWRIGHT_TOOLS } from "./playwright/mod.ts";
 import { FileStateCache } from "./file-state-cache.ts";
 import {
   REPL_MAIN_THREAD_QUERY_SOURCE,
@@ -372,6 +373,19 @@ export async function createAgentSession(
   // Deny CU tools for non-vision models (they can't process screenshots)
   if (!visionCapable) {
     for (const name of Object.keys(COMPUTER_USE_TOOLS)) {
+      if (!effectiveToolDenylist.includes(name)) {
+        effectiveToolDenylist.push(name);
+      }
+    }
+  }
+  // Deny PW tools when Chromium is not available
+  let chromiumAvailable = false;
+  try {
+    const { isChromiumReady } = await import("../runtime/chromium-runtime.ts");
+    chromiumAvailable = await isChromiumReady();
+  } catch { /* chromium-runtime not available */ }
+  if (!chromiumAvailable) {
+    for (const name of Object.keys(PLAYWRIGHT_TOOLS)) {
       if (!effectiveToolDenylist.includes(name)) {
         effectiveToolDenylist.push(name);
       }

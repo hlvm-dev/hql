@@ -262,8 +262,7 @@ async function executeToolWithTimeout(
         searchTools: (query, options) =>
           searchTools(query, {
             ...options,
-            allowlist: options?.allowlist ?? config.toolSearchUniverseAllowlist ??
-              toolAllowlist,
+            allowlist: options?.allowlist ?? config.toolSearchUniverseAllowlist,
             denylist: options?.denylist ?? config.toolSearchUniverseDenylist ??
               toolDenylist,
             ownerId: options?.ownerId ?? config.toolOwnerId,
@@ -451,9 +450,14 @@ export async function executeToolCall(
 
     const isToolAllowed = buildIsToolAllowed(config);
     if (!isToolAllowed(toolCall.toolName)) {
+      // Hint model to use tool_search when the tool exists but isn't in the active set.
+      const toolSearchAvailable = isToolAllowed("tool_search");
+      const hint = toolSearchAvailable
+        ? ` Use tool_search to discover and enable "${toolCall.toolName}".`
+        : "";
       return buildToolErrorResult(
         toolCall.toolName,
-        `Tool not allowed by orchestrator: ${toolCall.toolName}`,
+        `Tool not available: ${toolCall.toolName}.${hint}`,
         startedAt,
         config,
         toolCall.id,

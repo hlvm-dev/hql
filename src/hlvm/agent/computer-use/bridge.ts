@@ -143,6 +143,9 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
           btn: 2,
         },
       };
+      if (!(button in buttonMap)) {
+        throw new Error(`Invalid mouse button: "${button}". Must be "left", "right", or "middle".`);
+      }
       const { down, up, btn } = buttonMap[button];
 
       if (action === "press") {
@@ -438,6 +441,10 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
       },
 
       async open(bundleId: string): Promise<void> {
+        // Defense-in-depth: validate bundle ID before passing to osascript
+        if (!bundleId || !/^[\w.-]+$/.test(bundleId)) {
+          throw new Error(`Invalid bundle ID: "${bundleId}"`);
+        }
         await osascript(
           `tell application id "${bundleId}" to activate`,
         );

@@ -25,6 +25,8 @@ export interface BootstrapVerificationResult {
   /** True when both engine and model are present and hashes match. */
   engineOk: boolean;
   modelOk: boolean;
+  /** True when Chromium is present and hash matches (optional — false if not in manifest). */
+  browserOk: boolean;
   /** Human-readable summary. */
   message: string;
   /** The manifest that was checked (null if missing). */
@@ -72,6 +74,7 @@ export async function verifyBootstrap(): Promise<BootstrapVerificationResult> {
       state: "uninitialized",
       engineOk: false,
       modelOk: false,
+      browserOk: false,
       message: "No bootstrap manifest found.",
       manifest: null,
     };
@@ -150,16 +153,44 @@ export async function verifyBootstrap(): Promise<BootstrapVerificationResult> {
     }
   }
 
+  // --- Browser (optional — Chromium for Playwright) ---
+  let browserOk = true; // default true if no browsers in manifest (optional)
+  if (manifest.browsers?.length) {
+    for (const b of manifest.browsers) {
+      if (!await fileExists(b.path)) {
+        log.debug?.(`Browser ${b.browser}: binary not found at ${b.path}`);
+        browserOk = false;
+        break;
+      }
+      try {
+        const hash = await hashFile(b.path);
+        if (hash !== b.hash) {
+          log.debug?.(
+            `Browser ${b.browser}: hash mismatch — expected ${b.hash}, got ${hash}`,
+          );
+          browserOk = false;
+          break;
+        }
+      } catch (err) {
+        log.debug?.(`Browser ${b.browser}: hash check failed: ${(err as Error).message}`);
+        browserOk = false;
+        break;
+      }
+    }
+  }
+
+  // Engine + model are required; browser is optional (degraded, not broken)
   const state: BootstrapState = engineOk && modelOk ? "verified" : "degraded";
 
   const parts: string[] = [];
   if (!engineOk) parts.push("engine missing or corrupt");
   if (!modelOk) parts.push("fallback model missing or corrupt");
+  if (!browserOk) parts.push("Chromium missing or corrupt (browser automation unavailable)");
   const message = parts.length === 0
     ? "Bootstrap verified."
     : `Bootstrap degraded: ${parts.join("; ")}.`;
 
-  return { state, engineOk, modelOk, message, manifest };
+  return { state, engineOk, modelOk, browserOk, message, manifest };
 }
 
 /**

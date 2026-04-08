@@ -429,7 +429,7 @@ Deno.test({ name: "chat context: disablePersistentMemory suppresses memory injec
 
 Deno.test({ name: "chat context: query-matched relevant memory is injected for plain chat", sanitizeOps: false, sanitizeResources: false, async fn() {
   await withTempHlvmDir(async () => {
-    insertFact({
+    await insertFact({
       content: "User prefers Deno for all new projects",
       category: "Preferences",
     });

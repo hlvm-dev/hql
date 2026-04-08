@@ -286,6 +286,46 @@ export async function materializeBootstrap(
     });
   }
 
+  // 1.75. Chromium: sidecar extraction OR download via playwright-core
+  let chromiumPath: string | null = null;
+  let chromiumHash: string | null = null;
+  try {
+    const {
+      hasBundledChromium, extractBundledChromium, downloadChromium,
+      resolveChromiumExecutablePath, hashChromiumBinary,
+    } = await import("./chromium-runtime.ts");
+
+    chromiumPath = await resolveChromiumExecutablePath();
+    if (!chromiumPath) {
+      if (await hasBundledChromium()) {
+        options?.onProgress?.({
+          phase: "extract",
+          message: "Extracting bundled Chromium (sidecar)...",
+        });
+        await extractBundledChromium(undefined, (message) => {
+          options?.onProgress?.({ phase: "extract", message });
+        });
+      } else {
+        options?.onProgress?.({
+          phase: "extract",
+          message: "Downloading Chromium (~200 MB)...",
+        });
+        await downloadChromium((message) => {
+          options?.onProgress?.({ phase: "extract", message });
+        });
+      }
+      chromiumPath = await resolveChromiumExecutablePath();
+    }
+    if (chromiumPath) {
+      chromiumHash = await hashChromiumBinary();
+    }
+  } catch (err) {
+    // Chromium is optional — bootstrap succeeds without it
+    log.debug?.(
+      `[bootstrap] Chromium setup failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   // 2. Start engine
   let proc: PlatformCommandProcess | null = null;
   try {
@@ -314,6 +354,14 @@ export async function materializeBootstrap(
         size: modelSize,
         hash: modelHash,
       }],
+      ...(chromiumPath && chromiumHash ? {
+        browsers: [{
+          browser: "chromium" as const,
+          path: chromiumPath,
+          hash: chromiumHash,
+          revision: "playwright-core-1.52.0",
+        }],
+      } : {}),
       buildId: VERSION ?? "dev",
       createdAt: now,
       lastVerifiedAt: now,

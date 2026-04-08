@@ -675,6 +675,7 @@ export const EDIT_PHASE_CATEGORIES = new Set([
   "read",
   "search",
   "write",
+  "edit",
   "shell",
   "git",
   "meta",
@@ -777,8 +778,10 @@ async function deriveRuntimePhase(
   if (hasComplete) return "completing";
   if (hasDelegate) return "delegating";
   if (hasRead && requestImpliesEditing(userRequest)) return "editing";
-  if (await requestImpliesDelegation(userRequest)) return "delegating";
+  // Deterministic regex check before LLM delegation classifier to avoid
+  // misclassifying clear editing requests as delegation tasks.
   if (requestImpliesEditing(userRequest)) return "editing";
+  if (await requestImpliesDelegation(userRequest)) return "delegating";
   if (requestImpliesVerification(userRequest)) return "verifying";
   return "researching";
 }

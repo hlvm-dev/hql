@@ -52,6 +52,7 @@ const SECTION_STABILITY: Record<string, PromptSectionStability> = {
   delegation: "session",
   team_coordination: "session",
   computer_use: "session",
+  browser_automation: "session",
 };
 
 const WEB_SEARCH_TOOL_NAME = "search_web";
@@ -498,6 +499,51 @@ You have computer control tools (cu_* prefix) for GUI automation on macOS.
   };
 }
 
+function renderBrowserAutomationGuidance(
+  tools: Record<string, ToolMetadata>,
+): RawPromptSection {
+  const hasPwTools = Object.keys(tools).some((n) => n.startsWith("pw_"));
+  if (!hasPwTools) {
+    return { id: "browser_automation", content: "", minTier: "standard" };
+  }
+
+  const hasCuTools = Object.keys(tools).some((n) => n.startsWith("cu_"));
+  const hybridSection = hasCuTools
+    ? `
+
+## Escalation: pw_* → pw_promote → cu_*
+- pw_* tools run in a HEADLESS (invisible) browser — the user sees nothing
+- If pw_* fails and you need to SEE the page, use pw_screenshot (still headless)
+- If pw_screenshot shows a problem only CU can handle (CAPTCHA, native dialog): call pw_promote FIRST
+- pw_promote makes the browser window visible — then cu_* tools can see and interact with it
+- After the visual problem is resolved, continue with pw_* tools
+- Do NOT call pw_promote unless pw_* tools alone cannot resolve the issue
+- After pw_promote, the page URL is preserved but in-memory state may be lost`
+    : "";
+
+  return {
+    id: "browser_automation",
+    content: `# Browser Automation (Playwright)
+pw_* tools control an invisible (headless) browser — fast, no screen interference.
+
+## Workflow
+1. pw_goto to navigate to a URL
+2. pw_content to read page text (or pw_screenshot for visual layout)
+3. pw_click / pw_fill to interact with elements
+4. pw_wait_for if content loads asynchronously
+5. pw_evaluate for complex DOM operations
+6. If a pw_* tool fails, use pw_screenshot to diagnose (still invisible)
+7. Adjust selectors and retry before escalating
+
+## Selector Best Practices
+- Prefer aria-label, role, or data-testid selectors
+- Use text= selectors for visible text: "text=Submit"
+- Avoid fragile CSS paths like "div > div:nth-child(3)"
+- pw_click and pw_fill accept CSS selectors or Playwright text selectors${hybridSection}`,
+    minTier: "standard",
+  };
+}
+
 // ============================================================
 // Section Collection
 // ============================================================
@@ -531,6 +577,7 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
     renderToolRouting(tools),
     renderWebToolGuidance(tools),
     renderComputerUseGuidance(tools, input.visionCapable),
+    renderBrowserAutomationGuidance(tools),
     renderPermissionTiers(tools),
     renderEnvironment(),
   ];
