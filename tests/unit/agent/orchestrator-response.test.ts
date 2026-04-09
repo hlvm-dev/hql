@@ -259,6 +259,9 @@ Deno.test("handleFinalResponse does not emit citation metadata before a groundin
   };
   const lc = resolveLoopConfig(config);
   const state = initializeLoopState(config);
+  // Skip LLM-dependent pre-checks (working-note, premature-follow-up) to
+  // isolate the deterministic grounding retry this test targets.
+  state.finalResponseFormatRetries = 1;
   state.toolUses = [
     { toolName: "search_web", result: "non-json formatted result" },
     { toolName: "list_files", result: '{"count": 270, "files": [...]}' },
@@ -771,6 +774,8 @@ Deno.test("handleFinalResponse accepts browser download answers that include art
     result:
       "Download complete.\nFilename: python-3.14.4-macos11.pkg\nSaved to: /tmp/python-3.14.4-macos11.pkg",
   }];
+  // Skip LLM-dependent pre-checks to isolate the deterministic browser gate.
+  state.finalResponseFormatRetries = 1;
 
   const result = await handleFinalResponse(
     "Downloaded `python-3.14.4-macos11.pkg` to `/tmp/python-3.14.4-macos11.pkg`.",
@@ -811,6 +816,8 @@ Deno.test("handleFinalResponse directs browser download tasks to pw_download whe
     result:
       "Direct download failed for https://www.python.org/ftp/python/3.14.4/python-3.14.4-macos11.pkg",
   }];
+  // Skip LLM-dependent pre-checks to isolate the deterministic browser gate.
+  state.finalResponseFormatRetries = 1;
 
   const result = await handleFinalResponse(
     "I found the installer URL but did not download it yet. https://www.python.org/ftp/python/3.14.4/python-3.14.4-macos11.pkg",

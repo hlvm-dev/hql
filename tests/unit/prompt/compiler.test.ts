@@ -114,6 +114,18 @@ Deno.test("compiler: agent mode produces full section set", () => {
   );
   assertStringIncludes(
     result.text,
+    'make_directory({path:"~/Documents/Receipts/2026"})',
+  );
+  assertStringIncludes(
+    result.text,
+    'move_path({sourcePath:"~/Desktop/invoice.pdf",destinationPath:"~/Documents/Receipts/invoice.pdf"})',
+  );
+  assertStringIncludes(
+    result.text,
+    'search_code({pattern:"dentist appointment",path:"~/Documents",filePattern:"*.txt"})',
+  );
+  assertStringIncludes(
+    result.text,
     'search_web({query:"best way to batch rename photos on mac"})',
   );
 });

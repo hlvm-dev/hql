@@ -765,12 +765,15 @@ export async function classifyClarifyingQuestion(
 
 // ---- Helpers ----
 
-/** Collect ai.chat() async generator into a single string. Fail closed on any error. */
+/** Collect ai.chat() async generator into a single string. Fail closed on any error.
+ *  Returns "" immediately when HLVM_DISABLE_AI_AUTOSTART is set (unit test mode). */
 export async function collectChat(
   prompt: string,
   opts: { temperature?: number; maxTokens?: number },
 ): Promise<string> {
   try {
+    const { getPlatform } = await import("../../platform/platform.ts");
+    if (getPlatform().env.get("HLVM_DISABLE_AI_AUTOSTART")) return "";
     const { ai } = await import("../api/ai.ts");
     const messages = [{ role: "user" as const, content: prompt }];
     let result = "";

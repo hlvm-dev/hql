@@ -1151,7 +1151,7 @@ function repairSdkAssistantToolCalls(
 
   const nonToolParts = sdkAssistant.content.filter((part) =>
     !(part && typeof part === "object" && "type" in part &&
-      part.type === "tool-call")
+      (part.type === "tool-call" || part.type === "reasoning"))
   );
   const repairedToolParts = reconstructedToolCalls.map((call) => ({
     type: "tool-call" as const,
@@ -1162,7 +1162,7 @@ function repairSdkAssistantToolCalls(
   return {
     ...sdkAssistant,
     content: [...nonToolParts, ...repairedToolParts],
-  };
+  } as ModelMessage;
 }
 
 export function mapSdkUsage(

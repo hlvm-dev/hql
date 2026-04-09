@@ -10,7 +10,10 @@
  * 6. move_to_trash - Move files/folders to the OS trash
  * 7. reveal_path - Reveal a path in the system file manager
  * 8. empty_trash - Empty the OS trash
- * 9. archive_files - Create zip/tar archives from files or folders
+ * 9. make_directory - Create a directory for local organization work
+ * 10. move_path - Move or rename a file/folder
+ * 11. copy_path - Copy a file/folder
+ * 12. archive_files - Create zip/tar archives from files or folders
  *
  * All operations:
  * - Use path sandboxing (validatePath)
@@ -25,6 +28,7 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { isPathWithinRoot, SecurityError } from "../security/path-sandbox.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import { createPolicyPathChecker, resolveToolPath } from "../path-utils.ts";
+import { copyDirectoryRecursive } from "../../../common/fs-copy.ts";
 import {
   GlobPatternError,
   globToRegex,
@@ -160,6 +164,65 @@ export interface EmptyTrashArgs {
 /** Result of empty_trash operation */
 interface EmptyTrashResult extends FileOperationResult {
   emptied?: boolean;
+}
+
+/** Arguments for make_directory tool */
+export interface MakeDirectoryArgs {
+  path: string;
+}
+
+/** Result of make_directory operation */
+interface MakeDirectoryResult extends FileOperationResult {
+  createdPath?: string;
+  alreadyExisted?: boolean;
+}
+
+/** Arguments for move_path tool */
+export interface MovePathArgs {
+  sourcePath: string;
+  destinationPath: string;
+}
+
+/** Result of move_path operation */
+interface MovePathResult extends FileOperationResult {
+  sourcePath?: string;
+  destinationPath?: string;
+}
+
+/** Arguments for copy_path tool */
+export interface CopyPathArgs {
+  sourcePath: string;
+  destinationPath: string;
+}
+
+/** Result of copy_path operation */
+interface CopyPathResult extends FileOperationResult {
+  sourcePath?: string;
+  destinationPath?: string;
+}
+
+/** Arguments for file_metadata tool */
+export interface FileMetadataArgs {
+  paths: string | string[];
+}
+
+/** Metadata for a single file or directory */
+export interface FileMetadataEntry {
+  path: string;
+  exists: boolean;
+  isFile?: boolean;
+  isDirectory?: boolean;
+  isSymlink?: boolean;
+  size?: number;
+  modified?: string;
+  created?: string;
+  mimeType?: string;
+}
+
+/** Result of file_metadata operation */
+interface FileMetadataResult extends FileOperationResult {
+  entries?: FileMetadataEntry[];
+  count?: number;
 }
 
 /** Arguments for archive_files tool */
@@ -852,6 +915,135 @@ function normalizeFilenameWhitespace(value: string): string {
   );
 }
 
+interface ResolvedTransferPaths {
+  sourcePath: string;
+  destinationPath: string;
+  sourceInfo: Awaited<
+    ReturnType<ReturnType<typeof getPlatform>["fs"]["lstat"]>
+  >;
+}
+
+async function resolveTransferPaths(
+  args: MovePathArgs | CopyPathArgs,
+  workspace: string,
+  options: ToolExecutionOptions | undefined,
+  actionVerb: "move" | "copy",
+): Promise<ResolvedTransferPaths> {
+  const platform = getPlatform();
+  if (
+    typeof args.sourcePath !== "string" || args.sourcePath.trim().length === 0
+  ) {
+    throw new Error("'sourcePath' must be a non-empty string");
+  }
+  if (
+    typeof args.destinationPath !== "string" ||
+    args.destinationPath.trim().length === 0
+  ) {
+    throw new Error("'destinationPath' must be a non-empty string");
+  }
+
+  const sourcePath = await resolveOpenPathAlias(
+    await resolveToolPath(
+      args.sourcePath,
+      workspace,
+      options?.policy ?? null,
+    ),
+  );
+  const destinationPath = await resolveToolPath(
+    args.destinationPath,
+    workspace,
+    options?.policy ?? null,
+  );
+
+  const sourceInfo = await platform.fs.lstat(sourcePath);
+  if (sourceInfo.isSymlink) {
+    throw new Error(
+      `Refusing to ${actionVerb} symlink path: ${args.sourcePath}`,
+    );
+  }
+  if (!sourceInfo.isFile && !sourceInfo.isDirectory) {
+    throw new Error(
+      `Only files and directories can be ${actionVerb}d: ${args.sourcePath}`,
+    );
+  }
+
+  if (
+    platform.path.normalize(sourcePath) ===
+      platform.path.normalize(destinationPath)
+  ) {
+    throw new Error("sourcePath and destinationPath must be different");
+  }
+
+  if (sourceInfo.isDirectory && isPathWithinRoot(destinationPath, sourcePath)) {
+    throw new Error(
+      `destinationPath must not be inside source directory: ${args.sourcePath}`,
+    );
+  }
+
+  if (await platform.fs.exists(destinationPath)) {
+    throw new Error(
+      `Destination already exists: ${args.destinationPath}`,
+    );
+  }
+
+  const destinationParent = platform.path.dirname(destinationPath);
+  if (!(await platform.fs.exists(destinationParent))) {
+    throw new Error(
+      `Destination parent directory does not exist: ${destinationParent}`,
+    );
+  }
+  const parentInfo = await platform.fs.stat(destinationParent);
+  if (!parentInfo.isDirectory) {
+    throw new Error(
+      `Destination parent is not a directory: ${destinationParent}`,
+    );
+  }
+
+  return { sourcePath, destinationPath, sourceInfo };
+}
+
+function shouldFallbackToCopyAndRemove(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const text = `${error.name} ${error.message}`.toLowerCase();
+  return text.includes("exdev") || text.includes("cross-device");
+}
+
+async function copyResolvedPath(
+  sourcePath: string,
+  destinationPath: string,
+  sourceInfo: { isDirectory: boolean; isFile: boolean },
+): Promise<void> {
+  const platform = getPlatform();
+  if (sourceInfo.isDirectory) {
+    await copyDirectoryRecursive(sourcePath, destinationPath);
+    return;
+  }
+  if (sourceInfo.isFile) {
+    await platform.fs.copyFile(sourcePath, destinationPath);
+  }
+}
+
+async function moveResolvedPath(
+  sourcePath: string,
+  destinationPath: string,
+  sourceInfo: { isDirectory: boolean; isFile: boolean },
+): Promise<void> {
+  const platform = getPlatform();
+  try {
+    await platform.fs.rename(sourcePath, destinationPath);
+    return;
+  } catch (error) {
+    if (!shouldFallbackToCopyAndRemove(error)) {
+      throw error;
+    }
+  }
+
+  await copyResolvedPath(sourcePath, destinationPath, sourceInfo);
+  await platform.fs.remove(sourcePath, {
+    recursive: sourceInfo.isDirectory,
+  });
+}
+
 // ============================================================
 // Tool 6: move_to_trash
 // ============================================================
@@ -1029,7 +1221,206 @@ export async function emptyTrash(
 }
 
 // ============================================================
-// Tool 9: archive_files
+// Tool 9: make_directory
+// ============================================================
+
+/**
+ * Create a directory for local organization work.
+ */
+export async function makeDirectory(
+  args: MakeDirectoryArgs,
+  workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<MakeDirectoryResult> {
+  try {
+    throwIfAborted(options?.signal);
+    if (typeof args.path !== "string" || args.path.trim().length === 0) {
+      return failTool("'path' must be a non-empty string");
+    }
+
+    const platform = getPlatform();
+    const directoryPath = await resolveToolPath(
+      args.path,
+      workspace,
+      options?.policy ?? null,
+    );
+
+    if (await platform.fs.exists(directoryPath)) {
+      const info = await platform.fs.stat(directoryPath);
+      if (!info.isDirectory) {
+        return failTool(
+          `Path already exists and is not a directory: ${args.path}`,
+        );
+      }
+      return okTool({
+        createdPath: directoryPath,
+        alreadyExisted: true,
+        message: `Directory already exists: ${args.path}`,
+      });
+    }
+
+    await platform.fs.mkdir(directoryPath, { recursive: true });
+    return okTool({
+      createdPath: directoryPath,
+      alreadyExisted: false,
+      message: `Created directory ${args.path}`,
+    });
+  } catch (error) {
+    const { message } = formatToolError("Failed to create directory", error);
+    return failTool(message);
+  }
+}
+
+// ============================================================
+// Tool 10: move_path
+// ============================================================
+
+/**
+ * Move or rename a file or directory.
+ */
+export async function movePath(
+  args: MovePathArgs,
+  workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<MovePathResult> {
+  try {
+    throwIfAborted(options?.signal);
+    const { sourcePath, destinationPath, sourceInfo } =
+      await resolveTransferPaths(
+        args,
+        workspace,
+        options,
+        "move",
+      );
+
+    await moveResolvedPath(sourcePath, destinationPath, sourceInfo);
+    return okTool({
+      sourcePath,
+      destinationPath,
+      message: `Moved ${args.sourcePath} to ${args.destinationPath}`,
+    });
+  } catch (error) {
+    const { message } = formatToolError("Failed to move path", error);
+    return failTool(message);
+  }
+}
+
+// ============================================================
+// Tool 11: copy_path
+// ============================================================
+
+/**
+ * Copy a file or directory.
+ */
+export async function copyPath(
+  args: CopyPathArgs,
+  workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<CopyPathResult> {
+  try {
+    throwIfAborted(options?.signal);
+    const { sourcePath, destinationPath, sourceInfo } =
+      await resolveTransferPaths(
+        args,
+        workspace,
+        options,
+        "copy",
+      );
+
+    await copyResolvedPath(sourcePath, destinationPath, sourceInfo);
+    return okTool({
+      sourcePath,
+      destinationPath,
+      message: `Copied ${args.sourcePath} to ${args.destinationPath}`,
+    });
+  } catch (error) {
+    const { message } = formatToolError("Failed to copy path", error);
+    return failTool(message);
+  }
+}
+
+// ============================================================
+// Tool 12: file_metadata
+// ============================================================
+
+/**
+ * Get metadata (size, dates, type) for one or more paths.
+ */
+export async function fileMetadata(
+  args: FileMetadataArgs,
+  workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<FileMetadataResult> {
+  try {
+    throwIfAborted(options?.signal);
+    const platform = getPlatform();
+    const rawPaths = Array.isArray(args.paths) ? args.paths : [args.paths];
+    if (rawPaths.length === 0) {
+      return failTool("'paths' must be a non-empty string or array");
+    }
+
+    const entries: FileMetadataEntry[] = [];
+
+    for (const rawPath of rawPaths) {
+      if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
+        entries.push({ path: String(rawPath), exists: false });
+        continue;
+      }
+
+      let validPath: string;
+      try {
+        validPath = await resolveToolPath(
+          rawPath,
+          workspace,
+          options?.policy ?? null,
+        );
+      } catch {
+        entries.push({ path: rawPath, exists: false });
+        continue;
+      }
+
+      try {
+        const stat = await platform.fs.lstat(validPath);
+        const ext = platform.path.extname(validPath).toLowerCase();
+        const entry: FileMetadataEntry = {
+          path: rawPath,
+          exists: true,
+          isFile: stat.isFile,
+          isDirectory: stat.isDirectory,
+          isSymlink: stat.isSymlink,
+          size: stat.size,
+        };
+        if (stat.mtimeMs != null) {
+          entry.modified = new Date(stat.mtimeMs).toISOString();
+        }
+        if (stat.isFile && ext) {
+          const mime = getMimeTypeForExtension(ext);
+          if (mime) entry.mimeType = mime;
+        }
+        entries.push(entry);
+      } catch {
+        entries.push({ path: rawPath, exists: false });
+      }
+    }
+
+    return okTool({
+      entries,
+      count: entries.length,
+      message: `Retrieved metadata for ${entries.length} path${
+        entries.length === 1 ? "" : "s"
+      }`,
+    });
+  } catch (error) {
+    const { message } = formatToolError(
+      "Failed to retrieve file metadata",
+      error,
+    );
+    return failTool(message);
+  }
+}
+
+// ============================================================
+// Tool 13: archive_files
 // ============================================================
 
 /**
@@ -1362,6 +1753,119 @@ function formatEmptyTrashResult(
   };
 }
 
+function formatMakeDirectoryResult(
+  result: unknown,
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
+  if (!isObjectValue(result) || result.success !== true) return null;
+  const createdPath = typeof result.createdPath === "string"
+    ? result.createdPath
+    : undefined;
+  if (!createdPath) return null;
+  const alreadyExisted = result.alreadyExisted === true;
+  const message = typeof result.message === "string" && result.message.trim()
+    ? result.message
+    : alreadyExisted
+    ? `Directory already exists: ${createdPath}`
+    : `Created directory ${createdPath}`;
+  return {
+    summaryDisplay: message,
+    returnDisplay: `${message}\nDirectory: ${createdPath}`,
+    llmContent:
+      `${message}. The directory step already succeeded. Do not retry it unless the user asks again.`,
+  };
+}
+
+function formatMovePathResult(
+  result: unknown,
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
+  if (!isObjectValue(result) || result.success !== true) return null;
+  const sourcePath = typeof result.sourcePath === "string"
+    ? result.sourcePath
+    : undefined;
+  const destinationPath = typeof result.destinationPath === "string"
+    ? result.destinationPath
+    : undefined;
+  if (!sourcePath || !destinationPath) return null;
+  const message = typeof result.message === "string" && result.message.trim()
+    ? result.message
+    : `Moved ${sourcePath} to ${destinationPath}`;
+  return {
+    summaryDisplay: message,
+    returnDisplay: `${message}\nFrom: ${sourcePath}\nTo: ${destinationPath}`,
+    llmContent:
+      `${message}. The move already succeeded. Do not retry it unless the user asks again.`,
+  };
+}
+
+function formatCopyPathResult(
+  result: unknown,
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
+  if (!isObjectValue(result) || result.success !== true) return null;
+  const sourcePath = typeof result.sourcePath === "string"
+    ? result.sourcePath
+    : undefined;
+  const destinationPath = typeof result.destinationPath === "string"
+    ? result.destinationPath
+    : undefined;
+  if (!sourcePath || !destinationPath) return null;
+  const message = typeof result.message === "string" && result.message.trim()
+    ? result.message
+    : `Copied ${sourcePath} to ${destinationPath}`;
+  return {
+    summaryDisplay: message,
+    returnDisplay: `${message}\nFrom: ${sourcePath}\nTo: ${destinationPath}`,
+    llmContent:
+      `${message}. The copy already succeeded. Do not retry it unless the user asks again.`,
+  };
+}
+
+function formatFileMetadataResult(
+  result: unknown,
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
+  if (!isObjectValue(result) || result.success !== true) return null;
+  const entriesRaw = (result as { entries?: unknown }).entries;
+  if (!Array.isArray(entriesRaw)) return null;
+  const message = typeof (result as { message?: unknown }).message === "string"
+    ? String((result as { message?: unknown }).message)
+    : `Retrieved metadata for ${entriesRaw.length} path(s)`;
+
+  const lines: string[] = [];
+  for (const entry of entriesRaw) {
+    if (!isObjectValue(entry)) continue;
+    const path = typeof entry.path === "string" ? entry.path : "?";
+    if (entry.exists === false) {
+      lines.push(`${path}: not found`);
+      continue;
+    }
+    const parts: string[] = [path];
+    if (entry.isDirectory === true) parts.push("directory");
+    else if (entry.isFile === true) parts.push("file");
+    if (typeof entry.size === "number") {
+      parts.push(formatBytes(entry.size));
+    }
+    if (typeof entry.mimeType === "string") parts.push(entry.mimeType);
+    if (typeof entry.modified === "string") {
+      parts.push(`modified ${entry.modified}`);
+    }
+    lines.push(parts.join("  "));
+  }
+
+  return {
+    summaryDisplay: message,
+    returnDisplay: lines.length > 0
+      ? `${message}\n${lines.join("\n")}`
+      : message,
+  };
+}
+
 // ============================================================
 // Tool Registry
 // ============================================================
@@ -1561,6 +2065,95 @@ Examples:
     },
     safety:
       "Permanent deletion: empties the OS trash / recycle bin and always requires confirmation.",
+  },
+  make_directory: {
+    fn: makeDirectory,
+    description:
+      "Create a directory for local organization work. Use this instead of shell_exec with mkdir when preparing folders for notes, documents, or cleanup flows.",
+    category: "write",
+    replaces: "mkdir",
+    safetyLevel: "L1",
+    formatResult: formatMakeDirectoryResult,
+    args: {
+      path:
+        "string - Directory path to create (relative to workspace or absolute if allowed by policy)",
+    },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      createdPath: "string - Resolved directory path (on success)",
+      alreadyExisted:
+        "boolean - True when the directory already existed and no write was needed",
+      message: "string - Human-readable result message",
+    },
+    safety:
+      "Creates folders on disk for later organization or file moves. Confirm once per session.",
+  },
+  move_path: {
+    fn: movePath,
+    description:
+      "Move or rename a file or folder. Use this for local organization and renaming instead of shell_exec with mv.",
+    category: "write",
+    replaces: "mv",
+    safetyLevel: "L1",
+    formatResult: formatMovePathResult,
+    args: {
+      sourcePath:
+        "string - Existing file or folder to move (relative to workspace or absolute if allowed by policy)",
+      destinationPath:
+        "string - New target path. Parent directory must already exist.",
+    },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      sourcePath: "string - Resolved original path (on success)",
+      destinationPath: "string - Resolved destination path (on success)",
+      message: "string - Human-readable result message",
+    },
+    safety:
+      "Mutates the filesystem by moving or renaming items. Confirm once per session.",
+  },
+  copy_path: {
+    fn: copyPath,
+    description:
+      "Copy a file or folder to a new path. Use this for backups, reorganization, or duplicating local assets instead of shell_exec with cp.",
+    category: "write",
+    replaces: "cp",
+    safetyLevel: "L1",
+    formatResult: formatCopyPathResult,
+    args: {
+      sourcePath:
+        "string - Existing file or folder to copy (relative to workspace or absolute if allowed by policy)",
+      destinationPath:
+        "string - New target path. Parent directory must already exist.",
+    },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      sourcePath: "string - Resolved original path (on success)",
+      destinationPath: "string - Resolved destination path (on success)",
+      message: "string - Human-readable result message",
+    },
+    safety:
+      "Writes a copied file or folder to disk without deleting the source. Confirm once per session.",
+  },
+  file_metadata: {
+    fn: fileMetadata,
+    description:
+      "Get metadata for files or directories: size, modified/created dates, MIME type, and whether the path is a file or directory. Accepts one path or many. Use this instead of shell_exec with stat/file/ls -l.",
+    category: "read",
+    replaces: "stat/file",
+    safetyLevel: "L0",
+    formatResult: formatFileMetadataResult,
+    args: {
+      paths:
+        "string | string[] - One or more paths to inspect (relative to workspace or absolute if allowed by policy)",
+    },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      entries:
+        "FileMetadataEntry[] - Metadata entries (path, exists, isFile, isDirectory, isSymlink, size, modified, created, mimeType)",
+      count: "number - Number of entries returned",
+      message: "string - Human-readable result message",
+    },
+    safety: "Read-only: retrieves metadata without modifying files.",
   },
   archive_files: {
     fn: archiveFiles,

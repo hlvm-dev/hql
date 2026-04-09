@@ -1,8 +1,8 @@
 /**
- * Code Tools - SSOT-compliant code search and analysis for AI agents
+ * Code Tools - SSOT-compliant structured search and code analysis for AI agents
  *
  * Provides 3 core code operations:
- * 1. search_code - Pattern-based grep search
+ * 1. search_code - Pattern-based local text search
  * 2. find_symbol - Find function/class/const declarations
  * 3. get_structure - Get directory tree structure
  *
@@ -109,7 +109,7 @@ interface GetStructureResult {
 // ============================================================
 
 /**
- * Search for pattern in code files (grep-like functionality)
+ * Search for a pattern across local text files (grep-like functionality)
  *
  * Security: Uses path sandboxing and respects gitignore
  * Performance: Uses walkDirectory from file-utils.ts (DRY)
@@ -742,7 +742,7 @@ export const CODE_TOOLS = {
   search_code: {
     fn: searchCode,
     description:
-      "Search for pattern in code files. Use this for ALL code searching — never use shell_exec with grep/rg.",
+      "Search for text or regex patterns across local text files, especially code, notes, markdown, configs, and logs. Use this instead of shell_exec with grep/rg.",
     category: "search",
     replaces: "grep/rg",
     safetyLevel: "L0",

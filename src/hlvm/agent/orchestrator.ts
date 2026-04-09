@@ -279,6 +279,12 @@ export type TraceEvent =
     total?: number;
     message?: string;
   }
+  | {
+    type: "llm_error";
+    class: string;
+    retryable: boolean;
+    error: string;
+  }
   | { type: "transient_retry"; attempt: number; error: string }
   | { type: "auto_select"; model: string; fallbacks: string[]; reason: string }
   | {
@@ -756,11 +762,7 @@ async function applyRequestDomainToolProfile(
   state: LoopState,
   config: OrchestratorConfig,
 ): Promise<void> {
-  if (
-    isMainThreadQuerySource(config.querySource) ||
-    !config.baselineToolAllowlistSeed &&
-      config.discoveredDeferredTools === undefined
-  ) {
+  if (isMainThreadQuerySource(config.querySource)) {
     return;
   }
   if (!state.cachedDelegationSignal) {

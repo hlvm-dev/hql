@@ -21,6 +21,9 @@ import {
 const PROMINENT_TOOL_NAMES = new Set([
   "write_file",
   "edit_file",
+  "make_directory",
+  "move_path",
+  "copy_path",
   "open_path",
   "reveal_path",
   "move_to_trash",
@@ -61,6 +64,12 @@ function summarizeCompletedToolOutcome(
       return `Wrote ${summarizePathLabel(args)}`;
     case "edit_file":
       return `Edited ${summarizePathLabel(args)}`;
+    case "make_directory":
+      return `Created ${summarizePathLabel(args)}`;
+    case "move_path":
+      return `Moved ${summarizePathLabel(args)}`;
+    case "copy_path":
+      return `Copied ${summarizePathLabel(args)}`;
     case "open_path":
       return `Opened ${summarizePathLabel(args)}`;
     case "reveal_path":

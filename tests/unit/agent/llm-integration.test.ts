@@ -16,6 +16,7 @@ import {
   supportsAgentExecution,
   tierMeetsMinimum,
 } from "../../../src/hlvm/agent/constants.ts";
+import { CODE_TOOLS } from "../../../src/hlvm/agent/tools/code-tools.ts";
 import { FILE_TOOLS } from "../../../src/hlvm/agent/tools/file-tools.ts";
 import { WEB_TOOLS } from "../../../src/hlvm/agent/tools/web-tools.ts";
 import {
@@ -54,6 +55,10 @@ Deno.test("LLM integration: default prompt includes core role, tools, and concis
 Deno.test("LLM integration: tool descriptions support general local tasks", () => {
   assertStringIncludes(FILE_TOOLS.read_file.description, "notes");
   assertStringIncludes(FILE_TOOLS.edit_file.description, "notes");
+  assertStringIncludes(FILE_TOOLS.make_directory.description, "organization");
+  assertStringIncludes(FILE_TOOLS.copy_path.description, "backups");
+  assertStringIncludes(CODE_TOOLS.search_code.description, "notes");
+  assertStringIncludes(CODE_TOOLS.search_code.description, "logs");
   assertStringIncludes(WEB_TOOLS.search_web.description, "how-to guidance");
 });
 
@@ -179,6 +184,9 @@ Deno.test("LLM integration: computeTierToolFilter returns correct tools per tier
   assertEquals(standard.allowlist?.includes("shell_exec"), true);
   assertEquals(standard.allowlist?.includes("move_to_trash"), true);
   assertEquals(standard.allowlist?.includes("reveal_path"), true);
+  assertEquals(standard.allowlist?.includes("make_directory"), true);
+  assertEquals(standard.allowlist?.includes("move_path"), true);
+  assertEquals(standard.allowlist?.includes("copy_path"), true);
   // Deferred tools NOT in eager core:
   assertEquals(standard.allowlist?.includes("search_web"), false);
   assertEquals(standard.allowlist?.includes("memory_write"), false);

@@ -2,13 +2,21 @@ import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
   archiveFiles,
   type ArchiveFilesArgs,
+  copyPath,
+  type CopyPathArgs,
   editFile,
   type EditFileArgs,
   emptyTrash,
   type EmptyTrashArgs,
   FILE_TOOLS,
+  fileMetadata,
+  type FileMetadataArgs,
   listFiles,
   type ListFilesArgs,
+  makeDirectory,
+  type MakeDirectoryArgs,
+  movePath,
+  type MovePathArgs,
   moveToTrash,
   type MoveToTrashArgs,
   openPath,
@@ -556,9 +564,125 @@ Deno.test("file tools: empty_trash uses destructive safety and the trash runtime
   });
 });
 
+Deno.test("file tools: make_directory creates folders idempotently and rejects file collisions", async () => {
+  await withWorkspace(async () => {
+    await writeWorkspaceFile("existing.txt", "hello");
+
+    const created = await makeDirectory(
+      { path: "organized/receipts" } as MakeDirectoryArgs,
+      TEST_WORKSPACE,
+    );
+    const repeated = await makeDirectory(
+      { path: "organized/receipts" } as MakeDirectoryArgs,
+      TEST_WORKSPACE,
+    );
+    const collision = await makeDirectory(
+      { path: "existing.txt" } as MakeDirectoryArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(created.success, true);
+    assertEquals(created.alreadyExisted, false);
+    assertEquals(
+      await platform().fs.stat(`${TEST_WORKSPACE}/organized/receipts`).then((
+        info,
+      ) => info.isDirectory),
+      true,
+    );
+    assertEquals(repeated.success, true);
+    assertEquals(repeated.alreadyExisted, true);
+    assertEquals(collision.success, false);
+    assertStringIncludes(collision.message || "", "not a directory");
+  });
+});
+
+Deno.test("file tools: move_path renames files and rejects conflicting destinations", async () => {
+  await withWorkspace(async () => {
+    await writeWorkspaceFile("drafts/plan.txt", "plan");
+    await platform().fs.mkdir(`${TEST_WORKSPACE}/organized`, {
+      recursive: true,
+    });
+    await writeWorkspaceFile("organized/existing.txt", "occupied");
+
+    const moved = await movePath(
+      {
+        sourcePath: "drafts/plan.txt",
+        destinationPath: "organized/final-plan.txt",
+      } as MovePathArgs,
+      TEST_WORKSPACE,
+    );
+    const conflict = await movePath(
+      {
+        sourcePath: "organized/final-plan.txt",
+        destinationPath: "organized/existing.txt",
+      } as MovePathArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(moved.success, true);
+    assertEquals(
+      await platform().fs.exists(`${TEST_WORKSPACE}/drafts/plan.txt`),
+      false,
+    );
+    assertEquals(
+      await platform().fs.readTextFile(
+        `${TEST_WORKSPACE}/organized/final-plan.txt`,
+      ),
+      "plan",
+    );
+    assertEquals(conflict.success, false);
+    assertStringIncludes(conflict.message || "", "Destination already exists");
+  });
+});
+
+Deno.test("file tools: copy_path duplicates files and directories recursively", async () => {
+  await withWorkspace(async () => {
+    await writeWorkspaceFile("docs/report.txt", "report");
+    await writeWorkspaceFile("bundle/nested/inside.txt", "nested");
+    await platform().fs.mkdir(`${TEST_WORKSPACE}/copies`, { recursive: true });
+
+    const fileCopy = await copyPath(
+      {
+        sourcePath: "docs/report.txt",
+        destinationPath: "copies/report-copy.txt",
+      } as CopyPathArgs,
+      TEST_WORKSPACE,
+    );
+    const dirCopy = await copyPath(
+      {
+        sourcePath: "bundle",
+        destinationPath: "copies/bundle-copy",
+      } as CopyPathArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(fileCopy.success, true);
+    assertEquals(dirCopy.success, true);
+    assertEquals(
+      await platform().fs.readTextFile(
+        `${TEST_WORKSPACE}/copies/report-copy.txt`,
+      ),
+      "report",
+    );
+    assertEquals(
+      await platform().fs.readTextFile(
+        `${TEST_WORKSPACE}/copies/bundle-copy/nested/inside.txt`,
+      ),
+      "nested",
+    );
+    assertEquals(
+      await platform().fs.readTextFile(
+        `${TEST_WORKSPACE}/bundle/nested/inside.txt`,
+      ),
+      "nested",
+    );
+  });
+});
+
 Deno.test("file tools: descriptions frame general local text work", () => {
   assertStringIncludes(FILE_TOOLS.read_file.description, "notes");
   assertStringIncludes(FILE_TOOLS.edit_file.description, "notes");
+  assertStringIncludes(FILE_TOOLS.make_directory.description, "organization");
 });
 
 Deno.test("file tools: read_file records full-view state when a file cache is supplied", async () => {
@@ -675,4 +799,66 @@ Deno.test("file tools: successful write and edit invalidate stale cached state",
     assertEquals(writeCache.get(`${TEST_WORKSPACE}/cached.ts`), undefined);
     assertEquals(editCache.get(`${TEST_WORKSPACE}/cached.ts`), undefined);
   });
+});
+
+Deno.test("file tools: file_metadata returns size dates and type for files and handles missing paths", async () => {
+  await withWorkspace(async () => {
+    await writeWorkspaceFile("readme.md", "# Hello\n\nWorld");
+    await writeWorkspaceFile("photo.jpg", "fake jpg content");
+    await platform().fs.mkdir(`${TEST_WORKSPACE}/subdir`);
+
+    const result = await fileMetadata(
+      { paths: ["readme.md", "photo.jpg", "subdir", "missing.txt"] } as FileMetadataArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(result.count, 4);
+    const entries = result.entries!;
+
+    // readme.md — file with size and modified time
+    assertEquals(entries[0].path, "readme.md");
+    assertEquals(entries[0].exists, true);
+    assertEquals(entries[0].isFile, true);
+    assertEquals(entries[0].isDirectory, false);
+    assert(typeof entries[0].size === "number" && entries[0].size > 0);
+    assert(typeof entries[0].modified === "string");
+
+    // photo.jpg — has mimeType
+    assertEquals(entries[1].path, "photo.jpg");
+    assertEquals(entries[1].exists, true);
+    assertEquals(entries[1].isFile, true);
+    assertEquals(entries[1].mimeType, "image/jpeg");
+
+    // subdir — directory
+    assertEquals(entries[2].path, "subdir");
+    assertEquals(entries[2].exists, true);
+    assertEquals(entries[2].isDirectory, true);
+    assertEquals(entries[2].isFile, false);
+
+    // missing.txt — does not exist
+    assertEquals(entries[3].path, "missing.txt");
+    assertEquals(entries[3].exists, false);
+  });
+});
+
+Deno.test("file tools: file_metadata accepts a single path string", async () => {
+  await withWorkspace(async () => {
+    await writeWorkspaceFile("single.txt", "content");
+
+    const result = await fileMetadata(
+      { paths: "single.txt" } as FileMetadataArgs,
+      TEST_WORKSPACE,
+    );
+
+    assertEquals(result.success, true);
+    assertEquals(result.count, 1);
+    assertEquals(result.entries![0].exists, true);
+    assertEquals(result.entries![0].isFile, true);
+  });
+});
+
+Deno.test("file tools: file_metadata is registered as L0 read-only", () => {
+  assertEquals(FILE_TOOLS.file_metadata.safetyLevel, "L0");
+  assertEquals(FILE_TOOLS.file_metadata.category, "read");
 });

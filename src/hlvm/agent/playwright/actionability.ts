@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 import { getExistingPage } from "./browser-manager.ts";
 
 export type PlaywrightActionabilityCode =

@@ -176,6 +176,12 @@ function summarizeToolActivity(tool: ToolCallDisplay): string {
       return args ? `Writing ${args}` : "Writing the target file";
     case "edit_file":
       return args ? `Editing ${args}` : "Editing the target file";
+    case "make_directory":
+      return args ? `Creating ${args}` : "Creating the target directory";
+    case "move_path":
+      return args ? `Moving ${args}` : "Moving the target path";
+    case "copy_path":
+      return args ? `Copying ${args}` : "Copying the target path";
     case "open_path":
       return args ? `Opening ${args}` : "Opening the result";
     case "reveal_path":

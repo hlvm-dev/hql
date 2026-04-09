@@ -494,6 +494,18 @@ Bad: shell_exec({command:"rm ~/Downloads/old-installer.dmg"}) — destructive sh
 Good: read_file({path:"~/Documents/todo.txt"}) — inspect a local note or config
 Bad: shell_exec({command:"cat ~/Documents/todo.txt"}) — shell for file reading
 
+Good: make_directory({path:"~/Documents/Receipts/2026"}) — prepare folders for local organization
+Bad: shell_exec({command:"mkdir -p ~/Documents/Receipts/2026"}) — shell for basic directory creation
+
+Good: move_path({sourcePath:"~/Desktop/invoice.pdf",destinationPath:"~/Documents/Receipts/invoice.pdf"}) — move or rename local files
+Bad: shell_exec({command:"mv ~/Desktop/invoice.pdf ~/Documents/Receipts/invoice.pdf"}) — shell for basic file moves
+
+Good: file_metadata({paths:["~/Downloads/report.pdf","~/Downloads/backup.zip"]}) — check sizes and dates
+Bad: shell_exec({command:"stat ~/Downloads/report.pdf ~/Downloads/backup.zip"}) — shell for file metadata
+
+Good: search_code({pattern:"dentist appointment",path:"~/Documents",filePattern:"*.txt"}) — search local notes or text files
+Bad: shell_exec({command:"rg -n 'dentist appointment' ~/Documents"}) — shell for basic text search
+
 Good: search_web({query:"best way to batch rename photos on mac"}) — research a local workflow
 Bad: fetch_url({url:"https://www.google.com/search?q=batch+rename+photos+mac"}) — derived search URL instead of search
 
