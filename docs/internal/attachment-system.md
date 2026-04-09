@@ -257,7 +257,7 @@ So the storage, policy, materialization, and provider conversion logic is still 
 │                                                                              │
 │  handleChat(req)                                                             │
 │    │                                                                         │
-│    ├─ Parse body → ChatRequest { mode, session_id, messages, model }         │
+│    ├─ Parse body → ChatRequest { mode, messages, model }                     │
 │    ├─ Resolve session + model info                                           │
 │    │                                                                         │
 │    ├─ STEP 1: VALIDATE ATTACHMENTS  (chat.ts:276-320)                        │

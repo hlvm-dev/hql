@@ -30,6 +30,12 @@ import { hasStructuredEvidence } from "./tools/web/web-utils.ts";
 import { summarizeToolResult } from "./tool-result-summary.ts";
 import { parseShellCommand } from "../../common/shell-parser.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import {
+  buildToolFailureMetadata,
+  normalizeToolFailureText,
+  type ToolFailureMetadata,
+} from "./tool-results.ts";
+import { persistToolResultSidecar } from "./tool-result-storage.ts";
 
 export function stringifyToolResult(result: unknown): string {
   return safeStringify(result, 2);
@@ -56,6 +62,186 @@ const TOOL_PRESENTATION_LIMITS: Record<
   diff: { summaryChars: 180, transcriptChars: 16_000, llmChars: 7_000 },
   meta: { summaryChars: 180, transcriptChars: 10_000, llmChars: 6_000 },
 };
+
+const PERSISTED_RESULT_PREVIEW_CHARS = 1_200;
+const FAILURE_FACT_VALUE_MAX_CHARS = 160;
+
+function isImageAttachmentResult(result: unknown): boolean {
+  return isObjectValue(result) && "_imageAttachment" in result;
+}
+
+function isEffectivelyEmptyToolResult(result: unknown): boolean {
+  if (!isObjectValue(result) || isImageAttachmentResult(result)) return false;
+  return Object.entries(result).every(([key, value]) =>
+    key === "success" || value === undefined
+  );
+}
+
+function isBlankText(value: string | undefined): boolean {
+  return !value || value.trim().length === 0;
+}
+
+function stringifyFailureFactValue(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value === "string") {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    return normalized
+      ? truncate(normalized, FAILURE_FACT_VALUE_MAX_CHARS)
+      : undefined;
+  }
+  if (
+    typeof value === "number" || typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return undefined;
+    return truncate(
+      safeStringify(value, 0).replace(/\s+/g, " ").trim(),
+      FAILURE_FACT_VALUE_MAX_CHARS,
+    );
+  }
+  if (isObjectValue(value)) {
+    if (Object.keys(value).length === 0) return undefined;
+    return truncate(
+      safeStringify(value, 0).replace(/\s+/g, " ").trim(),
+      FAILURE_FACT_VALUE_MAX_CHARS,
+    );
+  }
+  const normalized = String(value).replace(/\s+/g, " ").trim();
+  return normalized
+    ? truncate(normalized, FAILURE_FACT_VALUE_MAX_CHARS)
+    : undefined;
+}
+
+function renderFailureFacts(failure: ToolFailureMetadata): string | undefined {
+  const entries: Array<[string, unknown]> = [];
+  if (failure.code) {
+    entries.push(["code", failure.code]);
+  }
+  if (failure.facts) {
+    entries.push(...Object.entries(failure.facts));
+  }
+  const rendered = entries
+    .sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([key, value]) => {
+      const renderedValue = stringifyFailureFactValue(value);
+      return renderedValue ? [`${key}=${renderedValue}`] : [];
+    });
+  return rendered.length > 0 ? rendered.join("; ") : undefined;
+}
+
+async function buildFailureObservation(
+  toolResult: ToolExecutionResult,
+  errorText: string,
+): Promise<{ observation: string; resultText: string }> {
+  const failure = toolResult.failure ??
+    buildToolFailureMetadata(errorText, { source: "tool" });
+  const parts = [`Error kind: ${failure.kind}`];
+  const facts = renderFailureFacts(failure);
+  if (facts) {
+    parts.push(`Key facts: ${facts}`);
+  }
+  parts.push(`Error: ${errorText}`);
+  const hint = await getRecoveryHint(errorText);
+  if (hint) {
+    parts.push(`Hint: ${hint}`);
+  }
+  if (
+    typeof toolResult.diagnosticText === "string" &&
+    toolResult.diagnosticText.trim()
+  ) {
+    parts.push(`Diagnostics:\n${toolResult.diagnosticText.trim()}`);
+  }
+  return {
+    observation: parts.join("\n"),
+    resultText: `ERROR: ${errorText}`,
+  };
+}
+
+function detectSidecarFormat(
+  result: unknown,
+  rawBody: string,
+  fallbackBody: string,
+): "txt" | "json" {
+  if (
+    (Array.isArray(result) || isObjectValue(result)) && rawBody === fallbackBody
+  ) {
+    return "json";
+  }
+  const trimmed = rawBody.trim();
+  if (
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    return "json";
+  }
+  return "txt";
+}
+
+async function maybePersistOversizedToolResult(options: {
+  toolName: string;
+  toolCallId?: string;
+  sessionId?: string;
+  presentationKind: ToolPresentationKind;
+  rawBody: string;
+  rawLlmContent: string;
+  fallbackBody: string;
+  result: unknown;
+  config: OrchestratorConfig;
+}): Promise<Omit<ToolResultOutputs, "presentationKind"> | null> {
+  const limits = TOOL_PRESENTATION_LIMITS[options.presentationKind];
+  if (
+    options.rawBody.length <= limits.transcriptChars &&
+    options.rawLlmContent.length <= limits.llmChars
+  ) {
+    return null;
+  }
+
+  try {
+    const format = detectSidecarFormat(
+      options.result,
+      options.rawBody,
+      options.fallbackBody,
+    );
+    const sidecar = await persistToolResultSidecar({
+      sessionId: options.sessionId,
+      toolCallId: options.toolCallId,
+      content: options.rawBody,
+      format,
+    });
+    const previewSource = compressForLLM(
+      options.presentationKind,
+      options.rawLlmContent,
+    );
+    const preview = truncateWithNotice(
+      previewSource,
+      Math.min(PERSISTED_RESULT_PREVIEW_CHARS, limits.llmChars),
+      options.presentationKind === "diff" || options.presentationKind === "read"
+        ? "headtail"
+        : "tail",
+    ).text;
+    const sizeLabel = `${sidecar.bytes.toLocaleString()} bytes`;
+    const persistedBody = [
+      `Full tool result was persisted to ${sidecar.path} (${sizeLabel}, ${sidecar.format.toUpperCase()}).`,
+      "Preview:",
+      preview,
+    ].join("\n\n");
+    return {
+      llmContent: options.config.context.truncateResult(persistedBody),
+      summaryDisplay: truncate(
+        `Large result persisted to ${sidecar.path} (${sizeLabel}).`,
+        limits.summaryChars,
+      ),
+      returnDisplay: persistedBody,
+      truncatedForLlm: true,
+      truncatedForTranscript: true,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function truncateWithNotice(
   text: string,
@@ -126,12 +312,11 @@ function extractStructuredBody(
     const preview = typeof result.preview === "string" && result.preview.trim()
       ? result.preview.trim()
       : undefined;
-    const verificationDiagnostics =
-      isObjectValue(result.verification) &&
+    const verificationDiagnostics = isObjectValue(result.verification) &&
         typeof result.verification.diagnostics === "string" &&
         result.verification.diagnostics.trim()
-        ? result.verification.diagnostics.trim()
-        : undefined;
+      ? result.verification.diagnostics.trim()
+      : undefined;
 
     if (message) parts.push(message);
     if (preview && preview !== message) parts.push(preview);
@@ -183,9 +368,10 @@ function summarizeShellResult(result: unknown): string | undefined {
 }
 
 function summarizeDiffBody(result: unknown, body: string): string | undefined {
-  const fileCount = isObjectValue(result) && typeof result.fileCount === "number"
-    ? result.fileCount
-    : (body.match(/^diff --git /gm) ?? []).length;
+  const fileCount =
+    isObjectValue(result) && typeof result.fileCount === "number"
+      ? result.fileCount
+      : (body.match(/^diff --git /gm) ?? []).length;
   if (body.trim().length === 0) {
     return "No differences found";
   }
@@ -193,7 +379,9 @@ function summarizeDiffBody(result: unknown, body: string): string | undefined {
   const added = (body.match(/^\+(?!\+\+)/gm) ?? []).length;
   const removed = (body.match(/^-(?!---)/gm) ?? []).length;
   const parts = [`${fileCount || 1} file${fileCount === 1 ? "" : "s"} changed`];
-  if (hunkCount > 0) parts.push(`${hunkCount} hunk${hunkCount === 1 ? "" : "s"}`);
+  if (hunkCount > 0) {
+    parts.push(`${hunkCount} hunk${hunkCount === 1 ? "" : "s"}`);
+  }
   if (added > 0 || removed > 0) parts.push(`+${added} -${removed}`);
   return parts.join(" · ");
 }
@@ -228,12 +416,20 @@ function shapeTranscriptBody(
     case "shell":
       return keepHeadTailLines(body, 30, 30);
     case "diff":
-      return truncateWithNotice(body, TOOL_PRESENTATION_LIMITS[kind].transcriptChars, "headtail");
+      return truncateWithNotice(
+        body,
+        TOOL_PRESENTATION_LIMITS[kind].transcriptChars,
+        "headtail",
+      );
     case "web":
     case "edit":
     case "meta":
     default:
-      return truncateWithNotice(body, TOOL_PRESENTATION_LIMITS[kind].transcriptChars, "headtail");
+      return truncateWithNotice(
+        body,
+        TOOL_PRESENTATION_LIMITS[kind].transcriptChars,
+        "headtail",
+      );
   }
 }
 
@@ -251,7 +447,11 @@ export function compressForLLM(
     case "diff":
       return compressDiffOutput(result);
     case "web":
-      return truncateWithNotice(result, TOOL_PRESENTATION_LIMITS[kind].llmChars, "headtail").text;
+      return truncateWithNotice(
+        result,
+        TOOL_PRESENTATION_LIMITS[kind].llmChars,
+        "headtail",
+      ).text;
     case "edit":
     case "meta":
     default:
@@ -259,12 +459,16 @@ export function compressForLLM(
   }
 }
 
-export function buildToolResultOutputs(
+export async function buildToolResultOutputs(
   toolName: string,
   result: unknown,
   config: OrchestratorConfig,
-): ToolResultOutputs {
-  const presentationKind = getToolPresentationKind(toolName, config.toolOwnerId);
+  toolCallId?: string,
+): Promise<ToolResultOutputs> {
+  const presentationKind = getToolPresentationKind(
+    toolName,
+    config.toolOwnerId,
+  );
   let formatted: FormattedToolResult | null = null;
   try {
     const tool = hasTool(toolName, config.toolOwnerId)
@@ -276,13 +480,42 @@ export function buildToolResultOutputs(
   }
 
   const fallbackBody = stringifyToolResult(result);
-  const rawBody = formatted?.returnDisplay ??
+  const fallbackMarker = `${toolName} completed with no output.`;
+  const rawBodyCandidate = formatted?.returnDisplay ??
     extractStructuredBody(presentationKind, result) ??
     fallbackBody;
-  const rawSummary = formatted?.summaryDisplay ??
+  const rawBody = !isImageAttachmentResult(result) &&
+      (isBlankText(rawBodyCandidate) || isEffectivelyEmptyToolResult(result))
+    ? fallbackMarker
+    : rawBodyCandidate;
+  const rawSummaryCandidate = formatted?.summaryDisplay ??
     buildStructuredSummary(presentationKind, result, rawBody) ??
     summarizeToolResult(toolName, result, rawBody);
-  const rawLlmContent = formatted?.llmContent ?? rawBody;
+  const rawSummary = isBlankText(rawSummaryCandidate)
+    ? fallbackMarker
+    : rawSummaryCandidate;
+  const rawLlmContentCandidate = formatted?.llmContent ?? rawBody;
+  const rawLlmContent = isBlankText(rawLlmContentCandidate)
+    ? rawBody
+    : rawLlmContentCandidate;
+
+  const persisted = await maybePersistOversizedToolResult({
+    toolName,
+    toolCallId,
+    sessionId: config.sessionId,
+    presentationKind,
+    rawBody,
+    rawLlmContent,
+    fallbackBody,
+    result,
+    config,
+  });
+  if (persisted) {
+    return {
+      ...persisted,
+      presentationKind,
+    };
+  }
 
   const transcriptSummary = truncate(
     rawSummary,
@@ -306,8 +539,8 @@ export function buildToolResultOutputs(
     returnDisplay: transcriptBodyResult.text,
     presentationKind,
     truncatedForLlm: llmContent !== rawLlmContent,
-    truncatedForTranscript:
-      transcriptBodyResult.truncated || transcriptSummary !== rawSummary,
+    truncatedForTranscript: transcriptBodyResult.truncated ||
+      transcriptSummary !== rawSummary,
   };
 }
 
@@ -428,15 +661,16 @@ export async function buildToolObservation(
     };
   }
 
-  const errorText = toolResult.error ?? "Unknown error";
-  const hint = await getRecoveryHint(errorText);
-  const observation = hint
-    ? `Error: ${errorText}\nHint: ${hint}`
-    : `Error: ${errorText}`;
+  const errorText = toolResult.error ?? toolResult.llmContent ??
+    "Unknown error";
+  const failureObservation = await buildFailureObservation(
+    toolResult,
+    errorText,
+  );
 
   return {
-    observation,
-    resultText: `ERROR: ${errorText}`,
+    observation: failureObservation.observation,
+    resultText: failureObservation.resultText,
     toolName: toolCall.toolName,
     usedRequestedObservation: false,
   };
@@ -622,14 +856,21 @@ export function buildToolErrorResult(
   startedAt: number,
   config: OrchestratorConfig,
   toolCallId?: string,
+  failure?: Partial<ToolFailureMetadata>,
 ): ToolExecutionResult {
-  const presentationKind = getToolPresentationKind(toolName, config.toolOwnerId);
+  const normalizedError = normalizeToolFailureText({ message: error });
+  const normalizedFailure = buildToolFailureMetadata(normalizedError, failure);
+  const presentationKind = getToolPresentationKind(
+    toolName,
+    config.toolOwnerId,
+  );
   const result: ToolExecutionResult = {
     success: false,
-    error,
-    llmContent: error,
-    summaryDisplay: error,
-    returnDisplay: error,
+    error: normalizedError,
+    failure: normalizedFailure,
+    llmContent: normalizedError,
+    summaryDisplay: normalizedError,
+    returnDisplay: normalizedError,
     presentationKind,
     truncatedForLlm: false,
     truncatedForTranscript: false,
@@ -644,16 +885,16 @@ export function buildToolErrorResult(
     toolName,
     toolCallId,
     success: false,
-    error,
-    display: error,
+    error: normalizedError,
+    display: normalizedError,
   });
   config.onAgentEvent?.({
     type: "tool_end",
     name: toolName,
     toolCallId,
     success: false,
-    content: error,
-    summary: error,
+    content: normalizedError,
+    summary: normalizedError,
     durationMs: Date.now() - startedAt,
     argsSummary: "",
     meta,
@@ -819,15 +1060,16 @@ function extractToolEventMeta(
     "presentationKind" | "truncatedForLlm" | "truncatedForTranscript"
   >,
 ): ToolEventMeta | undefined {
-  const webSearch = (toolName === "search_web" || toolName.endsWith("_search_web"))
-    ? extractWebSearchEventMeta(result)
-    : undefined;
+  const webSearch =
+    (toolName === "search_web" || toolName.endsWith("_search_web"))
+      ? extractWebSearchEventMeta(result)
+      : undefined;
   const webFetch = (
-    toolName === "web_fetch" ||
-    toolName === "fetch_url" ||
-    toolName.endsWith("_web_fetch") ||
-    toolName.endsWith("_fetch_url")
-  )
+      toolName === "web_fetch" ||
+      toolName === "fetch_url" ||
+      toolName.endsWith("_web_fetch") ||
+      toolName.endsWith("_fetch_url")
+    )
     ? extractWebFetchEventMeta(result)
     : undefined;
   return {

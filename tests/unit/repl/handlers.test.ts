@@ -6,6 +6,10 @@ import {
   getSession,
   insertMessage,
 } from "../../../src/hlvm/store/conversation-store.ts";
+import {
+  _resetActiveConversationForTesting,
+  getActiveConversationSessionId,
+} from "../../../src/hlvm/store/active-conversation.ts";
 import { registerUploadedAttachment } from "../../../src/hlvm/attachments/service.ts";
 import {
   handleAddMessage,
@@ -19,6 +23,7 @@ import {
   handleChat,
 } from "../../../src/hlvm/cli/repl/handlers/chat.ts";
 import { ai } from "../../../src/hlvm/api/ai.ts";
+import { log } from "../../../src/hlvm/api/log.ts";
 import {
   __testOnlyResetAgentReadyState,
   isAgentReady,
@@ -268,7 +273,10 @@ Deno.test("handlers: addMessage rejects unknown attachment ids", async () => {
     );
 
     assertEquals(response.status, 400);
-    assertEquals((await response.json()).error, "Attachment not found: att_missing");
+    assertEquals(
+      (await response.json()).error,
+      "Attachment not found: att_missing",
+    );
   });
 });
 
@@ -294,7 +302,10 @@ Deno.test("handlers: buildEvalAttachments reconstructs pasted text and binary at
       ]),
     });
 
-    const attachments = await buildEvalAttachments([textRecord.id, imageRecord.id]);
+    const attachments = await buildEvalAttachments([
+      textRecord.id,
+      imageRecord.id,
+    ]);
 
     assertEquals(attachments?.length, 2);
     const pastedText = attachments?.[0];
@@ -341,7 +352,49 @@ Deno.test("handlers: eval chat requests reject missing attachment ids before exe
     );
 
     assertEquals(response.status, 400);
-    assertEquals((await response.json()).error, "Attachment not found: att_missing");
+    assertEquals(
+      (await response.json()).error,
+      "Attachment not found: att_missing",
+    );
+  });
+});
+
+Deno.test("handlers: chat ignores deprecated session_id and logs a warning", async () => {
+  await withDb(async () => {
+    _resetActiveConversationForTesting();
+    const warnings: string[] = [];
+    const originalWarn = log.warn;
+    (log as { warn: typeof log.warn }).warn = (
+      message: string,
+      ..._args: unknown[]
+    ) => {
+      warnings.push(message);
+    };
+
+    try {
+      const activeSessionId = getActiveConversationSessionId();
+      const response = await handleChat(
+        jsonRequest({
+          mode: "eval",
+          session_id: "legacy-session-id",
+          messages: [{ role: "user", content: "(+ 1 2)" }],
+        }),
+      );
+
+      assertEquals(response.status, 200);
+      await response.text();
+      assertEquals(getActiveConversationSessionId(), activeSessionId);
+      assertEquals(getSession("legacy-session-id"), null);
+      assertEquals(
+        warnings.some((message) =>
+          message.includes("Deprecated /api/chat session_id was ignored")
+        ),
+        true,
+      );
+    } finally {
+      (log as { warn: typeof log.warn }).warn = originalWarn;
+      _resetActiveConversationForTesting();
+    }
   });
 });
 

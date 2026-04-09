@@ -1,5 +1,6 @@
 import { truncate } from "../../common/utils.ts";
 import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
+import { runtimeUpdate } from "./runtime-messages.ts";
 
 export interface BackgroundDelegateUpdate {
   threadId: string;
@@ -56,13 +57,14 @@ function resolveUpdateDetail(update: BackgroundDelegateUpdate): string {
 export function formatDelegateInboxUpdateMessage(
   update: BackgroundDelegateUpdate,
 ): string {
-  const attentionPrefix = update.attentionRequired ? "[ATTENTION REQUIRED] " : "";
-  const prefix =
-    `${attentionPrefix}[System Delegate Update] ${update.nickname} [${update.agent}]`;
+  const attentionPrefix = update.attentionRequired
+    ? "[ATTENTION REQUIRED] "
+    : "";
+  const prefix = `${attentionPrefix}${update.nickname} [${update.agent}]`;
   const task = `"${truncate(update.task, 120)}"`;
   const detail = resolveUpdateDetail(update);
   if (update.success) {
-    return `${prefix} completed ${task}. Result: ${detail}`;
+    return runtimeUpdate(`${prefix} completed ${task}. Result: ${detail}`);
   }
-  return `${prefix} failed ${task}. Error: ${detail}`;
+  return runtimeUpdate(`${prefix} failed ${task}. Error: ${detail}`);
 }

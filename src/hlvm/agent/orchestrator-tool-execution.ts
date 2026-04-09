@@ -71,6 +71,13 @@ import {
 import { parse as parseCsv } from "jsr:@std/csv/parse";
 import { emitDelegateBatchProgress } from "./delegate-batch-progress.ts";
 import type { WriteVerificationResult } from "./lsp-diagnostics.ts";
+import {
+  buildToolFailureMetadata,
+  isToolFailureMetadata,
+  normalizeToolFailureText,
+  type ToolFailureMetadata,
+} from "./tool-results.ts";
+import { capturePlaywrightFailureDiagnostics } from "./playwright/diagnostics.ts";
 
 const CHECKPOINT_SUPPORTED_MUTATION_TOOLS = new Set([
   "write_file",
@@ -161,7 +168,12 @@ async function delegateAndBuildResult(
 ): Promise<ToolExecutionResult> {
   try {
     const result = await config.delegate!(delegateArgs, config);
-    const outputs = buildToolResultOutputs(toolCall.toolName, result, config);
+    const outputs = await buildToolResultOutputs(
+      toolCall.toolName,
+      result,
+      config,
+      toolCall.id,
+    );
     emitToolSuccess(
       config,
       toolCall.toolName,
@@ -290,20 +302,64 @@ async function executeToolWithTimeout(
   );
 }
 
-function getStructuredFailureMessage(result: unknown): string | undefined {
+function getStructuredFailure(
+  result: unknown,
+): { message: string; failure: ToolFailureMetadata } | undefined {
   if (!isObjectValue(result) || result.success !== false) return undefined;
-  const message = typeof result.message === "string" && result.message.trim().length > 0
-    ? result.message
-    : typeof result.error === "string" && result.error.trim().length > 0
-    ? result.error
-    : undefined;
-  if (!message) return undefined;
-  // Append stderr when present so the model can diagnose shell/process failures
-  const stderr = typeof result.stderr === "string" ? result.stderr.trim() : "";
-  if (stderr.length > 0 && !message.includes(stderr)) {
-    return `${message}\nstderr: ${stderr}`;
+  const primaryMessage =
+    typeof result.message === "string" && result.message.trim().length > 0
+      ? result.message
+      : typeof result.error === "string" && result.error.trim().length > 0
+      ? result.error
+      : undefined;
+  if (!primaryMessage) return undefined;
+  const message = normalizeToolFailureText({
+    message: primaryMessage,
+    stderr: typeof result.stderr === "string" ? result.stderr : undefined,
+    stdout: typeof result.stdout === "string" ? result.stdout : undefined,
+  });
+  return {
+    message,
+    failure: buildToolFailureMetadata(
+      message,
+      isToolFailureMetadata(result.failure)
+        ? result.failure
+        : { source: "tool" },
+    ),
+  };
+}
+
+async function maybeEnrichPlaywrightFailureResult(
+  toolCall: ToolCall,
+  toolResult: ToolExecutionResult,
+  sessionId?: string,
+): Promise<ToolExecutionResult> {
+  if (toolResult.success || !toolCall.toolName.startsWith("pw_")) {
+    return toolResult;
   }
-  return message;
+  const errorText = toolResult.error ?? toolResult.llmContent ?? "";
+  const diagnostics = await capturePlaywrightFailureDiagnostics({
+    errorText,
+    failure: toolResult.failure,
+    sessionId,
+  });
+  if (!diagnostics) {
+    return toolResult;
+  }
+  return {
+    ...toolResult,
+    ...(diagnostics.diagnosticText
+      ? { diagnosticText: diagnostics.diagnosticText }
+      : {}),
+    ...(diagnostics.imageAttachment
+      ? {
+        imageAttachments: [
+          ...(toolResult.imageAttachments ?? []),
+          diagnostics.imageAttachment,
+        ],
+      }
+      : {}),
+  };
 }
 
 async function maybeBuildEditFileRecoveryResult(
@@ -314,7 +370,7 @@ async function maybeBuildEditFileRecoveryResult(
 ): Promise<import("./error-taxonomy.ts").EditFileRecovery | undefined> {
   if (toolCall.toolName !== "edit_file") return undefined;
 
-  const errorMessage = getStructuredFailureMessage(result);
+  const errorMessage = getStructuredFailure(result)?.message;
   const argRecord = isObjectValue(args) ? args : null;
   const path = typeof argRecord?.path === "string" ? argRecord.path : undefined;
   const find = typeof argRecord?.find === "string" ? argRecord.find : undefined;
@@ -461,18 +517,32 @@ export async function executeToolCall(
         startedAt,
         config,
         toolCall.id,
+        buildToolFailureMetadata(
+          `Tool not available: ${toolCall.toolName}.${hint}`,
+          {
+            source: "validation",
+            kind: "unknown_tool",
+            code: "tool_not_available",
+            facts: {
+              requestedTool: toolCall.toolName,
+              toolSearchAvailable,
+            },
+          },
+        ),
       );
     }
 
     const validation = preparedArgs?.validation ?? { valid: true };
     if (!validation.valid) {
-      const details = (validation.errors ?? []).join("; ");
       return buildToolErrorResult(
         toolCall.toolName,
-        `Invalid arguments for ${toolCall.toolName}: ${details}`,
+        `Invalid arguments for ${toolCall.toolName}: ${
+          validation.message ?? (validation.errors ?? []).join(" ")
+        }`,
         startedAt,
         config,
         toolCall.id,
+        validation.failure,
       );
     }
 
@@ -631,7 +701,12 @@ export async function executeToolCall(
           ...(teamMemberId ? { _teamMemberId: teamMemberId } : {}),
         };
         const result = await config.delegate(delegateArgs, config);
-        const outputs = buildToolResultOutputs(toolCall.toolName, result, config);
+        const outputs = await buildToolResultOutputs(
+          toolCall.toolName,
+          result,
+          config,
+          toolCall.id,
+        );
 
         if (isBackground && result && typeof result === "object") {
           // Background delegate: handler returned immediately with threadId.
@@ -926,10 +1001,11 @@ export async function executeToolCall(
         status: "running",
       };
       emitDelegateBatchProgress(config, snapshot);
-      const outputs = buildToolResultOutputs(
+      const outputs = await buildToolResultOutputs(
         toolCall.toolName,
         batchResult,
         config,
+        toolCall.id,
       );
       emitToolSuccess(
         config,
@@ -1023,21 +1099,28 @@ export async function executeToolCall(
       }
     }
 
-    const structuredFailure = getStructuredFailureMessage(result);
+    const structuredFailure = getStructuredFailure(result);
     if (structuredFailure) {
-      return buildToolErrorResult(
+      const failureResult = buildToolErrorResult(
         toolCall.toolName,
-        structuredFailure,
+        structuredFailure.message,
         startedAt,
         config,
         toolCall.id,
+        structuredFailure.failure,
+      );
+      return await maybeEnrichPlaywrightFailureResult(
+        toolCall,
+        failureResult,
+        config.sessionId,
       );
     }
 
-    const outputs = buildToolResultOutputs(
+    const outputs = await buildToolResultOutputs(
       toolCall.toolName,
       result,
       config,
+      toolCall.id,
     );
     if (
       toolCall.toolName === "report_result" &&
@@ -1149,12 +1232,17 @@ export async function executeToolCall(
       ...(imageAttachments ? { imageAttachments } : {}),
     };
   } catch (error) {
-    return buildToolErrorResult(
+    const failureResult = buildToolErrorResult(
       toolCall.toolName,
       getErrorMessage(error),
       startedAt,
       config,
       toolCall.id,
+    );
+    return await maybeEnrichPlaywrightFailureResult(
+      toolCall,
+      failureResult,
+      config.sessionId,
     );
   }
 }

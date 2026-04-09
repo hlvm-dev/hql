@@ -20,6 +20,7 @@ import {
 import { aiCommand, showAiHelp } from "./commands/ai.ts";
 import { askCommand, showAskHelp } from "./commands/ask.ts";
 import { chatCommand, showChatHelp } from "./commands/chat.ts";
+import { classifyCommand, showClassifyHelp } from "./commands/classify.ts";
 import { ollamaCommand, showOllamaHelp } from "./commands/ollama.ts";
 import { serveCommand, showServeHelp } from "./commands/serve.ts";
 import { mcpCommand, showMcpHelp } from "./commands/mcp.ts";
@@ -84,6 +85,7 @@ Commands:
   run <file|expr>    Run a file or expression
   repl               Start interactive shell
   chat "<query>"     Plain non-agent chat
+  classify "<prompt>" Fast local LLM classification (no agent)
   serve              Start HTTP REPL server
   hql                HQL language tools (init, compile, publish)
   ask "<query>"      Ask AI agent to perform a task
@@ -129,6 +131,7 @@ const COMMANDS: Record<string, CommandEntry> = {
   ai: { run: aiCommand, help: showAiHelp },
   ask: { run: askCommand, help: showAskHelp },
   chat: { run: chatCommand, help: showChatHelp },
+  classify: { run: classifyCommand, help: showClassifyHelp },
   upgrade: { run: upgradeCommand, help: showUpgradeHelp },
   uninstall: { run: uninstallCommand, help: showUninstallHelp },
   ollama: { run: ollamaCommand, help: showOllamaHelp },

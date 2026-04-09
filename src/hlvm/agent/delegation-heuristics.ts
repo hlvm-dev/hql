@@ -4,7 +4,22 @@ export interface DelegationSignal {
   shouldDelegate: boolean;
   reason: string;
   suggestedPattern: "fan-out" | "specialist" | "batch" | "sequential" | "none";
+  taskDomain: "browser" | "general";
   estimatedSubtasks?: number;
+}
+
+async function requestLooksLikeBrowserAutomation(
+  request: string,
+): Promise<boolean> {
+  // Structural short-circuits: tool names and URLs are not semantic
+  if (/\b(?:pw|cu)_(?:\*|[a-z0-9_]+)(?![a-z0-9_])/i.test(request)) return true;
+  if (/\bhttps?:\/\/|\bwww\./i.test(request)) return true;
+
+  const { classifyBrowserAutomation } = await import(
+    "../runtime/local-llm.ts"
+  );
+  const result = await classifyBrowserAutomation(request);
+  return result.isBrowserTask;
 }
 
 export async function evaluateDelegationSignal(
@@ -16,6 +31,7 @@ export async function evaluateDelegationSignal(
       shouldDelegate: false,
       reason: "Empty request",
       suggestedPattern: "none",
+      taskDomain: "general",
     };
   }
 
@@ -27,7 +43,17 @@ export async function evaluateDelegationSignal(
       shouldDelegate: true,
       reason: `${uniqueFiles.size} distinct file paths detected`,
       suggestedPattern: "fan-out",
+      taskDomain: "general",
       estimatedSubtasks: uniqueFiles.size,
+    };
+  }
+
+  if (await requestLooksLikeBrowserAutomation(trimmed)) {
+    return {
+      shouldDelegate: false,
+      reason: "Browser interaction task detected",
+      suggestedPattern: "none",
+      taskDomain: "browser",
     };
   }
 
@@ -39,13 +65,17 @@ export async function evaluateDelegationSignal(
       shouldDelegate: false,
       reason: "No strong delegation signal detected",
       suggestedPattern: "none",
+      taskDomain: "general",
     };
   }
 
   return {
     shouldDelegate: true,
     reason: `LLM classified as ${result.pattern} delegation`,
-    suggestedPattern: result.pattern === "sequential" ? "sequential" : result.pattern,
+    suggestedPattern: result.pattern === "sequential"
+      ? "sequential"
+      : result.pattern,
+    taskDomain: "general",
     estimatedSubtasks: uniqueFiles.size || 2,
   };
 }

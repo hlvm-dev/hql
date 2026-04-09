@@ -28,6 +28,18 @@ interface JsonSchemaProperty {
   items?: JsonSchemaProperty;
 }
 
+export interface ToolValidationIssue {
+  kind:
+    | "non_object"
+    | "missing_required"
+    | "unexpected_argument"
+    | "invalid_type";
+  argument?: string;
+  expectedType?: string;
+  actualType?: string;
+  validArguments?: string[];
+}
+
 interface ParsedArgSpec {
   type: JsonSchemaProperty["type"] | "any";
   isArray: boolean;
@@ -76,6 +88,20 @@ function parseArgSpec(description: string): ParsedArgSpec {
     isArray,
     optional,
   };
+}
+
+function describeSchemaType(property: JsonSchemaProperty): string {
+  if (property.type === "array") {
+    const itemType = property.items?.type ?? "any";
+    return `array of ${itemType}`;
+  }
+  return property.type ?? "any";
+}
+
+function describeActualType(value: unknown): string {
+  if (Array.isArray(value)) return "array";
+  if (value === null) return "null";
+  return typeof value;
 }
 
 export function buildToolJsonSchema(tool: ToolMetadata): JsonSchemaObject {
@@ -261,20 +287,56 @@ export function coerceArgsToSchema(
   return coerced;
 }
 
+export function formatToolValidationIssues(
+  issues: ToolValidationIssue[],
+): string[] {
+  return issues.map((issue) => {
+    switch (issue.kind) {
+      case "non_object":
+        return "Arguments must be an object with named fields.";
+      case "missing_required":
+        return `Missing required argument '${issue.argument ?? "unknown"}'.`;
+      case "unexpected_argument":
+        return `Unexpected argument '${issue.argument ?? "unknown"}'.${
+          issue.validArguments?.length
+            ? ` Valid arguments: ${issue.validArguments.join(", ")}.`
+            : ""
+        }`;
+      case "invalid_type":
+        return `Argument '${
+          issue.argument ?? "unknown"
+        }' has the wrong type. Expected ${
+          issue.expectedType ?? "any"
+        }, received ${issue.actualType ?? "unknown"}.`;
+      default:
+        return "Invalid arguments.";
+    }
+  });
+}
+
+export function summarizeToolValidationIssues(
+  issues: ToolValidationIssue[],
+): string {
+  return formatToolValidationIssues(issues).join(" ");
+}
+
 export function validateArgsAgainstSchema(
   args: unknown,
   schema: JsonSchemaObject,
-): string[] {
-  const errors: string[] = [];
+): ToolValidationIssue[] {
+  const errors: ToolValidationIssue[] = [];
   if (typeof args !== "object" || args === null || Array.isArray(args)) {
-    return ["Arguments must be a plain object"];
+    return [{ kind: "non_object" }];
   }
 
   const record = args as Record<string, unknown>;
   const required = schema.required ?? [];
   for (const req of required) {
     if (!(req in record)) {
-      errors.push(`Missing required argument: ${req}`);
+      errors.push({
+        kind: "missing_required",
+        argument: req,
+      });
     }
   }
 
@@ -282,20 +344,21 @@ export function validateArgsAgainstSchema(
     const prop = schema.properties[key];
     if (!prop) {
       if (!schema.additionalProperties) {
-        errors.push(
-          `Unexpected argument: ${key}. Valid arguments: ${
-            Object.keys(schema.properties).join(", ")
-          }`,
-        );
+        errors.push({
+          kind: "unexpected_argument",
+          argument: key,
+          validArguments: Object.keys(schema.properties),
+        });
       }
       continue;
     }
     if (!isTypeMatch(value, prop)) {
-      errors.push(
-        `Invalid type for argument '${key}'. Expected ${prop.type}${
-          prop.type === "array" && prop.items ? ` of ${prop.items.type}` : ""
-        }.`,
-      );
+      errors.push({
+        kind: "invalid_type",
+        argument: key,
+        expectedType: describeSchemaType(prop),
+        actualType: describeActualType(value),
+      });
     }
   }
 

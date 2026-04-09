@@ -83,7 +83,14 @@ Deno.test("Registry: validateToolArgs accepts canonical inputs and rejects inval
 
   const missing = validateToolArgs("read_file", {});
   assertEquals(missing.valid, false);
-  assertStringIncludes(missing.errors?.[0] ?? "", "Missing required argument");
+  assertStringIncludes(
+    missing.errors?.[0] ?? "",
+    "Missing required argument 'path'",
+  );
+  assertStringIncludes(
+    missing.message ?? "",
+    "Missing required argument 'path'",
+  );
 
   const unexpected = validateToolArgs("read_file", {
     path: "src/main.ts",
@@ -97,7 +104,7 @@ Deno.test("Registry: validateToolArgs accepts canonical inputs and rejects inval
 
   const nonObject = validateToolArgs("read_file", null);
   assertEquals(nonObject.valid, false);
-  assertStringIncludes(nonObject.errors?.[0] ?? "", "plain object");
+  assertStringIncludes(nonObject.errors?.[0] ?? "", "object with named fields");
 });
 
 Deno.test("Registry: web arg aliases normalize before coercion/validation and canonical args win", () => {

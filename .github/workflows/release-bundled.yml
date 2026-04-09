@@ -1,7 +1,9 @@
 name: Release Bundled
 
 # Manual trigger only — never blocks standard release.
-# Pulls the model, packages as sidecar tarball, uploads to HuggingFace.
+# Pulls the model, packages Chromium, creates sidecar tarballs, uploads to HuggingFace.
+# NOTE: Chromium tarball is macOS-only (built on macos-latest / Apple Silicon).
+# Linux/Windows users get a graceful fallback — Chromium downloads from CDN at bootstrap.
 on:
   workflow_dispatch:
     inputs:
@@ -18,7 +20,7 @@ env:
 
 jobs:
   package-and-upload:
-    name: Package sidecar model + upload to HuggingFace
+    name: Package sidecar tarballs + upload to HuggingFace
     runs-on: macos-latest
     continue-on-error: true
     timeout-minutes: 120
@@ -29,6 +31,10 @@ jobs:
         with:
           deno-version: v2.x
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Setup AI engine
         shell: bash
         run: make setup-ai
@@ -37,12 +43,18 @@ jobs:
         shell: bash
         run: make setup-model
 
-      - name: Package sidecar tarball
+      - name: Package sidecar model tarball
         shell: bash
         run: make package-bundled-model
 
-      - name: Show tarball size
-        run: ls -lh hlvm-model.tar
+      - name: Setup and package Chromium
+        shell: bash
+        run: |
+          make setup-chromium
+          make package-bundled-chromium
+
+      - name: Show tarball sizes
+        run: ls -lh hlvm-model.tar hlvm-chromium.tar.gz
 
       - name: Upload to HuggingFace
         env:
@@ -51,4 +63,4 @@ jobs:
           python3 -m venv /tmp/hf-venv
           /tmp/hf-venv/bin/pip install huggingface-hub
           export PATH="/tmp/hf-venv/bin:$PATH"
-          ./scripts/upload-bundled.sh ${{ inputs.tag }} ./hlvm-model.tar
+          ./scripts/upload-bundled.sh ${{ inputs.tag }} ./hlvm-model.tar ./hlvm-chromium.tar.gz

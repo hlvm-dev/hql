@@ -17,11 +17,7 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import {
-  isPathWithinRoot,
-  SecurityError,
-  validatePath,
-} from "../security/path-sandbox.ts";
+import { isPathWithinRoot, SecurityError } from "../security/path-sandbox.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import { createPolicyPathChecker, resolveToolPath } from "../path-utils.ts";
 import {
@@ -331,7 +327,9 @@ export async function writeFile(
     if (args.createDirs) {
       await platform.fs.mkdir(parentDir, { recursive: true });
     } else if (!await platform.fs.exists(parentDir)) {
-      return failTool(`Parent directory does not exist: ${platform.path.dirname(args.path)}`);
+      return failTool(
+        `Parent directory does not exist: ${platform.path.dirname(args.path)}`,
+      );
     }
 
     // Enforce size limit (bytes)
@@ -351,7 +349,9 @@ export async function writeFile(
         mtimeMs: currentStat.mtimeMs,
       });
       if (!conflict.ok) {
-        return failTool(conflict.reason ?? "File changed. Re-read before overwriting.");
+        return failTool(
+          conflict.reason ?? "File changed. Re-read before overwriting.",
+        );
       }
     }
 
@@ -422,7 +422,9 @@ export async function editFile(
 
     const editableView = options?.fileStateCache?.requireFullView(validPath);
     if (editableView && !editableView.ok) {
-      return failTool(editableView.reason ?? "File must be re-read before editing.");
+      return failTool(
+        editableView.reason ?? "File must be re-read before editing.",
+      );
     }
 
     // Read existing content
@@ -434,7 +436,9 @@ export async function editFile(
         mtimeMs: stat.mtimeMs,
       });
       if (!conflict.ok) {
-        return failTool(conflict.reason ?? "File changed. Re-read before editing.");
+        return failTool(
+          conflict.reason ?? "File changed. Re-read before editing.",
+        );
       }
     }
 
@@ -675,14 +679,17 @@ export async function listFiles(
         // ALWAYS recurse regardless of pattern match to find nested files
         if (normalizedArgs.recursive && entry.isDirectory) {
           throwIfAborted(options?.signal);
-          // CRITICAL: Validate subdirectory isn't a symlink escape
+          // Re-validate with the same policy-aware path logic as the root path.
           try {
-            await validatePath(entryPath, workspace);
-            // Only recurse if validation succeeds
+            await resolveToolPath(
+              entryPath,
+              workspace,
+              options?.policy ?? null,
+            );
             await walk(entryPath, entryRelativePath, depth + 1);
           } catch (error) {
             if (error instanceof SecurityError) {
-              // Symlinked directory or escape attempt - SKIP silently
+              // Symlinked directory, disallowed root, or escape attempt - SKIP silently
               continue;
             }
             throw error; // Re-throw unexpected errors

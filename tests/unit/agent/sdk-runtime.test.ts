@@ -398,6 +398,95 @@ Deno.test("sdk runtime: _sdkResponseMessages passthrough preserves assistant mes
   assertEquals(toolContent[0].toolCallId, "tc_sdk_1");
 });
 
+Deno.test("sdk runtime: _sdkResponseMessages repairs missing tool-call parts from persisted toolCalls", () => {
+  const sdkAssistantMessage = {
+    role: "assistant" as const,
+    content: [
+      { type: "reasoning", text: "Need multiple form fills." },
+      { type: "text", text: "I'll fill the fields now." },
+      {
+        type: "tool-call",
+        toolCallId: "tc_sdk_1",
+        toolName: "pw_fill",
+        input: { selector: "input[name='name']", value: "John" },
+      },
+      {
+        type: "tool-call",
+        toolCallId: "tc_sdk_2",
+        toolName: "pw_fill",
+        input: { selector: "input[name='phone']", value: "555-1234" },
+      },
+    ],
+  };
+
+  const messages: SdkConvertibleMessage[] = [
+    {
+      role: "assistant",
+      content: "I'll fill the fields now.",
+      toolCalls: [
+        {
+          id: "tc_sdk_1",
+          function: {
+            name: "pw_fill",
+            arguments: { selector: "input[name='name']", value: "John" },
+          },
+        },
+        {
+          id: "tc_sdk_2",
+          function: {
+            name: "pw_fill",
+            arguments: { selector: "input[name='phone']", value: "555-1234" },
+          },
+        },
+        {
+          id: "tc_sdk_3",
+          function: {
+            name: "pw_fill",
+            arguments: {
+              selector: "input[name='email']",
+              value: "john@test.com",
+            },
+          },
+        },
+      ],
+      _sdkResponseMessages: [sdkAssistantMessage],
+    },
+    {
+      role: "tool",
+      content: "name fill failed",
+      toolCallId: "tc_sdk_1",
+      toolName: "pw_fill",
+    },
+    {
+      role: "tool",
+      content: "phone fill failed",
+      toolCallId: "tc_sdk_2",
+      toolName: "pw_fill",
+    },
+    {
+      role: "tool",
+      content: "email fill failed",
+      toolCallId: "tc_sdk_3",
+      toolName: "pw_fill",
+    },
+  ];
+
+  const result = convertToSdkMessages(messages);
+  assertEquals(result.length, 2);
+  assertEquals(result[0].role, "assistant");
+  const assistantContent = result[0].content as Array<Record<string, unknown>>;
+  assertEquals(
+    assistantContent.filter((part) => part.type === "tool-call").length,
+    3,
+  );
+  assertEquals(result[1].role, "tool");
+  const toolContent = result[1].content as Array<Record<string, unknown>>;
+  assertEquals(toolContent.length, 3);
+  assertEquals(toolContent[0].toolCallId, "tc_sdk_1");
+  assertEquals(toolContent[1].toolCallId, "tc_sdk_2");
+  assertEquals(toolContent[2].toolCallId, "tc_sdk_3");
+});
+
 Deno.test("sdk runtime: _sdkResponseMessages fallback when no assistant found in SDK messages", () => {
   // Edge case: _sdkResponseMessages exists but has no assistant message
   const messages: SdkConvertibleMessage[] = [

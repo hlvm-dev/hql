@@ -422,44 +422,6 @@ Deno.test({
 });
 
 Deno.test({
-  name: "Engine harness: total tool result bytes limit enforced",
-  ignore: true, // trackToolResultBytes is defined but never called from tool execution — enforcement not wired
-  async fn() {
-    const toolName = "fake_big";
-    addFakeTool(toolName, "x".repeat(50));
-
-    try {
-      const llm = createScriptedLLM([
-        {
-          toolCalls: [{ toolName, args: {} }],
-        },
-      ]);
-
-      const context = createContext();
-      await assertRejects(
-        () =>
-          runReActLoop(
-            "Get big result",
-            {
-              workspace: "/tmp",
-              context,
-              permissionMode: "bypassPermissions",
-          toolDenylist: ["delegate_agent"],
-              maxToolCalls: TEST_MAX_TOOL_CALLS,
-              maxTotalToolResultBytes: 10,
-            },
-            llm,
-          ),
-        Error,
-        "total tool result bytes",
-      );
-    } finally {
-      removeTool(toolName);
-    }
-  },
-});
-
-Deno.test({
   name: "Engine harness: planning enforces step progression",
   async fn() {
     const toolA = "fake_plan_tool_a";

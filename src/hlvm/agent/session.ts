@@ -38,8 +38,8 @@ import {
 import type { ModelInfo } from "../providers/types.ts";
 import { createTodoState, type TodoState } from "./todo-state.ts";
 import {
-  type AgentLLMConfig,
   type AgentEngine,
+  type AgentLLMConfig,
   getAgentEngine,
   type ThinkingState,
   type ToolFilterState,
@@ -59,16 +59,28 @@ import { releaseToolOwner } from "./registry.ts";
 import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
 import { PLAYWRIGHT_TOOLS } from "./playwright/mod.ts";
 import { FileStateCache } from "./file-state-cache.ts";
+import { clearToolResultSidecars } from "./tool-result-storage.ts";
 import {
   REPL_MAIN_THREAD_QUERY_SOURCE,
   resolveMainThreadBaselineToolAllowlist,
 } from "./query-tool-routing.ts";
+import {
+  clearToolProfileLayer,
+  createToolProfileState,
+  resolvePersistentToolFilter,
+  setToolProfileLayer,
+  syncEffectiveToolFilterToConfig,
+  syncPersistentToolFilterToTarget,
+  type ToolProfileState,
+} from "./tool-profiles.ts";
 
 interface AgentSessionOptions {
   workspace: string;
   model?: string;
   fixturePath?: string;
+  sessionId?: string | null;
   querySource?: string;
+  temperature?: number;
   /** Optional output-token cap for a single provider response. */
   maxOutputTokens?: number;
   engineProfile?: keyof typeof ENGINE_PROFILES;
@@ -97,6 +109,7 @@ interface RefreshAgentSessionOptions {
   /** Optional callback for streaming tokens to the terminal */
   onToken?: (text: string) => void;
   querySource?: string;
+  temperature?: number;
   /** Preserve prior user/assistant/tool context already held in memory. */
   preserveConversationContext?: boolean;
   /** Disable persistent memory injection for this turn. */
@@ -112,6 +125,7 @@ export interface AgentSession {
   llm: LLMFunction;
   policy: AgentPolicy | null;
   l1Confirmations: Map<string, boolean>;
+  sessionId?: string | null;
   toolOwnerId: string;
   querySource?: string;
   dispose: () => Promise<void>;
@@ -136,6 +150,10 @@ export interface AgentSession {
   toolFilterState?: ToolFilterState;
   /** Persistent baseline tool filters used to reset per-turn narrowing. */
   toolFilterBaseline?: ToolFilterState;
+  /** Canonical persistent baseline before domain-specific widening. */
+  baseToolAllowlist?: string[];
+  /** First-class layered tool profile state backing the filter mirrors. */
+  toolProfileState?: ToolProfileState;
   /** Reset runtime tool filters back to tier/user baseline. */
   resetToolFilter?: () => void;
   /** Deferred specialized tools discovered via tool_search and kept across turns. */
@@ -253,7 +271,9 @@ async function injectPersistentMemoryContext(options: {
     return;
   }
   try {
-    const memoryMessage = await loadMemorySystemMessage(options.maxContextTokens);
+    const memoryMessage = await loadMemorySystemMessage(
+      options.maxContextTokens,
+    );
     if (memoryMessage) {
       options.context.addMessage(memoryMessage);
     }
@@ -272,9 +292,14 @@ export async function refreshReusableAgentSession(
 ): Promise<AgentSession> {
   const instructions = options.instructions ?? session.instructions;
   const agentProfiles = options.agentProfiles ?? session.agentProfiles;
-  const allowlist = session.toolFilterBaseline?.allowlist ??
+  const persistentFilter = session.toolProfileState
+    ? resolvePersistentToolFilter(session.toolProfileState)
+    : undefined;
+  const allowlist = persistentFilter?.allowlist ??
+    session.toolFilterBaseline?.allowlist ??
     session.llmConfig?.toolAllowlist;
-  const denylist = session.toolFilterBaseline?.denylist ??
+  const denylist = persistentFilter?.denylist ??
+    session.toolFilterBaseline?.denylist ??
     session.llmConfig?.toolDenylist;
   const promptArtifacts = buildCompiledPromptArtifacts({
     toolAllowlist: allowlist,
@@ -323,6 +348,12 @@ export async function refreshReusableAgentSession(
   const llmConfig = session.llmConfig
     ? {
       ...session.llmConfig,
+      options: {
+        ...(session.llmConfig.options ?? {}),
+        ...(typeof options.temperature === "number"
+          ? { temperature: options.temperature }
+          : {}),
+      },
       onToken: options.onToken,
       querySource: options.querySource ?? session.querySource,
       compiledPrompt: promptArtifacts.compiledPrompt,
@@ -401,18 +432,17 @@ export async function createAgentSession(
     baselineToolAllowlist,
     effectiveToolDenylist,
   );
-  const toolFilterBaseline: ToolFilterState = {
+  const toolProfileState = createToolProfileState();
+  const toolFilterBaseline: ToolFilterState = {};
+  const toolFilterState: ToolFilterState = {};
+  setToolProfileLayer(toolProfileState, "baseline", {
     allowlist: cloneToolList(tierFilter.allowlist),
     denylist: cloneToolList(tierFilter.denylist),
-  };
-  const toolFilterState: ToolFilterState = {
-    allowlist: cloneToolList(toolFilterBaseline.allowlist),
-    denylist: cloneToolList(toolFilterBaseline.denylist),
-  };
-  const resetToolFilter = () => {
-    toolFilterState.allowlist = cloneToolList(toolFilterBaseline.allowlist);
-    toolFilterState.denylist = cloneToolList(toolFilterBaseline.denylist);
-  };
+  });
+  syncEffectiveToolFilterToConfig(
+    { toolFilterBaseline, toolFilterState },
+    toolProfileState,
+  );
   const thinkingState: ThinkingState = {};
   const lspDiagnostics = createLspDiagnosticsRuntime({
     workspace: options.workspace,
@@ -571,9 +601,14 @@ export async function createAgentSession(
           "agent_session",
         );
       })(),
-      options: options.maxOutputTokens != null
-        ? { maxTokens: options.maxOutputTokens }
-        : {},
+      options: {
+        ...(options.maxOutputTokens != null
+          ? { maxTokens: options.maxOutputTokens }
+          : {}),
+        ...(typeof options.temperature === "number"
+          ? { temperature: options.temperature }
+          : {}),
+      },
       contextBudget: resolved.budget,
       toolAllowlist: toolFilterBaseline.allowlist,
       toolDenylist: toolFilterBaseline.denylist,
@@ -585,6 +620,22 @@ export async function createAgentSession(
       thinkingCapable,
       compiledPrompt: promptArtifacts.compiledPrompt,
     };
+  const syncSessionToolFilters = (): void => {
+    syncEffectiveToolFilterToConfig(
+      { toolFilterBaseline, toolFilterState },
+      toolProfileState,
+    );
+    if (llmConfig) {
+      syncPersistentToolFilterToTarget(llmConfig, toolProfileState);
+      llmConfig.toolFilterState = toolFilterState;
+    }
+  };
+  syncSessionToolFilters();
+  const resetToolFilter = () => {
+    clearToolProfileLayer(toolProfileState, "discovery");
+    clearToolProfileLayer(toolProfileState, "runtime");
+    syncSessionToolFilters();
+  };
   const llm = options.fixturePath
     ? createFixtureLLM(await loadLlmFixture(options.fixturePath))
     : engine.createLLM(
@@ -595,23 +646,31 @@ export async function createAgentSession(
         );
       })(),
     );
+  const sessionId = options.sessionId ?? null;
 
   return {
     context,
     llm,
     policy,
     l1Confirmations: new Map<string, boolean>(),
+    sessionId,
     toolOwnerId,
     querySource: options.querySource,
     dispose: async () => {
       try {
         await Promise.allSettled([
           (async () => {
+            if (!sessionId) return;
+            const { closeBrowser } = await import("./playwright/mod.ts");
+            await closeBrowser(sessionId);
+          })(),
+          (async () => {
             if (!loadingMcp) return;
             const mcp = await loadingMcp;
             await mcp.dispose();
           })(),
           lspDiagnostics.dispose(),
+          clearToolResultSidecars(sessionId),
         ]);
       } finally {
         releaseToolOwner(toolOwnerId);
@@ -626,8 +685,10 @@ export async function createAgentSession(
     thinkingCapable,
     visionCapable,
     engine,
+    toolProfileState,
     toolFilterState,
     toolFilterBaseline,
+    baseToolAllowlist: cloneToolList(tierFilter.allowlist),
     resetToolFilter,
     discoveredDeferredTools: new Set(options.discoveredDeferredTools ?? []),
     ensureMcpLoaded,

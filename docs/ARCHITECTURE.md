@@ -377,7 +377,8 @@ When the user types "fix the auth bug" in the Chat window:
 ┌─ Server Layer ──────────────────────────────────────────────────────┐
 │                                                                     │
 │  handlers/chat.ts → handleChat(req)                                 │
-│     ├── Parse body → validate (mode, session_id, messages)          │
+│     ├── Parse body → validate (mode, messages)                      │
+│     ├── Ignore deprecated public session_id if provided             │
 │     ├── Check: model supports tools? (else 400)                     │
 │     ├── Check: provider approved? (else 403)                        │
 │     ├── Check: session_version conflict? (else 409)                 │
@@ -1838,7 +1839,8 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
     │  handleChat(req)                                                              │
     │     │                                                                         │
     │     ├── Parse body → ChatRequest                                              │
-    │     ├── Validate: mode, session_id, messages required                         │
+    │     ├── Validate: mode and messages required                                  │
+    │     ├── Ignore deprecated public session_id if present                        │
     │     ├── Extract X-Request-ID (or generate)                                    │
     │     ├── Check: mode == "agent" → model must support tools                     │
     │     │          if not → 400 "Model does not support tool calling"             │

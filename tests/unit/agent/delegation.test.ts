@@ -2258,6 +2258,12 @@ Deno.test("renderDelegation: enhanced tier generates multi-paragraph prompt", ()
   assertStringIncludes(prompt, "Coordination Patterns");
   assertStringIncludes(prompt, "Fan-out");
   assertStringIncludes(prompt, "Available Agents");
+  assertStringIncludes(prompt, "Prompt Quality");
+  assertStringIncludes(
+    prompt,
+    'Good: "Fix the null check in src/auth/validate.ts around session expiry.',
+  );
+  assertStringIncludes(prompt, 'Bad: "Fix the auth bug we discussed"');
 });
 
 Deno.test("renderDelegation: constrained tier generates abbreviated prompt", () => {

@@ -226,7 +226,7 @@ install_bundled() {
   echo ""
 
   detect_platform
-  info "Platform: ${OS}/${ARCH} → ${BINARY} + hlvm-model.tar"
+  info "Platform: ${OS}/${ARCH} → ${BINARY} + hlvm-model.tar + hlvm-chromium.tar.gz"
 
   get_latest_version
   info "Version:  ${VERSION}"
@@ -284,6 +284,37 @@ install_bundled() {
   fi
   ok "Sidecar model downloaded."
 
+  # --- Download sidecar Chromium tarball from HuggingFace ---
+  # NOTE: The Chromium tarball is macOS-only (built on macos-latest / Apple Silicon).
+  # On Linux, this 404s gracefully — Chromium downloads from CDN at bootstrap.
+  info "Downloading sidecar Chromium tarball (~200 MB)..."
+  if ! curl -fsSL -o "${TMPDIR}/hlvm-chromium.tar.gz" "${MODEL_BASE_URL}/hlvm-chromium.tar.gz"; then
+    info "Chromium sidecar not available — browser tools will download Chromium on first use."
+  else
+    # Verify Chromium checksum if bundled checksums file is available
+    if curl -fsSL -o "${TMPDIR}/checksums-bundled.sha256" "${MODEL_BASE_URL}/checksums-bundled.sha256" 2>/dev/null; then
+      EXPECTED_CR=$(grep "hlvm-chromium.tar.gz" "${TMPDIR}/checksums-bundled.sha256" | awk '{print $1}')
+      if [ -n "$EXPECTED_CR" ]; then
+        if command -v sha256sum >/dev/null 2>&1; then
+          ACTUAL_CR=$(sha256sum "${TMPDIR}/hlvm-chromium.tar.gz" | awk '{print $1}')
+        elif command -v shasum >/dev/null 2>&1; then
+          ACTUAL_CR=$(shasum -a 256 "${TMPDIR}/hlvm-chromium.tar.gz" | awk '{print $1}')
+        else
+          ACTUAL_CR="$EXPECTED_CR"
+        fi
+        if [ "$ACTUAL_CR" != "$EXPECTED_CR" ]; then
+          info "Chromium checksum mismatch — discarding tarball, will download on first use."
+          rm -f "${TMPDIR}/hlvm-chromium.tar.gz"
+        else
+          ok "Chromium checksum verified."
+        fi
+      fi
+    fi
+    if [ -f "${TMPDIR}/hlvm-chromium.tar.gz" ]; then
+      ok "Sidecar Chromium downloaded."
+    fi
+  fi
+
   # Install binary
   chmod +x "${TMPDIR}/${BINARY}"
 
@@ -302,6 +333,16 @@ install_bundled() {
     sudo cp "${TMPDIR}/hlvm-model.tar" "${INSTALL_DIR}/hlvm-model.tar"
   fi
   ok "Sidecar model placed at ${INSTALL_DIR}/hlvm-model.tar"
+
+  # Place sidecar Chromium tarball beside the binary for bootstrap to find
+  if [ -f "${TMPDIR}/hlvm-chromium.tar.gz" ]; then
+    if [ -w "$INSTALL_DIR" ]; then
+      cp "${TMPDIR}/hlvm-chromium.tar.gz" "${INSTALL_DIR}/hlvm-chromium.tar.gz"
+    else
+      sudo cp "${TMPDIR}/hlvm-chromium.tar.gz" "${INSTALL_DIR}/hlvm-chromium.tar.gz"
+    fi
+    ok "Sidecar Chromium placed at ${INSTALL_DIR}/hlvm-chromium.tar.gz"
+  fi
 
   # Bootstrap (extract sidecar model — no network pull)
   info "Bootstrapping local AI substrate (extracting sidecar model)..."

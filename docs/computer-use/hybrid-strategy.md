@@ -1,20 +1,25 @@
 # Computer Use — Hybrid Playwright + CU Strategy
 
+> Last updated: 2026-04-09 Status: **Browser-safe activation, hybrid promotion,
+> and storage-first pw_promote shipped**
+
 ## Core Principle
 
-**Per-subtask routing, not per-task fallback.**
+**Profile-based 2-layer browser control, not per-subtask routing.**
 
-Don't try Playwright for the whole task and fall back to CU if it fails. Instead, decompose the task into subtasks and pick the best tool for each one.
+The orchestrator controls which tool families the LLM can access. The LLM
+decides how to use the tools within the allowed set.
 
 ```
-Task = [subtask1, subtask2, ..., subtaskN]
-
-For each subtask:
-  1. Try Playwright (fast, deterministic, instant success/fail)
-  2. If failed → CU loop (screenshot → decide → act → screenshot → verify)
-  3. Repeat CU until subtask verified
-  4. Next subtask
+Layer 1: browser_safe   (PW-only, default for all browser tasks)
+Layer 2: browser_hybrid  (PW + CU, unlocked only on repeated visual/native failure)
 ```
+
+The previous per-subtask decomposition approach was superseded because:
+
+- It required a deterministic routing controller that replicated LLM reasoning
+- PW and CU need fundamentally different inputs (selectors vs coordinates)
+- The LLM is better at flexible recovery than hardcoded fallback paths
 
 ## Why Hybrid
 
@@ -36,36 +41,59 @@ Structured data     DOM/JSON extraction        OCR from pixels
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    Agent (LLM)                            │
-│                                                          │
-│  System prompt includes both tool sets                   │
-│  LLM picks best tool per subtask                         │
-└────────────┬─────────────────────────┬───────────────────┘
-             │                         │
-    ┌────────▼────────┐       ┌────────▼────────┐
-    │   Playwright    │       │  Computer Use   │
-    │   Tools         │       │  Tools          │
-    │                 │       │                 │
-    │  pw_goto        │       │  cu_screenshot  │
-    │  pw_click       │       │  cu_left_click  │
-    │  pw_fill        │       │  cu_type        │
-    │  pw_content     │       │  cu_key         │
-    │  pw_wait_for    │       │  cu_scroll      │
-    │  pw_screenshot  │       │  cu_open_app    │
-    │  pw_evaluate    │       │  ...18 more     │
-    └────────┬────────┘       └────────┬────────┘
-             │                         │
-    ┌────────▼────────┐       ┌────────▼────────┐
-    │   Chromium      │       │   macOS         │
-    │   (headless or  │       │   CGEvent +     │
-    │    headed)      │       │   screencapture │
-    └─────────────────┘       └─────────────────┘
+USER BROWSER TASK
+  │
+  v
+ORCHESTRATOR classifies as browser domain
+  │
+  v
+SET domain = browser_safe
+  │
+  v
+TOOL PROFILE SYSTEM (tool-profiles.ts)
+  │
+  ├── browser_safe allowlist:
+  │     pw_goto, pw_click, pw_fill, pw_content, pw_links,
+  │     pw_wait_for, pw_screenshot, pw_evaluate, pw_scroll,
+  │     pw_snapshot, pw_download + tool_search, search_web,
+  │     web_fetch, fetch_url
+  │
+  ├── browser_safe denylist:
+  │     pw_promote, all cu_*
+  │
+  v
+LLM SEES ONLY PW TOOLS
+  │
+  ├── PW succeeds ──────────────────────────► done
+  │
+  ├── PW structural/content failure ────────► stay browser_safe
+  │   (selector wrong, content parse)            (better evidence)
+  │
+  └── PW visual/native failure (repeated) ──► PROMOTE
+                                                │
+                                                v
+                                          SET domain = browser_hybrid
+                                          (extends browser_safe + pw_promote + cu_*)
+                                                │
+                                                v
+                                          LLM NOW SEES PW + CU TOOLS
+                                                │
+                                                v
+                                          done / fail
 ```
+
+### Key: LLM is the controller within each mode
+
+The orchestrator decides **which tools are available** (deterministic,
+policy-based). The LLM decides **how to use them** (flexible, reasoning-based).
+
+This avoids building a rigid browser automation state machine that would need to
+handle every PW→CU handoff path in deterministic code.
 
 ## Example: "Download Cursor Editor"
 
 ### Without hybrid (CU only — slow, fragile)
+
 ```
 1. cu_screenshot                           2.0s  (take screenshot)
 2. LLM thinks about screenshot             1.5s  (API round-trip)
@@ -86,6 +114,7 @@ Structured data     DOM/JSON extraction        OCR from pixels
 ```
 
 ### With hybrid (fast path + CU for native)
+
 ```
 1. pw_goto "https://www.google.com"        0.5s  (instant navigation)
 2. pw_fill "[name=q]" "cursor editor"      0.1s  (instant form fill)
@@ -102,101 +131,131 @@ Structured data     DOM/JSON extraction        OCR from pixels
                                           ~7s   + minimal LLM reasoning
 ```
 
-**2.5x faster.** Steps 1-7 need zero LLM reasoning — Playwright results are deterministic.
+**2.5x faster.** Steps 1-7 need zero LLM reasoning — Playwright results are
+deterministic.
 
-## Subtask Classification
+## Promotion Policy: When to Unlock Hybrid
 
-The LLM (or a routing heuristic) classifies each subtask:
+The promotion decision is made by the **orchestrator**, not the LLM. Mode
+switching is deterministic. Local LLM classification is used only when the
+failure is still ambiguous after structured facts and the keyword fast-path.
 
-| Subtask Type | Try First | Fallback |
-|-------------|-----------|----------|
-| Navigate to URL | Playwright | CU (type in address bar) |
-| Click element by text | Playwright | CU (screenshot + coordinate) |
-| Fill form field | Playwright | CU (click field + type) |
-| Read page text | Playwright | CU (screenshot + OCR/vision) |
-| Wait for page load | Playwright | CU (sleep + screenshot) |
-| Download file | Playwright | CU (handle native dialog) |
-| Interact with native app | CU only | — |
-| Handle system dialog | CU only | — |
-| Verify visual state | CU only | — |
-| CAPTCHA / visual puzzle | CU only | — |
+### Promote to browser_hybrid
 
-## Playwright Failure → CU Handoff
+These indicate PW is likely insufficient:
 
-When Playwright fails, the CU fallback is a **retry loop**, not a single attempt:
+- Repeated `not visible` / `outside viewport` / `click intercepted`
+- Native dialog / OS permission popup
+- Anti-bot / human verification wall
+
+### Stay in browser_safe
+
+These are solvable within PW:
+
+- Selector not found (try better selector)
+- Download navigation (use `pw_download` with URL)
+- Content extraction (inspect DOM differently)
+- Docs/sidebar discovery (use `pw_links`)
+
+### Detection approach
+
+Three layers, in order:
+
+1. **Structured failure metadata** — `failure.code` / `failure.facts` from the
+   shared PW failure enricher (`pw_element_not_visible`,
+   `pw_element_outside_viewport`, `pw_click_intercepted`,
+   `facts.visualBlocker === true`)
+2. **Keyword fast-path** — stable Playwright phrases like `not visible`,
+   `outside the viewport`, `another element would receive the click`
+3. **Local LLM classification** — only for ambiguous failures that still do not
+   have enough evidence after steps 1 and 2
 
 ```
-Playwright subtask fails (selector not found, timeout, etc.)
+PW tool fails
   │
-  ▼
-CU retry loop:
-  1. cu_screenshot (observe current state)
-  2. LLM analyzes screenshot (what went wrong? what do I see?)
-  3. LLM picks CU action (click, type, scroll, etc.)
-  4. Execute CU action
-  5. cu_screenshot (verify result)
-  6. LLM checks: subtask accomplished?
-     → Yes: move to next subtask
-     → No: go to step 2 (max N retries)
+  ├── has structured visual code/facts
+  │     → use code directly
+  │
+  ├── has known visual keyword
+  │     → treat as visual blocker
+  │
+  └── still ambiguous
+        → classifyVisualFailure(errorText) via local LLM
+        → ~300-600ms, temperature 0, maxTokens 64
+        → returns {visual: true/false}
 ```
 
-CU retries are bounded (e.g., max 5 attempts per subtask). If CU also fails after max retries, the subtask is reported as failed.
+Tested on gemma4:e4b (local, on laptop):
+
+| Error                        | Result  | Correct | Time  |
+| ---------------------------- | ------- | ------- | ----- |
+| Element not visible          | `true`  | yes     | 658ms |
+| Selector not found           | `false` | yes     | 583ms |
+| Click intercepted by overlay | `true`  | yes     | 642ms |
+| Outside viewport             | `true`  | yes     | 342ms |
+| Network connection refused   | `false` | yes     | 612ms |
+| Page navigation timeout      | `false` | yes     | 577ms |
+
+6/6 correct on the ambiguous fallback samples. The main path is still structured
+facts first, then keyword fast-path, then local LLM only if needed.
+
+### CLI testing
+
+```bash
+hlvm classify 'Is this Playwright error caused by a VISUAL problem
+(element hidden, obscured, intercepted, outside viewport, overlay blocking)?
+Reply ONLY {"visual":true} or {"visual":false}.
+Error: <paste error text here>'
+```
 
 ## Shared Browser Context
 
-Key insight: Playwright and CU can operate on the **same browser instance**.
+Playwright and CU can operate on the **same browser instance**.
 
 ```
-Playwright launches Chromium (headed mode, not headless)
+Playwright launches Chromium (headed mode after pw_promote)
   → Playwright does fast DOM operations
   → CU can see the same browser window via cu_screenshot
   → CU can click on the same browser window via cu_left_click
-  → Both tools work on the same page state
+  → Both tools work on the same URL plus storage-backed auth/session state
 ```
 
-This means the handoff from Playwright to CU is seamless — no browser restart, no URL re-navigation. CU just picks up where Playwright left off visually.
+`pw_promote` is storage-first, not full in-memory continuity. URL plus
+cookies/localStorage are restored best-effort. Unsaved form inputs,
+sessionStorage-only state, scroll position, JS heap state, and live connections
+are not guaranteed.
 
-## Implementation Plan
+## ToolProfile Infrastructure (Completed)
 
-### Phase 4a: Playwright Tools
-Add tools that mirror CU's interface but use Playwright internally:
+The first-class ToolProfile system is already implemented in `tool-profiles.ts`.
+Browser profiles are declared but not yet activated:
 
 ```typescript
-// Proposed tool signatures
-pw_goto:       { url: string }
-pw_click:      { selector: string, text?: string }
-pw_fill:       { selector: string, value: string }
-pw_content:    { selector?: string } → page text/HTML
-pw_wait_for:   { condition: "networkidle" | "selector", selector?: string }
-pw_screenshot: {} → image (Playwright's built-in screenshot)
-pw_evaluate:   { script: string } → result
+// tool-profiles.ts line 82
+{
+  id: "browser_safe",
+  allowlist: [...pw_tools_except_promote, "tool_search", "search_web", "web_fetch", "fetch_url"],
+  reasonTemplate: "Headless browser-safe tool profile",
+},
+{
+  id: "browser_hybrid",
+  extends: "browser_safe",
+  allowlist: ["pw_promote", ...cu_tools],
+  reasonTemplate: "Hybrid browser profile with headed computer use",
+},
 ```
 
-### Phase 4b: Routing Logic
-Agent system prompt instructs LLM on when to use each tool set:
+Activation is a single call:
 
-```
-For browser tasks:
-- Use pw_* tools for navigation, clicking, form filling, content reading
-- Use cu_* tools for native dialogs, visual verification, non-browser apps
-- If a pw_* tool fails, retry with the equivalent cu_* tool
-```
-
-### Phase 4c: Browser Lifecycle
 ```typescript
-// Browser singleton (like executor singleton)
-let _browser: Browser | undefined;
-
-function getBrowser(): Browser {
-  if (_browser) return _browser;
-  _browser = await chromium.launch({ headless: false });
-  return _browser;
-}
+updateToolProfileLayer(config, "domain", { profileId: "browser_safe" });
+// ... later, on promotion:
+updateToolProfileLayer(config, "domain", { profileId: "browser_hybrid" });
 ```
 
-## Not In Scope
+## What Remains
 
-- **Headless mode** — CU needs to see the browser, so headed mode required for hybrid
-- **Multiple browser tabs** — Keep it simple, one tab at a time
-- **Browser DevTools protocol** — Use Playwright's API, not raw CDP
-- **Automated subtask decomposition** — LLM does this naturally via tool selection
+1. **Real-task validation** — compare task success: broad mode vs browser_safe
+   vs promoted hybrid
+2. **Further continuity only if proven necessary** — sessionStorage/form/scroll
+   restoration remains explicitly out of scope for this round

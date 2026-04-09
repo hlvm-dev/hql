@@ -28,10 +28,11 @@ Resource-limited models that need protection from token overflow.
 
 ### standard
 
-Full-capability models with deterministic quality features.
+Full-capability models with progressive tool discovery.
 
-- **Full system prompt** (~8K tokens, includes tips, CU guide, delegation, team)
-- **All tools** (no cap)
+- **Full system prompt** (~3K tokens with 17 tools, vs ~8K with all tools)
+- **17 eager tools** + `tool_search` for progressive discovery
+- **Deferred tools** (web, memory, CU, etc.) discoverable via `tool_search`
 - **MCP** servers loaded lazily on first use
 - **Full context budget**
 - **Deterministic search** ranking
@@ -149,15 +150,58 @@ Footer                constrained   YES          YES       YES
 ### Tool Access
 
 ```
-constrained: 16 core tools (CONSTRAINED_CORE_TOOLS)
+constrained: 16 core tools, hard cap, NO tool_search (CONSTRAINED_CORE_TOOLS)
   read_file, write_file, edit_file, list_files,
   search_code, ask_user, complete_task,
   git_status, git_diff, git_log,
   search_web, web_fetch, fetch_url,
   memory_write, memory_search, memory_edit
 
-standard/enhanced: ALL registered tools (no cap)
+standard: 17 eager tools + progressive discovery (STANDARD_EAGER_TOOLS)
+  ask_user, tool_search, todo_read, todo_write,
+  list_files, read_file, search_code, find_symbol,
+  get_structure, edit_file, write_file,
+  git_status, git_diff, git_log,
+  shell_exec, shell_script, open_path
+  (deferred: web, memory, CU, archive — discovered via tool_search)
+
+enhanced: ALL registered tools, no cap
 ```
+
+Why constrained has web+memory but standard doesn't: constrained has no
+`tool_search` so it can never discover tools. Standard has `tool_search`
+so it starts lean and expands on demand. This cuts input tokens by ~70%
+for standard-tier models (8K vs 29K).
+
+### Lazy Tool Loading Pipeline (standard tier)
+
+```
+Session start
+  → computeTierToolFilter("standard") → 17 eager tools
+  → System prompt describes only 17 tools
+  → LLM sees 17 tool schemas (~3K tokens)
+
+Model needs deferred tool (e.g. search_web)
+  → Calls tool directly → BLOCKED with hint:
+    "Use tool_search to discover and enable 'search_web'"
+  → Model calls tool_search("web search")
+  → tool_search searches FULL registry (all 40+ tools)
+  → Returns: suggested_allowlist: ["search_web", "web_fetch"]
+
+Discovery callback fires
+  → session.discoveredDeferredTools.add("search_web")
+  → baseline allowlist grows: 17 + 1 = 18 tools
+  → Current turn narrowed to: 9 core + discovered = 10 tools
+  → Persisted to disk for session reuse
+
+Next turn
+  → toolFilterState resets to baseline (18 tools)
+  → Model can call search_web directly without tool_search
+```
+
+Key invariant: `tool_search` searches the FULL registry (not just the
+active allowlist). Deferred tools are always findable — just not callable
+until discovered.
 
 ### MCP Server Loading
 
@@ -197,14 +241,38 @@ enhanced    -> codingStrength: "strong" (+5 score)
 (overridden by MODEL_OVERRIDES for known models)
 ```
 
+## Relationship to ToolProfile System
+
+Tier-based filtering feeds into the `baseline` slot of the first-class
+ToolProfile system (`tool-profiles.ts`). The tier filter is the foundation
+layer; additional layers stack on top:
+
+```
+registered tools
+  → baseline layer (tier + capability gating — this doc)
+  → domain layer   (task-type routing, e.g. browser_safe)
+  → plan layer     (planning vs execution phase)
+  → discovery layer (tool_search narrowing)
+  → runtime layer  (adaptive pruning)
+  = final visible/executable tools
+```
+
+The tier system answers "how much should we give this model?"
+The domain layer answers "what tools should this task use?"
+Both are enforced by the same underlying allowlist/denylist machinery.
+
+See `src/hlvm/agent/tool-profiles.ts` for the profile controller.
+See `docs/computer-use/hybrid-strategy.md` for browser domain profiles.
+
 ## Key Source Files
 
 | File | Role |
 |------|------|
-| `src/hlvm/agent/constants.ts` | `ModelTier` type, `classifyModelTier()`, `tierMeetsMinimum()`, `computeTierToolFilter()`, `supportsAgentExecution()` |
+| `src/hlvm/agent/constants.ts` | `ModelTier` type, `classifyModelTier()`, `tierMeetsMinimum()`, `computeTierToolFilter()`, `STANDARD_EAGER_TOOLS`, `supportsAgentExecution()` |
+| `src/hlvm/agent/tool-profiles.ts` | `ToolProfileState`, profile CRUD, declared browser profiles, merge semantics |
 | `src/hlvm/prompt/sections.ts` | Prompt section renderers with `minTier` annotations |
 | `src/hlvm/prompt/compiler.ts` | Filters sections by `tierMeetsMinimum(tier, section.minTier)` |
-| `src/hlvm/agent/session.ts` | MCP gate, tool filter application, tier computation |
+| `src/hlvm/agent/session.ts` | MCP gate, tool filter application, tier computation, profile baseline init |
 | `src/hlvm/agent/tools/web/ddg-search-backend.ts` | LLM vs deterministic search selection |
 | `src/hlvm/memory/invalidate.ts` | Auto-invalidation gate |
 | `src/hlvm/agent/auto-select.ts` | Coding strength default from tier |

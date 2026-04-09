@@ -1,23 +1,24 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
-  classifyFollowUp,
-  classifyResponseIntent,
-  classifyTask,
-  classifyPlanNeed,
   classifyDelegation,
-  classifyToolInstruction,
-  classifyFactConflicts,
-  classifyGroundedness,
-  classifySearchIntent,
   classifyErrorMessage,
-  suggestRecoveryHint,
+  classifyFactConflicts,
+  classifyFollowUp,
+  classifyGroundedness,
+  classifyPlanNeed,
+  classifyPrematureFollowUp,
+  classifyResponseIntent,
+  classifySearchIntent,
   classifySensitiveContent,
   classifySourceAuthorities,
+  classifyTask,
+  classifyToolInstruction,
   extractJson,
-  getLocalModelDisplayName,
-  type TaskClassification,
   type FollowUpClassification,
+  getLocalModelDisplayName,
   type ResponseIntentClassification,
+  suggestRecoveryHint,
+  type TaskClassification,
 } from "../../../src/hlvm/runtime/local-llm.ts";
 import { LOCAL_FALLBACK_MODEL_ID } from "../../../src/hlvm/runtime/local-fallback.ts";
 import { DEFAULT_MODEL_ID } from "../../../src/common/config/types.ts";
@@ -152,12 +153,34 @@ Deno.test("classifyResponseIntent: empty response returns defaults (no LLM call)
   const result = await classifyResponseIntent("");
   assertEquals(result.asksQuestion, false);
   assertEquals(result.needsConcreteTask, false);
+  assertEquals(result.isWorkingNote, false);
 });
 
 Deno.test("classifyResponseIntent: whitespace-only returns defaults", async () => {
   const result = await classifyResponseIntent("   ");
   assertEquals(result.asksQuestion, false);
   assertEquals(result.needsConcreteTask, false);
+  assertEquals(result.isWorkingNote, false);
+});
+
+// ============================================================
+// classifyPrematureFollowUp
+// ============================================================
+
+Deno.test("classifyPrematureFollowUp: empty response returns defaults", async () => {
+  const result = await classifyPrematureFollowUp(
+    "extract the code example",
+    "",
+  );
+  assertEquals(result.shouldContinueWithoutAsking, false);
+});
+
+Deno.test("classifyPrematureFollowUp: heuristic catches optional continuation phrasing", async () => {
+  const result = await classifyPrematureFollowUp(
+    "Extract the first paragraph and the first code example.",
+    'If you\'d like, I can open the "Using Fetch" guide and extract the first code example from there.',
+  );
+  assertEquals(result.shouldContinueWithoutAsking, true);
 });
 
 // ============================================================

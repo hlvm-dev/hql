@@ -405,6 +405,9 @@
                   "content": {
                     "type": "string"
                   },
+                  "display_content": {
+                    "type": "string"
+                  },
                   "client_turn_id": {
                     "type": "string"
                   },
@@ -555,6 +558,10 @@
                 "properties": {
                   "content": {
                     "type": "string"
+                  },
+                  "display_content": {
+                    "type": "string",
+                    "nullable": true
                   },
                   "cancelled": {
                     "type": "boolean"
@@ -1545,6 +1552,10 @@
           "content": {
             "type": "string"
           },
+          "display_content": {
+            "type": "string",
+            "nullable": true
+          },
           "client_turn_id": {
             "type": "string",
             "nullable": true
@@ -1800,6 +1811,10 @@
           "content": {
             "type": "string"
           },
+          "display_content": {
+            "type": "string",
+            "nullable": true
+          },
           "client_turn_id": {
             "type": "string",
             "nullable": true
@@ -1910,13 +1925,9 @@
               "claude-code-agent"
             ]
           },
-          "session_id": {
-            "type": "string",
-            "description": "Optional explicit session to reuse or create. Omit to use the\ndaemon's active conversation, or combine with `stateless` to\nkeep the request isolated from the active visible session.\n"
-          },
           "stateless": {
             "type": "boolean",
-            "description": "When true, run this request in a fresh hidden session without\nrebinding the daemon's active visible conversation unless an\nexplicit `session_id` is provided.\n"
+            "description": "When true, run this request in a fresh hidden session without\nrebinding the daemon's active visible conversation.\n"
           },
           "messages": {
             "type": "array",
@@ -1934,6 +1945,9 @@
                   ]
                 },
                 "content": {
+                  "type": "string"
+                },
+                "display_content": {
                   "type": "string"
                 },
                 "attachment_ids": {

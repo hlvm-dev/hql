@@ -37,8 +37,8 @@ import type { InteractionOption } from "./registry.ts";
 import {
   AGENT_ORCHESTRATOR_FAILURE_MESSAGES,
   looksLikeToolCallJsonAnywhere,
-  parseToolCallTextEnvelope,
   looksLikeToolCallTextEnvelope,
+  parseToolCallTextEnvelope,
   responseAsksQuestion,
 } from "./model-compat.ts";
 import { renderEditFileRecoveryPrompt } from "./error-taxonomy.ts";
@@ -73,6 +73,14 @@ import { executeToolCalls } from "./orchestrator-tool-execution.ts";
 import { callLLM, type LLMFunction } from "./orchestrator-llm.ts";
 import type { ToolUse } from "./grounding.ts";
 import { isMutatingTool } from "./security/safety.ts";
+import { hasPlaywrightVisualLayoutIssue } from "./playwright/diagnostics.ts";
+import {
+  clearToolProfileLayerFromTarget,
+  ensureToolProfileState,
+  resolvePersistentToolFilter,
+  updateToolProfileLayer,
+} from "./tool-profiles.ts";
+import { runtimeDirective, runtimeNotice } from "./runtime-messages.ts";
 
 const WEB_TOOL_NAMES = new Set(["search_web", "web_fetch", "fetch_url"]);
 
@@ -196,10 +204,10 @@ async function resolveContextObservation(
   const fullBytes = TEXT_ENCODER.encode(fullObservation).length;
   const summaryBytes = TEXT_ENCODER.encode(summaryObservation).length;
   const shouldUseSummary = canDegradeObservationToSummary(
-      toolCall,
-      toolResult,
-      ownerId,
-    ) &&
+    toolCall,
+    toolResult,
+    ownerId,
+  ) &&
     (
       remainingObservationBytes <= 0 ||
       (fullBytes > remainingObservationBytes && summaryBytes < fullBytes)
@@ -215,9 +223,210 @@ async function resolveContextObservation(
     resultText: built.resultText,
     toolName: built.toolName,
     observationBytes,
-    observationMode:
-      shouldUseSummary && built.usedRequestedObservation ? "summary" : "full",
+    observationMode: shouldUseSummary && built.usedRequestedObservation
+      ? "summary"
+      : "full",
   };
+}
+
+interface PlaywrightFailureCandidate {
+  signature: string;
+  toolName: string;
+  errorText: string;
+  code?: string;
+  kind: string;
+  navigatedTo?: string;
+  candidateHref?: string;
+  visualLayoutIssue: boolean;
+}
+
+function currentDomainProfileId(
+  config: OrchestratorConfig,
+): string | undefined {
+  return config.toolProfileState?.layers.domain?.profileId;
+}
+
+const PLAYWRIGHT_VISUAL_LOOP_TOOL_NAMES = new Set([
+  "pw_scroll",
+  "pw_screenshot",
+]);
+
+const PLAYWRIGHT_REPEAT_RECOVERY_BLOCKABLE_TOOLS = new Set([
+  "pw_click",
+  "pw_fill",
+  "pw_content",
+  "pw_evaluate",
+  "pw_download",
+]);
+
+async function buildPlaywrightFailureCandidate(
+  result: {
+    results: ToolExecutionResult[];
+    toolCalls: ToolCall[];
+  },
+): Promise<PlaywrightFailureCandidate | null> {
+  const candidates: PlaywrightFailureCandidate[] = [];
+
+  for (let index = 0; index < result.results.length; index++) {
+    const toolCall = result.toolCalls[index];
+    const toolResult = result.results[index];
+    if (!toolCall?.toolName.startsWith("pw_")) continue;
+    if (toolResult.success || !toolResult.failure) return null;
+    const errorText = toolResult.error ?? toolResult.llmContent ?? "";
+    candidates.push({
+      signature: `pw:${toolCall.toolName}:${
+        toolResult.failure.code ?? toolResult.failure.kind
+      }`,
+      toolName: toolCall.toolName,
+      errorText,
+      code: toolResult.failure.code,
+      kind: toolResult.failure.kind,
+      navigatedTo: typeof toolResult.failure.facts?.navigatedTo === "string"
+        ? toolResult.failure.facts.navigatedTo
+        : undefined,
+      candidateHref:
+        typeof toolResult.failure.facts?.candidateHref === "string"
+          ? toolResult.failure.facts.candidateHref
+          : undefined,
+      visualLayoutIssue: await hasPlaywrightVisualLayoutIssue(
+        errorText,
+        toolResult.failure,
+      ),
+    });
+  }
+
+  if (candidates.length === 0) return null;
+  const uniqueSignatures = new Set(
+    candidates.map((candidate) => candidate.signature),
+  );
+  return uniqueSignatures.size === 1 ? candidates[0] : null;
+}
+
+function buildPlaywrightRecoveryMessage(
+  candidate: PlaywrightFailureCandidate,
+  options: {
+    promotedToHybrid?: boolean;
+    hybridAlreadyAvailable?: boolean;
+    temporarilyBlockedTool?: string;
+  } = {},
+): string {
+  if (candidate.code === "pw_download_navigated") {
+    const lines = [
+      "Repeated Playwright failure: the download trigger navigated instead of downloading.",
+      "Stop retrying the original trigger.",
+      candidate.navigatedTo
+        ? `Inspect the destination page (${candidate.navigatedTo}), extract the real file href, and call pw_download with that URL if found.`
+        : "Inspect the destination page, extract the real file href, and call pw_download with that URL if found.",
+    ];
+    if (options.temporarilyBlockedTool) {
+      lines.push(
+        `${options.temporarilyBlockedTool} is temporarily blocked for the next 2 turns. Use a different browser strategy now.`,
+      );
+    }
+    return lines.join("\n");
+  }
+
+  if (candidate.visualLayoutIssue) {
+    if (options.promotedToHybrid || options.hybridAlreadyAvailable) {
+      const lines = [
+        "Repeated Playwright failure: visibility or layout blocker.",
+        ...(candidate.toolName === "pw_click" && candidate.candidateHref
+          ? [
+            `The blocked target resolves to ${candidate.candidateHref}. Use pw_goto with that URL instead of retrying the hidden click.`,
+          ]
+          : []),
+        "Hybrid browser mode is available. If visible or native interaction is required, call pw_promote, then use cu_* on the headed window.",
+        candidate.toolName === "pw_click" && !candidate.candidateHref
+          ? "If the blocked target is a link or button behind hidden navigation, extract the href or target first, then prefer pw_goto or pw_download instead of repeating the click."
+          : "Do not repeat the same selector guess.",
+      ];
+      if (options.temporarilyBlockedTool) {
+        lines.push(
+          `${options.temporarilyBlockedTool} is temporarily blocked for the next 2 turns. Use a different browser strategy now.`,
+        );
+      }
+      return lines.join("\n");
+    }
+    const lines = [
+      "Repeated Playwright failure: visibility or layout blocker.",
+      ...(candidate.toolName === "pw_click" && candidate.candidateHref
+        ? [
+          `The blocked target resolves to ${candidate.candidateHref}. Use pw_goto with that URL instead of retrying the hidden click.`,
+        ]
+        : [
+          "Use the current page state and attached evidence to change Playwright strategy.",
+        ]),
+      candidate.toolName === "pw_click" && !candidate.candidateHref
+        ? "If a hidden or intercepted target resolves to a real href, extract it and use pw_goto or pw_download instead of clicking the hidden element again."
+        : "Inspect the page structure before retrying the interaction.",
+      "Do not switch to cu_* unless pw_promote has already happened or visible/native interaction is truly required.",
+    ];
+    if (options.temporarilyBlockedTool) {
+      lines.push(
+        `${options.temporarilyBlockedTool} is temporarily blocked for the next 2 turns. Use a different browser strategy now.`,
+      );
+    }
+    return lines.join("\n");
+  }
+
+  if (candidate.kind === "timeout" || candidate.kind === "not_found") {
+    const lines = [
+      "Repeated Playwright failure: selector or timeout mismatch.",
+      "Inspect pw_snapshot or page structure, then retry with evidence-based selectors.",
+      "Do not keep guessing selectors.",
+    ];
+    if (options.temporarilyBlockedTool) {
+      lines.push(
+        `${options.temporarilyBlockedTool} is temporarily blocked for the next 2 turns. Use a different browser strategy now.`,
+      );
+    }
+    return lines.join("\n");
+  }
+
+  const lines = [
+    "Repeated Playwright failure: browser strategy mismatch.",
+    "Change Playwright strategy before retrying.",
+    "Do not repeat the same step unchanged.",
+  ];
+  if (options.temporarilyBlockedTool) {
+    lines.push(
+      `${options.temporarilyBlockedTool} is temporarily blocked for the next 2 turns. Use a different browser strategy now.`,
+    );
+  }
+  return lines.join("\n");
+}
+
+function isPlaywrightVisualLoopTurn(
+  result: {
+    results: ToolExecutionResult[];
+    toolCalls: ToolCall[];
+  },
+): boolean {
+  if (
+    result.toolCalls.length === 0 ||
+    result.toolCalls.length !== result.results.length
+  ) {
+    return false;
+  }
+  for (let index = 0; index < result.toolCalls.length; index++) {
+    const toolCall = result.toolCalls[index];
+    const toolResult = result.results[index];
+    if (
+      !toolCall || !PLAYWRIGHT_VISUAL_LOOP_TOOL_NAMES.has(toolCall.toolName)
+    ) {
+      return false;
+    }
+    if (!toolResult.success) return false;
+  }
+  return true;
+}
+
+function buildPlaywrightVisualLoopMessage(): string {
+  return [
+    "Playwright is spending multiple turns on screenshots or scrolling without structural progress.",
+    "Switch to pw_snapshot, pw_links, pw_content, or pw_evaluate.",
+    "Do not continue visual browsing loops.",
+  ].join("\n");
 }
 
 /**
@@ -273,8 +482,9 @@ export async function processAgentResponse(
   if (toolCalls.length > maxCalls) {
     addContextMessage(config, {
       role: "user",
-      content:
+      content: runtimeNotice(
         `Too many tool calls (${toolCalls.length}). Only the first ${maxCalls} will be executed.`,
+      ),
     });
   }
 
@@ -302,7 +512,8 @@ export async function processAgentResponse(
 
   const toolUses: ToolUse[] = [];
   let toolBytes = 0;
-  let remainingObservationBytes = RESOURCE_LIMITS.maxToolObservationBytesPerTurn;
+  let remainingObservationBytes =
+    RESOURCE_LIMITS.maxToolObservationBytesPerTurn;
   for (let i = 0; i < results.length; i++) {
     const call = limitedCalls[i];
     const result = results[i];
@@ -351,7 +562,8 @@ export async function processAgentResponse(
           .join(", ");
         addContextMessage(config, {
           role: "user",
-          content: `[Screenshot captured (${dims}px) — not shown: model lacks vision]`,
+          content:
+            `[Screenshot captured (${dims}px) — not shown: model lacks vision]`,
           roundId,
         });
       }
@@ -479,9 +691,11 @@ export function handleTextOnlyResponse(
       const hasPriorTools = state.toolUses.length > 0;
       addContextMessage(config, {
         role: "user",
-        content: hasPriorTools
-          ? "Do not output tool call JSON. Provide a final answer based on the tool results."
-          : "Native tool calling required. Do not output tool call JSON in text. Retry using structured tool calls.",
+        content: runtimeDirective(
+          hasPriorTools
+            ? "Do not output tool call JSON. Provide a final answer based on the tool results."
+            : "Native tool calling required. Do not output tool call JSON in text. Retry using structured tool calls.",
+        ),
       });
       return { action: "continue" };
     }
@@ -573,30 +787,35 @@ async function withDraftingToolLock<T>(
   config: OrchestratorConfig,
   fn: () => Promise<T>,
 ): Promise<T> {
-  if (!config.toolFilterState) {
+  if (!config.toolFilterState && !config.toolProfileState) {
     return await fn();
   }
 
-  const previousAllowlist = cloneToolList(config.toolFilterState.allowlist);
-  const previousDenylist = cloneToolList(config.toolFilterState.denylist);
-  const previousConfigAllowlist = cloneToolList(config.toolAllowlist);
-  const previousConfigDenylist = cloneToolList(config.toolDenylist);
+  const profileState = ensureToolProfileState(config);
+  const previousRuntimeLayer = profileState.layers.runtime
+    ? {
+      ...profileState.layers.runtime,
+      allowlist: cloneToolList(profileState.layers.runtime.allowlist),
+      denylist: cloneToolList(profileState.layers.runtime.denylist),
+    }
+    : undefined;
   const allToolNames = Object.keys(resolveTools({
     ownerId: config.toolOwnerId,
   }));
 
-  config.toolFilterState.allowlist = undefined;
-  config.toolFilterState.denylist = allToolNames;
-  config.toolAllowlist = undefined;
-  config.toolDenylist = allToolNames;
+  updateToolProfileLayer(config, "runtime", {
+    allowlist: undefined,
+    denylist: allToolNames,
+  });
 
   try {
     return await fn();
   } finally {
-    config.toolFilterState.allowlist = previousAllowlist;
-    config.toolFilterState.denylist = previousDenylist;
-    config.toolAllowlist = previousConfigAllowlist;
-    config.toolDenylist = previousConfigDenylist;
+    if (previousRuntimeLayer) {
+      updateToolProfileLayer(config, "runtime", previousRuntimeLayer);
+    } else {
+      clearToolProfileLayerFromTarget(config, "runtime");
+    }
   }
 }
 
@@ -636,35 +855,31 @@ async function handleDraftedPlan(
         phase: config.planModeState.phase,
       });
       config.permissionMode = config.planModeState.executionPermissionMode;
-      if (config.toolFilterState) {
-        config.toolFilterState.allowlist = executionAllowlist
-          ? [...executionAllowlist]
-          : undefined;
-        config.toolFilterState.denylist =
-          config.planModeState.executionDenylist?.length
-            ? [...config.planModeState.executionDenylist]
-            : undefined;
-      }
-      config.toolAllowlist = executionAllowlist
-        ? [...executionAllowlist]
-        : undefined;
-      config.toolDenylist = config.planModeState.executionDenylist?.length
-        ? [...config.planModeState.executionDenylist]
-        : undefined;
-      config.toolFilterBaseline = {
+      const currentProfileState = ensureToolProfileState(config);
+      const baselineLayer = currentProfileState.layers.baseline;
+      updateToolProfileLayer(config, "baseline", {
+        profileId: baselineLayer?.profileId,
         allowlist: executionAllowlist ? [...executionAllowlist] : undefined,
         denylist: config.planModeState.executionDenylist?.length
           ? [...config.planModeState.executionDenylist]
           : undefined,
-      };
+        reason: "plan_execution_baseline",
+      });
+      updateToolProfileLayer(config, "plan", {
+        allowlist: executionAllowlist ? [...executionAllowlist] : undefined,
+        denylist: config.planModeState.executionDenylist?.length
+          ? [...config.planModeState.executionDenylist]
+          : undefined,
+        reason: "plan_execution",
+      });
     }
     lc.planningConfig.requireStepMarkers = true;
     addContextMessage(config, {
       role: "user",
-      content: [
-        "[System] The plan has been approved. Begin execution now.",
+      content: runtimeDirective([
+        "The plan has been approved. Begin execution now.",
         formatPlanForExecution(plan, config.planModeState?.directFileTargets),
-      ].join("\n\n"),
+      ].join("\n\n")),
     });
     return { action: "continue" };
   }
@@ -679,8 +894,9 @@ async function handleDraftedPlan(
     }
     addContextMessage(config, {
       role: "user",
-      content:
+      content: runtimeDirective(
         "Revise the plan and emit a replacement PLAN block when ready. Stay in read-only planning mode.",
+      ),
     });
     return { action: "continue" };
   }
@@ -723,9 +939,7 @@ async function maybeDraftPlanFromResearch(
   });
 
   try {
-    const agentNames = (config.agentProfiles ?? []).map((agent) =>
-      agent.name
-    );
+    const agentNames = (config.agentProfiles ?? []).map((agent) => agent.name);
     const plan = await withDraftingToolLock(
       config,
       () =>
@@ -757,38 +971,36 @@ async function maybeDraftPlanFromResearch(
   });
   addContextMessage(config, {
     role: "user",
-    content:
+    content: runtimeDirective(
       "Research is sufficient. Stop exploring and return ONLY a PLAN ... END_PLAN block using the gathered context.",
+    ),
   });
   return { action: "continue" };
 }
 
-function extractClarifyingQuestion(response: string): string | null {
+async function extractClarifyingQuestion(
+  response: string,
+): Promise<string | null> {
   if (!response.trim()) return null;
-  const withoutCodeBlocks = response.replace(/```[\s\S]*?```/g, " ")
-    .replace(/\s+/g, " ");
-  const segments = withoutCodeBlocks.split(/(?<=[.?!])\s+/);
-  for (let i = segments.length - 1; i >= 0; i--) {
-    const candidate = segments[i]?.replace(/^[\s>*-]+/, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!candidate || !candidate.endsWith("?") || candidate.length > 220) {
-      continue;
-    }
-    if (
-      /\b(what|which|who|where|when|why|how|can|could|would|should|do|does|did|is|are|will)\b/i
-        .test(candidate)
-    ) {
-      return candidate;
-    }
-  }
-  return null;
+  const { classifyClarifyingQuestion } = await import(
+    "../runtime/local-llm.ts"
+  );
+  const result = await classifyClarifyingQuestion(response);
+  return result.question;
 }
 
 async function responseNeedsConcreteTask(response: string): Promise<boolean> {
   const { classifyResponseIntent } = await import("../runtime/local-llm.ts");
   const intent = await classifyResponseIntent(response);
   return intent.needsConcreteTask;
+}
+
+async function responseLooksLikeWorkingNote(
+  response: string,
+): Promise<boolean> {
+  const { classifyResponseIntent } = await import("../runtime/local-llm.ts");
+  const intent = await classifyResponseIntent(response);
+  return intent.isWorkingNote;
 }
 
 async function buildDefaultFollowUpOptions(
@@ -831,6 +1043,15 @@ async function shouldConvertDefaultFollowUpToInteraction(
   return followUp.isBinaryQuestion || followUp.asksFollowUp;
 }
 
+async function shouldAutoContinuePrematureFollowUp(
+  userRequest: string,
+  response: string,
+): Promise<boolean> {
+  const { classifyPrematureFollowUp } = await import("../runtime/local-llm.ts");
+  const result = await classifyPrematureFollowUp(userRequest, response);
+  return result.shouldContinueWithoutAsking;
+}
+
 /**
  * Handle the "no tool calls" branch: plan advancement, no-input guard,
  * grounding checks, and format cleanup.
@@ -870,8 +1091,10 @@ export async function handleFinalResponse(
     }
     addContextMessage(config, {
       role: "user",
-      content: buildToolRequiredMessage(
-        effectiveAllowlist(config),
+      content: runtimeDirective(
+        buildToolRequiredMessage(
+          effectiveAllowlist(config),
+        ),
       ),
     });
     return { action: "continue" };
@@ -910,8 +1133,13 @@ export async function handleFinalResponse(
     // Check if the model is asking a clarifying question or the response needs
     // a concrete task — but only BEFORE the format retry is exhausted.
     if (state.finalResponseFormatRetries < 1) {
-      const clarificationQuestion = extractClarifyingQuestion(finalResponse);
-      if (clarificationQuestion || (await responseNeedsConcreteTask(finalResponse))) {
+      const clarificationQuestion = await extractClarifyingQuestion(
+        finalResponse,
+      );
+      if (
+        clarificationQuestion ||
+        (await responseNeedsConcreteTask(finalResponse))
+      ) {
         const question = clarificationQuestion ??
           "What concrete task do you want me to plan?";
         if (config.onInteraction) {
@@ -943,8 +1171,9 @@ export async function handleFinalResponse(
         });
         addContextMessage(config, {
           role: "user",
-          content:
+          content: runtimeDirective(
             "You are still in plan mode. Do not answer directly. Either ask one concise clarification with ask_user or return ONLY a PLAN ... END_PLAN block.",
+          ),
         });
         return { action: "continue" };
       }
@@ -957,8 +1186,32 @@ export async function handleFinalResponse(
     };
   }
 
-  if (await shouldConvertDefaultFollowUpToInteraction(finalResponse, state, config)) {
-    const question = extractClarifyingQuestion(finalResponse) ??
+  if (
+    state.toolUses.length > 0 &&
+    typeof config.currentUserRequest === "string" &&
+    config.currentUserRequest.trim().length > 0 &&
+    await shouldAutoContinuePrematureFollowUp(
+      config.currentUserRequest,
+      finalResponse,
+    )
+  ) {
+    addContextMessage(config, {
+      role: "user",
+      content: runtimeDirective(
+        "Do not ask the user for permission to continue with work already required by the original request. Continue and finish the requested task now.",
+      ),
+    });
+    return { action: "continue" };
+  }
+
+  if (
+    await shouldConvertDefaultFollowUpToInteraction(
+      finalResponse,
+      state,
+      config,
+    )
+  ) {
+    const question = (await extractClarifyingQuestion(finalResponse)) ??
       "How would you like to proceed?";
     const interaction = await config.onInteraction!({
       type: "interaction_request",
@@ -977,6 +1230,45 @@ export async function handleFinalResponse(
     }
   }
 
+  // Weak-model compensation: detect JSON in final answer before working-note
+  // handling so tool-call JSON gets the more specific retry instruction.
+  if (
+    !lc.skipCompensation &&
+    state.toolUses.length > 0 &&
+    (
+      looksLikeToolCallJsonAnywhere(finalResponse) ||
+      looksLikeToolCallTextEnvelope(finalResponse)
+    )
+  ) {
+    if (state.finalResponseFormatRetries < lc.maxToolCallRetries) {
+      state.finalResponseFormatRetries++;
+      addContextMessage(config, {
+        role: "user",
+        content: runtimeDirective(
+          "Provide a final answer based on the tool results. Do not output tool call JSON.",
+        ),
+      });
+      return { action: "continue" };
+    }
+    emitFinalResponseMeta();
+    return { action: "return", value: finalResponse };
+  }
+
+  if (
+    state.toolUses.length > 0 &&
+    state.finalResponseFormatRetries < 1 &&
+    (await responseLooksLikeWorkingNote(finalResponse))
+  ) {
+    state.finalResponseFormatRetries++;
+    addContextMessage(config, {
+      role: "user",
+      content: runtimeDirective(
+        "Do not narrate your next step as the final answer. Continue working until you can answer the user directly. If you are blocked, state the exact blocker and the evidence you already gathered.",
+      ),
+    });
+    return { action: "continue" };
+  }
+
   // Plan state advancement
   if (state.planState) {
     const stepDoneId = extractStepDoneId(responseText);
@@ -987,8 +1279,9 @@ export async function handleFinalResponse(
       const id = currentStep?.id ?? "unknown";
       addContextMessage(config, {
         role: "user",
-        content:
+        content: runtimeDirective(
           `Plan tracking required. End your response with STEP_DONE ${id} when the step is complete.`,
+        ),
       });
       return { action: "continue" };
     }
@@ -1017,8 +1310,9 @@ export async function handleFinalResponse(
     if (!advance.finished && advance.nextStep) {
       addContextMessage(config, {
         role: "user",
-        content:
+        content: runtimeDirective(
           `Plan step completed. Next step: [${advance.nextStep.id}] ${advance.nextStep.title}. Continue.`,
+        ),
       });
       return { action: "continue" };
     }
@@ -1034,32 +1328,11 @@ export async function handleFinalResponse(
     state.noInputRetries++;
     addContextMessage(config, {
       role: "user",
-      content:
+      content: runtimeDirective(
         "No-input mode: Do not ask questions. Provide a best-effort answer based on available tool results and reasonable assumptions.",
+      ),
     });
     return { action: "continue" };
-  }
-
-  // Weak-model compensation: detect JSON in final answer
-  if (
-    !lc.skipCompensation &&
-    state.toolUses.length > 0 &&
-    (
-      looksLikeToolCallJsonAnywhere(finalResponse) ||
-      looksLikeToolCallTextEnvelope(finalResponse)
-    )
-  ) {
-    if (state.finalResponseFormatRetries < lc.maxToolCallRetries) {
-      state.finalResponseFormatRetries++;
-      addContextMessage(config, {
-        role: "user",
-        content:
-          "Provide a final answer based on the tool results. Do not output tool call JSON.",
-      });
-      return { action: "continue" };
-    }
-    emitFinalResponseMeta();
-    return { action: "return", value: finalResponse };
   }
 
   const citationSpans = (state.passageIndex?.length ?? 0) > 0
@@ -1113,7 +1386,10 @@ export async function handleFinalResponse(
           `Grounding required. Revise your answer to cite tool results using tool names or "Based on ...".\n- ${
             grounding.warnings.join("\n- ")
           }`;
-        addContextMessage(config, { role: "user", content: warningText });
+        addContextMessage(config, {
+          role: "user",
+          content: runtimeDirective(warningText),
+        });
         return { action: "continue" };
       }
       const warningText = `\n\n[Grounding warnings]\n- ${
@@ -1176,8 +1452,9 @@ export async function handlePostToolExecution(
       if (currentCount + 1 >= lc.maxDenials) {
         addContextMessage(config, {
           role: "user",
-          content:
+          content: runtimeNotice(
             `Maximum denials (${lc.maxDenials}) reached for tool '${toolName}'. Consider using ask_user tool to clarify requirements or try a different approach.`,
+          ),
         });
       }
     }
@@ -1219,8 +1496,8 @@ export async function handlePostToolExecution(
     ?.recovery;
   if (editFileRecovery) {
     addContextMessage(config, {
-      role: "system",
-      content: renderEditFileRecoveryPrompt(editFileRecovery),
+      role: "user",
+      content: runtimeDirective(renderEditFileRecoveryPrompt(editFileRecovery)),
     });
   }
 
@@ -1237,27 +1514,19 @@ export async function handlePostToolExecution(
       rawAllowlist,
     );
     if (updatedBaselineAllowlist) {
-      config.toolFilterBaseline = {
+      const currentProfileState = ensureToolProfileState(config);
+      const baselineLayer = currentProfileState.layers.baseline;
+      updateToolProfileLayer(config, "baseline", {
+        profileId: baselineLayer?.profileId,
         allowlist: [...updatedBaselineAllowlist],
-        denylist: cloneToolList(
-          config.toolFilterBaseline?.denylist ?? config.toolDenylist,
-        ),
-      };
-      // Propagate newly discovered tools into the active filter state
-      // so they are available on the current turn (not just in the baseline).
-      if (config.toolFilterState) {
-        const currentFilterSet = new Set(
-          config.toolFilterState.allowlist ?? [],
-        );
-        for (const name of updatedBaselineAllowlist) {
-          currentFilterSet.add(name);
-        }
-        config.toolFilterState.allowlist = [...currentFilterSet];
-      }
+        denylist: cloneToolList(baselineLayer?.denylist),
+        reason: baselineLayer?.reason,
+      });
     }
 
-    const currentAllowlist = config.toolFilterBaseline?.allowlist ??
-      effectiveAllowlist(config);
+    const currentAllowlist = config.toolProfileState
+      ? resolvePersistentToolFilter(config.toolProfileState).allowlist
+      : (config.toolFilterBaseline?.allowlist ?? effectiveAllowlist(config));
     const allowedUniverse = currentAllowlist?.length
       ? new Set(currentAllowlist)
       : null;
@@ -1277,10 +1546,11 @@ export async function handlePostToolExecution(
       continue;
     }
 
-    if (config.toolFilterState) {
-      config.toolFilterState.allowlist = nextAllowlist;
-    }
-    config.toolAllowlist = nextAllowlist;
+    clearToolProfileLayerFromTarget(config, "runtime");
+    updateToolProfileLayer(config, "discovery", {
+      allowlist: nextAllowlist,
+      reason: "tool_search_narrowing",
+    });
 
     const preview = nextAllowlist.slice(0, 12).join(", ");
     const extra = nextAllowlist.length > 12
@@ -1288,8 +1558,9 @@ export async function handlePostToolExecution(
       : "";
     addContextMessage(config, {
       role: "user",
-      content:
+      content: runtimeNotice(
         `Tool context narrowed to: ${preview}${extra}. Continue using this focused tool set unless another tool_search changes it.`,
+      ),
     });
   }
 
@@ -1345,6 +1616,77 @@ export async function handlePostToolExecution(
     return planDraftDirective;
   }
 
+  const playwrightFailure = await buildPlaywrightFailureCandidate(result);
+  if (playwrightFailure) {
+    if (state.lastPlaywrightFailureSignature === playwrightFailure.signature) {
+      state.repeatPlaywrightFailureCount =
+        (state.repeatPlaywrightFailureCount ?? 0) + 1;
+    } else {
+      state.lastPlaywrightFailureSignature = playwrightFailure.signature;
+      state.repeatPlaywrightFailureCount = 1;
+      state.notifiedPlaywrightFailureSignature = undefined;
+    }
+  } else {
+    state.lastPlaywrightFailureSignature = undefined;
+    state.repeatPlaywrightFailureCount = 0;
+    state.notifiedPlaywrightFailureSignature = undefined;
+  }
+
+  if (
+    playwrightFailure &&
+    (state.repeatPlaywrightFailureCount ?? 0) >= 2 &&
+    state.notifiedPlaywrightFailureSignature !== playwrightFailure.signature
+  ) {
+    const domainProfileId = currentDomainProfileId(config);
+    const promotedToHybrid = playwrightFailure.visualLayoutIssue &&
+      domainProfileId === "browser_safe";
+    if (promotedToHybrid) {
+      updateToolProfileLayer(config, "domain", {
+        profileId: "browser_hybrid",
+        reason: `repeated_visual_pw_failure:${playwrightFailure.signature}`,
+      });
+    }
+    const temporarilyBlockedTool =
+      PLAYWRIGHT_REPEAT_RECOVERY_BLOCKABLE_TOOLS.has(playwrightFailure.toolName)
+        ? playwrightFailure.toolName
+        : undefined;
+    if (temporarilyBlockedTool) {
+      state.temporaryToolDenylist.set(temporarilyBlockedTool, 2);
+    }
+    state.notifiedPlaywrightFailureSignature = playwrightFailure.signature;
+    addContextMessage(config, {
+      role: "user",
+      content: runtimeDirective(
+        buildPlaywrightRecoveryMessage(playwrightFailure, {
+          promotedToHybrid,
+          hybridAlreadyAvailable: domainProfileId === "browser_hybrid",
+          temporarilyBlockedTool,
+        }),
+      ),
+    });
+    return { action: "continue" };
+  }
+
+  if (isPlaywrightVisualLoopTurn(result)) {
+    state.repeatPlaywrightVisualLoopCount =
+      (state.repeatPlaywrightVisualLoopCount ?? 0) + 1;
+  } else {
+    state.repeatPlaywrightVisualLoopCount = 0;
+    state.notifiedPlaywrightVisualLoop = false;
+  }
+
+  if (
+    (state.repeatPlaywrightVisualLoopCount ?? 0) >= 4 &&
+    !state.notifiedPlaywrightVisualLoop
+  ) {
+    state.notifiedPlaywrightVisualLoop = true;
+    addContextMessage(config, {
+      role: "user",
+      content: runtimeDirective(buildPlaywrightVisualLoopMessage()),
+    });
+    return { action: "continue" };
+  }
+
   if (loopDetected) {
     const repeatedTool = result.toolCalls[0]?.toolName;
     if (state.loopRecoverySignature !== state.lastToolSignature) {
@@ -1356,8 +1698,9 @@ export async function handlePostToolExecution(
       state.loopRecoveryStep = 1;
       addContextMessage(config, {
         role: "user",
-        content:
+        content: runtimeDirective(
           "You are repeating the same tool pattern without progress. Change approach now: inspect a different source, use tool_search, ask a concise clarification, or move to an edit/verification step. Do not repeat the same tool call batch.",
+        ),
       });
       return { action: "continue" };
     }
@@ -1367,8 +1710,9 @@ export async function handlePostToolExecution(
       state.temporaryToolDenylist.set(repeatedTool, 2);
       addContextMessage(config, {
         role: "user",
-        content:
+        content: runtimeDirective(
           `Loop recovery: '${repeatedTool}' is temporarily blocked for the next 2 turns. Use a different tool or ask_user instead of repeating it.`,
+        ),
       });
       return { action: "continue" };
     }
@@ -1377,8 +1721,9 @@ export async function handlePostToolExecution(
       state.loopRecoveryStep = 3;
       addContextMessage(config, {
         role: "user",
-        content:
+        content: runtimeDirective(
           "Loop recovery escalation: do not repeat the prior tool pattern. Prefer tool_search, ask_user, or a concise final answer if you already have enough information.",
+        ),
       });
       return { action: "continue" };
     }

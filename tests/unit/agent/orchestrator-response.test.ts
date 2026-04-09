@@ -2,7 +2,10 @@ import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import type { OrchestratorConfig } from "../../../src/hlvm/agent/orchestrator.ts";
 import type { FinalResponseMeta } from "../../../src/hlvm/agent/orchestrator.ts";
+import type { ToolExecutionResult } from "../../../src/hlvm/agent/orchestrator-state.ts";
+import type { ToolFailureMetadata } from "../../../src/hlvm/agent/tool-results.ts";
 import type { LLMResponse } from "../../../src/hlvm/agent/tool-call.ts";
+import type { ToolCall } from "../../../src/hlvm/agent/tool-call.ts";
 import {
   handleFinalResponse,
   handlePostToolExecution,
@@ -13,6 +16,7 @@ import {
   resolveLoopConfig,
 } from "../../../src/hlvm/agent/orchestrator-state.ts";
 import { resolveTools } from "../../../src/hlvm/agent/registry.ts";
+import { createToolProfileState } from "../../../src/hlvm/agent/tool-profiles.ts";
 import { buildCitationSourceIndex } from "../../../src/hlvm/agent/tools/web/citation-spans.ts";
 
 Deno.test("handleTextOnlyResponse retries when a model emits a plain-text function-style tool call", () => {
@@ -94,6 +98,36 @@ Deno.test("handleFinalResponse retries when a post-tool answer contains a plain-
   assertStringIncludes(
     messages[0]?.content ?? "",
     "Do not output tool call JSON",
+  );
+});
+
+Deno.test("handleFinalResponse retries when the model returns a working-note instead of a direct answer", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.toolUses = [{ toolName: "pw_snapshot", result: "ok" }];
+
+  const result = await handleFinalResponse(
+    "Now let me click the Issues tab:",
+    {
+      toolCallsMade: 0,
+      finalResponse: "Now let me click the Issues tab:",
+    },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "continue");
+  assertEquals(state.finalResponseFormatRetries, 1);
+  const messages = config.context.getMessages();
+  assertEquals(messages.length, 1);
+  assertStringIncludes(
+    messages[0]?.content ?? "",
+    "Do not narrate your next step as the final answer",
   );
 });
 
@@ -278,6 +312,315 @@ Deno.test("handlePostToolExecution marks native provider sources as web usage", 
   assertEquals(state.lastToolsIncludedWeb, true);
 });
 
+Deno.test("handlePostToolExecution adds browser-specific recovery guidance for repeated Playwright timeout failures", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  const repeatedFailure: {
+    toolCallsMade: number;
+    results: ToolExecutionResult[];
+    toolCalls: ToolCall[];
+    toolUses: [];
+    toolBytes: number;
+  } = {
+    toolCallsMade: 1,
+    results: [{
+      success: false,
+      error: "Click failed: Timeout 10000ms exceeded",
+      failure: {
+        source: "tool",
+        kind: "timeout",
+        retryable: true,
+      } satisfies ToolFailureMetadata,
+    }],
+    toolCalls: [{
+      id: "pw-1",
+      toolName: "pw_click",
+      args: { selector: "text=Issues" },
+    }],
+    toolUses: [],
+    toolBytes: 0,
+  };
+
+  const first = await handlePostToolExecution(
+    repeatedFailure,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+  assertEquals(first.action, "proceed");
+
+  const second = await handlePostToolExecution(
+    repeatedFailure,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+  assertEquals(second.action, "continue");
+  const recoveryMsg = config.context.getMessages().at(-1)?.content ?? "";
+  assertStringIncludes(recoveryMsg, "[Runtime Directive]");
+  assert(
+    recoveryMsg.includes(
+      "Repeated Playwright failure: selector or timeout mismatch.",
+    ) ||
+      recoveryMsg.includes(
+        "Repeated Playwright failure: visibility or layout blocker.",
+      ) ||
+      recoveryMsg.includes(
+        "Repeated Playwright failure: browser strategy mismatch.",
+      ),
+    `Expected browser recovery message, got: ${recoveryMsg.slice(0, 160)}`,
+  );
+});
+
+Deno.test("handlePostToolExecution promotes browser_safe to browser_hybrid on repeated structured visual Playwright failures", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    toolProfileState: createToolProfileState({
+      domain: { slot: "domain", profileId: "browser_safe" },
+    }),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  const repeatedFailure = {
+    toolCallsMade: 1,
+    results: [{
+      success: false,
+      error: "Click failed: element is not visible",
+      failure: {
+        source: "tool",
+        kind: "timeout",
+        retryable: true,
+        code: "pw_element_not_visible",
+        facts: {
+          visualBlocker: true,
+          visualReason: "not_visible",
+          selector: "text=Issues",
+          interaction: "click",
+          candidateHref: "https://github.com/denoland/deno/issues",
+        },
+      } satisfies ToolFailureMetadata,
+    }],
+    toolCalls: [{
+      id: "pw-visual",
+      toolName: "pw_click",
+      args: { selector: "text=Issues" },
+    }],
+    toolUses: [],
+    toolBytes: 0,
+  };
+
+  await handlePostToolExecution(
+    repeatedFailure,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+
+  const second = await handlePostToolExecution(
+    repeatedFailure,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+
+  assertEquals(second.action, "continue");
+  assertEquals(
+    config.toolProfileState?.layers.domain?.profileId,
+    "browser_hybrid",
+  );
+  assertEquals(state.temporaryToolDenylist.get("pw_click"), 2);
+  const recoveryMsg = config.context.getMessages().at(-1)?.content ?? "";
+  assertStringIncludes(recoveryMsg, "[Runtime Directive]");
+  assertStringIncludes(
+    recoveryMsg,
+    "Repeated Playwright failure: visibility or layout blocker.",
+  );
+  assertStringIncludes(
+    recoveryMsg,
+    "https://github.com/denoland/deno/issues",
+  );
+  assertStringIncludes(recoveryMsg, "Use pw_goto with that URL");
+  assertStringIncludes(recoveryMsg, "Hybrid browser mode is available.");
+  assertStringIncludes(recoveryMsg, "pw_promote");
+  assertStringIncludes(recoveryMsg, "cu_*");
+  assertStringIncludes(
+    recoveryMsg,
+    "pw_click is temporarily blocked for the next 2 turns.",
+  );
+});
+
+Deno.test("handlePostToolExecution tells the model to follow navigatedTo for repeated pw_download_navigated failures", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    toolProfileState: createToolProfileState({
+      domain: { slot: "domain", profileId: "browser_safe" },
+    }),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  const repeatedFailure: {
+    toolCallsMade: number;
+    results: ToolExecutionResult[];
+    toolCalls: ToolCall[];
+    toolUses: [];
+    toolBytes: number;
+  } = {
+    toolCallsMade: 1,
+    results: [{
+      success: false,
+      error:
+        "Click navigated to https://python.org/downloads/release/python-3144/ instead of triggering a download.",
+      failure: {
+        source: "tool",
+        kind: "invalid_state",
+        retryable: true,
+        code: "pw_download_navigated",
+        facts: {
+          navigatedTo: "https://python.org/downloads/release/python-3144/",
+        },
+      } satisfies ToolFailureMetadata,
+    }],
+    toolCalls: [{
+      id: "pw-2",
+      toolName: "pw_download",
+      args: { selector: "text=Download Python" },
+    }],
+    toolUses: [],
+    toolBytes: 0,
+  };
+
+  await handlePostToolExecution(
+    repeatedFailure,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+
+  const second = await handlePostToolExecution(
+    repeatedFailure,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+  assertEquals(second.action, "continue");
+  assertEquals(state.temporaryToolDenylist.get("pw_download"), 2);
+  const navigatedMsg = config.context.getMessages().at(-1)?.content ?? "";
+  assertStringIncludes(navigatedMsg, "[Runtime Directive]");
+  assertStringIncludes(
+    navigatedMsg,
+    "Repeated Playwright failure: the download trigger navigated instead of downloading.",
+  );
+  assertStringIncludes(
+    navigatedMsg,
+    "https://python.org/downloads/release/python-3144/",
+  );
+  assertStringIncludes(
+    navigatedMsg,
+    "pw_download is temporarily blocked for the next 2 turns.",
+  );
+  assertEquals(
+    config.toolProfileState?.layers.domain?.profileId,
+    "browser_safe",
+  );
+});
+
+Deno.test("handlePostToolExecution nudges out of repeated Playwright visual loops", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+
+  const screenshotTurn = {
+    toolCallsMade: 1,
+    results: [
+      {
+        success: true,
+        result: { captured: true },
+      } satisfies ToolExecutionResult,
+    ],
+    toolCalls: [
+      {
+        id: "pw-shot",
+        toolName: "pw_screenshot",
+        args: {},
+      } satisfies ToolCall,
+    ],
+    toolUses: [],
+    toolBytes: 0,
+  };
+  const scrollTurn = {
+    toolCallsMade: 1,
+    results: [
+      {
+        success: true,
+        result: { scrolled: true },
+      } satisfies ToolExecutionResult,
+    ],
+    toolCalls: [
+      {
+        id: "pw-scroll",
+        toolName: "pw_scroll",
+        args: { amount: 3 },
+      } satisfies ToolCall,
+    ],
+    toolUses: [],
+    toolBytes: 0,
+  };
+
+  await handlePostToolExecution(
+    screenshotTurn,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+  await handlePostToolExecution(
+    scrollTurn,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+  await handlePostToolExecution(
+    screenshotTurn,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+
+  const fourth = await handlePostToolExecution(
+    scrollTurn,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+  assertEquals(fourth.action, "continue");
+  assertStringIncludes(
+    config.context.getMessages().at(-1)?.content ?? "",
+    "[Runtime Directive]",
+  );
+  assertStringIncludes(
+    config.context.getMessages().at(-1)?.content ?? "",
+    "Do not continue visual browsing loops.",
+  );
+});
+
 Deno.test("handleFinalResponse promotes an approved plan-mode draft into execution", async () => {
   const context = new ContextManager();
   const phaseEvents: string[] = [];
@@ -337,6 +680,10 @@ Deno.test("handleFinalResponse promotes an approved plan-mode draft into executi
   assertEquals(lc.planningConfig.requireStepMarkers, true);
   assertEquals(state.planState?.plan.goal, "Implement plan mode");
   assertEquals(context.getMessages().length, 1);
+  assertStringIncludes(
+    context.getMessages()[0]?.content ?? "",
+    "[Runtime Directive]",
+  );
   assertStringIncludes(
     context.getMessages()[0]?.content ?? "",
     "STEP_DONE <id>",
@@ -519,10 +866,7 @@ Deno.test("handleFinalResponse converts plain-text default follow-up questions i
   state.toolUses = [{ toolName: "list_files", result: "{ found: true }" }];
 
   const result = await handleFinalResponse(
-    [
-      "I found Firefox in /Applications, but I need approval to continue.",
-      "Would you like me to try to get shell access to automate this for you instead?",
-    ].join(" "),
+    "I found Firefox in /Applications. Would you like me to try shell access to automate this instead?",
     { toolCallsMade: 0 },
     state,
     lc,
@@ -532,7 +876,7 @@ Deno.test("handleFinalResponse converts plain-text default follow-up questions i
   assertEquals(result.action, "continue");
   assertEquals(
     capturedQuestion,
-    "Would you like me to try to get shell access to automate this for you instead?",
+    "Would you like me to try shell access to automate this instead?",
   );
   assertEquals(capturedOptionsLength, 2);
   assertEquals(context.getMessages().length, 1);
@@ -540,6 +884,39 @@ Deno.test("handleFinalResponse converts plain-text default follow-up questions i
   assertStringIncludes(
     context.getMessages()[0]?.content ?? "",
     "[Follow-up answer] yes",
+  );
+});
+
+Deno.test("handleFinalResponse continues instead of asking permission for already-requested follow-up work", async () => {
+  let interactionCalled = false;
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    currentUserRequest:
+      "Go to the MDN Fetch API page. Extract the first paragraph under Concepts and usage and the first code example.",
+    onInteraction: async () => {
+      interactionCalled = true;
+      return { approved: true, userInput: "yes" };
+    },
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.toolUses = [{ toolName: "pw_links", result: "{ found: true }" }];
+
+  const result = await handleFinalResponse(
+    'I found the "Using Fetch" guide. If you\'d like, I can open it and extract the first code example from there.',
+    { toolCallsMade: 0 },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "continue");
+  assertEquals(interactionCalled, false);
+  const lastMessage = config.context.getMessages().at(-1)?.content ?? "";
+  assertStringIncludes(
+    lastMessage,
+    "Do not ask the user for permission to continue with work already required",
   );
 });
 
@@ -717,7 +1094,7 @@ Deno.test("handleFinalResponse turns plain-text planning questions into clarific
   const state = initializeLoopState(config);
 
   const result = await handleFinalResponse(
-    "There's no specific task to plan yet. What concrete task do you want me to plan?",
+    "What concrete task do you want me to plan?",
     { toolCallsMade: 0 },
     state,
     lc,
@@ -918,7 +1295,8 @@ Deno.test("handlePostToolExecution injects one edit_file recovery message", asyn
   assertEquals(directive.action, "proceed");
   const messages = context.getMessages();
   assertEquals(messages.length, 1);
-  assertEquals(messages[0].role, "system");
+  assertEquals(messages[0].role, "user");
+  assertStringIncludes(messages[0].content, "[Runtime Directive]");
   assertEquals(
     messages[0].content.includes("exact line as your next find string"),
     true,

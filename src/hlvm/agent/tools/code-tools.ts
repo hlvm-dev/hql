@@ -14,12 +14,12 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { resolveToolPath, createPolicyPathChecker } from "../path-utils.ts";
+import { createPolicyPathChecker, resolveToolPath } from "../path-utils.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import { escapeRegExp, isObjectValue } from "../../../common/utils.ts";
-import { formatToolError, okTool, failTool } from "../tool-results.ts";
+import { failTool, formatToolError, okTool } from "../tool-results.ts";
 import { pluralize } from "../tool-result-summary.ts";
-import { walkDirectory, loadGitignore } from "../../../common/file-utils.ts";
+import { loadGitignore, walkDirectory } from "../../../common/file-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import { assertMaxBytes } from "../../../common/limits.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
@@ -192,9 +192,11 @@ export async function searchCode(
       }
 
       // Skip binary-like files
-      if (filename.endsWith(".png") || filename.endsWith(".jpg") ||
+      if (
+        filename.endsWith(".png") || filename.endsWith(".jpg") ||
         filename.endsWith(".gif") || filename.endsWith(".ico") ||
-        filename.endsWith(".woff") || filename.endsWith(".ttf")) {
+        filename.endsWith(".woff") || filename.endsWith(".ttf")
+      ) {
         continue;
       }
 
@@ -318,15 +320,15 @@ export async function findSymbol(
     const patterns: Record<string, RegExp> = {
       function: new RegExp(
         `(?:export\\s+)?(?:async\\s+)?(?:function\\s+${escapedName}|const\\s+${escapedName}\\s*=.*(?:async\\s+)?(?:\\(|function))`,
-        "i"
+        "i",
       ),
       class: new RegExp(
         `(?:export\\s+)?(?:abstract\\s+)?class\\s+${escapedName}\\s*[{<]`,
-        "i"
+        "i",
       ),
       const: new RegExp(
         `(?:export\\s+)?const\\s+${escapedName}\\s*[=:]`,
-        "i"
+        "i",
       ),
     };
 
@@ -497,7 +499,7 @@ export async function getStructure(
     // Build directory tree recursively
     const buildTree = async (
       dir: string,
-      depth: number
+      depth: number,
     ): Promise<TreeNode> => {
       const entries: TreeNode[] = [];
 
@@ -589,12 +591,16 @@ export async function getStructure(
 
 function formatSearchCodeResult(
   result: unknown,
-): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
   if (!isObjectValue(result) || result.success !== true) return null;
   const matchesRaw = Array.isArray(result.matches)
     ? result.matches.filter(isObjectValue)
     : [];
-  const count = typeof result.count === "number" ? result.count : matchesRaw.length;
+  const count = typeof result.count === "number"
+    ? result.count
+    : matchesRaw.length;
   const message = typeof result.message === "string"
     ? result.message
     : `Found ${count} matches`;
@@ -608,7 +614,8 @@ function formatSearchCodeResult(
   }
 
   const fileCount = new Set(
-    matchesRaw.map((match) => typeof match.file === "string" ? match.file : "").filter(Boolean),
+    matchesRaw.map((match) => typeof match.file === "string" ? match.file : "")
+      .filter(Boolean),
   ).size;
   const first = matchesRaw[0];
   const firstFile = typeof first?.file === "string" ? first.file : "";
@@ -625,7 +632,9 @@ function formatSearchCodeResult(
     const match = matchesRaw[i];
     const file = typeof match.file === "string" ? match.file : "unknown";
     const line = typeof match.line === "number" ? match.line : 0;
-    const content = typeof match.content === "string" ? match.content.trim() : "";
+    const content = typeof match.content === "string"
+      ? match.content.trim()
+      : "";
     detailLines.push("");
     detailLines.push(`[${i + 1}] ${file}:${line}`);
     if (content) detailLines.push(`    ${content}`);
@@ -634,18 +643,26 @@ function formatSearchCodeResult(
   return {
     summaryDisplay: summaryLines.join("\n"),
     returnDisplay: detailLines.join("\n").trimEnd(),
-    llmContent: JSON.stringify({ message, matches: matchesRaw, count }, null, 2),
+    llmContent: JSON.stringify(
+      { message, matches: matchesRaw, count },
+      null,
+      2,
+    ),
   };
 }
 
 function formatFindSymbolResult(
   result: unknown,
-): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
   if (!isObjectValue(result) || result.success !== true) return null;
   const symbolsRaw = Array.isArray(result.symbols)
     ? result.symbols.filter(isObjectValue)
     : [];
-  const count = typeof result.count === "number" ? result.count : symbolsRaw.length;
+  const count = typeof result.count === "number"
+    ? result.count
+    : symbolsRaw.length;
   const message = typeof result.message === "string"
     ? result.message
     : `Found ${count} ${pluralize("symbol", count)}`;
@@ -663,7 +680,11 @@ function formatFindSymbolResult(
   return {
     summaryDisplay: count > 0 ? message : "No matching symbols found",
     returnDisplay: detailLines.join("\n").trimEnd(),
-    llmContent: JSON.stringify({ message, symbols: symbolsRaw, count }, null, 2),
+    llmContent: JSON.stringify(
+      { message, symbols: symbolsRaw, count },
+      null,
+      2,
+    ),
   };
 }
 
@@ -678,7 +699,9 @@ function renderTreeNode(
   const children = node.children ?? [];
   const nextPrefix = prefix ? `${prefix}${isLast ? "   " : "│  "}` : "";
   for (let i = 0; i < children.length; i++) {
-    lines.push(...renderTreeNode(children[i], nextPrefix, i === children.length - 1));
+    lines.push(
+      ...renderTreeNode(children[i], nextPrefix, i === children.length - 1),
+    );
   }
   return lines;
 }
@@ -691,8 +714,13 @@ function isTreeNode(value: unknown): value is TreeNode {
 
 function formatGetStructureResult(
   result: unknown,
-): { summaryDisplay: string; returnDisplay: string; llmContent?: string } | null {
-  if (!isObjectValue(result) || result.success !== true || !isTreeNode(result.tree)) {
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
+  if (
+    !isObjectValue(result) || result.success !== true ||
+    !isTreeNode(result.tree)
+  ) {
     return null;
   }
   const tree = result.tree;
@@ -713,21 +741,28 @@ function formatGetStructureResult(
 export const CODE_TOOLS = {
   search_code: {
     fn: searchCode,
-    description: "Search for pattern in code files. Use this for ALL code searching — never use shell_exec with grep/rg.",
+    description:
+      "Search for pattern in code files. Use this for ALL code searching — never use shell_exec with grep/rg.",
     category: "search",
     replaces: "grep/rg",
     safetyLevel: "L0",
     args: {
       pattern: "string - Regex pattern to search for",
-      path: "string (optional) - Directory to search in (default: workspace root)",
-      filePattern: "string (optional) - Glob pattern to filter files (e.g., '*.ts')",
-      maxResults: "number (optional) - Maximum results to return (default: 100)",
-      maxFileBytes: "number (optional) - Max file size to scan (capped by limits)",
-      contextLines: "number (optional) - Lines of context before/after each match (0-10, default: 0)",
+      path:
+        "string (optional) - Directory to search in (default: workspace root)",
+      filePattern:
+        "string (optional) - Glob pattern to filter files (e.g., '*.ts')",
+      maxResults:
+        "number (optional) - Maximum results to return (default: 100)",
+      maxFileBytes:
+        "number (optional) - Max file size to scan (capped by limits)",
+      contextLines:
+        "number (optional) - Lines of context before/after each match (0-10, default: 0)",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",
-      matches: "SearchMatch[] - Pattern matches with optional context (on success)",
+      matches:
+        "SearchMatch[] - Pattern matches with optional context (on success)",
       count: "number - Number of matches (on success)",
       message: "string - Human-readable result message",
     },
@@ -740,10 +775,14 @@ export const CODE_TOOLS = {
     safetyLevel: "L0",
     args: {
       name: "string - Symbol name to find",
-      type: "string (optional) - 'function', 'class', or 'const' (default: all)",
-      path: "string (optional) - Directory to search in (default: workspace root)",
-      maxResults: "number (optional) - Maximum results to return (capped by limits)",
-      maxFileBytes: "number (optional) - Max file size to scan (capped by limits)",
+      type:
+        "string (optional) - 'function', 'class', or 'const' (default: all)",
+      path:
+        "string (optional) - Directory to search in (default: workspace root)",
+      maxResults:
+        "number (optional) - Maximum results to return (capped by limits)",
+      maxFileBytes:
+        "number (optional) - Max file size to scan (capped by limits)",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",
@@ -756,13 +795,15 @@ export const CODE_TOOLS = {
   get_structure: {
     fn: getStructure,
     description:
-      "Get directory tree structure for the workspace (codebase). Use list_files for user folders like ~/Downloads.",
+      "Get directory tree structure for the current path. Best for repositories or project folders; use list_files for user folders like ~/Downloads.",
     category: "read",
     safetyLevel: "L0",
     args: {
-      path: "string (optional) - Directory to get structure for (default: workspace root)",
+      path:
+        "string (optional) - Directory to get structure for (default: workspace root)",
       maxDepth: "number (optional) - Maximum recursion depth (default: 5)",
-      maxNodes: "number (optional) - Maximum nodes to include (capped by limits)",
+      maxNodes:
+        "number (optional) - Maximum nodes to include (capped by limits)",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",

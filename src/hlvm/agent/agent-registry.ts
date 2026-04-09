@@ -61,7 +61,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
   },
   {
     name: "code",
-    description: "Code and architecture analysis specialist",
+    description: "Codebase and architecture analysis specialist",
     tools: [
       "search_code",
       "read_file",
@@ -124,7 +124,9 @@ function normalizeAgentProfile(profile: AgentProfile): AgentProfile {
     ...profile,
     name: profile.name.trim().toLowerCase(),
     description: profile.description.trim(),
-    tools: [...new Set(profile.tools.map((tool) => tool.trim()).filter(Boolean))],
+    tools: [
+      ...new Set(profile.tools.map((tool) => tool.trim()).filter(Boolean)),
+    ],
     ...(profile.model ? { model: profile.model.trim() } : {}),
     ...(profile.instructions?.trim()
       ? { instructions: profile.instructions.trim() }
@@ -132,7 +134,9 @@ function normalizeAgentProfile(profile: AgentProfile): AgentProfile {
   };
 }
 
-function splitFrontmatter(text: string): { frontmatter?: string; body: string } {
+function splitFrontmatter(
+  text: string,
+): { frontmatter?: string; body: string } {
   const normalized = text.replace(/\r\n/g, "\n");
   if (!normalized.startsWith("---\n")) {
     return { body: normalized.trim() };
@@ -175,19 +179,24 @@ function validateProjectAgentProfile(
     : [];
   if (unknownTools.length > 0) {
     throw new ValidationError(
-      `Project agent "${profile.name}" in ${sourcePath} uses unknown tools: ${unknownTools.join(", ")}`,
+      `Project agent "${profile.name}" in ${sourcePath} uses unknown tools: ${
+        unknownTools.join(", ")
+      }`,
       "agent_registry",
     );
   }
-  if (typeof profile.temperature === "number" &&
-    (Number.isNaN(profile.temperature) || profile.temperature < 0 || profile.temperature > 2)
+  if (
+    typeof profile.temperature === "number" &&
+    (Number.isNaN(profile.temperature) || profile.temperature < 0 ||
+      profile.temperature > 2)
   ) {
     throw new ValidationError(
       `Project agent "${profile.name}" in ${sourcePath} has invalid temperature`,
       "agent_registry",
     );
   }
-  if (typeof profile.maxTokens === "number" &&
+  if (
+    typeof profile.maxTokens === "number" &&
     (!Number.isInteger(profile.maxTokens) || profile.maxTokens <= 0)
   ) {
     throw new ValidationError(
@@ -217,15 +226,21 @@ async function loadProjectAgentProfileFile(
   return validateProjectAgentProfile(
     normalizeAgentProfile({
       name: typeof record.name === "string" ? record.name : "",
-      description: typeof record.description === "string" ? record.description : "",
+      description: typeof record.description === "string"
+        ? record.description
+        : "",
       tools: Array.isArray(record.tools)
-        ? record.tools.filter((tool): tool is string => typeof tool === "string")
+        ? record.tools.filter((tool): tool is string =>
+          typeof tool === "string"
+        )
         : [],
       model: typeof record.model === "string" ? record.model : undefined,
       temperature: typeof record.temperature === "number"
         ? record.temperature
         : undefined,
-      maxTokens: typeof record.maxTokens === "number" ? record.maxTokens : undefined,
+      maxTokens: typeof record.maxTokens === "number"
+        ? record.maxTokens
+        : undefined,
       instructions: instructionsParts.join("\n\n"),
     }),
     path,
@@ -259,7 +274,10 @@ export async function loadAgentProfiles(
 
   const projectProfiles: AgentProfile[] = [];
   for (const file of projectFiles) {
-    const profile = await loadProjectAgentProfileFile(file, options?.toolValidator);
+    const profile = await loadProjectAgentProfileFile(
+      file,
+      options?.toolValidator,
+    );
     if (builtInNames.has(profile.name)) {
       throw new ValidationError(
         `Project agent "${profile.name}" in ${file} duplicates a built-in agent profile`,
@@ -291,7 +309,7 @@ export function getAgentProfile(
 ): AgentProfile | null {
   const normalized = name.trim().toLowerCase();
   const aliased = PROFILE_ALIASES[normalized];
-  return profiles.find((p) => p.name === normalized)
-    ?? (aliased ? profiles.find((p) => p.name === aliased) : null)
-    ?? null;
+  return profiles.find((p) => p.name === normalized) ??
+    (aliased ? profiles.find((p) => p.name === aliased) : null) ??
+    null;
 }

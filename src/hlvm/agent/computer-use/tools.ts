@@ -21,8 +21,13 @@
  *   region:           [x1, y1, x2, y2] pixel rect
  */
 
-import type { ToolMetadata, ToolExecutionOptions } from "../registry.ts";
-import { failTool, formatToolError, okTool } from "../tool-results.ts";
+import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
+import {
+  failTool,
+  failToolDetailed,
+  formatToolError,
+  okTool,
+} from "../tool-results.ts";
 import type { ComputerExecutor } from "./types.ts";
 import { createCliExecutor } from "./executor.ts";
 import { getPlatform } from "../../../platform/platform.ts";
@@ -64,7 +69,15 @@ function getExecutor(): ComputerExecutor {
 
 function platformGuard(): ReturnType<typeof failTool> | null {
   if (getPlatform().build.os !== "darwin") {
-    return failTool("Computer use is only supported on macOS");
+    return failToolDetailed(
+      "Computer use is only supported on macOS",
+      {
+        source: "runtime",
+        kind: "unsupported",
+        retryable: false,
+        code: "cu_unsupported_platform",
+      },
+    );
   }
   return null;
 }
@@ -77,8 +90,16 @@ async function guards(
   const sessionId = options?.sessionId ?? "default";
   const result = await tryAcquireComputerUseLock(sessionId);
   if (result.kind === "blocked") {
-    return failTool(
-      `Computer use is in use by another session (${result.by.slice(0, 8)}…). Wait for that session to finish.`,
+    return failToolDetailed(
+      `Computer use is in use by another session (${
+        result.by.slice(0, 8)
+      }…). Wait for that session to finish.`,
+      {
+        source: "runtime",
+        kind: "busy",
+        code: "cu_session_locked",
+        facts: { ownerSessionId: result.by },
+      },
     );
   }
   return null;
@@ -118,16 +139,25 @@ function scrollDirectionToDeltas(
   direction: string,
   amount: number,
 ): { dx: number; dy: number } {
-  const dir = typeof direction === "string" ? direction.toLowerCase().trim() : "";
+  const dir = typeof direction === "string"
+    ? direction.toLowerCase().trim()
+    : "";
   if (!VALID_SCROLL_DIRECTIONS.has(dir)) {
-    throw new Error(`Invalid scroll direction: "${direction}". Must be "up", "down", "left", or "right".`);
+    throw new Error(
+      `Invalid scroll direction: "${direction}". Must be "up", "down", "left", or "right".`,
+    );
   }
   switch (dir) {
-    case "up": return { dx: 0, dy: -amount };
-    case "down": return { dx: 0, dy: amount };
-    case "left": return { dx: -amount, dy: 0 };
-    case "right": return { dx: amount, dy: 0 };
-    default: throw new Error(`Invalid scroll direction: ${dir}`);
+    case "up":
+      return { dx: 0, dy: -amount };
+    case "down":
+      return { dx: 0, dy: amount };
+    case "left":
+      return { dx: -amount, dy: 0 };
+    case "right":
+      return { dx: amount, dy: 0 };
+    default:
+      throw new Error(`Invalid scroll direction: ${dir}`);
   }
 }
 
@@ -163,14 +193,19 @@ function cuTool(
     args: unknown,
     exec: ComputerExecutor,
   ) => Promise<unknown>,
-): (args: unknown, cwd: string, options?: ToolExecutionOptions) => Promise<unknown> {
+): (
+  args: unknown,
+  cwd: string,
+  options?: ToolExecutionOptions,
+) => Promise<unknown> {
   return async (args, _cwd, options) => {
     const err = await guards(options);
     if (err) return err;
     try {
       return await fn(args, getExecutor());
     } catch (error) {
-      return failTool(formatToolError(errorPrefix, error).message);
+      const toolError = formatToolError(errorPrefix, error);
+      return failTool(toolError.message, { failure: toolError.failure });
     }
   };
 }
@@ -204,7 +239,7 @@ function makeClickMeta(
     description,
     args: {
       coordinate: "[number, number] - [x, y] pixel coordinate",
-      text: 'string (optional) - Modifier keys to hold',
+      text: "string (optional) - Modifier keys to hold",
     },
     category: "write",
     safetyLevel: "L2",
@@ -223,10 +258,13 @@ const cuScreenshotFn = cuTool("Screenshot failed", async (_args, exec) => {
   return imageResult({ width: result.width, height: result.height }, result);
 });
 
-const cuCursorPositionFn = cuTool("Get cursor position failed", async (_args, exec) => {
-  const pos = await exec.getCursorPosition();
-  return okTool({ x: pos.x, y: pos.y });
-});
+const cuCursorPositionFn = cuTool(
+  "Get cursor position failed",
+  async (_args, exec) => {
+    const pos = await exec.getCursorPosition();
+    return okTool({ x: pos.x, y: pos.y });
+  },
+);
 
 const cuLeftMouseDownFn = cuTool("Mouse down failed", async (_args, exec) => {
   await exec.mouseDown();
@@ -238,17 +276,26 @@ const cuLeftMouseUpFn = cuTool("Mouse up failed", async (_args, exec) => {
   return okTool({ released: "left" });
 });
 
-const cuListGrantedApplicationsFn = cuTool("List granted applications failed", async (_args, exec) => {
-  const apps = await exec.listRunningApps();
-  return okTool({
-    apps: apps.map((a) => ({ bundleId: a.bundleId, displayName: a.displayName })),
-  });
-});
+const cuListGrantedApplicationsFn = cuTool(
+  "List granted applications failed",
+  async (_args, exec) => {
+    const apps = await exec.listRunningApps();
+    return okTool({
+      apps: apps.map((a) => ({
+        bundleId: a.bundleId,
+        displayName: a.displayName,
+      })),
+    });
+  },
+);
 
-const cuReadClipboardFn = cuTool("Clipboard read failed", async (_args, exec) => {
-  const text = await exec.readClipboard();
-  return okTool({ text });
-});
+const cuReadClipboardFn = cuTool(
+  "Clipboard read failed",
+  async (_args, exec) => {
+    const text = await exec.readClipboard();
+    return okTool({ text });
+  },
+);
 
 const cuLeftClickFn = makeClickFn("left", 1, "Left click failed");
 const cuRightClickFn = makeClickFn("right", 1, "Right click failed");
@@ -284,11 +331,14 @@ const cuHoldKeyFn = cuTool("Hold key failed", async (args, exec) => {
   return okTool({ held: text, duration_seconds: dur });
 });
 
-const cuWriteClipboardFn = cuTool("Clipboard write failed", async (args, exec) => {
-  const { text } = args as { text: string };
-  await exec.writeClipboard(text);
-  return okTool({ written: true });
-});
+const cuWriteClipboardFn = cuTool(
+  "Clipboard write failed",
+  async (args, exec) => {
+    const { text } = args as { text: string };
+    await exec.writeClipboard(text);
+    return okTool({ written: true });
+  },
+);
 
 const cuScrollFn = cuTool("Scroll failed", async (args, exec) => {
   const { coordinate, scroll_direction, scroll_amount } = args as {
@@ -319,46 +369,68 @@ const cuLeftClickDragFn = cuTool("Drag failed", async (args, exec) => {
 const cuZoomFn = cuTool("Zoom failed", async (args, exec) => {
   let { region } = args as { region: unknown };
   if (typeof region === "string") {
-    try { region = JSON.parse(region); } catch { /* fall through */ }
+    try {
+      region = JSON.parse(region);
+    } catch { /* fall through */ }
   }
   if (!Array.isArray(region) || region.length !== 4) {
     throw new Error("region must be a [x1, y1, x2, y2] tuple");
   }
   const [x1, y1, x2, y2] = region.map(Number);
   if (x2 <= x1 || y2 <= y1) {
-    throw new Error(`Invalid region: x2 must be > x1 and y2 must be > y1 (got [${x1},${y1},${x2},${y2}])`);
+    throw new Error(
+      `Invalid region: x2 must be > x1 and y2 must be > y1 (got [${x1},${y1},${x2},${y2}])`,
+    );
   }
   const result = await exec.zoom({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 }, []);
   return imageResult({ width: result.width, height: result.height }, result);
 });
 
-const cuOpenApplicationFn = cuTool("Open application failed", async (args, exec) => {
-  const { bundle_id } = args as { bundle_id: string };
-  // Sanitize: bundle IDs are reverse-DNS (letters, digits, dots, hyphens)
-  if (!bundle_id || bundle_id.length < 3 || !/^[\w.-]+$/.test(bundle_id)) {
-    throw new Error(`Invalid bundle ID: "${bundle_id}". Must be reverse-DNS format (e.g. "com.apple.Safari").`);
-  }
-  await exec.openApp(bundle_id);
-  return okTool({ opened: bundle_id });
-});
+const cuOpenApplicationFn = cuTool(
+  "Open application failed",
+  async (args, exec) => {
+    const { bundle_id } = args as { bundle_id: string };
+    // Sanitize: bundle IDs are reverse-DNS (letters, digits, dots, hyphens)
+    if (!bundle_id || bundle_id.length < 3 || !/^[\w.-]+$/.test(bundle_id)) {
+      throw new Error(
+        `Invalid bundle ID: "${bundle_id}". Must be reverse-DNS format (e.g. "com.apple.Safari").`,
+      );
+    }
+    await exec.openApp(bundle_id);
+    return okTool({ opened: bundle_id });
+  },
+);
 
-const cuRequestAccessFn = cuTool("Request access failed", async (args, _exec) => {
-  const { apps } = args as { apps?: unknown };
-  const appList = Array.isArray(apps) ? apps : [];
-  const names = appList.map((a: any) => a?.displayName ?? "unknown").join(", ") || "requested apps";
-  return okTool({
-    message: `Access request noted for: ${names}. Use System Preferences > Privacy & Security to grant accessibility access.`,
-  });
-});
+const cuRequestAccessFn = cuTool(
+  "Request access failed",
+  async (args, _exec) => {
+    const { apps } = args as { apps?: unknown };
+    const appList = Array.isArray(apps) ? apps : [];
+    const names =
+      appList.map((a: any) => a?.displayName ?? "unknown").join(", ") ||
+      "requested apps";
+    return okTool({
+      message:
+        `Access request noted for: ${names}. Use System Preferences > Privacy & Security to grant accessibility access.`,
+    });
+  },
+);
 
 const cuWaitFn = cuTool("Wait failed", async (args, exec) => {
   const { duration } = args as { duration: number };
   const raw = Number(duration);
-  const cappedDuration = Math.min(Number.isFinite(raw) ? Math.max(raw, 0) : 2, 100);
+  const cappedDuration = Math.min(
+    Number.isFinite(raw) ? Math.max(raw, 0) : 2,
+    100,
+  );
   await sleep(cappedDuration * 1000);
   const result = await exec.screenshot({ allowedBundleIds: [] });
   return imageResult(
-    { waited_seconds: cappedDuration, width: result.width, height: result.height },
+    {
+      waited_seconds: cappedDuration,
+      width: result.width,
+      height: result.height,
+    },
     result,
   );
 });
@@ -384,8 +456,12 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     formatResult: (result) => {
       const r = result as { width?: number; height?: number };
       return {
-        summaryDisplay: `${RESULT_SUMMARY.screenshot} ${r.width ?? "?"}x${r.height ?? "?"}`,
-        returnDisplay: `Screenshot captured: ${r.width ?? "?"}x${r.height ?? "?"}px`,
+        summaryDisplay: `${RESULT_SUMMARY.screenshot} ${r.width ?? "?"}x${
+          r.height ?? "?"
+        }`,
+        returnDisplay: `Screenshot captured: ${r.width ?? "?"}x${
+          r.height ?? "?"
+        }px`,
       };
     },
   },
@@ -420,7 +496,8 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
 
   cu_list_granted_applications: {
     fn: cuListGrantedApplicationsFn,
-    description: "List the applications that are currently running and accessible.",
+    description:
+      "List the applications that are currently running and accessible.",
     args: {},
     category: "read",
     safetyLevel: "L0",
@@ -500,7 +577,8 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
 
   cu_key: {
     fn: cuKeyFn,
-    description: "Press a key or key-combination on the keyboard. Supports xdotool key syntax.",
+    description:
+      "Press a key or key-combination on the keyboard. Supports xdotool key syntax.",
     args: {
       text: 'string - Key spec like "return", "command+c", "ctrl+shift+a"',
       repeat: "number (optional) - Number of times to repeat (default: 1)",
@@ -519,7 +597,8 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
 
   cu_hold_key: {
     fn: cuHoldKeyFn,
-    description: "Hold down a key or multiple keys for a specified duration (in seconds).",
+    description:
+      "Hold down a key or multiple keys for a specified duration (in seconds).",
     args: {
       text: "string - Key to hold",
       duration: "number - Duration in seconds",
@@ -547,21 +626,27 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
 
   cu_scroll: {
     fn: cuScrollFn,
-    description: "Scroll in a specified direction by a specified number of clicks at the specified (x, y) pixel coordinate.",
+    description:
+      "Scroll in a specified direction by a specified number of clicks at the specified (x, y) pixel coordinate.",
     args: {
       coordinate: "[number, number] - [x, y] pixel coordinate to scroll at",
-      scroll_direction: 'string - Scroll direction: "up", "down", "left", or "right"',
+      scroll_direction:
+        'string - Scroll direction: "up", "down", "left", or "right"',
       scroll_amount: "number - Number of scroll clicks",
-      text: 'string (optional) - Modifier keys to hold',
+      text: "string (optional) - Modifier keys to hold",
     },
     category: "write",
     safetyLevel: "L2",
     safety: "Scrolls at screen coordinates.",
     formatResult: (result) => {
-      const r = result as { scrolled?: { direction?: string; amount?: number } };
+      const r = result as {
+        scrolled?: { direction?: string; amount?: number };
+      };
       return {
         summaryDisplay: RESULT_SUMMARY.scroll,
-        returnDisplay: `Scrolled ${r.scrolled?.direction ?? ""} ${r.scrolled?.amount ?? ""}`,
+        returnDisplay: `Scrolled ${r.scrolled?.direction ?? ""} ${
+          r.scrolled?.amount ?? ""
+        }`,
       };
     },
   },
@@ -571,11 +656,13 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     description: "Click and drag from start_coordinate to coordinate.",
     args: {
       coordinate: "[number, number] - [x, y] destination pixel coordinate",
-      start_coordinate: "[number, number] (optional) - [x, y] start pixel coordinate (defaults to current cursor)",
+      start_coordinate:
+        "[number, number] (optional) - [x, y] start pixel coordinate (defaults to current cursor)",
     },
     category: "write",
     safetyLevel: "L2",
-    safety: "Drags from one position to another. May move or resize UI elements.",
+    safety:
+      "Drags from one position to another. May move or resize UI elements.",
     formatResult: () => ({
       summaryDisplay: RESULT_SUMMARY.left_click_drag,
       returnDisplay: "Dragged",
@@ -584,8 +671,12 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
 
   cu_zoom: {
     fn: cuZoomFn,
-    description: "Capture a zoomed-in screenshot of a specific region defined by [x1, y1, x2, y2] pixel coordinates.",
-    args: { region: "[number, number, number, number] - [x1, y1, x2, y2] pixel rectangle" },
+    description:
+      "Capture a zoomed-in screenshot of a specific region defined by [x1, y1, x2, y2] pixel coordinates.",
+    args: {
+      region:
+        "[number, number, number, number] - [x1, y1, x2, y2] pixel rectangle",
+    },
     category: "read",
     safetyLevel: "L1",
     safety: "Captures a region of the screen. No side effects.",
@@ -593,8 +684,12 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     formatResult: (result) => {
       const r = result as { width?: number; height?: number };
       return {
-        summaryDisplay: `${RESULT_SUMMARY.zoom} ${r.width ?? "?"}x${r.height ?? "?"}`,
-        returnDisplay: `Zoomed region captured: ${r.width ?? "?"}x${r.height ?? "?"}px`,
+        summaryDisplay: `${RESULT_SUMMARY.zoom} ${r.width ?? "?"}x${
+          r.height ?? "?"
+        }`,
+        returnDisplay: `Zoomed region captured: ${r.width ?? "?"}x${
+          r.height ?? "?"
+        }px`,
       };
     },
   },
@@ -618,7 +713,10 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
   cu_request_access: {
     fn: cuRequestAccessFn,
     description: "Request accessibility access for specified applications.",
-    args: { apps: 'Array<{displayName?: string}> - Applications to request access for' },
+    args: {
+      apps:
+        "Array<{displayName?: string}> - Applications to request access for",
+    },
     category: "write",
     safetyLevel: "L2",
     safety: "Requests accessibility permissions.",
@@ -637,10 +735,16 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     safety: "Waits then captures screenshot. No direct side effects.",
     ...READ_SAFE,
     formatResult: (result) => {
-      const r = result as { waited_seconds?: number; width?: number; height?: number };
+      const r = result as {
+        waited_seconds?: number;
+        width?: number;
+        height?: number;
+      };
       return {
         summaryDisplay: `Waited ${r.waited_seconds ?? "?"}s`,
-        returnDisplay: `Waited ${r.waited_seconds ?? "?"}s, screenshot ${r.width ?? "?"}x${r.height ?? "?"}px`,
+        returnDisplay: `Waited ${r.waited_seconds ?? "?"}s, screenshot ${
+          r.width ?? "?"
+        }x${r.height ?? "?"}px`,
       };
     },
   },

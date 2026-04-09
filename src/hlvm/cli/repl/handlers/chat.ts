@@ -111,6 +111,13 @@ function getRequestAttachmentIds(
   return messages.flatMap((message) => message.attachment_ids ?? []);
 }
 
+function hasDeprecatedSessionIdField(body: ChatRequest): boolean {
+  return Object.prototype.hasOwnProperty.call(
+    body as unknown as object,
+    "session_id",
+  );
+}
+
 export async function buildEvalAttachments(
   attachmentIds: readonly string[],
 ): Promise<AnyAttachment[] | undefined> {
@@ -277,7 +284,12 @@ export async function handleChat(req: Request): Promise<Response> {
   if (!body.messages?.length) {
     return jsonError("Missing messages", 400);
   }
-  const sessionId = resolveConversationSessionId(body.session_id, {
+  if (hasDeprecatedSessionIdField(body)) {
+    log.warn(
+      "Deprecated /api/chat session_id was ignored. Use the active conversation or stateless:true instead.",
+    );
+  }
+  const sessionId = resolveConversationSessionId(undefined, {
     stateless: body.stateless === true,
   });
   traceReplMainThreadForSource(body.query_source, "server.chat.request", {
@@ -286,7 +298,9 @@ export async function handleChat(req: Request): Promise<Response> {
     mode: body.mode,
     stateless: body.stateless === true,
     messageCount: body.messages.length,
-    queryPreview: buildTraceTextPreview(getLastUserMessage(body.messages)?.content),
+    queryPreview: buildTraceTextPreview(
+      getLastUserMessage(body.messages)?.content,
+    ),
   });
 
   const requestValidationError = validateChatRequestMessages(body.messages);
@@ -311,7 +325,9 @@ export async function handleChat(req: Request): Promise<Response> {
   const isEvalMode = body.mode === "eval";
   if (isEvalMode) {
     try {
-      await getRequiredAttachmentRecords(getRequestAttachmentIds(body.messages));
+      await getRequiredAttachmentRecords(
+        getRequestAttachmentIds(body.messages),
+      );
     } catch (error) {
       return jsonError(
         error instanceof Error ? error.message : "Attachment not found",
@@ -516,7 +532,11 @@ export async function handleChat(req: Request): Promise<Response> {
   if (!isEvalMode && !body.stateless) {
     try {
       const replState = await ensureRuntimeHostReplState();
-      recordPromptHistory(replState, currentUserMessage.content, "conversation");
+      recordPromptHistory(
+        replState,
+        currentUserMessage.content,
+        "conversation",
+      );
     } catch (error) {
       log.warn("Failed to record prompt history", error);
     }
@@ -565,11 +585,15 @@ export async function handleChat(req: Request): Promise<Response> {
       const emitCancellationOnce = async () => {
         if (cancellationEmitted) return;
         cancellationEmitted = true;
-        traceReplMainThreadForSource(body.query_source, "server.chat.cancelled", {
-          requestId,
-          sessionId,
-          partialTextChars: partialText.length,
-        });
+        traceReplMainThreadForSource(
+          body.query_source,
+          "server.chat.cancelled",
+          {
+            requestId,
+            sessionId,
+            partialTextChars: partialText.length,
+          },
+        );
         try {
           await emitCancellation(
             assistantMessageId,
@@ -654,10 +678,14 @@ export async function handleChat(req: Request): Promise<Response> {
 
       try {
         emit({ event: "start", request_id: requestId });
-        traceReplMainThreadForSource(body.query_source, "server.chat.stream_started", {
-          requestId,
-          sessionId,
-        });
+        traceReplMainThreadForSource(
+          body.query_source,
+          "server.chat.stream_started",
+          {
+            requestId,
+            sessionId,
+          },
+        );
 
         const onPartial = (text: string) => {
           partialText += text;
@@ -782,7 +810,9 @@ export async function handleChat(req: Request): Promise<Response> {
                 emit({
                   event: "trace",
                   kind: "agent_downgrade",
-                  detail: `Agent mode failed (${classified.message.slice(0, 80)}), falling back to chat mode`,
+                  detail: `Agent mode failed (${
+                    classified.message.slice(0, 80)
+                  }), falling back to chat mode`,
                 });
                 await handleChatMode(
                   body,
@@ -872,12 +902,16 @@ export async function handleChat(req: Request): Promise<Response> {
             completeEvent.stats = resultStats;
           }
           emit(completeEvent);
-          traceReplMainThreadForSource(body.query_source, "server.chat.complete", {
-            requestId,
-            sessionId,
-            partialTextChars: partialText.length,
-            sessionVersion: updatedSession?.session_version ?? 0,
-          });
+          traceReplMainThreadForSource(
+            body.query_source,
+            "server.chat.complete",
+            {
+              requestId,
+              sessionId,
+              partialTextChars: partialText.length,
+              sessionVersion: updatedSession?.session_version ?? 0,
+            },
+          );
         }
       } catch (error) {
         if (controller.signal.aborted) {
@@ -889,12 +923,16 @@ export async function handleChat(req: Request): Promise<Response> {
 
       streamClosed = true;
       clearInterval(heartbeatInterval);
-      traceReplMainThreadForSource(body.query_source, "server.chat.stream_finally", {
-        requestId,
-        sessionId,
-        partialTextChars: partialText.length,
-        aborted: controller.signal.aborted,
-      });
+      traceReplMainThreadForSource(
+        body.query_source,
+        "server.chat.stream_finally",
+        {
+          requestId,
+          sessionId,
+          partialTextChars: partialText.length,
+          aborted: controller.signal.aborted,
+        },
+      );
       try {
         streamController.close();
       } catch {

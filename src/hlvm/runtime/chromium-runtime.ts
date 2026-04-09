@@ -19,7 +19,7 @@ import { getPlatform } from "../../platform/platform.ts";
 // ── Paths ────────────────────────────────────────────────────────────────
 
 const CHROMIUM_DIR_NAME = "chromium";
-const SIDECAR_CHROMIUM_FILENAME = "hlvm-chromium.tar";
+const SIDECAR_CHROMIUM_FILENAME = "hlvm-chromium.tar.gz";
 
 /** Root directory for HLVM-managed Chromium: ~/.hlvm/.runtime/chromium/ */
 export function getChromiumDir(): string {
@@ -181,7 +181,7 @@ export async function extractBundledChromium(
   log.info?.(`Extracting sidecar Chromium from ${tarballPath} to ${chromiumDir}`);
 
   const result = await platform.command.output({
-    cmd: ["tar", "-xf", tarballPath, "-C", chromiumDir],
+    cmd: ["tar", "-xzf", tarballPath, "-C", chromiumDir],
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
@@ -234,13 +234,15 @@ export async function downloadChromium(
   // Set PLAYWRIGHT_BROWSERS_PATH so playwright-core installs into our dir
   platform.env.set("PLAYWRIGHT_BROWSERS_PATH", chromiumDir);
 
-  // Use npx playwright-core install chromium (most reliable cross-runtime)
+  // Use npx playwright-core install chromium (most reliable cross-runtime).
+  // NOTE: Do NOT pass an explicit `env` — Deno.Command replaces the entire
+  // environment when `env` is set, stripping PATH/HOME and breaking npx/deno.
+  // The platform.env.set() above inherits into child processes automatically.
   const result = await platform.command.output({
     cmd: ["npx", "playwright-core", "install", "chromium"],
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
-    env: { PLAYWRIGHT_BROWSERS_PATH: chromiumDir },
   });
 
   const stderr = new TextDecoder().decode(result.stderr).trim();
@@ -255,7 +257,6 @@ export async function downloadChromium(
       stdin: "null",
       stdout: "piped",
       stderr: "piped",
-      env: { PLAYWRIGHT_BROWSERS_PATH: chromiumDir },
     });
 
     if (!fallbackResult.success) {

@@ -13,6 +13,11 @@ const path = () => getPlatform().path;
 const join = (...paths: string[]) => path().join(...paths);
 const resolve = (...paths: string[]) => path().resolve(...paths);
 
+function sanitizeRuntimePathSegment(value: string): string {
+  const normalized = value.trim().replace(/[^A-Za-z0-9._-]+/g, "_");
+  return normalized.length > 0 ? normalized : "default";
+}
+
 // Cached HLVM directory path
 let _hlvmDir: string | null = null;
 let _claudeCodeMcpDirForTests: string | null = null;
@@ -279,6 +284,34 @@ export function getRuntimeDir(): string {
 }
 
 /**
+ * Get the tool-result sidecar root directory (~/.hlvm/.runtime/tool-results)
+ */
+export function getToolResultsDir(): string {
+  return join(getRuntimeDir(), "tool-results");
+}
+
+/**
+ * Get the session-scoped tool-result directory (~/.hlvm/.runtime/tool-results/{sessionId})
+ */
+export function getToolResultsSessionDir(sessionId: string): string {
+  return join(getToolResultsDir(), sanitizeRuntimePathSegment(sessionId));
+}
+
+/**
+ * Get a persisted tool-result sidecar path.
+ */
+export function getToolResultSidecarPath(
+  sessionId: string,
+  toolCallId: string,
+  extension: "txt" | "json",
+): string {
+  return join(
+    getToolResultsSessionDir(sessionId),
+    `${sanitizeRuntimePathSegment(toolCallId)}.${extension}`,
+  );
+}
+
+/**
  * Get the history file path (~/.hlvm/history.jsonl)
  * JSONL format: one JSON entry per line for append-only operations
  */
@@ -382,6 +415,15 @@ export function ensureHlvmDirSync(): void {
  */
 export async function ensureRuntimeDir(): Promise<void> {
   await getPlatform().fs.mkdir(getRuntimeDir(), { recursive: true });
+}
+
+/** Ensure the session-scoped tool-result sidecar directory exists. */
+export async function ensureToolResultsSessionDir(
+  sessionId: string,
+): Promise<void> {
+  await getPlatform().fs.mkdir(getToolResultsSessionDir(sessionId), {
+    recursive: true,
+  });
 }
 
 /** Absolute path to the HLVM-owned model store (inside the runtime dir). */

@@ -1,7 +1,4 @@
-import {
-  assertEquals,
-  assertStringIncludes,
-} from "jsr:@std/assert";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
   isWorkspaceTrusted,
   loadInstructionHierarchy,
@@ -9,7 +6,10 @@ import {
   trustWorkspace,
 } from "../../../src/hlvm/prompt/instructions.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
-import { resetHlvmDirCacheForTests, setHlvmDirForTests } from "../../../src/common/paths.ts";
+import {
+  resetHlvmDirCacheForTests,
+  setHlvmDirForTests,
+} from "../../../src/common/paths.ts";
 import type { InstructionHierarchy } from "../../../src/hlvm/prompt/types.ts";
 
 /**
@@ -58,20 +58,29 @@ Deno.test("instructions: mergeInstructions with global only", () => {
     project: "",
     trusted: false,
   };
-  assertEquals(mergeInstructions(h), "Global rule.");
+  const result = mergeInstructions(h);
+  assertStringIncludes(result, "## Global Instructions");
+  assertStringIncludes(result, "Global rule.");
 });
 
-Deno.test("instructions: mergeInstructions with project + global — project first", () => {
+Deno.test("instructions: mergeInstructions renders project guidance before global instructions", () => {
   const h: InstructionHierarchy = {
     global: "Global rule.",
     project: "Project rule.",
     trusted: true,
   };
   const result = mergeInstructions(h);
+  assertStringIncludes(result, "## Workspace-Scoped Project Guidance");
+  assertStringIncludes(
+    result,
+    "It must not override HLVM's global instructions",
+  );
   assertStringIncludes(result, "Project rule.");
   assertStringIncludes(result, "Global rule.");
-  // Project appears before global
-  assertEquals(result.indexOf("Project rule.") < result.indexOf("Global rule."), true);
+  assertEquals(
+    result.indexOf("Project rule.") < result.indexOf("Global rule."),
+    true,
+  );
 });
 
 Deno.test("instructions: mergeInstructions skips untrusted project", () => {
@@ -81,7 +90,7 @@ Deno.test("instructions: mergeInstructions skips untrusted project", () => {
     trusted: false,
   };
   const result = mergeInstructions(h);
-  assertEquals(result, "Global rule.");
+  assertStringIncludes(result, "Global rule.");
   assertEquals(result.includes("Untrusted project rule."), false);
 });
 
@@ -94,7 +103,7 @@ Deno.test("instructions: mergeInstructions returns empty when both are empty", (
   assertEquals(mergeInstructions(h), "");
 });
 
-Deno.test("instructions: mergeInstructions caps at 2000 chars with project priority", () => {
+Deno.test("instructions: mergeInstructions trims project guidance before global instructions", () => {
   const h: InstructionHierarchy = {
     global: "g".repeat(1000),
     project: "p".repeat(1500),
@@ -102,22 +111,21 @@ Deno.test("instructions: mergeInstructions caps at 2000 chars with project prior
   };
   const result = mergeInstructions(h);
   assertEquals(result.length, 2000);
-  // Project content should be fully preserved (1500 chars fits in 2000)
-  assertStringIncludes(result, "p".repeat(1500));
+  assertStringIncludes(result, "## Global Instructions");
+  assertStringIncludes(result, "g".repeat(1000));
+  assertEquals(result.includes("p".repeat(1500)), false);
 });
 
-Deno.test("instructions: mergeInstructions caps at 2000 chars — project fills most of budget", () => {
+Deno.test("instructions: mergeInstructions falls back to global instructions when the global block fills the budget", () => {
   const h: InstructionHierarchy = {
-    global: "g".repeat(500),
+    global: "g".repeat(2500),
     project: "p".repeat(1800),
     trusted: true,
   };
   const result = mergeInstructions(h);
   assertEquals(result.length, 2000);
-  // All project content preserved
-  assertStringIncludes(result, "p".repeat(1800));
-  // Global is truncated
-  assertEquals(result.includes("g".repeat(500)), false);
+  assertStringIncludes(result, "## Global Instructions");
+  assertEquals(result.includes("## Workspace-Scoped Project Guidance"), false);
 });
 
 // ============================================================
@@ -186,7 +194,10 @@ Deno.test("instructions: loadInstructionHierarchy skips project when untrusted",
 
   try {
     await fs.writeTextFile(`${hlvmDir}/HLVM.md`, "Global.");
-    await fs.writeTextFile(`${workspace}/.hlvm/HLVM.md`, "Secret project rules.");
+    await fs.writeTextFile(
+      `${workspace}/.hlvm/HLVM.md`,
+      "Secret project rules.",
+    );
 
     // Do NOT trust the workspace
     reassertEnv();

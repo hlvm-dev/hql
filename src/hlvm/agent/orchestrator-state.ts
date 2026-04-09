@@ -23,7 +23,14 @@ import type { OrchestratorConfig } from "./orchestrator.ts";
 import type { CitationSourceEntry } from "./tools/web/citation-spans.ts";
 import type { EditFileRecovery } from "./error-taxonomy.ts";
 import type { RuntimeToolPhase } from "./orchestrator.ts";
+import type { DelegationSignal } from "./delegation-heuristics.ts";
 import type { ToolPresentationKind } from "./registry.ts";
+import type { ToolFailureMetadata } from "./tool-results.ts";
+import {
+  cloneToolList,
+  resolveEffectiveToolFilter,
+  type ToolProfileState,
+} from "./tool-profiles.ts";
 
 /** Result of tool execution */
 export interface ToolExecutionResult {
@@ -36,6 +43,8 @@ export interface ToolExecutionResult {
   truncatedForLlm?: boolean;
   truncatedForTranscript?: boolean;
   error?: string;
+  failure?: ToolFailureMetadata;
+  diagnosticText?: string;
   stopReason?: "plan_review_cancelled";
   recovery?: EditFileRecovery;
   /** Image attachments from tools like cu_screenshot (base64 JPEG). */
@@ -78,6 +87,8 @@ export interface LoopState {
   lastTeamSummarySignature: string;
   /** Whether a delegation hint has already been injected this session */
   delegationHintInjected?: boolean;
+  /** Cached delegation signal — userRequest is invariant across iterations. */
+  cachedDelegationSignal?: DelegationSignal;
   /** Indexed citation candidates extracted from recent web tool results. */
   passageIndex?: CitationSourceEntry[];
   /** Counter for consecutive transient network retries at the loop level */
@@ -90,6 +101,16 @@ export interface LoopState {
   loopRecoveryStep: number;
   /** Signature currently being recovered from. */
   loopRecoverySignature?: string;
+  /** Most recent repeated Playwright failure signature. */
+  lastPlaywrightFailureSignature?: string;
+  /** Consecutive iterations with the same Playwright failure signature. */
+  repeatPlaywrightFailureCount?: number;
+  /** Most recent Playwright failure signature already nudged. */
+  notifiedPlaywrightFailureSignature?: string;
+  /** Consecutive turns spent only on Playwright visual browsing tools. */
+  repeatPlaywrightVisualLoopCount?: number;
+  /** Whether the current Playwright visual loop already received a nudge. */
+  notifiedPlaywrightVisualLoop?: boolean;
   /** Temporary per-tool denylist with remaining-turn TTLs. */
   temporaryToolDenylist: Map<string, number>;
   /** Whether this turn required automatic output continuation. */
@@ -140,10 +161,6 @@ export function createRateLimiter(
 }
 
 /** Clone a string list shallowly, returning undefined for empty/missing lists. */
-export function cloneToolList(list?: string[]): string[] | undefined {
-  return list?.length ? [...list] : undefined;
-}
-
 /** Create initial mutable loop state from config */
 export function initializeLoopState(config: OrchestratorConfig): LoopState {
   const usageTracker = config.usage ?? new UsageTracker();
@@ -173,6 +190,9 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     passageIndex: [],
     lastToolNames: [],
     loopRecoveryStep: 0,
+    repeatPlaywrightFailureCount: 0,
+    repeatPlaywrightVisualLoopCount: 0,
+    notifiedPlaywrightVisualLoop: false,
     temporaryToolDenylist: new Map(),
     continuedThisTurn: false,
     continuationCount: 0,
@@ -241,6 +261,9 @@ export function checkToolResultBytesLimit(
 export function effectiveAllowlist(
   config: OrchestratorConfig,
 ): string[] | undefined {
+  if (config.toolProfileState) {
+    return resolveEffectiveToolFilter(config.toolProfileState).allowlist;
+  }
   return config.toolFilterState?.allowlist ?? config.toolAllowlist;
 }
 
@@ -248,5 +271,11 @@ export function effectiveAllowlist(
 export function effectiveDenylist(
   config: OrchestratorConfig,
 ): string[] | undefined {
+  if (config.toolProfileState) {
+    return resolveEffectiveToolFilter(config.toolProfileState).denylist;
+  }
   return config.toolFilterState?.denylist ?? config.toolDenylist;
 }
+
+export type { ToolProfileState };
+export { cloneToolList };

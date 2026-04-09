@@ -1009,28 +1009,21 @@ export function convertToSdkMessages(
         const sdkMessages = msg._sdkResponseMessages as ModelMessage[];
         const sdkAssistant = sdkMessages.find((m) => m.role === "assistant");
         if (sdkAssistant) {
-          // Extract pendingToolCalls for subsequent tool-result correlation
-          if (Array.isArray(sdkAssistant.content)) {
-            pendingToolCalls = [];
-            for (const part of sdkAssistant.content) {
-              if (
-                part && typeof part === "object" && "type" in part &&
-                part.type === "tool-call"
-              ) {
-                const tcPart = part as {
-                  toolCallId: string;
-                  toolName: string;
-                };
-                pendingToolCalls.push({
-                  id: tcPart.toolCallId,
-                  name: tcPart.toolName,
-                });
-              }
-            }
-          } else {
-            pendingToolCalls = [];
-          }
-          result.push(sdkAssistant);
+          const reconstructedToolCalls = (msg.toolCalls ?? msg.tool_calls ?? [])
+            .map((tc) => {
+              const toolCallId = tc.id ?? generateToolCallId();
+              return {
+                id: toolCallId,
+                name: tc.function.name,
+                input: normalizeToolArgs(tc.function.arguments),
+              };
+            });
+          const repairedAssistant = repairSdkAssistantToolCalls(
+            sdkAssistant,
+            reconstructedToolCalls,
+          );
+          pendingToolCalls = extractSdkAssistantToolCalls(repairedAssistant);
+          result.push(repairedAssistant);
           continue;
         }
       }
@@ -1108,6 +1101,68 @@ export function convertToSdkMessages(
   }
 
   return result;
+}
+
+function extractSdkAssistantToolCalls(
+  message: ModelMessage,
+): Array<{ id: string; name: string }> {
+  if (!Array.isArray(message.content)) return [];
+  const pendingToolCalls: Array<{ id: string; name: string }> = [];
+  for (const part of message.content) {
+    if (
+      part && typeof part === "object" && "type" in part &&
+      part.type === "tool-call"
+    ) {
+      const tcPart = part as {
+        toolCallId: string;
+        toolName: string;
+      };
+      pendingToolCalls.push({
+        id: tcPart.toolCallId,
+        name: tcPart.toolName,
+      });
+    }
+  }
+  return pendingToolCalls;
+}
+
+function repairSdkAssistantToolCalls(
+  sdkAssistant: ModelMessage,
+  reconstructedToolCalls: Array<{
+    id: string;
+    name: string;
+    input: unknown;
+  }>,
+): ModelMessage {
+  if (!Array.isArray(sdkAssistant.content) || reconstructedToolCalls.length === 0) {
+    return sdkAssistant;
+  }
+
+  const existingToolCalls = extractSdkAssistantToolCalls(sdkAssistant);
+  const matchesReconstructed =
+    existingToolCalls.length === reconstructedToolCalls.length &&
+    existingToolCalls.every((call, index) =>
+      call.id === reconstructedToolCalls[index]?.id &&
+      call.name === reconstructedToolCalls[index]?.name
+    );
+  if (matchesReconstructed) {
+    return sdkAssistant;
+  }
+
+  const nonToolParts = sdkAssistant.content.filter((part) =>
+    !(part && typeof part === "object" && "type" in part &&
+      part.type === "tool-call")
+  );
+  const repairedToolParts = reconstructedToolCalls.map((call) => ({
+    type: "tool-call" as const,
+    toolCallId: call.id,
+    toolName: call.name,
+    input: call.input,
+  }));
+  return {
+    ...sdkAssistant,
+    content: [...nonToolParts, ...repairedToolParts],
+  };
 }
 
 export function mapSdkUsage(

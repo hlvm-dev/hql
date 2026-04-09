@@ -39,11 +39,17 @@ import type { FileStateCache } from "./file-state-cache.ts";
 import {
   buildToolJsonSchema,
   coerceArgsToSchema,
+  formatToolValidationIssues,
   normalizeArgsForTool,
+  summarizeToolValidationIssues,
   validateArgsAgainstSchema,
   validateToolSchema,
 } from "./tool-schema.ts";
 import { getAgentLogger } from "./logger.ts";
+import {
+  buildToolFailureMetadata,
+  type ToolFailureMetadata,
+} from "./tool-results.ts";
 
 // ============================================================
 // Types
@@ -310,6 +316,8 @@ function formatDelegateAgentResult(
 interface ValidationResult {
   valid: boolean;
   errors?: string[];
+  message?: string;
+  failure?: ToolFailureMetadata;
 }
 
 /** Result of preparing tool args for execution (coercion + validation). */
@@ -391,7 +399,9 @@ const MAIN_THREAD_EXPLICIT_DEFERRED_TOOL_NAMES = new Set<string>([
   "report_result",
 ]);
 
-const MAIN_THREAD_DEFERRED_CATEGORIES = new Set<NonNullable<ToolMetadata["category"]>>([
+const MAIN_THREAD_DEFERRED_CATEGORIES = new Set<
+  NonNullable<ToolMetadata["category"]>
+>([
   "web",
   "data",
   "memory",
@@ -1019,16 +1029,40 @@ export function validateToolArgs(
     return { valid: true };
   }
   if (!isToolArgsObject(normalizedArgs)) {
-    return { valid: false, errors: ["Arguments must be a plain object"] };
+    const message = "Arguments must be an object with named fields.";
+    return {
+      valid: false,
+      errors: [message],
+      message,
+      failure: buildToolFailureMetadata(message, {
+        source: "validation",
+        kind: "invalid_args",
+        code: "tool_invalid_args",
+      }),
+    };
   }
 
   const schema = buildToolJsonSchema(tool);
   const coercedArgs = coerceArgsToSchema(normalizedArgs, schema);
-  const errors = validateArgsAgainstSchema(coercedArgs, schema);
+  const issues = validateArgsAgainstSchema(coercedArgs, schema);
+  const errors = formatToolValidationIssues(issues);
+  const message = errors.length > 0
+    ? summarizeToolValidationIssues(issues)
+    : undefined;
 
   return {
     valid: errors.length === 0,
     errors: errors.length > 0 ? errors : undefined,
+    ...(message
+      ? {
+        message,
+        failure: buildToolFailureMetadata(message, {
+          source: "validation",
+          kind: "invalid_args",
+          code: "tool_invalid_args",
+        }),
+      }
+      : {}),
   };
 }
 
@@ -1053,23 +1087,44 @@ export function prepareToolArgsForExecution(
   }
 
   if (!isToolArgsObject(normalizedArgs)) {
+    const message = "Arguments must be an object with named fields.";
     return {
       coercedArgs: normalizedArgs,
       validation: {
         valid: false,
-        errors: ["Arguments must be a plain object"],
+        errors: [message],
+        message,
+        failure: buildToolFailureMetadata(message, {
+          source: "validation",
+          kind: "invalid_args",
+          code: "tool_invalid_args",
+        }),
       },
     };
   }
 
   const schema = buildToolJsonSchema(tool);
   const coercedArgs = coerceArgsToSchema(normalizedArgs, schema);
-  const errors = validateArgsAgainstSchema(coercedArgs, schema);
+  const issues = validateArgsAgainstSchema(coercedArgs, schema);
+  const errors = formatToolValidationIssues(issues);
+  const message = errors.length > 0
+    ? summarizeToolValidationIssues(issues)
+    : undefined;
   return {
     coercedArgs,
     validation: {
       valid: errors.length === 0,
       errors: errors.length > 0 ? errors : undefined,
+      ...(message
+        ? {
+          message,
+          failure: buildToolFailureMetadata(message, {
+            source: "validation",
+            kind: "invalid_args",
+            code: "tool_invalid_args",
+          }),
+        }
+        : {}),
     },
   };
 }

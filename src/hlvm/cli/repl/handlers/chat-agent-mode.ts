@@ -215,6 +215,7 @@ export async function handleAgentMode(
       permissionMode,
       noInput: false,
       signal,
+      temperature: body.temperature,
       toolAllowlist,
       toolDenylist: effectiveToolDenylist,
       workspace: workingDirectory,

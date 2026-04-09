@@ -608,7 +608,7 @@ Standard:
   Chromium source: Playwright CDN (same CDN Playwright uses internally)
 
 Bundled:
-  Sidecar includes hlvm-model.tar + hlvm-chromium.tar
+  Sidecar includes hlvm-model.tar + hlvm-chromium.tar.gz
   Both extracted locally, no downloads
 ```
 

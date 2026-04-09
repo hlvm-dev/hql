@@ -161,7 +161,7 @@ Deno.test("Item 1: LLMResponse reasoning field compiles and round-trips", () => 
 // What we need to verify: buildToolResultOutputs actually calls compressForLLM
 // and the compressed result reaches llmContent (what the LLM sees).
 
-Deno.test("Item 2: buildToolResultOutputs compresses large read_file result before truncation", () => {
+Deno.test("Item 2: buildToolResultOutputs compresses large read_file result before truncation", async () => {
   // Create a fake OrchestratorConfig with a mock context that records what it receives
   let truncateInput = "";
   const mockConfig = {
@@ -179,7 +179,7 @@ Deno.test("Item 2: buildToolResultOutputs compresses large read_file result befo
   const bigFileContent = lines.join("\n");
 
   // Call the real buildToolResultOutputs — this is the actual code path used by the orchestrator
-  const { llmContent } = buildToolResultOutputs(
+  const { llmContent } = await buildToolResultOutputs(
     "read_file",
     bigFileContent,
     mockConfig,
@@ -197,7 +197,7 @@ Deno.test("Item 2: buildToolResultOutputs compresses large read_file result befo
   assertEquals(truncateInput.length < bigFileContent.length, true);
 });
 
-Deno.test("Item 2: buildToolResultOutputs compresses large shell_exec result", () => {
+Deno.test("Item 2: buildToolResultOutputs compresses large shell_exec result", async () => {
   const mockConfig = {
     context: { truncateResult: (s: string) => s },
   } as unknown as OrchestratorConfig;
@@ -210,7 +210,7 @@ Deno.test("Item 2: buildToolResultOutputs compresses large shell_exec result", (
   for (let i = 0; i < 25; i++) lines.push(`tail ${i} ${pad}`);
   const bigOutput = lines.join("\n");
 
-  const { llmContent } = buildToolResultOutputs(
+  const { llmContent } = await buildToolResultOutputs(
     "shell_exec",
     bigOutput,
     mockConfig,
@@ -222,13 +222,17 @@ Deno.test("Item 2: buildToolResultOutputs compresses large shell_exec result", (
   assertEquals(llmContent.length < bigOutput.length, true);
 });
 
-Deno.test("Item 2: buildToolResultOutputs passes small results through unchanged", () => {
+Deno.test("Item 2: buildToolResultOutputs passes small results through unchanged", async () => {
   const mockConfig = {
     context: { truncateResult: (s: string) => s },
   } as unknown as OrchestratorConfig;
 
   const small = "File: foo.ts\nSize: 42 bytes\n\nconst x = 1;";
-  const { llmContent } = buildToolResultOutputs("read_file", small, mockConfig);
+  const { llmContent } = await buildToolResultOutputs(
+    "read_file",
+    small,
+    mockConfig,
+  );
 
   // Small results pass through compressForLLM unchanged. stringifyToolResult wraps in quotes.
   assertStringIncludes(llmContent, "File: foo.ts");

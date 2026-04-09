@@ -607,7 +607,8 @@ Reverted in commit `4c85023`.
 | `scripts/write-ai-engine-manifest.ts` | build | Generate manifest.json for embedded AI engine |
 | `scripts/write-ai-model-manifest.ts` | build-bundled | Generate manifest.json for embedded model |
 | `scripts/setup-bundled-model.sh` | build-bundled | Pull model for bundled build |
-| `scripts/upload-bundled.sh` | release-bundled | Upload bundled binary to HuggingFace |
+| `scripts/setup-bundled-chromium.sh` | build-bundled | Download Chromium via playwright-core for bundled build |
+| `scripts/upload-bundled.sh` | release-bundled | Upload sidecar tarballs (model + Chromium) to HuggingFace |
 | `scripts/build-stdlib.ts` | build | Transpile stdlib.hql → self-hosted.js |
 | `scripts/embed-packages.ts` | build | Bundle HLVM packages into binary resources |
 
@@ -639,7 +640,7 @@ embedding files but the binary crashes on load above ~2 GB.
  │  - Pull model via setup-bundled-model.sh                            │
  │  - Package model store into hlvm-model.tar (~8.9 GB)                │
  │  - Download Chromium via playwright-core for each platform          │
- │  - Package into hlvm-chromium.tar (~200 MB, platform-specific)      │
+ │  - Package into hlvm-chromium.tar.gz (~200 MB, platform-specific)      │
  └──────────────────────────────────┬──────────────────────────────────┘
                                     │
  ┌──────────────────────────────────▼──────────────────────────────────┐
@@ -652,12 +653,12 @@ embedding files but the binary crashes on load above ~2 GB.
 
  Hosted on:
    https://huggingface.co/HLVM/hlvm-releases/resolve/<tag>/hlvm-model.tar
-   https://huggingface.co/HLVM/hlvm-releases/resolve/<tag>/hlvm-chromium.tar
+   https://huggingface.co/HLVM/hlvm-releases/resolve/<tag>/hlvm-chromium.tar.gz
 
  Installed via:
    curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled
      → downloads standard binary from GitHub Releases
-     → downloads hlvm-model.tar + hlvm-chromium.tar from HuggingFace
+     → downloads hlvm-model.tar + hlvm-chromium.tar.gz from HuggingFace
      → bootstrap extracts tarballs, starts engine, verifies model + browser
 ```
 
@@ -758,7 +759,7 @@ Firebase custom headers (from `firebase.json`):
 
  HuggingFace — Bundled Sidecar (huggingface.co/HLVM/hlvm-releases):
  ├── hlvm-model.tar             ~8.9 GB  (platform-independent model store)
- ├── hlvm-chromium.tar          ~200 MB  (platform-specific Chromium browser)
+ ├── hlvm-chromium.tar.gz          ~200 MB  (platform-specific Chromium browser)
  └── checksums-bundled.sha256   ~1 KB
 
  User's machine after install (either mode):

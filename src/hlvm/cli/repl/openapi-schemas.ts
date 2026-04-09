@@ -260,18 +260,11 @@
  *         mode:
  *           type: string
  *           enum: [chat, eval, agent, claude-code-agent]
- *         session_id:
- *           type: string
- *           description: |
- *             Optional explicit session to reuse or create. Omit to use the
- *             daemon's active conversation, or combine with `stateless` to
- *             keep the request isolated from the active visible session.
  *         stateless:
  *           type: boolean
  *           description: |
  *             When true, run this request in a fresh hidden session without
- *             rebinding the daemon's active visible conversation unless an
- *             explicit `session_id` is provided.
+ *             rebinding the daemon's active visible conversation.
  *         messages:
  *           type: array
  *           description: |

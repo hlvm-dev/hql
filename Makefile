@@ -11,6 +11,7 @@ AI_ENGINE_DIR := resources/ai-engine
 AI_ENGINE_STAMP := $(AI_ENGINE_DIR)/.ollama-source
 AI_MODEL_DIR := resources/ai-model
 AI_MODEL_STAMP := $(AI_MODEL_DIR)/.model-source
+CHROMIUM_DIR := resources/ai-chromium
 COMPILE_SCRIPT := ./scripts/compile-hlvm.sh
 
 # Transpile stdlib.hql → self-hosted.js
@@ -184,13 +185,26 @@ package-bundled-model: setup-model
 	@echo "✅ Done! Sidecar: ./hlvm-model.tar"
 	@ls -lh hlvm-model.tar
 
-# Build standard binary + sidecar model for bundled distribution
-build-bundled: clean setup-ai setup-model stdlib embed-packages
-	@echo "🔨 Building HLVM binary + sidecar model..."
+# Setup Chromium for bundled build (download via playwright-core)
+setup-chromium:  ## Download Chromium for bundled build
+	@echo "📥 Setting up bundled Chromium..."
+	@./scripts/setup-bundled-chromium.sh
+
+# Package Chromium sidecar tarball
+package-bundled-chromium: setup-chromium  ## Package Chromium sidecar tarball
+	@echo "📦 Packaging sidecar Chromium tarball..."
+	@tar -czf hlvm-chromium.tar.gz -C $(CHROMIUM_DIR) .
+	@echo "✅ Done! Sidecar: ./hlvm-chromium.tar.gz"
+	@ls -lh hlvm-chromium.tar.gz
+
+# Build standard binary + sidecar model + sidecar Chromium for bundled distribution
+build-bundled: clean setup-ai setup-model setup-chromium stdlib embed-packages
+	@echo "🔨 Building HLVM binary + sidecar model + sidecar Chromium..."
 	@DENO_DIR=$$(mktemp -d) $(COMPILE_SCRIPT) --output $(BINARY)
 	@tar -cf hlvm-model.tar -C resources/ai-model .
-	@echo "✅ Done! Binary: ./$(BINARY) + Sidecar: ./hlvm-model.tar"
-	@ls -lh $(BINARY) hlvm-model.tar
+	@tar -czf hlvm-chromium.tar.gz -C $(CHROMIUM_DIR) .
+	@echo "✅ Done! Binary: ./$(BINARY) + Sidecars: ./hlvm-model.tar ./hlvm-chromium.tar.gz"
+	@ls -lh $(BINARY) hlvm-model.tar hlvm-chromium.tar.gz
 
 # Test AI features
 test-ai: build-ai
@@ -223,10 +237,12 @@ help:
 	@echo "  make build-ai     - Compatibility alias for 'make'"
 	@echo "  make test-ai      - Test AI features"
 	@echo ""
-	@echo "Bundled model (sidecar model for offline install):"
-	@echo "  make setup-model          - Pull gemma4:e4b into resources/ai-model/"
-	@echo "  make package-bundled-model - Create sidecar hlvm-model.tar"
-	@echo "  make build-bundled        - Build binary + sidecar model"
+	@echo "Bundled (sidecar tarballs for offline install):"
+	@echo "  make setup-model              - Pull gemma4:e4b into resources/ai-model/"
+	@echo "  make package-bundled-model    - Create sidecar hlvm-model.tar"
+	@echo "  make setup-chromium           - Download Chromium into resources/ai-chromium/"
+	@echo "  make package-bundled-chromium - Create sidecar hlvm-chromium.tar.gz"
+	@echo "  make build-bundled            - Build binary + sidecar model + sidecar Chromium"
 	@echo ""
 	@echo "Platform-specific builds:"
 	@echo "  make build-mac-intel"
@@ -236,4 +252,5 @@ help:
 
 .PHONY: stdlib embed-packages openapi build build-fast install repl fast ink test all clean help
 .PHONY: build-mac-intel build-mac-arm build-linux build-windows
-.PHONY: build-ai setup-ai test-ai setup-model package-bundled-model build-bundled
+.PHONY: build-ai setup-ai test-ai setup-model package-bundled-model
+.PHONY: setup-chromium package-bundled-chromium build-bundled

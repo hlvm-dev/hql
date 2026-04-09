@@ -6,4 +6,12 @@
 export { PLAYWRIGHT_TOOLS } from "./tools.ts";
 
 // Browser lifecycle
-export { closeBrowser, isBrowserActive, isHeaded, getOrCreatePage, promoteToHeaded } from "./browser-manager.ts";
+export {
+  _resetBrowserStateForTests,
+  _testOnly,
+  closeBrowser,
+  getOrCreatePage,
+  isBrowserActive,
+  isHeaded,
+  promoteToHeaded,
+} from "./browser-manager.ts";

@@ -14,6 +14,7 @@ import {
 import { ValidationError } from "../../../src/common/error.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { generateUUID } from "../../../src/common/utils.ts";
+import { resolveDeclaredToolProfileFilter } from "../../../src/hlvm/agent/tool-profiles.ts";
 
 async function withEngineOverride(
   engine: AgentEngine,
@@ -313,6 +314,76 @@ Deno.test({
     } finally {
       resetAgentEngine();
       await disposeAllSessions();
+      await platform.fs.remove(workspace, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "agent-runner: browser requests widen standard-tier baseline to browser_safe",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const platform = getPlatform();
+    const workspace = platform.path.join(
+      platform.process.cwd(),
+      ".tmp",
+      `hlvm-agent-browser-domain-${generateUUID()}`,
+    );
+    await platform.fs.mkdir(workspace, { recursive: true });
+
+    const engine: AgentEngine = {
+      createLLM: () => () => Promise.resolve({ content: "done", toolCalls: [] }),
+      createSummarizer: () => () => Promise.resolve(""),
+    };
+
+    try {
+      await withEngineOverride(engine, async () => {
+        const reusableSession = await createReusableSession(
+          workspace,
+          "ollama/test-model",
+          {
+            modelInfo: {
+              name: "test-model",
+              capabilities: ["chat", "tools", "vision"],
+            },
+          },
+        );
+
+        // deno-lint-ignore no-explicit-any
+        const result: any = await runAgentQuery({
+          query: "Open https://example.com with pw_goto and tell me the title",
+          model: "ollama/test-model",
+          modelInfo: {
+            name: "test-model",
+            capabilities: ["chat", "tools", "vision"],
+          },
+          workspace,
+          reusableSession,
+          skipSessionHistory: true,
+          retainSessionForReuse: true,
+          callbacks: {},
+        });
+
+        const liveSession = result.liveSession;
+        assertExists(liveSession);
+        assertEquals(
+          liveSession.toolProfileState?.layers.domain?.profileId,
+          "browser_safe",
+        );
+        const allowlist = liveSession.llmConfig?.toolAllowlist ?? [];
+        const browserSafe =
+          resolveDeclaredToolProfileFilter("browser_safe").allowlist ?? [];
+        assertEquals(allowlist.includes("pw_goto"), true);
+        assertEquals(allowlist.includes("pw_promote"), false);
+        assertEquals(
+          allowlist.some((name: string) => name.startsWith("cu_")),
+          false,
+        );
+        assertEquals(browserSafe.every((name) => allowlist.includes(name)), true);
+      });
+    } finally {
       await platform.fs.remove(workspace, { recursive: true });
     }
   },

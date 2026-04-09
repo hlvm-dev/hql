@@ -52,6 +52,7 @@
     "npm:ms@2.1.3": "2.1.3",
     "npm:officeparser@6.0.4": "6.0.4",
     "npm:ollama-ai-provider-v2@3": "3.4.0_ai@6.0.116__zod@4.3.6_zod@4.3.6",
+    "npm:playwright-core@*": "1.52.0",
     "npm:playwright-core@1.52.0": "1.52.0",
     "npm:react@18": "18.3.1",
     "npm:shell-quote@^1.8.0": "1.8.3",
