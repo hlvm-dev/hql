@@ -4,12 +4,20 @@ import {
   type ArchiveFilesArgs,
   editFile,
   type EditFileArgs,
+  emptyTrash,
+  type EmptyTrashArgs,
+  FILE_TOOLS,
   listFiles,
   type ListFilesArgs,
+  moveToTrash,
+  type MoveToTrashArgs,
   openPath,
   type OpenPathArgs,
   readFile,
   type ReadFileArgs,
+  revealPath,
+  type RevealPathArgs,
+  setFileToolRuntimeForTest,
   writeFile,
   type WriteFileArgs,
 } from "../../../src/hlvm/agent/tools/file-tools.ts";
@@ -386,6 +394,171 @@ Deno.test("file tools: open_path tolerates Unicode whitespace variants in existi
       setPlatform(originalPlatform);
     }
   });
+});
+
+Deno.test("file tools: move_to_trash validates allowed roots and uses the trash runtime", async () => {
+  await withWorkspace(async () => {
+    const globalRoot = await platform().fs.makeTempDir({
+      prefix: "hlvm-trash-global-",
+    });
+    const globalFile = `${globalRoot}/outside.txt`;
+    const workspaceFile = `${TEST_WORKSPACE}/trash-me.txt`;
+    const capturedCalls: string[][] = [];
+
+    await writeWorkspaceFile("trash-me.txt", "remove me");
+    await platform().fs.writeTextFile(globalFile, "outside");
+    setFileToolRuntimeForTest({
+      moveToTrash: async (paths: string[]) => {
+        capturedCalls.push([...paths]);
+      },
+    });
+
+    try {
+      const policy: AgentPolicy = {
+        version: 1,
+        pathRules: { roots: [globalRoot] },
+      };
+
+      const result = await moveToTrash(
+        { paths: ["trash-me.txt", globalFile] } as MoveToTrashArgs,
+        TEST_WORKSPACE,
+        { policy },
+      );
+
+      assertEquals(result.success, true);
+      assertEquals(result.count, 2);
+      assertEquals(capturedCalls.length, 1);
+      assertEquals(capturedCalls[0], [workspaceFile, globalFile]);
+      assertEquals(result.trashedPaths, [workspaceFile, globalFile]);
+    } finally {
+      setFileToolRuntimeForTest(null);
+      await platform().fs.remove(globalRoot, { recursive: true }).catch(
+        () => {},
+      );
+    }
+  });
+});
+
+Deno.test("file tools: reveal_path handles macOS exact reveal, Windows quiet explorer launches, and Linux fallback", async () => {
+  await withWorkspace(async () => {
+    await writeWorkspaceFile("notes.txt", "hello");
+    await writeWorkspaceFile("notes with spaces.txt", "hello");
+    const targetPath = `${TEST_WORKSPACE}/notes.txt`;
+    const spacedTargetPath = `${TEST_WORKSPACE}/notes with spaces.txt`;
+    const originalPlatform = getPlatform();
+    const capturedCommands: string[][] = [];
+    const openedUrls: string[] = [];
+
+    setPlatform({
+      ...originalPlatform,
+      build: { ...originalPlatform.build, os: "darwin" },
+      command: {
+        ...originalPlatform.command,
+        output: async (options) => {
+          capturedCommands.push([...options.cmd]);
+          return {
+            code: 0,
+            success: true,
+            stdout: new Uint8Array(),
+            stderr: new Uint8Array(),
+          };
+        },
+      },
+      openUrl: async (url: string) => {
+        openedUrls.push(url);
+      },
+    });
+
+    try {
+      const exact = await revealPath(
+        { path: "notes.txt" } as RevealPathArgs,
+        TEST_WORKSPACE,
+      );
+      assertEquals(exact.success, true);
+      assertEquals(capturedCommands, [["open", "-R", targetPath]]);
+      assertEquals(openedUrls.length, 0);
+      assertEquals(exact.exact, true);
+
+      capturedCommands.length = 0;
+      openedUrls.length = 0;
+      setPlatform({
+        ...getPlatform(),
+        build: { ...getPlatform().build, os: "windows" },
+        command: {
+          ...getPlatform().command,
+          output: async (options) => {
+            capturedCommands.push([...options.cmd]);
+            return {
+              code: 1,
+              success: false,
+              stdout: new Uint8Array(),
+              stderr: new Uint8Array(),
+            };
+          },
+        },
+      });
+
+      const windows = await revealPath(
+        { path: "notes with spaces.txt" } as RevealPathArgs,
+        TEST_WORKSPACE,
+      );
+      assertEquals(windows.success, true);
+      assertEquals(capturedCommands, [[
+        "explorer.exe",
+        `/select,"${spacedTargetPath.replaceAll("/", "\\")}"`,
+      ]]);
+      assertEquals(openedUrls.length, 0);
+      assertEquals(windows.exact, true);
+
+      capturedCommands.length = 0;
+      setPlatform({
+        ...getPlatform(),
+        build: { ...getPlatform().build, os: "linux" },
+      });
+
+      const fallback = await revealPath(
+        { path: "notes.txt" } as RevealPathArgs,
+        TEST_WORKSPACE,
+      );
+      assertEquals(fallback.success, true);
+      assertEquals(capturedCommands.length, 0);
+      assertEquals(openedUrls, [TEST_WORKSPACE]);
+      assertEquals(fallback.exact, false);
+      assertEquals(fallback.fallbackPath, TEST_WORKSPACE);
+    } finally {
+      setPlatform(originalPlatform);
+    }
+  });
+});
+
+Deno.test("file tools: empty_trash uses destructive safety and the trash runtime", async () => {
+  await withWorkspace(async () => {
+    let emptied = 0;
+    setFileToolRuntimeForTest({
+      emptyTrash: async () => {
+        emptied += 1;
+      },
+    });
+
+    try {
+      const result = await emptyTrash(
+        {} as EmptyTrashArgs,
+        TEST_WORKSPACE,
+      );
+
+      assertEquals(result.success, true);
+      assertEquals(emptied, 1);
+      assertEquals(FILE_TOOLS.move_to_trash.safetyLevel, "L1");
+      assertEquals(FILE_TOOLS.empty_trash.safetyLevel, "L2");
+    } finally {
+      setFileToolRuntimeForTest(null);
+    }
+  });
+});
+
+Deno.test("file tools: descriptions frame general local text work", () => {
+  assertStringIncludes(FILE_TOOLS.read_file.description, "notes");
+  assertStringIncludes(FILE_TOOLS.edit_file.description, "notes");
 });
 
 Deno.test("file tools: read_file records full-view state when a file cache is supplied", async () => {

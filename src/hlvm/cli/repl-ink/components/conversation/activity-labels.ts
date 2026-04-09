@@ -6,6 +6,8 @@ const PATH_LIKE_TOOL_NAMES = new Set([
   "write_file",
   "edit_file",
   "open_path",
+  "reveal_path",
+  "move_to_trash",
 ]);
 
 /**

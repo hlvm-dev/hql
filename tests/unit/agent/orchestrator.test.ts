@@ -133,7 +133,13 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     lastTeamSummarySignature: "",
     lastToolNames: [],
     loopRecoveryStep: 0,
-    temporaryToolDenylist: new Map(),
+    playwright: {
+      repeatFailureCount: 0,
+      repeatVisualLoopCount: 0,
+      notifiedVisualLoop: false,
+      finalAnswerRetries: 0,
+      temporaryToolDenylist: new Map(),
+    },
     continuedThisTurn: false,
     continuationCount: 0,
     ...overrides,
@@ -217,9 +223,8 @@ Deno.test({
       toolProfileState,
     };
     syncEffectiveToolFilterToConfig(config, toolProfileState);
-    const state = makeLoopState({
-      temporaryToolDenylist: new Map([["pw_click", 2]]),
-    });
+    const state = makeLoopState();
+    state.playwright.temporaryToolDenylist.set("pw_click", 2);
 
     await applyAdaptiveToolPhase(
       state,
@@ -230,7 +235,7 @@ Deno.test({
     const isToolAllowed = buildIsToolAllowed(config);
     assertEquals(isToolAllowed("pw_click"), false);
     assertEquals(isToolAllowed("pw_links"), true);
-    assertEquals(state.temporaryToolDenylist.get("pw_click"), 1);
+    assertEquals(state.playwright.temporaryToolDenylist.get("pw_click"), 1);
   },
 });
 

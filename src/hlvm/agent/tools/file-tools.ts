@@ -7,7 +7,10 @@
  * 3. edit_file - Edit file using find/replace
  * 4. list_files - List directory contents
  * 5. open_path - Open file/folder in the system default app
- * 6. archive_files - Create zip/tar archives from files or folders
+ * 6. move_to_trash - Move files/folders to the OS trash
+ * 7. reveal_path - Reveal a path in the system file manager
+ * 8. empty_trash - Empty the OS trash
+ * 9. archive_files - Create zip/tar archives from files or folders
  *
  * All operations:
  * - Use path sandboxing (validatePath)
@@ -16,6 +19,8 @@
  * - Return structured results
  */
 
+import emptyTrashPackage from "npm:empty-trash@4.0.0";
+import trashPackage from "npm:trash@10.1.1";
 import { getPlatform } from "../../../platform/platform.ts";
 import { isPathWithinRoot, SecurityError } from "../security/path-sandbox.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
@@ -124,6 +129,39 @@ interface OpenPathResult extends FileOperationResult {
   openedPath?: string;
 }
 
+/** Arguments for move_to_trash tool */
+export interface MoveToTrashArgs {
+  paths: string[];
+}
+
+/** Result of move_to_trash operation */
+interface MoveToTrashResult extends FileOperationResult {
+  trashedPaths?: string[];
+  count?: number;
+}
+
+/** Arguments for reveal_path tool */
+export interface RevealPathArgs {
+  path: string;
+}
+
+/** Result of reveal_path operation */
+interface RevealPathResult extends FileOperationResult {
+  revealedPath?: string;
+  fallbackPath?: string;
+  exact?: boolean;
+}
+
+/** Arguments for empty_trash tool */
+export interface EmptyTrashArgs {
+  _?: never;
+}
+
+/** Result of empty_trash operation */
+interface EmptyTrashResult extends FileOperationResult {
+  emptied?: boolean;
+}
+
 /** Arguments for archive_files tool */
 export interface ArchiveFilesArgs {
   paths: string[];
@@ -140,6 +178,26 @@ interface ArchiveFilesResult extends FileOperationResult {
   stdout?: string;
   stderr?: string;
   exitCode?: number;
+}
+
+interface FileToolRuntime {
+  moveToTrash(paths: string[]): Promise<void>;
+  emptyTrash(): Promise<void>;
+}
+
+const DEFAULT_FILE_TOOL_RUNTIME: FileToolRuntime = {
+  moveToTrash: (paths: string[]) => trashPackage(paths, { glob: false }),
+  emptyTrash: () => emptyTrashPackage(),
+};
+
+let fileToolRuntime: FileToolRuntime = DEFAULT_FILE_TOOL_RUNTIME;
+
+export function setFileToolRuntimeForTest(
+  runtime: Partial<FileToolRuntime> | null,
+): void {
+  fileToolRuntime = runtime
+    ? { ...DEFAULT_FILE_TOOL_RUNTIME, ...runtime }
+    : DEFAULT_FILE_TOOL_RUNTIME;
 }
 
 function normalizeListFilesArgs(args: ListFilesArgs): ListFilesArgs {
@@ -795,7 +853,183 @@ function normalizeFilenameWhitespace(value: string): string {
 }
 
 // ============================================================
-// Tool 6: archive_files
+// Tool 6: move_to_trash
+// ============================================================
+
+/**
+ * Move files or directories to the OS trash / recycle bin.
+ */
+export async function moveToTrash(
+  args: MoveToTrashArgs,
+  workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<MoveToTrashResult> {
+  try {
+    throwIfAborted(options?.signal);
+    if (!Array.isArray(args.paths) || args.paths.length === 0) {
+      return failTool("'paths' must be a non-empty array");
+    }
+
+    const platform = getPlatform();
+    const resolvedPaths: string[] = [];
+    const seen = new Set<string>();
+
+    for (const rawPath of args.paths) {
+      if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
+        return failTool("Each path in 'paths' must be a non-empty string");
+      }
+      const validPath = await resolveToolPath(
+        rawPath,
+        workspace,
+        options?.policy ?? null,
+      );
+      const trashablePath = await resolveOpenPathAlias(validPath);
+      const stat = await platform.fs.lstat(trashablePath);
+      if (stat.isSymlink) {
+        return failTool(`Refusing to trash symlink path: ${rawPath}`);
+      }
+      if (seen.has(trashablePath)) {
+        continue;
+      }
+      seen.add(trashablePath);
+      resolvedPaths.push(trashablePath);
+    }
+
+    await fileToolRuntime.moveToTrash(resolvedPaths);
+    return okTool({
+      trashedPaths: resolvedPaths,
+      count: resolvedPaths.length,
+      message: `Moved ${resolvedPaths.length} item${
+        resolvedPaths.length === 1 ? "" : "s"
+      } to Trash`,
+    });
+  } catch (error) {
+    const { message } = formatToolError("Failed to move items to Trash", error);
+    return failTool(message);
+  }
+}
+
+// ============================================================
+// Tool 7: reveal_path
+// ============================================================
+
+/**
+ * Reveal a path in the system file manager, selecting the exact target when supported.
+ */
+export async function revealPath(
+  args: RevealPathArgs,
+  workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<RevealPathResult> {
+  try {
+    throwIfAborted(options?.signal);
+    const platform = getPlatform();
+    const validPath = await resolveToolPath(
+      args.path,
+      workspace,
+      options?.policy ?? null,
+    );
+    const revealablePath = await resolveOpenPathAlias(validPath);
+    const stat = await platform.fs.lstat(revealablePath);
+    if (stat.isSymlink) {
+      return failTool(`Refusing to reveal symlink path: ${args.path}`);
+    }
+
+    const fallbackPath = await revealResolvedPath(revealablePath);
+    const exact = fallbackPath === undefined;
+    return okTool({
+      revealedPath: revealablePath,
+      fallbackPath,
+      exact,
+      message: exact
+        ? `Revealed ${args.path}`
+        : `Opened parent directory for ${args.path}`,
+    });
+  } catch (error) {
+    const { message } = formatToolError("Failed to reveal path", error);
+    return failTool(message);
+  }
+}
+
+function formatCommandOutput(
+  result: { stdout: Uint8Array; stderr: Uint8Array; code: number },
+  decoder: TextDecoder,
+): string {
+  return decoder.decode(result.stderr).trim() ||
+    decoder.decode(result.stdout).trim();
+}
+
+function formatWindowsSelectArg(path: string): string {
+  const normalized = path.replaceAll("/", "\\");
+  return `/select,"${normalized}"`;
+}
+
+async function revealResolvedPath(path: string): Promise<string | undefined> {
+  const platform = getPlatform();
+  const decoder = new TextDecoder();
+
+  if (platform.build.os === "darwin") {
+    const result = await platform.command.output({
+      cmd: ["open", "-R", path],
+    });
+    if (!result.success) {
+      const output = formatCommandOutput(result, decoder);
+      throw new Error(
+        output ||
+          `open -R failed with code ${result.code}`,
+      );
+    }
+    return undefined;
+  }
+
+  if (platform.build.os === "windows") {
+    const result = await platform.command.output({
+      cmd: ["explorer.exe", formatWindowsSelectArg(path)],
+    });
+    const output = formatCommandOutput(result, decoder);
+    // explorer.exe frequently returns a non-zero exit code even when the
+    // selection succeeds, so treat quiet launches as success.
+    if (!result.success && output !== "") {
+      throw new Error(
+        output ||
+          `explorer.exe failed with code ${result.code}`,
+      );
+    }
+    return undefined;
+  }
+
+  const parentPath = platform.path.dirname(path);
+  await platform.openUrl(parentPath);
+  return parentPath;
+}
+
+// ============================================================
+// Tool 8: empty_trash
+// ============================================================
+
+/**
+ * Empty the OS trash / recycle bin.
+ */
+export async function emptyTrash(
+  _args: EmptyTrashArgs,
+  _workspace: string,
+  options?: ToolExecutionOptions,
+): Promise<EmptyTrashResult> {
+  try {
+    throwIfAborted(options?.signal);
+    await fileToolRuntime.emptyTrash();
+    return okTool({
+      emptied: true,
+      message: "Emptied Trash",
+    });
+  } catch (error) {
+    const { message } = formatToolError("Failed to empty Trash", error);
+    return failTool(message);
+  }
+}
+
+// ============================================================
+// Tool 9: archive_files
 // ============================================================
 
 /**
@@ -1056,6 +1290,78 @@ function formatOpenPathResult(
   };
 }
 
+function formatMoveToTrashResult(
+  result: unknown,
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
+  if (!isObjectValue(result) || result.success !== true) return null;
+  const trashedPaths = Array.isArray(result.trashedPaths)
+    ? result.trashedPaths.filter((value): value is string =>
+      typeof value === "string" && value.trim().length > 0
+    )
+    : [];
+  const message = typeof result.message === "string" && result.message.trim()
+    ? result.message
+    : `Moved ${trashedPaths.length} item${
+      trashedPaths.length === 1 ? "" : "s"
+    } to Trash`;
+  const detail = trashedPaths.length > 0
+    ? `${message}\n${trashedPaths.join("\n")}`
+    : message;
+  return {
+    summaryDisplay: message,
+    returnDisplay: detail,
+    llmContent:
+      `${message}. The trash action already succeeded. Do not retry it unless the user asks again.`,
+  };
+}
+
+function formatRevealPathResult(
+  result: unknown,
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
+  if (!isObjectValue(result) || result.success !== true) return null;
+  const revealedPath = typeof result.revealedPath === "string"
+    ? result.revealedPath
+    : undefined;
+  if (!revealedPath) return null;
+  const fallbackPath = typeof result.fallbackPath === "string"
+    ? result.fallbackPath
+    : undefined;
+  const message = typeof result.message === "string" && result.message.trim()
+    ? result.message
+    : `Revealed ${revealedPath}`;
+  const detailLines = [message, `Target: ${revealedPath}`];
+  if (fallbackPath) {
+    detailLines.push(`Opened: ${fallbackPath}`);
+  }
+  return {
+    summaryDisplay: message,
+    returnDisplay: detailLines.join("\n"),
+    llmContent:
+      `${message}. The reveal action already succeeded. Do not retry it unless the user asks again.`,
+  };
+}
+
+function formatEmptyTrashResult(
+  result: unknown,
+):
+  | { summaryDisplay: string; returnDisplay: string; llmContent?: string }
+  | null {
+  if (!isObjectValue(result) || result.success !== true) return null;
+  const message = typeof result.message === "string" && result.message.trim()
+    ? result.message
+    : "Emptied Trash";
+  return {
+    summaryDisplay: message,
+    returnDisplay: message,
+    llmContent:
+      `${message}. The trash has already been emptied. Do not retry unless the user asks again.`,
+  };
+}
+
 // ============================================================
 // Tool Registry
 // ============================================================
@@ -1068,7 +1374,7 @@ export const FILE_TOOLS = {
   read_file: {
     fn: readFile,
     description:
-      "Read file contents. Use this for ALL file reading — never use shell_exec with cat/head/tail.",
+      "Read file contents for code, notes, configs, and documents. Use this for ALL file reading — never use shell_exec with cat/head/tail.",
     category: "read",
     replaces: "cat/head/tail",
     safetyLevel: "L0",
@@ -1091,7 +1397,8 @@ export const FILE_TOOLS = {
   },
   write_file: {
     fn: writeFile,
-    description: "Write content to file",
+    description:
+      "Write or overwrite a text file. Use this for notes, configs, generated content, and other direct file output.",
     category: "write",
     safetyLevel: "L1",
     args: {
@@ -1110,7 +1417,7 @@ export const FILE_TOOLS = {
   edit_file: {
     fn: editFile,
     description:
-      "Edit file using find/replace. Use this instead of shell_exec with sed/awk.",
+      "Edit a text file using find/replace. Use this for code, notes, configs, and other text updates instead of shell_exec with sed/awk.",
     category: "write",
     replaces: "sed/awk",
     safetyLevel: "L1",
@@ -1193,6 +1500,67 @@ Examples:
       message: "string - Human-readable result message",
     },
     safety: "Read-only desktop action: opens path in default app.",
+  },
+  move_to_trash: {
+    fn: moveToTrash,
+    description:
+      "Move files or folders to the OS Trash/Recycle Bin. Prefer this over shell deletion for reversible cleanup tasks.",
+    category: "write",
+    safetyLevel: "L1",
+    formatResult: formatMoveToTrashResult,
+    args: {
+      paths:
+        "string[] - Files or folders to move to Trash (relative to workspace or absolute if allowed by policy)",
+    },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      trashedPaths: "string[] - Resolved paths moved to Trash (on success)",
+      count: "number - Number of items moved (on success)",
+      message: "string - Human-readable result message",
+    },
+    safety:
+      "Reversible cleanup action: moves items to the OS trash / recycle bin and requires one-time confirmation.",
+  },
+  reveal_path: {
+    fn: revealPath,
+    description:
+      "Reveal a file or folder in the system file manager. Prefer this when the user wants to show or select an exact path instead of opening it.",
+    category: "meta",
+    replaces: "open -R/explorer /select",
+    safetyLevel: "L0",
+    terminalOnSuccess: true,
+    formatResult: formatRevealPathResult,
+    args: {
+      path:
+        "string - Path to reveal in the file manager (for example '~/Downloads/file.pdf' or './notes.txt')",
+    },
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      revealedPath: "string - Resolved target path (on success)",
+      fallbackPath:
+        "string (optional) - Parent directory opened when exact reveal is unavailable",
+      exact:
+        "boolean - Whether the file manager revealed the exact target rather than a fallback directory",
+      message: "string - Human-readable result message",
+    },
+    safety:
+      "Read-only desktop action: shows a target in the system file manager without modifying it.",
+  },
+  empty_trash: {
+    fn: emptyTrash,
+    description:
+      "Empty the OS Trash/Recycle Bin. Use this only when the user explicitly wants permanent deletion of trashed items.",
+    category: "write",
+    safetyLevel: "L2",
+    formatResult: formatEmptyTrashResult,
+    args: {},
+    returns: {
+      success: "boolean - Whether the operation succeeded",
+      emptied: "boolean - True when the trash was emptied",
+      message: "string - Human-readable result message",
+    },
+    safety:
+      "Permanent deletion: empties the OS trash / recycle bin and always requires confirmation.",
   },
   archive_files: {
     fn: archiveFiles,

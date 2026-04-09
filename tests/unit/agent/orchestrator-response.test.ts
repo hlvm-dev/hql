@@ -44,6 +44,60 @@ Deno.test("handleTextOnlyResponse retries when a model emits a plain-text functi
   );
 });
 
+Deno.test("handleTextOnlyResponse retries when a model emits XML-style tool-call text", () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  const responseText = `<function_calls>
+<invoke name="web_fetch">
+<parameter name="url">https://deno.com</parameter>
+</invoke>
+</function_calls>`;
+
+  const result = handleTextOnlyResponse(
+    { content: responseText, toolCalls: [] },
+    responseText,
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "continue");
+  assertStringIncludes(
+    config.context.getMessages()[0]?.content ?? "",
+    "Native tool calling required",
+  );
+});
+
+Deno.test("handleTextOnlyResponse retries when a model emits JSON-style function_calls text", () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  const responseText = `<function_calls>
+[{"tool":"web_fetch","url":"https://deno.com"}]
+</function_calls>`;
+
+  const result = handleTextOnlyResponse(
+    { content: responseText, toolCalls: [] },
+    responseText,
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "continue");
+  assertStringIncludes(
+    config.context.getMessages()[0]?.content ?? "",
+    "Native tool calling required",
+  );
+});
+
 Deno.test("handleTextOnlyResponse repairs a locally executable plain-text function-style tool call after retry budget is exhausted", () => {
   const config: OrchestratorConfig = {
     workspace: "/tmp",
@@ -97,6 +151,68 @@ Deno.test("handleFinalResponse retries when a post-tool answer contains a plain-
   assertEquals(messages.length, 1);
   assertStringIncludes(
     messages[0]?.content ?? "",
+    "Do not output tool call JSON",
+  );
+});
+
+Deno.test("handleFinalResponse retries when a post-tool answer contains XML-style tool-call text", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.toolUses = [{ toolName: "search_web", result: "ok" }];
+  const responseText = `<function_calls>
+<invoke name="web_fetch">
+<parameter name="url">https://deno.com</parameter>
+</invoke>
+</function_calls>`;
+
+  const result = await handleFinalResponse(
+    responseText,
+    {
+      toolCallsMade: 0,
+      finalResponse: responseText,
+    },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "continue");
+  assertStringIncludes(
+    config.context.getMessages()[0]?.content ?? "",
+    "Do not output tool call JSON",
+  );
+});
+
+Deno.test("handleFinalResponse retries when a post-tool answer contains JSON-style function_calls text", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.toolUses = [{ toolName: "search_web", result: "ok" }];
+  const responseText = `<function_calls>
+[{"tool":"web_fetch","url":"https://deno.com"}]
+</function_calls>`;
+
+  const result = await handleFinalResponse(
+    responseText,
+    {
+      toolCallsMade: 0,
+      finalResponse: responseText,
+    },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "continue");
+  assertStringIncludes(
+    config.context.getMessages()[0]?.content ?? "",
     "Do not output tool call JSON",
   );
 });
@@ -366,19 +482,19 @@ Deno.test("handlePostToolExecution adds browser-specific recovery guidance for r
   assertStringIncludes(recoveryMsg, "[Runtime Directive]");
   assert(
     recoveryMsg.includes(
-      "Repeated Playwright failure: selector or timeout mismatch.",
+      "Repeated Playwright failure: structural mismatch with no visual/native blocker.",
     ) ||
       recoveryMsg.includes(
-        "Repeated Playwright failure: visibility or layout blocker.",
+        "Repeated Playwright failure: visibility or native blocker with no better PW-only recovery path.",
       ) ||
       recoveryMsg.includes(
-        "Repeated Playwright failure: browser strategy mismatch.",
+        "Hybrid browser mode is already available.",
       ),
     `Expected browser recovery message, got: ${recoveryMsg.slice(0, 160)}`,
   );
 });
 
-Deno.test("handlePostToolExecution promotes browser_safe to browser_hybrid on repeated structured visual Playwright failures", async () => {
+Deno.test("handlePostToolExecution keeps browser_safe and recommends pw_goto when structured PW-only recovery exists", async () => {
   const config: OrchestratorConfig = {
     workspace: "/tmp",
     context: new ContextManager(),
@@ -416,6 +532,74 @@ Deno.test("handlePostToolExecution promotes browser_safe to browser_hybrid on re
     toolBytes: 0,
   };
 
+  const first = await handlePostToolExecution(
+    repeatedFailure,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+
+  assertEquals(first.action, "continue");
+  assertEquals(
+    config.toolProfileState?.layers.domain?.profileId,
+    "browser_safe",
+  );
+  assertEquals(state.playwright.temporaryToolDenylist.get("pw_click"), 2);
+  const recoveryMsg = config.context.getMessages().at(-1)?.content ?? "";
+  assertStringIncludes(recoveryMsg, "[Runtime Directive]");
+  assertStringIncludes(
+    recoveryMsg,
+    "Playwright found a deterministic PW-only recovery path.",
+  );
+  assertStringIncludes(
+    recoveryMsg,
+    "https://github.com/denoland/deno/issues",
+  );
+  assertStringIncludes(recoveryMsg, "Use pw_goto with that URL");
+  assertStringIncludes(
+    recoveryMsg,
+    "pw_click is temporarily blocked for the next 2 turns.",
+  );
+});
+
+Deno.test("handlePostToolExecution promotes browser_safe to browser_hybrid on repeated structured visual failures with no PW-only alternative", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    toolProfileState: createToolProfileState({
+      domain: { slot: "domain", profileId: "browser_safe" },
+    }),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  const repeatedFailure = {
+    toolCallsMade: 1,
+    results: [{
+      success: false,
+      error: "Click failed: element is not visible",
+      failure: {
+        source: "tool",
+        kind: "timeout",
+        retryable: true,
+        code: "pw_element_not_visible",
+        facts: {
+          visualBlocker: true,
+          visualReason: "not_visible",
+          selector: "text=Issues",
+          interaction: "click",
+        },
+      } satisfies ToolFailureMetadata,
+    }],
+    toolCalls: [{
+      id: "pw-visual",
+      toolName: "pw_click",
+      args: { selector: "text=Issues" },
+    }],
+    toolUses: [],
+    toolBytes: 0,
+  };
+
   await handlePostToolExecution(
     repeatedFailure,
     state,
@@ -437,28 +621,18 @@ Deno.test("handlePostToolExecution promotes browser_safe to browser_hybrid on re
     config.toolProfileState?.layers.domain?.profileId,
     "browser_hybrid",
   );
-  assertEquals(state.temporaryToolDenylist.get("pw_click"), 2);
+  assertEquals(state.playwright.temporaryToolDenylist.get("pw_click"), 2);
   const recoveryMsg = config.context.getMessages().at(-1)?.content ?? "";
   assertStringIncludes(recoveryMsg, "[Runtime Directive]");
   assertStringIncludes(
     recoveryMsg,
-    "Repeated Playwright failure: visibility or layout blocker.",
+    "Hybrid browser mode is now available.",
   );
-  assertStringIncludes(
-    recoveryMsg,
-    "https://github.com/denoland/deno/issues",
-  );
-  assertStringIncludes(recoveryMsg, "Use pw_goto with that URL");
-  assertStringIncludes(recoveryMsg, "Hybrid browser mode is available.");
   assertStringIncludes(recoveryMsg, "pw_promote");
   assertStringIncludes(recoveryMsg, "cu_*");
-  assertStringIncludes(
-    recoveryMsg,
-    "pw_click is temporarily blocked for the next 2 turns.",
-  );
 });
 
-Deno.test("handlePostToolExecution tells the model to follow navigatedTo for repeated pw_download_navigated failures", async () => {
+Deno.test("handlePostToolExecution tells the model to follow navigatedTo for pw_download_navigated failures without promoting hybrid", async () => {
   const config: OrchestratorConfig = {
     workspace: "/tmp",
     context: new ContextManager(),
@@ -507,21 +681,14 @@ Deno.test("handlePostToolExecution tells the model to follow navigatedTo for rep
     async () => ({ content: "", toolCalls: [] }),
   );
 
-  const second = await handlePostToolExecution(
-    repeatedFailure,
-    state,
-    lc,
-    config,
-    async () => ({ content: "", toolCalls: [] }),
-  );
-  assertEquals(second.action, "continue");
-  assertEquals(state.temporaryToolDenylist.get("pw_download"), 2);
-  const navigatedMsg = config.context.getMessages().at(-1)?.content ?? "";
-  assertStringIncludes(navigatedMsg, "[Runtime Directive]");
+  const firstMessage = config.context.getMessages().at(-1)?.content ?? "";
+  assertStringIncludes(firstMessage, "[Runtime Directive]");
   assertStringIncludes(
-    navigatedMsg,
-    "Repeated Playwright failure: the download trigger navigated instead of downloading.",
+    firstMessage,
+    "Playwright found a deterministic PW-only recovery path for the download flow.",
   );
+  assertEquals(state.playwright.temporaryToolDenylist.get("pw_download"), 2);
+  const navigatedMsg = config.context.getMessages().at(-1)?.content ?? "";
   assertStringIncludes(
     navigatedMsg,
     "https://python.org/downloads/release/python-3144/",
@@ -533,6 +700,134 @@ Deno.test("handlePostToolExecution tells the model to follow navigatedTo for rep
   assertEquals(
     config.toolProfileState?.layers.domain?.profileId,
     "browser_safe",
+  );
+});
+
+Deno.test("handleFinalResponse retries browser download answers that omit the artifact details", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    currentUserRequest:
+      "Download the latest Python macOS installer from python.org and tell me the filename.",
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.cachedDelegationSignal = {
+    shouldDelegate: false,
+    reason: "Browser interaction task detected",
+    suggestedPattern: "none",
+    taskDomain: "browser",
+  };
+  state.toolUses = [{
+    toolName: "pw_download",
+    result:
+      "Download complete.\nFilename: python-3.14.4-macos11.pkg\nSaved to: /tmp/python-3.14.4-macos11.pkg",
+  }];
+  // Skip working-note retry to isolate the browser download gate
+  state.finalResponseFormatRetries = 1;
+
+  const vagueFinalAnswer =
+    "The latest Python macOS installer has been successfully downloaded to your computer.";
+  const result = await handleFinalResponse(
+    vagueFinalAnswer,
+    {
+      toolCallsMade: 0,
+      finalResponse: vagueFinalAnswer,
+    },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "continue");
+  assertEquals(state.playwright.finalAnswerRetries, 1);
+  assertStringIncludes(
+    config.context.getMessages().at(-1)?.content ?? "",
+    "The browser task is not fully answered yet.",
+  );
+  assertStringIncludes(
+    config.context.getMessages().at(-1)?.content ?? "",
+    "Name the downloaded file and where it was saved",
+  );
+});
+
+Deno.test("handleFinalResponse accepts browser download answers that include artifact details", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    currentUserRequest:
+      "Download the latest Python macOS installer from python.org and tell me the filename.",
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.cachedDelegationSignal = {
+    shouldDelegate: false,
+    reason: "Browser interaction task detected",
+    suggestedPattern: "none",
+    taskDomain: "browser",
+  };
+  state.toolUses = [{
+    toolName: "pw_download",
+    result:
+      "Download complete.\nFilename: python-3.14.4-macos11.pkg\nSaved to: /tmp/python-3.14.4-macos11.pkg",
+  }];
+
+  const result = await handleFinalResponse(
+    "Downloaded `python-3.14.4-macos11.pkg` to `/tmp/python-3.14.4-macos11.pkg`.",
+    {
+      toolCallsMade: 0,
+      finalResponse:
+        "Downloaded `python-3.14.4-macos11.pkg` to `/tmp/python-3.14.4-macos11.pkg`.",
+    },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "return");
+});
+
+Deno.test("handleFinalResponse directs browser download tasks to pw_download when a direct file URL is already known", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    currentUserRequest:
+      "Download the latest Python macOS installer from python.org and tell me the filename.",
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.cachedDelegationSignal = {
+    shouldDelegate: false,
+    reason: "Browser interaction task detected",
+    suggestedPattern: "none",
+    taskDomain: "browser",
+  };
+  state.toolUses = [{
+    toolName: "web_fetch",
+    result:
+      "Direct artifact URL: https://www.python.org/ftp/python/3.14.4/python-3.14.4-macos11.pkg",
+  }, {
+    toolName: "pw_download",
+    result:
+      "Direct download failed for https://www.python.org/ftp/python/3.14.4/python-3.14.4-macos11.pkg",
+  }];
+
+  const result = await handleFinalResponse(
+    "I found the installer URL but did not download it yet. https://www.python.org/ftp/python/3.14.4/python-3.14.4-macos11.pkg",
+    {
+      toolCallsMade: 0,
+      finalResponse:
+        "I found the installer URL but did not download it yet. https://www.python.org/ftp/python/3.14.4/python-3.14.4-macos11.pkg",
+    },
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "continue");
+  assertStringIncludes(
+    config.context.getMessages().at(-1)?.content ?? "",
+    'Call pw_download with url="https://www.python.org/ftp/python/3.14.4/python-3.14.4-macos11.pkg" now',
   );
 });
 

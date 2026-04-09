@@ -1,5 +1,8 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
+  classifyBrowserAutomation,
+  classifyBrowserFinalAnswer,
+  classifyClarifyingQuestion,
   classifyDelegation,
   classifyErrorMessage,
   classifyFactConflicts,
@@ -325,4 +328,26 @@ Deno.test("classifySensitiveContent: whitespace-only returns defaults", async ()
 Deno.test("classifySourceAuthorities: empty results returns defaults (no LLM call)", async () => {
   const result = await classifySourceAuthorities([]);
   assertEquals(result.results.length, 0);
+});
+
+// ============================================================
+// Browser-specific classifiers
+// ============================================================
+
+Deno.test("classifyBrowserAutomation: empty request returns defaults", async () => {
+  const result = await classifyBrowserAutomation("");
+  assertEquals(result.isBrowserTask, false);
+});
+
+Deno.test("classifyBrowserFinalAnswer: empty response returns incomplete", async () => {
+  const result = await classifyBrowserFinalAnswer(
+    "Download the latest installer",
+    "",
+  );
+  assertEquals(result.isComplete, false);
+});
+
+Deno.test("classifyClarifyingQuestion: empty response returns defaults", async () => {
+  const result = await classifyClarifyingQuestion("");
+  assertEquals(result.isQuestion, false);
 });

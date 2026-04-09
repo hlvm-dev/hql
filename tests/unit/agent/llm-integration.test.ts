@@ -16,6 +16,8 @@ import {
   supportsAgentExecution,
   tierMeetsMinimum,
 } from "../../../src/hlvm/agent/constants.ts";
+import { FILE_TOOLS } from "../../../src/hlvm/agent/tools/file-tools.ts";
+import { WEB_TOOLS } from "../../../src/hlvm/agent/tools/web-tools.ts";
 import {
   registerTool,
   unregisterTool,
@@ -24,7 +26,7 @@ import {
 Deno.test("LLM integration: default prompt includes core role, tools, and concision guidance", () => {
   const prompt = generateSystemPrompt();
 
-  assertStringIncludes(prompt, "AI coding assistant");
+  assertStringIncludes(prompt, "general-purpose local AI assistant");
   assertStringIncludes(prompt, "Platform:");
   assertStringIncludes(prompt, "read_file");
   assertStringIncludes(prompt, "shell_exec");
@@ -46,6 +48,13 @@ Deno.test("LLM integration: default prompt includes core role, tools, and concis
     "Final answers must not include workflow filler",
   );
   assertStringIncludes(prompt, "Do NOT output tool call JSON");
+  assertEquals(prompt.includes("AI coding assistant"), false);
+});
+
+Deno.test("LLM integration: tool descriptions support general local tasks", () => {
+  assertStringIncludes(FILE_TOOLS.read_file.description, "notes");
+  assertStringIncludes(FILE_TOOLS.edit_file.description, "notes");
+  assertStringIncludes(WEB_TOOLS.search_web.description, "how-to guidance");
 });
 
 Deno.test("LLM integration: prompt renders routing and permission sections without verbose schema docs", () => {
@@ -55,6 +64,10 @@ Deno.test("LLM integration: prompt renders routing and permission sections witho
   assertStringIncludes(prompt, "# Web Tool Guidance");
   assertStringIncludes(prompt, "Use timeRange, not recency");
   assertStringIncludes(prompt, "Use prefetch, not preFetch");
+  assertStringIncludes(
+    prompt,
+    "Only the core local and project tools are preloaded",
+  );
   assertStringIncludes(
     prompt,
     "web_fetch is the default reader for a known page URL",
@@ -164,10 +177,13 @@ Deno.test("LLM integration: computeTierToolFilter returns correct tools per tier
   assertEquals(standard.allowlist?.includes("tool_search"), true);
   assertEquals(standard.allowlist?.includes("read_file"), true);
   assertEquals(standard.allowlist?.includes("shell_exec"), true);
+  assertEquals(standard.allowlist?.includes("move_to_trash"), true);
+  assertEquals(standard.allowlist?.includes("reveal_path"), true);
   // Deferred tools NOT in eager core:
   assertEquals(standard.allowlist?.includes("search_web"), false);
   assertEquals(standard.allowlist?.includes("memory_write"), false);
   assertEquals(standard.allowlist?.includes("cu_screenshot"), false);
+  assertEquals(standard.allowlist?.includes("empty_trash"), false);
 
   // Standard with user allowlist (e.g. from REPL with discovered tools): passthrough
   const standardWithAllow = computeTierToolFilter("standard", [

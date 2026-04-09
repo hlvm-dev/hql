@@ -1121,7 +1121,7 @@ function buildSingleToolSignature(call: ToolCall): string {
 }
 
 function extractOpenIntentTarget(call: ToolCall): string | null {
-  if (call.toolName === "open_path") {
+  if (call.toolName === "open_path" || call.toolName === "reveal_path") {
     return typeof call.args.path === "string" ? call.args.path : null;
   }
   if (call.toolName !== "shell_exec") {

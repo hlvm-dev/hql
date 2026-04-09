@@ -203,7 +203,7 @@ Deno.test("handlePostToolExecution escalates loop recovery before hard stop", as
     async () => makeResponse(""),
   );
   assertEquals(second.action, "continue");
-  assertEquals(state.temporaryToolDenylist.get("search_code"), 2);
+  assertEquals(state.playwright.temporaryToolDenylist.get("search_code"), 2);
   assertStringIncludes(
     context.getMessages().at(-1)?.content ?? "",
     "temporarily blocked",

@@ -22,6 +22,9 @@ const PROMINENT_TOOL_NAMES = new Set([
   "write_file",
   "edit_file",
   "open_path",
+  "reveal_path",
+  "move_to_trash",
+  "empty_trash",
   "shell_exec",
 ]);
 
@@ -60,6 +63,12 @@ function summarizeCompletedToolOutcome(
       return `Edited ${summarizePathLabel(args)}`;
     case "open_path":
       return `Opened ${summarizePathLabel(args)}`;
+    case "reveal_path":
+      return `Revealed ${summarizePathLabel(args)}`;
+    case "move_to_trash":
+      return `Moved ${summarizePathLabel(args)} to Trash`;
+    case "empty_trash":
+      return "Emptied Trash";
     case "shell_exec":
       return summarizeShellCommandOutcome(args);
     default:

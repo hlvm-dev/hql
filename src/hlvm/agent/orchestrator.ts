@@ -908,16 +908,16 @@ export async function applyAdaptiveToolPhase(
     .map(([name]) => name);
 
   const loopDenylist: string[] = [];
-  for (const [toolName, remainingTurns] of state.temporaryToolDenylist) {
+  for (const [toolName, remainingTurns] of state.playwright.temporaryToolDenylist) {
     if (remainingTurns <= 0) {
-      state.temporaryToolDenylist.delete(toolName);
+      state.playwright.temporaryToolDenylist.delete(toolName);
       continue;
     }
     loopDenylist.push(toolName);
     if (remainingTurns === 1) {
-      state.temporaryToolDenylist.delete(toolName);
+      state.playwright.temporaryToolDenylist.delete(toolName);
     } else {
-      state.temporaryToolDenylist.set(toolName, remainingTurns - 1);
+      state.playwright.temporaryToolDenylist.set(toolName, remainingTurns - 1);
     }
   }
 

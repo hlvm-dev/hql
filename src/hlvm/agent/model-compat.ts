@@ -18,6 +18,8 @@ const RE_TOOL_CALL_TEXT_ENVELOPE =
   /^\s*[a-z_][\w.]*\s*\(\s*\{[\s\S]*\}\s*\)\s*$/i;
 const RE_TOOL_CALL_TEXT_ENVELOPE_CAPTURE =
   /^\s*([a-z_][\w.]*)\s*\(\s*(\{[\s\S]*\})\s*\)\s*$/i;
+const RE_TOOL_CALL_XML_ENVELOPE =
+  /<function_calls\b[\s\S]*?<\/function_calls>/i;
 const RE_PLAN_ENVELOPE = /^PLAN\s*(?:\r?\n)[\s\S]*?(?:\r?\n)END_PLAN\s*$/;
 const RE_PLAN_BLOCK = /PLAN\s*(?:\r?\n)[\s\S]*?(?:\r?\n)END_PLAN\s*/g;
 
@@ -32,10 +34,13 @@ export function looksLikeToolCallJsonAnywhere(text: string): boolean {
 
 /**
  * Detect raw function-style tool calls rendered as plain text instead of
- * structured tool calls, e.g. `search_web({query: "..."})`.
+ * structured tool calls, e.g. `search_web({query: "..."})` or
+ * Anthropic-style `<function_calls>...</function_calls>` envelopes.
  */
 export function looksLikeToolCallTextEnvelope(text: string): boolean {
-  return RE_TOOL_CALL_TEXT_ENVELOPE.test(text.trim());
+  const trimmed = text.trim();
+  return RE_TOOL_CALL_TEXT_ENVELOPE.test(trimmed) ||
+    RE_TOOL_CALL_XML_ENVELOPE.test(trimmed);
 }
 
 export function parseToolCallTextEnvelope(

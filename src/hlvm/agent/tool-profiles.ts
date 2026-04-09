@@ -68,13 +68,6 @@ const PERSISTENT_TOOL_PROFILE_SLOTS: readonly ToolProfileSlot[] = [
   "plan",
 ];
 
-const BROWSER_SAFE_FALLBACK_TOOLS = [
-  "tool_search",
-  "search_web",
-  "web_fetch",
-  "fetch_url",
-] as const;
-
 const BROWSER_SAFE_PLAYWRIGHT_TOOLS = Object.keys(PLAYWRIGHT_TOOLS).filter(
   (name) => name !== "pw_promote",
 );
@@ -82,10 +75,7 @@ const BROWSER_SAFE_PLAYWRIGHT_TOOLS = Object.keys(PLAYWRIGHT_TOOLS).filter(
 const DEFAULT_DECLARED_TOOL_PROFILES = declareToolProfiles([
   {
     id: "browser_safe",
-    allowlist: uniqueToolList([
-      ...BROWSER_SAFE_PLAYWRIGHT_TOOLS,
-      ...BROWSER_SAFE_FALLBACK_TOOLS,
-    ]),
+    allowlist: uniqueToolList(BROWSER_SAFE_PLAYWRIGHT_TOOLS),
     reasonTemplate: "Headless browser-safe tool profile",
   },
   {

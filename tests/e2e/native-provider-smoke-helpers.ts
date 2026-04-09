@@ -287,6 +287,49 @@ export async function runHostAgentWithCompatibleModel(options: {
   throw lastError ?? new Error("No compatible model was available");
 }
 
+export async function runSourceAgentWithCompatibleModel(options: {
+  models: readonly string[];
+  query: string;
+  workspace: string;
+  signal: AbortSignal;
+  maxTokens?: number;
+  contextWindow?: number;
+  disablePersistentMemory?: boolean;
+  permissionMode?: AgentExecutionMode;
+  toolAllowlist?: string[];
+  toolDenylist?: string[];
+  callbacks: {
+    onToken?: (text: string) => void;
+    onAgentEvent?: (event: AgentUIEvent) => void;
+    onTrace?: (event: TraceEvent) => void;
+  };
+}): Promise<{ model: string; result: SmokeRunResult }> {
+  let lastError: unknown;
+
+  for (const model of options.models) {
+    try {
+      const result = await runAgentQuery({
+        query: options.query,
+        model,
+        workspace: options.workspace,
+        signal: options.signal,
+        maxOutputTokens: options.maxTokens,
+        contextWindow: options.contextWindow,
+        disablePersistentMemory: options.disablePersistentMemory,
+        permissionMode: options.permissionMode,
+        toolAllowlist: options.toolAllowlist,
+        toolDenylist: options.toolDenylist,
+        callbacks: options.callbacks,
+      });
+      return { model, result };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError ?? new Error("No compatible model was available");
+}
+
 export async function withIsolatedEnv(
   fn: (workspace: string) => Promise<void>,
 ): Promise<void> {
@@ -325,6 +368,24 @@ export async function withIsolatedEnv(
       } catch {
         // Best-effort temp cleanup only.
       }
+    }
+  }
+}
+
+export async function withTemporaryWorkspace(
+  fn: (workspace: string) => Promise<void>,
+): Promise<void> {
+  const workspace = await platform.fs.makeTempDir({
+    prefix: "hlvm-native-provider-e2e-ws-",
+  });
+
+  try {
+    await fn(workspace);
+  } finally {
+    try {
+      await platform.fs.remove(workspace, { recursive: true });
+    } catch {
+      // Best-effort temp cleanup only.
     }
   }
 }

@@ -108,6 +108,14 @@ Deno.test("compiler: agent mode produces full section set", () => {
     "[Runtime Directive], [Runtime Notice], or [Runtime Update]",
   );
   assertStringIncludes(result.text, 'list_files({path:"~/Downloads"');
+  assertStringIncludes(
+    result.text,
+    'move_to_trash({paths:["~/Downloads/old-installer.dmg"]})',
+  );
+  assertStringIncludes(
+    result.text,
+    'search_web({query:"best way to batch rename photos on mac"})',
+  );
 });
 
 // ============================================================

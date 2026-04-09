@@ -4,7 +4,6 @@ import type { ToolFailureMetadata } from "../tool-results.ts";
 import { getExistingPage } from "./browser-manager.ts";
 import {
   hasStructuredPlaywrightVisualFailure,
-  PLAYWRIGHT_VISUAL_LAYOUT_KEYWORDS,
 } from "./failure-enrichment.ts";
 
 const DIAGNOSTIC_TIMEOUT_MS = 3_000;
@@ -20,50 +19,12 @@ export interface PlaywrightFailureDiagnostics {
   };
 }
 
-/** Sync fast-path: keyword match → definite true. No match → uncertain. */
-function hasVisualKeywordHit(
-  errorText: string,
-  failure?: ToolFailureMetadata,
-): boolean {
-  const lowerError = errorText.toLowerCase();
-  if (
-    PLAYWRIGHT_VISUAL_LAYOUT_KEYWORDS.some((keyword) =>
-      lowerError.includes(keyword)
-    )
-  ) {
-    return true;
-  }
-  const facts = failure?.facts;
-  if (!facts) return false;
-  return Object.values(facts).some((value) =>
-    typeof value === "string" &&
-    PLAYWRIGHT_VISUAL_LAYOUT_KEYWORDS.some((keyword) =>
-      value.toLowerCase().includes(keyword)
-    )
-  );
-}
-
-/**
- * Classify whether a Playwright error is a visual/layout issue.
- * Uses keyword fast-path for definite hits, LLM for uncertain cases.
- */
 export async function hasPlaywrightVisualLayoutIssue(
-  errorText: string,
+  _errorText: string,
   failure?: ToolFailureMetadata,
 ): Promise<boolean> {
   if (failure?.code === "pw_download_navigated") return false;
-  if (hasStructuredPlaywrightVisualFailure(failure)) return true;
-  if (hasVisualKeywordHit(errorText, failure)) return true;
-  if (!errorText.trim()) return false;
-  try {
-    const { classifyPlaywrightVisualIssue } = await import(
-      "../../runtime/local-llm.ts"
-    );
-    const result = await classifyPlaywrightVisualIssue(errorText);
-    return result.isVisualLayoutIssue;
-  } catch {
-    return false;
-  }
+  return hasStructuredPlaywrightVisualFailure(failure);
 }
 
 async function captureAccessibilitySnapshot(

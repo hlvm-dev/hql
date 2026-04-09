@@ -104,7 +104,7 @@ function renderCriticalRules(
   );
   const hasToolSearch = "tool_search" in tools;
   const toolDiscoveryRule = hasToolSearch
-    ? "\nOnly core coding tools are preloaded. Before web, memory, remote execution, data shaping, archive/commit, or MCP-backed work, call tool_search to discover and enable the tool you need. Tools discovered that way remain available for the rest of the conversation."
+    ? "\nOnly the core local and project tools are preloaded. Before web, memory, remote execution, data shaping, archive/commit, or MCP-backed work, call tool_search to discover and enable the tool you need. Tools discovered that way remain available for the rest of the conversation."
     : "";
   return {
     id: "critical_rules",
@@ -365,7 +365,7 @@ function renderDelegation(
     "## Coordination Patterns",
     "- **Fan-out**: Spawn background agents for independent subtasks, wait for all, synthesize",
     "- **Batch**: Use batch_delegate for repeated row/file-oriented work when one template applies to many inputs",
-    "- **Specialist**: Route to right profile (code for analysis, web for research, shell for execution)",
+    "- **Specialist**: Route to the right profile (code for repo analysis, web for research, file for local organization, shell for execution)",
     "- **Review**: After completing work, delegate review to a fresh agent with different perspective",
     "- **Isolation**: Background delegates that can mutate files work in isolated leases (prefer worktree, fall back to temp workspace).",
     "",
@@ -384,12 +384,15 @@ function renderDelegation(
     "",
     "## Examples",
     '- "Refactor auth across 5 modules" -> fan-out: 5 code delegates, one per module',
+    '- "Review ~/Downloads and identify installers safe to trash" -> specialist: file delegate for inventory, general delegate for summary',
     '- "Research competitors and write report" -> specialist: web delegate + code delegate',
+    '- "Research the best way to batch rename photos on mac and draft steps" -> specialist: web delegate for sources, general delegate for synthesis',
     '- "Fix typo in README" -> just do it yourself, delegation overhead > benefit',
     '- "Update config.ts then test it" -> sequential dependency, don\'t parallelize',
     "",
     "## Prompt Quality",
     'Good: "Fix the null check in src/auth/validate.ts around session expiry. user can be undefined before user.id access. Add a guard, return 401, and update affected tests."',
+    'Good: "Review ~/Documents/todo.txt, group the items by project, and write back a cleaned-up checklist."',
     'Bad: "Fix the auth bug we discussed" — missing file, symptom, and completion condition.',
     'Bad: "Based on your findings, implement the fix" — delegates should not have to reconstruct context you already have.',
     "",
@@ -485,8 +488,14 @@ Bad: shell_exec({command:"cat src/main.ts"}) — shell for file reading
 Good: list_files({path:"~/Downloads",pattern:"*.dmg"}) — inspect a user folder
 Bad: shell_exec({command:"find ~/Downloads -name '*.dmg'"}) — shell for basic file discovery
 
+Good: move_to_trash({paths:["~/Downloads/old-installer.dmg"]}) — reversible cleanup
+Bad: shell_exec({command:"rm ~/Downloads/old-installer.dmg"}) — destructive shell deletion
+
 Good: read_file({path:"~/Documents/todo.txt"}) — inspect a local note or config
 Bad: shell_exec({command:"cat ~/Documents/todo.txt"}) — shell for file reading
+
+Good: search_web({query:"best way to batch rename photos on mac"}) — research a local workflow
+Bad: fetch_url({url:"https://www.google.com/search?q=batch+rename+photos+mac"}) — derived search URL instead of search
 
 Good: search_code({pattern:"handleError",path:"src/"}) — dedicated search
 Bad: shell_exec({command:"grep -r handleError src/"}) — shell for search`,

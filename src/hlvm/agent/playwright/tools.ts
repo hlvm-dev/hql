@@ -20,11 +20,11 @@ import {
 import { encodeBase64 } from "@std/encoding/base64";
 import { isChromiumReady } from "../../runtime/chromium-runtime.ts";
 import {
-  getExistingPage,
   getOrCreatePage,
   promoteToHeaded,
 } from "./browser-manager.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { analyzePlaywrightActionability } from "./actionability.ts";
 import { enrichPlaywrightFailureMetadata } from "./failure-enrichment.ts";
 import { safeStringify } from "../../../common/safe-stringify.ts";
 import {
@@ -49,72 +49,6 @@ const RESULT_SUMMARY: Record<string, string> = {
 
 const MAX_CONTENT_CHARS = 8_000; // ~2K tokens, fits tool result budget
 const MAX_SNAPSHOT_CHARS = 12_000; // accessibility trees are more info-dense
-
-async function captureSelectorFailureFacts(
-  selector: string | undefined,
-  sessionId?: string,
-): Promise<Record<string, unknown> | undefined> {
-  if (!selector) return undefined;
-  const page = getExistingPage(sessionId);
-  if (!page) return undefined;
-  try {
-    const result = await page.locator(selector).evaluateAll((nodes) => {
-      const normalize = (value: string | null | undefined): string =>
-        (value ?? "").replace(/\s+/g, " ").trim();
-      const hrefs: string[] = [];
-      let visibleMatches = 0;
-      for (const node of nodes.slice(0, 8)) {
-        const element = node as Element;
-        const htmlElement = element as HTMLElement;
-        const rect = htmlElement.getBoundingClientRect();
-        const style = globalThis.getComputedStyle(htmlElement);
-        const visible = style.display !== "none" &&
-          style.visibility !== "hidden" &&
-          rect.width > 0 &&
-          rect.height > 0;
-        if (visible) visibleMatches++;
-        const anchor = element.closest("a[href]") as HTMLAnchorElement | null;
-        const href = normalize(anchor?.href);
-        if (href) hrefs.push(href);
-      }
-      const uniqueHrefs = Array.from(new Set(hrefs));
-      return {
-        matchedElements: nodes.length,
-        visibleMatches,
-        candidateHref: uniqueHrefs.length === 1 ? uniqueHrefs[0] : undefined,
-        candidateHrefCount: uniqueHrefs.length || undefined,
-      };
-    });
-    const facts: Record<string, unknown> = {};
-    if (
-      typeof result.matchedElements === "number" &&
-      Number.isFinite(result.matchedElements)
-    ) {
-      facts.matchedElements = result.matchedElements;
-    }
-    if (
-      typeof result.visibleMatches === "number" &&
-      Number.isFinite(result.visibleMatches)
-    ) {
-      facts.visibleMatches = result.visibleMatches;
-    }
-    if (
-      typeof result.candidateHrefCount === "number" &&
-      Number.isFinite(result.candidateHrefCount)
-    ) {
-      facts.candidateHrefCount = result.candidateHrefCount;
-    }
-    if (
-      typeof result.candidateHref === "string" &&
-      result.candidateHref.trim().length > 0
-    ) {
-      facts.candidateHref = result.candidateHref.trim();
-    }
-    return Object.keys(facts).length > 0 ? facts : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 // ── Image attachment (reuses same _imageAttachment format as CU) ────────
 
@@ -277,27 +211,19 @@ function pwTool(
       const selector = rawSelector
         ? normalizePlaywrightSelector(rawSelector) || undefined
         : undefined;
-      const selectorFacts = context?.interaction === "click"
-        ? await captureSelectorFailureFacts(selector, toolOptions?.sessionId)
-        : undefined;
-      const failure = enrichPlaywrightFailureMetadata(
-        toolError.failure,
-        toolError.error,
-        {
+      const actionability = selector
+        ? await analyzePlaywrightActionability({
+          sessionId: toolOptions?.sessionId,
           selector,
           interaction: context?.interaction,
-        },
+        })
+        : null;
+      const failure = enrichPlaywrightFailureMetadata(
+        toolError.failure,
+        actionability,
       );
       return failTool(toolError.message, {
-        failure: selectorFacts
-          ? {
-            ...failure,
-            facts: {
-              ...(failure.facts ?? {}),
-              ...selectorFacts,
-            },
-          }
-          : failure,
+        failure,
       });
     }
   };

@@ -178,6 +178,12 @@ function summarizeToolActivity(tool: ToolCallDisplay): string {
       return args ? `Editing ${args}` : "Editing the target file";
     case "open_path":
       return args ? `Opening ${args}` : "Opening the result";
+    case "reveal_path":
+      return args ? `Revealing ${args}` : "Revealing the result";
+    case "move_to_trash":
+      return args ? `Moving ${args} to Trash` : "Moving items to Trash";
+    case "empty_trash":
+      return "Emptying Trash";
     case "shell_exec": {
       const shellMatch = SHELL_COMMAND_LABELS.find(([re]) =>
         re.test(shellCommand)

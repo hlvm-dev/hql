@@ -666,35 +666,52 @@ export async function classifyBrowserAutomation(
   }
 }
 
-// ---- Step 18: Playwright Visual Issue Classification ----
+// ---- Step 18: Browser Final Answer Adequacy ----
 
-export interface PlaywrightVisualIssueClassification {
-  isVisualLayoutIssue: boolean;
+export interface BrowserFinalAnswerClassification {
+  isComplete: boolean;
+  missing: string | null;
 }
 
-const CLASSIFY_PW_VISUAL_PROMPT =
-  `Is this Playwright error caused by a VISUAL/LAYOUT problem (element hidden, obscured, intercepted, outside viewport, overlay blocking)? Reply ONLY with JSON, no other text.
-{"visual":true/false}
+const CLASSIFY_BROWSER_FINAL_ANSWER_PROMPT =
+  `Does the assistant response fully answer the user's browser task? Reply ONLY with JSON, no other text.
+{"complete":true/false,"missing":"short missing piece" or null}
 
-- true: element exists but can't be seen or clicked (not visible, outside viewport, obscured, intercepted, overlay)
-- false: element not found, timeout, network error, script error, or non-visual failure
+- true: directly answers the user's request with the requested facts/artifacts
+- false: still process chatter, partial answer, or missing requested outputs
 
-Error: `;
+User request:
+`;
 
-export async function classifyPlaywrightVisualIssue(
-  errorText: string,
-): Promise<PlaywrightVisualIssueClassification> {
-  const defaults: PlaywrightVisualIssueClassification = {
-    isVisualLayoutIssue: false,
+export async function classifyBrowserFinalAnswer(
+  userRequest: string,
+  response: string,
+): Promise<BrowserFinalAnswerClassification> {
+  if (!response.trim()) {
+    return { isComplete: false, missing: "No final browser answer provided." };
+  }
+  const defaults: BrowserFinalAnswerClassification = {
+    isComplete: false,
+    missing: null,
   };
-  if (!errorText.trim()) return defaults;
   try {
-    const response = await collectChat(
-      CLASSIFY_PW_VISUAL_PROMPT + errorText.slice(0, 500),
-      { temperature: 0, maxTokens: 64 },
-    );
-    const parsed = JSON.parse(extractJson(response));
-    return { isVisualLayoutIssue: parsed.visual === true };
+    const prompt = `${CLASSIFY_BROWSER_FINAL_ANSWER_PROMPT}${
+      userRequest.slice(0, 500)
+    }
+
+Assistant response:
+${response.slice(0, 1_200)}`;
+    const raw = await collectChat(prompt, {
+      temperature: 0,
+      maxTokens: 96,
+    });
+    const parsed = JSON.parse(extractJson(raw));
+    return {
+      isComplete: parsed.complete !== false,
+      missing: typeof parsed.missing === "string" && parsed.missing.trim()
+        ? parsed.missing.trim()
+        : null,
+    };
   } catch {
     return defaults;
   }
@@ -748,24 +765,28 @@ export async function classifyClarifyingQuestion(
 
 // ---- Helpers ----
 
-/** Collect ai.chat() async generator into a single string. */
+/** Collect ai.chat() async generator into a single string. Fail closed on any error. */
 export async function collectChat(
   prompt: string,
   opts: { temperature?: number; maxTokens?: number },
 ): Promise<string> {
-  const { ai } = await import("../api/ai.ts");
-  const messages = [{ role: "user" as const, content: prompt }];
-  let result = "";
-  for await (
-    const token of ai.chat(messages, {
-      model: LOCAL_FALLBACK_MODEL_ID,
-      temperature: opts.temperature ?? 0,
-      maxTokens: opts.maxTokens ?? 64,
-    })
-  ) {
-    result += token;
+  try {
+    const { ai } = await import("../api/ai.ts");
+    const messages = [{ role: "user" as const, content: prompt }];
+    let result = "";
+    for await (
+      const token of ai.chat(messages, {
+        model: LOCAL_FALLBACK_MODEL_ID,
+        temperature: opts.temperature ?? 0,
+        maxTokens: opts.maxTokens ?? 64,
+      })
+    ) {
+      result += token;
+    }
+    return result;
+  } catch {
+    return "";
   }
-  return result;
 }
 
 /** Extract the first JSON object from a string (handles nested braces, markdown fences, preamble). */

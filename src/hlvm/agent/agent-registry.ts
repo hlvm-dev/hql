@@ -35,12 +35,16 @@ const TEAM_WORKER_TOOLS = [
 const AGENT_PROFILES: readonly AgentProfile[] = [
   {
     name: "general",
-    description: "Generalist agent for mixed tasks",
+    description: "General-purpose local task specialist",
     tools: [
       "read_file",
       "write_file",
       "edit_file",
       "list_files",
+      "move_to_trash",
+      "reveal_path",
+      "empty_trash",
+      "open_path",
       "search_code",
       "find_symbol",
       "get_structure",
@@ -74,18 +78,22 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
   },
   {
     name: "file",
-    description: "File operations specialist",
+    description: "File and folder operations specialist",
     tools: [
       "read_file",
       "write_file",
       "edit_file",
       "list_files",
+      "move_to_trash",
+      "reveal_path",
+      "empty_trash",
+      "open_path",
       ...TEAM_WORKER_TOOLS,
     ],
   },
   {
     name: "shell",
-    description: "Shell execution specialist",
+    description: "Local shell execution specialist",
     tools: [
       "shell_exec",
       "shell_script",
@@ -94,7 +102,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
   },
   {
     name: "web",
-    description: "Web research specialist",
+    description: "Web research and source-gathering specialist",
     tools: [
       "search_web",
       "fetch_url",
@@ -107,7 +115,7 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
   },
   {
     name: "memory",
-    description: "Persistent memory specialist",
+    description: "Persistent memory and preference tracking specialist",
     tools: [
       "memory_write",
       "memory_search",

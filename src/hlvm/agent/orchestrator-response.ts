@@ -73,7 +73,7 @@ import { executeToolCalls } from "./orchestrator-tool-execution.ts";
 import { callLLM, type LLMFunction } from "./orchestrator-llm.ts";
 import type { ToolUse } from "./grounding.ts";
 import { isMutatingTool } from "./security/safety.ts";
-import { hasPlaywrightVisualLayoutIssue } from "./playwright/diagnostics.ts";
+import { decideBrowserRecovery } from "./playwright/recovery-policy.ts";
 import {
   clearToolProfileLayerFromTarget,
   ensureToolProfileState,
@@ -233,11 +233,11 @@ interface PlaywrightFailureCandidate {
   signature: string;
   toolName: string;
   errorText: string;
+  failure: import("./tool-results.ts").ToolFailureMetadata;
   code?: string;
   kind: string;
   navigatedTo?: string;
   candidateHref?: string;
-  visualLayoutIssue: boolean;
 }
 
 function currentDomainProfileId(
@@ -249,14 +249,6 @@ function currentDomainProfileId(
 const PLAYWRIGHT_VISUAL_LOOP_TOOL_NAMES = new Set([
   "pw_scroll",
   "pw_screenshot",
-]);
-
-const PLAYWRIGHT_REPEAT_RECOVERY_BLOCKABLE_TOOLS = new Set([
-  "pw_click",
-  "pw_fill",
-  "pw_content",
-  "pw_evaluate",
-  "pw_download",
 ]);
 
 async function buildPlaywrightFailureCandidate(
@@ -279,6 +271,7 @@ async function buildPlaywrightFailureCandidate(
       }`,
       toolName: toolCall.toolName,
       errorText,
+      failure: toolResult.failure,
       code: toolResult.failure.code,
       kind: toolResult.failure.kind,
       navigatedTo: typeof toolResult.failure.facts?.navigatedTo === "string"
@@ -288,10 +281,6 @@ async function buildPlaywrightFailureCandidate(
         typeof toolResult.failure.facts?.candidateHref === "string"
           ? toolResult.failure.facts.candidateHref
           : undefined,
-      visualLayoutIssue: await hasPlaywrightVisualLayoutIssue(
-        errorText,
-        toolResult.failure,
-      ),
     });
   }
 
@@ -300,100 +289,6 @@ async function buildPlaywrightFailureCandidate(
     candidates.map((candidate) => candidate.signature),
   );
   return uniqueSignatures.size === 1 ? candidates[0] : null;
-}
-
-function buildPlaywrightRecoveryMessage(
-  candidate: PlaywrightFailureCandidate,
-  options: {
-    promotedToHybrid?: boolean;
-    hybridAlreadyAvailable?: boolean;
-    temporarilyBlockedTool?: string;
-  } = {},
-): string {
-  if (candidate.code === "pw_download_navigated") {
-    const lines = [
-      "Repeated Playwright failure: the download trigger navigated instead of downloading.",
-      "Stop retrying the original trigger.",
-      candidate.navigatedTo
-        ? `Inspect the destination page (${candidate.navigatedTo}), extract the real file href, and call pw_download with that URL if found.`
-        : "Inspect the destination page, extract the real file href, and call pw_download with that URL if found.",
-    ];
-    if (options.temporarilyBlockedTool) {
-      lines.push(
-        `${options.temporarilyBlockedTool} is temporarily blocked for the next 2 turns. Use a different browser strategy now.`,
-      );
-    }
-    return lines.join("\n");
-  }
-
-  if (candidate.visualLayoutIssue) {
-    if (options.promotedToHybrid || options.hybridAlreadyAvailable) {
-      const lines = [
-        "Repeated Playwright failure: visibility or layout blocker.",
-        ...(candidate.toolName === "pw_click" && candidate.candidateHref
-          ? [
-            `The blocked target resolves to ${candidate.candidateHref}. Use pw_goto with that URL instead of retrying the hidden click.`,
-          ]
-          : []),
-        "Hybrid browser mode is available. If visible or native interaction is required, call pw_promote, then use cu_* on the headed window.",
-        candidate.toolName === "pw_click" && !candidate.candidateHref
-          ? "If the blocked target is a link or button behind hidden navigation, extract the href or target first, then prefer pw_goto or pw_download instead of repeating the click."
-          : "Do not repeat the same selector guess.",
-      ];
-      if (options.temporarilyBlockedTool) {
-        lines.push(
-          `${options.temporarilyBlockedTool} is temporarily blocked for the next 2 turns. Use a different browser strategy now.`,
-        );
-      }
-      return lines.join("\n");
-    }
-    const lines = [
-      "Repeated Playwright failure: visibility or layout blocker.",
-      ...(candidate.toolName === "pw_click" && candidate.candidateHref
-        ? [
-          `The blocked target resolves to ${candidate.candidateHref}. Use pw_goto with that URL instead of retrying the hidden click.`,
-        ]
-        : [
-          "Use the current page state and attached evidence to change Playwright strategy.",
-        ]),
-      candidate.toolName === "pw_click" && !candidate.candidateHref
-        ? "If a hidden or intercepted target resolves to a real href, extract it and use pw_goto or pw_download instead of clicking the hidden element again."
-        : "Inspect the page structure before retrying the interaction.",
-      "Do not switch to cu_* unless pw_promote has already happened or visible/native interaction is truly required.",
-    ];
-    if (options.temporarilyBlockedTool) {
-      lines.push(
-        `${options.temporarilyBlockedTool} is temporarily blocked for the next 2 turns. Use a different browser strategy now.`,
-      );
-    }
-    return lines.join("\n");
-  }
-
-  if (candidate.kind === "timeout" || candidate.kind === "not_found") {
-    const lines = [
-      "Repeated Playwright failure: selector or timeout mismatch.",
-      "Inspect pw_snapshot or page structure, then retry with evidence-based selectors.",
-      "Do not keep guessing selectors.",
-    ];
-    if (options.temporarilyBlockedTool) {
-      lines.push(
-        `${options.temporarilyBlockedTool} is temporarily blocked for the next 2 turns. Use a different browser strategy now.`,
-      );
-    }
-    return lines.join("\n");
-  }
-
-  const lines = [
-    "Repeated Playwright failure: browser strategy mismatch.",
-    "Change Playwright strategy before retrying.",
-    "Do not repeat the same step unchanged.",
-  ];
-  if (options.temporarilyBlockedTool) {
-    lines.push(
-      `${options.temporarilyBlockedTool} is temporarily blocked for the next 2 turns. Use a different browser strategy now.`,
-    );
-  }
-  return lines.join("\n");
 }
 
 function isPlaywrightVisualLoopTurn(
@@ -1052,6 +947,103 @@ async function shouldAutoContinuePrematureFollowUp(
   return result.shouldContinueWithoutAsking;
 }
 
+const DOWNLOAD_REQUEST_PATTERN =
+  /\b(download|installer|install\b|get the file|get the installer|save the file)\b/i;
+const DOWNLOAD_ARTIFACT_PATTERN =
+  /\b[A-Za-z0-9._-]+\.(?:dmg|pkg|zip|exe|msi|tar\.gz|tgz|deb|rpm|sh)\b/i;
+const DIRECT_DOWNLOAD_URL_PATTERN =
+  /https?:\/\/[^\s)`"'<>]+?\.(?:dmg|pkg|zip|exe|msi|tar\.gz|tgz|deb|rpm|sh)(?:\?[^\s)`"'<>]*)?/gi;
+const SAVED_PATH_PATTERN =
+  /(?:^|\n)Saved to:\s*(~?\/\S+|[A-Za-z]:\\\S+)/im;
+const BACKTICKED_LOCAL_PATH_PATTERN = /`(~?\/[^`]+|[A-Za-z]:\\[^`]+)`/;
+
+function responseContainsDownloadedFilename(response: string): boolean {
+  return /(?:^|\n)Filename:\s*\S+/im.test(response) ||
+    DOWNLOAD_ARTIFACT_PATTERN.test(response);
+}
+
+function responseContainsSavedPath(response: string): boolean {
+  return SAVED_PATH_PATTERN.test(response) ||
+    BACKTICKED_LOCAL_PATH_PATTERN.test(response);
+}
+
+function responseContainsDownloadArtifact(response: string): boolean {
+  return responseContainsDownloadedFilename(response) &&
+    responseContainsSavedPath(response);
+}
+
+function hasSuccessfulDownloadArtifact(toolUses: ToolUse[]): boolean {
+  return toolUses.some((toolUse) =>
+    toolUse.toolName === "pw_download" &&
+    responseContainsDownloadArtifact(toolUse.result)
+  );
+}
+
+function extractDirectDownloadUrls(text: string): string[] {
+  const matches = text.match(DIRECT_DOWNLOAD_URL_PATTERN) ?? [];
+  return matches.map((value) => value.trim()).filter(Boolean);
+}
+
+function shouldRunBrowserFinalAnswerGate(
+  state: LoopState,
+  config: OrchestratorConfig,
+): boolean {
+  return state.toolUses.some((toolUse) => toolUse.toolName.startsWith("pw_")) &&
+    state.cachedDelegationSignal?.taskDomain === "browser" &&
+    typeof config.currentUserRequest === "string" &&
+    config.currentUserRequest.trim().length > 0;
+}
+
+async function assessBrowserFinalAnswer(
+  state: LoopState,
+  config: OrchestratorConfig,
+  finalResponse: string,
+): Promise<{ isComplete: boolean; missing: string | null }> {
+  const userRequest = config.currentUserRequest?.trim() ?? "";
+  if (!finalResponse.trim()) {
+    return {
+      isComplete: false,
+      missing: "No final browser answer was provided.",
+    };
+  }
+
+  if (DOWNLOAD_REQUEST_PATTERN.test(userRequest)) {
+    const downloadUrls = [
+      ...new Set([
+        ...extractDirectDownloadUrls(finalResponse),
+        ...state.toolUses.flatMap((toolUse) =>
+          extractDirectDownloadUrls(toolUse.result)
+        ),
+      ]),
+    ];
+    if (!hasSuccessfulDownloadArtifact(state.toolUses)) {
+      if (downloadUrls.length === 1) {
+        return {
+          isComplete: false,
+          missing:
+            `A direct downloadable file URL is already known (${downloadUrls[0]}). Call pw_download with url="${downloadUrls[0]}" now, then answer with Filename and Saved to.`,
+        };
+      }
+      return {
+        isComplete: false,
+        missing:
+          "The requested downloaded file artifact is still missing. Finish the download or state the exact blocker.",
+      };
+    }
+    if (!responseContainsDownloadArtifact(finalResponse)) {
+      return {
+        isComplete: false,
+        missing:
+          "Name the downloaded file and where it was saved, or state the exact blocker.",
+      };
+    }
+    return { isComplete: true, missing: null };
+  }
+
+  const { classifyBrowserFinalAnswer } = await import("../runtime/local-llm.ts");
+  return classifyBrowserFinalAnswer(userRequest, finalResponse);
+}
+
 /**
  * Handle the "no tool calls" branch: plan advancement, no-input guard,
  * grounding checks, and format cleanup.
@@ -1267,6 +1259,30 @@ export async function handleFinalResponse(
       ),
     });
     return { action: "continue" };
+  }
+
+  if (
+    shouldRunBrowserFinalAnswerGate(state, config) &&
+    state.playwright.finalAnswerRetries < 1
+  ) {
+    const assessment = await assessBrowserFinalAnswer(
+      state,
+      config,
+      finalResponse,
+    );
+    if (!assessment.isComplete) {
+      state.playwright.finalAnswerRetries++;
+      addContextMessage(config, {
+        role: "user",
+        content: runtimeDirective(
+          `The browser task is not fully answered yet. ${
+            assessment.missing ??
+              "Provide the direct answer now, or use another browser tool only if you still need evidence."
+          } Do not narrate next steps.`,
+        ),
+      });
+      return { action: "continue" };
+    }
   }
 
   // Plan state advancement
@@ -1618,68 +1634,66 @@ export async function handlePostToolExecution(
 
   const playwrightFailure = await buildPlaywrightFailureCandidate(result);
   if (playwrightFailure) {
-    if (state.lastPlaywrightFailureSignature === playwrightFailure.signature) {
-      state.repeatPlaywrightFailureCount =
-        (state.repeatPlaywrightFailureCount ?? 0) + 1;
+    if (state.playwright.lastFailureSignature === playwrightFailure.signature) {
+      state.playwright.repeatFailureCount =
+        (state.playwright.repeatFailureCount) + 1;
     } else {
-      state.lastPlaywrightFailureSignature = playwrightFailure.signature;
-      state.repeatPlaywrightFailureCount = 1;
-      state.notifiedPlaywrightFailureSignature = undefined;
+      state.playwright.lastFailureSignature = playwrightFailure.signature;
+      state.playwright.repeatFailureCount = 1;
+      state.playwright.notifiedRecoveryKey = undefined;
     }
   } else {
-    state.lastPlaywrightFailureSignature = undefined;
-    state.repeatPlaywrightFailureCount = 0;
-    state.notifiedPlaywrightFailureSignature = undefined;
+    state.playwright.lastFailureSignature = undefined;
+    state.playwright.repeatFailureCount = 0;
+    state.playwright.notifiedRecoveryKey = undefined;
   }
 
-  if (
-    playwrightFailure &&
-    (state.repeatPlaywrightFailureCount ?? 0) >= 2 &&
-    state.notifiedPlaywrightFailureSignature !== playwrightFailure.signature
-  ) {
+  if (playwrightFailure) {
     const domainProfileId = currentDomainProfileId(config);
-    const promotedToHybrid = playwrightFailure.visualLayoutIssue &&
-      domainProfileId === "browser_safe";
-    if (promotedToHybrid) {
-      updateToolProfileLayer(config, "domain", {
-        profileId: "browser_hybrid",
-        reason: `repeated_visual_pw_failure:${playwrightFailure.signature}`,
-      });
-    }
-    const temporarilyBlockedTool =
-      PLAYWRIGHT_REPEAT_RECOVERY_BLOCKABLE_TOOLS.has(playwrightFailure.toolName)
-        ? playwrightFailure.toolName
-        : undefined;
-    if (temporarilyBlockedTool) {
-      state.temporaryToolDenylist.set(temporarilyBlockedTool, 2);
-    }
-    state.notifiedPlaywrightFailureSignature = playwrightFailure.signature;
-    addContextMessage(config, {
-      role: "user",
-      content: runtimeDirective(
-        buildPlaywrightRecoveryMessage(playwrightFailure, {
-          promotedToHybrid,
-          hybridAlreadyAvailable: domainProfileId === "browser_hybrid",
-          temporarilyBlockedTool,
-        }),
-      ),
+    const decision = decideBrowserRecovery({
+      toolName: playwrightFailure.toolName,
+      failure: playwrightFailure.failure,
+      repeatCount: state.playwright.repeatFailureCount,
+      currentDomainProfileId: domainProfileId,
     });
-    return { action: "continue" };
+    if (decision) {
+      const recoveryKey = `${playwrightFailure.signature}:${decision.stage}`;
+      if (state.playwright.notifiedRecoveryKey !== recoveryKey) {
+        if (decision.promoteToHybrid) {
+          updateToolProfileLayer(config, "domain", {
+            profileId: "browser_hybrid",
+            reason: `browser_recovery:${playwrightFailure.signature}:${decision.stage}`,
+          });
+        }
+        if (decision.temporarilyBlockTool) {
+          state.playwright.temporaryToolDenylist.set(decision.temporarilyBlockTool, 2);
+        }
+        state.playwright.notifiedRecoveryKey = recoveryKey;
+        const directive = decision.temporarilyBlockTool
+          ? `${decision.directive}\n${decision.temporarilyBlockTool} is temporarily blocked for the next 2 turns. Use a different browser strategy now.`
+          : decision.directive;
+        addContextMessage(config, {
+          role: "user",
+          content: runtimeDirective(directive),
+        });
+        return { action: "continue" };
+      }
+    }
   }
 
   if (isPlaywrightVisualLoopTurn(result)) {
-    state.repeatPlaywrightVisualLoopCount =
-      (state.repeatPlaywrightVisualLoopCount ?? 0) + 1;
+    state.playwright.repeatVisualLoopCount =
+      (state.playwright.repeatVisualLoopCount) + 1;
   } else {
-    state.repeatPlaywrightVisualLoopCount = 0;
-    state.notifiedPlaywrightVisualLoop = false;
+    state.playwright.repeatVisualLoopCount = 0;
+    state.playwright.notifiedVisualLoop = false;
   }
 
   if (
-    (state.repeatPlaywrightVisualLoopCount ?? 0) >= 4 &&
-    !state.notifiedPlaywrightVisualLoop
+    (state.playwright.repeatVisualLoopCount) >= 4 &&
+    !state.playwright.notifiedVisualLoop
   ) {
-    state.notifiedPlaywrightVisualLoop = true;
+    state.playwright.notifiedVisualLoop = true;
     addContextMessage(config, {
       role: "user",
       content: runtimeDirective(buildPlaywrightVisualLoopMessage()),
@@ -1707,7 +1721,7 @@ export async function handlePostToolExecution(
 
     if (state.loopRecoveryStep === 1 && repeatedTool) {
       state.loopRecoveryStep = 2;
-      state.temporaryToolDenylist.set(repeatedTool, 2);
+      state.playwright.temporaryToolDenylist.set(repeatedTool, 2);
       addContextMessage(config, {
         role: "user",
         content: runtimeDirective(

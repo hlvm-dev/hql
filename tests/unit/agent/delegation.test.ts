@@ -2263,6 +2263,14 @@ Deno.test("renderDelegation: enhanced tier generates multi-paragraph prompt", ()
     prompt,
     'Good: "Fix the null check in src/auth/validate.ts around session expiry.',
   );
+  assertStringIncludes(
+    prompt,
+    "Review ~/Downloads and identify installers safe to trash",
+  );
+  assertStringIncludes(
+    prompt,
+    "Review ~/Documents/todo.txt, group the items by project",
+  );
   assertStringIncludes(prompt, 'Bad: "Fix the auth bug we discussed"');
 });
 

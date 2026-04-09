@@ -60,79 +60,237 @@ interface ShellDenySpec {
  */
 const SHELL_COMMAND_MANIFEST: readonly ShellCommandSpec[] = [
   // ── L0: Git read-only ──────────────────────────────────────
-  { pattern: /^git\s+status\b/,        commands: ["git status"],     tier: "L0" },
-  { pattern: /^git\s+log\b/,           commands: ["git log"],        tier: "L0" },
-  { pattern: /^git\s+diff\b/,          commands: ["git diff"],       tier: "L0" },
-  { pattern: /^git\s+show\b/,          commands: ["git show"],       tier: "L0" },
-  { pattern: /^git\s+branch(?:\s+(-a|--all|-r|--remotes|-v|-vv|--verbose|--list)\b)?$/, commands: ["git branch"], tier: "L0" },
-  { pattern: /^git\s+tag(?:\s+(-l|--list)\b(?:\s+\S+)?)?$/, commands: ["git tag"],     tier: "L0" },
-  { pattern: /^git\s+remote(?:\s+-v)?$/,  commands: ["git remote"],  tier: "L0" },
-  { pattern: /^git\s+stash\s+list\b/,  commands: ["git stash list"], tier: "L0" },
-  { pattern: /^git\s+shortlog\b/,      commands: ["git shortlog"],   tier: "L0" },
-  { pattern: /^git\s+describe\b/,      commands: ["git describe"],   tier: "L0" },
-  { pattern: /^git\s+ls-files\b/,      commands: ["git ls-files"],   tier: "L0" },
-  { pattern: /^git\s+ls-tree\b/,       commands: ["git ls-tree"],    tier: "L0" },
-  { pattern: /^git\s+blame\b/,         commands: ["git blame"],      tier: "L0" },
-  { pattern: /^git\s+rev-parse\b/,     commands: ["git rev-parse"],  tier: "L0" },
-  { pattern: /^git\s+rev-list\b/,      commands: ["git rev-list"],   tier: "L0" },
-  { pattern: /^git\s+name-rev\b/,      commands: ["git name-rev"],   tier: "L0" },
-  { pattern: /^git\s+config\s+--?(get|list|l)\b/, commands: ["git config --get", "git config --list"], tier: "L0" },
-  { pattern: /^git\s+cat-file\b/,      commands: ["git cat-file"],   tier: "L0" },
-  { pattern: /^git\s+count-objects\b/,  commands: ["git count-objects"], tier: "L0" },
+  { pattern: /^git\s+status\b/, commands: ["git status"], tier: "L0" },
+  { pattern: /^git\s+log\b/, commands: ["git log"], tier: "L0" },
+  { pattern: /^git\s+diff\b/, commands: ["git diff"], tier: "L0" },
+  { pattern: /^git\s+show\b/, commands: ["git show"], tier: "L0" },
+  {
+    pattern:
+      /^git\s+branch(?:\s+(-a|--all|-r|--remotes|-v|-vv|--verbose|--list)\b)?$/,
+    commands: ["git branch"],
+    tier: "L0",
+  },
+  {
+    pattern: /^git\s+tag(?:\s+(-l|--list)\b(?:\s+\S+)?)?$/,
+    commands: ["git tag"],
+    tier: "L0",
+  },
+  { pattern: /^git\s+remote(?:\s+-v)?$/, commands: ["git remote"], tier: "L0" },
+  {
+    pattern: /^git\s+stash\s+list\b/,
+    commands: ["git stash list"],
+    tier: "L0",
+  },
+  { pattern: /^git\s+shortlog\b/, commands: ["git shortlog"], tier: "L0" },
+  { pattern: /^git\s+describe\b/, commands: ["git describe"], tier: "L0" },
+  { pattern: /^git\s+ls-files\b/, commands: ["git ls-files"], tier: "L0" },
+  { pattern: /^git\s+ls-tree\b/, commands: ["git ls-tree"], tier: "L0" },
+  { pattern: /^git\s+blame\b/, commands: ["git blame"], tier: "L0" },
+  { pattern: /^git\s+rev-parse\b/, commands: ["git rev-parse"], tier: "L0" },
+  { pattern: /^git\s+rev-list\b/, commands: ["git rev-list"], tier: "L0" },
+  { pattern: /^git\s+name-rev\b/, commands: ["git name-rev"], tier: "L0" },
+  {
+    pattern: /^git\s+config\s+--?(get|list|l)\b/,
+    commands: ["git config --get", "git config --list"],
+    tier: "L0",
+  },
+  { pattern: /^git\s+cat-file\b/, commands: ["git cat-file"], tier: "L0" },
+  {
+    pattern: /^git\s+count-objects\b/,
+    commands: ["git count-objects"],
+    tier: "L0",
+  },
 
   // ── L0: File/dir reading ───────────────────────────────────
-  { pattern: /^(ls|cat|head|tail|wc|file|stat|md5|md5sum|shasum|sha256sum)\s/, commands: ["ls", "cat", "head", "tail", "wc", "file", "stat", "md5", "md5sum", "shasum", "sha256sum"], tier: "L0" },
-  { pattern: /^(ls|pwd)$/,             commands: ["ls", "pwd"],      tier: "L0" },
-  { pattern: /^(readlink|realpath|basename|dirname)\s/, commands: ["readlink", "realpath", "basename", "dirname"], tier: "L0" },
-  { pattern: /^sed\s+-n\s+['"][0-9,\- $]+p['"]\s+.+$/, commands: ["sed -n"], tier: "L0" },
+  {
+    pattern: /^(ls|cat|head|tail|wc|file|stat|md5|md5sum|shasum|sha256sum)\s/,
+    commands: [
+      "ls",
+      "cat",
+      "head",
+      "tail",
+      "wc",
+      "file",
+      "stat",
+      "md5",
+      "md5sum",
+      "shasum",
+      "sha256sum",
+    ],
+    tier: "L0",
+  },
+  { pattern: /^(ls|pwd)$/, commands: ["ls", "pwd"], tier: "L0" },
+  {
+    pattern: /^(readlink|realpath|basename|dirname)\s/,
+    commands: ["readlink", "realpath", "basename", "dirname"],
+    tier: "L0",
+  },
+  {
+    pattern: /^sed\s+-n\s+['"][0-9,\- $]+p['"]\s+.+$/,
+    commands: ["sed -n"],
+    tier: "L0",
+  },
 
   // ── L0: Search ─────────────────────────────────────────────
-  { pattern: /^(find|locate|mdfind)\s/, commands: ["find", "locate", "mdfind"], tier: "L0" },
-  { pattern: /^(grep|egrep|fgrep|rg|ag|ack)\s/, commands: ["grep", "egrep", "fgrep", "rg", "ag", "ack"], tier: "L0" },
-  { pattern: /^fd\s/,                  commands: ["fd"],             tier: "L0" },
+  {
+    pattern: /^(find|locate|mdfind)\s/,
+    commands: ["find", "locate", "mdfind"],
+    tier: "L0",
+  },
+  {
+    pattern: /^(grep|egrep|fgrep|rg|ag|ack)\s/,
+    commands: ["grep", "egrep", "fgrep", "rg", "ag", "ack"],
+    tier: "L0",
+  },
+  { pattern: /^fd\s/, commands: ["fd"], tier: "L0" },
 
   // ── L0: Dir visualization ──────────────────────────────────
-  { pattern: /^tree(\s|$)/,            commands: ["tree"],           tier: "L0" },
+  { pattern: /^tree(\s|$)/, commands: ["tree"], tier: "L0" },
 
   // ── L0: File comparison ────────────────────────────────────
-  { pattern: /^(diff|cmp|comm)\s/,     commands: ["diff", "cmp", "comm"], tier: "L0" },
+  {
+    pattern: /^(diff|cmp|comm)\s/,
+    commands: ["diff", "cmp", "comm"],
+    tier: "L0",
+  },
 
   // ── L0: Text processing (stdout only) ──────────────────────
-  { pattern: /^(sort|uniq|tr|cut|paste|fold|column|nl|rev|tac|strings)\s/, commands: ["sort", "uniq", "tr", "cut", "paste", "fold", "column", "nl", "rev", "tac", "strings"], tier: "L0" },
+  {
+    pattern: /^(sort|uniq|tr|cut|paste|fold|column|nl|rev|tac|strings)\s/,
+    commands: [
+      "sort",
+      "uniq",
+      "tr",
+      "cut",
+      "paste",
+      "fold",
+      "column",
+      "nl",
+      "rev",
+      "tac",
+      "strings",
+    ],
+    tier: "L0",
+  },
 
   // ── L0: Data processing (stdout only) ──────────────────────
-  { pattern: /^(jq|yq)\s/,            commands: ["jq", "yq"],      tier: "L0" },
+  { pattern: /^(jq|yq)\s/, commands: ["jq", "yq"], tier: "L0" },
 
   // ── L0: System info (safe subset only) ─────────────────────
-  { pattern: /^(pwd|whoami|hostname|uname|date|uptime|which|where|type)\b/, commands: ["pwd", "whoami", "hostname", "uname", "date", "uptime", "which", "where", "type"], tier: "L0" },
-  { pattern: /^(echo|printf)\s/,       commands: ["echo", "printf"], tier: "L0" },
-  { pattern: /^(df|du)\s/,            commands: ["df", "du"],       tier: "L0" },
-  { pattern: /^(man|info)\s/,         commands: ["man", "info"],    tier: "L0" },
+  {
+    pattern: /^(pwd|whoami|hostname|uname|date|uptime|which|where|type)\b/,
+    commands: [
+      "pwd",
+      "whoami",
+      "hostname",
+      "uname",
+      "date",
+      "uptime",
+      "which",
+      "where",
+      "type",
+    ],
+    tier: "L0",
+  },
+  { pattern: /^(echo|printf)\s/, commands: ["echo", "printf"], tier: "L0" },
+  { pattern: /^(df|du)\s/, commands: ["df", "du"], tier: "L0" },
+  { pattern: /^(man|info)\s/, commands: ["man", "info"], tier: "L0" },
 
   // ── L0: Binary inspection ──────────────────────────────────
-  { pattern: /^(xxd|hexdump|od)\s/,   commands: ["xxd", "hexdump", "od"], tier: "L0" },
+  {
+    pattern: /^(xxd|hexdump|od)\s/,
+    commands: ["xxd", "hexdump", "od"],
+    tier: "L0",
+  },
 
   // ── L0: Package listing (LOCAL-ONLY, no network) ───────────
-  { pattern: /^npm\s+(list|ls)\b/,     commands: ["npm list", "npm ls"], tier: "L0" },
-  { pattern: /^pip3?\s+(list|show|freeze)\b/, commands: ["pip list", "pip show", "pip freeze"], tier: "L0" },
-  { pattern: /^brew\s+list\b/,         commands: ["brew list"],      tier: "L0" },
-  { pattern: /^cargo\s+(tree|metadata)\b/, commands: ["cargo tree", "cargo metadata"], tier: "L0" },
-  { pattern: /^go\s+version\b/,        commands: ["go version"],     tier: "L0" },
-  { pattern: /^go\s+env(?:\s+[A-Za-z_][A-Za-z0-9_]*)?$/, commands: ["go env"], tier: "L0" },
+  {
+    pattern: /^npm\s+(list|ls)\b/,
+    commands: ["npm list", "npm ls"],
+    tier: "L0",
+  },
+  {
+    pattern: /^pip3?\s+(list|show|freeze)\b/,
+    commands: ["pip list", "pip show", "pip freeze"],
+    tier: "L0",
+  },
+  { pattern: /^brew\s+list\b/, commands: ["brew list"], tier: "L0" },
+  {
+    pattern: /^cargo\s+(tree|metadata)\b/,
+    commands: ["cargo tree", "cargo metadata"],
+    tier: "L0",
+  },
+  { pattern: /^go\s+version\b/, commands: ["go version"], tier: "L0" },
+  {
+    pattern: /^go\s+env(?:\s+[A-Za-z_][A-Za-z0-9_]*)?$/,
+    commands: ["go env"],
+    tier: "L0",
+  },
 
   // ── L1: Build / test / lint tools ──────────────────────────
-  { pattern: /^deno\s+(test|task|fmt|lint|check|bench)\b/, commands: ["deno test", "deno task", "deno fmt", "deno lint", "deno check", "deno bench"], tier: "L1" },
-  { pattern: /^npm\s+(test|run|start)\b/, commands: ["npm test", "npm run", "npm start"], tier: "L1" },
-  { pattern: /^npx\s/,                 commands: ["npx"],            tier: "L1" },
-  { pattern: /^node\s+--check\b/,      commands: ["node --check"],   tier: "L1" },
-  { pattern: /^yarn\s+(test|run|start)\b/, commands: ["yarn test", "yarn run", "yarn start"], tier: "L1" },
-  { pattern: /^pnpm\s+(test|run|start)\b/, commands: ["pnpm test", "pnpm run", "pnpm start"], tier: "L1" },
-  { pattern: /^make(\s|$)/,            commands: ["make"],           tier: "L1" },
-  { pattern: /^cargo\s+(test|build|check|clippy|fmt|bench|run)\b/, commands: ["cargo test", "cargo build", "cargo check", "cargo clippy", "cargo fmt", "cargo bench", "cargo run"], tier: "L1" },
-  { pattern: /^go\s+(test|build|vet|fmt|run)\b/, commands: ["go test", "go build", "go vet", "go fmt", "go run"], tier: "L1" },
-  { pattern: /^python3?\s+(-m\s+)?(pytest|unittest|mypy|flake8|black|ruff)\b/, commands: ["python pytest", "python -m pytest", "python3 -m mypy"], tier: "L1" },
-  { pattern: /^python3?\s+-m\s+py_compile\b/, commands: ["python -m py_compile"], tier: "L1" },
-  { pattern: /^(pytest|mypy|eslint|prettier|tsc|biome)\b/, commands: ["pytest", "mypy", "eslint", "prettier", "tsc", "biome"], tier: "L1" },
+  {
+    pattern: /^deno\s+(test|task|fmt|lint|check|bench)\b/,
+    commands: [
+      "deno test",
+      "deno task",
+      "deno fmt",
+      "deno lint",
+      "deno check",
+      "deno bench",
+    ],
+    tier: "L1",
+  },
+  {
+    pattern: /^npm\s+(test|run|start)\b/,
+    commands: ["npm test", "npm run", "npm start"],
+    tier: "L1",
+  },
+  { pattern: /^npx\s/, commands: ["npx"], tier: "L1" },
+  { pattern: /^node\s+--check\b/, commands: ["node --check"], tier: "L1" },
+  {
+    pattern: /^yarn\s+(test|run|start)\b/,
+    commands: ["yarn test", "yarn run", "yarn start"],
+    tier: "L1",
+  },
+  {
+    pattern: /^pnpm\s+(test|run|start)\b/,
+    commands: ["pnpm test", "pnpm run", "pnpm start"],
+    tier: "L1",
+  },
+  { pattern: /^make(\s|$)/, commands: ["make"], tier: "L1" },
+  {
+    pattern: /^cargo\s+(test|build|check|clippy|fmt|bench|run)\b/,
+    commands: [
+      "cargo test",
+      "cargo build",
+      "cargo check",
+      "cargo clippy",
+      "cargo fmt",
+      "cargo bench",
+      "cargo run",
+    ],
+    tier: "L1",
+  },
+  {
+    pattern: /^go\s+(test|build|vet|fmt|run)\b/,
+    commands: ["go test", "go build", "go vet", "go fmt", "go run"],
+    tier: "L1",
+  },
+  {
+    pattern: /^python3?\s+(-m\s+)?(pytest|unittest|mypy|flake8|black|ruff)\b/,
+    commands: ["python pytest", "python -m pytest", "python3 -m mypy"],
+    tier: "L1",
+  },
+  {
+    pattern: /^python3?\s+-m\s+py_compile\b/,
+    commands: ["python -m py_compile"],
+    tier: "L1",
+  },
+  {
+    pattern: /^(pytest|mypy|eslint|prettier|tsc|biome)\b/,
+    commands: ["pytest", "mypy", "eslint", "prettier", "tsc", "biome"],
+    tier: "L1",
+  },
 ] as const;
 
 /**
@@ -140,35 +298,57 @@ const SHELL_COMMAND_MANIFEST: readonly ShellCommandSpec[] = [
  * Catches destructive flags on otherwise-safe commands.
  */
 const SHELL_DENY_MANIFEST: readonly ShellDenySpec[] = [
-  { pattern: /^find\s.*\s-delete\b/,                         reason: "find -delete" },
-  { pattern: /^find\s.*\s-(exec|execdir|ok|okdir)\b/,        reason: "find -exec/-execdir/-ok/-okdir" },
-  { pattern: /^find\s.*\s-exec\s+rm\b/,                      reason: "find -exec rm" },
-  { pattern: /^sort\s+(.*\s)?-o\s/,                           reason: "sort -o (in-place output)" },
-  { pattern: /^yq\s+(.*\s)?-i\b/,                             reason: "yq -i (in-place edit)" },
-  { pattern: /^go\s+env\s+.*\s-w\b/,                          reason: "go env -w (write env var)" },
-  { pattern: /^go\s+env\s+-w\b/,                              reason: "go env -w (write env var)" },
-  { pattern: /^git\s+branch\s+(.*\s)?-[dD]\b/,                reason: "git branch -d/-D (delete)" },
-  { pattern: /^git\s+branch\s+(.*\s)?-[mMcC]\b/,              reason: "git branch -m/-M/-c/-C (move/copy)" },
-  { pattern: /^git\s+remote\s+(.*\s)?(add|remove|rm|rename)\b/, reason: "git remote add/remove/rename" },
-  { pattern: /^git\s+remote\s+(.*\s)?(set-url|set-head|prune)\b/, reason: "git remote set-url/set-head/prune" },
-  { pattern: /^git\s+tag\s+(.*\s)?-d\b/,                      reason: "git tag -d (delete)" },
-  { pattern: /^git\s+tag\s+(.*\s)?-[af]\b/,                   reason: "git tag -a/-f (annotate/force)" },
-  { pattern: /^git\s+config\s+(?!--?(get|list|l)\b)/,         reason: "git config SET (not get/list)" },
+  { pattern: /^find\s.*\s-delete\b/, reason: "find -delete" },
+  {
+    pattern: /^find\s.*\s-(exec|execdir|ok|okdir)\b/,
+    reason: "find -exec/-execdir/-ok/-okdir",
+  },
+  { pattern: /^find\s.*\s-exec\s+rm\b/, reason: "find -exec rm" },
+  { pattern: /^sort\s+(.*\s)?-o\s/, reason: "sort -o (in-place output)" },
+  { pattern: /^yq\s+(.*\s)?-i\b/, reason: "yq -i (in-place edit)" },
+  { pattern: /^go\s+env\s+.*\s-w\b/, reason: "go env -w (write env var)" },
+  { pattern: /^go\s+env\s+-w\b/, reason: "go env -w (write env var)" },
+  {
+    pattern: /^git\s+branch\s+(.*\s)?-[dD]\b/,
+    reason: "git branch -d/-D (delete)",
+  },
+  {
+    pattern: /^git\s+branch\s+(.*\s)?-[mMcC]\b/,
+    reason: "git branch -m/-M/-c/-C (move/copy)",
+  },
+  {
+    pattern: /^git\s+remote\s+(.*\s)?(add|remove|rm|rename)\b/,
+    reason: "git remote add/remove/rename",
+  },
+  {
+    pattern: /^git\s+remote\s+(.*\s)?(set-url|set-head|prune)\b/,
+    reason: "git remote set-url/set-head/prune",
+  },
+  { pattern: /^git\s+tag\s+(.*\s)?-d\b/, reason: "git tag -d (delete)" },
+  {
+    pattern: /^git\s+tag\s+(.*\s)?-[af]\b/,
+    reason: "git tag -a/-f (annotate/force)",
+  },
+  {
+    pattern: /^git\s+config\s+(?!--?(get|list|l)\b)/,
+    reason: "git config SET (not get/list)",
+  },
 ] as const;
 
 // ── Derived runtime arrays (DO NOT edit — generated from manifests above) ──
 
 /** L0 shell commands — read-only, no side effects, auto-approved */
-export const SHELL_ALLOWLIST_L0: readonly RegExp[] =
-  SHELL_COMMAND_MANIFEST.filter(s => s.tier === "L0").map(s => s.pattern);
+export const SHELL_ALLOWLIST_L0: readonly RegExp[] = SHELL_COMMAND_MANIFEST
+  .filter((s) => s.tier === "L0").map((s) => s.pattern);
 
 /** L1 shell commands — low risk, prompt once per session */
-export const SHELL_ALLOWLIST_L1: readonly RegExp[] =
-  SHELL_COMMAND_MANIFEST.filter(s => s.tier === "L1").map(s => s.pattern);
+export const SHELL_ALLOWLIST_L1: readonly RegExp[] = SHELL_COMMAND_MANIFEST
+  .filter((s) => s.tier === "L1").map((s) => s.pattern);
 
 /** Deny patterns that override L0 — destructive flags on otherwise-safe commands */
-export const SHELL_DENYLIST_L0: readonly RegExp[] =
-  SHELL_DENY_MANIFEST.map(s => s.pattern);
+export const SHELL_DENYLIST_L0: readonly RegExp[] = SHELL_DENY_MANIFEST.map(
+  (s) => s.pattern,
+);
 
 // ============================================================
 // Timeout Configuration
@@ -367,7 +547,12 @@ export const ENGINE_PROFILES = {
 export const MAX_SESSION_HISTORY = 10;
 
 /** Cloud/frontier provider prefixes (SSOT for detectFrontierModel + isLocalModel) */
-const FRONTIER_PROVIDER_PREFIXES = new Set(["anthropic", "openai", "google", "claude-code"]);
+const FRONTIER_PROVIDER_PREFIXES = new Set([
+  "anthropic",
+  "openai",
+  "google",
+  "claude-code",
+]);
 
 /** Extract provider prefix from "provider/model" string */
 export function extractProviderName(model?: string): string {
@@ -541,17 +726,30 @@ export const DEFAULT_TOOL_DENYLIST = [
  * Keeps tool count low to avoid context overflow and tool selection confusion.
  */
 const CONSTRAINED_CORE_TOOLS: readonly string[] = [
-  "read_file", "write_file", "edit_file", "list_files",
-  "search_code", "ask_user", "complete_task",
-  "git_status", "git_diff", "git_log",
-  "search_web", "web_fetch", "fetch_url",
-  "memory_write", "memory_search", "memory_edit",
+  "read_file",
+  "write_file",
+  "edit_file",
+  "list_files",
+  "search_code",
+  "ask_user",
+  "complete_task",
+  "git_status",
+  "git_diff",
+  "git_log",
+  "search_web",
+  "web_fetch",
+  "fetch_url",
+  "memory_write",
+  "memory_search",
+  "memory_edit",
 ] as const;
 
 /**
  * Eager tools for standard-tier models.
  * Standard-tier starts with these; deferred tools (web, data, memory categories)
  * are discoverable via tool_search.  Also used by REPL main-thread routing.
+ * Keep destructive, niche actions like empty_trash deferred even for standard
+ * tier so they must be discovered intentionally.
  */
 export const STANDARD_EAGER_TOOLS: readonly string[] = [
   "ask_user",
@@ -560,6 +758,8 @@ export const STANDARD_EAGER_TOOLS: readonly string[] = [
   "todo_write",
   "list_files",
   "read_file",
+  "move_to_trash",
+  "reveal_path",
   "search_code",
   "find_symbol",
   "get_structure",
@@ -584,13 +784,19 @@ export function computeTierToolFilter(
   userAllowlist?: string[],
   userDenylist?: string[],
 ): { allowlist?: string[]; denylist?: string[] } {
-  if (tier === "enhanced") return { allowlist: userAllowlist, denylist: userDenylist };
+  if (tier === "enhanced") {
+    return { allowlist: userAllowlist, denylist: userDenylist };
+  }
   if (tier === "constrained") {
-    const baseAllowlist = userAllowlist?.length ? userAllowlist : [...CONSTRAINED_CORE_TOOLS];
+    const baseAllowlist = userAllowlist?.length
+      ? userAllowlist
+      : [...CONSTRAINED_CORE_TOOLS];
     return { allowlist: baseAllowlist, denylist: userDenylist };
   }
   // standard: eager core unless caller already provides an allowlist (e.g. REPL with discovered tools)
-  const baseAllowlist = userAllowlist?.length ? userAllowlist : [...STANDARD_EAGER_TOOLS];
+  const baseAllowlist = userAllowlist?.length
+    ? userAllowlist
+    : [...STANDARD_EAGER_TOOLS];
   return { allowlist: baseAllowlist, denylist: userDenylist };
 }
 

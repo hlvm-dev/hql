@@ -56,9 +56,7 @@ import {
 } from "./web/fetch-core.ts";
 import { renderWithChrome } from "./web/headless-chrome.ts";
 import { detectSearchQueryIntent } from "./web/query-strategy.ts";
-import {
-  DdgSearchBackend,
-} from "./web/ddg-search-backend.ts";
+import { DdgSearchBackend } from "./web/ddg-search-backend.ts";
 import { assessToolSearchConfidence } from "./web/search-backend.ts";
 import { hasStructuredEvidence } from "./web/web-utils.ts";
 
@@ -164,7 +162,9 @@ function buildFetchTranscriptSummary(
   const meta = toRecord(event.meta);
   const webFetch = toRecord(meta?.webFetch);
   if (webFetch?.batch === true) {
-    const count = typeof webFetch.count === "number" ? webFetch.count : undefined;
+    const count = typeof webFetch.count === "number"
+      ? webFetch.count
+      : undefined;
     const errors = typeof webFetch.errors === "number" ? webFetch.errors : 0;
     if (typeof count === "number" && count > 0) {
       const succeeded = Math.max(0, count - errors);
@@ -174,8 +174,12 @@ function buildFetchTranscriptSummary(
     }
   }
 
-  const status = typeof webFetch?.status === "number" ? webFetch.status : undefined;
-  const bytes = typeof webFetch?.bytes === "number" ? webFetch.bytes : undefined;
+  const status = typeof webFetch?.status === "number"
+    ? webFetch.status
+    : undefined;
+  const bytes = typeof webFetch?.bytes === "number"
+    ? webFetch.bytes
+    : undefined;
   if (bytes !== undefined && status !== undefined) {
     return `Received ${formatTranscriptBytes(bytes)} (${status})`;
   }
@@ -252,13 +256,20 @@ export const WEB_SEARCH_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
     return null;
   },
   formatResult: (event) => ({
-    summaryText: `Did 1 search in ${formatTranscriptDuration(event.durationMs)}`,
+    summaryText: `Did 1 search in ${
+      formatTranscriptDuration(event.durationMs)
+    }`,
     detailText: event.content,
   }),
   formatGroupSummary: (calls) => {
     const count = calls.length;
-    const totalResults = calls.reduce((sum, call) => sum + readWebSearchResultCount(call), 0);
-    const base = `Searched the web for ${count} quer${count === 1 ? "y" : "ies"}`;
+    const totalResults = calls.reduce(
+      (sum, call) => sum + readWebSearchResultCount(call),
+      0,
+    );
+    const base = `Searched the web for ${count} quer${
+      count === 1 ? "y" : "ies"
+    }`;
     return totalResults > 0 ? `${base} · ${totalResults} results` : base;
   },
 };
@@ -390,33 +401,43 @@ function normalizeEmbeddedSearchWebArgs(value: SearchWebArgs): SearchWebArgs {
     const parsed = JSON.parse(trimmed);
     if (!parsed || typeof parsed !== "object") return value;
     const candidate = parsed as Record<string, unknown>;
-    const recoveredQuery = typeof candidate.query === "string" && candidate.query.trim().length > 0
-      ? candidate.query.trim()
-      : undefined;
+    const recoveredQuery =
+      typeof candidate.query === "string" && candidate.query.trim().length > 0
+        ? candidate.query.trim()
+        : undefined;
     if (!recoveredQuery) return value;
 
     return {
       ...value,
       query: recoveredQuery,
-      maxResults: typeof candidate.maxResults === "number" && candidate.maxResults > 0
-        ? candidate.maxResults
-        : value.maxResults,
-      timeoutMs: typeof candidate.timeoutMs === "number" && candidate.timeoutMs > 0
-        ? candidate.timeoutMs
-        : value.timeoutMs,
-      timeoutSeconds: typeof candidate.timeoutSeconds === "number" && candidate.timeoutSeconds > 0
+      maxResults:
+        typeof candidate.maxResults === "number" && candidate.maxResults > 0
+          ? candidate.maxResults
+          : value.maxResults,
+      timeoutMs:
+        typeof candidate.timeoutMs === "number" && candidate.timeoutMs > 0
+          ? candidate.timeoutMs
+          : value.timeoutMs,
+      timeoutSeconds: typeof candidate.timeoutSeconds === "number" &&
+          candidate.timeoutSeconds > 0
         ? candidate.timeoutSeconds
         : value.timeoutSeconds,
-      allowedDomains: normalizeStringArray(candidate.allowedDomains) ?? value.allowedDomains,
-      blockedDomains: normalizeStringArray(candidate.blockedDomains) ?? value.blockedDomains,
+      allowedDomains: normalizeStringArray(candidate.allowedDomains) ??
+        value.allowedDomains,
+      blockedDomains: normalizeStringArray(candidate.blockedDomains) ??
+        value.blockedDomains,
       timeRange: typeof candidate.timeRange === "string"
         ? candidate.timeRange as SearchTimeRange
         : value.timeRange,
-      locale: typeof candidate.locale === "string" ? candidate.locale : value.locale,
+      locale: typeof candidate.locale === "string"
+        ? candidate.locale
+        : value.locale,
       searchDepth: typeof candidate.searchDepth === "string"
         ? candidate.searchDepth as SearchDepthProfile
         : value.searchDepth,
-      prefetch: typeof candidate.prefetch === "boolean" ? candidate.prefetch : value.prefetch,
+      prefetch: typeof candidate.prefetch === "boolean"
+        ? candidate.prefetch
+        : value.prefetch,
       reformulate: typeof candidate.reformulate === "boolean"
         ? candidate.reformulate
         : value.reformulate,
@@ -486,7 +507,9 @@ function resultEvidenceSummary(
     .slice(0, maxPassages);
   if (passages.length > 0) return passages;
   if (result.pageDescription?.trim()) return [result.pageDescription.trim()];
-  if (includeSnippetFallback && result.snippet?.trim()) return [result.snippet.trim()];
+  if (includeSnippetFallback && result.snippet?.trim()) {
+    return [result.snippet.trim()];
+  }
   return [];
 }
 
@@ -542,7 +565,9 @@ function buildSupportingLines(results: SearchResult[]): string[] {
     lines.push(
       `[${i + 1}] ${result.title}${result.url ? ` — ${result.url}` : ""}`,
     );
-    for (const excerpt of resultEvidenceSummary(result, 1).map(compactEvidenceText)) {
+    for (
+      const excerpt of resultEvidenceSummary(result, 1).map(compactEvidenceText)
+    ) {
       lines.push(`    > ${excerpt}`);
     }
   }
@@ -1018,11 +1043,14 @@ function formatSearchWebResult(
   const queryIntent = detectSearchQueryIntent(queryStr);
   const confidence = assessToolSearchConfidence(queryStr, results);
   const lowConfidence = confidence.lowConfidence;
-  const fetchedResults = results.filter((result) => result.selectedForFetch === true);
+  const fetchedResults = results.filter((result) =>
+    result.selectedForFetch === true
+  );
   const supportingResults = results.filter((result) =>
     result.selectedForFetch !== true
   ).slice(0, 4);
-  const topResults = (fetchedResults.length > 0 ? fetchedResults : results).slice(0, 4);
+  const topResults = (fetchedResults.length > 0 ? fetchedResults : results)
+    .slice(0, 4);
   const evidenceExcerptCount = queryIntent.wantsComparison ? 2 : 1;
   const detailLines: string[] = [
     `Search: "${queryStr}" (${results.length} results, ${provider})\n`,
@@ -1135,7 +1163,7 @@ export const WEB_TOOLS: Record<string, ToolMetadata> = {
   search_web: {
     fn: searchWeb,
     description:
-      "Discover relevant web pages using DuckDuckGo. Use search_web to find sources, then web_fetch to read a chosen URL. Canonical args include timeRange and prefetch.",
+      "Discover relevant web pages and sources using DuckDuckGo. Use this for research, how-to guidance, and live information, then use web_fetch to read a chosen URL. Canonical args include timeRange and prefetch.",
     category: "web",
     argAliases: {
       recency: "timeRange",

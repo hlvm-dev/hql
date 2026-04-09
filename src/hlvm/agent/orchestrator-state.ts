@@ -56,6 +56,24 @@ export interface ToolExecutionResult {
   }>;
 }
 
+/** Browser/Playwright-specific loop state, grouped for clarity. */
+export interface PlaywrightLoopState {
+  /** Most recent repeated Playwright failure signature. */
+  lastFailureSignature?: string;
+  /** Consecutive iterations with the same Playwright failure signature. */
+  repeatFailureCount: number;
+  /** Most recent Playwright recovery stage already nudged. */
+  notifiedRecoveryKey?: string;
+  /** Consecutive turns spent only on Playwright visual browsing tools. */
+  repeatVisualLoopCount: number;
+  /** Whether the current Playwright visual loop already received a nudge. */
+  notifiedVisualLoop: boolean;
+  /** Retries for browser final-answer adequacy gate. */
+  finalAnswerRetries: number;
+  /** Temporary per-tool denylist with remaining-turn TTLs. */
+  temporaryToolDenylist: Map<string, number>;
+}
+
 /** Mutable state for the ReAct loop, consolidated from 16 local variables */
 /** @internal Exported for unit testing of maybeInjectReminder */
 export interface LoopState {
@@ -101,18 +119,8 @@ export interface LoopState {
   loopRecoveryStep: number;
   /** Signature currently being recovered from. */
   loopRecoverySignature?: string;
-  /** Most recent repeated Playwright failure signature. */
-  lastPlaywrightFailureSignature?: string;
-  /** Consecutive iterations with the same Playwright failure signature. */
-  repeatPlaywrightFailureCount?: number;
-  /** Most recent Playwright failure signature already nudged. */
-  notifiedPlaywrightFailureSignature?: string;
-  /** Consecutive turns spent only on Playwright visual browsing tools. */
-  repeatPlaywrightVisualLoopCount?: number;
-  /** Whether the current Playwright visual loop already received a nudge. */
-  notifiedPlaywrightVisualLoop?: boolean;
-  /** Temporary per-tool denylist with remaining-turn TTLs. */
-  temporaryToolDenylist: Map<string, number>;
+  /** Browser/Playwright-specific state. */
+  playwright: PlaywrightLoopState;
   /** Whether this turn required automatic output continuation. */
   continuedThisTurn: boolean;
   /** Number of continuation hops used in this turn. */
@@ -190,10 +198,13 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     passageIndex: [],
     lastToolNames: [],
     loopRecoveryStep: 0,
-    repeatPlaywrightFailureCount: 0,
-    repeatPlaywrightVisualLoopCount: 0,
-    notifiedPlaywrightVisualLoop: false,
-    temporaryToolDenylist: new Map(),
+    playwright: {
+      repeatFailureCount: 0,
+      repeatVisualLoopCount: 0,
+      notifiedVisualLoop: false,
+      finalAnswerRetries: 0,
+      temporaryToolDenylist: new Map(),
+    },
     continuedThisTurn: false,
     continuationCount: 0,
   };

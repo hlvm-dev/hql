@@ -21,9 +21,12 @@ import {
 import {
   enrichPlaywrightFailureMetadata,
   hasStructuredPlaywrightVisualFailure,
-  matchPlaywrightVisualFailure,
 } from "../../../src/hlvm/agent/playwright/failure-enrichment.ts";
 import { hasPlaywrightVisualLayoutIssue } from "../../../src/hlvm/agent/playwright/diagnostics.ts";
+import {
+  summarizePlaywrightActionability,
+  type PlaywrightElementSnapshot,
+} from "../../../src/hlvm/agent/playwright/actionability.ts";
 import {
   buildPlaywrightSnapshotHint,
   normalizePlaywrightSelector,
@@ -294,11 +297,40 @@ Deno.test("pw_evaluate — description warns about full page access", () => {
   );
 });
 
-Deno.test("playwright failure enricher emits structured not-visible facts", () => {
+Deno.test("playwright actionability analyzer emits structured not-visible facts", () => {
+  const actionability = summarizePlaywrightActionability({
+    selector: "text=Issues",
+    interaction: "click",
+    elements: [{
+      visible: false,
+      enabled: true,
+      inViewport: true,
+      candidateHref: "https://github.com/denoland/deno/issues",
+      role: "link",
+      name: "Issues",
+    }] as PlaywrightElementSnapshot[],
+  });
+  assertEquals(actionability.code, "pw_element_not_visible");
+  assertEquals(actionability.facts.visualBlocker, true);
+  assertEquals(actionability.facts.visualReason, "not_visible");
+  assertEquals(actionability.facts.candidateHref, "https://github.com/denoland/deno/issues");
+});
+
+Deno.test("playwright failure enricher merges structured actionability facts", () => {
+  const actionability = summarizePlaywrightActionability({
+    selector: "text=Issues",
+    interaction: "click",
+    elements: [{
+      visible: false,
+      enabled: true,
+      inViewport: true,
+      role: "link",
+      name: "Issues",
+    }] as PlaywrightElementSnapshot[],
+  });
   const failure = enrichPlaywrightFailureMetadata(
     { source: "tool", kind: "timeout", retryable: true },
-    "Click failed: element is not visible",
-    { selector: "text=Issues", interaction: "click" },
+    actionability,
   );
   assertEquals(failure.code, "pw_element_not_visible");
   assertEquals(failure.facts?.visualBlocker, true);
@@ -307,35 +339,67 @@ Deno.test("playwright failure enricher emits structured not-visible facts", () =
   assertEquals(failure.facts?.interaction, "click");
 });
 
-Deno.test("playwright failure enricher emits structured outside-viewport facts", () => {
-  const failure = enrichPlaywrightFailureMetadata(
-    { source: "tool", kind: "timeout", retryable: true },
-    "Click failed: element is outside the viewport",
-    { selector: "#download", interaction: "click" },
-  );
-  assertEquals(failure.code, "pw_element_outside_viewport");
-  assertEquals(failure.facts?.visualReason, "outside_viewport");
-  assertEquals(hasStructuredPlaywrightVisualFailure(failure), true);
+Deno.test("playwright actionability analyzer emits structured outside-viewport facts", () => {
+  const actionability = summarizePlaywrightActionability({
+    selector: "#download",
+    interaction: "click",
+    elements: [{
+      visible: true,
+      enabled: true,
+      inViewport: false,
+    }] as PlaywrightElementSnapshot[],
+  });
+  assertEquals(actionability.code, "pw_element_outside_viewport");
+  assertEquals(actionability.facts.visualReason, "outside_viewport");
 });
 
-Deno.test("playwright failure enricher emits structured click-intercepted facts", () => {
+Deno.test("playwright actionability analyzer emits structured click-intercepted facts", () => {
+  const actionability = summarizePlaywrightActionability({
+    selector: "text=Submit",
+    interaction: "click",
+    elements: [{
+      visible: true,
+      enabled: true,
+      inViewport: true,
+      intercepted: true,
+      interceptedByRole: "dialog",
+      interceptedByName: "Cookie consent",
+    }] as PlaywrightElementSnapshot[],
+  });
   const failure = enrichPlaywrightFailureMetadata(
     { source: "tool", kind: "timeout", retryable: true },
-    "Click failed: another element would receive the click",
-    { selector: "text=Submit", interaction: "click" },
+    actionability,
   );
   assertEquals(failure.code, "pw_click_intercepted");
   assertEquals(failure.facts?.visualReason, "click_intercepted");
+  assertEquals(failure.facts?.interceptedByRole, "dialog");
   assertEquals(hasStructuredPlaywrightVisualFailure(failure), true);
 });
 
-Deno.test("playwright visual matcher leaves non-visual errors unmatched", () => {
-  assertEquals(
-    matchPlaywrightVisualFailure(
-      "Navigation failed: net::ERR_CONNECTION_REFUSED",
-    ),
-    null,
-  );
+Deno.test("playwright actionability analyzer emits element-not-found facts", () => {
+  const actionability = summarizePlaywrightActionability({
+    selector: "text=Missing",
+    interaction: "click",
+    elements: [],
+  });
+  assertEquals(actionability.code, "pw_element_not_found");
+  assertEquals(actionability.facts.visualBlocker, false);
+});
+
+Deno.test("playwright actionability analyzer emits disabled-element facts", () => {
+  const actionability = summarizePlaywrightActionability({
+    selector: "text=Submit",
+    interaction: "click",
+    elements: [{
+      visible: true,
+      enabled: false,
+      inViewport: true,
+      role: "button",
+      name: "Submit",
+    }] as PlaywrightElementSnapshot[],
+  });
+  assertEquals(actionability.code, "pw_element_disabled");
+  assertEquals(actionability.facts.visualBlocker, false);
 });
 
 Deno.test("playwright diagnostics do not treat pw_download_navigated as visual", async () => {

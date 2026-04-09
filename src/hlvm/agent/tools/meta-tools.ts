@@ -13,7 +13,10 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { ValidationError } from "../../../common/error.ts";
-import { createAbortError, throwIfAborted } from "../../../common/timeout-utils.ts";
+import {
+  createAbortError,
+  throwIfAborted,
+} from "../../../common/timeout-utils.ts";
 import { TEXT_ENCODER } from "../../../common/utils.ts";
 import { safeStringify } from "../../../common/safe-stringify.ts";
 import { isToolArgsObject } from "../validation.ts";
@@ -22,7 +25,13 @@ import type {
   ToolExecutionOptions,
   ToolMetadata,
 } from "../registry.ts";
-import { cloneTodoItems, summarizeTodoState, type TodoItem, type TodoState, type TodoStatus } from "../todo-state.ts";
+import {
+  cloneTodoItems,
+  summarizeTodoState,
+  type TodoItem,
+  type TodoState,
+  type TodoStatus,
+} from "../todo-state.ts";
 
 // ============================================================
 // Tool 1: ask_user
@@ -65,7 +74,10 @@ async function askUser(
 
   // Validate question
   if (typeof question !== "string" || question.trim() === "") {
-    throw new ValidationError("question must be a non-empty string", "ask_user");
+    throw new ValidationError(
+      "question must be a non-empty string",
+      "ask_user",
+    );
   }
 
   // Validate options if provided
@@ -152,12 +164,14 @@ function normalizeAskUserChoices(
       };
       return {
         label: record.label.trim(),
-        value: typeof record.value === "string" && record.value.trim().length > 0
-          ? record.value.trim()
-          : record.label.trim(),
-        detail: typeof record.detail === "string" && record.detail.trim().length > 0
-          ? record.detail.trim()
-          : undefined,
+        value:
+          typeof record.value === "string" && record.value.trim().length > 0
+            ? record.value.trim()
+            : record.label.trim(),
+        detail:
+          typeof record.detail === "string" && record.detail.trim().length > 0
+            ? record.detail.trim()
+            : undefined,
         recommended: record.recommended === true,
       };
     }
@@ -225,7 +239,10 @@ async function toolSearch(
   };
 
   if (typeof query !== "string" || query.trim() === "") {
-    throw new ValidationError("query must be a non-empty string", "tool_search");
+    throw new ValidationError(
+      "query must be a non-empty string",
+      "tool_search",
+    );
   }
 
   const resolvedLimit = typeof limit === "number" && Number.isFinite(limit)
@@ -277,7 +294,10 @@ function formatTodoResult(result: unknown): {
   summaryDisplay: string;
   returnDisplay: string;
 } | null {
-  if (!result || typeof result !== "object" || !Array.isArray((result as TodoState).items)) {
+  if (
+    !result || typeof result !== "object" ||
+    !Array.isArray((result as TodoState).items)
+  ) {
     return null;
   }
   const items = (result as TodoState).items as TodoItem[];
@@ -293,14 +313,22 @@ function validateTodoItems(items: unknown): TodoItem[] {
   }
   return items.map((entry, index) => {
     if (!entry || typeof entry !== "object") {
-      throw new ValidationError(`items[${index}] must be an object`, "todo_write");
+      throw new ValidationError(
+        `items[${index}] must be an object`,
+        "todo_write",
+      );
     }
     const record = entry as Record<string, unknown>;
     const id = typeof record.id === "string" ? record.id.trim() : "";
-    const content = typeof record.content === "string" ? record.content.trim() : "";
+    const content = typeof record.content === "string"
+      ? record.content.trim()
+      : "";
     const status = record.status;
     if (!id) {
-      throw new ValidationError(`items[${index}].id must be a non-empty string`, "todo_write");
+      throw new ValidationError(
+        `items[${index}].id must be a non-empty string`,
+        "todo_write",
+      );
     }
     if (!content) {
       throw new ValidationError(
@@ -308,7 +336,9 @@ function validateTodoItems(items: unknown): TodoItem[] {
         "todo_write",
       );
     }
-    if (typeof status !== "string" || !TODO_STATUSES.has(status as TodoStatus)) {
+    if (
+      typeof status !== "string" || !TODO_STATUSES.has(status as TodoStatus)
+    ) {
       throw new ValidationError(
         `items[${index}].status must be one of: pending, in_progress, completed`,
         "todo_write",
@@ -395,9 +425,11 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
         return Promise.resolve("Task complete.");
       }
       const summary = (args as { summary?: unknown }).summary;
-      return Promise.resolve(typeof summary === "string" && summary.trim()
-        ? summary.trim()
-        : "Task complete.");
+      return Promise.resolve(
+        typeof summary === "string" && summary.trim()
+          ? summary.trim()
+          : "Task complete.",
+      );
     },
     description:
       "Signal task completion with an optional summary. Prefer this when finished.",
@@ -416,13 +448,15 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
       "Search and rank tools by intent. Returns suggested_allowlist for narrowing next LLM tool schema.",
     category: "meta",
     args: {
-      query: "string - Capability needed (e.g., 'find symbol references in TypeScript')",
+      query:
+        "string - Capability needed (e.g., 'find symbol references in TypeScript' or 'move files to trash and reveal the folder')",
       limit: "number (optional) - Max tools to return (1-25, default 10)",
     },
     returns: {
       count: "number - Number of matched tools",
       matches: "array - Ranked tool summaries",
-      suggested_allowlist: "string[] - Suggested tool names to focus next iteration",
+      suggested_allowlist:
+        "string[] - Suggested tool names to focus next iteration",
     },
     safetyLevel: "L0" as const,
   },
