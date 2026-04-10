@@ -964,7 +964,18 @@ let _backendResolution: CUBackendResolution | undefined;
 export async function resolveBackend(): Promise<CUBackendResolution> {
   if (_backendResolution) return _backendResolution;
   const platform = getPlatform();
-  const portStr = platform.env.get("HLVM_CU_PORT");
+  // Port discovery: env var first, then port file written by GUI app's CU service.
+  let portStr = platform.env.get("HLVM_CU_PORT");
+  if (!portStr) {
+    try {
+      const home = platform.env.get("HOME") ?? "";
+      portStr = await platform.fs.readTextFile(
+        platform.path.join(home, ".hlvm", "cu-native-port"),
+      ).then((s) => s.trim());
+    } catch {
+      // Port file doesn't exist — GUI app not running or CU service not started
+    }
+  }
   if (!portStr) {
     _backendResolution = { backend: "jxa" };
     return _backendResolution;
