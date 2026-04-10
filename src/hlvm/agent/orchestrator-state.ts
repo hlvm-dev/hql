@@ -28,7 +28,7 @@ import type { ToolPresentationKind } from "./registry.ts";
 import type { ToolFailureMetadata } from "./tool-results.ts";
 import {
   cloneToolList,
-  resolveEffectiveToolFilter,
+  resolveEffectiveToolFilterCached,
   type ToolProfileState,
 } from "./tool-profiles.ts";
 
@@ -273,9 +273,9 @@ export function effectiveAllowlist(
   config: OrchestratorConfig,
 ): string[] | undefined {
   if (config.toolProfileState) {
-    return resolveEffectiveToolFilter(config.toolProfileState).allowlist;
+    return resolveEffectiveToolFilterCached(config.toolProfileState).allowlist;
   }
-  return config.toolFilterState?.allowlist ?? config.toolAllowlist;
+  return config.toolAllowlist;
 }
 
 /** Resolve the effective tool denylist from OrchestratorConfig. */
@@ -283,9 +283,9 @@ export function effectiveDenylist(
   config: OrchestratorConfig,
 ): string[] | undefined {
   if (config.toolProfileState) {
-    return resolveEffectiveToolFilter(config.toolProfileState).denylist;
+    return resolveEffectiveToolFilterCached(config.toolProfileState).denylist;
   }
-  return config.toolFilterState?.denylist ?? config.toolDenylist;
+  return config.toolDenylist;
 }
 
 export type { ToolProfileState };

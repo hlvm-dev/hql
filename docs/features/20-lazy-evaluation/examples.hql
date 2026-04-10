@@ -22,7 +22,7 @@
 (assert (=== (first arr-seq) 10) "first of array seq")
 (assert (=== (first (rest arr-seq)) 20) "second of array seq")
 
-;; nil-punning: empty collections return null
+// nil-punning: empty collections return null
 (assert (=== (seq []) null) "empty array seq is null")
 (assert (=== (seq null) null) "null seq is null")
 (print "seq conversion works")
@@ -41,15 +41,15 @@
       (= eval-count (+ eval-count 1))
       (cons 3 null)))))))
 
-;; Nothing evaluated yet
+// Nothing evaluated yet
 (assert (=== eval-count 0) "lazy: nothing evaluated yet")
 
-;; Access first element
+// Access first element
 (let first-val (first lazy-nums))
 (assert (=== first-val 1) "lazy first")
 (assert (=== eval-count 1) "lazy: only first thunk evaluated")
 
-;; Access all elements
+// Access all elements
 (let second-val (first (rest lazy-nums)))
 (let third-val (first (rest (rest lazy-nums))))
 (assert (=== second-val 2) "lazy second")
@@ -80,10 +80,10 @@
 // Example 6: repeat and cycle
 // --------------------------------------------
 
-(let repeated (into [] (take 4 (repeat "ha"))))
-(assert (=== repeated.length 4) "repeat 4 times")
+(let repeated (into [] (take 4 (repeatedly (fn [] "ha")))))
+(assert (=== repeated.length 4) "repeatedly 4 times")
 (assert (=== (get repeated 0) "ha") "repeated value")
-(print "repeat:" repeated)  // => ["ha", "ha", "ha", "ha"]
+(print "repeatedly:" repeated)  // => ["ha", "ha", "ha", "ha"]
 
 (let cycled (into [] (take 7 (cycle [1 2 3]))))
 (assert (=== cycled.length 7) "cycle 7 from [1,2,3]")
@@ -131,7 +131,7 @@
 (assert (=== computed true) "now computed")
 (assert (=== (realized delayed) true) "now realized")
 
-;; force again returns cached value
+// force again returns cached value
 (let result2 (force delayed))
 (assert (=== result2 42) "cached value")
 (print "delay/force works correctly")

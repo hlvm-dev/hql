@@ -168,6 +168,11 @@ function renderInstructions(tier: ModelTier): RawPromptSection {
     {
       tier: "standard",
       text:
+        "When the user names local files or folders, inspect the local workspace first and only use ask_user if local tools still cannot resolve the ambiguity.",
+    },
+    {
+      tier: "standard",
+      text:
         'When the user asks chronology/recall questions, call recent_activity before answering — do not guess from memory or context. Use subject="activity" for what they did/worked on, and subject="questions" for literal prior prompts/questions. Chronology-navigation prompts like "what did I ask last time?" and "before that?" are excluded from question-history results.',
     },
     {
@@ -491,6 +496,9 @@ Bad: shell_exec({command:"find ~/Downloads -name '*.dmg'"}) — shell for basic 
 Good: move_to_trash({paths:["~/Downloads/old-installer.dmg"]}) — reversible cleanup
 Bad: shell_exec({command:"rm ~/Downloads/old-installer.dmg"}) — destructive shell deletion
 
+Good: reveal_path({path:"./notes.txt"}) — show a workspace file in the system file manager
+Bad: shell_exec({command:"open -R ./notes.txt"}) — shell for file reveal
+
 Good: read_file({path:"~/Documents/todo.txt"}) — inspect a local note or config
 Bad: shell_exec({command:"cat ~/Documents/todo.txt"}) — shell for file reading
 
@@ -500,11 +508,17 @@ Bad: shell_exec({command:"mkdir -p ~/Documents/Receipts/2026"}) — shell for ba
 Good: move_path({sourcePath:"~/Desktop/invoice.pdf",destinationPath:"~/Documents/Receipts/invoice.pdf"}) — move or rename local files
 Bad: shell_exec({command:"mv ~/Desktop/invoice.pdf ~/Documents/Receipts/invoice.pdf"}) — shell for basic file moves
 
+Good: copy_path({sourcePath:"./notes.txt",destinationPath:"./notes-backup.txt"}) — duplicate a file for backup
+Bad: shell_exec({command:"cp ./notes.txt ./notes-backup.txt"}) — shell for basic file copy
+
 Good: file_metadata({paths:["~/Downloads/report.pdf","~/Downloads/backup.zip"]}) — check sizes and dates
 Bad: shell_exec({command:"stat ~/Downloads/report.pdf ~/Downloads/backup.zip"}) — shell for file metadata
 
 Good: search_code({pattern:"dentist appointment",path:"~/Documents",filePattern:"*.txt"}) — search local notes or text files
 Bad: shell_exec({command:"rg -n 'dentist appointment' ~/Documents"}) — shell for basic text search
+
+Good: tool_search({query:"create a zip archive from files"}) -> archive_files({paths:["notes.txt","report.txt"],outputPath:"project-bundle.zip"}) — discover the archive tool and create a bundle
+Bad: shell_exec({command:"zip project-bundle.zip notes.txt report.txt"}) — shell for common archive creation
 
 Good: search_web({query:"best way to batch rename photos on mac"}) — research a local workflow
 Bad: fetch_url({url:"https://www.google.com/search?q=batch+rename+photos+mac"}) — derived search URL instead of search

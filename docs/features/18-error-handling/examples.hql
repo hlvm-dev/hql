@@ -30,8 +30,9 @@
 
 (fn process-with-cleanup [value]
   (try
-    (if (=== value null)
-      (throw (new Error "null value"))
+    (do
+      (when (=== value null)
+        (throw (new Error "null value")))
       (* value 2))
     (catch e
       -1)
@@ -58,7 +59,7 @@
     (if (=== b 0)
       (throw (new Error "division by zero"))
       (/ a b))
-    (catch
+    (catch e
       Infinity)))
 
 (let div-result (safe-divide 10 0))
@@ -89,9 +90,10 @@
   (try
     (validate x)
     (catch e
-      (if (=== e.message "negative value")
-        0
-        (throw e)))))  // rethrow unknown errors
+      (let message (js-get e "message"))
+      (when (!== message "negative value")
+        (throw e))
+      0)))  // rethrow unknown errors
 
 (let validated (safe-validate -5))
 (assert (=== validated 0) "negative handled")
@@ -106,9 +108,9 @@
     (try
       (JSON.parse input)
       (catch inner-e
-        (throw (new Error (+ "Parse failed: " inner-e.message)))))
+        (throw (new Error (+ "Parse failed: " (js-get inner-e "message"))))))
     (catch outer-e
-      (+ "Error: " outer-e.message))))
+      (+ "Error: " (js-get outer-e "message")))))
 
 (let nested-result (nested-error-handling "bad"))
 (assert (=== (typeof nested-result) "string") "nested catch returns string")

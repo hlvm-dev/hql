@@ -22,6 +22,7 @@ import {
 import { fnv1aHex } from "../../common/hash.ts";
 import type { LanguageModel } from "ai";
 import type { AgentEngine, AgentLLMConfig, ToolFilterState } from "./engine.ts";
+import { resolveEffectiveToolFilterCached } from "./tool-profiles.ts";
 import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type {
@@ -36,6 +37,7 @@ import { getToolRegistryGeneration } from "./registry.ts";
 import { normalizeToolArgs } from "./validation.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
+import { getAgentLogger } from "./logger.ts";
 import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../common/ai-messages.ts";
 import { ProviderErrorCode } from "../../common/error-codes.ts";
 import { buildCompactionPrompt } from "./compaction-template.ts";
@@ -367,8 +369,9 @@ function resolvePromptCacheProfile(
   compiledPrompt: AgentLLMConfig["compiledPrompt"],
   system: SystemPromptValue | undefined,
 ): ResolvedPromptCacheProfile {
-  const stableSegmentCount = compiledPrompt?.stableCacheProfile.stableSegmentCount ??
-    0;
+  const stableSegmentCount =
+    compiledPrompt?.stableCacheProfile.stableSegmentCount ??
+      0;
   const stablePromptSignature =
     compiledPrompt?.stableCacheProfile.stableSegmentHashes?.length
       ? compiledPrompt.stableCacheProfile.stableSegmentHashes
@@ -378,7 +381,7 @@ function resolvePromptCacheProfile(
     stableSegmentCount,
     stablePromptSignature,
     stableCacheSignatureHash: compiledPrompt?.stableCacheProfile
-        .stableSignatureHash ??
+      .stableSignatureHash ??
       buildStableSignature(stablePromptSignature),
   };
 }
@@ -392,7 +395,9 @@ function buildSystemPromptValue(
 } {
   const systemMessages = messages.filter((message) => message.role === "system")
     .filter((message) => message.content.length > 0);
-  const nonSystemMessages = messages.filter((message) => message.role !== "system");
+  const nonSystemMessages = messages.filter((message) =>
+    message.role !== "system"
+  );
   const sdkMessages = convertToSdkMessages(nonSystemMessages);
 
   if (systemMessages.length === 0) {
@@ -537,9 +542,12 @@ export function applyPromptCaching(
       unknown
     >;
     if (incomingGoogle.cachedContent) {
-      decoratedProviderOptions = mergeProviderOptions(decoratedProviderOptions, {
-        google: { cachedContent: incomingGoogle.cachedContent as string },
-      });
+      decoratedProviderOptions = mergeProviderOptions(
+        decoratedProviderOptions,
+        {
+          google: { cachedContent: incomingGoogle.cachedContent as string },
+        },
+      );
     }
   }
 
@@ -799,7 +807,9 @@ export class SdkAgentEngine implements AgentEngine {
     let lastToolSchemaSignature = "";
 
     const resolveToolFilters = (): ToolFilterState => {
-      if (config.toolFilterState) return config.toolFilterState;
+      if (config.toolProfileState) {
+        return resolveEffectiveToolFilterCached(config.toolProfileState);
+      }
       return {
         allowlist: config.toolAllowlist,
         denylist: config.toolDenylist,
@@ -838,6 +848,18 @@ export class SdkAgentEngine implements AgentEngine {
           denylist: toolFilters.denylist,
           ownerId: config.toolOwnerId,
         });
+        // Guard: warn when allowlist was provided but resolved tools are
+        // significantly fewer — catches silent masking by profile layers.
+        if (toolFilters.allowlist?.length && toolDefs.length < toolFilters.allowlist.length) {
+          const missing = toolFilters.allowlist.filter(
+            (name) => !toolDefs.some((d) => d.function.name === name),
+          );
+          if (missing.length > 0) {
+            getAgentLogger().warn(
+              `[engine-sdk] ${missing.length} tool(s) in allowlist not in resolved definitions: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "..." : ""}`,
+            );
+          }
+        }
         cachedCustomSdkTools = convertToolDefinitionsToSdk(toolDefs) ?? {};
         lastToolSchemaSignature = buildStableSignature(toolDefs.map((def) => ({
           name: def.function.name,
@@ -858,7 +880,9 @@ export class SdkAgentEngine implements AgentEngine {
         // Resolve Google explicit cache (async, best-effort) and merge into
         // provider options so applyPromptCaching() can preserve it.
         let baseProviderOptions = buildProviderOptions(spec, config);
-        const thinkingBudget = extractAnthropicThinkingBudget(baseProviderOptions);
+        const thinkingBudget = extractAnthropicThinkingBudget(
+          baseProviderOptions,
+        );
         if (spec.providerName === "google") {
           const cacheProfile = resolvePromptCacheProfile(
             config.compiledPrompt,
@@ -898,7 +922,12 @@ export class SdkAgentEngine implements AgentEngine {
           messages: cacheDecorated.messages,
           ...(disableTools ? {} : { tools: cacheDecorated.tools }),
           ...(config.options?.temperature != null &&
-            { temperature: Math.max(0, Math.min(config.options.temperature, 2.0)) }),
+            {
+              temperature: Math.max(
+                0,
+                Math.min(config.options.temperature, 2.0),
+              ),
+            }),
           maxTokens: guardMaxTokens(config.options?.maxTokens, thinkingBudget),
           abortSignal: signal,
           experimental_repairToolCall: repairToolCall,

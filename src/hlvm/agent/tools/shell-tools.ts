@@ -23,7 +23,12 @@ import {
 import { classifyShellPipeline } from "../security/shell-classifier.ts";
 import { getNetworkPolicyDeniedUrl } from "../policy.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
-import { failTool, formatToolError, okTool } from "../tool-results.ts";
+import {
+  failTool,
+  failToolDetailed,
+  formatToolError,
+  okTool,
+} from "../tool-results.ts";
 
 // ============================================================
 // Types
@@ -143,6 +148,17 @@ export function classifyShellCommand(command: string): "L0" | "L1" | "L2" {
 
 const DETACHED_LAUNCH_GRACE_MS = 75;
 
+function isAbortLikeError(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  if (error instanceof Error && error.name === "AbortError") return true;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const lower = message.toLowerCase();
+  return lower.includes("aborted") ||
+    lower.includes("interrupted") ||
+    lower.includes("cancelled") ||
+    lower.includes("canceled");
+}
+
 /**
  * Auto-detach a narrow set of macOS automation commands that can legitimately
  * take a long time (for example Finder emptying Trash) and should not block
@@ -258,6 +274,7 @@ export async function shellExec(
   workspace: string,
   options?: ToolExecutionOptions,
 ): Promise<ShellExecResult> {
+  const safetyLevel = classifyShellCommand(args.command);
   try {
     const platform = getPlatform();
 
@@ -267,8 +284,6 @@ export async function shellExec(
       : workspace;
 
     // Classify command for safety level
-    const safetyLevel = classifyShellCommand(args.command);
-
     // Parse command with proper quote/escape handling
     let parsedCommand;
     try {
@@ -381,11 +396,24 @@ export async function shellExec(
       abortHandler.clear();
     }
   } catch (error) {
+    if (isAbortLikeError(error, options?.signal)) {
+      return failToolDetailed(
+        "Shell command aborted",
+        { source: "runtime", kind: "interrupted", retryable: false },
+        {
+          stdout: "",
+          stderr: "",
+          exitCode: 1,
+          safetyLevel,
+        },
+      );
+    }
     const toolError = formatToolError("Failed to execute command", error);
     return failTool(toolError.message, {
       stdout: "",
       stderr: toolError.error,
       exitCode: 1,
+      safetyLevel,
     });
   }
 }
@@ -529,6 +557,17 @@ export async function shellScript(
       abortHandler.clear();
     }
   } catch (error) {
+    if (isAbortLikeError(error, options?.signal)) {
+      return failToolDetailed(
+        "Shell script aborted",
+        { source: "runtime", kind: "interrupted", retryable: false },
+        {
+          stdout: "",
+          stderr: "",
+          exitCode: 1,
+        },
+      );
+    }
     const toolError = formatToolError("Failed to execute script", error);
     return failTool(toolError.message, {
       stdout: "",

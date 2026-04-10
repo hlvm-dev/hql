@@ -6,11 +6,17 @@ import {
   ensureToolProfileState,
   getDeclaredToolProfiles,
   resolveEffectiveToolFilter,
+  resolveEffectiveToolFilterCached,
   resolvePersistentToolFilter,
   setToolProfileLayer,
   syncEffectiveToolFilterToConfig,
+  type ToolProfileCarrier,
   updateToolProfileLayer,
+  widenBaselineForDomainProfile,
 } from "../../../src/hlvm/agent/tool-profiles.ts";
+import { STANDARD_EAGER_TOOLS } from "../../../src/hlvm/agent/constants.ts";
+import { PLAYWRIGHT_TOOLS } from "../../../src/hlvm/agent/playwright/mod.ts";
+import { COMPUTER_USE_TOOLS } from "../../../src/hlvm/agent/computer-use/mod.ts";
 
 Deno.test("ToolProfile merges baseline-only filters", () => {
   const state = createToolProfileState();
@@ -121,7 +127,7 @@ Deno.test("ToolProfile sync updates effective and baseline mirrors", () => {
     allowlist: ["read_file", "tool_search"],
   });
 
-  const target = {
+  const target: ToolProfileCarrier = {
     toolFilterState: {},
     toolFilterBaseline: {},
   };
@@ -134,6 +140,8 @@ Deno.test("ToolProfile sync updates effective and baseline mirrors", () => {
     "tool_search",
   ]);
   assertEquals(target.toolAllowlist, ["read_file", "tool_search"]);
+  assertExists(target.toolFilterState);
+  assertExists(target.toolFilterBaseline);
   assertEquals(target.toolFilterState.allowlist, ["read_file", "tool_search"]);
   assertEquals(target.toolFilterBaseline.allowlist, [
     "read_file",
@@ -143,7 +151,7 @@ Deno.test("ToolProfile sync updates effective and baseline mirrors", () => {
 });
 
 Deno.test("ToolProfile can lift legacy mirrors into profile state", () => {
-  const target = {
+  const target: ToolProfileCarrier = {
     toolAllowlist: ["read_file", "tool_search"],
     toolDenylist: ["delegate_agent"],
     toolFilterState: { allowlist: ["read_file"], denylist: ["delegate_agent"] },
@@ -162,6 +170,7 @@ Deno.test("ToolProfile can lift legacy mirrors into profile state", () => {
   updateToolProfileLayer(target, "discovery", {
     allowlist: ["read_file", "tool_search"],
   });
+  assertExists(target.toolFilterState);
   assertEquals(target.toolFilterState.allowlist, ["read_file"]);
 });
 
@@ -169,4 +178,118 @@ Deno.test("browser profiles are declared for future domain routing", () => {
   const profiles = getDeclaredToolProfiles();
   assertExists(profiles.browser_safe);
   assertExists(profiles.browser_hybrid);
+});
+
+Deno.test("hybrid promotion exposes pw_promote and cu_* after widenBaselineForDomainProfile", () => {
+  const pwToolNames = Object.keys(PLAYWRIGHT_TOOLS).filter((n) =>
+    n !== "pw_promote"
+  );
+  const cuToolNames = Object.keys(COMPUTER_USE_TOOLS);
+  const baselineAllowlist = [...STANDARD_EAGER_TOOLS, ...pwToolNames];
+
+  const target: ToolProfileCarrier = {
+    toolProfileState: createToolProfileState({
+      baseline: {
+        slot: "baseline",
+        allowlist: baselineAllowlist,
+      },
+      domain: { slot: "domain", profileId: "browser_safe" },
+    }),
+  };
+
+  // Before widening: effective allowlist should NOT include pw_promote or cu_*
+  const beforeEffective = resolveEffectiveToolFilter(target.toolProfileState!);
+  assertEquals(beforeEffective.allowlist?.includes("pw_promote"), false);
+  assertEquals(beforeEffective.allowlist?.includes("cu_screenshot"), false);
+
+  // Widen baseline and set domain to browser_hybrid
+  widenBaselineForDomainProfile(target, "browser_hybrid");
+  updateToolProfileLayer(target, "domain", { profileId: "browser_hybrid" });
+
+  const afterEffective = resolveEffectiveToolFilter(target.toolProfileState!);
+  assertEquals(afterEffective.allowlist?.includes("pw_promote"), true);
+  for (const cuTool of cuToolNames) {
+    assertEquals(
+      afterEffective.allowlist?.includes(cuTool),
+      true,
+      `Expected ${cuTool} in effective allowlist after hybrid promotion`,
+    );
+  }
+});
+
+Deno.test("hybrid promotion: domain layer correctly narrows to browser tools only", () => {
+  const pwToolNames = Object.keys(PLAYWRIGHT_TOOLS).filter((n) =>
+    n !== "pw_promote"
+  );
+  const cuToolNames = Object.keys(COMPUTER_USE_TOOLS);
+  const baselineAllowlist = [...STANDARD_EAGER_TOOLS, ...pwToolNames];
+
+  const target: ToolProfileCarrier = {
+    toolProfileState: createToolProfileState({
+      baseline: {
+        slot: "baseline",
+        allowlist: baselineAllowlist,
+      },
+      domain: { slot: "domain", profileId: "browser_safe" },
+    }),
+  };
+
+  widenBaselineForDomainProfile(target, "browser_hybrid");
+  updateToolProfileLayer(target, "domain", { profileId: "browser_hybrid" });
+
+  const effective = resolveEffectiveToolFilter(target.toolProfileState!);
+  // Domain intersection narrows to browser tools only (standard tools excluded)
+  assertEquals(effective.allowlist?.includes("read_file"), false);
+  // But all browser tools including promoted ones are present
+  assertEquals(effective.allowlist?.includes("pw_goto"), true);
+  assertEquals(effective.allowlist?.includes("pw_promote"), true);
+  assertEquals(effective.allowlist?.includes(cuToolNames[0]), true);
+});
+
+Deno.test("widenBaselineForDomainProfile is idempotent", () => {
+  const pwToolNames = Object.keys(PLAYWRIGHT_TOOLS).filter((n) =>
+    n !== "pw_promote"
+  );
+  const baselineAllowlist = [...STANDARD_EAGER_TOOLS, ...pwToolNames];
+
+  const target: ToolProfileCarrier = {
+    toolProfileState: createToolProfileState({
+      baseline: { slot: "baseline", allowlist: baselineAllowlist },
+    }),
+  };
+
+  widenBaselineForDomainProfile(target, "browser_hybrid");
+  const after1 = resolveEffectiveToolFilter(target.toolProfileState!);
+  widenBaselineForDomainProfile(target, "browser_hybrid");
+  const after2 = resolveEffectiveToolFilter(target.toolProfileState!);
+
+  assertEquals(after1.allowlist, after2.allowlist);
+});
+
+Deno.test("resolveEffectiveToolFilterCached returns same result as uncached", () => {
+  const state = createToolProfileState();
+  setToolProfileLayer(state, "baseline", {
+    allowlist: ["read_file", "write_file", "tool_search"],
+    denylist: ["delegate_agent"],
+  });
+  setToolProfileLayer(state, "runtime", { denylist: ["write_file"] });
+
+  const uncached = resolveEffectiveToolFilter(state);
+  const cached = resolveEffectiveToolFilterCached(state);
+  assertEquals(cached.allowlist, uncached.allowlist);
+  assertEquals(cached.denylist, uncached.denylist);
+});
+
+Deno.test("resolveEffectiveToolFilterCached invalidates after layer mutation", () => {
+  const state = createToolProfileState();
+  setToolProfileLayer(state, "baseline", {
+    allowlist: ["read_file", "write_file"],
+  });
+
+  const before = resolveEffectiveToolFilterCached(state);
+  assertEquals(before.allowlist, ["read_file", "write_file"]);
+
+  setToolProfileLayer(state, "runtime", { denylist: ["write_file"] });
+  const after = resolveEffectiveToolFilterCached(state);
+  assertEquals(after.denylist, ["write_file"]);
 });

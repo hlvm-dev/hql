@@ -36,6 +36,18 @@ import type { HistoryEntryMetadata } from "../cli/repl/history-storage.ts";
 /** Top-level alias for ai.agent — runs the ReAct agent loop */
 export const agent: AiApi["agent"] = ai.agent;
 
+export const REGISTERED_API_GLOBAL_NAMES = [
+  "config",
+  "bindings",
+  "memory",
+  "history",
+  "ai",
+  "agent",
+  "runtime",
+  "log",
+  "errors",
+] as const;
+
 export {
   ai,
   config,

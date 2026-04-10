@@ -21,6 +21,10 @@ only remains for format detection (tool-call JSON, plan envelopes,
 `[Tool Result]` headers) and structural extraction (file paths, version numbers,
 domain matching).
 
+**Backdoor invariant**: `@auto` and every automatic local-AI path target HLVM's
+embedded runtime on `127.0.0.1:11439`. `localhost:11434` is compatibility-only
+and must never become a silent fallback.
+
 ---
 
 ## 1. System Overview

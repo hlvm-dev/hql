@@ -9,6 +9,7 @@ import {
   HQLErrorCode,
   ProviderErrorCode,
 } from "../../../src/common/error-codes.ts";
+import { DEFAULT_OLLAMA_ENDPOINT } from "../../../src/common/config/types.ts";
 import { RuntimeError } from "../../../src/common/error.ts";
 import {
   __testOnlyGetRuntimeStartLockPath,
@@ -27,8 +28,8 @@ import {
   pullRuntimeModelViaHost,
   registerRuntimeAttachmentPath,
   removeRuntimeMcpServer,
-  runChatViaHost,
   runAgentQueryViaHost,
+  runChatViaHost,
   runDirectChatViaHost,
   runRuntimeOllamaSignin,
   uploadRuntimeAttachment,
@@ -282,7 +283,9 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       assert(eventTypes.includes("plan_review_required"));
       assert(eventTypes.includes("plan_review_resolved"));
 
-      const toolProgress = uiEvents.find((event) => event.type === "tool_progress");
+      const toolProgress = uiEvents.find((event) =>
+        event.type === "tool_progress"
+      );
       assertEquals(toolProgress?.type, "tool_progress");
       if (toolProgress?.type === "tool_progress") {
         assertEquals(toolProgress.name, "read_file");
@@ -1123,10 +1126,12 @@ Deno.test("runAgentQueryViaHost preserves structured HQL codes from streamed hos
     if (url.pathname === "/api/chat") {
       return new Response(
         encoder.encode(
-          `${JSON.stringify({
-            event: "error",
-            message: "[HQL5001] variable foo is not defined",
-          })}\n`,
+          `${
+            JSON.stringify({
+              event: "error",
+              message: "[HQL5001] variable foo is not defined",
+            })
+          }\n`,
         ),
         {
           status: 200,
@@ -1661,7 +1666,7 @@ Deno.test("runtime host client exposes config get/patch/reset through the runtim
     if (url.pathname === "/api/config" && req.method === "GET") {
       return Response.json({
         model: "ollama/llama3.2:latest",
-        endpoint: "http://localhost:11434",
+        endpoint: DEFAULT_OLLAMA_ENDPOINT,
         theme: "hlvm",
       });
     }
@@ -1671,7 +1676,7 @@ Deno.test("runtime host client exposes config get/patch/reset through the runtim
       seenPatches.push(body);
       return Response.json({
         model: "openai/gpt-4.1",
-        endpoint: "http://localhost:11434",
+        endpoint: DEFAULT_OLLAMA_ENDPOINT,
         theme: "hlvm",
       });
     }
@@ -1679,7 +1684,7 @@ Deno.test("runtime host client exposes config get/patch/reset through the runtim
     if (url.pathname === "/api/config/reset") {
       return Response.json({
         model: "ollama/llama3.2:latest",
-        endpoint: "http://localhost:11434",
+        endpoint: DEFAULT_OLLAMA_ENDPOINT,
         theme: "hlvm",
       });
     }
@@ -1687,7 +1692,7 @@ Deno.test("runtime host client exposes config get/patch/reset through the runtim
     if (url.pathname === "/api/config/reload") {
       return Response.json({
         model: "ollama/llama3.2:latest",
-        endpoint: "http://localhost:11434",
+        endpoint: DEFAULT_OLLAMA_ENDPOINT,
         theme: "hlvm",
       });
     }

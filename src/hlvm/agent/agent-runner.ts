@@ -68,6 +68,7 @@ import {
   MAX_ITERATIONS,
   MAX_SESSION_HISTORY,
   supportsAgentExecution,
+  TEAM_RUNTIME_TOOL_NAMES,
 } from "./constants.ts";
 import { compileSystemPrompt } from "./llm-integration.ts";
 import {
@@ -76,14 +77,16 @@ import {
   resolveQueryToolAllowlist,
 } from "./query-tool-routing.ts";
 import {
+  BROWSER_SAFE_PROFILE_ID,
   clearToolProfileLayer,
   cloneToolList,
+  createToolProfileState,
   ensureToolProfileState,
   resolveCanonicalBaselineAllowlist,
   resolveDeclaredToolProfileFilter,
+  resolveEffectiveToolFilterCached,
+  resolvePersistentToolFilter,
   setToolProfileLayer,
-  syncEffectiveToolFilterToConfig,
-  syncPersistentToolFilterToTarget,
 } from "./tool-profiles.ts";
 import {
   type AgentExecutionMode,
@@ -154,16 +157,6 @@ const DEFAULT_AGENT_PATH_ROOTS = [
   "~/Desktop",
   "~/Documents",
 ];
-
-const TEAM_RUNTIME_TOOL_NAMES = [
-  "Teammate",
-  "SendMessage",
-  "TaskCreate",
-  "TaskGet",
-  "TaskUpdate",
-  "TaskList",
-  "TeamStatus",
-] as const;
 
 const reusableSessions = new Set<AgentSession>();
 const BROWSER_REACT_MAX_ITERATIONS = Math.max(MAX_ITERATIONS, 28);
@@ -313,6 +306,16 @@ function toolListsMatch(a?: string[], b?: string[]): boolean {
   return left.every((value, index) => value === right[index]);
 }
 
+function toolListContainsAll(
+  container?: string[],
+  required?: string[],
+): boolean {
+  const needed = normalizeToolList(required);
+  if (needed.length === 0) return true;
+  const available = new Set(normalizeToolList(container));
+  return needed.every((value) => available.has(value));
+}
+
 async function synthesizeStructuredAgentResult(options: {
   model: string;
   query: string;
@@ -363,12 +366,22 @@ export function shouldReuseAgentSession(
   ) {
     return false;
   }
+  const requestedAllowlist = options.toolAllowlist ??
+    resolveCanonicalBaselineAllowlist({
+      querySource: options.querySource,
+      baseAllowlist: session.baseToolAllowlist,
+      discoveredDeferredTools: session.discoveredDeferredTools,
+      ownerId: session.toolOwnerId,
+    });
+  const persistentFilter = resolveSessionPersistentToolFilter(session);
+  const persistentAllowlist = persistentFilter.allowlist;
+  const persistentDenylist = persistentFilter.denylist;
   return toolListsMatch(
-    session.llmConfig?.toolAllowlist,
-    options.toolAllowlist,
+    persistentAllowlist,
+    requestedAllowlist,
   ) &&
-    toolListsMatch(
-      session.llmConfig?.toolDenylist,
+    toolListContainsAll(
+      persistentDenylist,
       options.toolDenylist,
     );
 }
@@ -428,6 +441,27 @@ interface AgentRunnerCallbacks {
   onInteraction?: (
     event: InteractionRequestEvent,
   ) => Promise<InteractionResponse>;
+}
+
+function resolveSessionPersistentToolFilter(
+  session: AgentSession,
+): { allowlist?: string[]; denylist?: string[] } {
+  if (session.toolProfileState) {
+    return resolvePersistentToolFilter(session.toolProfileState);
+  }
+  return {
+    allowlist: cloneToolList(session.baseToolAllowlist),
+    denylist: cloneToolList(session.baseToolDenylist),
+  };
+}
+
+function resolveSessionEffectiveToolFilter(
+  session: AgentSession,
+): { allowlist?: string[]; denylist?: string[] } {
+  if (session.toolProfileState) {
+    return resolveEffectiveToolFilterCached(session.toolProfileState);
+  }
+  return resolveSessionPersistentToolFilter(session);
 }
 
 interface AgentRunnerOptions {
@@ -512,7 +546,7 @@ function applySessionDomainToolProfile(
   const nextBaselineAllowlist = cloneToolList(canonicalBaselineAllowlist);
   if (taskDomain === "browser" && nextBaselineAllowlist?.length) {
     const browserSafeAllowlist =
-      resolveDeclaredToolProfileFilter("browser_safe").allowlist;
+      resolveDeclaredToolProfileFilter(BROWSER_SAFE_PROFILE_ID).allowlist;
     if (browserSafeAllowlist?.length) {
       appendNewNames(nextBaselineAllowlist, browserSafeAllowlist);
     }
@@ -526,8 +560,11 @@ function applySessionDomainToolProfile(
   });
 
   if (taskDomain === "browser") {
+    // If the baseline already contains cu_* tools (e.g., explicit
+    // toolAllowlist from caller), use browser_hybrid so the domain
+    // layer doesn't mask CU tools via intersection.
     setToolProfileLayer(profileState, "domain", {
-      profileId: "browser_safe",
+      profileId: BROWSER_SAFE_PROFILE_ID,
       reason: "browser_task_detected",
     });
   } else {
@@ -539,16 +576,10 @@ function applySessionDomainToolProfile(
 
 function syncSessionToolProfileState(session: AgentSession): void {
   const profileState = ensureToolProfileState(session);
-  syncEffectiveToolFilterToConfig(
-    {
-      toolFilterState: session.toolFilterState,
-      toolFilterBaseline: session.toolFilterBaseline,
-    },
-    profileState,
-  );
   if (session.llmConfig) {
-    syncPersistentToolFilterToTarget(session.llmConfig, profileState);
-    session.llmConfig.toolFilterState = session.toolFilterState;
+    session.llmConfig.toolProfileState = profileState;
+    session.llmConfig.eagerToolCount = resolvePersistentToolFilter(profileState)
+      .allowlist?.length;
     session.llmConfig.discoveredDeferredToolCount =
       session.discoveredDeferredTools.size;
   }
@@ -569,9 +600,8 @@ function persistDeferredToolDiscoveriesForSession(options: {
   toolDenylist?: string[];
   sessionKey?: string | null;
 }): string[] | undefined {
-  // Enhanced tier: no allowlist filtering, nothing to discover.
-  const baseline = options.session.toolFilterBaseline;
-  if (!baseline?.allowlist) return undefined;
+  const baseline = resolveSessionPersistentToolFilter(options.session);
+  if (!baseline.allowlist) return undefined;
 
   if (isMainThreadQuerySource(options.session.querySource)) {
     // REPL path: merge via resolveMainThreadBaselineToolAllowlist (unchanged).
@@ -612,12 +642,17 @@ function persistDeferredToolDiscoveriesForSession(options: {
     }
   }
   if (changed) {
-    appendNewNames(baseline.allowlist, options.session.discoveredDeferredTools);
+    const nextBaselineAllowlist = resolveCanonicalBaselineAllowlist({
+      querySource: options.session.querySource,
+      baseAllowlist: options.session.baseToolAllowlist ?? baseline.allowlist,
+      discoveredDeferredTools: options.session.discoveredDeferredTools,
+      ownerId: options.session.toolOwnerId,
+    }) ?? [...new Set(options.session.discoveredDeferredTools)];
     const profileState = ensureToolProfileState(options.session);
     const baselineLayer = profileState.layers.baseline;
     setToolProfileLayer(profileState, "baseline", {
       profileId: baselineLayer?.profileId,
-      allowlist: [...baseline.allowlist],
+      allowlist: nextBaselineAllowlist,
       denylist: cloneToolList(baselineLayer?.denylist),
       reason: baselineLayer?.reason,
     });
@@ -629,7 +664,8 @@ function persistDeferredToolDiscoveriesForSession(options: {
       );
     }
   }
-  return baseline.allowlist;
+  return resolveSessionPersistentToolFilter(options.session).allowlist ??
+    baseline.allowlist;
 }
 
 interface AgentRunnerResult {
@@ -775,6 +811,10 @@ export async function runAgentQuery(
   const requestedToolAllowlist = resolveQueryToolAllowlist(
     options.toolAllowlist,
   );
+  const explicitPermissionToolAllowlist = requestedToolAllowlist;
+  const explicitPermissionToolDenylist = options.toolDenylist?.length
+    ? [...new Set(options.toolDenylist)]
+    : undefined;
   const toolAllowlist = resolveMainThreadBaselineToolAllowlist({
     querySource,
     toolAllowlist: requestedToolAllowlist,
@@ -803,15 +843,15 @@ export async function runAgentQuery(
     );
   }
 
-  const matchingReusableSession = persistentMemoryEnabled &&
-      shouldReuseAgentSession(options.reusableSession, {
+  const matchingReusableSession =
+    shouldReuseAgentSession(options.reusableSession, {
         model,
         querySource,
         toolAllowlist,
         toolDenylist: effectiveToolDenylist,
       })
-    ? options.reusableSession
-    : undefined;
+      ? options.reusableSession
+      : undefined;
   const agentProfiles = matchingReusableSession?.agentProfiles ??
     await loadAgentProfiles(workspace, {
       toolValidator: hasTool,
@@ -820,18 +860,14 @@ export async function runAgentQuery(
     await loadInstructionHierarchy(workspace);
   const isReusableSession = !!matchingReusableSession;
   const engine = isReusableSession ? undefined : getAgentEngine();
-  if (
-    matchingReusableSession?.ensureMcpLoaded &&
-    !isMainThreadQuerySource(querySource)
-  ) {
-    await matchingReusableSession.ensureMcpLoaded();
-  }
   let session: AgentSession;
   if (matchingReusableSession) {
-    applySessionDomainToolProfile(
-      matchingReusableSession,
-      delegationSignal.taskDomain,
-    );
+    if (!requestedToolAllowlist?.length) {
+      applySessionDomainToolProfile(
+        matchingReusableSession,
+        delegationSignal.taskDomain,
+      );
+    }
     session = await reuseSession(matchingReusableSession, effectiveOnToken, {
       disablePersistentMemory,
       querySource,
@@ -862,16 +898,24 @@ export async function runAgentQuery(
       engine,
       agentProfiles,
     });
-    applySessionDomainToolProfile(session, delegationSignal.taskDomain);
-    if (delegationSignal.taskDomain === "browser") {
-      session = await reuseSession(session, effectiveOnToken, {
-        disablePersistentMemory,
-        querySource,
-        temperature: options.temperature,
-        preserveConversationContext: true,
-        instructions,
-        agentProfiles,
-      });
+    // Skip domain profile AND browser session reuse when caller provided
+    // an explicit allowlist — the caller's tool set is authoritative.
+    // Domain profiling (browser_safe intersection) would mask tools the
+    // caller intentionally included.
+    if (requestedToolAllowlist?.length) {
+      // Caller controls the tool set — no domain profiling.
+    } else {
+      applySessionDomainToolProfile(session, delegationSignal.taskDomain);
+      if (delegationSignal.taskDomain === "browser") {
+        session = await reuseSession(session, effectiveOnToken, {
+          disablePersistentMemory,
+          querySource,
+          temperature: options.temperature,
+          preserveConversationContext: true,
+          instructions,
+          agentProfiles,
+        });
+      }
     }
   }
   traceReplMainThreadForSource(querySource, "agent.session.ready", {
@@ -884,22 +928,19 @@ export async function runAgentQuery(
     discoveredDeferredToolCount: session.discoveredDeferredTools.size,
     contextMessages: session.context.getMessages().length,
     compiledPromptChars: session.llmConfig?.compiledPrompt?.text.length ?? null,
-    toolAllowlistCount: session.llmConfig?.toolAllowlist?.length ?? null,
+    toolAllowlistCount:
+      resolveSessionPersistentToolFilter(session).allowlist?.length ?? null,
   });
 
   session.querySource = querySource;
   if (session.llmConfig) {
     session.llmConfig.querySource = querySource;
-    session.llmConfig.eagerToolCount = session.toolFilterBaseline?.allowlist
-      ?.length;
+    session.llmConfig.eagerToolCount = resolveSessionPersistentToolFilter(
+      session,
+    ).allowlist?.length;
     session.llmConfig.discoveredDeferredToolCount =
       session.discoveredDeferredTools.size;
   }
-  // Load MCP unconditionally when configured (non-main-thread sources)
-  if (session.ensureMcpLoaded && !isMainThreadQuerySource(querySource)) {
-    await session.ensureMcpLoaded();
-  }
-
   // Emit prompt_compiled trace event (only when instruction hierarchy was compiled)
   if (callbacks.onTrace && session.compiledPromptMeta) {
     callbacks.onTrace({
@@ -980,6 +1021,7 @@ export async function runAgentQuery(
       currentDepth: 0,
       maxDepth: agentMaxDepth,
       agentProfiles,
+      discoveredDeferredTools: session.discoveredDeferredTools,
     });
 
     // Wire MCP server-initiated request handlers (sampling, elicitation, roots)
@@ -1032,11 +1074,12 @@ export async function runAgentQuery(
         restoredPlanOwnsTodoState
       ) ||
       session.todoState.items.length === 0;
+    const persistentToolFilter = resolveSessionPersistentToolFilter(session);
     const baseExecutionAllowlist = cloneToolList(
-      session.toolFilterBaseline?.allowlist ?? session.llmConfig?.toolAllowlist,
+      persistentToolFilter.allowlist,
     );
     const baseExecutionDenylist = cloneToolList(
-      session.toolFilterBaseline?.denylist ?? session.llmConfig?.toolDenylist,
+      persistentToolFilter.denylist,
     );
     const directFileTargets = permissionMode === "plan"
       ? await resolveExistingMentionedFiles(query, workspace)
@@ -1064,10 +1107,6 @@ export async function runAgentQuery(
         directFileTargets,
       }
       : undefined;
-    const runtimeToolFilterBaseline = {
-      allowlist: cloneToolList(baseExecutionAllowlist),
-      denylist: cloneToolList(baseExecutionDenylist),
-    };
     if (planModeState) {
       const profileState = ensureToolProfileState(session);
       setToolProfileLayer(profileState, "plan", {
@@ -1115,10 +1154,7 @@ export async function runAgentQuery(
       shouldGateMutatingTools: (): boolean =>
         permissionMode !== "bypassPermissions" &&
         effectiveToolSurfaceIncludesMutation({
-          allowlist: session.toolFilterState?.allowlist ??
-            session.llmConfig?.toolAllowlist,
-          denylist: session.toolFilterState?.denylist ??
-            session.llmConfig?.toolDenylist,
+          ...resolveSessionEffectiveToolFilter(session),
           ownerId: session.toolOwnerId,
         }),
       ensureApproved: async (
@@ -1355,7 +1391,8 @@ export async function runAgentQuery(
         sessionId: sessionKey ?? undefined,
         turnId,
         querySource,
-        eagerToolCount: session.toolFilterBaseline?.allowlist?.length,
+        eagerToolCount: resolveSessionPersistentToolFilter(session).allowlist
+          ?.length,
         discoveredDeferredToolCount: session.discoveredDeferredTools.size,
         currentUserRequest: query,
         signal: options.signal,
@@ -1372,12 +1409,8 @@ export async function runAgentQuery(
           ? restorePlanState(activePlan, completedPlanStepIds)
           : null,
         planReview,
-        toolAllowlist: session.toolFilterState?.allowlist ??
-          session.llmConfig?.toolAllowlist,
-        toolDenylist: session.toolFilterState?.denylist ??
-          session.llmConfig?.toolDenylist,
-        toolFilterState: session.toolFilterState,
-        toolFilterBaseline: runtimeToolFilterBaseline,
+        permissionToolAllowlist: explicitPermissionToolAllowlist,
+        permissionToolDenylist: explicitPermissionToolDenylist,
         baselineToolAllowlistSeed: session.baseToolAllowlist,
         discoveredDeferredTools: session.discoveredDeferredTools,
         toolProfileState: session.toolProfileState,
@@ -1401,8 +1434,8 @@ export async function runAgentQuery(
         autoFallbacks: autoDecision?.fallbacks,
         createFallbackLLM: (fallbackModel: string) => {
           // Recalculate tier + system prompt for the fallback model.
-          // The primary may be enhanced (all tools, full prompt) but the
-          // fallback may be standard (17 eager tools, lean prompt).
+          // The primary may be enhanced (bounded eager core + delegation) while
+          // the fallback may be standard (leaner eager core).
           const fbTier = classifyModelTier(undefined, fallbackModel);
           const fbToolFilter = computeTierToolFilter(fbTier);
           const fbPrompt = fbToolFilter.allowlist
@@ -1420,11 +1453,14 @@ export async function runAgentQuery(
           const fbConfig = {
             ...session.llmConfig!,
             model: fallbackModel,
-            toolFilterState: fbToolFilter.allowlist
-              ? {
-                allowlist: fbToolFilter.allowlist,
-                denylist: fbToolFilter.denylist,
-              }
+            toolProfileState: fbToolFilter.allowlist
+              ? createToolProfileState({
+                baseline: {
+                  slot: "baseline",
+                  allowlist: fbToolFilter.allowlist,
+                  denylist: fbToolFilter.denylist,
+                },
+              })
               : undefined,
             ...(fbPrompt ? { compiledPrompt: fbPrompt } : {}),
           };
@@ -1477,6 +1513,11 @@ export async function runAgentQuery(
         await Promise.allSettled(active.map((t) => t.promise));
       }
       await hookRuntime?.waitForIdle();
+      // Release CU lock if this turn acquired it. Zero-syscall no-op on non-CU turns.
+      const { cleanupComputerUseAfterTurn } = await import(
+        "./computer-use/cleanup.ts"
+      );
+      await cleanupComputerUseAfterTurn();
       traceReplMainThreadForSource(querySource, "agent.cleanup.done", {
         requestId: options.requestId ?? null,
         sessionId: sessionKey,

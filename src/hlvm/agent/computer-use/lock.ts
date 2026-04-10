@@ -19,6 +19,7 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
+import { invalidateCaches } from "./bridge.ts";
 
 const LOCK_FILENAME = "computer-use.lock";
 
@@ -43,6 +44,12 @@ export type CheckResult =
 
 const FRESH: AcquireResult = { kind: "acquired", fresh: true };
 const REENTRANT: AcquireResult = { kind: "acquired", fresh: false };
+
+/** Return FRESH after invalidating stale caches from a prior session. */
+function acquiredFresh(): AcquireResult {
+  invalidateCaches();
+  return acquiredFresh();
+}
 
 function isComputerUseLock(value: unknown): value is ComputerUseLock {
   if (typeof value !== "object" || value === null) return false;
@@ -107,11 +114,8 @@ async function isProcessRunning(pid: number): Promise<boolean> {
 }
 
 /**
- * Attempt to create the lock file exclusively.
- *
- * Bridge note: CC uses `writeFile(path, data, { flag: 'wx' })` for O_EXCL.
- * HLVM's platform doesn't have O_EXCL. We do check-then-write with the
- * tightest possible window. For single-user desktop, this is sufficient.
+ * Attempt to create the lock file exclusively via O_EXCL (createNew).
+ * Atomic: if two sessions race, exactly one succeeds and the other gets an error.
  */
 async function tryCreateExclusive(
   lock: ComputerUseLock,
@@ -119,17 +123,12 @@ async function tryCreateExclusive(
   const platform = getPlatform();
   const path = getLockPath();
   try {
-    // Check if file exists first
-    await platform.fs.readTextFile(path);
-    return false; // File exists → can't create exclusively
+    await platform.fs.writeTextFile(path, JSON.stringify(lock), {
+      createNew: true,
+    });
+    return true;
   } catch {
-    // File doesn't exist — create it
-    try {
-      await platform.fs.writeTextFile(path, JSON.stringify(lock));
-      return true;
-    } catch {
-      return false;
-    }
+    return false;
   }
 }
 
@@ -226,7 +225,7 @@ export async function tryAcquireComputerUseLock(
   // Fresh acquisition.
   if (await tryCreateExclusive(lock)) {
     registerLockCleanup();
-    return FRESH;
+    return acquiredFresh();
   }
 
   const existing = await readLock();
@@ -238,7 +237,7 @@ export async function tryAcquireComputerUseLock(
     } catch { /* ignore */ }
     if (await tryCreateExclusive(lock)) {
       registerLockCleanup();
-      return FRESH;
+      return acquiredFresh();
     }
     return {
       kind: "blocked",
@@ -263,7 +262,7 @@ export async function tryAcquireComputerUseLock(
   } catch { /* ignore */ }
   if (await tryCreateExclusive(lock)) {
     registerLockCleanup();
-    return FRESH;
+    return acquiredFresh();
   }
   return {
     kind: "blocked",

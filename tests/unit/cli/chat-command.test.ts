@@ -3,6 +3,10 @@ import {
   assertRejects,
   assertStringIncludes,
 } from "jsr:@std/assert";
+import {
+  DEFAULT_MODEL_ID,
+  DEFAULT_OLLAMA_ENDPOINT,
+} from "../../../src/common/config/types.ts";
 import { log } from "../../../src/hlvm/api/log.ts";
 import {
   chatCommand,
@@ -54,9 +58,9 @@ async function withChatHost(
 
     if (url.pathname === "/api/config") {
       return Response.json({
-        model: "ollama/llama3.1:8b",
+        model: DEFAULT_MODEL_ID,
         modelConfigured: true,
-        endpoint: "http://localhost:11434",
+        endpoint: DEFAULT_OLLAMA_ENDPOINT,
         theme: "sicp",
       });
     }

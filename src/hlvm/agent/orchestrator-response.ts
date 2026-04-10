@@ -75,10 +75,12 @@ import type { ToolUse } from "./grounding.ts";
 import { isMutatingTool } from "./security/safety.ts";
 import { decideBrowserRecovery } from "./playwright/recovery-policy.ts";
 import {
+  BROWSER_HYBRID_PROFILE_ID,
   clearToolProfileLayerFromTarget,
   ensureToolProfileState,
   resolvePersistentToolFilter,
   updateToolProfileLayer,
+  widenBaselineForDomainProfile,
 } from "./tool-profiles.ts";
 import { runtimeDirective, runtimeNotice } from "./runtime-messages.ts";
 
@@ -277,10 +279,9 @@ async function buildPlaywrightFailureCandidate(
       navigatedTo: typeof toolResult.failure.facts?.navigatedTo === "string"
         ? toolResult.failure.facts.navigatedTo
         : undefined,
-      candidateHref:
-        typeof toolResult.failure.facts?.candidateHref === "string"
-          ? toolResult.failure.facts.candidateHref
-          : undefined,
+      candidateHref: typeof toolResult.failure.facts?.candidateHref === "string"
+        ? toolResult.failure.facts.candidateHref
+        : undefined,
     });
   }
 
@@ -682,7 +683,9 @@ async function withDraftingToolLock<T>(
   config: OrchestratorConfig,
   fn: () => Promise<T>,
 ): Promise<T> {
-  if (!config.toolFilterState && !config.toolProfileState) {
+  if (
+    !config.toolProfileState && !config.toolAllowlist && !config.toolDenylist
+  ) {
     return await fn();
   }
 
@@ -953,8 +956,7 @@ const DOWNLOAD_ARTIFACT_PATTERN =
   /\b[A-Za-z0-9._-]+\.(?:dmg|pkg|zip|exe|msi|tar\.gz|tgz|deb|rpm|sh)\b/i;
 const DIRECT_DOWNLOAD_URL_PATTERN =
   /https?:\/\/[^\s)`"'<>]+?\.(?:dmg|pkg|zip|exe|msi|tar\.gz|tgz|deb|rpm|sh)(?:\?[^\s)`"'<>]*)?/gi;
-const SAVED_PATH_PATTERN =
-  /(?:^|\n)Saved to:\s*(~?\/\S+|[A-Za-z]:\\\S+)/im;
+const SAVED_PATH_PATTERN = /(?:^|\n)Saved to:\s*(~?\/\S+|[A-Za-z]:\\\S+)/im;
 const BACKTICKED_LOCAL_PATH_PATTERN = /`(~?\/[^`]+|[A-Za-z]:\\[^`]+)`/;
 
 function responseContainsDownloadedFilename(response: string): boolean {
@@ -1020,8 +1022,11 @@ async function assessBrowserFinalAnswer(
       if (downloadUrls.length === 1) {
         return {
           isComplete: false,
-          missing:
-            `A direct downloadable file URL is already known (${downloadUrls[0]}). Call pw_download with url="${downloadUrls[0]}" now, then answer with Filename and Saved to.`,
+          missing: `A direct downloadable file URL is already known (${
+            downloadUrls[0]
+          }). Call pw_download with url="${
+            downloadUrls[0]
+          }" now, then answer with Filename and Saved to.`,
         };
       }
       return {
@@ -1040,7 +1045,9 @@ async function assessBrowserFinalAnswer(
     return { isComplete: true, missing: null };
   }
 
-  const { classifyBrowserFinalAnswer } = await import("../runtime/local-llm.ts");
+  const { classifyBrowserFinalAnswer } = await import(
+    "../runtime/local-llm.ts"
+  );
   return classifyBrowserFinalAnswer(userRequest, finalResponse);
 }
 
@@ -1463,9 +1470,12 @@ export async function handlePostToolExecution(
     if (!toolResult.success && toolResult.error?.includes("denied")) {
       anyDeniedThisTurn = true;
       const currentCount = state.denialCountByTool.get(toolName) || 0;
-      state.denialCountByTool.set(toolName, currentCount + 1);
+      const nextCount = toolResult.failure?.kind === "permission_denied"
+        ? lc.maxDenials
+        : currentCount + 1;
+      state.denialCountByTool.set(toolName, nextCount);
 
-      if (currentCount + 1 >= lc.maxDenials) {
+      if (nextCount >= lc.maxDenials) {
         addContextMessage(config, {
           role: "user",
           content: runtimeNotice(
@@ -1499,6 +1509,7 @@ export async function handlePostToolExecution(
       {
         timeout: lc.llmTimeout,
         signal: config.signal,
+        callOptions: { disableTools: true },
       },
       config.onTrace,
       config.context,
@@ -1542,7 +1553,7 @@ export async function handlePostToolExecution(
 
     const currentAllowlist = config.toolProfileState
       ? resolvePersistentToolFilter(config.toolProfileState).allowlist
-      : (config.toolFilterBaseline?.allowlist ?? effectiveAllowlist(config));
+      : config.toolAllowlist;
     const allowedUniverse = currentAllowlist?.length
       ? new Set(currentAllowlist)
       : null;
@@ -1660,13 +1671,22 @@ export async function handlePostToolExecution(
       const recoveryKey = `${playwrightFailure.signature}:${decision.stage}`;
       if (state.playwright.notifiedRecoveryKey !== recoveryKey) {
         if (decision.promoteToHybrid) {
+          widenBaselineForDomainProfile(config, BROWSER_HYBRID_PROFILE_ID);
           updateToolProfileLayer(config, "domain", {
-            profileId: "browser_hybrid",
-            reason: `browser_recovery:${playwrightFailure.signature}:${decision.stage}`,
+            profileId: BROWSER_HYBRID_PROFILE_ID,
+            reason:
+              `browser_recovery:${playwrightFailure.signature}:${decision.stage}`,
           });
+          // Clear the runtime layer — it may hold a stale browser_safe
+          // allowlist from applyAdaptiveToolPhase that would mask the
+          // newly-added hybrid tools via intersection.
+          clearToolProfileLayerFromTarget(config, "runtime");
         }
         if (decision.temporarilyBlockTool) {
-          state.playwright.temporaryToolDenylist.set(decision.temporarilyBlockTool, 2);
+          state.playwright.temporaryToolDenylist.set(
+            decision.temporarilyBlockTool,
+            2,
+          );
         }
         state.playwright.notifiedRecoveryKey = recoveryKey;
         const directive = decision.temporarilyBlockTool

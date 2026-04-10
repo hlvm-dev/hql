@@ -113,7 +113,10 @@ function mapWriteOptions(
 ): { flag?: string; mode?: number } {
   if (!options) return {};
   const result: { flag?: string; mode?: number } = {};
-  if (options.append) {
+  if (options.createNew) {
+    // O_EXCL: fail if file exists (wx = write + exclusive)
+    result.flag = "wx";
+  } else if (options.append) {
     result.flag = "a";
   } else if (options.create !== undefined && !options.create) {
     result.flag = "r+";
@@ -417,6 +420,8 @@ const NodeCommand: PlatformCommand = {
     const child = spawn(options.cmd[0], options.cmd.slice(1), {
       cwd: options.cwd,
       env: options.env,
+      signal: options.signal,
+      timeout: options.timeout,
       stdio: [
         options.stdin === "piped"
           ? "pipe"
@@ -474,6 +479,8 @@ const NodeCommand: PlatformCommand = {
         cwd: options.cwd,
         env: options.env,
         stdio: ["ignore", "pipe", "pipe"],
+        signal: options.signal,
+        timeout: options.timeout,
       });
 
       const stdoutChunks: Buffer[] = [];

@@ -178,7 +178,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     await withPullHost(async () => {
-      const manager = new TaskManager("http://localhost:11434");
+      const manager = new TaskManager(DEFAULT_OLLAMA_ENDPOINT);
       try {
         let notified = false;
         let createdEvent = false;

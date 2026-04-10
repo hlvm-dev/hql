@@ -2,6 +2,7 @@ import { log } from "../../src/hlvm/api/log.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import { getRuntimeHostIdentity } from "../../src/hlvm/runtime/host-identity.ts";
 import { withRuntimePortOverrideForTests } from "../../src/hlvm/runtime/host-config.ts";
+import { createMonotonicPortAllocator } from "./runtime-host-test-helpers.ts";
 
 /**
  * Create a serialized execution queue. Returned function ensures
@@ -26,6 +27,7 @@ export function createSerializedQueue(): <T>(fn: () => Promise<T>) => Promise<T>
 }
 
 const envLockQueues = new Map<string, <T>(fn: () => Promise<T>) => Promise<T>>();
+const allocateMonotonicPort = createMonotonicPortAllocator();
 
 function getEnvKeyQueue(key: string): <T>(fn: () => Promise<T>) => Promise<T> {
   let q = envLockQueues.get(key);
@@ -108,7 +110,7 @@ export async function withRuntimeHostServer(
 }
 
 export async function findFreePort(): Promise<number> {
-  return await getPlatform().http.findFreePort();
+  return await allocateMonotonicPort();
 }
 
 /**

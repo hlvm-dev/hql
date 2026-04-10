@@ -32,14 +32,16 @@ export async function createRuntimeHostHealthResponse(
 async function readRuntimeHealth(
   baseUrl: string,
 ): Promise<HostHealthResponse | null> {
+  let response: Response | null = null;
   try {
-    const response = await http.fetchRaw(`${baseUrl}/health`, { timeout: 500 });
+    response = await http.fetchRaw(`${baseUrl}/health`, { timeout: 500 });
     if (!response.ok) {
       await response.body?.cancel();
       return null;
     }
     return await response.json() as HostHealthResponse;
   } catch {
+    await response?.body?.cancel().catch(() => {});
     return null;
   }
 }
@@ -83,7 +85,7 @@ function classifyOutputLifecycle(
   const sawToolEnd = normalized.includes("[Tool Result]") ||
     normalized.includes("[Tool Error]");
   const sawComplete = normalized.includes("Result:\n") ||
-    normalized.includes("\"type\":\"complete\"");
+    normalized.includes('"type":"complete"');
   return {
     endedBeforeToolEnd: !sawToolEnd,
     endedBeforeComplete: !sawComplete,
@@ -198,13 +200,14 @@ export async function shutdownRuntimeHostIfPresent(
   probe?.noteShutdownRequested();
 
   try {
-    await http.fetchRaw(`${baseUrl}/api/runtime/shutdown`, {
+    const response = await http.fetchRaw(`${baseUrl}/api/runtime/shutdown`, {
       method: "POST",
       timeout: 5_000,
       headers: {
         Authorization: `Bearer ${health.authToken}`,
       },
     });
+    await response.body?.cancel().catch(() => {});
   } catch {
     // Best-effort cleanup for spawned local hosts.
   }

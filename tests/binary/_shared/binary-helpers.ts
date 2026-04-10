@@ -7,7 +7,9 @@
  */
 
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
+import { releaseDirLock, tryAcquireDirLock } from "../../../src/common/dir-lock.ts";
 import { log } from "../../../src/hlvm/api/log.ts";
+import { getRuntimeHostIdentity } from "../../../src/hlvm/runtime/host-identity.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { createSerializedQueue } from "../../shared/light-helpers.ts";
 import { shutdownRuntimeHostIfPresent } from "../../shared/runtime-host-test-helpers.ts";
@@ -27,7 +29,9 @@ const TEMP_DIR = (platform.env.get(IS_WINDOWS ? "TEMP" : "TMPDIR") || (IS_WINDOW
 const BINARY_NAME = IS_WINDOWS ? "hlvm-test-binary.exe" : "hlvm-test-binary";
 export const BINARY_PATH = IS_WINDOWS ? `${TEMP_DIR}\\${BINARY_NAME}` : `${TEMP_DIR}/${BINARY_NAME}`;
 const COMPILE_LOCK_PATH = `${BINARY_PATH}.lock`;
+const BINARY_BUILD_ID_PATH = `${BINARY_PATH}.build-id`;
 export const BINARY_TEST_HLVM_DIR = await platform.fs.makeTempDir({ prefix: "hlvm-binary-tests-" });
+const COMPILE_LOCK_STALE_MS = 5 * 60 * 1000;
 
 // Track compilation state with mutex to prevent race conditions
 let binaryCompiled = false;
@@ -75,16 +79,14 @@ export async function ensureBinaryCompiled(): Promise<void> {
   }
 
   compilationPromise = (async () => {
-    if (await platform.fs.exists(BINARY_PATH)) {
-      binaryCompiled = true;
-      return;
-    }
-
+    const currentBuildId = (await getRuntimeHostIdentity()).buildId;
     const lockAcquired = await tryAcquireCompileLock();
     if (lockAcquired) {
       try {
-        if (!(await platform.fs.exists(BINARY_PATH))) {
-          // Progress logging for rare USE_BINARY=1 compilation
+        const cachedBuildId = await readBinaryBuildId();
+        const binaryExists = await platform.fs.exists(BINARY_PATH);
+        if (!binaryExists || cachedBuildId !== currentBuildId) {
+          await platform.fs.ensureDir(platform.path.dirname(BINARY_PATH));
           log.info("Compiling HLVM binary for genuine binary testing...");
           const { success, stderr } = await platform.command.output({
             cmd: ["deno", "compile", "-A", "--no-check", "--output", BINARY_PATH, CLI_PATH],
@@ -95,16 +97,17 @@ export async function ensureBinaryCompiled(): Promise<void> {
           if (!success) {
             throw new Error(`Failed to compile binary: ${new TextDecoder().decode(stderr)}`);
           }
+          await platform.fs.writeTextFile(BINARY_BUILD_ID_PATH, currentBuildId);
           log.info("Binary compiled: " + BINARY_PATH);
         }
       } finally {
-        await removeIfExists(COMPILE_LOCK_PATH);
+        await releaseDirLock(COMPILE_LOCK_PATH);
       }
       binaryCompiled = true;
       return;
     }
 
-    await waitForCompiledBinary();
+    await waitForCompiledBinary(currentBuildId);
     binaryCompiled = true;
   })();
 
@@ -333,27 +336,27 @@ function getBinaryRuntimeBaseUrl(options?: CommandOptions): string | null {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async function tryAcquireCompileLock(): Promise<boolean> {
-  try {
-    if (await platform.fs.exists(COMPILE_LOCK_PATH)) return false;
-    await platform.fs.writeTextFile(COMPILE_LOCK_PATH, String(Date.now()));
-    return true;
-  } catch {
-    return false;
-  }
+  return await tryAcquireDirLock(COMPILE_LOCK_PATH, COMPILE_LOCK_STALE_MS);
 }
 
-async function waitForCompiledBinary(): Promise<void> {
+async function waitForCompiledBinary(expectedBuildId: string): Promise<void> {
   for (let i = 0; i < 120; i++) {
-    if (await platform.fs.exists(BINARY_PATH)) return;
+    if (
+      !(await platform.fs.exists(COMPILE_LOCK_PATH)) &&
+      await platform.fs.exists(BINARY_PATH) &&
+      await readBinaryBuildId() === expectedBuildId
+    ) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
   throw new Error(`Timed out waiting for compiled binary at ${BINARY_PATH}`);
 }
 
-async function removeIfExists(path: string): Promise<void> {
+async function readBinaryBuildId(): Promise<string | null> {
   try {
-    await platform.fs.remove(path);
+    return (await platform.fs.readTextFile(BINARY_BUILD_ID_PATH)).trim() || null;
   } catch {
-    // ignore
+    return null;
   }
 }

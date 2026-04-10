@@ -12,6 +12,7 @@ import {
 import {
   classifyModelTier,
   computeTierToolFilter,
+  ENHANCED_EAGER_TOOLS,
   STANDARD_EAGER_TOOLS,
   supportsAgentExecution,
   tierMeetsMinimum,
@@ -167,12 +168,18 @@ Deno.test("LLM integration: model tiers classify and compare correctly", () => {
 });
 
 Deno.test("LLM integration: computeTierToolFilter returns correct tools per tier", () => {
-  // Enhanced: passthrough (no filtering)
+  // Enhanced: bounded eager core + delegation
   const enhanced = computeTierToolFilter("enhanced");
-  assertEquals(enhanced.allowlist, undefined);
-  assertEquals(enhanced.denylist, undefined);
+  assertEquals(enhanced.allowlist?.length, ENHANCED_EAGER_TOOLS.length);
+  assertEquals(enhanced.allowlist?.includes("tool_search"), true);
+  assertEquals(enhanced.allowlist?.includes("delegate_agent"), true);
+  assertEquals(enhanced.allowlist?.includes("batch_delegate"), true);
+  assertEquals(enhanced.allowlist?.includes("TaskCreate"), true);
+  assertEquals(enhanced.allowlist?.includes("SendMessage"), true);
+  assertEquals(enhanced.allowlist?.includes("TeamStatus"), true);
+  assertEquals(enhanced.allowlist?.includes("search_web"), false);
 
-  // Enhanced with user allowlist: passthrough
+  // Enhanced with user allowlist: user override
   const enhancedWithAllow = computeTierToolFilter("enhanced", ["read_file"]);
   assertEquals(enhancedWithAllow.allowlist, ["read_file"]);
 
@@ -220,15 +227,18 @@ Deno.test("LLM integration: fallback model tier recalculation gives standard too
   assertEquals(gemma4Filter.allowlist?.length, STANDARD_EAGER_TOOLS.length);
   assertEquals(gemma4Filter.allowlist?.includes("tool_search"), true);
 
-  // Cloud model remains enhanced (all tools, no filtering)
+  // Cloud model remains enhanced (bounded eager tools)
   const claudeTier = classifyModelTier(undefined, "anthropic/claude-sonnet");
   assertEquals(claudeTier, "enhanced");
   const claudeFilter = computeTierToolFilter(claudeTier);
-  assertEquals(claudeFilter.allowlist, undefined);
+  assertEquals(claudeFilter.allowlist?.length, ENHANCED_EAGER_TOOLS.length);
 
   // "Double apply" scenario: enhanced primary falls back to standard.
   // Fallback recalculates its own tier → independent filter, no conflict.
-  assertEquals(computeTierToolFilter("enhanced").allowlist, undefined);
+  assertEquals(
+    computeTierToolFilter("enhanced").allowlist?.length,
+    ENHANCED_EAGER_TOOLS.length,
+  );
   assertEquals(
     computeTierToolFilter("standard").allowlist?.length,
     STANDARD_EAGER_TOOLS.length,

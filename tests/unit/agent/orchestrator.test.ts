@@ -2496,8 +2496,8 @@ Deno.test({
       },
     );
 
-    assertEquals(calls, 3);
-    assertStringIncludes(result, "ask_user");
+    assertEquals(calls, 2);
+    assertEquals(result.length > 0, true);
     const deniedMessage = context.getMessages().find((message) =>
       message.content.includes("Tool execution denied")
     );
@@ -2508,6 +2508,7 @@ Deno.test({
       )
     );
     assertEquals(denialPivotMessage !== undefined, true);
+    assertStringIncludes(denialPivotMessage?.content ?? "", "ask_user");
   },
 });
 

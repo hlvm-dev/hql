@@ -29,6 +29,7 @@ import {
 const platform = getPlatform();
 const ENABLED = platform.env.get("HLVM_E2E_GENERAL_PURPOSE") === "1";
 const CASE_FILTER = platform.env.get("HLVM_E2E_GP_CASE")?.trim() ?? "";
+const VERBOSE = platform.env.get("HLVM_E2E_GP_VERBOSE") === "1";
 const TIMEOUT_MS = 600_000;
 
 const DEFAULT_MODEL_CANDIDATES = [
@@ -621,6 +622,337 @@ const CASES: GeneralPurposeCase[] = [
       return errors;
     },
   },
+
+  // ══════════════════════════════════════════════════════════
+  // Edge cases, multi-tool chains, and ambiguity tests
+  // ══════════════════════════════════════════════════════════
+
+  // ── Case 18: Filename with spaces should not break tool calls ──
+  {
+    id: "filename_with_spaces",
+    description:
+      "Agent should handle filenames with spaces correctly via read_file",
+    query:
+      "Read the file called 'my meeting notes.txt' and summarize it.",
+    fixtures: {
+      "my meeting notes.txt":
+        "Discussed budget cuts. Action: reduce cloud spend by 20%.",
+    },
+    toolAllowlist: [
+      "read_file",
+      "list_files",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => [
+      ...expectToolsUsed(result, ["read_file"]),
+      ...expectToolsNotUsed(result, ["shell_exec"]),
+      ...expectTextContains(result.text, ["budget", "cloud"]),
+    ],
+  },
+
+  // ── Case 19: Empty directory should not confuse the agent ──
+  {
+    id: "empty_directory",
+    description:
+      "Agent should handle an empty workspace gracefully and report no files found",
+    query: "What files are in this directory?",
+    fixtures: {},
+    toolAllowlist: [
+      "list_files",
+      "read_file",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => [
+      ...expectToolsUsed(result, ["list_files"]),
+      ...expectToolsNotUsed(result, ["shell_exec"]),
+      ...expectMinLength(result.text, 10),
+    ],
+  },
+
+  // ── Case 20: Multi-tool chain — read, decide, write ──
+  {
+    id: "read_transform_write",
+    description:
+      "Agent should read a file, transform content, and write the result using dedicated tools",
+    query:
+      "Read shopping-list.txt, add 'eggs' and 'milk' to the list, and save the updated version.",
+    fixtures: {
+      "shopping-list.txt": "- bread\n- butter\n- cheese",
+    },
+    toolAllowlist: [
+      "read_file",
+      "write_file",
+      "edit_file",
+      "list_files",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => {
+      const errors: string[] = [];
+      errors.push(...expectToolsUsed(result, ["read_file"]));
+      // Agent should use either write_file or edit_file to save
+      const usedWrite = result.toolNames.includes("write_file") ||
+        result.toolNames.includes("edit_file");
+      if (!usedWrite) {
+        errors.push(
+          "Expected write_file or edit_file to save changes, but neither was used.",
+        );
+      }
+      errors.push(...expectToolsNotUsed(result, ["shell_exec"]));
+      errors.push(...expectTextContains(result.text, ["eggs", "milk"]));
+      return errors;
+    },
+  },
+
+  // ── Case 21: Multiple file reads in one request ──
+  {
+    id: "summarize_multiple_files",
+    description:
+      "Agent should read multiple files and synthesize information across them",
+    query:
+      "Read all three files here and give me a combined summary of what they contain.",
+    fixtures: {
+      "project-a.txt": "Project A: Building a mobile app for food delivery.",
+      "project-b.txt": "Project B: Migrating the database to PostgreSQL.",
+      "project-c.txt": "Project C: Redesigning the company website.",
+    },
+    toolAllowlist: [
+      "read_file",
+      "list_files",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => {
+      const readCount = result.toolNames.filter((n) => n === "read_file")
+        .length;
+      const errors: string[] = [];
+      if (readCount < 3) {
+        errors.push(
+          `Expected read_file to be called at least 3 times, got ${readCount}.`,
+        );
+      }
+      errors.push(...expectToolsNotUsed(result, ["shell_exec"]));
+      errors.push(
+        ...expectTextContains(result.text, [
+          "food delivery",
+          "PostgreSQL",
+          "website",
+        ]),
+      );
+      return errors;
+    },
+  },
+
+  // ── Case 22: Nested directory listing ──
+  {
+    id: "nested_recursive_listing",
+    description:
+      "Agent should use list_files with recursive:true for nested directory trees",
+    query: "Show me all files in the project folder, including subfolders.",
+    fixtures: {
+      "project/README.md": "# Project",
+      "project/src/main.ts": "console.log('hello')",
+      "project/src/utils/helper.ts": "export function help() {}",
+      "project/docs/guide.md": "# Guide",
+    },
+    toolAllowlist: [
+      "list_files",
+      "read_file",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => [
+      ...expectToolsUsed(result, ["list_files"]),
+      ...expectToolsNotUsed(result, ["shell_exec"]),
+      ...expectTextContains(result.text, ["main.ts", "helper.ts", "guide.md"]),
+    ],
+  },
+
+  // ── Case 23: Metadata comparison across files ──
+  {
+    id: "find_newest_file",
+    description:
+      "Agent should use file_metadata to compare modification dates across files",
+    query:
+      "Which of these files was modified most recently: alpha.txt, beta.txt, or gamma.txt?",
+    fixtures: {
+      "alpha.txt": "old content",
+      "beta.txt": "newer content",
+      "gamma.txt": "newest content",
+    },
+    toolAllowlist: [
+      "file_metadata",
+      "list_files",
+      "read_file",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => [
+      ...expectToolsUsed(result, ["file_metadata"]),
+      ...expectToolsNotUsed(result, ["shell_exec"]),
+      ...expectMinLength(result.text, 15),
+    ],
+  },
+
+  // ── Case 24: Move multiple files into a folder ──
+  {
+    id: "batch_organize",
+    description:
+      "Agent should use make_directory + move_path multiple times for batch organization",
+    query:
+      "Create a folder called 'images' and move all .png files into it.",
+    fixtures: {
+      "photo1.png": "fake png 1",
+      "photo2.png": "fake png 2",
+      "screenshot.png": "fake png 3",
+      "readme.txt": "keep here",
+    },
+    toolAllowlist: [
+      "list_files",
+      "make_directory",
+      "move_path",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => {
+      const errors: string[] = [];
+      errors.push(
+        ...expectToolsUsed(result, ["list_files", "make_directory", "move_path"]),
+      );
+      errors.push(...expectToolsNotUsed(result, ["shell_exec"]));
+      const moveCount = result.toolNames.filter((n) => n === "move_path")
+        .length;
+      if (moveCount < 3) {
+        errors.push(
+          `Expected move_path at least 3 times for 3 .png files, got ${moveCount}.`,
+        );
+      }
+      return errors;
+    },
+  },
+
+  // ── Case 25: Don't over-tool simple math ──
+  {
+    id: "simple_math_no_tools",
+    description:
+      "Agent should answer math questions directly without using any tools",
+    query: "What is 17 times 23?",
+    fixtures: {},
+    toolAllowlist: [
+      "read_file",
+      "list_files",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => [
+      ...expectToolsNotUsed(result, [
+        "read_file",
+        "list_files",
+        "shell_exec",
+      ]),
+      ...expectTextContains(result.text, ["391"]),
+    ],
+  },
+
+  // ── Case 26: Metadata batch — multiple paths in one call ──
+  {
+    id: "batch_metadata",
+    description:
+      "Agent should use file_metadata or list_files to get sizes, not shell stat/ls -l",
+    query:
+      "Tell me the size of every file in this directory.",
+    fixtures: {
+      "small.txt": "tiny",
+      "medium.txt": "m".repeat(500),
+      "large.txt": "L".repeat(5000),
+    },
+    toolAllowlist: [
+      "file_metadata",
+      "list_files",
+      "read_file",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => {
+      const errors: string[] = [];
+      // Either file_metadata or list_files is valid — both return sizes
+      const usedSizeTool = result.toolNames.includes("file_metadata") ||
+        result.toolNames.includes("list_files");
+      if (!usedSizeTool) {
+        errors.push(
+          "Expected file_metadata or list_files to get sizes, but neither was used.",
+        );
+      }
+      errors.push(...expectToolsNotUsed(result, ["shell_exec"]));
+      errors.push(
+        ...expectTextContains(result.text, [
+          "small.txt",
+          "medium.txt",
+          "large.txt",
+        ]),
+      );
+      return errors;
+    },
+  },
+
+  // ── Case 27: Write file to a subdirectory that doesn't exist yet ──
+  {
+    id: "write_to_new_subdir",
+    description:
+      "Agent should create parent directories when writing a file to a new path",
+    query:
+      "Save the text 'Hello World' to a file at reports/2026/summary.txt.",
+    fixtures: {},
+    toolAllowlist: [
+      "write_file",
+      "make_directory",
+      "list_files",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => {
+      const errors: string[] = [];
+      // Agent should use write_file (with createDirs) or make_directory + write_file
+      errors.push(...expectToolsUsed(result, ["write_file"]));
+      errors.push(...expectToolsNotUsed(result, ["shell_exec"]));
+      errors.push(
+        ...expectTextContains(result.text, ["summary.txt"]),
+      );
+      return errors;
+    },
+  },
+
+  // ── Case 28: Trash then verify — multi-step with read-back ──
+  {
+    id: "trash_and_verify",
+    description:
+      "Agent should trash files and then verify they are gone using list_files",
+    query:
+      "Delete old-log.txt from this folder, then confirm it is gone by listing the remaining files.",
+    fixtures: {
+      "old-log.txt": "stale log data",
+      "current.txt": "current data",
+    },
+    toolAllowlist: [
+      "move_to_trash",
+      "list_files",
+      "read_file",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => {
+      const errors: string[] = [];
+      errors.push(
+        ...expectToolsUsed(result, ["move_to_trash", "list_files"]),
+      );
+      errors.push(...expectToolsNotUsed(result, ["shell_exec"]));
+      // The response should mention current.txt as remaining
+      errors.push(...expectTextContains(result.text, ["current.txt"]));
+      return errors;
+    },
+  },
 ];
 
 // ============================================================
@@ -677,6 +1009,14 @@ Deno.test({
             caseModel = model;
 
             const { names, args } = collectToolInfo(events);
+            // Verbose tracing for internal behavior inspection
+            if (VERBOSE) {
+              console.log(`\n── ${testCase.id} (${caseModel}) ──`);
+              for (const a of args) console.log(`  CALL: ${a.name}(${a.args})`);
+              console.log(
+                `  RESPONSE: ${result.text.trim().slice(0, 300)}`,
+              );
+            }
             const semanticResult: GeneralPurposeResult = {
               text: result.text.trim(),
               toolNames: names,

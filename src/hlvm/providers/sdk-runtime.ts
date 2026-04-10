@@ -50,6 +50,8 @@ export interface SdkProviderBundle {
   model: LanguageModel;
 }
 
+const OLLAMA_TRANSIENT_RETRY_DELAY_MS = 750;
+
 const SUPPORTED_SDK_PROVIDERS = new Set<SdkProviderName>([
   "openai",
   "anthropic",
@@ -57,6 +59,18 @@ const SUPPORTED_SDK_PROVIDERS = new Set<SdkProviderName>([
   "claude-code",
   "ollama",
 ]);
+
+function sdkRetryAttemptLimit(providerName: SdkProviderName): number {
+  return providerName === "ollama" ? 4 : 2;
+}
+
+function sdkRetryDelayMs(
+  providerName: SdkProviderName,
+  attempt: number,
+): number | undefined {
+  if (providerName !== "ollama") return undefined;
+  return OLLAMA_TRANSIENT_RETRY_DELAY_MS * (attempt + 1);
+}
 
 const REQUIRED_API_KEY_ENV_VARS: Partial<Record<SdkProviderName, string>> = {
   openai: "OPENAI_API_KEY",
@@ -283,6 +297,49 @@ export async function maybeHandleSdkAuthError(
   }
 
   return false;
+}
+
+export async function maybeHandleSdkRecoverableError(
+  providerName: SdkProviderName,
+  error: unknown,
+  options?: { ollamaRetryDelayMs?: number },
+): Promise<boolean> {
+  const shouldRetryAuth = await maybeHandleSdkAuthError(providerName, error);
+  if (shouldRetryAuth) return true;
+  if (providerName !== "ollama") return false;
+
+  const status = extractStatusCode(error);
+  const message = getErrorMessage(error).toLowerCase();
+  const responseBody = extractResponseBodyText(error)?.toLowerCase() ?? "";
+  const transientStatus = status === 404 ||
+    status === 408 ||
+    status === 409 ||
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504;
+  const transientModelWarmup = status === 404 &&
+    (
+      message.includes("not found") ||
+      responseBody.includes("not found") ||
+      responseBody.includes("try pulling it first")
+    );
+
+  if (
+    !transientStatus && !transientModelWarmup &&
+    !isNetworkFailure(message, error)
+  ) {
+    return false;
+  }
+
+  await new Promise((resolve) =>
+    setTimeout(
+      resolve,
+      options?.ollamaRetryDelayMs ?? OLLAMA_TRANSIENT_RETRY_DELAY_MS,
+    )
+  );
+  return true;
 }
 
 export async function createSdkProviderBundle(
@@ -1134,7 +1191,9 @@ function repairSdkAssistantToolCalls(
     input: unknown;
   }>,
 ): ModelMessage {
-  if (!Array.isArray(sdkAssistant.content) || reconstructedToolCalls.length === 0) {
+  if (
+    !Array.isArray(sdkAssistant.content) || reconstructedToolCalls.length === 0
+  ) {
     return sdkAssistant;
   }
 
@@ -1400,7 +1459,8 @@ export async function* chatWithSdk(
     return;
   }
   const sdkMessages = convertToSdkMessages(messages);
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const maxAttempts = sdkRetryAttemptLimit(spec.providerName);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const model = await createSdkLanguageModel(spec);
     const settings = buildCommonSettings(
       spec,
@@ -1425,8 +1485,12 @@ export async function* chatWithSdk(
       return;
     } catch (error) {
       const resolvedError = resolveSdkStreamFailure(error, streamError);
-      const shouldRetry = attempt === 0 &&
-        await maybeHandleSdkAuthError(spec.providerName, resolvedError);
+      const shouldRetry = attempt < maxAttempts - 1 &&
+        await maybeHandleSdkRecoverableError(
+          spec.providerName,
+          resolvedError,
+          { ollamaRetryDelayMs: sdkRetryDelayMs(spec.providerName, attempt) },
+        );
       if (shouldRetry) {
         continue;
       }
@@ -1470,7 +1534,8 @@ export async function chatStructuredWithSdk(
   const sdkMessages = convertToSdkMessages(messages);
   const onToken = options?.onToken;
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const maxAttempts = sdkRetryAttemptLimit(spec.providerName);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const model = await createSdkLanguageModel(spec);
     const settings = buildCommonSettings(
       spec,
@@ -1524,8 +1589,12 @@ export async function chatStructuredWithSdk(
       };
     } catch (error) {
       const resolvedError = resolveSdkStreamFailure(error, streamError);
-      const shouldRetry = attempt === 0 &&
-        await maybeHandleSdkAuthError(spec.providerName, resolvedError);
+      const shouldRetry = attempt < maxAttempts - 1 &&
+        await maybeHandleSdkRecoverableError(
+          spec.providerName,
+          resolvedError,
+          { ollamaRetryDelayMs: sdkRetryDelayMs(spec.providerName, attempt) },
+        );
       if (shouldRetry) {
         continue;
       }
@@ -1546,7 +1615,8 @@ export async function generateStructuredWithSdk(
   options?: { signal?: AbortSignal; temperature?: number },
 ): Promise<unknown> {
   const sdkMessages = convertToSdkMessages(messages);
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const maxAttempts = sdkRetryAttemptLimit(spec.providerName);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const model = await createSdkLanguageModel(spec);
     try {
       const { output } = await generateText({
@@ -1559,8 +1629,12 @@ export async function generateStructuredWithSdk(
       });
       return output;
     } catch (error) {
-      const shouldRetry = attempt === 0 &&
-        await maybeHandleSdkAuthError(spec.providerName, error);
+      const shouldRetry = attempt < maxAttempts - 1 &&
+        await maybeHandleSdkRecoverableError(
+          spec.providerName,
+          error,
+          { ollamaRetryDelayMs: sdkRetryDelayMs(spec.providerName, attempt) },
+        );
       if (shouldRetry) {
         continue;
       }

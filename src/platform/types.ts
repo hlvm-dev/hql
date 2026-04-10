@@ -37,6 +37,8 @@ export interface PlatformMakeTempDirOptions {
 export interface PlatformWriteOptions {
   append?: boolean;
   create?: boolean;
+  /** Exclusive creation — fail if file already exists (O_EXCL / 'wx'). */
+  createNew?: boolean;
   mode?: number;
 }
 
@@ -76,6 +78,10 @@ export interface PlatformCommandOptions {
   stdin?: "piped" | "inherit" | "null";
   stdout?: "piped" | "inherit" | "null";
   stderr?: "piped" | "inherit" | "null";
+  /** Kill the subprocess after this many milliseconds. */
+  timeout?: number;
+  /** Abort signal — kills the subprocess when aborted. */
+  signal?: AbortSignal;
 }
 
 /** Result from command.output() - complete command execution with captured output */

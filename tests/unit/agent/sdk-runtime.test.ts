@@ -6,6 +6,7 @@ import {
   mapSdkSources,
   mapSdkUsage,
   maybeHandleSdkAuthError,
+  maybeHandleSdkRecoverableError,
   normalizeProviderCacheMetrics,
   normalizeProviderMetadata,
   resolveSdkStreamFailure,
@@ -70,6 +71,35 @@ Deno.test("sdk runtime: claude-code auth failures clear token cache for an immed
       platform.env.set("CLAUDE_CODE_TOKEN", previousToken);
     }
   }
+});
+
+Deno.test("sdk runtime: ollama transient 404s retry once to survive model warm-up races", async () => {
+  const shouldRetry = await maybeHandleSdkRecoverableError(
+    "ollama",
+    {
+      statusCode: 404,
+      message: "Error",
+      responseBody:
+        '{"error":"model \\"llama3.1:8b\\" not found, try pulling it first"}',
+    },
+    { ollamaRetryDelayMs: 0 },
+  );
+
+  assertEquals(shouldRetry, true);
+});
+
+Deno.test("sdk runtime: non-retryable ollama request rejections fail fast", async () => {
+  const shouldRetry = await maybeHandleSdkRecoverableError(
+    "ollama",
+    {
+      statusCode: 400,
+      message: "bad request",
+      responseBody: '{"error":"invalid format"}',
+    },
+    { ollamaRetryDelayMs: 0 },
+  );
+
+  assertEquals(shouldRetry, false);
 });
 
 Deno.test("sdk runtime: tool definitions convert to a named record and omit empty input", () => {
@@ -341,7 +371,9 @@ Deno.test("sdk runtime: provider cache metrics normalize camelCase and snake_cas
     },
   );
   assertEquals(
-    normalizeProviderCacheMetrics({ providerMetadata: { openai: { foo: "bar" } } }),
+    normalizeProviderCacheMetrics({
+      providerMetadata: { openai: { foo: "bar" } },
+    }),
     undefined,
   );
 });

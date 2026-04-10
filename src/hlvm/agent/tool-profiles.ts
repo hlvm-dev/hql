@@ -2,6 +2,7 @@ import { ValidationError } from "../../common/error.ts";
 import type { ToolFilterState } from "./engine.ts";
 import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
 import { PLAYWRIGHT_TOOLS } from "./playwright/mod.ts";
+import { getAgentLogger } from "./logger.ts";
 
 export type ToolProfileId = string;
 export type ToolProfileSlot =
@@ -29,6 +30,8 @@ export interface ToolProfileLayer {
 
 export interface ToolProfileState {
   layers: Partial<Record<ToolProfileSlot, ToolProfileLayer>>;
+  /** @internal Incremented on every mutation for cache invalidation. */
+  _generation: number;
 }
 
 export interface ToolFilterSyncTarget {
@@ -38,7 +41,7 @@ export interface ToolFilterSyncTarget {
   toolFilterBaseline?: ToolFilterState;
 }
 
-export interface ToolProfileCarrier extends ToolFilterSyncTarget {
+export interface ToolProfileCarrier {
   toolProfileState?: ToolProfileState;
 }
 
@@ -68,19 +71,22 @@ const PERSISTENT_TOOL_PROFILE_SLOTS: readonly ToolProfileSlot[] = [
   "plan",
 ];
 
+export const BROWSER_SAFE_PROFILE_ID = "browser_safe" as const;
+export const BROWSER_HYBRID_PROFILE_ID = "browser_hybrid" as const;
+
 const BROWSER_SAFE_PLAYWRIGHT_TOOLS = Object.keys(PLAYWRIGHT_TOOLS).filter(
   (name) => name !== "pw_promote",
 );
 
 const DEFAULT_DECLARED_TOOL_PROFILES = declareToolProfiles([
   {
-    id: "browser_safe",
+    id: BROWSER_SAFE_PROFILE_ID,
     allowlist: uniqueToolList(BROWSER_SAFE_PLAYWRIGHT_TOOLS),
     reasonTemplate: "Headless browser-safe tool profile",
   },
   {
-    id: "browser_hybrid",
-    extends: "browser_safe",
+    id: BROWSER_HYBRID_PROFILE_ID,
+    extends: BROWSER_SAFE_PROFILE_ID,
     allowlist: uniqueToolList([
       "pw_promote",
       ...Object.keys(COMPUTER_USE_TOOLS),
@@ -111,7 +117,7 @@ export function intersectToolLists(
 export function createToolProfileState(
   layers?: Partial<Record<ToolProfileSlot, ToolProfileLayer>>,
 ): ToolProfileState {
-  const state: ToolProfileState = { layers: {} };
+  const state: ToolProfileState = { layers: {}, _generation: 0 };
   for (const slot of TOOL_PROFILE_SLOT_ORDER) {
     const layer = layers?.[slot];
     if (layer) {
@@ -192,6 +198,7 @@ export function setToolProfileLayer(
     denylist: cloneToolList(layer.denylist),
     reason: layer.reason,
   };
+  state._generation = (state._generation ?? 0) + 1;
   return state;
 }
 
@@ -200,6 +207,7 @@ export function clearToolProfileLayer(
   slot: ToolProfileSlot,
 ): ToolProfileState {
   delete state.layers[slot];
+  state._generation = (state._generation ?? 0) + 1;
   return state;
 }
 
@@ -210,8 +218,18 @@ export function resolveEffectiveToolFilter(
     registry?: DeclaredToolProfileRegistry;
   } = {},
 ): ToolFilterState {
-  const slots = options.slots ?? TOOL_PROFILE_SLOT_ORDER;
-  const registry = options.registry ?? DEFAULT_DECLARED_TOOL_PROFILES;
+  return computeToolFilter(
+    state,
+    options.slots ?? TOOL_PROFILE_SLOT_ORDER,
+    options.registry ?? DEFAULT_DECLARED_TOOL_PROFILES,
+  );
+}
+
+function computeToolFilter(
+  state: ToolProfileState,
+  slots: readonly ToolProfileSlot[],
+  registry: DeclaredToolProfileRegistry,
+): ToolFilterState {
   let allowlist: string[] | undefined;
   const denylist: string[] = [];
 
@@ -220,7 +238,17 @@ export function resolveEffectiveToolFilter(
     if (!layer) continue;
     const resolvedLayer = resolveToolProfileLayer(layer, registry);
     if (resolvedLayer.allowlist?.length) {
+      const before = allowlist?.length ?? 0;
       allowlist = intersectToolLists(allowlist, resolvedLayer.allowlist);
+      const after = allowlist?.length ?? 0;
+      // Warn when a layer intersection drops significant tools — this
+      // catches silent masking bugs (e.g., domain layer wiping CU tools).
+      if (before > 0 && after < before) {
+        const dropped = before - after;
+        getAgentLogger().debug(
+          `[tool-profiles] Layer '${slot}'${layer.profileId ? ` (${layer.profileId})` : ""} dropped ${dropped} tools via intersection: ${before} → ${after}`,
+        );
+      }
     }
     if (resolvedLayer.denylist?.length) {
       denylist.push(...resolvedLayer.denylist);
@@ -233,14 +261,66 @@ export function resolveEffectiveToolFilter(
   };
 }
 
+interface _CachedFilters {
+  generation: number;
+  registry: DeclaredToolProfileRegistry;
+  effective: ToolFilterState;
+  persistent: ToolFilterState;
+}
+
+const _filterCache = new WeakMap<ToolProfileState, _CachedFilters>();
+
+/**
+ * Resolve both effective and persistent filters with generation-based caching.
+ * Cache is invalidated by _generation counter (bumped on every layer mutation)
+ * or by a different registry identity.
+ */
+function resolveFiltersWithCache(
+  state: ToolProfileState,
+  registry: DeclaredToolProfileRegistry,
+): { effective: ToolFilterState; persistent: ToolFilterState } {
+  const gen = state._generation ?? 0;
+  const cached = _filterCache.get(state);
+  if (cached && cached.generation === gen && cached.registry === registry) {
+    return { effective: cached.effective, persistent: cached.persistent };
+  }
+  const effective = computeToolFilter(
+    state,
+    TOOL_PROFILE_SLOT_ORDER,
+    registry,
+  );
+  const persistent = computeToolFilter(
+    state,
+    PERSISTENT_TOOL_PROFILE_SLOTS,
+    registry,
+  );
+  _filterCache.set(state, { generation: gen, registry, effective, persistent });
+  return { effective, persistent };
+}
+
+/**
+ * Memoized version of resolveEffectiveToolFilter for the default-slots path.
+ * Non-default slot overrides bypass the cache.
+ */
+export function resolveEffectiveToolFilterCached(
+  state: ToolProfileState,
+  options?: {
+    slots?: readonly ToolProfileSlot[];
+    registry?: DeclaredToolProfileRegistry;
+  },
+): ToolFilterState {
+  if (options?.slots) {
+    return resolveEffectiveToolFilter(state, options);
+  }
+  const registry = options?.registry ?? DEFAULT_DECLARED_TOOL_PROFILES;
+  return resolveFiltersWithCache(state, registry).effective;
+}
+
 export function resolvePersistentToolFilter(
   state: ToolProfileState,
   registry: DeclaredToolProfileRegistry = DEFAULT_DECLARED_TOOL_PROFILES,
 ): ToolFilterState {
-  return resolveEffectiveToolFilter(state, {
-    slots: PERSISTENT_TOOL_PROFILE_SLOTS,
-    registry,
-  });
+  return resolveFiltersWithCache(state, registry).persistent;
 }
 
 export function syncPersistentToolFilterToTarget(
@@ -259,8 +339,10 @@ export function syncEffectiveToolFilterToConfig(
   profileState: ToolProfileState,
   registry: DeclaredToolProfileRegistry = DEFAULT_DECLARED_TOOL_PROFILES,
 ): { effective: ToolFilterState; persistent: ToolFilterState } {
-  const effective = resolveEffectiveToolFilter(profileState, { registry });
-  const persistent = resolvePersistentToolFilter(profileState, registry);
+  const { effective, persistent } = resolveFiltersWithCache(
+    profileState,
+    registry,
+  );
 
   target.toolAllowlist = cloneToolList(effective.allowlist);
   target.toolDenylist = cloneToolList(effective.denylist);
@@ -289,37 +371,65 @@ export function syncEffectiveToolFilterToConfig(
 }
 
 export function ensureToolProfileState(
-  target: ToolProfileCarrier,
+  target: ToolProfileCarrier & Partial<ToolFilterSyncTarget>,
   registry: DeclaredToolProfileRegistry = DEFAULT_DECLARED_TOOL_PROFILES,
 ): ToolProfileState {
   if (!target.toolProfileState) {
     target.toolProfileState = deriveToolProfileStateFromFilters(target);
   }
-  syncEffectiveToolFilterToConfig(target, target.toolProfileState, registry);
   return target.toolProfileState;
 }
 
 export function updateToolProfileLayer(
-  target: ToolProfileCarrier,
+  target: ToolProfileCarrier & Partial<ToolFilterSyncTarget>,
   slot: ToolProfileSlot,
   layer: Omit<ToolProfileLayer, "slot"> | ToolProfileLayer,
   registry: DeclaredToolProfileRegistry = DEFAULT_DECLARED_TOOL_PROFILES,
 ): ToolProfileState {
   const state = ensureToolProfileState(target, registry);
   setToolProfileLayer(state, slot, layer);
-  syncEffectiveToolFilterToConfig(target, state, registry);
   return state;
 }
 
 export function clearToolProfileLayerFromTarget(
-  target: ToolProfileCarrier,
+  target: ToolProfileCarrier & Partial<ToolFilterSyncTarget>,
   slot: ToolProfileSlot,
   registry: DeclaredToolProfileRegistry = DEFAULT_DECLARED_TOOL_PROFILES,
 ): ToolProfileState {
   const state = ensureToolProfileState(target, registry);
   clearToolProfileLayer(state, slot);
-  syncEffectiveToolFilterToConfig(target, state, registry);
   return state;
+}
+
+/**
+ * Widen the baseline allowlist to include all tools from a declared profile.
+ *
+ * This is required when a domain profile introduces tool classes (e.g. cu_*)
+ * that were not in the original baseline. Without widening, the intersection
+ * semantics of resolveEffectiveToolFilter would silently drop the new tools.
+ */
+export function widenBaselineForDomainProfile(
+  target: ToolProfileCarrier & Partial<ToolFilterSyncTarget>,
+  profileId: ToolProfileId,
+  registry: DeclaredToolProfileRegistry = DEFAULT_DECLARED_TOOL_PROFILES,
+): void {
+  const state = ensureToolProfileState(target, registry);
+  const resolved = resolveDeclaredToolProfileFilter(profileId, registry);
+  const baseline = state.layers.baseline;
+  if (!resolved.allowlist?.length || !baseline?.allowlist?.length) {
+    getAgentLogger().debug(
+      `[tool-profiles] widenBaseline skipped for '${profileId}': resolved=${resolved.allowlist?.length ?? 0} baseline=${baseline?.allowlist?.length ?? "unrestricted"}`,
+    );
+    return;
+  }
+  const combined = uniqueToolList([
+    ...baseline.allowlist,
+    ...resolved.allowlist,
+  ]);
+  setToolProfileLayer(state, "baseline", {
+    ...baseline,
+    allowlist: combined,
+  });
 }
 
 function resolveToolProfileLayer(

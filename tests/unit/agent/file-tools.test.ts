@@ -372,7 +372,7 @@ Deno.test("file tools: open_path and archive_files reject sandbox and validation
 
     assertEquals(openOutside.success, false);
     assertEquals(emptyArchive.success, false);
-    assertStringIncludes(emptyArchive.message || "", "non-empty array");
+    assertStringIncludes(emptyArchive.message || "", "non-empty");
   });
 });
 

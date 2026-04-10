@@ -1,5 +1,5 @@
 /**
- * Ollama command - forwards to system Ollama installation
+ * Ollama command - explicit compatibility bridge to a system Ollama installation.
  * GUI calls: hlvm ollama serve
  */
 
@@ -74,7 +74,8 @@ USAGE:
   hlvm ollama serve
 
 DESCRIPTION:
-  Starts the Ollama server on localhost:11434.
+  Explicit compatibility command. Starts the system Ollama server on localhost:11434.
+  This command is never used by HLVM's embedded runtime, bootstrap, or auto-routing.
   Requires Ollama to be installed on your system.
 
 INSTALL:

@@ -1,4 +1,5 @@
 import { assertEquals, assertExists, assertRejects } from "jsr:@std/assert";
+import { getMcpConfigPath } from "../../../src/common/paths.ts";
 import {
   createReusableSession,
   disposeAllSessions,
@@ -11,10 +12,12 @@ import {
   resetAgentEngine,
   setAgentEngine,
 } from "../../../src/hlvm/agent/engine.ts";
+import { hasTool } from "../../../src/hlvm/agent/registry.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { generateUUID } from "../../../src/common/utils.ts";
 import { resolveDeclaredToolProfileFilter } from "../../../src/hlvm/agent/tool-profiles.ts";
+import { withTempHlvmDir } from "../helpers.ts";
 
 async function withEngineOverride(
   engine: AgentEngine,
@@ -316,6 +319,210 @@ Deno.test({
       await disposeAllSessions();
       await platform.fs.remove(workspace, { recursive: true });
     }
+  },
+});
+
+Deno.test({
+  name:
+    "agent-runner: enhanced non-main-thread persists discovered MCP tools across reusable turns",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTempHlvmDir(async () => {
+      const platform = getPlatform();
+      const workspace = platform.path.join(
+        platform.process.cwd(),
+        ".tmp",
+        `hlvm-agent-enhanced-mcp-${generateUUID()}`,
+      );
+      const fixturePath = platform.path.join(
+        platform.process.cwd(),
+        "tests",
+        "fixtures",
+        "mcp-server.ts",
+      );
+      await platform.fs.mkdir(workspace, { recursive: true });
+      await platform.fs.mkdir(platform.path.dirname(getMcpConfigPath()), {
+        recursive: true,
+      });
+      await platform.fs.writeTextFile(
+        getMcpConfigPath(),
+        JSON.stringify({
+          version: 1,
+          servers: [{
+            name: "productivity",
+            command: [
+              "deno",
+              "run",
+              "--allow-env=MCP_TEST_MODE",
+              fixturePath,
+            ],
+            env: { MCP_TEST_MODE: "productivity_tools" },
+          }],
+        }),
+      );
+
+      let issuedToolSearch = false;
+      const engine: AgentEngine = {
+        createLLM: () => {
+          return async () => {
+            if (!issuedToolSearch) {
+              issuedToolSearch = true;
+              return {
+                content: "",
+                toolCalls: [{
+                  toolName: "tool_search",
+                  args: { query: "gmail draft", limit: 1 },
+                }],
+              };
+            }
+            return { content: "done", toolCalls: [] };
+          };
+        },
+        createSummarizer: () => () => Promise.resolve(""),
+      };
+
+      try {
+        await withEngineOverride(engine, async () => {
+          const reusableSession = await createReusableSession(
+            workspace,
+            "anthropic/claude-sonnet",
+            { modelInfo: null },
+          );
+
+          // deno-lint-ignore no-explicit-any
+          const firstResult: any = await runAgentQuery({
+            query: "Find the draft email tool",
+            model: "anthropic/claude-sonnet",
+            modelInfo: null,
+            workspace,
+            reusableSession,
+            skipSessionHistory: true,
+            retainSessionForReuse: true,
+            callbacks: {},
+          });
+
+          const firstSession = firstResult.liveSession;
+          assertExists(firstSession);
+          assertEquals(
+            firstSession.discoveredDeferredTools.has(
+              "mcp_productivity_gmail_create_draft",
+            ),
+            true,
+          );
+          const firstAllowlist = firstSession.llmConfig?.toolAllowlist ?? [];
+          assertEquals(
+            firstAllowlist.includes("mcp_productivity_gmail_create_draft"),
+            true,
+          );
+          assertEquals(
+            firstAllowlist.includes("mcp_productivity_calendar_create_event"),
+            false,
+          );
+          assertEquals(
+            firstAllowlist.includes("mcp_productivity_reminders_create_item"),
+            false,
+          );
+
+          // deno-lint-ignore no-explicit-any
+          const secondResult: any = await runAgentQuery({
+            query: "Answer without more discovery",
+            model: "anthropic/claude-sonnet",
+            modelInfo: null,
+            workspace,
+            reusableSession: firstSession,
+            skipSessionHistory: true,
+            retainSessionForReuse: true,
+            callbacks: {},
+          });
+
+          const secondSession = secondResult.liveSession;
+          assertExists(secondSession);
+          const secondAllowlist = secondSession.llmConfig?.toolAllowlist ?? [];
+          assertEquals(
+            secondAllowlist.includes("mcp_productivity_gmail_create_draft"),
+            true,
+          );
+          assertEquals(
+            secondAllowlist.includes("mcp_productivity_calendar_create_event"),
+            false,
+          );
+          assertEquals(
+            secondAllowlist.includes("mcp_productivity_reminders_create_item"),
+            false,
+          );
+        });
+      } finally {
+        await platform.fs.remove(workspace, { recursive: true });
+      }
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "agent-runner: non-main-thread sessions do not eagerly load MCP without discovery",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTempHlvmDir(async () => {
+      const platform = getPlatform();
+      const workspace = platform.path.join(
+        platform.process.cwd(),
+        ".tmp",
+        `hlvm-agent-lazy-non-main-${generateUUID()}`,
+      );
+      const fixturePath = platform.path.join(
+        platform.process.cwd(),
+        "tests",
+        "fixtures",
+        "mcp-server.ts",
+      );
+      await platform.fs.mkdir(workspace, { recursive: true });
+      await platform.fs.mkdir(platform.path.dirname(getMcpConfigPath()), {
+        recursive: true,
+      });
+      await platform.fs.writeTextFile(
+        getMcpConfigPath(),
+        JSON.stringify({
+          version: 1,
+          servers: [{ name: "test", command: ["deno", "run", fixturePath] }],
+        }),
+      );
+
+      const engine: AgentEngine = {
+        createLLM: () => () => Promise.resolve({ content: "done", toolCalls: [] }),
+        createSummarizer: () => () => Promise.resolve(""),
+      };
+
+      try {
+        await withEngineOverride(engine, async () => {
+          const reusableSession = await createReusableSession(
+            workspace,
+            "anthropic/claude-sonnet",
+            { modelInfo: null },
+          );
+
+          // deno-lint-ignore no-explicit-any
+          const result: any = await runAgentQuery({
+            query: "No tool discovery needed",
+            model: "anthropic/claude-sonnet",
+            modelInfo: null,
+            workspace,
+            reusableSession,
+            skipSessionHistory: true,
+            retainSessionForReuse: true,
+            callbacks: {},
+          });
+
+          const liveSession = result.liveSession;
+          assertExists(liveSession);
+          assertEquals(hasTool("mcp_test_echo", liveSession.toolOwnerId), false);
+        });
+      } finally {
+        await platform.fs.remove(workspace, { recursive: true });
+      }
+    });
   },
 });
 

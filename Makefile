@@ -138,16 +138,9 @@ setup-ai:
 		OLLAMA_ASSET="ollama-linux-arm64.tar.zst"; \
 	else \
 		echo "❌ No official Ollama binary for $$UNAME_S/$$UNAME_M."; \
-		echo "   Falling back to system Ollama..."; \
-		if command -v ollama >/dev/null 2>&1; then \
-			cp $$(which ollama) "$(AI_ENGINE_DIR)/ollama"; \
-			chmod +x "$(AI_ENGINE_DIR)/ollama"; \
-			STAMP_VALUE="system:$$(ollama --version 2>/dev/null | head -1 | tr -d '\r')"; \
-			OLLAMA_ASSET=""; \
-		else \
-			echo "❌ Ollama not found. Install from: https://ollama.ai"; \
-			exit 1; \
-		fi; \
+		echo "   Refusing to copy a system Ollama binary into the embedded runtime."; \
+		echo "   Build must use an official embedded binary or fail closed."; \
+		exit 1; \
 	fi; \
 	if [ -n "$$OLLAMA_ASSET" ]; then \
 		OLLAMA_URL="$$OLLAMA_BASE/$$OLLAMA_ASSET"; \

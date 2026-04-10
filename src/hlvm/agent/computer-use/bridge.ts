@@ -28,13 +28,20 @@ import type {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
+/** Default timeout for osascript/JXA subprocess calls (30 seconds). */
+const SUBPROCESS_TIMEOUT_MS = 30_000;
+
 /** Run AppleScript and return trimmed stdout. */
-async function osascript(script: string): Promise<string> {
+async function osascript(
+  script: string,
+  timeout = SUBPROCESS_TIMEOUT_MS,
+): Promise<string> {
   const result = await getPlatform().command.output({
     cmd: ["osascript", "-e", script],
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
+    timeout,
   });
   if (!result.success) {
     const stderr = new TextDecoder().decode(result.stderr);
@@ -44,18 +51,29 @@ async function osascript(script: string): Promise<string> {
 }
 
 /** Run JXA (JavaScript for Automation with ObjC bridge). */
-async function jxa(script: string): Promise<string> {
+async function jxa(
+  script: string,
+  timeout = SUBPROCESS_TIMEOUT_MS,
+): Promise<string> {
   const result = await getPlatform().command.output({
     cmd: ["osascript", "-l", "JavaScript", "-e", script],
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
+    timeout,
   });
   if (!result.success) {
     const stderr = new TextDecoder().decode(result.stderr);
     throw new Error(`JXA failed (exit ${result.code}): ${stderr}`);
   }
   return new TextDecoder().decode(result.stdout).trim();
+}
+
+/** Validate that a numeric value is a finite number (guards against NaN/Infinity in JXA). */
+function assertFiniteCoord(value: number, name: string): void {
+  if (!Number.isFinite(value)) {
+    throw new Error(`Invalid ${name}: ${value} (must be a finite number)`);
+  }
 }
 
 // ── execFileNoThrow (replaces CC's ../execFileNoThrow.js) ────────────────
@@ -68,27 +86,44 @@ export async function execFileNoThrow(
   const platform = getPlatform();
 
   if (opts?.input !== undefined) {
-    // Need to pipe stdin — use temp file + shell redirect
-    const tmpDir = await platform.fs.makeTempDir({ prefix: "hlvm-exec" });
-    const tmpFile = platform.path.join(tmpDir, "stdin.txt");
-    try {
-      await platform.fs.writeTextFile(tmpFile, opts.input);
-      const result = await platform.command.output({
-        cmd: ["sh", "-c", `"${cmd}" ${args.map((a) => `"${a}"`).join(" ")} < "${tmpFile}"`],
-        stdin: "null",
-        stdout: "piped",
-        stderr: "piped",
-      });
-      return {
-        stdout: new TextDecoder().decode(result.stdout),
-        stderr: new TextDecoder().decode(result.stderr),
-        code: result.code,
-      };
-    } finally {
-      try {
-        await platform.fs.remove(tmpDir, { recursive: true });
-      } catch { /* ignore */ }
+    // Pipe stdin directly — no shell redirect, no injection risk.
+    const proc = platform.command.run({
+      cmd: [cmd, ...args],
+      stdin: "piped",
+      stdout: "piped",
+      stderr: "piped",
+      timeout: SUBPROCESS_TIMEOUT_MS,
+    });
+    const encoder = new TextEncoder();
+    const writer = proc.stdin as WritableStream<Uint8Array>;
+    const w = writer.getWriter();
+    await w.write(encoder.encode(opts.input));
+    await w.close();
+    const status = await proc.status;
+    const stdoutChunks: Uint8Array[] = [];
+    const stderrChunks: Uint8Array[] = [];
+    if (proc.stdout) {
+      const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        stdoutChunks.push(value);
+      }
     }
+    if (proc.stderr) {
+      const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        stderrChunks.push(value);
+      }
+    }
+    const decoder = new TextDecoder();
+    return {
+      stdout: decoder.decode(concatUint8Arrays(stdoutChunks)),
+      stderr: decoder.decode(concatUint8Arrays(stderrChunks)),
+      code: status.code,
+    };
   }
 
   const result = await platform.command.output({
@@ -96,12 +131,26 @@ export async function execFileNoThrow(
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
+    timeout: SUBPROCESS_TIMEOUT_MS,
   });
   return {
     stdout: new TextDecoder().decode(result.stdout),
     stderr: new TextDecoder().decode(result.stderr),
     code: result.code,
   };
+}
+
+function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
+  if (chunks.length === 0) return new Uint8Array(0);
+  if (chunks.length === 1) return chunks[0];
+  const total = chunks.reduce((sum, c) => sum + c.byteLength, 0);
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
 }
 
 // ── ComputerUseInput (replaces @ant/computer-use-input / Rust enigo) ─────
@@ -113,6 +162,8 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
 
   _inputInstance = {
     async moveMouse(x: number, y: number, _animated: boolean): Promise<void> {
+      assertFiniteCoord(x, "x");
+      assertFiniteCoord(y, "y");
       await jxa(`
         ObjC.import('CoreGraphics');
         var pt = $.CGPointMake(${x}, ${y});
@@ -184,6 +235,7 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
       delta: number,
       axis: "vertical" | "horizontal",
     ): Promise<void> {
+      assertFiniteCoord(delta, "scroll delta");
       if (axis === "vertical") {
         await jxa(`
           ObjC.import('CoreGraphics');
@@ -272,8 +324,11 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
     },
 
     async typeText(text: string): Promise<void> {
-      // Direct keystroke typing (not via clipboard)
-      const escaped = text
+      // Strip NULL bytes (truncate C strings) and other non-printable
+      // control chars that AppleScript's keystroke can't handle.
+      // deno-lint-ignore no-control-regex
+      const sanitized = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+      const escaped = sanitized
         .replace(/\\/g, "\\\\")
         .replace(/"/g, '\\"')
         .replace(/\n/g, "\\n")
@@ -370,14 +425,48 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
 
     apps: {
       async prepareDisplay(
-        _allowedBundleIds: string[],
-        _hostBundleId: string,
+        allowedBundleIds: string[],
+        hostBundleId: string,
         _displayId?: number,
       ): Promise<{ activated: string | null; hidden: string[] }> {
-        // CC hides non-allowed apps and activates the target.
-        // HLVM bridge: no-op (we don't hide apps)
-        log.debug("[bridge] prepareDisplay: no-op (no app hiding in HLVM)");
-        return { activated: null, hidden: [] };
+        // Activate the first allowed app that's running (bring to front).
+        // Hide apps NOT in the allowlist and NOT the host terminal.
+        // This ensures CU actions target the correct window.
+        const allowSet = new Set(allowedBundleIds);
+        allowSet.add(hostBundleId); // Never hide the terminal
+        try {
+          const result = await jxa(`
+            ObjC.import('AppKit');
+            var ws = $.NSWorkspace.sharedWorkspace;
+            var apps = ws.runningApplications;
+            var hidden = [];
+            var activated = null;
+            var allowSet = new Set(${JSON.stringify([...allowSet])});
+            for (var i = 0; i < apps.count; i++) {
+              var app = apps.objectAtIndex(i);
+              var bid = app.bundleIdentifier?.js;
+              if (!bid) continue;
+              var policy = app.activationPolicy;
+              if (policy !== $.NSApplicationActivationPolicyRegular) continue;
+              if (allowSet.has(bid)) {
+                if (!activated) {
+                  app.activateWithOptions($.NSApplicationActivateIgnoringOtherApps);
+                  activated = bid;
+                }
+              } else if (!app.isHidden) {
+                app.hide();
+                hidden.push(bid);
+              }
+            }
+            JSON.stringify({ activated: activated, hidden: hidden });
+          `);
+          return JSON.parse(result);
+        } catch (err) {
+          log.debug(
+            `[bridge] prepareDisplay failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return { activated: null, hidden: [] };
+        }
       },
 
       async previewHideSet(
@@ -576,6 +665,19 @@ async function initRunningAppsCache(): Promise<void> {
 /** Refresh display cache. Called before screenshot to ensure accurate dims. */
 export async function refreshDisplayCache(): Promise<void> {
   await initDisplayCache();
+}
+
+/**
+ * Invalidate all cached state (display, running apps).
+ * Called when a fresh CU lock is acquired to ensure the new session
+ * starts with accurate system state.
+ */
+export function invalidateCaches(): void {
+  _cachedDisplaySize = undefined;
+  _cachedDisplayList = undefined;
+  _cachedRunningApps = undefined;
+  _displayCacheReady = undefined;
+  _runningAppsReady = undefined;
 }
 
 /** Ensure display cache is populated. Await before reading getSize(). */

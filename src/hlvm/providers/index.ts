@@ -68,9 +68,21 @@ import { createAnthropicProvider } from "./anthropic/provider.ts";
 import { createGoogleProvider } from "./google/provider.ts";
 import { createClaudeCodeProvider } from "./claude-code/provider.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import {
+  DEFAULT_MODEL_NAME,
+  DEFAULT_OLLAMA_ENDPOINT,
+} from "../../common/config/types.ts";
+
+const OLLAMA_PROVIDER_DEFAULTS = {
+  endpoint: DEFAULT_OLLAMA_ENDPOINT,
+  defaultModel: DEFAULT_MODEL_NAME,
+} as const;
 
 // Ollama: always registered as default (local, no API key needed)
-registerProvider("ollama", createOllamaProvider, { isDefault: true });
+registerProvider("ollama", createOllamaProvider, {
+  ...OLLAMA_PROVIDER_DEFAULTS,
+  isDefault: true,
+});
 
 // API providers: always registered (providers return known models even without key)
 const _env = getPlatform().env;
@@ -105,6 +117,7 @@ export function initializeProviders(config?: {
 }): void {
   if (config?.ollama) {
     registerProvider("ollama", createOllamaProvider, {
+      ...OLLAMA_PROVIDER_DEFAULTS,
       ...config.ollama,
       isDefault: true,
     });

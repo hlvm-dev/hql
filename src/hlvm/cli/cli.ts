@@ -91,7 +91,7 @@ Commands:
   ask "<query>"      Ask AI agent to perform a task
   model              Manage AI models (list, set, show, pull, rm)
   ai                 Setup and manage AI models
-  ollama serve       Start Ollama server (forwards to system Ollama)
+  ollama serve       Explicit compatibility bridge to system Ollama
   mcp                Manage MCP tool servers
   upgrade            Upgrade HLVM to the latest version
   uninstall          Uninstall HLVM

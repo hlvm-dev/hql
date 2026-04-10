@@ -1,8 +1,22 @@
-import { assertEquals, assertRejects, assertStringIncludes } from "jsr:@std/assert@1";
-import { ai, __setStructuredGenerationDepsForTesting } from "../../../src/hlvm/api/ai.ts";
-import { registerProvider, setDefaultProvider } from "../../../src/hlvm/providers/registry.ts";
-import { setHlvmDirForTests, resetHlvmDirCacheForTests } from "../../../src/common/paths.ts";
+import {
+  assertEquals,
+  assertRejects,
+  assertStringIncludes,
+} from "jsr:@std/assert@1";
+import {
+  __setStructuredGenerationDepsForTesting,
+  ai,
+} from "../../../src/hlvm/api/ai.ts";
+import {
+  registerProvider,
+  setDefaultProvider,
+} from "../../../src/hlvm/providers/registry.ts";
+import {
+  resetHlvmDirCacheForTests,
+  setHlvmDirForTests,
+} from "../../../src/common/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { DEFAULT_MODEL_ID } from "../../../src/common/config/types.ts";
 import type { AIProvider } from "../../../src/hlvm/providers/types.ts";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -19,7 +33,9 @@ function createMockProvider(): AIProvider {
     name: "mock",
     displayName: "Mock",
     capabilities: [],
-    async *generate() { yield mockResponse; },
+    async *generate() {
+      yield mockResponse;
+    },
     async *chat(messages, options) {
       lastChatMessages = [...messages];
       lastChatOptions = { ...options };
@@ -31,10 +47,16 @@ function createMockProvider(): AIProvider {
       return { content: mockResponse, toolCalls: [] };
     },
     models: {
-      async list() { return [{ name: "mock-model", provider: "mock" }] as any; },
-      async get(name) { return name === "mock-model" ? { name: "mock-model" } as any : null; },
+      async list() {
+        return [{ name: "mock-model", provider: "mock" }] as any;
+      },
+      async get(name) {
+        return name === "mock-model" ? { name: "mock-model" } as any : null;
+      },
     },
-    async status() { return { available: true }; },
+    async status() {
+      return { available: true };
+    },
   };
 }
 
@@ -103,7 +125,6 @@ Deno.test("ai(prompt, {data: null}): does not append Data section", async () => 
 // ai(prompt, {schema}) — structured output (via AI SDK native path)
 // NOTE: Schema path now uses generateStructuredWithSdk (AI SDK native
 // constrained decoding), which bypasses the mock provider entirely.
-// Full schema E2E tests live in tests/e2e/ai-callable-e2e.test.ts.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Deno.test({
@@ -115,7 +136,10 @@ Deno.test({
     // With the mock provider (no SDK backend), this will throw a provider error.
     // The point is: it does NOT call provider.chat() (lastChatMessages stays empty).
     try {
-      await ai("classify", { schema: { sentiment: "string" }, model: "mock/test" });
+      await ai("classify", {
+        schema: { sentiment: "string" },
+        model: "mock/test",
+      });
     } catch {
       // Expected: mock provider is not an SDK provider
     }
@@ -124,7 +148,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "ai(prompt, {schema}): falls back to prompt-based structured extraction when native generation fails",
+  name:
+    "ai(prompt, {schema}): falls back to prompt-based structured extraction when native generation fails",
   sanitizeResources: false,
   async fn() {
     resetMock("should not be called");
@@ -146,7 +171,7 @@ Deno.test({
 
     try {
       const result = await ai("classify this sentiment", {
-        model: "ollama/llama3.1:8b",
+        model: DEFAULT_MODEL_ID,
         system: "Return JSON.",
         data: { text: "I love HLVM" },
         schema: { sentiment: "string", confidence: "number" },
@@ -158,8 +183,14 @@ Deno.test({
       assertEquals(lastChatMessages.length, 0);
       assertEquals((fallbackMessages as any[]).length, 2);
       assertEquals((fallbackMessages as any[])[0].role, "system");
-      assertStringIncludes((fallbackMessages as any[])[1].content, "classify this sentiment");
-      assertStringIncludes((fallbackMessages as any[])[1].content, '"text": "I love HLVM"');
+      assertStringIncludes(
+        (fallbackMessages as any[])[1].content,
+        "classify this sentiment",
+      );
+      assertStringIncludes(
+        (fallbackMessages as any[])[1].content,
+        '"text": "I love HLVM"',
+      );
     } finally {
       __setStructuredGenerationDepsForTesting(null);
     }
@@ -195,7 +226,10 @@ Deno.test("ai.chat: yields streaming chunks from provider", async () => {
 
 Deno.test("ai.chatStructured: returns structured response", async () => {
   resetMock("structured");
-  const result = await ai.chatStructured([{ role: "user", content: "call tool" }]);
+  const result = await ai.chatStructured([{
+    role: "user",
+    content: "call tool",
+  }]);
   assertEquals(result.content, "structured");
   assertEquals(result.toolCalls, []);
 });

@@ -59,3 +59,24 @@ export function getAgentMaxDepth(config: unknown): number {
     ? raw
     : 1;
 }
+
+export function getChatMaxPromptChars(config: unknown): number {
+  const raw = isObjectValue(config) ? config.chatMaxPromptChars : undefined;
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 100 && raw <= 1000000
+    ? raw
+    : 10000;
+}
+
+export function getChatMaxReferencesLocal(config: unknown): number {
+  const raw = isObjectValue(config) ? config.chatMaxReferencesLocal : undefined;
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw <= 50
+    ? raw
+    : 5;
+}
+
+export function getChatMaxReferencesCloud(config: unknown): number {
+  const raw = isObjectValue(config) ? config.chatMaxReferencesCloud : undefined;
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw <= 100
+    ? raw
+    : 20;
+}

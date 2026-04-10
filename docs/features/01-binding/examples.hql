@@ -1,14 +1,14 @@
 (import [assert] from "@hlvm/assert")
 
-(let number 0)
-(= number 10) // Allowed: let is mutable
-(assert (=== number 10) "let binding is mutable")
-(print "number: " number)
+(var count 0)
+(= count 10)
+(assert (=== count 10) "var binding is mutable")
+(print "count: " count)
 
-(var number2 0)
-(= number2 10) // Allowed: var is mutable
-(assert (=== number2 10) "var binding is mutable")
-(print "number2: " number2)
+(var total 0)
+(= total 10)
+(assert (=== total 10) "second var binding is mutable")
+(print "total: " total)
 
 (const PI 3.14159)
 // (= PI 3.0) ERROR: Cannot assign to "PI" because it is a constant
@@ -39,10 +39,8 @@
     (print "x =" x)
     (print "y =" y)
     (assert (=== z 30) "let derived binding")
-    (= z 99) // Allowed: let is mutable
-    (assert (=== z 99) "let allows reassignment")
     (print "z =" z)
-    (assert (=== (+ x (+ y z)) 129) "let binding sum")
+    (assert (=== (+ x (+ y z)) 60) "let binding sum")
     (print "x + y + z =" (+ x (+ y z))))
 
 (var (x 10

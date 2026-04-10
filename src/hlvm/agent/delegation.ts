@@ -10,10 +10,7 @@ import {
   type OrchestratorConfig,
   runReActLoop,
 } from "./orchestrator.ts";
-import {
-  type AgentProfile,
-  getAgentProfile,
-} from "./agent-registry.ts";
+import { type AgentProfile, getAgentProfile } from "./agent-registry.ts";
 import {
   CHILD_WORKSPACE_PREFIX,
   DEFAULT_MAX_TOOL_CALLS,
@@ -74,6 +71,7 @@ import { createDelegateTokenBudget } from "./delegate-token-budget.ts";
 import { createAbortError } from "../../common/timeout-utils.ts";
 import { getErrorMessage, truncate } from "../../common/utils.ts";
 import { sha256Hex } from "../../common/sha256.ts";
+import { createToolProfileState } from "./tool-profiles.ts";
 
 function queueBackgroundDelegateUpdate(
   config: OrchestratorConfig,
@@ -84,7 +82,6 @@ function queueBackgroundDelegateUpdate(
 
 const BACKGROUND_DELEGATE_WATCHDOG_MS = DEFAULT_TIMEOUTS.total +
   DEFAULT_TIMEOUTS.tool;
-
 
 /** Tools denied to child agents (prevent recursion + parent-only tools).
  * @internal Exported for regression testing. */
@@ -144,6 +141,25 @@ function resolveAllowedTools(
   return allowed;
 }
 
+function mergeInheritedDeferredTools(
+  allowlist: readonly string[],
+  inherited: Iterable<string> | undefined,
+  toolOwnerId?: string,
+  denylist: readonly string[] = [],
+): string[] {
+  const merged = [...allowlist];
+  const seen = new Set(merged);
+  const denied = new Set(denylist);
+  for (const name of new Set(inherited ?? [])) {
+    if (denied.has(name) || seen.has(name) || !hasTool(name, toolOwnerId)) {
+      continue;
+    }
+    merged.push(name);
+    seen.add(name);
+  }
+  return merged;
+}
+
 /** Validate delegate_agent args and return parsed fields. */
 function validateDelegateArgs(
   args: unknown,
@@ -196,7 +212,9 @@ async function walkWorkspace(
       const fullPath = platform.path.join(dir, entry.name);
       const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory) {
-        if (entry.name.startsWith(CHILD_WORKSPACE_PREFIX) || entry.name === ".git") continue;
+        if (
+          entry.name.startsWith(CHILD_WORKSPACE_PREFIX) || entry.name === ".git"
+        ) continue;
         await walkDir(fullPath, relPath);
       } else if (entry.isFile) {
         try {
@@ -320,6 +338,7 @@ async function runDelegateChild(
     currentDepth?: number;
     maxDepth?: number;
     agentProfiles?: readonly AgentProfile[];
+    discoveredDeferredTools?: Iterable<string>;
   },
   config: OrchestratorConfig,
   agent: string,
@@ -344,11 +363,17 @@ async function runDelegateChild(
     : CHILD_TOOL_DENYLIST.filter((t) => t !== "delegate_agent");
 
   const isolatedWorkspace = workspaceOverride !== undefined;
-  const allowedTools = resolveAllowedTools(
+  const profileTools = resolveAllowedTools(
     agent,
     config.agentProfiles ?? baseConfig.agentProfiles,
     config.toolOwnerId,
     { allowMutation: isolatedWorkspace },
+  );
+  const allowedTools = mergeInheritedDeferredTools(
+    profileTools,
+    baseConfig.discoveredDeferredTools,
+    config.toolOwnerId,
+    childDenylist,
   );
   const profile = getAgentProfile(
     agent,
@@ -368,7 +393,9 @@ async function runDelegateChild(
         options: {
           temperature: profile?.temperature,
         },
-        toolAllowlist: allowedTools,
+        toolProfileState: createToolProfileState({
+          baseline: { slot: "baseline", allowlist: allowedTools },
+        }),
       });
     } catch {
       // Engine not initialized (e.g., in tests) — fall back to parent LLM
@@ -579,12 +606,32 @@ export async function resumeDelegateChild(
   modelId?: string,
 ): Promise<unknown> {
   const profile = getAgentProfile(agent, config.agentProfiles);
-  const allowedTools = resolveAllowedTools(
-    agent,
-    config.agentProfiles,
+  const allowedTools = mergeInheritedDeferredTools(
+    resolveAllowedTools(
+      agent,
+      config.agentProfiles,
+      config.toolOwnerId,
+      { allowMutation: false },
+    ),
+    config.discoveredDeferredTools,
     config.toolOwnerId,
-    { allowMutation: false },
+    CHILD_TOOL_DENYLIST,
   );
+  const childModelId = profile?.model ?? modelId ?? "delegate_agent";
+  let childLlm = llm;
+  try {
+    childLlm = getAgentEngine().createLLM({
+      model: childModelId,
+      options: {
+        temperature: profile?.temperature,
+      },
+      toolProfileState: createToolProfileState({
+        baseline: { slot: "baseline", allowlist: allowedTools },
+      }),
+    });
+  } catch {
+    // Engine not initialized (e.g., in tests) — fall back to parent LLM
+  }
   const childMaxTokens = profile?.maxTokens ?? config.context.getMaxTokens();
   const parentCtxConfig = config.context.getConfig();
   const context = new ContextManager({
@@ -637,7 +684,7 @@ export async function resumeDelegateChild(
       teamLeadMemberId: config.teamLeadMemberId,
       agentProfiles: config.agentProfiles,
     },
-    llm,
+    childLlm,
   );
 
   return {
@@ -659,6 +706,7 @@ export function createDelegateHandler(
     maxDepth?: number;
     agentProfiles?: readonly AgentProfile[];
     backgroundWatchdogMs?: number;
+    discoveredDeferredTools?: Iterable<string>;
   },
 ): (args: unknown, config: OrchestratorConfig) => Promise<unknown> {
   return async (

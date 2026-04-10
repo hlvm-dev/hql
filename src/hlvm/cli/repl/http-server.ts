@@ -90,6 +90,7 @@ import {
   resolveHlvmRuntimePort,
 } from "../../runtime/host-config.ts";
 import { getRuntimeHostIdentity } from "../../runtime/host-identity.ts";
+import type { ChatRequest } from "../../runtime/chat-protocol.ts";
 import { normalizeComparableFilePath } from "./file-search.ts";
 
 /**
@@ -439,8 +440,23 @@ async function handleRuntimeShutdown(): Promise<Response> {
   return Response.json({ ok: true, shutting_down: true });
 }
 
-function requiresAiRuntime(method: string, pathname: string): boolean {
-  if (method === "POST" && pathname === "/api/chat") {
+async function requiresAiRuntime(
+  req: Request,
+  pathname: string,
+): Promise<boolean> {
+  if (req.method === "POST" && pathname === "/api/chat") {
+    const parsed = await parseJsonBody<Partial<ChatRequest>>(req.clone());
+    if (!parsed.ok) {
+      // Preserve request-shape errors from the real handler instead of masking
+      // them behind a transient runtime-readiness response.
+      return false;
+    }
+    const fixturePath = typeof parsed.value.fixture_path === "string"
+      ? parsed.value.fixture_path.trim()
+      : "";
+    if (parsed.value.mode === "eval" || fixturePath.length > 0) {
+      return false;
+    }
     return true;
   }
   if (!pathname.startsWith("/api/models")) {
@@ -450,7 +466,7 @@ function requiresAiRuntime(method: string, pathname: string): boolean {
   // is still bootstrapping; only mutating/runtime-bound model operations need
   // aiReady gating.
   if (
-    method === "GET" &&
+    req.method === "GET" &&
     (
       pathname === "/api/models" ||
       pathname === "/api/models/catalog" ||
@@ -466,10 +482,10 @@ function requiresAiRuntime(method: string, pathname: string): boolean {
 }
 
 async function maybeGateAiRoute(
-  method: string,
+  req: Request,
   pathname: string,
 ): Promise<Response | null> {
-  if (!requiresAiRuntime(method, pathname)) {
+  if (!(await requiresAiRuntime(req, pathname))) {
     return null;
   }
   if (!isRuntimeReadinessManaged()) {
@@ -831,7 +847,7 @@ async function handleRequest(req: Request): Promise<Response> {
     }
   }
 
-  const aiGateResponse = await maybeGateAiRoute(req.method, url.pathname);
+  const aiGateResponse = await maybeGateAiRoute(req, url.pathname);
   if (aiGateResponse) {
     return addCorsHeaders(aiGateResponse, origin);
   }

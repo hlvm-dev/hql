@@ -129,6 +129,9 @@ export interface HlvmConfig {
   permissionMode?: PermissionMode; // Agent tool permission mode: "default" | "acceptEdits" | "plan" | "bypassPermissions" | "dontAsk"
   agentMaxThreads?: number; // Max concurrent background delegate agents (default: 4)
   agentMaxDepth?: number; // Max delegation nesting depth (default: 1, range 1-3)
+  chatMaxPromptChars?: number; // Max user prompt length in characters (default: 10000)
+  chatMaxReferencesLocal?: number; // Max references allowed for local models (default: 5)
+  chatMaxReferencesCloud?: number; // Max references allowed for cloud models (default: 20)
   autoSelect?: {
     preferCheap?: boolean;
     preferQuality?: boolean;
@@ -207,6 +210,9 @@ export const CONFIG_KEYS = [
   "permissionMode",
   "agentMaxThreads",
   "agentMaxDepth",
+  "chatMaxPromptChars",
+  "chatMaxReferencesLocal",
+  "chatMaxReferencesCloud",
   "autoSelect",
 ] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
@@ -377,6 +383,36 @@ export function validateValue(
       }
       return { valid: true };
 
+    case "chatMaxPromptChars":
+      if (value === undefined) return { valid: true };
+      if (typeof value !== "number" || !Number.isInteger(value)) {
+        return { valid: false, error: "chatMaxPromptChars must be an integer" };
+      }
+      if (value < 100 || value > 1000000) {
+        return { valid: false, error: "chatMaxPromptChars must be between 100 and 1,000,000" };
+      }
+      return { valid: true };
+
+    case "chatMaxReferencesLocal":
+      if (value === undefined) return { valid: true };
+      if (typeof value !== "number" || !Number.isInteger(value)) {
+        return { valid: false, error: "chatMaxReferencesLocal must be an integer" };
+      }
+      if (value < 0 || value > 50) {
+        return { valid: false, error: "chatMaxReferencesLocal must be between 0 and 50" };
+      }
+      return { valid: true };
+
+    case "chatMaxReferencesCloud":
+      if (value === undefined) return { valid: true };
+      if (typeof value !== "number" || !Number.isInteger(value)) {
+        return { valid: false, error: "chatMaxReferencesCloud must be an integer" };
+      }
+      if (value < 0 || value > 100) {
+        return { valid: false, error: "chatMaxReferencesCloud must be between 0 and 100" };
+      }
+      return { valid: true };
+
     case "autoSelect":
       if (value === undefined) return { valid: true }; // optional field
       if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -399,6 +435,9 @@ export function parseValue(key: ConfigKey, valueStr: string): unknown {
     case "maxTokens":
     case "agentMaxThreads":
     case "agentMaxDepth":
+    case "chatMaxPromptChars":
+    case "chatMaxReferencesLocal":
+    case "chatMaxReferencesCloud":
       return parseInt(valueStr, 10);
     case "sessionMemory":
     case "modelConfigured":

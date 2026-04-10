@@ -18,6 +18,10 @@
  */
 
 import { assertEquals } from "jsr:@std/assert";
+import {
+  _resetLockStateForTests,
+  _setLockPathForTests,
+} from "../../src/hlvm/agent/computer-use/lock.ts";
 import type { AgentUIEvent } from "../../src/hlvm/agent/orchestrator.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import {
@@ -162,15 +166,20 @@ const CASES: SystemWorkflowCase[] = [
   {
     id: "open_finder_application",
     description:
-      "Agent should use cu_open_application to open Finder by bundle ID, not shell open/osascript",
-    query: "Open the Finder application using the bundle ID com.apple.finder.",
+      "Agent should list accessible apps and use cu_open_application to open Finder, not shell open/osascript",
+    query:
+      "Check the accessible applications right now. If Finder is available, open it.",
     toolAllowlist: [
+      "cu_list_granted_applications",
       "cu_open_application",
       "shell_exec",
       "ask_user",
     ],
     validate: (result) => [
-      ...expectToolsUsed(result, ["cu_open_application"]),
+      ...expectToolsUsed(result, [
+        "cu_list_granted_applications",
+        "cu_open_application",
+      ]),
       ...expectNoShellFor(result, [/^open\b/i, /osascript\b/i]),
       ...expectTextContains(result.text, ["Finder"]),
     ],
@@ -214,49 +223,65 @@ Deno.test({
 
     try {
       await withFullyIsolatedEnv(async (workspace) => {
-        for (const testCase of ACTIVE_CASES) {
-          const events: AgentUIEvent[] = [];
-          let caseModel = "(none)";
+        const cuLockDir = await platform.fs.makeTempDir({
+          prefix: "hlvm-cu-lock-e2e-",
+        });
+        const cuLockPath = platform.path.join(cuLockDir, "computer-use.lock");
 
-          try {
-            const { model, result } = await runSourceAgentWithCompatibleModel({
-              models: MODEL_CANDIDATES,
-              query: renderWorkspaceScopedQuery(testCase.query, workspace),
-              workspace,
-              signal: controller.signal,
-              disablePersistentMemory: true,
-              permissionMode: "bypassPermissions",
-              toolAllowlist: testCase.toolAllowlist,
-              maxTokens: 1_500,
-              callbacks: {
-                onAgentEvent: (event) => events.push(event),
-              },
-            });
-            caseModel = model;
+        try {
+          _setLockPathForTests(cuLockPath);
+          _resetLockStateForTests();
 
-            const semanticResult = collectToolInfo(events);
-            semanticResult.text = result.text.trim();
+          for (const testCase of ACTIVE_CASES) {
+            const events: AgentUIEvent[] = [];
+            let caseModel = "(none)";
 
-            const errors = testCase.validate(semanticResult);
-            if (errors.length > 0) {
-              const detail = [
-                `  Case: ${testCase.id} (${testCase.description})`,
-                `  Model: ${caseModel}`,
-                `  Tools used: ${
-                  semanticResult.toolNames.join(", ") || "(none)"
+            try {
+              const { model, result } = await runSourceAgentWithCompatibleModel(
+                {
+                  models: MODEL_CANDIDATES,
+                  query: renderWorkspaceScopedQuery(testCase.query, workspace),
+                  workspace,
+                  signal: controller.signal,
+                  disablePersistentMemory: true,
+                  permissionMode: "bypassPermissions",
+                  toolAllowlist: testCase.toolAllowlist,
+                  maxTokens: 1_500,
+                  callbacks: {
+                    onAgentEvent: (event) => events.push(event),
+                  },
+                },
+              );
+              caseModel = model;
+
+              const semanticResult = collectToolInfo(events);
+              semanticResult.text = result.text.trim();
+
+              const errors = testCase.validate(semanticResult);
+              if (errors.length > 0) {
+                const detail = [
+                  `  Case: ${testCase.id} (${testCase.description})`,
+                  `  Model: ${caseModel}`,
+                  `  Tools used: ${
+                    semanticResult.toolNames.join(", ") || "(none)"
+                  }`,
+                  `  Response (first 200): ${result.text.slice(0, 200)}`,
+                  ...errors.map((err) => `  FAIL: ${err}`),
+                ].join("\n");
+                failures.push(detail);
+              }
+            } catch (error) {
+              failures.push(
+                `  Case: ${testCase.id} — ERROR: ${
+                  error instanceof Error ? error.message : String(error)
                 }`,
-                `  Response (first 200): ${result.text.slice(0, 200)}`,
-                ...errors.map((err) => `  FAIL: ${err}`),
-              ].join("\n");
-              failures.push(detail);
+              );
             }
-          } catch (error) {
-            failures.push(
-              `  Case: ${testCase.id} — ERROR: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            );
           }
+        } finally {
+          _resetLockStateForTests();
+          _setLockPathForTests(undefined);
+          await platform.fs.remove(cuLockDir, { recursive: true });
         }
       });
     } finally {

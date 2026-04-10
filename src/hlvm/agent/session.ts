@@ -42,7 +42,6 @@ import {
   type AgentLLMConfig,
   getAgentEngine,
   type ThinkingState,
-  type ToolFilterState,
 } from "./engine.ts";
 import { supportsNativeThinking } from "./thinking-profile.ts";
 import {
@@ -67,10 +66,9 @@ import {
 import {
   clearToolProfileLayer,
   createToolProfileState,
+  resolveEffectiveToolFilterCached,
   resolvePersistentToolFilter,
   setToolProfileLayer,
-  syncEffectiveToolFilterToConfig,
-  syncPersistentToolFilterToTarget,
   type ToolProfileState,
 } from "./tool-profiles.ts";
 
@@ -146,13 +144,11 @@ export interface AgentSession {
   visionCapable?: boolean;
   /** The engine used for LLM creation (for rebuilding in reuseSession) */
   engine?: AgentEngine;
-  /** Shared mutable tool filter state used by orchestrator + engine. */
-  toolFilterState?: ToolFilterState;
-  /** Persistent baseline tool filters used to reset per-turn narrowing. */
-  toolFilterBaseline?: ToolFilterState;
   /** Canonical persistent baseline before domain-specific widening. */
   baseToolAllowlist?: string[];
-  /** First-class layered tool profile state backing the filter mirrors. */
+  /** Canonical caller-provided deny baseline before domain/runtime widening. */
+  baseToolDenylist?: string[];
+  /** First-class layered tool profile state backing the live tool filter. */
   toolProfileState?: ToolProfileState;
   /** Reset runtime tool filters back to tier/user baseline. */
   resetToolFilter?: () => void;
@@ -296,11 +292,9 @@ export async function refreshReusableAgentSession(
     ? resolvePersistentToolFilter(session.toolProfileState)
     : undefined;
   const allowlist = persistentFilter?.allowlist ??
-    session.toolFilterBaseline?.allowlist ??
-    session.llmConfig?.toolAllowlist;
+    session.baseToolAllowlist;
   const denylist = persistentFilter?.denylist ??
-    session.toolFilterBaseline?.denylist ??
-    session.llmConfig?.toolDenylist;
+    session.baseToolDenylist;
   const promptArtifacts = buildCompiledPromptArtifacts({
     toolAllowlist: allowlist,
     toolDenylist: denylist,
@@ -422,10 +416,13 @@ export async function createAgentSession(
       }
     }
   }
+  const discoveredDeferredTools = new Set(
+    options.discoveredDeferredTools ?? [],
+  );
   const baselineToolAllowlist = resolveMainThreadBaselineToolAllowlist({
     querySource: options.querySource,
     toolAllowlist: options.toolAllowlist,
-    discoveredDeferredTools: options.discoveredDeferredTools,
+    discoveredDeferredTools,
   });
   const tierFilter = computeTierToolFilter(
     modelTier,
@@ -433,16 +430,14 @@ export async function createAgentSession(
     effectiveToolDenylist,
   );
   const toolProfileState = createToolProfileState();
-  const toolFilterBaseline: ToolFilterState = {};
-  const toolFilterState: ToolFilterState = {};
   setToolProfileLayer(toolProfileState, "baseline", {
     allowlist: cloneToolList(tierFilter.allowlist),
     denylist: cloneToolList(tierFilter.denylist),
   });
-  syncEffectiveToolFilterToConfig(
-    { toolFilterBaseline, toolFilterState },
+  const initialEffectiveFilter = resolveEffectiveToolFilterCached(
     toolProfileState,
   );
+  const initialPersistentFilter = resolvePersistentToolFilter(toolProfileState);
   const thinkingState: ThinkingState = {};
   const lspDiagnostics = createLspDiagnosticsRuntime({
     workspace: options.workspace,
@@ -565,8 +560,8 @@ export async function createAgentSession(
   const context = new ContextManager(contextConfig);
 
   const promptArtifacts = buildCompiledPromptArtifacts({
-    toolAllowlist: toolFilterState.allowlist,
-    toolDenylist: toolFilterState.denylist,
+    toolAllowlist: initialEffectiveFilter.allowlist,
+    toolDenylist: initialEffectiveFilter.denylist,
     toolOwnerId,
     querySource: options.querySource,
     modelTier,
@@ -610,9 +605,9 @@ export async function createAgentSession(
           : {}),
       },
       contextBudget: resolved.budget,
-      toolAllowlist: toolFilterBaseline.allowlist,
-      toolDenylist: toolFilterBaseline.denylist,
-      toolFilterState,
+      toolProfileState,
+      eagerToolCount: initialPersistentFilter.allowlist?.length,
+      discoveredDeferredToolCount: discoveredDeferredTools.size,
       thinkingState,
       toolOwnerId,
       onToken: options.onToken,
@@ -620,21 +615,19 @@ export async function createAgentSession(
       thinkingCapable,
       compiledPrompt: promptArtifacts.compiledPrompt,
     };
-  const syncSessionToolFilters = (): void => {
-    syncEffectiveToolFilterToConfig(
-      { toolFilterBaseline, toolFilterState },
-      toolProfileState,
-    );
+  const syncSessionToolProfileState = (): void => {
     if (llmConfig) {
-      syncPersistentToolFilterToTarget(llmConfig, toolProfileState);
-      llmConfig.toolFilterState = toolFilterState;
+      llmConfig.toolProfileState = toolProfileState;
+      llmConfig.eagerToolCount = resolvePersistentToolFilter(toolProfileState)
+        .allowlist?.length;
+      llmConfig.discoveredDeferredToolCount = discoveredDeferredTools.size;
     }
   };
-  syncSessionToolFilters();
+  syncSessionToolProfileState();
   const resetToolFilter = () => {
     clearToolProfileLayer(toolProfileState, "discovery");
     clearToolProfileLayer(toolProfileState, "runtime");
-    syncSessionToolFilters();
+    syncSessionToolProfileState();
   };
   const llm = options.fixturePath
     ? createFixtureLLM(await loadLlmFixture(options.fixturePath))
@@ -686,11 +679,10 @@ export async function createAgentSession(
     visionCapable,
     engine,
     toolProfileState,
-    toolFilterState,
-    toolFilterBaseline,
     baseToolAllowlist: cloneToolList(tierFilter.allowlist),
+    baseToolDenylist: cloneToolList(tierFilter.denylist),
     resetToolFilter,
-    discoveredDeferredTools: new Set(options.discoveredDeferredTools ?? []),
+    discoveredDeferredTools,
     ensureMcpLoaded,
     mcpSetHandlers,
     mcpSetSignal,

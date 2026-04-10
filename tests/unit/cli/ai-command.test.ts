@@ -1,9 +1,15 @@
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
-  assertEquals,
-  assertStringIncludes,
-} from "jsr:@std/assert";
+  DEFAULT_MODEL_ID,
+  DEFAULT_MODEL_NAME,
+  DEFAULT_OLLAMA_ENDPOINT,
+} from "../../../src/common/config/types.ts";
 import { aiCommand } from "../../../src/hlvm/cli/commands/ai.ts";
-import { withCapturedOutput, withEnv, withRuntimeHostServer } from "../../shared/light-helpers.ts";
+import {
+  withCapturedOutput,
+  withEnv,
+  withRuntimeHostServer,
+} from "../../shared/light-helpers.ts";
 
 const encoder = new TextEncoder();
 
@@ -27,12 +33,17 @@ Deno.test("ai command: pull streams through the runtime host", async () => {
         start(controller) {
           controller.enqueue(
             encoder.encode(
-              JSON.stringify({ event: "progress", status: "pulling", percent: 55 }) + "\n",
+              JSON.stringify({
+                event: "progress",
+                status: "pulling",
+                percent: 55,
+              }) + "\n",
             ),
           );
           controller.enqueue(
             encoder.encode(
-              JSON.stringify({ event: "complete", name: "test-model:latest" }) + "\n",
+              JSON.stringify({ event: "complete", name: "test-model:latest" }) +
+                "\n",
             ),
           );
           controller.close();
@@ -53,7 +64,10 @@ Deno.test("ai command: pull streams through the runtime host", async () => {
         provider: "ollama",
       });
       assertEquals(installedChecks, 2);
-      assertStringIncludes(output(), "Downloading model (test-model:latest)...");
+      assertStringIncludes(
+        output(),
+        "Downloading model (test-model:latest)...",
+      );
       assertStringIncludes(output(), "pulling 55%");
       assertStringIncludes(output(), "Model ready: test-model:latest");
     });
@@ -68,9 +82,9 @@ Deno.test("ai command: setup uses runtime host config and model pull flow", asyn
     const url = new URL(req.url);
     if (url.pathname === "/api/config") {
       return Response.json({
-        model: "ollama/llama3.1:8b",
+        model: DEFAULT_MODEL_ID,
         modelConfigured: true,
-        endpoint: "http://localhost:11434",
+        endpoint: DEFAULT_OLLAMA_ENDPOINT,
         theme: "sicp",
       });
     }
@@ -78,7 +92,7 @@ Deno.test("ai command: setup uses runtime host config and model pull flow", asyn
     if (url.pathname === "/api/models/installed") {
       installedChecks += 1;
       const models = installedChecks >= 2
-        ? [{ name: "llama3.1:8b", metadata: { provider: "ollama" } }]
+        ? [{ name: DEFAULT_MODEL_NAME, metadata: { provider: "ollama" } }]
         : [];
       return Response.json({ models });
     }
@@ -89,12 +103,17 @@ Deno.test("ai command: setup uses runtime host config and model pull flow", asyn
         start(controller) {
           controller.enqueue(
             encoder.encode(
-              JSON.stringify({ event: "progress", status: "pulling", percent: 100 }) + "\n",
+              JSON.stringify({
+                event: "progress",
+                status: "pulling",
+                percent: 100,
+              }) + "\n",
             ),
           );
           controller.enqueue(
             encoder.encode(
-              JSON.stringify({ event: "complete", name: "llama3.1:8b" }) + "\n",
+              JSON.stringify({ event: "complete", name: DEFAULT_MODEL_NAME }) +
+                "\n",
             ),
           );
           controller.close();
@@ -114,8 +133,14 @@ Deno.test("ai command: setup uses runtime host config and model pull flow", asyn
 
       assertEquals(pullRequests, 1);
       assertEquals(installedChecks, 2);
-      assertStringIncludes(output(), "Downloading default model (llama3.1:8b)...");
-      assertStringIncludes(output(), "Default model ready: llama3.1:8b");
+      assertStringIncludes(
+        output(),
+        `Downloading default model (${DEFAULT_MODEL_NAME})...`,
+      );
+      assertStringIncludes(
+        output(),
+        `Default model ready: ${DEFAULT_MODEL_NAME}`,
+      );
     });
   });
 });
@@ -125,16 +150,19 @@ Deno.test("ai command: current reports runtime-host-backed model status", async 
     const url = new URL(req.url);
     if (url.pathname === "/api/config") {
       return Response.json({
-        model: "ollama/llama3.1:8b",
+        model: DEFAULT_MODEL_ID,
         modelConfigured: true,
-        endpoint: "http://localhost:11434",
+        endpoint: DEFAULT_OLLAMA_ENDPOINT,
         theme: "sicp",
       });
     }
 
     if (url.pathname === "/api/models/installed") {
       return Response.json({
-        models: [{ name: "llama3.1:8b", metadata: { provider: "ollama" } }],
+        models: [{
+          name: DEFAULT_MODEL_NAME,
+          metadata: { provider: "ollama" },
+        }],
       });
     }
 
@@ -142,7 +170,10 @@ Deno.test("ai command: current reports runtime-host-backed model status", async 
   }, async () => {
     await withCapturedOutput(async (output) => {
       await aiCommand(["current"]);
-      assertStringIncludes(output(), "Default: ollama/llama3.1:8b (installed)");
+      assertStringIncludes(
+        output(),
+        `Default: ${DEFAULT_MODEL_ID} (installed)`,
+      );
     });
   });
 });
@@ -152,9 +183,9 @@ Deno.test("ai command: list reads discovery through the runtime host", async () 
     const url = new URL(req.url);
     if (url.pathname === "/api/config") {
       return Response.json({
-        model: "ollama/llama3.1:8b",
+        model: DEFAULT_MODEL_ID,
         modelConfigured: true,
-        endpoint: "http://localhost:11434",
+        endpoint: DEFAULT_OLLAMA_ENDPOINT,
         theme: "sicp",
       });
     }
@@ -162,13 +193,13 @@ Deno.test("ai command: list reads discovery through the runtime host", async () 
     if (url.pathname === "/api/models/discovery") {
       return Response.json({
         installedModels: [{
-          name: "llama3.1:8b",
+          name: DEFAULT_MODEL_NAME,
           metadata: { provider: "ollama", providerDisplayName: "Ollama" },
           capabilities: ["tools"],
           size: 1024,
         }],
         remoteModels: [{
-          name: "llama3.1:8b",
+          name: DEFAULT_MODEL_NAME,
           parameterSize: "8B",
           metadata: { provider: "ollama", providerDisplayName: "Ollama" },
         }],
@@ -181,9 +212,9 @@ Deno.test("ai command: list reads discovery through the runtime host", async () 
   }, async () => {
     await withCapturedOutput(async (output) => {
       await aiCommand(["list"]);
-      assertStringIncludes(output(), "Default: ollama/llama3.1:8b");
+      assertStringIncludes(output(), `Default: ${DEFAULT_MODEL_ID}`);
       assertStringIncludes(output(), "Ollama:");
-      assertStringIncludes(output(), "* llama3.1:8b");
+      assertStringIncludes(output(), `* ${DEFAULT_MODEL_NAME}`);
       assertStringIncludes(output(), "tools 8B");
     });
   });

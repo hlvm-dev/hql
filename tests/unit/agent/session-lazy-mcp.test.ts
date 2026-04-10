@@ -173,7 +173,7 @@ Deno.test({
       const session = await createAgentSession({
         workspace,
         model: "claude-code/claude-haiku-4-5-20251001",
-        modelInfo: { name: "claude-haiku-4-5", provider: "anthropic" },
+        modelInfo: { name: "claude-haiku-4-5", capabilities: ["chat", "tools"] },
         temperature: 0,
         maxOutputTokens: 2048,
       });
@@ -206,7 +206,7 @@ Deno.test({
         workspace,
         sessionId,
         model: "claude-code/claude-haiku-4-5-20251001",
-        modelInfo: { name: "claude-haiku-4-5", provider: "anthropic" },
+        modelInfo: { name: "claude-haiku-4-5", capabilities: ["chat", "tools"] },
       });
 
       try {

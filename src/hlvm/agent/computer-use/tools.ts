@@ -60,7 +60,7 @@ function getExecutor(): ComputerExecutor {
   if (_executor) return _executor;
   _executor = createCliExecutor({
     getMouseAnimationEnabled: () => true,
-    getHideBeforeActionEnabled: () => false,
+    getHideBeforeActionEnabled: () => true,
   });
   return _executor;
 }
@@ -185,7 +185,10 @@ function imageResult(
 
 /**
  * Wrap a tool implementation with guards + error handling.
- * Every CU tool follows: guards() → getExecutor() → fn(exec) → result.
+ * Every CU tool follows: guards() → prepareForAction() → fn(exec) → result.
+ *
+ * Write/interactive tools call prepareForAction() to activate the target
+ * app and hide distractors before the action. Read-only tools skip this.
  */
 function cuTool(
   errorPrefix: string,
@@ -193,6 +196,7 @@ function cuTool(
     args: unknown,
     exec: ComputerExecutor,
   ) => Promise<unknown>,
+  opts?: { readOnly?: boolean },
 ): (
   args: unknown,
   cwd: string,
@@ -201,8 +205,14 @@ function cuTool(
   return async (args, _cwd, options) => {
     const err = await guards(options);
     if (err) return err;
+    const exec = getExecutor();
     try {
-      return await fn(args, getExecutor());
+      // Activate target app + hide distractors before write/interactive actions.
+      // Read-only tools (screenshot, cursor_position) skip this.
+      if (!opts?.readOnly) {
+        await exec.prepareForAction([], options?.displayId);
+      }
+      return await fn(args, exec);
     } catch (error) {
       const toolError = formatToolError(errorPrefix, error);
       return failTool(toolError.message, { failure: toolError.failure });
@@ -256,7 +266,7 @@ function makeClickMeta(
 const cuScreenshotFn = cuTool("Screenshot failed", async (_args, exec) => {
   const result = await exec.screenshot({ allowedBundleIds: [] });
   return imageResult({ width: result.width, height: result.height }, result);
-});
+}, { readOnly: true });
 
 const cuCursorPositionFn = cuTool(
   "Get cursor position failed",
@@ -264,6 +274,7 @@ const cuCursorPositionFn = cuTool(
     const pos = await exec.getCursorPosition();
     return okTool({ x: pos.x, y: pos.y });
   },
+  { readOnly: true },
 );
 
 const cuLeftMouseDownFn = cuTool("Mouse down failed", async (_args, exec) => {
@@ -287,6 +298,7 @@ const cuListGrantedApplicationsFn = cuTool(
       })),
     });
   },
+  { readOnly: true },
 );
 
 const cuReadClipboardFn = cuTool(
@@ -295,6 +307,7 @@ const cuReadClipboardFn = cuTool(
     const text = await exec.readClipboard();
     return okTool({ text });
   },
+  { readOnly: true },
 );
 
 const cuLeftClickFn = makeClickFn("left", 1, "Left click failed");
@@ -421,7 +434,7 @@ const cuWaitFn = cuTool("Wait failed", async (args, exec) => {
   const raw = Number(duration);
   const cappedDuration = Math.min(
     Number.isFinite(raw) ? Math.max(raw, 0) : 2,
-    100,
+    15,
   );
   await sleep(cappedDuration * 1000);
   const result = await exec.screenshot({ allowedBundleIds: [] });
@@ -675,7 +688,7 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
       "Capture a zoomed-in screenshot of a specific region defined by [x1, y1, x2, y2] pixel coordinates.",
     args: {
       region:
-        "[number, number, number, number] - [x1, y1, x2, y2] pixel rectangle",
+        "number[] - Array of 4 numbers [x1, y1, x2, y2] defining the pixel rectangle to zoom into",
     },
     category: "read",
     safetyLevel: "L1",
@@ -729,7 +742,7 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
   cu_wait: {
     fn: cuWaitFn,
     description: "Wait for a specified duration (in seconds).",
-    args: { duration: "number - Duration in seconds (max 100)" },
+    args: { duration: "number - Duration in seconds (max 15)" },
     category: "read",
     safetyLevel: "L1",
     safety: "Waits then captures screenshot. No direct side effects.",

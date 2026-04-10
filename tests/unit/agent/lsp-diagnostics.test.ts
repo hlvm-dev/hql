@@ -56,7 +56,10 @@ Deno.test("maybeVerifyWrite uses LSP diagnostics when available and tracks follo
     assertEquals(first.verifier, "fixture-lsp");
     assertEquals(first.ok, false);
     assertStringIncludes(first.summary, "1 error");
-    assertStringIncludes(first.diagnostics ?? "", "Cannot find name 'missingName'.");
+    assertStringIncludes(
+      first.diagnostics ?? "",
+      "Cannot find name 'missingName'.",
+    );
 
     await platform.fs.writeTextFile(filePath, "const ok = 1;\n");
     const second = await maybeVerifyWrite(toolCall, config);
@@ -71,7 +74,9 @@ Deno.test("maybeVerifyWrite uses LSP diagnostics when available and tracks follo
 });
 
 Deno.test("maybeVerifyWrite falls back to syntax checks when no LSP server is available", async () => {
-  const workspace = await platform.fs.makeTempDir({ prefix: "hlvm-lsp-fallback-" });
+  const workspace = await platform.fs.makeTempDir({
+    prefix: "hlvm-lsp-fallback-",
+  });
   const filePath = platform.path.join(workspace, "broken.ts");
   const runtime = createLspDiagnosticsRuntime({
     workspace,
@@ -89,7 +94,10 @@ Deno.test("maybeVerifyWrite falls back to syntax checks when no LSP server is av
     );
     await platform.fs.writeTextFile(filePath, "const x = ;\n");
 
-    const result = await maybeVerifyWrite(createWriteToolCall(filePath), config);
+    const result = await maybeVerifyWrite(
+      createWriteToolCall(filePath),
+      config,
+    );
     assertExists(result);
     assertEquals(result.source, "syntax");
     assertEquals(result.ok, false);
@@ -103,7 +111,9 @@ Deno.test("maybeVerifyWrite falls back to syntax checks when no LSP server is av
 });
 
 Deno.test("maybeVerifyWrite waits for settled diagnostics when LSP publishes empty results first", async () => {
-  const workspace = await platform.fs.makeTempDir({ prefix: "hlvm-lsp-delayed-" });
+  const workspace = await platform.fs.makeTempDir({
+    prefix: "hlvm-lsp-delayed-",
+  });
   const filePath = platform.path.join(workspace, "delayed.ts");
   const runtime = createLspDiagnosticsRuntime({
     workspace,
@@ -117,7 +127,10 @@ Deno.test("maybeVerifyWrite waits for settled diagnostics when LSP publishes emp
   try {
     await platform.fs.writeTextFile(filePath, "delayedMissingName();\n");
 
-    const result = await maybeVerifyWrite(createWriteToolCall(filePath), config);
+    const result = await maybeVerifyWrite(
+      createWriteToolCall(filePath),
+      config,
+    );
     assertExists(result);
     assertEquals(result.source, "lsp");
     assertEquals(result.ok, false);
@@ -125,6 +138,41 @@ Deno.test("maybeVerifyWrite waits for settled diagnostics when LSP publishes emp
     assertStringIncludes(
       result.diagnostics ?? "",
       "Cannot find name 'delayedMissingName'.",
+    );
+  } finally {
+    await runtime.dispose();
+    await platform.fs.remove(workspace, { recursive: true });
+  }
+});
+
+Deno.test("maybeVerifyWrite retries a fresh LSP session after the server crashes mid-verify", async () => {
+  const workspace = await platform.fs.makeTempDir({
+    prefix: "hlvm-lsp-retry-",
+  });
+  const filePath = platform.path.join(workspace, "retry.ts");
+  const runtime = createLspDiagnosticsRuntime({
+    workspace,
+    resolveCandidates: async () => [createFixtureCandidate()],
+  });
+  const config = {
+    workspace,
+    lspDiagnostics: runtime,
+  } as OrchestratorConfig;
+
+  try {
+    await platform.fs.writeTextFile(filePath, "restartOnce missingName();\n");
+
+    const result = await maybeVerifyWrite(
+      createWriteToolCall(filePath),
+      config,
+    );
+    assertExists(result);
+    assertEquals(result.source, "lsp");
+    assertEquals(result.ok, false);
+    assertStringIncludes(result.summary, "1 error");
+    assertStringIncludes(
+      result.diagnostics ?? "",
+      "Cannot find name 'missingName'.",
     );
   } finally {
     await runtime.dispose();

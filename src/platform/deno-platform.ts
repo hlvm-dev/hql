@@ -107,7 +107,24 @@ function createDenoCommand(options: PlatformCommandOptions): Deno.Command {
     stdin: options.stdin,
     stdout: options.stdout,
     stderr: options.stderr,
+    signal: options.signal,
   });
+}
+
+/**
+ * Derive an AbortSignal that fires on the earlier of:
+ *   (a) the caller's signal being aborted, or
+ *   (b) the timeout expiring.
+ * Returns undefined when neither timeout nor signal is provided.
+ */
+function deriveCommandSignal(
+  options: PlatformCommandOptions,
+): AbortSignal | undefined {
+  const hasTimeout = typeof options.timeout === "number" && options.timeout > 0;
+  if (!hasTimeout && !options.signal) return undefined;
+  if (!hasTimeout) return options.signal;
+  if (!options.signal) return AbortSignal.timeout(options.timeout!);
+  return AbortSignal.any([options.signal, AbortSignal.timeout(options.timeout!)]);
 }
 
 /** Run the OS-specific commands to open a URL or file path and bring it to front. */
@@ -292,7 +309,8 @@ const DenoBuild: PlatformBuild = {
 
 const DenoCommand: PlatformCommand = {
   run: (options: PlatformCommandOptions): PlatformCommandProcess => {
-    const process = createDenoCommand(options).spawn();
+    const signal = deriveCommandSignal(options);
+    const process = createDenoCommand({ ...options, signal }).spawn();
     return {
       status: process.status.then((status) => ({
         success: status.success,
@@ -311,7 +329,9 @@ const DenoCommand: PlatformCommand = {
   output: async (
     options: PlatformCommandOptions,
   ): Promise<PlatformCommandOutput> => {
-    const result = await createDenoCommand(options).output();
+    const signal = deriveCommandSignal(options);
+    const cmd = createDenoCommand({ ...options, signal });
+    const result = await cmd.output();
     return {
       code: result.code,
       success: result.success,

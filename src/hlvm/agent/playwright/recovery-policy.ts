@@ -1,4 +1,5 @@
 import type { ToolFailureMetadata } from "../tool-results.ts";
+import { BROWSER_SAFE_PROFILE_ID } from "../tool-profiles.ts";
 import { hasStructuredPlaywrightVisualFailure } from "./failure-enrichment.ts";
 
 export interface BrowserRecoveryDecision {
@@ -99,7 +100,7 @@ export function decideBrowserRecovery(
   }
 
   if (hasStructuredPlaywrightVisualFailure(input.failure)) {
-    if (input.currentDomainProfileId === "browser_safe") {
+    if (input.currentDomainProfileId === BROWSER_SAFE_PROFILE_ID) {
       return {
         stage: "promote_hybrid",
         directive: [

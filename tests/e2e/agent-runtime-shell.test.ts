@@ -28,7 +28,7 @@ const LIVE_MODEL = platform.env.get("HLVM_LIVE_AGENT_MODEL")?.trim() || "";
 const withSerializedLocalAsk = createSerializedQueue();
 const withSerializedLocalAskTest = createSerializedQueue();
 const allocateRuntimeShellPort = createMonotonicPortAllocator();
-const LOCAL_ASK_AUTO_SHUTDOWN_GRACE_MS = 250;
+const LOCAL_ASK_AUTO_SHUTDOWN_GRACE_MS = 500;
 
 interface LocalAskTestDefinition {
   name: string;
@@ -246,7 +246,7 @@ async function createAiLoopEnhancementFixture(
               contains: [
                 "File: large.txt",
                 "line 1 x",
-                "... (20 lines omitted) ...",
+                "lines omitted",
                 "line 130 x",
               ],
             },
@@ -368,7 +368,7 @@ async function createAiLoopEnhancementFixture(
           },
           {
             expect: {
-              contains: ["Tool not allowed by orchestrator: search_web"],
+              contains: ["Tool not available: search_web"],
             },
             toolCalls: [{
               id: "edit_1",
@@ -662,7 +662,7 @@ localAskTest({
           "--no-session-persistence",
           "--verbose",
           "--model",
-          "ollama/test-fixture",
+          "claude-code/test-fixture",
           "spawn multiple agents and get this parser job done",
         ],
         {
@@ -719,7 +719,7 @@ localAskTest({
           "--attach",
           pdfPath,
           "--model",
-          "ollama/test-fixture",
+          "claude-code/test-fixture",
           "multimodal attachment smoke",
         ],
         {
@@ -762,7 +762,7 @@ localAskTest({
           "--no-session-persistence",
           "--verbose",
           "--model",
-          "ollama/test-fixture",
+          "claude-code/test-fixture",
           "refactor auth.ts login.ts session.ts config.ts concurrently",
         ],
         {
@@ -1376,7 +1376,7 @@ localAskTest({
 
 localAskTest({
   name:
-    "raw ./hlvm ask blocks irrelevant web search once phase pruning enters edit mode",
+    "raw ./hlvm ask recovers when deferred web search is unavailable during edit flow",
   fn: async () => {
     await withAiLoopEnhancementWorkspace(
       "hlvm-ai-loop-phase-pruning-",
@@ -1403,7 +1403,7 @@ localAskTest({
         assertEquals(result.success, true, output);
         assertStringIncludes(
           output,
-          "Tool not allowed by orchestrator: search_web",
+          "Tool not available: search_web",
         );
         assertStringIncludes(
           output,

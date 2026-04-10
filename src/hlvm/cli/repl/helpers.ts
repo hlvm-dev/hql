@@ -6,6 +6,7 @@
 import { ANSI_COLORS } from "../ansi.ts";
 import { runCommand } from "./commands.ts";
 import type { ReplState } from "./state.ts";
+import { REGISTERED_API_GLOBAL_NAMES } from "../../api/index.ts";
 import { bindings } from "../../api/bindings.ts";
 import { memory } from "../../api/memory.ts";
 import { getPlatform } from "../../../platform/platform.ts";
@@ -157,7 +158,18 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
     getPlatform().process.exit(0);
   };
 
-  const helperNames = ["bindings", "unbind", "remember", "memory", "inspect", "describe", "help", "exit"];
+  for (const name of REGISTERED_API_GLOBAL_NAMES) {
+    state.addBinding(name);
+  }
+
+  const helperNames = [
+    "unbind",
+    "remember",
+    "inspect",
+    "describe",
+    "help",
+    "exit",
+  ];
   for (const name of helperNames) {
     const fn = globalAny[name];
     if (typeof fn === "function") {

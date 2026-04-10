@@ -170,6 +170,7 @@ Deno.test("pw_download — formatResult surfaces filename and size", () => {
     sourceUrl: "https://www.python.org/ftp/python/3.14.4/python.pkg",
   });
   assertExists(formatted);
+  assertExists(formatted.summaryDisplay);
   assertStringIncludes(
     formatted.summaryDisplay,
     "python-3.14.4-macos11.pkg",
@@ -186,6 +187,7 @@ Deno.test("pw_content — formatResult preserves DOM text in llmContent", () => 
     length: 24,
   });
   assertExists(formatted);
+  assertExists(formatted.llmContent);
   assertEquals(formatted.returnDisplay, "Read content");
   assertStringIncludes(formatted.llmContent, "Latest version is 3.14.4");
 });
@@ -199,6 +201,7 @@ Deno.test("pw_links — formatResult preserves hrefs in llmContent", () => {
     count: 1,
   });
   assertExists(formatted);
+  assertExists(formatted.llmContent);
   assertEquals(formatted.returnDisplay, "Read links");
   assertStringIncludes(formatted.llmContent, "python.pkg");
 });
@@ -414,4 +417,206 @@ Deno.test("playwright diagnostics do not treat pw_download_navigated as visual",
     },
   );
   assertEquals(result, false);
+});
+
+// ── Recovery policy (deterministic decision tree) ─────────────────────
+
+import {
+  decideBrowserRecovery,
+} from "../../../src/hlvm/agent/playwright/recovery-policy.ts";
+
+Deno.test("recovery policy returns pw_goto alternative on first pw_click failure with candidateHref", () => {
+  const decision = decideBrowserRecovery({
+    toolName: "pw_click",
+    failure: {
+      source: "tool",
+      kind: "timeout",
+      retryable: true,
+      code: "pw_element_not_visible",
+      facts: { candidateHref: "https://example.com/downloads", visualBlocker: true },
+    },
+    repeatCount: 0,
+    currentDomainProfileId: "browser_safe",
+  });
+  assertEquals(decision?.stage, "direct_pw_alternative");
+  assertEquals(decision?.promoteToHybrid, false);
+  assertEquals(decision?.recommendedPwAlternative?.toolName, "pw_goto");
+  assertEquals(decision?.recommendedPwAlternative?.target, "https://example.com/downloads");
+  assertEquals(decision?.temporarilyBlockTool, "pw_click");
+});
+
+Deno.test("recovery policy returns null on first failure without candidateHref and repeatCount < 2", () => {
+  const decision = decideBrowserRecovery({
+    toolName: "pw_click",
+    failure: {
+      source: "tool",
+      kind: "timeout",
+      retryable: true,
+      code: "pw_element_not_visible",
+      facts: { visualBlocker: true },
+    },
+    repeatCount: 1,
+    currentDomainProfileId: "browser_safe",
+  });
+  assertEquals(decision, null);
+});
+
+Deno.test("recovery policy promotes to hybrid after 2 repeated visual failures in browser_safe", () => {
+  const decision = decideBrowserRecovery({
+    toolName: "pw_click",
+    failure: {
+      source: "tool",
+      kind: "timeout",
+      retryable: true,
+      code: "pw_element_not_visible",
+      facts: { visualBlocker: true, visualReason: "not_visible" },
+    },
+    repeatCount: 2,
+    currentDomainProfileId: "browser_safe",
+  });
+  assertEquals(decision?.stage, "promote_hybrid");
+  assertEquals(decision?.promoteToHybrid, true);
+});
+
+Deno.test("recovery policy does not promote when already in browser_hybrid", () => {
+  const decision = decideBrowserRecovery({
+    toolName: "pw_click",
+    failure: {
+      source: "tool",
+      kind: "timeout",
+      retryable: true,
+      code: "pw_element_not_visible",
+      facts: { visualBlocker: true, visualReason: "not_visible" },
+    },
+    repeatCount: 2,
+    currentDomainProfileId: "browser_hybrid",
+  });
+  assertEquals(decision?.stage, "repeat_visual_pw_guidance");
+  assertEquals(decision?.promoteToHybrid, false);
+});
+
+Deno.test("recovery policy follows download destination on pw_download_navigated", () => {
+  const decision = decideBrowserRecovery({
+    toolName: "pw_download",
+    failure: {
+      source: "tool",
+      kind: "invalid_state",
+      retryable: true,
+      code: "pw_download_navigated",
+      facts: { navigatedTo: "https://example.com/release/v1.0" },
+    },
+    repeatCount: 0,
+    currentDomainProfileId: "browser_safe",
+  });
+  assertEquals(decision?.stage, "download_destination_follow");
+  assertEquals(decision?.promoteToHybrid, false);
+  assertEquals(decision?.recommendedPwAlternative?.toolName, "pw_download");
+  assertEquals(decision?.recommendedPwAlternative?.target, "https://example.com/release/v1.0");
+});
+
+Deno.test("recovery policy gives structural guidance after 2 repeated non-visual failures", () => {
+  const decision = decideBrowserRecovery({
+    toolName: "pw_fill",
+    failure: {
+      source: "tool",
+      kind: "not_found",
+      retryable: true,
+      code: "pw_element_not_found",
+      facts: { visualBlocker: false },
+    },
+    repeatCount: 2,
+    currentDomainProfileId: "browser_safe",
+  });
+  assertEquals(decision?.stage, "repeat_structural_pw_guidance");
+  assertEquals(decision?.promoteToHybrid, false);
+});
+
+// ── Tool profile filtering (browser_safe actually restricts) ──────────
+
+import {
+  resolveDeclaredToolProfileFilter,
+  createToolProfileState,
+  setToolProfileLayer,
+  resolveEffectiveToolFilter,
+} from "../../../src/hlvm/agent/tool-profiles.ts";
+
+Deno.test("browser_safe profile allowlist contains only pw_* tools (no pw_promote)", () => {
+  const filter = resolveDeclaredToolProfileFilter("browser_safe");
+  const allowlist = filter.allowlist ?? [];
+  assertEquals(allowlist.length > 0, true, "browser_safe should have an allowlist");
+  for (const tool of allowlist) {
+    assertEquals(tool.startsWith("pw_"), true, `Unexpected non-pw tool: ${tool}`);
+  }
+  assertEquals(allowlist.includes("pw_promote"), false, "browser_safe should not include pw_promote");
+  assertEquals(allowlist.includes("web_fetch"), false, "browser_safe should not include web_fetch");
+  assertEquals(allowlist.includes("list_files"), false, "browser_safe should not include list_files");
+});
+
+Deno.test("browser_safe domain profile intersects with undefined baseline to produce pw-only", () => {
+  const state = createToolProfileState();
+  setToolProfileLayer(state, "domain", { profileId: "browser_safe" });
+  const effective = resolveEffectiveToolFilter(state);
+  const allowlist = effective.allowlist ?? [];
+  assertEquals(allowlist.length > 0, true);
+  for (const tool of allowlist) {
+    assertEquals(tool.startsWith("pw_"), true, `Leaked non-pw tool: ${tool}`);
+  }
+});
+
+Deno.test("browser_hybrid extends browser_safe with cu_* and pw_promote", () => {
+  const filter = resolveDeclaredToolProfileFilter("browser_hybrid");
+  const allowlist = filter.allowlist ?? [];
+  assertEquals(allowlist.includes("pw_goto"), true, "should include pw_goto");
+  assertEquals(allowlist.includes("pw_promote"), true, "should include pw_promote");
+  assertEquals(allowlist.some((t) => t.startsWith("cu_")), true, "should include cu_* tools");
+});
+
+// ── Browser-intent regex (deterministic structural detection) ─────────
+
+Deno.test("browser-intent regex matches bare domains with browser verbs", async () => {
+  const { evaluateDelegationSignal } = await import(
+    "../../../src/hlvm/agent/delegation-heuristics.ts"
+  );
+  // These should match structurally (no LLM needed)
+  const urlCases = [
+    "Go to https://python.org and download",
+    "Open https://github.com/denoland/deno/issues",
+    "Visit www.example.com",
+  ];
+  for (const query of urlCases) {
+    const signal = await evaluateDelegationSignal(query);
+    assertEquals(signal.taskDomain, "browser", `Should detect browser for: "${query}"`);
+  }
+});
+
+Deno.test("browser-intent regex matches TLD domains without protocol", async () => {
+  const { evaluateDelegationSignal } = await import(
+    "../../../src/hlvm/agent/delegation-heuristics.ts"
+  );
+  const bareDomainCases = [
+    "Go to python.org and download the installer",
+    "Visit react.dev/learn",
+    "Navigate to docs.deno.com",
+    "Open vite.dev",
+  ];
+  for (const query of bareDomainCases) {
+    const signal = await evaluateDelegationSignal(query);
+    assertEquals(signal.taskDomain, "browser", `Should detect browser for: "${query}"`);
+  }
+});
+
+Deno.test("browser-intent regex does not match non-browser queries", async () => {
+  const { evaluateDelegationSignal } = await import(
+    "../../../src/hlvm/agent/delegation-heuristics.ts"
+  );
+  const nonBrowserCases = [
+    "Fix the bug in parser.ts",
+    "Open the file utils.ts and add a function",
+    "Go to line 42 in main.ts",
+    "Read the config.json file",
+  ];
+  for (const query of nonBrowserCases) {
+    const signal = await evaluateDelegationSignal(query);
+    assertEquals(signal.taskDomain, "general", `Should NOT detect browser for: "${query}"`);
+  }
 });

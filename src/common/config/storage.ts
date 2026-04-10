@@ -272,6 +272,22 @@ function normalizeConfigInput(
       .permissionMode as HlvmConfig["permissionMode"];
   }
 
+  // Integer config fields with validateValue-based normalization
+  for (
+    const key of [
+      "agentMaxThreads",
+      "agentMaxDepth",
+      "chatMaxPromptChars",
+      "chatMaxReferencesLocal",
+      "chatMaxReferencesCloud",
+    ] as const
+  ) {
+    const val = normalizeNumber(raw[key]);
+    if (val !== undefined && validateValue(key, val).valid) {
+      (normalized as Record<string, unknown>)[key] = val;
+    }
+  }
+
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 

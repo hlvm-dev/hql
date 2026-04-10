@@ -75,7 +75,15 @@ function extractArgDescriptor(description: string): {
   const left = description.split(" - ")[0]?.trim() ?? "";
   const optional = left.includes(OPTIONAL_MARKER);
   const cleaned = left.replace(OPTIONAL_MARKER, "").trim();
-  const typeToken = cleaned.split(/\s+/)[0] ?? "string";
+  // Handle union types like "string | string[]" — if any variant is an array,
+  // treat the whole arg as array-typed so coercion can parse stringified arrays.
+  const tokens = cleaned.split(/\s*\|\s*/);
+  const arrayToken = tokens.find((t) => t.endsWith("[]"));
+  if (arrayToken) {
+    const baseToken = arrayToken.slice(0, -2);
+    return { baseToken: baseToken || "string", isArray: true, optional };
+  }
+  const typeToken = tokens[0]?.split(/\s+/)[0] ?? "string";
   const isArray = typeToken.endsWith("[]");
   const baseToken = isArray ? typeToken.slice(0, -2) : typeToken;
   return { baseToken: baseToken || "string", isArray, optional };
@@ -249,10 +257,11 @@ function coerceValue(value: unknown, schema: JsonSchemaProperty): unknown {
     return numeric;
   }
 
-  // Local models often serialize booleans as strings
+  // Local models often serialize booleans as strings (case-insensitive)
   if (schema.type === "boolean" && typeof value === "string") {
-    if (value === "true") return true;
-    if (value === "false") return false;
+    const lower = value.toLowerCase();
+    if (lower === "true") return true;
+    if (lower === "false") return false;
   }
 
   // Local models often serialize nested objects/arrays as JSON strings

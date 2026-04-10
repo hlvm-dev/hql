@@ -59,9 +59,12 @@
     (yield false)))
 
 (let toggler (toggle))
-(assert (=== (.next toggler).value true) "first toggle is true")
-(assert (=== (.next toggler).value false) "second toggle is false")
-(assert (=== (.next toggler).value true) "third toggle is true")
+(let toggle-1 (.next toggler))
+(let toggle-2 (.next toggler))
+(let toggle-3 (.next toggler))
+(assert (=== (js-get toggle-1 "value") true) "first toggle is true")
+(assert (=== (js-get toggle-2 "value") false) "second toggle is false")
+(assert (=== (js-get toggle-3 "value") true) "third toggle is true")
 (print "toggle works correctly")
 
 // --------------------------------------------
@@ -95,7 +98,8 @@
   (let iter (gen))
   (var i 0)
   (while (< i n)
-    (.push result (.next iter).value)
+    (let step (.next iter))
+    (.push result (js-get step "value"))
     (= i (+ i 1)))
   result)
 
@@ -166,7 +170,7 @@
   (for-of [x iter]
     (if (pred x)
       (yield x)
-      (return))))
+      (break))))
 
 (let under-5 [])
 (for-of [n (take-while-gen (fn [x] (< x 5)) [1 2 3 4 5 6 7])]

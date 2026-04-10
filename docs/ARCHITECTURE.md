@@ -1,7 +1,7 @@
 # HLVM System Architecture
 
-> Full architecture of the HLVM ecosystem: GUI app (~/dev/HLVM) + CLI engine (~/dev/hql),
-> how they communicate, and the vision they serve.
+> Full architecture of the HLVM ecosystem: GUI app (~~/dev/HLVM) + CLI engine
+> (~~/dev/hql), how they communicate, and the vision they serve.
 
 ---
 
@@ -9,18 +9,24 @@
 
 **A programmable AI operating environment for macOS.**
 
-Not a chatbot. Not a launcher. Not an IDE.
-A living, system-wide, programmable intelligence layer where code and AI are the same thing — available everywhere, instantly.
+Not a chatbot. Not a launcher. Not an IDE. A living, system-wide, programmable
+intelligence layer where code and AI are the same thing — available everywhere,
+instantly.
 
 Three access patterns, one unified runtime:
+
 - **Think** (Spotlight REPL) — type an expression, see the result
-- **Act** (Hotbar modules, pinned from Launchpad) — one keypress, immediate execution
+- **Act** (Hotbar modules, pinned from Launchpad) — one keypress, immediate
+  execution
 - **Delegate** (Agent chat) — describe the task, AI handles it
 
 Runtime-first architecture:
+
 - **Core engine** — agent, memory, HQL, MCP, providers, companion logic
-- **Runtime host** — localhost HTTP/NDJSON/SSE boundary, auth, sessions, lifecycle
-- **Shells** — macOS app today, CLI now migrating to the same host contract, future Windows/Linux shells
+- **Runtime host** — localhost HTTP/NDJSON/SSE boundary, auth, sessions,
+  lifecycle
+- **Shells** — macOS app today, CLI now migrating to the same host contract,
+  future Windows/Linux shells
 
 ---
 
@@ -67,7 +73,7 @@ Runtime-first architecture:
                           ▼           ▼           ▼
                     ┌───────────────┐ ┌─────────┐ ┌──────────┐
                     │   Ollama      │ │  Cloud  │ │   MCP    │
-                    │ system :11434 │ │Providers│ │ Servers  │
+                    │ compat :11434 │ │Providers│ │ Servers  │
                     │ HLVM  :11439  │ │ (APIs)  │ │(stdio/http)│
                     └───────────────┘ └─────────┘ └──────────┘
 ```
@@ -97,11 +103,13 @@ Runtime-first architecture:
 ```
 
 The rule is:
+
 - shells own UX and OS integration
 - the runtime host owns the local protocol and lifecycle
 - the core engine owns intelligence and state
 
-That keeps GUI, CLI, and future shells aligned around one runtime instead of duplicating agent logic per surface.
+That keeps GUI, CLI, and future shells aligned around one runtime instead of
+duplicating agent logic per surface.
 
 ---
 
@@ -211,7 +219,8 @@ ReplServerManager.stopServer()
 ### Authentication
 
 - **Mechanism**: Bearer token in `Authorization` header
-- **Token generation**: Random UUID at GUI startup, passed via `HLVM_AUTH_TOKEN` env var
+- **Token generation**: Random UUID at GUI startup, passed via `HLVM_AUTH_TOKEN`
+  env var
 - **Bootstrap**: Token returned in `GET /health` response (no auth required)
 - **Scope**: All endpoints except `/health` and `OPTIONS`
 
@@ -285,57 +294,57 @@ Used by: /api/chat/stream, models/stream, config/stream
 
 ### Health & Diagnostics
 
-| Method | Path | Auth | Response | Purpose |
-|--------|------|------|----------|---------|
-| GET | `/health` | No | JSON | Server status + auth token bootstrap |
+| Method | Path      | Auth | Response | Purpose                              |
+| ------ | --------- | ---- | -------- | ------------------------------------ |
+| GET    | `/health` | No   | JSON     | Server status + auth token bootstrap |
 
 ### Chat & Agent
 
-| Method | Path | Auth | Response | Purpose |
-|--------|------|------|----------|---------|
-| POST | `/api/chat` | Yes | NDJSON stream | Streaming chat/agent request |
-| GET | `/api/chat/messages` | Yes | JSON | List active conversation messages |
-| GET | `/api/chat/messages/:mid` | Yes | JSON | Get a single active-conversation message |
-| POST | `/api/chat/messages` | Yes | JSON | Add message to the active conversation |
-| PATCH | `/api/chat/messages/:mid` | Yes | JSON | Update an active-conversation message |
-| DELETE | `/api/chat/messages/:mid` | Yes | JSON | Delete an active-conversation message |
-| GET | `/api/chat/stream` | Yes | SSE | Real-time active-conversation updates |
-| POST | `/api/chat/cancel` | Yes | JSON | Cancel in-flight request |
-| POST | `/api/chat/interaction` | Yes | JSON | Respond to permission/question |
+| Method | Path                      | Auth | Response      | Purpose                                  |
+| ------ | ------------------------- | ---- | ------------- | ---------------------------------------- |
+| POST   | `/api/chat`               | Yes  | NDJSON stream | Streaming chat/agent request             |
+| GET    | `/api/chat/messages`      | Yes  | JSON          | List active conversation messages        |
+| GET    | `/api/chat/messages/:mid` | Yes  | JSON          | Get a single active-conversation message |
+| POST   | `/api/chat/messages`      | Yes  | JSON          | Add message to the active conversation   |
+| PATCH  | `/api/chat/messages/:mid` | Yes  | JSON          | Update an active-conversation message    |
+| DELETE | `/api/chat/messages/:mid` | Yes  | JSON          | Delete an active-conversation message    |
+| GET    | `/api/chat/stream`        | Yes  | SSE           | Real-time active-conversation updates    |
+| POST   | `/api/chat/cancel`        | Yes  | JSON          | Cancel in-flight request                 |
+| POST   | `/api/chat/interaction`   | Yes  | JSON          | Respond to permission/question           |
 
 ### Models
 
-| Method | Path | Auth | Response | Purpose |
-|--------|------|------|----------|---------|
-| GET | `/api/models` | Yes | JSON | List available models |
-| GET | `/api/models/:provider/:name` | Yes | JSON | Get model info |
-| GET | `/api/models/catalog` | Yes | JSON | Downloadable models |
-| GET | `/api/models/status` | Yes | JSON | Provider availability |
-| POST | `/api/models/pull` | Yes | NDJSON stream | Download model |
-| DELETE | `/api/models/:provider/:name` | Yes | JSON | Delete model |
-| GET | `/api/models/stream` | Yes | SSE | Model change notifications |
+| Method | Path                          | Auth | Response      | Purpose                    |
+| ------ | ----------------------------- | ---- | ------------- | -------------------------- |
+| GET    | `/api/models`                 | Yes  | JSON          | List available models      |
+| GET    | `/api/models/:provider/:name` | Yes  | JSON          | Get model info             |
+| GET    | `/api/models/catalog`         | Yes  | JSON          | Downloadable models        |
+| GET    | `/api/models/status`          | Yes  | JSON          | Provider availability      |
+| POST   | `/api/models/pull`            | Yes  | NDJSON stream | Download model             |
+| DELETE | `/api/models/:provider/:name` | Yes  | JSON          | Delete model               |
+| GET    | `/api/models/stream`          | Yes  | SSE           | Model change notifications |
 
 ### Config
 
-| Method | Path | Auth | Response | Purpose |
-|--------|------|------|----------|---------|
-| GET | `/api/config` | Yes | JSON | Get config |
-| PATCH | `/api/config` | Yes | JSON | Update config |
-| GET | `/api/config/stream` | Yes | SSE | Config change notifications |
+| Method | Path                 | Auth | Response | Purpose                     |
+| ------ | -------------------- | ---- | -------- | --------------------------- |
+| GET    | `/api/config`        | Yes  | JSON     | Get config                  |
+| PATCH  | `/api/config`        | Yes  | JSON     | Update config               |
+| GET    | `/api/config/stream` | Yes  | SSE      | Config change notifications |
 
 ### Eval & Completions
 
-| Method | Path | Auth | Response | Purpose |
-|--------|------|------|----------|---------|
-| POST | `/eval` | Yes | JSON | Internal compatibility eval primitive (non-GUI) |
-| POST | `/api/completions` | Yes | JSON | Code completions |
+| Method | Path               | Auth | Response | Purpose                                         |
+| ------ | ------------------ | ---- | -------- | ----------------------------------------------- |
+| POST   | `/eval`            | Yes  | JSON     | Internal compatibility eval primitive (non-GUI) |
+| POST   | `/api/completions` | Yes  | JSON     | Code completions                                |
 
 ### Memory Functions
 
-| Method | Path | Auth | Response | Purpose |
-|--------|------|------|----------|---------|
-| GET | `/api/memory/functions` | Yes | JSON | List persistent defn's |
-| POST | `/api/memory/functions/execute` | Yes | JSON | Execute a function |
+| Method | Path                            | Auth | Response | Purpose                |
+| ------ | ------------------------------- | ---- | -------- | ---------------------- |
+| GET    | `/api/memory/functions`         | Yes  | JSON     | List persistent defn's |
+| POST   | `/api/memory/functions/execute` | Yes  | JSON     | Execute a function     |
 
 ---
 
@@ -570,7 +579,7 @@ GUI Process                           hlvm serve (:11435)
                        ... (any CRUD endpoint)
 
                            Server outbound:
-                           → Ollama :11434 (LLM)
+                           → Ollama :11439 (embedded local LLM)
                            → OpenAI / Anthropic / Google APIs
                            → MCP servers (stdio/http)
                            → Web fetch (agent tools)
@@ -608,12 +617,12 @@ GUI                                  Server
 ## Model Pull Flow
 
 ```
-User selects "llama3.1:8b" and clicks [Download]
+User selects "gemma4:e4b" and clicks [Download]
 
 GUI                          Server                    Ollama
  │                            │                         │
  │── POST /api/models/pull ─▶│                         │
- │   { "name": "llama3.1" }  │── POST :11434/pull ───▶│
+ │   { "name": "gemma4:e4b" }│── POST :11439/pull ───▶│
  │                            │                         │
  │◀─ NDJSON stream ──────────│◀─ progress ─────────────│
  │  {"event":"progress","completed":1073741824,"total":4294967296}
@@ -633,23 +642,23 @@ GUI                          Server                    Ollama
 
 ### GUI Process (Swift)
 
-| Category | Data | Storage |
-|----------|------|---------|
-| Ephemeral | Visible conversation state, scroll position, streaming buffers, SSE state, auth token | Memory |
-| Persistent | Hotbar slots, Spotlight position, shortcuts, appearance, launch-at-login | UserDefaults |
+| Category   | Data                                                                                  | Storage      |
+| ---------- | ------------------------------------------------------------------------------------- | ------------ |
+| Ephemeral  | Visible conversation state, scroll position, streaming buffers, SSE state, auth token | Memory       |
+| Persistent | Hotbar slots, Spotlight position, shortcuts, appearance, launch-at-login              | UserDefaults |
 
 ### Server Process (Deno)
 
-| Category | Data | Storage |
-|----------|------|---------|
-| Ephemeral | Active requests (AbortControllers), SSE connections, cached sessions, LLM instances, MCP connections, module cache | Memory |
-| Persistent | Config | `~/.hlvm/config.json` |
-| Persistent | Sessions, messages, SSE events | `~/.hlvm/hlvm.db` (SQLite) |
-| Persistent | Memory, FTS5 index | `~/.hlvm/memory/` |
-| Persistent | MCP server configs | `~/.hlvm/mcp.json` |
-| Persistent | Security policy | `~/.hlvm/policy.json` |
-| Persistent | Project instructions | `.hlvm/prompt.md` |
-| REPL state | globalThis bindings (defn, def), module cache, code history | Memory (survives evals, lost on restart) |
+| Category   | Data                                                                                                               | Storage                                  |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| Ephemeral  | Active requests (AbortControllers), SSE connections, cached sessions, LLM instances, MCP connections, module cache | Memory                                   |
+| Persistent | Config                                                                                                             | `~/.hlvm/config.json`                    |
+| Persistent | Sessions, messages, SSE events                                                                                     | `~/.hlvm/hlvm.db` (SQLite)               |
+| Persistent | Memory, FTS5 index                                                                                                 | `~/.hlvm/memory/`                        |
+| Persistent | MCP server configs                                                                                                 | `~/.hlvm/mcp.json`                       |
+| Persistent | Security policy                                                                                                    | `~/.hlvm/policy.json`                    |
+| Persistent | Project instructions                                                                                               | `.hlvm/prompt.md`                        |
+| REPL state | globalThis bindings (defn, def), module cache, code history                                                        | Memory (survives evals, lost on restart) |
 
 ### Shared via Filesystem
 
@@ -680,30 +689,38 @@ GUI                          Server                    Ollama
 
 - **Type**: NSPanel at `.spotlightLevel` (above all windows)
 - **Trigger**: Global hotkey (configurable via KeyboardShortcuts)
-- **Modes**: REPL eval, search (apps/files/modules/settings/dictionary/stocks/history), agent, browse, playground
-- **Features**: FuzzyScorer, detail panel (right side), suggestion window, position saved per screen
-- **Data sources**: AppSearchManager, FileSearch, DictionarySearch, WebBrowserHistory, StockQuoteService, SystemSettings
+- **Modes**: REPL eval, search
+  (apps/files/modules/settings/dictionary/stocks/history), agent, browse,
+  playground
+- **Features**: FuzzyScorer, detail panel (right side), suggestion window,
+  position saved per screen
+- **Data sources**: AppSearchManager, FileSearch, DictionarySearch,
+  WebBrowserHistory, StockQuoteService, SystemSettings
 
 ### Hotbar
 
 - **Type**: NSPanel, floating horizontal icon bar
 - **Slots**: N configurable slots, each bound to a module action
 - **Interaction**: Click or keyboard shortcut to fire
-- **Relationship**: Hotbar is a **pinned subset** of Launchpad — only modules the user has assigned shortcuts to or explicitly pinned appear here
+- **Relationship**: Hotbar is a **pinned subset** of Launchpad — only modules
+  the user has assigned shortcuts to or explicitly pinned appear here
 
 ### Chat Window
 
 - **Type**: Single active-conversation chat surface
 - **Layout**: Message transcript + activity/detail panels
 - **Detail**: Message bubbles with Markdown/syntax highlighting
-- **Features**: SiriIcon animation, ThinkingBubble, ActivityPanel (tool calls), InteractionBubble (permissions), image drag-and-drop, drawing input
+- **Features**: SiriIcon animation, ThinkingBubble, ActivityPanel (tool calls),
+  InteractionBubble (permissions), image drag-and-drop, drawing input
 
 ### Launchpad
 
 - **Type**: Full-screen overlay (paged grid)
-- **Purpose**: Module inventory browser — the **superset of all installed modules**. Every installed potion appears here.
+- **Purpose**: Module inventory browser — the **superset of all installed
+  modules**. Every installed potion appears here.
 - **Features**: Search, drag-and-drop reorder, edit mode, keyboard shortcuts
-- **Flow**: Install -> Launchpad (all installed) -> pin/shortcut -> Hotbar (quick-access subset)
+- **Flow**: Install -> Launchpad (all installed) -> pin/shortcut -> Hotbar
+  (quick-access subset)
 
 ---
 
@@ -725,35 +742,36 @@ createAgentSession(options)
 
 ### System Prompt (11 Sections)
 
-| Section | Tiers | Content |
-|---------|-------|---------|
-| `renderIdentity()` | All | "You are HLVM..." |
-| `renderEnvironment()` | All | cwd, OS, model, git context |
-| `renderToolRouting()` | All | Auto-generated from tool metadata |
-| `renderPermissions()` | All | Auto-generated from safetyLevel |
-| `renderConciseness()` | All | Brevity directive |
-| `renderWebSafety()` | All | "Never fabricate URLs..." |
-| `renderFileEditing()` | Mid+ | File editing guidelines |
-| `renderCodeQuality()` | Mid+ | Code quality standards |
-| `renderThinkingProtocol()` | Frontier | Chain-of-thought |
-| `renderExamples()` | Weak+Mid | Few-shot examples |
-| `renderProjectInstructions()` | All | `.hlvm/prompt.md` if present |
+| Section                       | Tiers    | Content                           |
+| ----------------------------- | -------- | --------------------------------- |
+| `renderIdentity()`            | All      | "You are HLVM..."                 |
+| `renderEnvironment()`         | All      | cwd, OS, model, git context       |
+| `renderToolRouting()`         | All      | Auto-generated from tool metadata |
+| `renderPermissions()`         | All      | Auto-generated from safetyLevel   |
+| `renderConciseness()`         | All      | Brevity directive                 |
+| `renderWebSafety()`           | All      | "Never fabricate URLs..."         |
+| `renderFileEditing()`         | Mid+     | File editing guidelines           |
+| `renderCodeQuality()`         | Mid+     | Code quality standards            |
+| `renderThinkingProtocol()`    | Frontier | Chain-of-thought                  |
+| `renderExamples()`            | Weak+Mid | Few-shot examples                 |
+| `renderProjectInstructions()` | All      | `.hlvm/prompt.md` if present      |
 
 ### Tool Registry
 
 **Built-in (TOOL_REGISTRY)**:
 
-| Category | Tools |
-|----------|-------|
-| File | `read_file`, `write_file`, `edit_file`, `list_files`, `open_path`, `archive_files` |
-| Code | `find_symbol`, `search_code`, `get_structure` |
-| Shell | `shell_exec`, `shell_script` |
-| Git | `git_log`, `git_diff`, `git_commit`, `git_status` |
-| Web | `web_fetch`, `fetch_url`, `search_web`, `render_url` |
-| Data | `filter`, `transform`, `aggregate`, `compute` |
-| Meta | `delegate_agent`, `ask_user` |
+| Category | Tools                                                                              |
+| -------- | ---------------------------------------------------------------------------------- |
+| File     | `read_file`, `write_file`, `edit_file`, `list_files`, `open_path`, `archive_files` |
+| Code     | `find_symbol`, `search_code`, `get_structure`                                      |
+| Shell    | `shell_exec`, `shell_script`                                                       |
+| Git      | `git_log`, `git_diff`, `git_commit`, `git_status`                                  |
+| Web      | `web_fetch`, `fetch_url`, `search_web`, `render_url`                               |
+| Data     | `filter`, `transform`, `aggregate`, `compute`                                      |
+| Meta     | `delegate_agent`, `ask_user`                                                       |
 
 **Dynamic (DYNAMIC_TOOL_REGISTRY)**:
+
 - MCP tools (loaded from server configs)
 - `memory_write`, `memory_search`
 
@@ -790,44 +808,47 @@ output.js + output.js.map (Source Map V3)
 
 ### Language Features
 
-| Feature | Details |
-|---------|---------|
-| Functions | `fn`, `async fn`, `fn*`, arrow, variadic |
-| Classes | Full: inherit, private, getters/setters |
-| Pattern matching | `match`/`case`/guards, or-patterns |
-| Macros | Compile-time, syntax-quote hygiene, raw quasiquote, auto-gensym |
-| Threading | `->`, `->>`, `as->` |
-| Lazy sequences | Clojure-style, infinite |
-| TCO | Auto self-recursion + mutual (Tarjan SCC) |
-| Type annotations | Full TypeScript output |
-| JS interop | `js-call`, `js-get`, `js-set`, `js-new`, `?.`, `??` |
-| Generators | `yield`, `yield*`, async generators |
-| Destructuring | Array and object |
-| Effect system | Constraint-based pure/impure inference |
+| Feature          | Details                                                         |
+| ---------------- | --------------------------------------------------------------- |
+| Functions        | `fn`, `async fn`, `fn*`, arrow, variadic                        |
+| Classes          | Full: inherit, private, getters/setters                         |
+| Pattern matching | `match`/`case`/guards, or-patterns                              |
+| Macros           | Compile-time, syntax-quote hygiene, raw quasiquote, auto-gensym |
+| Threading        | `->`, `->>`, `as->`                                             |
+| Lazy sequences   | Clojure-style, infinite                                         |
+| TCO              | Auto self-recursion + mutual (Tarjan SCC)                       |
+| Type annotations | Full TypeScript output                                          |
+| JS interop       | `js-call`, `js-get`, `js-set`, `js-new`, `?.`, `??`             |
+| Generators       | `yield`, `yield*`, async generators                             |
+| Destructuring    | Array and object                                                |
+| Effect system    | Constraint-based pure/impure inference                          |
 
 ### Stdlib (96% Self-Hosted)
 
-107 functions + 15 aliases. Core, sequences, higher-order, predicates, math, transducers.
-AI functions (REPL only): `ask`, `generate`, `chat`, `summarize`, `example`, `format`, `print`, `model`.
+107 functions + 15 aliases. Core, sequences, higher-order, predicates, math,
+transducers. AI functions (REPL only): `ask`, `generate`, `chat`, `summarize`,
+`example`, `format`, `print`, `model`.
 
 ---
 
 ## Providers
 
-| Provider | Endpoint | Models | Local? |
-|----------|----------|--------|--------|
-| Ollama | `localhost:11434` | llama3.1, mistral, etc. | Yes |
-| OpenAI | `api.openai.com` | GPT-4, GPT-3.5 | No |
-| Anthropic | `api.anthropic.com` | Claude family | No |
-| Google | `generativelanguage.googleapis.com` | Gemini family | No |
-| Claude Code | SDK | Claude (via SDK) | No |
+| Provider    | Endpoint                            | Models                                            | Local? |
+| ----------- | ----------------------------------- | ------------------------------------------------- | ------ |
+| Ollama      | `127.0.0.1:11439`                   | gemma4:e4b (default), other embedded-local models | Yes    |
+| OpenAI      | `api.openai.com`                    | GPT-4, GPT-3.5                                    | No     |
+| Anthropic   | `api.anthropic.com`                 | Claude family                                     | No     |
+| Google      | `generativelanguage.googleapis.com` | Gemini family                                     | No     |
+| Claude Code | SDK                                 | Claude (via SDK)                                  | No     |
 
 All providers implement the `AIProvider` interface:
+
 - `chat(messages, options)` → completion
 - `listModels()` → available models
 - `getStatus()` → health check
 
-Cloud providers use the `createCloudProvider()` factory (collapsed from 4 classes).
+Cloud providers use the `createCloudProvider()` factory (collapsed from 4
+classes).
 
 ---
 
@@ -836,18 +857,23 @@ Cloud providers use the `createCloudProvider()` factory (collapsed from 4 classe
 - **SDK**: `@modelcontextprotocol/sdk@^1.12.0`
 - **Transport**: stdio | streamable-http (with SSE fallback)
 - **Protocol**: 2025-11-25 (with 2024-11-05 fallback)
-- **Capabilities**: tools, resources, prompts, elicitation, sampling, roots, progress
+- **Capabilities**: tools, resources, prompts, elicitation, sampling, roots,
+  progress
 - **Config**: `~/.hlvm/mcp.json`
 
 ---
 
 ## Memory System
 
-- **Storage**: `~/.hlvm/memory/MEMORY.md` (explicit) + `memory.db` (implicit, SQLite)
+- **Storage**: `~/.hlvm/memory/MEMORY.md` (explicit) + `memory.db` (implicit,
+  SQLite)
 - **Architecture**: DB-as-SSOT with facts, entities, relationships tables + FTS5
-- **Retrieval**: Hybrid (FTS5 BM25 + entity graph traversal) with temporal decay (30-day half-life) + access boost
-- **Agent tools**: `memory_write`, `memory_search`, `memory_edit` (always available)
-- **Auto-extraction**: Regex baseline (all models) + LLM extraction (frontier only)
+- **Retrieval**: Hybrid (FTS5 BM25 + entity graph traversal) with temporal decay
+  (30-day half-life) + access boost
+- **Agent tools**: `memory_write`, `memory_search`, `memory_edit` (always
+  available)
+- **Auto-extraction**: Regex baseline (all models) + LLM extraction (frontier
+  only)
 - **Pre-compaction flush**: Orchestrator injects save prompt before compaction
 - **Full details**: See `docs/memory-system-final.md`
 
@@ -857,17 +883,27 @@ Cloud providers use the `createCloudProvider()` factory (collapsed from 4 classe
 
 The bootstrap system ensures `hlvm ask "hello"` works immediately after install.
 
-- **Model store**: `~/.hlvm/.runtime/models/` (HLVM-owned, isolated from system Ollama)
-- **Engine isolation**: `startAIEngine()` sets `OLLAMA_MODELS` env to redirect storage
-- **HLVM-owned endpoint**: `http://127.0.0.1:11439` for the embedded fallback runtime; `11434` remains the system/default Ollama endpoint
-- **Pinned fallback**: `gemma4:e4b` with a pinned Ollama manifest digest prefix and published size sanity bound
-- **Manifest**: `~/.hlvm/.runtime/manifest.json` — tracks engine + model state, hashes
-- **States**: `uninitialized` → `verified` (healthy) or `degraded` (missing assets)
-- **Adopt-or-pull bootstrap**: `hlvm bootstrap` reuses a preloaded pinned model when present and only pulls when it is absent
-- **Readiness**: `/health.aiReady` is only true when the fallback is actually verified and usable
+- **Model store**: `~/.hlvm/.runtime/models/` (HLVM-owned, isolated from system
+  Ollama)
+- **Engine isolation**: `startAIEngine()` sets `OLLAMA_MODELS` env to redirect
+  storage
+- **HLVM-owned endpoint**: `http://127.0.0.1:11439` for the embedded fallback
+  runtime; `11434` is compatibility-only for explicit system-Ollama use
+- **Pinned fallback**: `gemma4:e4b` with a pinned Ollama manifest digest prefix
+  and published size sanity bound
+- **Manifest**: `~/.hlvm/.runtime/manifest.json` — tracks engine + model state,
+  hashes
+- **States**: `uninitialized` → `verified` (healthy) or `degraded` (missing
+  assets)
+- **Adopt-or-pull bootstrap**: `hlvm bootstrap` reuses a preloaded pinned model
+  when present and only pulls when it is absent
+- **Readiness**: `/health.aiReady` is only true when the fallback is actually
+  verified and usable
 - **Recovery**: `hlvm bootstrap --repair` re-materializes missing/corrupt assets
-- **Model resolution chain**: Claude Code → Ollama Cloud → **local fallback** (new)
-- **Install**: `curl -fsSL https://hlvm.dev/install.sh | sh` installs the binary and completes local Gemma bootstrap before returning
+- **Model resolution chain**: Claude Code → Ollama Cloud → **local fallback**
+  (new)
+- **Install**: `curl -fsSL https://hlvm.dev/install.sh | sh` installs the binary
+  and completes local Gemma bootstrap before returning
 - **Full details**: See `docs/vision/single-binary-local-ai.md`
 
 ---
@@ -889,7 +925,7 @@ export const meta = {
   name: "module-name",
   icon: "icon-name",
   description: "What it does",
-  actions: { actionName: { label: "...", shortDescription: "..." } }
+  actions: { actionName: { label: "...", shortDescription: "..." } },
 };
 
 export async function actionName({ ai, shell, clipboard, fs, fetch, notify }) {
@@ -899,26 +935,27 @@ export async function actionName({ ai, shell, clipboard, fs, fetch, notify }) {
 
 ### Module Sources
 
-| Source | Example |
-|--------|---------|
-| Local file | `~/hlvm-modules/tool.mjs` |
-| HTTP URL | `https://gist.github.com/.../mod.mjs` |
-| npm via ESM CDN | `https://esm.sh/lodash-es` |
-| Deno | `https://deno.land/x/mod.ts` |
-| HLVM registry | `https://modules.hlvm.dev/tool.mjs` |
-| AI-generated | `(forge "clipboard markdown formatter")` |
+| Source          | Example                                  |
+| --------------- | ---------------------------------------- |
+| Local file      | `~/hlvm-modules/tool.mjs`                |
+| HTTP URL        | `https://gist.github.com/.../mod.mjs`    |
+| npm via ESM CDN | `https://esm.sh/lodash-es`               |
+| Deno            | `https://deno.land/x/mod.ts`             |
+| HLVM registry   | `https://modules.hlvm.dev/tool.mjs`      |
+| AI-generated    | `(forge "clipboard markdown formatter")` |
 
 ### Trust Tiers
 
-| Tier | Source | Trust |
-|------|--------|-------|
-| 1 | `@hlvm/*` (built-in) | Trusted |
-| 2 | Community index (PR-reviewed) | Vetted |
-| 3 | Any HTTP URL | Use at own risk |
+| Tier | Source                        | Trust           |
+| ---- | ----------------------------- | --------------- |
+| 1    | `@hlvm/*` (built-in)          | Trusted         |
+| 2    | Community index (PR-reviewed) | Vetted          |
+| 3    | Any HTTP URL                  | Use at own risk |
 
 ### Hotbar / Launchpad Integration
 
-Launchpad shows all installed modules. Hotbar shows only the pinned subset (modules with assigned shortcuts). Both trigger the same execution path:
+Launchpad shows all installed modules. Hotbar shows only the pinned subset
+(modules with assigned shortcuts). Both trigger the same execution path:
 
 ```
 User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
@@ -929,602 +966,452 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
   Total: ~2-3 seconds, one keypress
 ```
 
+❯ so before going deep brainstorm, let's talk about our entire currente where we
+are system - HLVM GUI (~~/dev/HLVM) and HLVM CLI (~~/dev/hql)
 
+draw full architecture and pipeline nad how they communicate not only overall
+picture but also specifying and explanaing all detail inside
 
-❯ so before going deep brainstorm, let's talk about our entire currente where we are system - HLVM GUI (~/dev/HLVM) and HLVM CLI (~/dev/hql)        
-                                                                                                                                                    
-  draw full architecture and pipeline nad how they communicate not only overall picture but also specifying and explanaing all detail inside        
-                                                                                                                                                    
-  with emphasis on my vision and goal - and what I am trying to make - hoping you understand my world class vision to some degree.                  
-                                                                                                                                                    
-  draw ASCII full visual                                                                                                                            
+with emphasis on my vision and goal - and what I am trying to make - hoping you
+understand my world class vision to some degree.
+
+draw ASCII full visual
 
 ⏺ Let me map both systems in full detail.
 
-⏺ 3 Explore agents finished (ctrl+o to expand)
-   ├─ Map hlvm serve HTTP API · 20 tool uses · 77.4k tokens
-   │  ⎿  Done
-   ├─ Map GUI HTTP client layer · 23 tool uses · 71.8k tokens
-   │  ⎿  Done
-   └─ Map CLI project full structure · 49 tool uses · 56.1k tokens
-      ⎿  Done
+⏺ 3 Explore agents finished (ctrl+o to expand) ├─ Map hlvm serve HTTP API · 20
+tool uses · 77.4k tokens │ ⎿  Done ├─ Map GUI HTTP client layer · 23 tool uses ·
+71.8k tokens │ ⎿  Done └─ Map CLI project full structure · 49 tool uses · 56.1k
+tokens ⎿  Done
 
-⏺ Now I have the complete picture. Here's the full architecture with your vision overlaid.
+⏺ Now I have the complete picture. Here's the full architecture with your vision
+overlaid.
 
-  ╔══════════════════════════════════════════════════════════════════════════════════════════════════╗
-  ║                                                                                                  ║
-  ║   THE VISION: A Programmable AI Operating Environment                                            ║
-  ║   ─────────────────────────────────────────────────────                                          ║
-  ║                                                                                                  ║
-  ║   Not a chatbot. Not a launcher. Not an IDE.                                                     ║
-  ║   A living, system-wide, programmable intelligence layer                                         ║
-  ║   where code and AI are the same thing — available everywhere, instantly.                        ║
-  ║                                                                                                  ║
-  ╚══════════════════════════════════════════════════════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════════════════════════════════════════════╗
+║ ║ ║ THE VISION: A Programmable AI Operating Environment ║ ║
+───────────────────────────────────────────────────── ║ ║ ║ ║ Not a chatbot. Not
+a launcher. Not an IDE. ║ ║ A living, system-wide, programmable intelligence
+layer ║ ║ where code and AI are the same thing — available everywhere,
+instantly. ║ ║ ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════╝
 
-
-  ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
-  │                                                                                                 │
-  │   ~/dev/HLVM — macOS GUI (SwiftUI + AppKit, native, menu bar app)                              │
-  │                                                                                                 │
-  │   ┌───────────────────────── SURFACES (how user touches the system) ──────────────────────────┐ │
-  │   │                                                                                           │ │
-  │   │  ┌─────────────────────────────────────────────────────────────────────────────────────┐  │ │
-  │   │  │  SPOTLIGHT PANEL (NSPanel, .spotlightLevel, global hotkey)                          │  │ │
-  │   │  │  ┌──────────────────────────────────────────────────────────────┐  ┌─────────────┐  │  │ │
-  │   │  │  │ 🔥 ▌(-> (clipboard) json-parse (get "users") (map :name))  │  │ Detail Panel │  │  │ │
-  │   │  │  └──────────────────────────────────────────────────────────────┘  │             │  │  │ │
-  │   │  │  ┌─ Results / Output ───────────────────────────────────────────┐  │  name       │  │  │ │
-  │   │  │  │                                                              │  │  source     │  │  │ │
-  │   │  │  │  MODE 1: REPL        → type HQL/JS, see result instantly    │  │  actions    │  │  │ │
-  │   │  │  │  MODE 2: Search      → apps, files, modules, settings       │  │  [Equip]    │  │  │ │
-  │   │  │  │  MODE 3: Agent       → "fix the auth bug" (full ReAct)      │  │  [Edit]     │  │  │ │
-  │   │  │  │  MODE 4: Browse      → module library (inventory)           │  │  [Remove]   │  │  │ │
-  │   │  │  │  MODE 5: Playground  → WKWebView code editor                │  │             │  │  │ │
-  │   │  │  │                                                              │  │             │  │  │ │
-  │   │  │  │  ▸ Apps (27)          ▸ Modules (12)        ▸ Files (8)     │  │             │  │  │ │
-  │   │  │  │  ▸ Settings (5)       ▸ Dictionary (3)      ▸ Stocks (2)    │  │             │  │  │ │
-  │   │  │  │                                              [Load More]     │  │             │  │  │ │
-  │   │  │  └──────────────────────────────────────────────────────────────┘  └─────────────┘  │  │ │
-  │   │  │                                                                                     │  │ │
-  │   │  │  Data sources: AppSearchManager, FileSearch, DictionarySearch,                      │  │ │
-  │   │  │  WebBrowserHistory, StockQuoteService, SystemSettings, FuzzyScorer                  │  │ │
-  │   │  └─────────────────────────────────────────────────────────────────────────────────────┘  │ │
-  │   │                                                                                           │ │
-  │   │  ┌──────────────────────────────────────────────────────────────────────────────────────┐ │ │
-  │   │  │  HOTBAR (NSPanel, floating, always visible)           ← PINNED SUBSET of Launchpad  │ │ │
-  │   │  │                                                                                      │ │ │
-  │   │  │  [1]📋     [2]🔍     [3]📝     [4]🔧     [5]🚀    [6]🌐   [7]🇰🇷  ... [0]⚡  │ │ │
-  │   │  │  clip-     code-     standup   json-     deploy    fetch   trans-      forge     │ │ │
-  │   │  │  tools     search              fmt                         late                  │ │ │
-  │   │  │                                                                                      │ │ │
-  │   │  │  Ctrl+N → fire module action instantly (no UI, just result)                          │ │ │
-  │   │  │  Ctrl+Shift+N → open action picker (if module has multiple exports)                  │ │ │
-  │   │  │  Drag from Module Library → equip to slot                                            │ │ │
-  │   │  └──────────────────────────────────────────────────────────────────────────────────────┘ │ │
-  │   │                                                                                           │ │
-  │   │  ┌──────────────────────────────────────────────────────────────────────────────────────┐ │ │
-  │   │  │  LAUNCHPAD (full-screen overlay, paged grid)            ← ALL INSTALLED (superset)  │ │ │
-  │   │  │                                                                                      │ │ │
-  │   │  │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐          │ │ │
-  │   │  │  │ git  │ │ csv  │ │ api  │ │email │ │ k8s  │ │regex │ │ sql  │ │ aws  │          │ │ │
-  │   │  │  │tools │ │tools │ │test  │ │draft │ │ mgr  │ │help  │ │query │ │ ops  │          │ │ │
-  │   │  │  └──────┘ └──────┘ └──────┘ └──────┘ └──────┘ └──────┘ └──────┘ └──────┘          │ │ │
-  │   │  │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐                                               │ │ │
-  │   │  │  │docker│ │ PR   │ │ DB   │ │ AI   │  Search, browse, install, equip, reorder      │ │ │
-  │   │  │  │ctl   │ │review│ │ seed │ │forge │  Drag to Hotbar = equip                       │ │ │
-  │   │  │  └──────┘ └──────┘ └──────┘ └──────┘                                               │ │ │
-  │   │  │                                          ● ○ ○  (pages)                              │ │ │
-  │   │  └──────────────────────────────────────────────────────────────────────────────────────┘ │ │
-  │   │                                                                                           │ │
-  │   │  ┌──────────────────────────────────────────────────────────────────────────────────────┐ │ │
-  │   │  │  CHAT WINDOW (NavigationSplitView)                    ← THE AI AGENT INTERFACE      │ │ │
-  │   │  │                                                                                      │ │ │
-  │   │  │  ┌─ Rooms ──┐  ┌─ Conversation ──────────────────┐  ┌─ Activity ──────────────┐    │ │ │
-  │   │  │  │ ▸ Auth   │  │                                  │  │ ⚡ search_code (1.2s)  │    │ │ │
-  │   │  │  │ ▸ Deploy │  │  User: fix the auth bug          │  │ ⚡ read_file (0.3s)    │    │ │ │
-  │   │  │  │ ▸ Debug  │  │                                  │  │ ⚡ edit_file (0.1s)    │    │ │ │
-  │   │  │  │          │  │  🟣 [SiriIcon animating]         │  │ ● shell_exec (running) │    │ │ │
-  │   │  │  │          │  │  ┌─ ThinkingBubble ─┐            │  │                        │    │ │ │
-  │   │  │  │          │  │  │  ● ● ●           │            │  │ [Allow] [Deny] [Always]│    │ │ │
-  │   │  │  │          │  │  └──────────────────┘            │  │  ↑ InteractionBubble   │    │ │ │
-  │   │  │  │          │  │                                  │  │                        │    │ │ │
-  │   │  │  │          │  │  Assistant: I found the issue... │  │                        │    │ │ │
-  │   │  │  │          │  │  ```ts                           │  │                        │    │ │ │
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ │ │ ~/dev/HLVM — macOS GUI (SwiftUI + AppKit, native, menu bar app) │ │ │ │
+┌───────────────────────── SURFACES (how user touches the system)
+──────────────────────────┐ │ │ │ │ │ │ │
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│ │ │ │ │ SPOTLIGHT PANEL (NSPanel, .spotlightLevel, global hotkey) │ │ │ │ │ │
+┌──────────────────────────────────────────────────────────────┐ ┌─────────────┐
+│ │ │ │ │ │ │ 🔥 ▌(-> (clipboard) json-parse (get "users") (map :name)) │ │
+Detail Panel │ │ │ │ │ │ │
+└──────────────────────────────────────────────────────────────┘ │ │ │ │ │ │ │ │
+┌─ Results / Output ───────────────────────────────────────────┐ │ name │ │ │ │
+│ │ │ │ │ │ source │ │ │ │ │ │ │ │ MODE 1: REPL → type HQL/JS, see result
+instantly │ │ actions │ │ │ │ │ │ │ │ MODE 2: Search → apps, files, modules,
+settings │ │ [Equip] │ │ │ │ │ │ │ │ MODE 3: Agent → "fix the auth bug" (full
+ReAct) │ │ [Edit] │ │ │ │ │ │ │ │ MODE 4: Browse → module library (inventory) │
+│ [Remove] │ │ │ │ │ │ │ │ MODE 5: Playground → WKWebView code editor │ │ │ │ │
+│ │ │ │ │ │ │ │ │ │ │ │ │ │ │ ▸ Apps (27) ▸ Modules (12) ▸ Files (8) │ │ │ │ │ │
+│ │ │ │ ▸ Settings (5) ▸ Dictionary (3) ▸ Stocks (2) │ │ │ │ │ │ │ │ │ │ [Load
+More] │ │ │ │ │ │ │ │ │
+└──────────────────────────────────────────────────────────────┘ └─────────────┘
+│ │ │ │ │ │ │ │ │ │ │ │ Data sources: AppSearchManager, FileSearch,
+DictionarySearch, │ │ │ │ │ │ WebBrowserHistory, StockQuoteService,
+SystemSettings, FuzzyScorer │ │ │ │ │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ │ │ │ │ HOTBAR (NSPanel, floating, always visible) ← PINNED SUBSET of
+Launchpad │ │ │ │ │ │ │ │ │ │ │ │ [1]📋 [2]🔍 [3]📝 [4]🔧 [5]🚀 [6]🌐 [7]🇰🇷 ...
+[0]⚡ │ │ │ │ │ │ clip- code- standup json- deploy fetch trans- forge │ │ │ │ │
+│ tools search fmt late │ │ │ │ │ │ │ │ │ │ │ │ Ctrl+N → fire module action
+instantly (no UI, just result) │ │ │ │ │ │ Ctrl+Shift+N → open action picker (if
+module has multiple exports) │ │ │ │ │ │ Drag from Module Library → equip to
+slot │ │ │ │ │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ │ │ │ │ LAUNCHPAD (full-screen overlay, paged grid) ← ALL INSTALLED (superset)
+│ │ │ │ │ │ │ │ │ │ │ │ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐
+┌──────┐ ┌──────┐ │ │ │ │ │ │ │ git │ │ csv │ │ api │ │email │ │ k8s │ │regex │
+│ sql │ │ aws │ │ │ │ │ │ │ │tools │ │tools │ │test │ │draft │ │ mgr │ │help │
+│query │ │ ops │ │ │ │ │ │ │ └──────┘ └──────┘ └──────┘ └──────┘ └──────┘
+└──────┘ └──────┘ └──────┘ │ │ │ │ │ │ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ │ │ │
+│ │ │ │docker│ │ PR │ │ DB │ │ AI │ Search, browse, install, equip, reorder │ │
+│ │ │ │ │ctl │ │review│ │ seed │ │forge │ Drag to Hotbar = equip │ │ │ │ │ │
+└──────┘ └──────┘ └──────┘ └──────┘ │ │ │ │ │ │ ● ○ ○ (pages) │ │ │ │ │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ │ │ │ │ CHAT WINDOW (NavigationSplitView) ← THE AI AGENT INTERFACE │ │ │ │ │ │
+│ │ │ │ │ │ ┌─ Rooms ──┐ ┌─ Conversation ──────────────────┐ ┌─ Activity
+──────────────┐ │ │ │ │ │ │ │ ▸ Auth │ │ │ │ ⚡ search_code (1.2s) │ │ │ │ │ │ │
+│ ▸ Deploy │ │ User: fix the auth bug │ │ ⚡ read_file (0.3s) │ │ │ │ │ │ │ │ ▸
+Debug │ │ │ │ ⚡ edit_file (0.1s) │ │ │ │ │ │ │ │ │ │ 🟣 [SiriIcon animating] │
+│ ● shell_exec (running) │ │ │ │ │ │ │ │ │ │ ┌─ ThinkingBubble ─┐ │ │ │ │ │ │ │
+│ │ │ │ │ │ ● ● ● │ │ │ [Allow] [Deny] [Always]│ │ │ │ │ │ │ │ │ │
+└──────────────────┘ │ │ ↑ InteractionBubble │ │ │ │ │ │ │ │ │ │ │ │ │ │ │ │ │ │
+│ │ │ │ Assistant: I found the issue... │ │ │ │ │ │ │ │ │ │ │ │
+`ts                           │  │                        │    │ │ │
   │   │  │  │          │  │  // highlighted code             │  │                        │    │ │ │
-  │   │  │  │          │  │  ```                             │  │                        │    │ │ │
-  │   │  │  └──────────┘  └──────────────────────────────────┘  └────────────────────────┘    │ │ │
-  │   │  │                                                                                      │ │ │
-  │   │  │  Markdown rendering, syntax highlighting, image drag-and-drop, drawing input         │ │ │
-  │   │  └──────────────────────────────────────────────────────────────────────────────────────┘ │ │
-  │   │                                                                                           │ │
-  │   │  ┌──────────────────────── Other Surfaces ───────────────────────────────────────────┐   │ │
-  │   │  │  Settings (General, Appearance, Spotlight, AI, Shortcuts, Permissions, About)      │   │ │
-  │   │  │  DrawingPanel (sketch → AI interpretation)                                         │   │ │
-  │   │  │  ScreenCaptureManager (screenshot → AI context)                                    │   │ │
-  │   │  │  SheetsWorkspaceView (spreadsheet editor via WKWebView)                            │   │ │
-  │   │  └───────────────────────────────────────────────────────────────────────────────────┘   │ │
-  │   └───────────────────────────────────────────────────────────────────────────────────────────┘ │
-  │                                                                                                 │
-  │   ┌──────────────────────── INFRASTRUCTURE (Swift side) ─────────────────────────────────────┐ │
-  │   │                                                                                           │ │
-  │   │  AppDelegate          → Dependency wiring, lifecycle                                      │ │
-  │   │  HlvmApp (@main)      → Menu bar extra (flame icon), window management                   │ │
-  │   │  DefaultDependencyProvider → Clean Architecture DI (no singletons)                        │ │
-  │   │                                                                                           │ │
-  │   │  ReplServerManager    → Spawns hlvm binary, health checks, crash recovery                │ │
-  │   │  HqlChatClient        → HTTP streaming to /api/chat (NDJSON line parser)                 │ │
-  │   │  HqlAPIClient         → HTTP calls to /api/chat, /api/completions, /api/memory/*         │ │
-  │   │  HttpManager           → URLSession + StreamLineDelegate, async streams                   │ │
-  │   │  JSON.swift            → yyjson C library, zero-copy parsing, thread-local codec pool     │ │
-  │   │                                                                                           │ │
-  │   │  ClipboardManager     → System clipboard read/write                                      │ │
-  │   │  QuickLookManager     → File preview                                                     │ │
-  │   │  SpeechManager        → Text-to-speech                                                   │ │
-  │   │  WebBrowserHistoryManager → Browser history search                                       │ │
-  │   │  AutocompletePanel    → Code completion suggestions                                      │ │
-  │   │                                                                                           │ │
-  │   │  KeyboardShortcuts    → Global hotkey registration (3rd party)                           │ │
-  │   │  LaunchAtLogin        → Login item management (3rd party)                                │ │
-  │   │  SDWebImage           → Async image loading/caching (3rd party)                          │ │
-  │   │  OrderedCollections   → Ordered dictionaries (3rd party)                                 │ │
-  │   └───────────────────────────────────────────────────────────────────────────────────────────┘ │
-  │                                                                                                 │
-  └────────────────────────────────────────────┬────────────────────────────────────────────────────┘
-                                               │
-                                               │  HTTP :11435 (localhost only)
-                                               │  Auth: Bearer token (random UUID)
-                                               │  CORS: localhost origins only
-                                               │  Max body: 1MB
-                                               │
-                   ┌───────────────────────────┐│┌──────────────────────────────┐
-                   │  NDJSON (streaming)       │││  SSE (real-time push)        │
-                   │  POST /api/chat           │││  GET /api/chat/stream        │
-                   │  POST /api/models/pull    │││  GET /api/models/stream      │
-                   │                           │││  GET /api/config/stream      │
-                   │  Events:                  │││                              │
-                   │  start → token* → tool*   │││  Events:                     │
-                   │  → interaction? → complete│││  snapshot / message_*        │
-                   │  (or error/cancelled)     │││  models_updated/config_updated│
-                   └───────────────────────────┘│└──────────────────────────────┘
-                                               │
-                   ┌───────────────────────────┐│┌──────────────────────────────┐
-                   │  REST (CRUD)             │││  Internal Helpers            │
-                   │  /api/chat/messages      │││  POST /eval (internal)       │
-                   │  /api/models (list/del)   │││  GET  /api/memory/functions  │
-                   │  /api/config (get/patch)  │││  POST /api/memory/fn/execute │
-                   │  GET /health (no auth)    │││                              │
-                   └───────────────────────────┘│└──────────────────────────────┘
-                                               │
-  ┌────────────────────────────────────────────▼────────────────────────────────────────────────────┐
-  │                                                                                                 │
-  │   ~/dev/hql — HLVM CLI (Deno, TypeScript)                                                      │
-  │                                                                                                 │
-  │   ┌────────────────────────── ENTRY POINTS ──────────────────────────────────────────────────┐  │
-  │   │                                                                                          │  │
-  │   │  cli.ts → main()                                                                         │  │
-  │   │  ├── hlvm ask "..."        → askCommand()     → runtime host → agent loop               │  │
-  │   │  ├── hlvm chat / repl      → replCommand()    → React Ink REPL (shell today)            │  │
-  │   │  ├── hlvm serve            → serve.ts         → runtime host on :11435                  │  │
-  │   │  ├── hlvm run <file.hql>   → hql.ts           → transpile() → eval()                    │  │
-  │   │  ├── hlvm compile <file>   → compile.ts       → transpile() → write JS/native           │  │
-  │   │  ├── hlvm mcp              → mcp.ts           → MCP server management                    │  │
-  │   │  └── hlvm init/upgrade/... → utility commands                                            │  │
-  │   └──────────────────────────────────────────────────────────────────────────────────────────┘  │
-  │                                                                                                 │
-  │   ┌────────────────────────── HTTP SERVER (hlvm serve) ──────────────────────────────────────┐  │
-  │   │                                                                                          │  │
-  │   │  http-server.ts → http-router.ts → handlers/                                             │  │
-  │   │                                                                                          │  │
-  │   │  ┌─ chat.ts ─────────────────────────────────────────────────────────────────────────┐   │  │
-  │   │  │  POST /api/chat          → mode: "chat" | "agent" | "claude-code-agent"           │   │  │
-  │   │  │                          → streams NDJSON: start/token/tool_start/tool_end/        │   │  │
-  │   │  │                            interaction_request/turn_stats/complete/error/cancelled  │   │  │
-  │   │  │  POST /api/chat/cancel   → abort in-flight request by request_id                   │   │  │
-  │   │  │  POST /api/chat/interaction → respond to permission/question (approve/deny/input)  │   │  │
-  │   │  │                                                                                    │   │  │
-  │   │  │  chat-agent-mode.ts  → full ReAct agent loop (tools, multi-turn)                   │   │  │
-  │   │  │  chat-direct.ts      → simple LLM chat (no tools)                                  │   │  │
-  │   │  │  chat-session.ts     → request tracking, interaction state                         │   │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘   │  │
-  │   │                                                                                          │  │
-  │   │  ┌─ Other Handlers ──────────────────────────────────────────────────────────────────┐   │  │
-  │   │  │  sessions.ts   → CRUD + SSE stream for session list                                │   │  │
-  │   │  │  messages.ts   → CRUD + pagination for session messages                            │   │  │
-  │   │  │  models.ts     → list/pull/delete/status + SSE stream                              │   │  │
-  │   │  │  config.ts     → get/patch + SSE stream (watches config file)                      │   │  │
-  │   │  │  sse.ts        → per-session SSE stream (snapshot/add/update/delete events)        │   │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘   │  │
-  │   │                                                                                          │  │
-  │   │  ┌─ Eval Engine ─────────────────────────────────────────────────────────────────────┐   │  │
-  │   │  │  POST /api/chat (mode: eval) → top-level eval turn in the active conversation     │   │  │
-  │   │  │  POST /api/completions   → code completion (fuzzy match on REPL state)            │   │  │
-  │   │  │  GET  /api/memory/functions    → list defn's in REPL memory                       │   │  │
-  │   │  │  POST /api/memory/fn/execute   → call a persisted function by name                │   │  │
-  │   │  │                                                                                    │   │  │
-  │   │  │  evaluator.ts  → analyzeExpression() → transpile or js-eval                       │   │  │
-  │   │  │  state.ts      → ReplState (code history, module cache, bindings — persistent)    │   │  │
-  │   │  │  js-eval.ts    → JavaScript evaluation harness                                     │   │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘   │  │
-  │   └──────────────────────────────────────────────────────────────────────────────────────────┘  │
-  │                                                                                                 │
-  │   ┌────────────────────────── AI AGENT ENGINE ───────────────────────────────────────────────┐  │
-  │   │                                                                                          │  │
-  │   │  ┌─ Session ────────────────────────────────────────────────────────────────────────┐    │  │
-  │   │  │  session.ts → createAgentSession()                                                │    │  │
-  │   │  │  ├── engine: AgentEngine (Legacy or SDK)                                          │    │  │
-  │   │  │  ├── llm: AIProvider (Ollama/OpenAI/Anthropic/Google/ClaudeCode)                  │    │  │
-  │   │  │  ├── modelTier: weak | mid | frontier                                             │    │  │
-  │   │  │  ├── context: AgentContext (token budget, file roots)                             │    │  │
-  │   │  │  ├── policy: AgentPolicy (path/network rules, tool permissions)                   │    │  │
-  │   │  │  ├── mcp: MCP client (SDK-based, spec-compliant)                                  │    │  │
-  │   │  │  └── memory: loadMemoryContext() (SQLite FTS5, BM25 + temporal decay)             │    │  │
-  │   │  │                                                                                    │    │  │
-  │   │  │  detectGitContext() → branch, dirty state (3s timeout, parallel)                   │    │  │
-  │   │  │  resolveContextBudget() → 3-layer pipeline + overflow retry                       │    │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘    │  │
-  │   │                                                                                          │  │
-  │   │  ┌─ Orchestrator (ReAct Loop) ──────────────────────────────────────────────────────┐    │  │
-  │   │  │  orchestrator.ts → runReActLoop()                                                  │    │  │
-  │   │  │                                                                                    │    │  │
-  │   │  │  ┌─ Per Iteration ───────────────────────────────────────────────────────────┐     │    │  │
-  │   │  │  │  1. orchestrator-llm.ts       → send messages to LLM, get response        │     │    │  │
-  │   │  │  │  2. orchestrator-response.ts  → classify: text / tool_call / error         │     │    │  │
-  │   │  │  │  3. orchestrator-tool-execution.ts → execute tools (parallel by default)   │     │    │  │
-  │   │  │  │  4. orchestrator-tool-formatting.ts → format results for next turn         │     │    │  │
-  │   │  │  │  5. orchestrator-state.ts     → track iteration count, token usage         │     │    │  │
-  │   │  │  │  6. maybeInjectReminder()     → mid-conversation safety/routing hints      │     │    │  │
-  │   │  │  └────────────────────────────────────────────────────────────────────────────┘     │    │  │
-  │   │  │                                                                                    │    │  │
-  │   │  │  Emits events: start, token, tool_start, tool_end, turn_stats,                     │    │  │
-  │   │  │                interaction_request, complete, error, cancelled                      │    │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘    │  │
-  │   │                                                                                          │  │
-  │   │  ┌─ System Prompt (llm-integration.ts) ─────────────────────────────────────────────┐    │  │
-  │   │  │  11 modular section renderers, tier-filtered:                                      │    │  │
-  │   │  │  ├── renderIdentity()          (all tiers)                                        │    │  │
-  │   │  │  ├── renderEnvironment()       (all tiers, includes git context)                  │    │  │
-  │   │  │  ├── renderToolRouting()       (auto-generated from tool metadata)                │    │  │
-  │   │  │  ├── renderPermissions()       (auto-generated from safetyLevel)                  │    │  │
-  │   │  │  ├── renderConciseness()       (all tiers)                                        │    │  │
-  │   │  │  ├── renderWebSafety()         (all tiers)                                        │    │  │
-  │   │  │  ├── renderFileEditing()       (mid+frontier only)                                │    │  │
-  │   │  │  ├── renderCodeQuality()       (mid+frontier only)                                │    │  │
-  │   │  │  ├── renderThinkingProtocol()  (frontier only)                                    │    │  │
-  │   │  │  ├── renderExamples()          (weak+mid only)                                    │    │  │
-  │   │  │  └── renderProjectInstructions() (.hlvm/prompt.md if present)                     │    │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘    │  │
-  │   │                                                                                          │  │
-  │   │  ┌─ Tool Registry (registry.ts) ────────────────────────────────────────────────────┐    │  │
-  │   │  │                                                                                    │    │  │
-  │   │  │  BUILT-IN TOOLS (TOOL_REGISTRY):                                                   │    │  │
-  │   │  │  ┌─ File ───────┐ ┌─ Code ──────┐ ┌─ Shell ─────┐ ┌─ Git ──────────────┐         │    │  │
-  │   │  │  │ read_file    │ │ find_symbol │ │ shell_exec  │ │ git_log            │         │    │  │
-  │   │  │  │ write_file   │ │ search_code │ │ shell_script│ │ git_diff           │         │    │  │
-  │   │  │  │ edit_file    │ │ get_structure│ └─────────────┘ │ git_commit         │         │    │  │
-  │   │  │  │ list_files   │ └─────────────┘                  │ git_status         │         │    │  │
-  │   │  │  │ open_path    │ ┌─ Web ───────┐ ┌─ Data ──────┐ └────────────────────┘         │    │  │
-  │   │  │  │ archive_files│ │ web_fetch   │ │ filter      │ ┌─ Meta ─────────────┐         │    │  │
-  │   │  │  └──────────────┘ │ fetch_url   │ │ transform   │ │ delegate_agent     │         │    │  │
-  │   │  │                   │ search_web  │ │ aggregate   │ │ ask_user           │         │    │  │
-  │   │  │                   │ render_url  │ │ compute     │ └────────────────────┘         │    │  │
-  │   │  │                   └─────────────┘ └─────────────┘                                │    │  │
-  │   │  │                                                                                    │    │  │
-  │   │  │  DYNAMIC TOOLS (DYNAMIC_TOOL_REGISTRY):                                            │    │  │
-  │   │  │  ├── MCP tools (loaded from mcp server configs)                                    │    │  │
-  │   │  │  ├── memory_write, memory_search (from memory/tools.ts)                            │    │  │
-  │   │  │  └── (future: module tools?)                                                       │    │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘    │  │
-  │   │                                                                                          │  │
-  │   │  ┌─ Engine Abstraction (engine.ts) ─────────────────────────────────────────────────┐    │  │
-  │   │  │                                                                                    │    │  │
-  │   │  │  AgentEngine interface:                                                            │    │  │
-  │   │  │  ├── LegacyAgentEngine  → direct provider HTTP calls (current default)            │    │  │
-  │   │  │  └── SdkAgentEngine     → Vercel AI SDK v6 (HLVM_AGENT_ENGINE=sdk)               │    │  │
-  │   │  │       ├── @ai-sdk/openai                                                           │    │  │
-  │   │  │       ├── @ai-sdk/anthropic                                                        │    │  │
-  │   │  │       ├── @ai-sdk/google                                                           │    │  │
-  │   │  │       └── ollama-ai-provider-v2                                                    │    │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘    │  │
-  │   └──────────────────────────────────────────────────────────────────────────────────────────┘  │
-  │                                                                                                 │
-  │   ┌────────────────────────── HQL TRANSPILER ────────────────────────────────────────────────┐  │
-  │   │                                                                                          │  │
-  │   │  src/hql/transpiler/index.ts → transpile(code, options) → TranspileResult               │  │
-  │   │                                                                                          │  │
-  │   │  ┌─ Pipeline (7 stages) ────────────────────────────────────────────────────────────┐   │  │
-  │   │  │                                                                                    │   │  │
-  │   │  │  source.hql                                                                        │   │  │
-  │   │  │     │                                                                              │   │  │
-  │   │  │     ▼                                                                              │   │  │
-  │   │  │  ① parser.ts              → S-expr tokenize + parse → AST                         │   │  │
-  │   │  │     │                                                                              │   │  │
-  │   │  │     ▼                                                                              │   │  │
-  │   │  │  ② semantic-validator.ts   → name resolution, scope checking                      │   │  │
-  │   │  │     │                                                                              │   │  │
-  │   │  │     ▼                                                                              │   │  │
-  │   │  │  ③ hql-ast-to-hql-ir.ts   → AST → typed IR (intermediate representation)         │   │  │
-  │   │  │     │                                                                              │   │  │
-  │   │  │     ▼                                                                              │   │  │
-  │   │  │  ④ effect-checker.ts       → pure/impure effect inference + constraint solving     │   │  │
-  │   │  │     │  (effect-types, effect-infer, effect-env, effect-lattice,                    │   │  │
-  │   │  │     │   effect-receiver, effect-signatures, effect-errors)                         │   │  │
-  │   │  │     ▼                                                                              │   │  │
-  │   │  │  ⑤ syntax-transformer.ts   → desugar, apply syntax handlers                       │   │  │
-  │   │  │     │  (function, class, binding, conditional, loop-recur,                         │   │  │
-  │   │  │     │   data-structure, js-interop, import-export, enum,                           │   │  │
-  │   │  │     │   quote, get, primitive, match/pattern-matching)                             │   │  │
-  │   │  │     ▼                                                                              │   │  │
-  │   │  │  ⑥ js-code-generator.ts    → IR → JavaScript source                               │   │  │
-  │   │  │     │  + tco-optimizer (self + mutual recursion → while loops / trampolines)       │   │  │
-  │   │  │     │  + source-map-chain (position tracking through all stages)                   │   │  │
-  │   │  │     ▼                                                                              │   │  │
-  │   │  │  ⑦ ts-compiler.ts          → optional TypeScript emit + type checking              │   │  │
-  │   │  │     │                                                                              │   │  │
-  │   │  │     ▼                                                                              │   │  │
-  │   │  │  output.js + output.js.map (Source Map V3 compliant)                               │   │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘   │  │
-  │   │                                                                                          │  │
-  │   │  ┌─ Language Features ──────────────────────────────────────────────────────────────┐   │  │
-  │   │  │  Functions (fn, async fn, fn*, arrow)  │  Pattern matching (match/case/guards)    │   │  │
-  │   │  │  Classes (full: inherit, private, get) │  Macros (compile-time, hygienic, gensym) │   │  │
-  │   │  │  Destructuring (array, object)         │  Threading (-> ->> as->)                 │   │  │
-  │   │  │  Lazy sequences (Clojure-style)        │  Tail-call optimization (auto)           │   │  │
-  │   │  │  TypeScript type annotations           │  Generators, async generators            │   │  │
-  │   │  │  Full JS interop (js-call/get/set/new) │  BigInt, template literals               │   │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘   │  │
-  │   │                                                                                          │  │
-  │   │  ┌─ Stdlib (96% self-hosted in HQL) ────────────────────────────────────────────────┐   │  │
-  │   │  │  107 functions + 15 aliases                                                        │   │  │
-  │   │  │  Core: first, rest, cons, seq, lazySeq, range                                     │   │  │
-  │   │  │  Seqs: map, filter, reduce, take, drop, concat, flatten, distinct, partition...    │   │  │
-  │   │  │  Higher: mapIndexed, mapcat, keep, takeWhile, dropWhile, groupBy, interpose...    │   │  │
-  │   │  │  Predicates: isEmpty, some, every, isNil, isEven, isOdd, isZero...                │   │  │
-  │   │  │  Math: inc, dec, abs, add, sub, mul, div, mod, eq, neq, lt, gt...                 │   │  │
-  │   │  │  Transducers: xf versions of map/filter/take/drop/partition/dedupe...              │   │  │
-  │   │  │  AI (REPL only): ask, generate, chat, summarize, example, format, print, model    │   │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘   │  │
-  │   └──────────────────────────────────────────────────────────────────────────────────────────┘  │
-  │                                                                                                 │
-  │   ┌────────────────────────── SHARED INFRASTRUCTURE ─────────────────────────────────────────┐  │
-  │   │                                                                                          │  │
-  │   │  ┌─ Providers ───────────┐  ┌─ Platform ────────────┐  ┌─ Store ──────────────────┐     │  │
-  │   │  │ registry.ts (SSOT)    │  │ getPlatform()         │  │ db.ts (SQLite)           │     │  │
-  │   │  │ cloud-provider.ts     │  │ ├── fs.read/write/... │  │ schema.ts               │     │  │
-  │   │  │ ├── ollama/           │  │ ├── env               │  │ conversation-store.ts    │     │  │
-  │   │  │ ├── openai/           │  │ ├── cwd()             │  │ sse-store.ts            │     │  │
-  │   │  │ ├── anthropic/        │  │ └── exit()            │  │ message-utils.ts        │     │  │
-  │   │  │ ├── google/           │  │                       │  └────────────────────────┘     │  │
-  │   │  │ └── claude-code/      │  │ deno-platform.ts      │                                  │  │
-  │   │  └───────────────────────┘  │ node-platform.ts      │  ┌─ Memory ─────────────────┐   │  │
-  │   │                              └───────────────────────┘  │ manager.ts (load ctx)    │   │  │
-  │   │  ┌─ Common ──────────────┐  ┌─ API (globalThis) ────┐  │ store.ts (MEMORY.md+log) │   │  │
-  │   │  │ config/               │  │ ai (ask/generate/chat) │  │ indexer.ts (chunk+hash)  │   │  │
-  │   │  │ paths.ts              │  │ config (get/set/all)   │  │ search.ts (FTS5+BM25)   │   │  │
-  │   │  │ http-client.ts        │  │ memory (list/get/find) │  │ tools.ts (write/search)  │   │  │
-  │   │  │ token-utils.ts        │  │ session (CRUD)         │  └────────────────────────┘   │  │
-  │   │  │ rate-limiter.ts       │  │ history (list/get)     │                                  │  │
-  │   │  │ retry.ts              │  │ log (info/warn/error)  │  ┌─ MCP ────────────────────┐   │  │
-  │   │  │ timeout-utils.ts      │  │ runtime (eval/abort)   │  │ sdk-client.ts (SDK v1.12)│   │  │
-  │   │  │ safe-stringify.ts     │  │ errors (constructors)  │  │ config.ts (server defs)  │   │  │
-  │   │  │ ...20+ more utils     │  └────────────────────────┘  │ tools.ts (tool wrapping) │   │  │
-  │   │  └───────────────────────┘                               │ oauth.ts (credentials)  │   │  │
-  │   │                                                           └────────────────────────┘   │  │
-  │   └──────────────────────────────────────────────────────────────────────────────────────────┘  │
-  │                                                                                                 │
-  └─────────────────────────────────────────────────────────────────────────────────────────────────┘
+  │   │  │  │          │  │`
+│ │ │ │ │ │ │ │ │ └──────────┘ └──────────────────────────────────┘
+└────────────────────────┘ │ │ │ │ │ │ │ │ │ │ │ │ Markdown rendering, syntax
+highlighting, image drag-and-drop, drawing input │ │ │ │ │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │ ┌──────────────────────── Other Surfaces
+───────────────────────────────────────────┐ │ │ │ │ │ Settings (General,
+Appearance, Spotlight, AI, Shortcuts, Permissions, About) │ │ │ │ │ │
+DrawingPanel (sketch → AI interpretation) │ │ │ │ │ │ ScreenCaptureManager
+(screenshot → AI context) │ │ │ │ │ │ SheetsWorkspaceView (spreadsheet editor
+via WKWebView) │ │ │ │ │
+└───────────────────────────────────────────────────────────────────────────────────┘
+│ │ │
+└───────────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ ┌──────────────────────── INFRASTRUCTURE (Swift side)
+─────────────────────────────────────┐ │ │ │ │ │ │ │ AppDelegate → Dependency
+wiring, lifecycle │ │ │ │ HlvmApp (@main) → Menu bar extra (flame icon), window
+management │ │ │ │ DefaultDependencyProvider → Clean Architecture DI (no
+singletons) │ │ │ │ │ │ │ │ ReplServerManager → Spawns hlvm binary, health
+checks, crash recovery │ │ │ │ HqlChatClient → HTTP streaming to /api/chat
+(NDJSON line parser) │ │ │ │ HqlAPIClient → HTTP calls to /api/chat,
+/api/completions, /api/memory/* │ │ │ │ HttpManager → URLSession +
+StreamLineDelegate, async streams │ │ │ │ JSON.swift → yyjson C library,
+zero-copy parsing, thread-local codec pool │ │ │ │ │ │ │ │ ClipboardManager →
+System clipboard read/write │ │ │ │ QuickLookManager → File preview │ │ │ │
+SpeechManager → Text-to-speech │ │ │ │ WebBrowserHistoryManager → Browser
+history search │ │ │ │ AutocompletePanel → Code completion suggestions │ │ │ │ │
+│ │ │ KeyboardShortcuts → Global hotkey registration (3rd party) │ │ │ │
+LaunchAtLogin → Login item management (3rd party) │ │ │ │ SDWebImage → Async
+image loading/caching (3rd party) │ │ │ │ OrderedCollections → Ordered
+dictionaries (3rd party) │ │ │
+└───────────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │
+└────────────────────────────────────────────┬────────────────────────────────────────────────────┘
+│ │ HTTP :11435 (localhost only) │ Auth: Bearer token (random UUID) │ CORS:
+localhost origins only │ Max body: 1MB │
+┌───────────────────────────┐│┌──────────────────────────────┐ │ NDJSON
+(streaming) │││ SSE (real-time push) │ │ POST /api/chat │││ GET /api/chat/stream
+│ │ POST /api/models/pull │││ GET /api/models/stream │ │ │││ GET
+/api/config/stream │ │ Events: │││ │ │ start → token* → tool* │││ Events: │ │ →
+interaction? → complete│││ snapshot / message_* │ │ (or error/cancelled) │││
+models_updated/config_updated│
+└───────────────────────────┘│└──────────────────────────────┘ │
+┌───────────────────────────┐│┌──────────────────────────────┐ │ REST (CRUD) │││
+Internal Helpers │ │ /api/chat/messages │││ POST /eval (internal) │ │
+/api/models (list/del) │││ GET /api/memory/functions │ │ /api/config (get/patch)
+│││ POST /api/memory/fn/execute │ │ GET /health (no auth) │││ │
+└───────────────────────────┘│└──────────────────────────────┘ │
+┌────────────────────────────────────────────▼────────────────────────────────────────────────────┐
+│ │ │ ~/dev/hql — HLVM CLI (Deno, TypeScript) │ │ │ │
+┌────────────────────────── ENTRY POINTS
+──────────────────────────────────────────────────┐ │ │ │ │ │ │ │ cli.ts →
+main() │ │ │ │ ├── hlvm ask "..." → askCommand() → runtime host → agent loop │ │
+│ │ ├── hlvm chat / repl → replCommand() → React Ink REPL (shell today) │ │ │ │
+├── hlvm serve → serve.ts → runtime host on :11435 │ │ │ │ ├── hlvm run
+<file.hql> → hql.ts → transpile() → eval() │ │ │ │ ├── hlvm compile <file> →
+compile.ts → transpile() → write JS/native │ │ │ │ ├── hlvm mcp → mcp.ts → MCP
+server management │ │ │ │ └── hlvm init/upgrade/... → utility commands │ │ │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ ┌────────────────────────── HTTP SERVER (hlvm serve)
+──────────────────────────────────────┐ │ │ │ │ │ │ │ http-server.ts →
+http-router.ts → handlers/ │ │ │ │ │ │ │ │ ┌─ chat.ts
+─────────────────────────────────────────────────────────────────────────┐ │ │ │
+│ │ POST /api/chat → mode: "chat" | "agent" | "claude-code-agent" │ │ │ │ │ │ →
+streams NDJSON: start/token/tool_start/tool_end/ │ │ │ │ │ │
+interaction_request/turn_stats/complete/error/cancelled │ │ │ │ │ │ POST
+/api/chat/cancel → abort in-flight request by request_id │ │ │ │ │ │ POST
+/api/chat/interaction → respond to permission/question (approve/deny/input) │ │
+│ │ │ │ │ │ │ │ │ │ chat-agent-mode.ts → full ReAct agent loop (tools,
+multi-turn) │ │ │ │ │ │ chat-direct.ts → simple LLM chat (no tools) │ │ │ │ │ │
+chat-session.ts → request tracking, interaction state │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │ ┌─ Other Handlers
+──────────────────────────────────────────────────────────────────┐ │ │ │ │ │
+sessions.ts → CRUD + SSE stream for session list │ │ │ │ │ │ messages.ts →
+CRUD + pagination for session messages │ │ │ │ │ │ models.ts →
+list/pull/delete/status + SSE stream │ │ │ │ │ │ config.ts → get/patch + SSE
+stream (watches config file) │ │ │ │ │ │ sse.ts → per-session SSE stream
+(snapshot/add/update/delete events) │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │ ┌─ Eval Engine
+─────────────────────────────────────────────────────────────────────┐ │ │ │ │ │
+POST /api/chat (mode: eval) → top-level eval turn in the active conversation │ │
+│ │ │ │ POST /api/completions → code completion (fuzzy match on REPL state) │ │
+│ │ │ │ GET /api/memory/functions → list defn's in REPL memory │ │ │ │ │ │ POST
+/api/memory/fn/execute → call a persisted function by name │ │ │ │ │ │ │ │ │ │ │
+│ evaluator.ts → analyzeExpression() → transpile or js-eval │ │ │ │ │ │ state.ts
+→ ReplState (code history, module cache, bindings — persistent) │ │ │ │ │ │
+js-eval.ts → JavaScript evaluation harness │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ ┌────────────────────────── AI AGENT ENGINE
+───────────────────────────────────────────────┐ │ │ │ │ │ │ │ ┌─ Session
+────────────────────────────────────────────────────────────────────────┐ │ │ │
+│ │ session.ts → createAgentSession() │ │ │ │ │ │ ├── engine: AgentEngine
+(Legacy or SDK) │ │ │ │ │ │ ├── llm: AIProvider
+(Ollama/OpenAI/Anthropic/Google/ClaudeCode) │ │ │ │ │ │ ├── modelTier: weak |
+mid | frontier │ │ │ │ │ │ ├── context: AgentContext (token budget, file roots)
+│ │ │ │ │ │ ├── policy: AgentPolicy (path/network rules, tool permissions) │ │ │
+│ │ │ ├── mcp: MCP client (SDK-based, spec-compliant) │ │ │ │ │ │ └── memory:
+loadMemoryContext() (SQLite FTS5, BM25 + temporal decay) │ │ │ │ │ │ │ │ │ │ │ │
+detectGitContext() → branch, dirty state (3s timeout, parallel) │ │ │ │ │ │
+resolveContextBudget() → 3-layer pipeline + overflow retry │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │ ┌─ Orchestrator (ReAct Loop)
+──────────────────────────────────────────────────────┐ │ │ │ │ │
+orchestrator.ts → runReActLoop() │ │ │ │ │ │ │ │ │ │ │ │ ┌─ Per Iteration
+───────────────────────────────────────────────────────────┐ │ │ │ │ │ │ │ 1.
+orchestrator-llm.ts → send messages to LLM, get response │ │ │ │ │ │ │ │ 2.
+orchestrator-response.ts → classify: text / tool_call / error │ │ │ │ │ │ │ │ 3.
+orchestrator-tool-execution.ts → execute tools (parallel by default) │ │ │ │ │ │
+│ │ 4. orchestrator-tool-formatting.ts → format results for next turn │ │ │ │ │
+│ │ │ 5. orchestrator-state.ts → track iteration count, token usage │ │ │ │ │ │
+│ │ 6. maybeInjectReminder() → mid-conversation safety/routing hints │ │ │ │ │ │
+│ └────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │ │ │ │ │ Emits events: start, token, tool_start, tool_end,
+turn_stats, │ │ │ │ │ │ interaction_request, complete, error, cancelled │ │ │ │
+│
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │ ┌─ System Prompt (llm-integration.ts)
+─────────────────────────────────────────────┐ │ │ │ │ │ 11 modular section
+renderers, tier-filtered: │ │ │ │ │ │ ├── renderIdentity() (all tiers) │ │ │ │ │
+│ ├── renderEnvironment() (all tiers, includes git context) │ │ │ │ │ │ ├──
+renderToolRouting() (auto-generated from tool metadata) │ │ │ │ │ │ ├──
+renderPermissions() (auto-generated from safetyLevel) │ │ │ │ │ │ ├──
+renderConciseness() (all tiers) │ │ │ │ │ │ ├── renderWebSafety() (all tiers) │
+│ │ │ │ │ ├── renderFileEditing() (mid+frontier only) │ │ │ │ │ │ ├──
+renderCodeQuality() (mid+frontier only) │ │ │ │ │ │ ├── renderThinkingProtocol()
+(frontier only) │ │ │ │ │ │ ├── renderExamples() (weak+mid only) │ │ │ │ │ │ └──
+renderProjectInstructions() (.hlvm/prompt.md if present) │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │ ┌─ Tool Registry (registry.ts)
+────────────────────────────────────────────────────┐ │ │ │ │ │ │ │ │ │ │ │
+BUILT-IN TOOLS (TOOL_REGISTRY): │ │ │ │ │ │ ┌─ File ───────┐ ┌─ Code ──────┐ ┌─
+Shell ─────┐ ┌─ Git ──────────────┐ │ │ │ │ │ │ │ read_file │ │ find_symbol │ │
+shell_exec │ │ git_log │ │ │ │ │ │ │ │ write_file │ │ search_code │ │
+shell_script│ │ git_diff │ │ │ │ │ │ │ │ edit_file │ │ get_structure│
+└─────────────┘ │ git_commit │ │ │ │ │ │ │ │ list_files │ └─────────────┘ │
+git_status │ │ │ │ │ │ │ │ open_path │ ┌─ Web ───────┐ ┌─ Data ──────┐
+└────────────────────┘ │ │ │ │ │ │ │ archive_files│ │ web_fetch │ │ filter │ ┌─
+Meta ─────────────┐ │ │ │ │ │ │ └──────────────┘ │ fetch_url │ │ transform │ │
+delegate_agent │ │ │ │ │ │ │ │ search_web │ │ aggregate │ │ ask_user │ │ │ │ │ │
+│ │ render_url │ │ compute │ └────────────────────┘ │ │ │ │ │ │ └─────────────┘
+└─────────────┘ │ │ │ │ │ │ │ │ │ │ │ │ DYNAMIC TOOLS (DYNAMIC_TOOL_REGISTRY): │
+│ │ │ │ │ ├── MCP tools (loaded from mcp server configs) │ │ │ │ │ │ ├──
+memory_write, memory_search (from memory/tools.ts) │ │ │ │ │ │ └── (future:
+module tools?) │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │ ┌─ Engine Abstraction (engine.ts)
+─────────────────────────────────────────────────┐ │ │ │ │ │ │ │ │ │ │ │
+AgentEngine interface: │ │ │ │ │ │ ├── LegacyAgentEngine → direct provider HTTP
+calls (current default) │ │ │ │ │ │ └── SdkAgentEngine → Vercel AI SDK v6
+(HLVM_AGENT_ENGINE=sdk) │ │ │ │ │ │ ├── @ai-sdk/openai │ │ │ │ │ │ ├──
+@ai-sdk/anthropic │ │ │ │ │ │ ├── @ai-sdk/google │ │ │ │ │ │ └──
+ollama-ai-provider-v2 │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ ┌────────────────────────── HQL TRANSPILER
+────────────────────────────────────────────────┐ │ │ │ │ │ │ │
+src/hql/transpiler/index.ts → transpile(code, options) → TranspileResult │ │ │ │
+│ │ │ │ ┌─ Pipeline (7 stages)
+────────────────────────────────────────────────────────────┐ │ │ │ │ │ │ │ │ │
+│ │ source.hql │ │ │ │ │ │ │ │ │ │ │ │ │ ▼ │ │ │ │ │ │ ① parser.ts → S-expr
+tokenize + parse → AST │ │ │ │ │ │ │ │ │ │ │ │ │ ▼ │ │ │ │ │ │ ②
+semantic-validator.ts → name resolution, scope checking │ │ │ │ │ │ │ │ │ │ │ │
+│ ▼ │ │ │ │ │ │ ③ hql-ast-to-hql-ir.ts → AST → typed IR (intermediate
+representation) │ │ │ │ │ │ │ │ │ │ │ │ │ ▼ │ │ │ │ │ │ ④ effect-checker.ts →
+pure/impure effect inference + constraint solving │ │ │ │ │ │ │ (effect-types,
+effect-infer, effect-env, effect-lattice, │ │ │ │ │ │ │ effect-receiver,
+effect-signatures, effect-errors) │ │ │ │ │ │ ▼ │ │ │ │ │ │ ⑤
+syntax-transformer.ts → desugar, apply syntax handlers │ │ │ │ │ │ │ (function,
+class, binding, conditional, loop-recur, │ │ │ │ │ │ │ data-structure,
+js-interop, import-export, enum, │ │ │ │ │ │ │ quote, get, primitive,
+match/pattern-matching) │ │ │ │ │ │ ▼ │ │ │ │ │ │ ⑥ js-code-generator.ts → IR →
+JavaScript source │ │ │ │ │ │ │ + tco-optimizer (self + mutual recursion → while
+loops / trampolines) │ │ │ │ │ │ │ + source-map-chain (position tracking through
+all stages) │ │ │ │ │ │ ▼ │ │ │ │ │ │ ⑦ ts-compiler.ts → optional TypeScript
+emit + type checking │ │ │ │ │ │ │ │ │ │ │ │ │ ▼ │ │ │ │ │ │ output.js +
+output.js.map (Source Map V3 compliant) │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │ ┌─ Language Features
+──────────────────────────────────────────────────────────────┐ │ │ │ │ │
+Functions (fn, async fn, fn*, arrow) │ Pattern matching (match/case/guards) │ │
+│ │ │ │ Classes (full: inherit, private, get) │ Macros (compile-time, hygienic,
+gensym) │ │ │ │ │ │ Destructuring (array, object) │ Threading (-> ->> as->) │ │
+│ │ │ │ Lazy sequences (Clojure-style) │ Tail-call optimization (auto) │ │ │ │ │
+│ TypeScript type annotations │ Generators, async generators │ │ │ │ │ │ Full JS
+interop (js-call/get/set/new) │ BigInt, template literals │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │ ┌─ Stdlib (96% self-hosted in HQL)
+────────────────────────────────────────────────┐ │ │ │ │ │ 107 functions + 15
+aliases │ │ │ │ │ │ Core: first, rest, cons, seq, lazySeq, range │ │ │ │ │ │
+Seqs: map, filter, reduce, take, drop, concat, flatten, distinct, partition... │
+│ │ │ │ │ Higher: mapIndexed, mapcat, keep, takeWhile, dropWhile, groupBy,
+interpose... │ │ │ │ │ │ Predicates: isEmpty, some, every, isNil, isEven, isOdd,
+isZero... │ │ │ │ │ │ Math: inc, dec, abs, add, sub, mul, div, mod, eq, neq, lt,
+gt... │ │ │ │ │ │ Transducers: xf versions of
+map/filter/take/drop/partition/dedupe... │ │ │ │ │ │ AI (REPL only): ask,
+generate, chat, summarize, example, format, print, model │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ ┌────────────────────────── SHARED INFRASTRUCTURE
+─────────────────────────────────────────┐ │ │ │ │ │ │ │ ┌─ Providers
+───────────┐ ┌─ Platform ────────────┐ ┌─ Store ──────────────────┐ │ │ │ │ │
+registry.ts (SSOT) │ │ getPlatform() │ │ db.ts (SQLite) │ │ │ │ │ │
+cloud-provider.ts │ │ ├── fs.read/write/... │ │ schema.ts │ │ │ │ │ │ ├──
+ollama/ │ │ ├── env │ │ conversation-store.ts │ │ │ │ │ │ ├── openai/ │ │ ├──
+cwd() │ │ sse-store.ts │ │ │ │ │ │ ├── anthropic/ │ │ └── exit() │ │
+message-utils.ts │ │ │ │ │ │ ├── google/ │ │ │ └────────────────────────┘ │ │ │
+│ │ └── claude-code/ │ │ deno-platform.ts │ │ │ │ │ └───────────────────────┘ │
+node-platform.ts │ ┌─ Memory ─────────────────┐ │ │ │ │
+└───────────────────────┘ │ manager.ts (load ctx) │ │ │ │ │ ┌─ Common
+──────────────┐ ┌─ API (globalThis) ────┐ │ store.ts (MEMORY.md+log) │ │ │ │ │ │
+config/ │ │ ai (ask/generate/chat) │ │ indexer.ts (chunk+hash) │ │ │ │ │ │
+paths.ts │ │ config (get/set/all) │ │ search.ts (FTS5+BM25) │ │ │ │ │ │
+http-client.ts │ │ memory (list/get/find) │ │ tools.ts (write/search) │ │ │ │ │
+│ token-utils.ts │ │ session (CRUD) │ └────────────────────────┘ │ │ │ │ │
+rate-limiter.ts │ │ history (list/get) │ │ │ │ │ │ retry.ts │ │ log
+(info/warn/error) │ ┌─ MCP ────────────────────┐ │ │ │ │ │ timeout-utils.ts │ │
+runtime (eval/abort) │ │ sdk-client.ts (SDK v1.12)│ │ │ │ │ │ safe-stringify.ts
+│ │ errors (constructors) │ │ config.ts (server defs) │ │ │ │ │ │ ...20+ more
+utils │ └────────────────────────┘ │ tools.ts (tool wrapping) │ │ │ │ │
+└───────────────────────┘ │ oauth.ts (credentials) │ │ │ │ │
+└────────────────────────┘ │ │ │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
 
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ │ │ EXTERNAL CONNECTIONS │ │ │ │ ┌─ LLM Providers
+─────────────────────────────────────────────────────────────────────────┐ │ │ │
+│ │ │ │ 127.0.0.1:11439 ←── Ollama (HLVM embedded default local runtime) │ │ │ │
+api.openai.com ←── OpenAI (GPT-4, GPT-3.5) │ │ │ │ api.anthropic.com ←──
+Anthropic (Claude) │ │ │ │ generativelanguage.googleapis.com ←── Google (Gemini)
+│ │ │ │ Claude Code SDK ←── Claude Code (via SDK) │ │ │ │ │ │ │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ ┌─ MCP Servers
+────────────────────────────────────────────────────────────────────────────┐ │
+│ │ Configured via .hlvm/mcp.json or CLI │ │ │ │ Transport: stdio |
+streamable-http (with SSE fallback) │ │ │ │ Protocol: 2025-11-25 (with
+2024-11-05 fallback) │ │ │ │ Capabilities: tools, resources, prompts,
+elicitation, sampling, roots, progress │ │ │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ ┌─ Module Ecosystem (THE FUTURE)
+─────────────────────────────────────────────────────────┐ │ │ │ │ │ │ │ ┌─
+Decentralized (HTTP URLs)
+──────────────────────────────────────────────────────┐ │ │ │ │ │
+https://gist.github.com/user/module.mjs ← any URL = valid module │ │ │ │ │ │
+https://esm.sh/lodash-es ← entire npm ecosystem │ │ │ │ │ │
+https://deno.land/x/mod.ts ← Deno ecosystem │ │ │ │ │ │
+https://your-server.com/custom-tool.mjs ← self-hosted │ │ │ │ │ │
+~/hlvm-modules/local-tool.mjs ← local files │ │ │ │ │ │ │ │ │ │ │ │ Deno
+handles: fetch, cache, lock, versioning — zero infra needed │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │ ┌─ Curated Index (GitHub repo)
+────────────────────────────────────────────────────┐ │ │ │ │ │
+github.com/hlvm/modules/index.json │ │ │ │ │ │ ├── @hlvm/* (built-in, maintained
+by you) → Tier 1: trusted │ │ │ │ │ │ ├── community submissions (PR-reviewed) →
+Tier 2: vetted │ │ │ │ │ │ └── any HTTP URL (user-added, unreviewed) → Tier 3:
+open web │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │ │ │ │ │ │ ┌─ AI Forge
+───────────────────────────────────────────────────────────────────────┐ │ │ │ │
+│ (forge "describe what you need") │ │ │ │ │ │ → AI generates ESM module │ │ │ │
+│ │ → saves to ~/hlvm-modules/ │ │ │ │ │ │ → immediately available in Launchpad,
+equippable to Hotbar │ │ │ │ │ │ → sharable via URL │ │ │ │ │
+└────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+│ │ │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-  ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
-  │                                                                                                 │
-  │   EXTERNAL CONNECTIONS                                                                          │
-  │                                                                                                 │
-  │   ┌─ LLM Providers ─────────────────────────────────────────────────────────────────────────┐  │
-  │   │                                                                                          │  │
-  │   │  localhost:11434  ←── Ollama (default, local, free)                                      │  │
-  │   │  api.openai.com   ←── OpenAI (GPT-4, GPT-3.5)                                           │  │
-  │   │  api.anthropic.com ←── Anthropic (Claude)                                                │  │
-  │   │  generativelanguage.googleapis.com ←── Google (Gemini)                                   │  │
-  │   │  Claude Code SDK  ←── Claude Code (via SDK)                                              │  │
-  │   │                                                                                          │  │
-  │   └──────────────────────────────────────────────────────────────────────────────────────────┘  │
-  │                                                                                                 │
-  │   ┌─ MCP Servers ────────────────────────────────────────────────────────────────────────────┐  │
-  │   │  Configured via .hlvm/mcp.json or CLI                                                    │  │
-  │   │  Transport: stdio | streamable-http (with SSE fallback)                                  │  │
-  │   │  Protocol: 2025-11-25 (with 2024-11-05 fallback)                                        │  │
-  │   │  Capabilities: tools, resources, prompts, elicitation, sampling, roots, progress         │  │
-  │   └──────────────────────────────────────────────────────────────────────────────────────────┘  │
-  │                                                                                                 │
-  │   ┌─ Module Ecosystem (THE FUTURE) ─────────────────────────────────────────────────────────┐  │
-  │   │                                                                                          │  │
-  │   │  ┌─ Decentralized (HTTP URLs) ──────────────────────────────────────────────────────┐   │  │
-  │   │  │  https://gist.github.com/user/module.mjs     ← any URL = valid module            │   │  │
-  │   │  │  https://esm.sh/lodash-es                     ← entire npm ecosystem              │   │  │
-  │   │  │  https://deno.land/x/mod.ts                   ← Deno ecosystem                    │   │  │
-  │   │  │  https://your-server.com/custom-tool.mjs      ← self-hosted                       │   │  │
-  │   │  │  ~/hlvm-modules/local-tool.mjs                ← local files                       │   │  │
-  │   │  │                                                                                    │   │  │
-  │   │  │  Deno handles: fetch, cache, lock, versioning — zero infra needed                 │   │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘   │  │
-  │   │                                                                                          │  │
-  │   │  ┌─ Curated Index (GitHub repo) ────────────────────────────────────────────────────┐   │  │
-  │   │  │  github.com/hlvm/modules/index.json                                                │   │  │
-  │   │  │  ├── @hlvm/* (built-in, maintained by you)             → Tier 1: trusted           │   │  │
-  │   │  │  ├── community submissions (PR-reviewed)               → Tier 2: vetted            │   │  │
-  │   │  │  └── any HTTP URL (user-added, unreviewed)             → Tier 3: open web          │   │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘   │  │
-  │   │                                                                                          │  │
-  │   │  ┌─ AI Forge ───────────────────────────────────────────────────────────────────────┐   │  │
-  │   │  │  (forge "describe what you need")                                                  │   │  │
-  │   │  │     → AI generates ESM module                                                      │   │  │
-  │   │  │     → saves to ~/hlvm-modules/                                                     │   │  │
-  │   │  │     → immediately available in Launchpad, equippable to Hotbar                      │   │  │
-  │   │  │     → sharable via URL                                                             │   │  │
-  │   │  └────────────────────────────────────────────────────────────────────────────────────┘   │  │
-  │   └──────────────────────────────────────────────────────────────────────────────────────────┘  │
-  │                                                                                                 │
-  └─────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ │ │ DATA FLOW: MODULE EXECUTION — HOTBAR / LAUNCHPAD (THE CORE LOOP) │ │ (Same
+execution path whether triggered from Hotbar shortcut or Launchpad click) │ │ │
+│ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad │ │ │ │ │ ▼ │ │
+GUI: Hotbar reads slot 3 binding → { module: "git-standup", action: "standup" }
+│ │ │ │ │ ▼ │ │ GUI → POST :11435/module/run { url: "~/modules/git-standup.mjs",
+action: "standup" } │ │ │ ▲ │ │ ▼ │ NEW ENDPOINT │ │ Server: dynamic import(url)
+→ cache module │ │ │ │ │ ▼ │ │ Server: inject ModuleContext { ai, shell,
+clipboard, fs, fetch, notify, eval } │ │ │ │ │ ▼ │ │ Server:
+module.standup(context) │ │ │ │ │ ├──→ context.shell("git log --since=yesterday
+...") → git history │ │ ├──→ context.ai.ask("summarize:\n" + history) → AI
+summary │ │ └──→ context.clipboard.set(summary) → result to clipboard │ │ │ │ │
+▼ │ │ Server → { result: "Here's your standup...", success: true } │ │ │ │ │ ▼ │
+│ GUI: show notification / update hotbar indicator / paste to frontmost app │ │
+│ │ Total time: ~2-3 seconds. One keypress. No context switch. │ │ │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
 
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ │ │ DATA FLOW: SPOTLIGHT REPL EVAL (THE POWER USER LOOP) │ │ │ │ User hits
+global hotkey (e.g. Cmd+Space) │ │ │ │ │ ▼ │ │ Spotlight Panel appears (NSPanel,
+floating above all windows) │ │ │ │ │ ▼ │ │ User types: (-> (clipboard)
+json-parse (get "users") (filter #(> (:age %) 18)) (map :name)) │ │ │ │ │ ▼ │ │
+GUI → POST :11435/api/chat { mode: "eval", messages: [{ role: "user", content:
+"(-> (clipboard) ...)" }] } │ │ │ │ │ ▼ │ │ Server: analyzeExpression() → starts
+with "(" → HQL mode │ │ │ │ │ ▼ │ │ HQL Transpiler: parse → validate → AST→IR →
+effects → transform → codegen │ │ │ │ │ ▼ │ │ JS Eval: execute generated
+JavaScript in REPL context (globalThis persists) │ │ │ │ │ ▼ │ │ Server → {
+success: true, value: "[\"Alice\", \"Charlie\", \"Eve\"]", logs: [] } │ │ │ │ │
+▼ │ │ GUI: display result inline in Spotlight panel │ │ │ │ │ ▼ │ │ User can:
+copy result, pipe into next expression, save as defn, or dismiss │ │ │ │ State
+persists. Next expression can reference previous results. │ │ (defn my-filter
+...) survives across sessions. │ │ │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-  ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
-  │                                                                                                 │
-  │   DATA FLOW: MODULE EXECUTION — HOTBAR / LAUNCHPAD (THE CORE LOOP)                             │
-  │   (Same execution path whether triggered from Hotbar shortcut or Launchpad click)              │
-  │                                                                                                 │
-  │   User presses Ctrl+3 (Hotbar) or clicks module in Launchpad                                                                           │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   GUI: Hotbar reads slot 3 binding → { module: "git-standup", action: "standup" }               │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   GUI → POST :11435/module/run  { url: "~/modules/git-standup.mjs", action: "standup" }        │
-  │      │                                                            ▲                              │
-  │      ▼                                                            │ NEW ENDPOINT                 │
-  │   Server: dynamic import(url)  → cache module                                                   │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   Server: inject ModuleContext { ai, shell, clipboard, fs, fetch, notify, eval }                │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   Server: module.standup(context)                                                               │
-  │      │                                                                                          │
-  │      ├──→ context.shell("git log --since=yesterday ...")     → git history                      │
-  │      ├──→ context.ai.ask("summarize:\n" + history)           → AI summary                      │
-  │      └──→ context.clipboard.set(summary)                     → result to clipboard             │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   Server → { result: "Here's your standup...", success: true }                                  │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   GUI: show notification / update hotbar indicator / paste to frontmost app                     │
-  │                                                                                                 │
-  │   Total time: ~2-3 seconds. One keypress. No context switch.                                    │
-  │                                                                                                 │
-  └─────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ │ │ THE INTEGRATION MAP: What Connects to What │ │ │ │ ┌──────────────┐ │ │ │
+USER │ │ │ └──────┬───────┘ │ │ │ │ │ ┌─────────────┼──────────────┐ │ │ │ │ │ │
+│ ▼ ▼ ▼ │ │ ┌──────────┐ ┌────────────┐ ┌──────────┐ │ │ │ Spotlight │ │ Hotbar
+│ │ Chat │ │ │ │ (REPL) │ │ (1-press) │ │ (Agent) │ │ │ └────┬─────┘
+└─────┬──────┘ └────┬─────┘ │ │ │ │ │ │ │ │ /api/chat │ /module/run │ /api/chat
+│ │ │ │ │ │ │ ▼ ▼ ▼ │ │ ┌─────────────────────────────────────────┐ │ │ │ hlvm
+serve (:11435) │ │ │ │ │ │ │ │ ┌─────────┐ ┌──────────┐ ┌──────────┐ │ │ │ │ │
+HQL │ │ Module │ │ Agent │ │ │ │ │ │ Eval │ │ Runtime │ │ ReAct │ │ │ │ │ │
+Engine │ │ (import+ │ │ Loop │ │ │ │ │ │ │ │ context) │ │ │ │ │ │ │ └────┬────┘
+└────┬─────┘ └────┬─────┘ │ │ │ │ │ │ │ │ │ │ │ └───────────┼────────────┘ │ │ │
+│ │ │ │ │ │ ▼ │ │ │ │ ┌─────────────────────────────────┐ │ │ │ │ │ Shared
+Runtime Layer │ │ │ │ │ │ │ │ │ │ │ │ globalThis.ai ← AI provider │ │ │ │ │ │
+globalThis.config │ │ │ │ │ │ REPL state (persistent defs) │ │ │ │ │ │ Module
+cache (imported ESMs) │ │ │ │ │ │ Memory (SQLite FTS5) │ │ │ │ │ │ Session store
+(SQLite) │ │ │ │ │ └─────────────┬───────────────────┘ │ │ │ │ │ │ │ │
+└────────────────┼────────────────────────┘ │ │ │ │ │ ┌───────────┼───────────┐
+│ │ │ │ │ │ │ ▼ ▼ ▼ │ │ ┌──────────┐ ┌─────────┐ ┌──────────┐ │ │ │ Ollama │ │
+Cloud │ │ MCP │ │ │ │ (local) │ │Providers│ │ Servers │ │ │ │ :11439 │ │ (APIs)
+│ │ (stdio/ │ │ │ │ │ │ │ │ http) │ │ │ └──────────┘ └─────────┘ └──────────┘ │
+│ │ │ ┌─────────────────────────────────────────────────────────────────────┐ │
+│ │ Module Ecosystem (decentralized HTTP + curated GitHub index) │ │ │ │ Any URL
+→ import() → inject context → execute → return result │ │ │
+└─────────────────────────────────────────────────────────────────────┘ │ │ │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
 
+What this diagram shows about your vision:
 
-  ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
-  │                                                                                                 │
-  │   DATA FLOW: SPOTLIGHT REPL EVAL (THE POWER USER LOOP)                                         │
-  │                                                                                                 │
-  │   User hits global hotkey (e.g. Cmd+Space)                                                      │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   Spotlight Panel appears (NSPanel, floating above all windows)                                  │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   User types: (-> (clipboard) json-parse (get "users") (filter #(> (:age %) 18)) (map :name)) │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   GUI → POST :11435/api/chat { mode: "eval", messages: [{ role: "user", content: "(-> (clipboard) ...)" }] } │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   Server: analyzeExpression() → starts with "(" → HQL mode                                     │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   HQL Transpiler: parse → validate → AST→IR → effects → transform → codegen                    │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   JS Eval: execute generated JavaScript in REPL context (globalThis persists)                   │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   Server → { success: true, value: "[\"Alice\", \"Charlie\", \"Eve\"]", logs: [] }             │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   GUI: display result inline in Spotlight panel                                                  │
-  │      │                                                                                          │
-  │      ▼                                                                                          │
-  │   User can: copy result, pipe into next expression, save as defn, or dismiss                    │
-  │                                                                                                 │
-  │   State persists. Next expression can reference previous results.                                │
-  │   (defn my-filter ...) survives across sessions.                                                │
-  │                                                                                                 │
-  └─────────────────────────────────────────────────────────────────────────────────────────────────┘
+The four surfaces — Spotlight (REPL), Launchpad (all installed modules), Hotbar
+(pinned subset), Chat (agent) — are not four separate products. They're four
+windows into the same runtime. They share globalThis.ai, the same REPL state,
+the same module cache, the same memory. A defn written in Spotlight is callable
+from a Launchpad/Hotbar module. An AI call in a module uses the same provider as
+the Chat agent. Everything is one connected system.
 
-
-  ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
-  │                                                                                                 │
-  │   THE INTEGRATION MAP: What Connects to What                                                    │
-  │                                                                                                 │
-  │                     ┌──────────────┐                                                            │
-  │                     │   USER       │                                                            │
-  │                     └──────┬───────┘                                                            │
-  │                            │                                                                    │
-  │              ┌─────────────┼──────────────┐                                                     │
-  │              │             │              │                                                     │
-  │              ▼             ▼              ▼                                                     │
-  │      ┌──────────┐  ┌────────────┐  ┌──────────┐                                               │
-  │      │ Spotlight │  │   Hotbar   │  │   Chat   │                                               │
-  │      │  (REPL)  │  │ (1-press)  │  │ (Agent)  │                                               │
-  │      └────┬─────┘  └─────┬──────┘  └────┬─────┘                                               │
-  │           │               │              │                                                      │
-  │           │  /api/chat    │  /module/run │  /api/chat                                           │
-  │           │               │              │                                                      │
-  │           ▼               ▼              ▼                                                      │
-  │      ┌─────────────────────────────────────────┐                                               │
-  │      │         hlvm serve (:11435)             │                                               │
-  │      │                                         │                                               │
-  │      │  ┌─────────┐ ┌──────────┐ ┌──────────┐ │                                               │
-  │      │  │  HQL    │ │  Module  │ │  Agent   │ │                                               │
-  │      │  │  Eval   │ │  Runtime │ │  ReAct   │ │                                               │
-  │      │  │ Engine  │ │ (import+ │ │  Loop    │ │                                               │
-  │      │  │         │ │ context) │ │          │ │                                               │
-  │      │  └────┬────┘ └────┬─────┘ └────┬─────┘ │                                               │
-  │      │       │           │            │        │                                               │
-  │      │       └───────────┼────────────┘        │                                               │
-  │      │                   │                     │                                               │
-  │      │                   ▼                     │                                               │
-  │      │  ┌─────────────────────────────────┐    │                                               │
-  │      │  │      Shared Runtime Layer       │    │                                               │
-  │      │  │                                 │    │                                               │
-  │      │  │  globalThis.ai  ← AI provider   │    │                                               │
-  │      │  │  globalThis.config              │    │                                               │
-  │      │  │  REPL state (persistent defs)   │    │                                               │
-  │      │  │  Module cache (imported ESMs)   │    │                                               │
-  │      │  │  Memory (SQLite FTS5)           │    │                                               │
-  │      │  │  Session store (SQLite)         │    │                                               │
-  │      │  └─────────────┬───────────────────┘    │                                               │
-  │      │                │                        │                                               │
-  │      └────────────────┼────────────────────────┘                                               │
-  │                       │                                                                         │
-  │           ┌───────────┼───────────┐                                                             │
-  │           │           │           │                                                             │
-  │           ▼           ▼           ▼                                                             │
-  │     ┌──────────┐ ┌─────────┐ ┌──────────┐                                                     │
-  │     │  Ollama  │ │  Cloud  │ │   MCP    │                                                     │
-  │     │ (local)  │ │Providers│ │ Servers  │                                                     │
-  │     │ :11434   │ │ (APIs)  │ │ (stdio/  │                                                     │
-  │     │          │ │         │ │  http)   │                                                     │
-  │     └──────────┘ └─────────┘ └──────────┘                                                     │
-  │                                                                                                 │
-  │     ┌─────────────────────────────────────────────────────────────────────┐                     │
-  │     │  Module Ecosystem (decentralized HTTP + curated GitHub index)       │                     │
-  │     │  Any URL → import() → inject context → execute → return result     │                     │
-  │     └─────────────────────────────────────────────────────────────────────┘                     │
-  │                                                                                                 │
-  └─────────────────────────────────────────────────────────────────────────────────────────────────┘
-
-  What this diagram shows about your vision:
-
-  The four surfaces — Spotlight (REPL), Launchpad (all installed modules), Hotbar (pinned subset), Chat (agent) — are not four separate products. They're four windows into the same runtime.
-  They share globalThis.ai, the same REPL state, the same module cache, the same memory. A defn written in Spotlight is callable from a Launchpad/Hotbar module.
-  An AI call in a module uses the same provider as the Chat agent. Everything is one connected system.
-
-  That's the iPhone insight — not four features bolted together, but one unified runtime with three access patterns optimized for different moments:
-  think (REPL), act (Launchpad/Hotbar), delegate (Agent).
+That's the iPhone insight — not four features bolted together, but one unified
+runtime with three access patterns optimized for different moments: think
+(REPL), act (Launchpad/Hotbar), delegate (Agent).
 
 ✻ Cooked for 5m 33s
 
-❯ focus on how they communicate - and different multple angle, draw pipeline and architectue of how two system co-work together - specifying all    
-  details as well - in ASCII visual                                                                                                                 
+❯ focus on how they communicate - and different multple angle, draw pipeline and
+architectue of how two system co-work together - specifying all\
+details as well - in ASCII visual
 
-⏺ ╔══════════════════════════════════════════════════════════════════════════════════════╗
-  ║                                                                                      ║
-  ║   ANGLE 1: PROCESS LIFECYCLE — How GUI Spawns and Manages the Server                 ║
-  ║                                                                                      ║
-  ╚══════════════════════════════════════════════════════════════════════════════════════╝
-
+⏺
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ ║ ║ ANGLE 1: PROCESS LIFECYCLE — How GUI Spawns and Manages the Server ║ ║ ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
 
     macOS Boot
        │
@@ -1641,14 +1528,9 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
        │
        └── Clean exit
 
-
-
-  ╔══════════════════════════════════════════════════════════════════════════════════════╗
-  ║                                                                                      ║
-  ║   ANGLE 2: HTTP PROTOCOL LAYER — Request/Response Anatomy                            ║
-  ║                                                                                      ║
-  ╚══════════════════════════════════════════════════════════════════════════════════════╝
-
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ ║ ║ ANGLE 2: HTTP PROTOCOL LAYER — Request/Response Anatomy ║ ║ ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
 
     Every request from GUI to server follows this pattern:
 
@@ -1777,14 +1659,9 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
     │                                                                               │
     └───────────────────────────────────────────────────────────────────────────────┘
 
-
-
-  ╔══════════════════════════════════════════════════════════════════════════════════════╗
-  ║                                                                                      ║
-  ║   ANGLE 3: CHAT PIPELINE — Full Depth, Every Layer                                   ║
-  ║                                                                                      ║
-  ╚══════════════════════════════════════════════════════════════════════════════════════╝
-
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ ║ ║ ANGLE 3: CHAT PIPELINE — Full Depth, Every Layer ║ ║ ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
 
     User types "fix the auth bug" in Chat window and presses Enter
 
@@ -1922,7 +1799,7 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
     │  │     │  │     tools: [search_code, read_file, edit_file, ...]    │     │   │
     │  │     │  │     │                                                  │     │   │
     │  │     │  │     ▼                                                  │     │   │
-    │  │     │  │  LLM Provider (e.g., Ollama localhost:11434)           │     │   │
+    │  │     │  │  LLM Provider (e.g., embedded Ollama 127.0.0.1:11439)  │     │   │
     │  │     │  │     │                                                  │     │   │
     │  │     │  │     ▼ streaming tokens                                 │     │   │
     │  │     │  │  onToken callback → emit("token", { text }) ──────────│──▶ GUI│ │
@@ -2049,14 +1926,9 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
     │                                                                               │
     └───────────────────────────────────────────────────────────────────────────────┘
 
-
-
-  ╔══════════════════════════════════════════════════════════════════════════════════════╗
-  ║                                                                                      ║
-  ║   ANGLE 4: EVAL PIPELINE — HQL Expression from Spotlight                             ║
-  ║                                                                                      ║
-  ╚══════════════════════════════════════════════════════════════════════════════════════╝
-
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ ║ ║ ANGLE 4: EVAL PIPELINE — HQL Expression from Spotlight ║ ║ ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
 
     User types in Spotlight: (map inc (range 5))
 
@@ -2136,14 +2008,9 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
     │                                                                              │
     └──────────────────────────────────────────────────────────────────────────────┘
 
-
-
-  ╔══════════════════════════════════════════════════════════════════════════════════════╗
-  ║                                                                                      ║
-  ║   ANGLE 5: STATE SYNCHRONIZATION — How GUI and Server Stay in Sync                   ║
-  ║                                                                                      ║
-  ╚══════════════════════════════════════════════════════════════════════════════════════╝
-
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ ║ ║ ANGLE 5: STATE SYNCHRONIZATION — How GUI and Server Stay in Sync ║ ║ ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
 
     The GUI maintains local state that must stay synchronized with server state.
     Four concurrent SSE connections handle this:
@@ -2209,14 +2076,9 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
      │                                   │
      │  GUI refreshes session state      │
 
-
-
-  ╔══════════════════════════════════════════════════════════════════════════════════════╗
-  ║                                                                                      ║
-  ║   ANGLE 6: CANCELLATION FLOW — User Presses Stop                                    ║
-  ║                                                                                      ║
-  ╚══════════════════════════════════════════════════════════════════════════════════════╝
-
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ ║ ║ ANGLE 6: CANCELLATION FLOW — User Presses Stop ║ ║ ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
 
     User clicks [Stop] button during agent execution
 
@@ -2249,22 +2111,17 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
     │                                                                            │
     └────────────────────────────────────────────────────────────────────────────┘
 
-
-
-  ╔══════════════════════════════════════════════════════════════════════════════════════╗
-  ║                                                                                      ║
-  ║   ANGLE 7: MODEL PULL — Downloading a New Model                                     ║
-  ║                                                                                      ║
-  ╚══════════════════════════════════════════════════════════════════════════════════════╝
-
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ ║ ║ ANGLE 7: MODEL PULL — Downloading a New Model ║ ║ ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
 
     User selects "llama3.1:8b" in Model Browser and clicks [Download]
 
     GUI                                    Server                     Ollama
      │                                      │                          │
      │── POST /api/models/pull ───────────▶│                          │
-     │   { "name": "llama3.1:8b" }         │                          │
-     │                                      │── POST :11434/api/pull ─▶│
+     │   { "name": "gemma4:e4b" }          │                          │
+     │                                      │── POST :11439/api/pull ─▶│
      │◀── 200 (NDJSON stream) ─────────────│                          │
      │                                      │                          │
      │◀─ {"event":"progress","status":      │◀─ progress chunks ──────│
@@ -2288,14 +2145,9 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
      │   "models_updated: pull_complete"    │                          │
      │                                      │                          │
 
-
-
-  ╔══════════════════════════════════════════════════════════════════════════════════════╗
-  ║                                                                                      ║
-  ║   ANGLE 8: MEMORY FUNCTIONS — Persistent HQL Definitions                             ║
-  ║                                                                                      ║
-  ╚══════════════════════════════════════════════════════════════════════════════════════╝
-
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ ║ ║ ANGLE 8: MEMORY FUNCTIONS — Persistent HQL Definitions ║ ║ ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
 
     User defined (defn greet [name] (str "Hello " name)) in a previous REPL session.
     This persists in server REPL state. GUI can discover and execute it.
@@ -2356,14 +2208,10 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
     │                                                                            │
     └────────────────────────────────────────────────────────────────────────────┘
 
-
-
-  ╔══════════════════════════════════════════════════════════════════════════════════════╗
-  ║                                                                                      ║
-  ║   ANGLE 9: CONCURRENT CONNECTION MAP — All Active Connections at Steady State        ║
-  ║                                                                                      ║
-  ╚══════════════════════════════════════════════════════════════════════════════════════╝
-
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ ║ ║ ANGLE 9: CONCURRENT CONNECTION MAP — All Active Connections at Steady
+State ║ ║ ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
 
     At any given moment, the GUI may have these connections open:
 
@@ -2400,7 +2248,7 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
                               ┌─────────────▼──────────────┐
                               │  Outbound from server:     │
                               │                            │
-                              │  → Ollama :11434 (LLM)     │
+                              │  → Ollama :11439 (LLM)     │
                               │  → OpenAI API (LLM)        │
                               │  → Anthropic API (LLM)     │
                               │  → Google API (LLM)        │
@@ -2419,14 +2267,9 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
 
     ⑤-⑪   REST: short-lived, request-response, <30s timeout
 
-
-
-  ╔══════════════════════════════════════════════════════════════════════════════════════╗
-  ║                                                                                      ║
-  ║   ANGLE 10: SHARED STATE — What Lives Where                                          ║
-  ║                                                                                      ║
-  ╚══════════════════════════════════════════════════════════════════════════════════════╝
-
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║ ║ ║ ANGLE 10: SHARED STATE — What Lives Where ║ ║ ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
 
     ┌─ GUI Process (Swift) ──────────────────────────────────────────────────────┐
     │                                                                            │
@@ -2495,8 +2338,10 @@ User presses Ctrl+3 (Hotbar) or clicks module in Launchpad
     │                                                                            │
     └────────────────────────────────────────────────────────────────────────────┘
 
-  That's every angle I can draw. The systems communicate through a single runtime-host channel on localhost:11435, using three patterns (JSON, NDJSON
-  streaming, SSE push) and sharing persistent state through ~/.hlvm/ on the filesystem. The runtime host is the single source of truth for data and
-  execution state; GUI and CLI shells are clients over that boundary.
+That's every angle I can draw. The systems communicate through a single
+runtime-host channel on localhost:11435, using three patterns (JSON, NDJSON
+streaming, SSE push) and sharing persistent state through ~/.hlvm/ on the
+filesystem. The runtime host is the single source of truth for data and
+execution state; GUI and CLI shells are clients over that boundary.
 
 ✻ Brewed for 4m 25s

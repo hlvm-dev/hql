@@ -42,7 +42,12 @@ binaryTest(
       const port = await findFreePort();
       const result = await runCLI(
         "ask",
-        ["--no-session-persistence", "--model", "ollama/test-fixture", "inspect the project"],
+        [
+          "--no-session-persistence",
+          "--model",
+          "claude-code/test-fixture",
+          "inspect the project",
+        ],
         {
           cwd: dir,
           env: {
@@ -79,7 +84,7 @@ binaryTest(
           "--no-session-persistence",
           "--verbose",
           "--model",
-          "ollama/test-fixture",
+          "claude-code/test-fixture",
           "inspect the project",
         ],
         {
@@ -116,7 +121,7 @@ binaryTest(
           "--no-session-persistence",
           "--verbose",
           "--model",
-          "ollama/test-fixture",
+          "claude-code/test-fixture",
           "coordinate the team runtime",
         ],
         {
@@ -151,7 +156,7 @@ binaryTest(
           "--no-session-persistence",
           "--output-format", "stream-json",
           "--model",
-          "ollama/test-fixture",
+          "claude-code/test-fixture",
           "coordinate the team runtime",
         ],
         {
@@ -222,7 +227,7 @@ binaryTest(
       assertEquals(result.success, false, output);
       assertStringIncludes(
         output,
-        "does not support this attachment type",
+        "does not support image attachments",
       );
     });
   },
@@ -239,7 +244,7 @@ binaryTest(
           "--no-session-persistence",
           "--verbose",
           "--model",
-          "ollama/test-fixture",
+          "claude-code/test-fixture",
           "spawn multiple agents and get this parser job done",
         ],
         {

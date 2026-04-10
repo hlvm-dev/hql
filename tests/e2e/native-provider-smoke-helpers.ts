@@ -5,6 +5,11 @@ import type {
   TraceEvent,
 } from "../../src/hlvm/agent/orchestrator.ts";
 import type { AgentExecutionMode } from "../../src/hlvm/agent/execution-mode.ts";
+import type {
+  InteractionRequestEvent,
+  InteractionResponse,
+} from "../../src/hlvm/agent/registry.ts";
+import type { AgentSession } from "../../src/hlvm/agent/session.ts";
 import type { ConversationAttachmentPayload } from "../../src/hlvm/attachments/types.ts";
 import { runChatViaHost } from "../../src/hlvm/runtime/host-client.ts";
 import type { ChatRequestMessage } from "../../src/hlvm/runtime/chat-protocol.ts";
@@ -205,6 +210,7 @@ export async function runWithCompatibleModel(options: {
   toolAllowlist?: string[];
   attachments?: ConversationAttachmentPayload[];
   responseSchema?: Record<string, unknown>;
+  skipSessionHistory?: boolean;
   callbacks: {
     onAgentEvent: (event: AgentUIEvent) => void;
   };
@@ -222,6 +228,7 @@ export async function runWithCompatibleModel(options: {
         attachments: options.attachments,
         responseSchema: options.responseSchema,
         disablePersistentMemory: true,
+        skipSessionHistory: options.skipSessionHistory ?? true,
         signal: options.signal,
         callbacks: options.callbacks,
       });
@@ -292,16 +299,23 @@ export async function runSourceAgentWithCompatibleModel(options: {
   query: string;
   workspace: string;
   signal: AbortSignal;
+  querySource?: string;
   maxTokens?: number;
   contextWindow?: number;
   disablePersistentMemory?: boolean;
   permissionMode?: AgentExecutionMode;
   toolAllowlist?: string[];
   toolDenylist?: string[];
+  reusableSession?: AgentSession;
+  retainSessionForReuse?: boolean;
+  skipSessionHistory?: boolean;
   callbacks: {
     onToken?: (text: string) => void;
     onAgentEvent?: (event: AgentUIEvent) => void;
     onTrace?: (event: TraceEvent) => void;
+    onInteraction?: (
+      event: InteractionRequestEvent,
+    ) => Promise<InteractionResponse>;
   };
 }): Promise<{ model: string; result: SmokeRunResult }> {
   let lastError: unknown;
@@ -312,6 +326,7 @@ export async function runSourceAgentWithCompatibleModel(options: {
         query: options.query,
         model,
         workspace: options.workspace,
+        querySource: options.querySource,
         signal: options.signal,
         maxOutputTokens: options.maxTokens,
         contextWindow: options.contextWindow,
@@ -319,9 +334,16 @@ export async function runSourceAgentWithCompatibleModel(options: {
         permissionMode: options.permissionMode,
         toolAllowlist: options.toolAllowlist,
         toolDenylist: options.toolDenylist,
+        reusableSession: options.reusableSession,
+        retainSessionForReuse: options.retainSessionForReuse,
+        skipSessionHistory: options.skipSessionHistory ?? true,
         callbacks: options.callbacks,
       });
-      if (result.text.trim().length === 0) {
+      const normalizedText = result.text.trim();
+      if (
+        normalizedText.length === 0 ||
+        /^the model returned an empty response\./i.test(normalizedText)
+      ) {
         throw new Error(`Model '${model}' returned an empty response.`);
       }
       return { model, result };

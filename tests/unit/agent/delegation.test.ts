@@ -61,7 +61,11 @@ import {
 } from "../../../src/hlvm/agent/delegate-batches.ts";
 import { createDelegateCoordinationBoard } from "../../../src/hlvm/agent/delegate-coordination.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
-import type { ToolExecutionOptions } from "../../../src/hlvm/agent/registry.ts";
+import {
+  registerTools,
+  releaseToolOwner,
+  type ToolExecutionOptions,
+} from "../../../src/hlvm/agent/registry.ts";
 import {
   createTranscriptState,
   reduceTranscriptState,
@@ -975,6 +979,81 @@ Deno.test("background delegate threads retain ownerId for request-scoped cleanup
 });
 
 Deno.test({
+  name:
+    "delegate child inherits discovered deferred tools into its initial allowlist",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    resetThreadRegistry();
+    resetDelegateLimiter();
+    const workspace = await Deno.makeTempDir();
+    const ownerId = `owner-${crypto.randomUUID()}`;
+    const inheritedTool = "mcp_test_inherited_email";
+    const profile = {
+      name: "general",
+      description: "test generalist",
+      tools: ["read_file"],
+    };
+    const capturedAllowlists: string[][] = [];
+    const engine: AgentEngine = {
+      createLLM: (config) => {
+        capturedAllowlists.push([...(config.toolAllowlist ?? [])]);
+        return async () => ({
+          content: "Delegated result",
+          toolCalls: [],
+        });
+      },
+      createSummarizer: () => () => Promise.resolve(""),
+    };
+
+    registerTools({
+      [inheritedTool]: {
+        fn: async () => "ok",
+        description: "Inherited dynamic tool",
+        args: {},
+        safetyLevel: "L0",
+      },
+    }, ownerId);
+    setAgentEngine(engine);
+
+    try {
+      const handler = createDelegateHandler(
+        () =>
+          Promise.resolve({
+            content: "Parent result",
+            toolCalls: [],
+          }),
+        {
+          ownerId: "request-a",
+          modelId: "anthropic/claude-sonnet",
+          agentProfiles: [profile],
+          discoveredDeferredTools: new Set([inheritedTool]),
+        },
+      );
+
+      await handler(
+        { agent: "general", task: "inspect codebase" },
+        {
+          workspace,
+          context: new ContextManager(),
+          permissionMode: "bypassPermissions",
+          toolOwnerId: ownerId,
+          agentProfiles: [profile],
+        },
+      );
+
+      assertEquals(capturedAllowlists.length > 0, true);
+      assertEquals(capturedAllowlists[0]?.includes("read_file"), true);
+      assertEquals(capturedAllowlists[0]?.includes(inheritedTool), true);
+    } finally {
+      resetAgentEngine();
+      releaseToolOwner(ownerId);
+      await Deno.remove(workspace, { recursive: true }).catch(() => {});
+    }
+  },
+});
+
+Deno.test({
   name: "background batch delegates emit delegate_start from runtime handler",
   sanitizeOps: false,
   sanitizeResources: false,
@@ -1029,8 +1108,32 @@ Deno.test({
     resetThreadRegistry();
     resetDelegateLimiter();
     const workspace = await Deno.makeTempDir();
+    const engine: AgentEngine = {
+      createLLM: () =>
+        (_messages, signal) =>
+          new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+              resolve({
+                content: "Too late",
+                toolCalls: [],
+              });
+            }, 1_000);
+            signal?.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                const error = new Error("Tool execution aborted");
+                error.name = "AbortError";
+                reject(error);
+              },
+              { once: true },
+            );
+          }),
+      createSummarizer: () => () => Promise.resolve(""),
+    };
 
     try {
+      setAgentEngine(engine);
       const handler = createDelegateHandler(
         (_messages, signal) =>
           new Promise((resolve, reject) => {
@@ -1076,6 +1179,7 @@ Deno.test({
       );
       assertEquals(getDelegateLimiter().getActive(), 0);
     } finally {
+      resetAgentEngine();
       await Deno.remove(workspace, { recursive: true }).catch(() => {});
     }
   },
@@ -1085,7 +1189,18 @@ Deno.test("background delegate snapshots parent workspace at spawn time", async 
   resetThreadRegistry();
   resetDelegateLimiter();
   const parentDir = await Deno.makeTempDir();
+  const engine: AgentEngine = {
+    createLLM: () => async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return {
+        content: "Delegated result",
+        toolCalls: [],
+      };
+    },
+    createSummarizer: () => () => Promise.resolve(""),
+  };
   try {
+    setAgentEngine(engine);
     await Deno.writeTextFile(`${parentDir}/root.txt`, "baseline");
     const handler = createDelegateHandler(async () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
@@ -1117,6 +1232,7 @@ Deno.test("background delegate snapshots parent workspace at spawn time", async 
     );
     await waitAgentFn({ thread_id: threadId }, parentDir);
   } finally {
+    resetAgentEngine();
     await Deno.remove(parentDir, { recursive: true });
   }
 });

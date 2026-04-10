@@ -777,11 +777,34 @@ export const STANDARD_EAGER_TOOLS: readonly string[] = [
   "open_path",
 ] as const;
 
+/** Team runtime control tools needed for system-managed collaboration flows. */
+export const TEAM_RUNTIME_TOOL_NAMES: readonly string[] = [
+  "Teammate",
+  "SendMessage",
+  "TaskCreate",
+  "TaskGet",
+  "TaskUpdate",
+  "TaskList",
+  "TeamStatus",
+] as const;
+
+/**
+ * Eager tools for enhanced-tier models.
+ * Enhanced-tier keeps the same bounded discovery model as standard tier, while
+ * preserving collaboration entrypoints as always-available meta tools.
+ */
+export const ENHANCED_EAGER_TOOLS: readonly string[] = [
+  ...STANDARD_EAGER_TOOLS,
+  "delegate_agent",
+  "batch_delegate",
+  ...TEAM_RUNTIME_TOOL_NAMES,
+] as const;
+
 /**
  * Compute tier-aware tool filter.
  * - constrained: restricts to CONSTRAINED_CORE_TOOLS (hard cap, no tool_search)
  * - standard: restricts to STANDARD_EAGER_TOOLS (progressive discovery via tool_search)
- * - enhanced: passthrough (all tools)
+ * - enhanced: restricts to ENHANCED_EAGER_TOOLS (bounded eager core + delegation)
  */
 export function computeTierToolFilter(
   tier: ModelTier,
@@ -789,7 +812,10 @@ export function computeTierToolFilter(
   userDenylist?: string[],
 ): { allowlist?: string[]; denylist?: string[] } {
   if (tier === "enhanced") {
-    return { allowlist: userAllowlist, denylist: userDenylist };
+    const baseAllowlist = userAllowlist?.length
+      ? userAllowlist
+      : [...ENHANCED_EAGER_TOOLS];
+    return { allowlist: baseAllowlist, denylist: userDenylist };
   }
   if (tier === "constrained") {
     const baseAllowlist = userAllowlist?.length

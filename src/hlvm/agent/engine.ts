@@ -9,6 +9,7 @@
 import type { LLMFunction } from "./orchestrator.ts";
 import type { Message as AgentMessage } from "./context.ts";
 import type { CompiledPrompt } from "../prompt/mod.ts";
+import type { ToolProfileState } from "./tool-profiles.ts";
 
 /** Mutable tool filter state shared between orchestrator and engine. */
 export interface ToolFilterState {
@@ -35,8 +36,8 @@ export interface AgentLLMConfig {
   querySource?: string;
   eagerToolCount?: number;
   discoveredDeferredToolCount?: number;
-  /** Runtime-overridable tool filters (e.g., tool_search narrowing). */
-  toolFilterState?: ToolFilterState;
+  /** Layered tool profile state backing the live tool filter. */
+  toolProfileState?: ToolProfileState;
   /** Runtime reasoning profile inputs (updated every turn by orchestrator). */
   thinkingState?: ThinkingState;
   toolOwnerId?: string;

@@ -21,7 +21,7 @@ import {
   type OrchestratorConfig,
   runReActLoop,
 } from "./orchestrator.ts";
-import { getAgentProfile, type AgentProfile } from "./agent-registry.ts";
+import { type AgentProfile, getAgentProfile } from "./agent-registry.ts";
 import {
   DELEGATE_MAX_ITERATIONS,
   DELEGATE_TOTAL_TIMEOUT,
@@ -46,6 +46,7 @@ import { TEAMMATE_AVAILABLE_TOOL_NAMES } from "./tools/agent-team-tools.ts";
 import { getThread } from "./delegate-threads.ts";
 import { formatDelegateTranscriptEvent } from "./delegate-transcript.ts";
 import { toDelegateTranscriptEvent } from "./agent-ui-activity.ts";
+import { createToolProfileState } from "./tool-profiles.ts";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -161,7 +162,8 @@ export async function runTeammateLoop(
   } = options;
 
   const log = getAgentLogger();
-  const idlePollIntervalMs = options.idlePollIntervalMs ?? IDLE_POLL_INTERVAL_MS;
+  const idlePollIntervalMs = options.idlePollIntervalMs ??
+    IDLE_POLL_INTERVAL_MS;
   const maxIdlePolls = options.maxIdlePolls ?? MAX_IDLE_POLLS;
   let tasksCompleted = 0;
   let idlePolls = 0;
@@ -222,9 +224,7 @@ export async function runTeammateLoop(
         activityKind: activity.type,
         summary: formatDelegateTranscriptEvent(activity),
         status: activity.type === "tool_end"
-          ? activity.success
-            ? "success"
-            : "error"
+          ? activity.success ? "success" : "error"
           : "active",
         durationMs: "durationMs" in activity ? activity.durationMs : undefined,
         toolCount: activity.type === "turn_stats"
@@ -286,7 +286,9 @@ export async function runTeammateLoop(
         name: identity.name,
         taskId,
         subject,
-        ...(kind === "task_completed" ? { summary: detail } : { error: detail }),
+        ...(kind === "task_completed"
+          ? { summary: detail }
+          : { error: detail }),
       }),
     );
     onAgentEvent?.({
@@ -405,7 +407,9 @@ export async function runTeammateLoop(
         childLlm = getAgentEngine().createLLM({
           model: modelId,
           options: { temperature: profile?.temperature },
-          toolAllowlist: fullToolAllowlist,
+          toolProfileState: createToolProfileState({
+            baseline: { slot: "baseline", allowlist: fullToolAllowlist },
+          }),
         });
       } catch {
         // Engine not initialized (e.g., in tests) — skip this task
@@ -428,7 +432,8 @@ export async function runTeammateLoop(
         content: buildTeammateSystemNote(identity),
       });
 
-      const taskPrompt = `Task #${task.id}: ${task.subject}\n\n${task.description}`;
+      const taskPrompt =
+        `Task #${task.id}: ${task.subject}\n\n${task.description}`;
       const threadId = runtime.getMember(identity.teamMemberId)?.threadId;
       const sharedInputQueue = threadId
         ? getThread(threadId)?.inputQueue

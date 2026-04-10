@@ -15,6 +15,9 @@ import { startHttpServer } from "../../src/hlvm/cli/repl/http-server.ts";
 import { getConversationsDbPath } from "../../src/common/paths.ts";
 import { initializeRuntime } from "../../src/common/runtime-initializer.ts";
 import {
+  getActiveConversationSessionId,
+} from "../../src/hlvm/store/active-conversation.ts";
+import {
   type AIProvider,
   type Message as ProviderMessage,
   type ModelInfo,
@@ -36,6 +39,22 @@ class IntegrationAgentEngine implements AgentEngine {
       const lastUserMessage = [...messages].reverse().find((message) =>
         message.role === "user"
       );
+      if (
+        (lastUserMessage?.content ?? "").includes("integration compaction smoke")
+      ) {
+        const sawSummary = messages.some((message) =>
+          message.content.includes("Summary of earlier context:")
+        );
+        const text = sawSummary
+          ? "integration-compaction-ok"
+          : "integration-compaction-missing-summary";
+        config.onToken?.(text);
+        return Promise.resolve({
+          content: text,
+          toolCalls: [],
+          usage: { inputTokens: 8, outputTokens: 4 },
+        });
+      }
       if (
         !sawToolResult &&
         (lastUserMessage?.content ?? "").includes("mixed-task coherence probe")
@@ -528,77 +547,34 @@ Deno.test({
   sanitizeOps: false,
   async fn() {
     await withIsolatedServerTest(async () => {
-      const platform = getPlatform();
-      const fixtureDir = await platform.fs.makeTempDir({
-        prefix: "hlvm-integration-agent-compaction-",
+      const repeatedA = "alpha ".repeat(220);
+      const repeatedB = "beta ".repeat(220);
+      const repeatedC = "gamma ".repeat(220);
+      const repeatedD = "delta ".repeat(220);
+      const result = await postChatNdjson({
+        mode: "agent",
+        model: "test-chat/plain",
+        context_window: 7600,
+        trace: true,
+        messages: [
+          { role: "user", content: `history-a ${repeatedA}` },
+          { role: "assistant", content: `history-b ${repeatedB}` },
+          { role: "user", content: `history-c ${repeatedC}` },
+          { role: "assistant", content: `history-d ${repeatedD}` },
+          { role: "user", content: "integration compaction smoke" },
+        ],
       });
-      try {
-        const fixturePath = platform.path.join(
-          fixtureDir,
-          "compaction-fixture.json",
-        );
-        await platform.fs.writeTextFile(
-          fixturePath,
-          JSON.stringify({
-            version: 1,
-            name: "integration compaction fixture",
-            cases: [
-              {
-                name: "default",
-                match: {
-                  contains: ["integration compaction smoke"],
-                },
-                steps: [
-                  {
-                    expect: {
-                      contains: ["Summary of earlier context:"],
-                    },
-                    response: "integration-compaction-ok",
-                  },
-                  {
-                    response: "integration-compaction-ok",
-                  },
-                  {
-                    response: "integration-compaction-ok",
-                  },
-                ],
-              },
-            ],
-          }, null, 2),
-        );
 
-        const repeatedA = "alpha ".repeat(220);
-        const repeatedB = "beta ".repeat(220);
-        const repeatedC = "gamma ".repeat(220);
-        const repeatedD = "delta ".repeat(220);
-        const result = await postChatNdjson({
-          mode: "agent",
-          model: "ollama/test-fixture",
-          fixture_path: fixturePath,
-          context_window: 320,
-          trace: true,
-          messages: [
-            { role: "user", content: `history-a ${repeatedA}` },
-            { role: "assistant", content: `history-b ${repeatedB}` },
-            { role: "user", content: `history-c ${repeatedC}` },
-            { role: "assistant", content: `history-d ${repeatedD}` },
-            { role: "user", content: "integration compaction smoke" },
-          ],
-        });
-
-        assertEquals(result.status, 200);
-        const streamedText = result.events
-          .filter((event) => event.event === "token")
-          .map((event) => String(event.text ?? ""))
-          .join("");
-        const turnStats = result.events.find((event) =>
-          event.event === "turn_stats"
-        );
-        assertStringIncludes(streamedText, "integration-compaction-ok");
-        assertEquals(turnStats !== undefined, true);
-      } finally {
-        await platform.fs.remove(fixtureDir, { recursive: true });
-      }
+      assertEquals(result.status, 200);
+      const streamedText = result.events
+        .filter((event) => event.event === "token")
+        .map((event) => String(event.text ?? ""))
+        .join("");
+      const turnStats = result.events.find((event) =>
+        event.event === "turn_stats"
+      );
+      assertStringIncludes(streamedText, "integration-compaction-ok");
+      assertEquals(turnStats !== undefined, true);
     });
   },
 });
@@ -836,14 +812,12 @@ Deno.test({
   sanitizeOps: false,
   async fn() {
     await withIsolatedServerTest(async () => {
-      const sessionId = `integration-agent-history-${crypto.randomUUID()}`;
-
       await postChatNdjson({
         mode: "agent",
-        session_id: sessionId,
         model: "test-chat/plain",
         messages: [{ role: "user", content: "initial" }],
       });
+      const sessionId = getActiveConversationSessionId();
       insertMessage({
         session_id: sessionId,
         role: "tool",
@@ -855,7 +829,6 @@ Deno.test({
 
       const second = await postChatNdjson({
         mode: "agent",
-        session_id: sessionId,
         model: "test-chat/plain",
         messages: [{
           role: "user",

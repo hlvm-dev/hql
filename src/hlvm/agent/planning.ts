@@ -63,6 +63,15 @@ interface PlanParseResult {
 export const PLAN_START = "PLAN";
 export const PLAN_END = "END_PLAN";
 const STEP_DONE_PATTERN = /STEP_DONE\s*[:\-]?\s*([a-z0-9_-]+)/i;
+const EXPLICIT_PLAN_CUE_PATTERNS = [
+  /\bfirst\b[\s\S]{0,120}\bthen\b/i,
+  /\b(?:step\s*1|1\.)\b[\s\S]{0,120}\b(?:step\s*2|2\.)\b/i,
+  /\bphase\s*1\b[\s\S]{0,120}\bphase\s*2\b/i,
+] as const;
+
+function hasDeterministicPlanningCue(request: string): boolean {
+  return EXPLICIT_PLAN_CUE_PATTERNS.some((pattern) => pattern.test(request));
+}
 
 export async function shouldPlanRequest(
   request: string,
@@ -70,6 +79,7 @@ export async function shouldPlanRequest(
 ): Promise<boolean> {
   if (mode === "always") return true;
   if (mode === "off") return false;
+  if (hasDeterministicPlanningCue(request)) return true;
 
   const { classifyPlanNeed } = await import("../runtime/local-llm.ts");
   const result = await classifyPlanNeed(request);

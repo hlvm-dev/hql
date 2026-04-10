@@ -3,7 +3,7 @@
  *
  * Handles extraction and lifecycle of the embedded AI engine (Ollama).
  * Exports an AIEngineLifecycle interface so consumers depend on abstraction,
- * not the concrete embedded-vs-system implementation details.
+ * not the concrete runtime bootstrap details.
  *
  * SSOT: Uses ai.status() from the API module directly - no fallback fetch.
  */
@@ -38,7 +38,7 @@ export interface AIEngineLifecycle {
   isRunning(): Promise<boolean>;
   /** Ensure the engine is extracted (if embedded) and running. Returns success. */
   ensureRunning(): Promise<boolean>;
-  /** Get the path to the engine binary (embedded or system). */
+  /** Get the path to the embedded engine binary. */
   getEnginePath(): Promise<string>;
 }
 
@@ -46,7 +46,6 @@ export interface AIEngineLifecycle {
 // Private implementation
 // ============================================================================
 
-const SYSTEM_AI_ENGINE = "ollama";
 const AI_STARTUP_POLL_INTERVAL_MS = 300;
 const AI_STARTUP_TIMEOUT_MS = 60_000;
 const AI_STARTUP_MAX_POLLS = Math.ceil(
@@ -315,10 +314,6 @@ export function buildAIEngineEnvironment(
     OLLAMA_MODELS: getModelsDir(),
   };
 
-  if (enginePath === SYSTEM_AI_ENGINE) {
-    return env;
-  }
-
   const engineDir = platform.path.dirname(enginePath);
   const pathSeparator = platform.build.os === "windows" ? ";" : ":";
   env.PATH = prependPathEntries(
@@ -421,16 +416,33 @@ export async function extractAIEngine(platform = getPlatform()): Promise<void> {
     if (await resolveEmbeddedEnginePath(platform)) {
       return;
     }
-    log.debug?.(
-      "Embedded AI engine failed validation after extraction; falling back to system Ollama",
+    throw new RuntimeError(
+      "Embedded AI engine failed validation after extraction.",
+      { code: HLVMErrorCode.AI_ENGINE_STARTUP_FAILED },
     );
   } catch (error) {
-    // In development mode, AI engine might not be embedded — fall back to system
+    // In development mode, AI engine might not be embedded in the source tree.
+    // Callers must decide whether source-mode bypass is acceptable.
     if (isMissingEmbeddedEngineError(error)) {
       return;
     }
     throw error;
   }
+}
+
+async function requireEmbeddedEnginePath(
+  platform = getPlatform(),
+): Promise<string> {
+  const embeddedEnginePath = await resolveEmbeddedEnginePath(platform);
+  if (embeddedEnginePath) {
+    return embeddedEnginePath;
+  }
+  throw new RuntimeError(
+    `Embedded AI engine is unavailable. Expected an HLVM-managed engine at ${
+      getEmbeddedEnginePath(platform)
+    }. Run 'hlvm bootstrap' or reinstall the AI-enabled build.`,
+    { code: HLVMErrorCode.AI_ENGINE_STARTUP_FAILED },
+  );
 }
 
 // ============================================================================
@@ -539,7 +551,9 @@ export async function extractBundledModel(
     await platform.fs.remove(tarballPath);
     log.info?.(`Deleted sidecar tarball: ${tarballPath}`);
   } catch {
-    log.debug?.(`Could not delete sidecar tarball (read-only?): ${tarballPath}`);
+    log.debug?.(
+      `Could not delete sidecar tarball (read-only?): ${tarballPath}`,
+    );
   }
 }
 
@@ -583,10 +597,6 @@ export async function getAIEngineBinaryVersion(
   enginePath: string,
   platform = getPlatform(),
 ): Promise<string | null> {
-  if (enginePath === SYSTEM_AI_ENGINE) {
-    return null;
-  }
-
   try {
     const versionOutput = await platform.command.output({
       cmd: [enginePath, "--version"],
@@ -712,22 +722,19 @@ export async function reclaimConflictingAIEndpoint(
 }
 
 async function startAIEngine(platform = getPlatform()): Promise<void> {
-  const enginePath = await resolveEmbeddedEnginePath(platform) ??
-    SYSTEM_AI_ENGINE;
+  const enginePath = await requireEmbeddedEnginePath(platform);
   const expectedVersion = await getAIEngineBinaryVersion(enginePath, platform);
 
   // Guard against recursive self-execution
-  if (enginePath !== SYSTEM_AI_ENGINE) {
-    try {
-      if (await matchesSelfBinarySize(enginePath, platform)) {
-        log.warn?.(
-          "AI engine binary appears to be the HLVM CLI itself — skipping to avoid recursive spawn",
-        );
-        return;
-      }
-    } catch {
-      // Best-effort guard only
+  try {
+    if (await matchesSelfBinarySize(enginePath, platform)) {
+      log.warn?.(
+        "AI engine binary appears to be the HLVM CLI itself — skipping to avoid recursive spawn",
+      );
+      return;
     }
+  } catch {
+    // Best-effort guard only
   }
 
   if (await isCompatibleAIRunning(expectedVersion ?? undefined)) {
@@ -773,12 +780,7 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
 }
 
 async function resolveEnginePath(): Promise<string> {
-  const platform = getPlatform();
-  const embeddedEnginePath = await resolveEmbeddedEnginePath(platform);
-  if (embeddedEnginePath) {
-    return embeddedEnginePath;
-  }
-  return SYSTEM_AI_ENGINE;
+  return await requireEmbeddedEnginePath();
 }
 
 // ============================================================================
@@ -786,7 +788,7 @@ async function resolveEnginePath(): Promise<string> {
 // ============================================================================
 
 /**
- * Concrete AI engine lifecycle — handles embedded extraction + system fallback.
+ * Concrete AI engine lifecycle — handles embedded extraction and startup.
  * Import this when you need engine operations.
  */
 export const aiEngine: AIEngineLifecycle = {
@@ -795,8 +797,7 @@ export const aiEngine: AIEngineLifecycle = {
   async ensureRunning(): Promise<boolean> {
     const platform = getPlatform();
     await extractAIEngine(platform);
-    const enginePath = await resolveEmbeddedEnginePath(platform) ??
-      SYSTEM_AI_ENGINE;
+    const enginePath = await requireEmbeddedEnginePath(platform);
     const expectedVersion = await getAIEngineBinaryVersion(
       enginePath,
       platform,
@@ -836,8 +837,7 @@ async function doInitAIRuntime(): Promise<void> {
   }
 
   await extractAIEngine(platform);
-  const enginePath = await resolveEmbeddedEnginePath(platform) ??
-    SYSTEM_AI_ENGINE;
+  const enginePath = await requireEmbeddedEnginePath(platform);
   const expectedVersion = await getAIEngineBinaryVersion(enginePath, platform);
   if (await isCompatibleAIRunning(expectedVersion ?? undefined)) {
     return;

@@ -221,13 +221,13 @@
       "name": "delegation-heuristic-trigger",
       "match": {
         "contains": [
-          "[System hint]"
+          "[Runtime Directive]"
         ]
       },
       "steps": [
         {
           "expect": {
-            "contains": ["[System hint]", "fan-out"]
+            "contains": ["[Runtime Directive]", "fan-out"]
           },
           "toolCalls": [
             {

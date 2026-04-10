@@ -18,9 +18,9 @@
  */
 
 import { assertEquals } from "jsr:@std/assert";
-import { getMcpConfigPath } from "../../src/common/paths.ts";
 import type { AgentUIEvent } from "../../src/hlvm/agent/orchestrator.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
+import { fixtureServer, writeMcpConfig } from "./mcp-fixture-helpers.ts";
 import {
   runSourceAgentWithCompatibleModel,
   withFullyIsolatedEnv,
@@ -31,11 +31,6 @@ const ENABLED = platform.env.get("HLVM_E2E_PRODUCTIVITY_MCP") === "1";
 const CASE_FILTER = platform.env.get("HLVM_E2E_PRODUCTIVITY_CASE")?.trim() ??
   "";
 const TIMEOUT_MS = 240_000;
-const FIXTURE_SERVER_PATH = platform.path.resolve(
-  "tests",
-  "fixtures",
-  "mcp-server.ts",
-);
 
 const DEFAULT_MODEL_CANDIDATES = [
   "claude-code/claude-haiku-4-5-20251001",
@@ -54,11 +49,6 @@ const MODEL_CANDIDATES = [
   ),
 ];
 
-type FixtureServerOptions = {
-  allowEnv?: string[];
-  env?: Record<string, string>;
-};
-
 interface ProductivityCase {
   id: string;
   description: string;
@@ -72,29 +62,6 @@ interface ProductivityResult {
   text: string;
   toolNames: string[];
   toolArgs: Array<{ name: string; args: string }>;
-}
-
-function fixtureServer(name: string, options: FixtureServerOptions = {}) {
-  const allowEnv = options.allowEnv?.length
-    ? [`--allow-env=${options.allowEnv.join(",")}`]
-    : [];
-
-  return {
-    name,
-    command: ["deno", "run", ...allowEnv, FIXTURE_SERVER_PATH],
-    ...(options.env ? { env: options.env } : {}),
-  };
-}
-
-async function writeMcpConfig(servers: unknown): Promise<void> {
-  const configPath = getMcpConfigPath();
-  await platform.fs.mkdir(platform.path.dirname(configPath), {
-    recursive: true,
-  });
-  await platform.fs.writeTextFile(
-    configPath,
-    JSON.stringify({ version: 1, servers }),
-  );
 }
 
 function renderWorkspaceScopedQuery(query: string, workspace: string): string {

@@ -1058,15 +1058,28 @@ export async function moveToTrash(
 ): Promise<MoveToTrashResult> {
   try {
     throwIfAborted(options?.signal);
-    if (!Array.isArray(args.paths) || args.paths.length === 0) {
-      return failTool("'paths' must be a non-empty array");
+    // Defensive: weak models may send a single string or stringified array
+    let inputPaths: unknown = args.paths;
+    if (typeof inputPaths === "string") {
+      try {
+        const parsed = JSON.parse(inputPaths);
+        if (Array.isArray(parsed)) inputPaths = parsed;
+      } catch { /* not JSON, treat as single path */ }
+    }
+    const paths = Array.isArray(inputPaths)
+      ? inputPaths as string[]
+      : typeof inputPaths === "string"
+      ? [inputPaths]
+      : null;
+    if (!paths || paths.length === 0) {
+      return failTool("'paths' must be a non-empty string or array");
     }
 
     const platform = getPlatform();
     const resolvedPaths: string[] = [];
     const seen = new Set<string>();
 
-    for (const rawPath of args.paths) {
+    for (const rawPath of paths) {
       if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
         return failTool("Each path in 'paths' must be a non-empty string");
       }
@@ -1354,7 +1367,15 @@ export async function fileMetadata(
   try {
     throwIfAborted(options?.signal);
     const platform = getPlatform();
-    const rawPaths = Array.isArray(args.paths) ? args.paths : [args.paths];
+    let inputPaths = args.paths;
+    // Defensive: small models often stringify arrays as JSON strings
+    if (typeof inputPaths === "string") {
+      try {
+        const parsed = JSON.parse(inputPaths);
+        if (Array.isArray(parsed)) inputPaths = parsed;
+      } catch { /* not JSON, treat as single path */ }
+    }
+    const rawPaths = Array.isArray(inputPaths) ? inputPaths : [inputPaths];
     if (rawPaths.length === 0) {
       return failTool("'paths' must be a non-empty string or array");
     }
@@ -1436,8 +1457,21 @@ export async function archiveFiles(
     const platform = getPlatform();
     const decoder = new TextDecoder();
 
-    if (!Array.isArray(args.paths) || args.paths.length === 0) {
-      return failTool("'paths' must be a non-empty array");
+    // Defensive: weak models may send a single string or stringified array
+    let inputPaths: unknown = args.paths;
+    if (typeof inputPaths === "string") {
+      try {
+        const parsed = JSON.parse(inputPaths);
+        if (Array.isArray(parsed)) inputPaths = parsed;
+      } catch { /* not JSON, treat as single path */ }
+    }
+    const archivePaths = Array.isArray(inputPaths)
+      ? inputPaths as string[]
+      : typeof inputPaths === "string"
+      ? [inputPaths]
+      : null;
+    if (!archivePaths || archivePaths.length === 0) {
+      return failTool("'paths' must be a non-empty string or array");
     }
 
     const format: "zip" | "tar.gz" = args.format ?? "zip";
@@ -1453,8 +1487,8 @@ export async function archiveFiles(
       workspace,
       options?.policy ?? null,
     );
-    const inputPaths: string[] = [];
-    for (const rawPath of args.paths) {
+    const resolvedInputPaths: string[] = [];
+    for (const rawPath of archivePaths) {
       if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
         return failTool("Each path in 'paths' must be a non-empty string");
       }
@@ -1466,7 +1500,7 @@ export async function archiveFiles(
       if (!(await platform.fs.exists(validPath))) {
         return failTool(`Input path does not exist: ${rawPath}`);
       }
-      inputPaths.push(validPath);
+      resolvedInputPaths.push(validPath);
     }
 
     if (
@@ -1478,7 +1512,7 @@ export async function archiveFiles(
       );
     }
 
-    for (const inputPath of inputPaths) {
+    for (const inputPath of resolvedInputPaths) {
       const stat = await platform.fs.stat(inputPath);
       if (
         stat.isDirectory && isPathWithinRoot(outputPath, inputPath)
@@ -1495,13 +1529,13 @@ export async function archiveFiles(
 
     const cwd = platform.build.os === "windows"
       ? workspace
-      : getCommonParentDirectory(inputPaths, platform);
-    const relativeInputs = inputPaths.map((path) => {
+      : getCommonParentDirectory(resolvedInputPaths, platform);
+    const relativeInputs = resolvedInputPaths.map((path) => {
       const rel = platform.path.relative(cwd, path);
       return rel === "" ? "." : rel;
     });
     const archiveInputs = platform.build.os === "windows"
-      ? inputPaths
+      ? resolvedInputPaths
       : relativeInputs;
     const command = buildArchiveCommand(
       platform,
@@ -1525,13 +1559,13 @@ export async function archiveFiles(
 
     return okTool({
       outputPath,
-      inputCount: inputPaths.length,
+      inputCount: resolvedInputPaths.length,
       format,
       stdout,
       stderr,
       exitCode: result.code,
       message:
-        `Created ${format} archive at ${args.outputPath} from ${inputPaths.length} path(s)`,
+        `Created ${format} archive at ${args.outputPath} from ${resolvedInputPaths.length} path(s)`,
     });
   } catch (error) {
     const { message } = formatToolError("Failed to create archive", error);
@@ -2144,7 +2178,7 @@ Examples:
     formatResult: formatFileMetadataResult,
     args: {
       paths:
-        "string | string[] - One or more paths to inspect (relative to workspace or absolute if allowed by policy)",
+        "string[] - One or more paths to inspect (relative to workspace or absolute if allowed by policy). A single path string is also accepted.",
     },
     returns: {
       success: "boolean - Whether the operation succeeded",
@@ -2158,7 +2192,7 @@ Examples:
   archive_files: {
     fn: archiveFiles,
     description:
-      "Create an archive from one or more files/directories (zip by default, tar.gz on Unix).",
+      "Create a zip or tar.gz archive from one or more files/directories. Use this for common local tasks like bundling files for sharing, making a backup archive, or compressing a folder instead of shell_exec zip/tar commands.",
     category: "write",
     safetyLevel: "L1",
     args: {

@@ -8,6 +8,7 @@ const HEADER_DELIMITER = encoder.encode("\r\n\r\n");
 
 let buffer: Uint8Array<ArrayBufferLike> = new Uint8Array();
 let shouldExit = false;
+const CRASH_ONCE_MARKER = ".fixture-lsp-crash-once";
 
 function appendBytes(
   left: Uint8Array<ArrayBufferLike>,
@@ -81,11 +82,19 @@ function buildDiagnostics(text: string) {
   return diagnostics;
 }
 
-function publishDiagnostics(
+async function publishDiagnostics(
   uri: string,
   version: number,
   text: string,
-): void {
+): Promise<void> {
+  if (text.includes("restartOnce")) {
+    const markerPath = getPlatform().path.join(Deno.cwd(), CRASH_ONCE_MARKER);
+    const alreadyCrashed = await getPlatform().fs.exists(markerPath);
+    if (!alreadyCrashed) {
+      await getPlatform().fs.writeTextFile(markerPath, "crashed\n");
+      throw new Error("fixture-lsp crashed before publishing diagnostics");
+    }
+  }
   if (text.includes("delayedMissingName")) {
     writeMessage({
       jsonrpc: "2.0",
@@ -129,7 +138,7 @@ function publishDiagnostics(
   });
 }
 
-function handleMessage(message: unknown): void {
+async function handleMessage(message: unknown): Promise<void> {
   if (
     !message ||
     typeof message !== "object" ||
@@ -169,9 +178,11 @@ function handleMessage(message: unknown): void {
       shouldExit = true;
       return;
     case "textDocument/didOpen": {
-      const document = params.textDocument as Record<string, unknown> | undefined;
+      const document = params.textDocument as
+        | Record<string, unknown>
+        | undefined;
       if (!document) return;
-      publishDiagnostics(
+      await publishDiagnostics(
         String(document.uri ?? ""),
         Number(document.version ?? 1),
         String(document.text ?? ""),
@@ -179,11 +190,13 @@ function handleMessage(message: unknown): void {
       return;
     }
     case "textDocument/didChange": {
-      const document = params.textDocument as Record<string, unknown> | undefined;
+      const document = params.textDocument as
+        | Record<string, unknown>
+        | undefined;
       const changes = Array.isArray(params.contentChanges)
         ? params.contentChanges as Array<Record<string, unknown>>
         : [];
-      publishDiagnostics(
+      await publishDiagnostics(
         String(document?.uri ?? ""),
         Number(document?.version ?? 1),
         String(changes[0]?.text ?? ""),
@@ -217,6 +230,6 @@ while (!shouldExit) {
     if (buffer.length < start + contentLength) break;
     const body = buffer.slice(start, start + contentLength);
     buffer = buffer.slice(start + contentLength);
-    handleMessage(JSON.parse(decoder.decode(body)));
+    await handleMessage(JSON.parse(decoder.decode(body)));
   }
 }

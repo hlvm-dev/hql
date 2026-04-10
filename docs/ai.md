@@ -1,6 +1,8 @@
 # AI API Reference
 
-The `ai` object is the primary interface for LLM interaction in HQL. It follows the callable-function-with-methods pattern (like axios or chalk) — `ai` itself is a function you can call directly, AND it has methods attached as properties.
+The `ai` object is the primary interface for LLM interaction in HQL. It follows
+the callable-function-with-methods pattern (like axios or chalk) — `ai` itself
+is a function you can call directly, AND it has methods attached as properties.
 
 Available on `globalThis` after REPL initialization. No imports needed.
 
@@ -32,15 +34,15 @@ Single LLM call. Returns a string or parsed object depending on options.
 
 ### Parameters
 
-| Key           | Type     | Default          | Description                              |
-|---------------|----------|------------------|------------------------------------------|
-| `prompt`      | string   | (required)       | The user message                         |
-| `data`        | any      | —                | Context data, JSON-stringified into prompt |
-| `schema`      | object   | —                | Expected response shape (triggers JSON parse) |
-| `model`       | string   | default provider | e.g. `"ollama/llama3.2"`, `"openai/gpt-4"` |
-| `system`      | string   | —                | System prompt prepended as system message |
-| `temperature` | number   | provider default | Sampling temperature (0.0–2.0)           |
-| `signal`      | AbortSignal | —             | Cancellation signal                      |
+| Key           | Type        | Default          | Description                                   |
+| ------------- | ----------- | ---------------- | --------------------------------------------- |
+| `prompt`      | string      | (required)       | The user message                              |
+| `data`        | any         | —                | Context data, JSON-stringified into prompt    |
+| `schema`      | object      | —                | Expected response shape (triggers JSON parse) |
+| `model`       | string      | default provider | e.g. `"ollama/llama3.2"`, `"openai/gpt-4"`    |
+| `system`      | string      | —                | System prompt prepended as system message     |
+| `temperature` | number      | provider default | Sampling temperature (0.0–2.0)                |
+| `signal`      | AbortSignal | —                | Cancellation signal                           |
 
 ---
 
@@ -48,12 +50,12 @@ Single LLM call. Returns a string or parsed object depending on options.
 
 **`data`** and **`schema`** serve opposite purposes:
 
-| | `data` | `schema` |
-|---|--------|----------|
-| **Direction** | **Input** — what the LLM sees | **Output** — what the LLM returns |
+|                  | `data`                                     | `schema`                                                   |
+| ---------------- | ------------------------------------------ | ---------------------------------------------------------- |
+| **Direction**    | **Input** — what the LLM sees              | **Output** — what the LLM returns                          |
 | **What it does** | Appends `\n\nData:\n{json}` to your prompt | Sends schema to vendor API for native constrained decoding |
-| **Return type** | `string` (free-form text) | `object` (parsed JSON) |
-| **Purpose** | Give the LLM context to work with | Force the LLM to return structured data |
+| **Return type**  | `string` (free-form text)                  | `object` (parsed JSON)                                     |
+| **Purpose**      | Give the LLM context to work with          | Force the LLM to return structured data                    |
 
 ### The Four Modes
 
@@ -84,7 +86,8 @@ ai(prompt, {data, schema})    → data in, structured out   ← the power combo
 
 ## Examples — Real E2E Verified Outputs
 
-Every example below was verified against Claude Haiku 4.5 with real LLM responses.
+Every example below was verified against Claude Haiku 4.5 with real LLM
+responses.
 
 ### Basic prompt — text in, text out
 
@@ -92,6 +95,7 @@ Every example below was verified against Claude Haiku 4.5 with real LLM response
 (ai "What is 2+2? Reply with ONLY the number."
   {model: "claude-code/claude-haiku-4-5-20251001"})
 ```
+
 ```
 "4"
 ```
@@ -103,6 +107,7 @@ Every example below was verified against Claude Haiku 4.5 with real LLM response
   {model: "claude-code/claude-haiku-4-5-20251001"
    system: "You are a pirate. Always say 'Arrr'."})
 ```
+
 ```
 "Arrr, ahoy there, matey! Hello to ye! Welcome aboard!"
 ```
@@ -114,11 +119,13 @@ Every example below was verified against Claude Haiku 4.5 with real LLM response
   {model: "claude-code/claude-haiku-4-5-20251001"
    data: {person: {name: "Alice" age: 30}}})
 ```
+
 ```
 "Alice"
 ```
 
-The LLM sees: `"What is the person's name?...\n\nData:\n{\"person\":{\"name\":\"Alice\",\"age\":30}}"`
+The LLM sees:
+`"What is the person's name?...\n\nData:\n{\"person\":{\"name\":\"Alice\",\"age\":30}}"`
 
 It reads the data and extracts the answer. The response is a plain string.
 
@@ -130,11 +137,13 @@ It reads the data and extracts the answer. The response is a plain string.
    schema: {sentiment: "positive|negative|neutral"
             confidence: "number 0-1"}})
 ```
+
 ```json
-{"sentiment": "positive", "confidence": 0.95}
+{ "sentiment": "positive", "confidence": 0.95 }
 ```
 
-No `data` here — the LLM uses its own understanding. But `schema` forces a structured JSON response instead of free text.
+No `data` here — the LLM uses its own understanding. But `schema` forces a
+structured JSON response instead of free text.
 
 ### `data` + `schema` — the power combo
 
@@ -145,11 +154,14 @@ No `data` here — the LLM uses its own understanding. But `schema` forces a str
                     {text: "Terrible, broke on day one" rating: 1}]}
    schema: {results: [{text: "string" sentiment: "positive|negative"}]}})
 ```
+
 ```json
-{"results": [
-  {"text": "Amazing product!", "sentiment": "positive"},
-  {"text": "Terrible, broke on day one", "sentiment": "negative"}
-]}
+{
+  "results": [
+    { "text": "Amazing product!", "sentiment": "positive" },
+    { "text": "Terrible, broke on day one", "sentiment": "negative" }
+  ]
+}
 ```
 
 Data goes IN, structured JSON comes OUT.
@@ -158,21 +170,22 @@ Data goes IN, structured JSON comes OUT.
 
 ## Schema Language
 
-The schema is a plain JSON object that describes the shape of the response. The LLM is instructed to return JSON matching this structure exactly.
+The schema is a plain JSON object that describes the shape of the response. The
+LLM is instructed to return JSON matching this structure exactly.
 
 ### Type descriptors
 
-| Descriptor | Meaning | Example output |
-|------------|---------|----------------|
-| `"string"` | Any string | `"Tokyo"` |
-| `"number"` | Any number | `13960000` |
-| `"number 1-10"` | Number with hint range | `8` |
-| `"number grams"` | Number with unit hint | `0.5` |
-| `"boolean"` | true or false | `false` |
-| `"positive\|negative\|neutral"` | Enum — pick one | `"positive"` |
-| `["string"]` | Array of strings | `["Spring", "Autumn"]` |
-| `[{...}]` | Array of objects | `[{name: "x", ...}, ...]` |
-| `{key: "type"}` | Nested object | `{lat: 35.6, lng: 139.6}` |
+| Descriptor                      | Meaning                | Example output            |
+| ------------------------------- | ---------------------- | ------------------------- |
+| `"string"`                      | Any string             | `"Tokyo"`                 |
+| `"number"`                      | Any number             | `13960000`                |
+| `"number 1-10"`                 | Number with hint range | `8`                       |
+| `"number grams"`                | Number with unit hint  | `0.5`                     |
+| `"boolean"`                     | true or false          | `false`                   |
+| `"positive\|negative\|neutral"` | Enum — pick one        | `"positive"`              |
+| `["string"]`                    | Array of strings       | `["Spring", "Autumn"]`    |
+| `[{...}]`                       | Array of objects       | `[{name: "x", ...}, ...]` |
+| `{key: "type"}`                 | Nested object          | `{lat: 35.6, lng: 139.6}` |
 
 ### Nesting — unlimited depth
 
@@ -188,16 +201,17 @@ The schema is a plain JSON object that describes the shape of the response. The 
                               category: "string"
                               rating: "number 1-5"}]}})
 ```
+
 ```json
 {
   "city": "Tokyo",
   "country": "Japan",
   "population": 13960000,
-  "coordinates": {"lat": 35.6762, "lng": 139.6503},
+  "coordinates": { "lat": 35.6762, "lng": 139.6503 },
   "bestSeasons": ["Spring", "Autumn"],
   "topAttractions": [
-    {"name": "Senso-ji Temple", "category": "Historical", "rating": 4.8},
-    {"name": "Shibuya Crossing", "category": "Landmark", "rating": 4.5}
+    { "name": "Senso-ji Temple", "category": "Historical", "rating": 4.8 },
+    { "name": "Shibuya Crossing", "category": "Landmark", "rating": 4.5 }
   ]
 }
 ```
@@ -214,15 +228,34 @@ The schema is a plain JSON object that describes the shape of the response. The 
                           contributions: ["string"]
                           isAlive: "boolean"}]}})
 ```
+
 ```json
 {
   "scientists": [
-    {"name": "Albert Einstein", "nationality": "German", "field": "Physics",
-     "born": 1879, "contributions": ["Theory of Relativity", "E=mc2"], "isAlive": false},
-    {"name": "Marie Curie", "nationality": "Polish", "field": "Physics/Chemistry",
-     "born": 1867, "contributions": ["Radioactivity", "Discovered Polonium & Radium"], "isAlive": false},
-    {"name": "Stephen Hawking", "nationality": "British", "field": "Physics",
-     "born": 1942, "contributions": ["Black Hole Radiation", "A Brief History of Time"], "isAlive": false}
+    {
+      "name": "Albert Einstein",
+      "nationality": "German",
+      "field": "Physics",
+      "born": 1879,
+      "contributions": ["Theory of Relativity", "E=mc2"],
+      "isAlive": false
+    },
+    {
+      "name": "Marie Curie",
+      "nationality": "Polish",
+      "field": "Physics/Chemistry",
+      "born": 1867,
+      "contributions": ["Radioactivity", "Discovered Polonium & Radium"],
+      "isAlive": false
+    },
+    {
+      "name": "Stephen Hawking",
+      "nationality": "British",
+      "field": "Physics",
+      "born": 1942,
+      "contributions": ["Black Hole Radiation", "A Brief History of Time"],
+      "isAlive": false
+    }
   ]
 }
 ```
@@ -243,18 +276,31 @@ The schema is a plain JSON object that describes the shape of the response. The 
                                  fat: "number grams"}
                         tags: ["string"]}]}})
 ```
+
 ```json
 {
   "analysis": [
-    {"name": "Apple", "calories": 95, "healthRating": 8,
-     "macros": {"protein": 0.5, "carbs": 25, "fat": 0.3},
-     "tags": ["fruit", "fiber"]},
-    {"name": "Pizza slice", "calories": 285, "healthRating": 4,
-     "macros": {"protein": 12, "carbs": 36, "fat": 10},
-     "tags": ["processed", "carbs"]},
-    {"name": "Broccoli", "calories": 55, "healthRating": 9,
-     "macros": {"protein": 3.7, "carbs": 11, "fat": 0.6},
-     "tags": ["vegetable", "vitamin-c"]}
+    {
+      "name": "Apple",
+      "calories": 95,
+      "healthRating": 8,
+      "macros": { "protein": 0.5, "carbs": 25, "fat": 0.3 },
+      "tags": ["fruit", "fiber"]
+    },
+    {
+      "name": "Pizza slice",
+      "calories": 285,
+      "healthRating": 4,
+      "macros": { "protein": 12, "carbs": 36, "fat": 10 },
+      "tags": ["processed", "carbs"]
+    },
+    {
+      "name": "Broccoli",
+      "calories": 55,
+      "healthRating": 9,
+      "macros": { "protein": 3.7, "carbs": 11, "fat": 0.6 },
+      "tags": ["vegetable", "vitamin-c"]
+    }
   ]
 }
 ```
@@ -274,6 +320,7 @@ The schema is a plain JSON object that describes the shape of the response. The 
             pros: ["string"]
             cons: ["string"]}})
 ```
+
 ```json
 {
   "language": "Python",
@@ -300,6 +347,7 @@ The schema is a plain JSON object that describes the shape of the response. The 
                                  manager: {name: "string" title: "string"}
                                  employees: [{name: "string" role: "string"}]}]}}})
 ```
+
 ```json
 {
   "company": "TechVision Solutions",
@@ -307,16 +355,22 @@ The schema is a plain JSON object that describes the shape of the response. The 
     "name": "Sarah Chen",
     "title": "CEO",
     "departments": [
-      {"name": "Engineering",
-       "manager": {"name": "James Miller", "title": "VP Engineering"},
-       "employees": [
-         {"name": "Alex Kim", "role": "Senior Developer"},
-         {"name": "Priya Patel", "role": "DevOps Engineer"}]},
-      {"name": "Marketing",
-       "manager": {"name": "Lisa Wang", "title": "VP Marketing"},
-       "employees": [
-         {"name": "Tom Brown", "role": "Content Strategist"},
-         {"name": "Emma Davis", "role": "SEO Analyst"}]}
+      {
+        "name": "Engineering",
+        "manager": { "name": "James Miller", "title": "VP Engineering" },
+        "employees": [
+          { "name": "Alex Kim", "role": "Senior Developer" },
+          { "name": "Priya Patel", "role": "DevOps Engineer" }
+        ]
+      },
+      {
+        "name": "Marketing",
+        "manager": { "name": "Lisa Wang", "title": "VP Marketing" },
+        "employees": [
+          { "name": "Tom Brown", "role": "Content Strategist" },
+          { "name": "Emma Davis", "role": "SEO Analyst" }
+        ]
+      }
     ]
   }
 }
@@ -342,6 +396,7 @@ The schema is a plain JSON object that describes the shape of the response. The 
                          isEquipped: "boolean"}]
             backstory: "string"}})
 ```
+
 ```json
 {
   "name": "Kael Shadowblade",
@@ -349,11 +404,17 @@ The schema is a plain JSON object that describes the shape of the response. The 
   "class": "rogue",
   "level": 18,
   "hitPoints": 142,
-  "stats": {"strength": 14, "intelligence": 16, "dexterity": 19, "wisdom": 13, "charisma": 15},
+  "stats": {
+    "strength": 14,
+    "intelligence": 16,
+    "dexterity": 19,
+    "wisdom": 13,
+    "charisma": 15
+  },
   "inventory": [
-    {"item": "Shadow Dagger", "quantity": 2, "isEquipped": true},
-    {"item": "Lockpick Set", "quantity": 1, "isEquipped": true},
-    {"item": "Health Potion", "quantity": 5, "isEquipped": false}
+    { "item": "Shadow Dagger", "quantity": 2, "isEquipped": true },
+    { "item": "Lockpick Set", "quantity": 1, "isEquipped": true },
+    { "item": "Health Potion", "quantity": 5, "isEquipped": false }
   ],
   "backstory": "Once a noble's son in the elven city of Silvervale, Kael turned to the shadows after..."
 }
@@ -362,17 +423,21 @@ The schema is a plain JSON object that describes the shape of the response. The 
 ### Schema handling internals
 
 Schema enforcement uses native vendor constrained decoding via AI SDK (v2):
+
 1. The schema descriptor is converted to a Zod schema (`schema-to-zod.ts`)
-2. AI SDK's `generateText` + `Output.object()` sends the schema to the vendor API
+2. AI SDK's `generateText` + `Output.object()` sends the schema to the vendor
+   API
 3. The vendor constrains token sampling to produce guaranteed valid JSON
-4. The result is parsed and validated by Zod automatically — no `JSON.parse` needed
+4. The result is parsed and validated by Zod automatically — no `JSON.parse`
+   needed
 5. Works across all SDK-supported providers (OpenAI, Anthropic, Google, Ollama)
 
 ---
 
 ## `ai.chat(messages, options?)`
 
-Streaming chat completion. Returns an `AsyncGenerator` that yields string chunks as they arrive.
+Streaming chat completion. Returns an `AsyncGenerator` that yields string chunks
+as they arrive.
 
 ```lisp
 ;; Streaming output
@@ -396,7 +461,8 @@ Streaming chat completion. Returns an `AsyncGenerator` that yields string chunks
 
 ## `ai.chatStructured(messages, options?)`
 
-Non-streaming chat that returns structured tool calls alongside text content. Used for native function calling.
+Non-streaming chat that returns structured tool calls alongside text content.
+Used for native function calling.
 
 ```lisp
 (def result (ai.chatStructured
@@ -419,19 +485,22 @@ Throws `ValidationError` if the provider doesn't support native tool calling.
 
 ## `ai.agent(prompt, options?)` / `agent(prompt, options?)`
 
-Runs the full ReAct agent loop — the agent can use tools, read files, execute commands, and reason through multi-step tasks. Returns the final answer as a string.
+Runs the full ReAct agent loop — the agent can use tools, read files, execute
+commands, and reason through multi-step tasks. Returns the final answer as a
+string.
 
-`agent` is a top-level alias for `ai.agent` — they are the same function reference.
+`agent` is a top-level alias for `ai.agent` — they are the same function
+reference.
 
 ### Parameters
 
-| Key      | Type     | Default  | Description                          |
-|----------|----------|----------|--------------------------------------|
-| `prompt` | string   | (required) | Task description                   |
-| `data`   | any      | —        | Context data appended to query       |
-| `model`  | string   | default  | Model to use for the agent           |
-| `tools`  | string[] | all      | Allowlist of tool names              |
-| `signal` | AbortSignal | —     | Cancellation signal                  |
+| Key      | Type        | Default    | Description                    |
+| -------- | ----------- | ---------- | ------------------------------ |
+| `prompt` | string      | (required) | Task description               |
+| `data`   | any         | —          | Context data appended to query |
+| `model`  | string      | default    | Model to use for the agent     |
+| `tools`  | string[]    | all        | Allowlist of tool names        |
+| `signal` | AbortSignal | —          | Cancellation signal            |
 
 ### Examples
 
@@ -518,13 +587,16 @@ Check provider availability.
 
 ## Async Higher-Order Functions
 
-Five async HOFs for composing AI calls over collections. Available on `globalThis` via stdlib.
+Five async HOFs for composing AI calls over collections. Available on
+`globalThis` via stdlib.
 
-All handle `null`/`undefined` input gracefully (return `[]` or `init` for reduce).
+All handle `null`/`undefined` input gracefully (return `[]` or `init` for
+reduce).
 
 ### `asyncMap(fn, coll)` — Sequential
 
-Maps an async function over a collection one element at a time. Each call completes before the next starts. Rate-limit safe.
+Maps an async function over a collection one element at a time. Each call
+completes before the next starts. Rate-limit safe.
 
 ```lisp
 (asyncMap
@@ -539,7 +611,8 @@ Processes apple → waits → banana → waits → cherry. Sequential order guar
 
 ### `concurrentMap(fn, coll)` — Parallel
 
-Maps an async function with all calls fired simultaneously via `Promise.all`. Maximum throughput.
+Maps an async function with all calls fired simultaneously via `Promise.all`.
+Maximum throughput.
 
 ```lisp
 (concurrentMap
@@ -604,13 +677,13 @@ Maps an async function that returns arrays, then flattens one level.
 
 ### Comparison
 
-| Function | Execution | Use When |
-|----------|-----------|----------|
-| `asyncMap` | Sequential | Rate-limited APIs, order-dependent processing |
-| `concurrentMap` | Parallel | Max throughput, independent items |
-| `asyncFilter` | Sequential | AI-powered filtering/classification |
-| `asyncReduce` | Sequential | Accumulative summarization, chaining |
-| `asyncFlatMap` | Sequential | One-to-many async expansion |
+| Function        | Execution  | Use When                                      |
+| --------------- | ---------- | --------------------------------------------- |
+| `asyncMap`      | Sequential | Rate-limited APIs, order-dependent processing |
+| `concurrentMap` | Parallel   | Max throughput, independent items             |
+| `asyncFilter`   | Sequential | AI-powered filtering/classification           |
+| `asyncReduce`   | Sequential | Accumulative summarization, chaining          |
+| `asyncFlatMap`  | Sequential | One-to-many async expansion                   |
 
 ### Null safety
 
@@ -703,13 +776,13 @@ Maps an async function that returns arrays, then flattens one level.
 
 Format: `provider/model-name`
 
-| Provider | Example | Notes |
-|----------|---------|-------|
-| Ollama | `ollama/llama3.1:8b` | Local, colons are part of model name |
-| OpenAI | `openai/gpt-4` | Requires API key |
-| Anthropic | `anthropic/claude-sonnet-4-20250514` | Requires API key |
-| Google | `google/gemini-pro` | Requires API key |
-| Claude Code | `claude-code/claude-haiku-4-5-20251001` | Max subscription, no API key |
+| Provider    | Example                                 | Notes                                |
+| ----------- | --------------------------------------- | ------------------------------------ |
+| Ollama      | `ollama/llama3.1:8b`                    | Local, colons are part of model name |
+| OpenAI      | `openai/gpt-4`                          | Requires API key                     |
+| Anthropic   | `anthropic/claude-sonnet-4-20250514`    | Requires API key                     |
+| Google      | `google/gemini-pro`                     | Requires API key                     |
+| Claude Code | `claude-code/claude-haiku-4-5-20251001` | Max subscription, no API key         |
 
 If no provider prefix is given, the default provider is used.
 
@@ -717,23 +790,22 @@ If no provider prefix is given, the default provider is used.
 
 ## Errors
 
-| Situation                    | Error Type        | Message                                    |
-|------------------------------|-------------------|--------------------------------------------|
-| No provider available        | `RuntimeError`    | "No default AI provider configured"        |
-| Unknown model/provider       | `RuntimeError`    | "No provider found for model: ..."         |
-| Schema response isn't JSON   | `ValidationError` | "AI response is not valid JSON: ..."       |
-| No tool calling support      | `ValidationError` | "Provider does not support native tool calling" |
+| Situation                  | Error Type        | Message                                         |
+| -------------------------- | ----------------- | ----------------------------------------------- |
+| No provider available      | `RuntimeError`    | "No default AI provider configured"             |
+| Unknown model/provider     | `RuntimeError`    | "No provider found for model: ..."              |
+| Schema response isn't JSON | `ValidationError` | "AI response is not valid JSON: ..."            |
+| No tool calling support    | `ValidationError` | "Provider does not support native tool calling" |
 
 ---
 
 ## Source Files
 
-| File | What |
-|------|------|
-| `src/hlvm/api/ai.ts` | Core `ai` callable + all methods |
-| `src/hlvm/api/index.ts` | `agent` alias + `registerApis()` |
-| `src/common/stream-utils.ts` | `collectAsyncGenerator` utility |
-| `src/hql/lib/stdlib/js/core.js` | 5 async HOFs |
-| `tests/e2e/ai-callable-e2e.test.ts` | E2E tests (real providers) |
-| `tests/unit/api/ai-callable.test.ts` | 19 behavioral unit tests |
-| `tests/unit/stdlib/async-hofs.test.ts` | 15 async HOF unit tests |
+| File                                   | What                             |
+| -------------------------------------- | -------------------------------- |
+| `src/hlvm/api/ai.ts`                   | Core `ai` callable + all methods |
+| `src/hlvm/api/index.ts`                | `agent` alias + `registerApis()` |
+| `src/common/stream-utils.ts`           | `collectAsyncGenerator` utility  |
+| `src/hql/lib/stdlib/js/core.js`        | 5 async HOFs                     |
+| `tests/unit/api/ai-callable.test.ts`   | 17 behavioral unit tests         |
+| `tests/unit/stdlib/async-hofs.test.ts` | 15 async HOF unit tests          |

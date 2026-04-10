@@ -37,7 +37,11 @@ import type {
   MemoryActivityEntry,
   OrchestratorConfig,
 } from "./orchestrator.ts";
-import type { ToolExecutionResult } from "./orchestrator-state.ts";
+import {
+  effectiveAllowlist,
+  effectiveDenylist,
+  type ToolExecutionResult,
+} from "./orchestrator-state.ts";
 import { createRateLimiter } from "./orchestrator-state.ts";
 import {
   buildIsToolAllowed,
@@ -624,11 +628,11 @@ export async function executeToolCall(
     // Check safety
     const permissionMode = config.permissionMode ?? "default";
     const toolPermissions = {
-      allowedTools: config.toolAllowlist
-        ? new Set(config.toolAllowlist)
+      allowedTools: config.permissionToolAllowlist
+        ? new Set(config.permissionToolAllowlist)
         : new Set<string>(),
-      deniedTools: config.toolDenylist
-        ? new Set(config.toolDenylist)
+      deniedTools: config.permissionToolDenylist
+        ? new Set(config.permissionToolDenylist)
         : new Set<string>(),
     };
     const approved = await checkToolSafety(
@@ -654,6 +658,7 @@ export async function executeToolCall(
         startedAt,
         config,
         toolCall.id,
+        { source: "permission" },
       );
     }
 
@@ -1026,10 +1031,8 @@ export async function executeToolCall(
     // Execute tool (with timeout)
     const tool = getTool(toolCall.toolName, config.toolOwnerId);
     const toolTimeout = getToolTimeoutMs(toolCall.toolName, config.toolTimeout);
-    const currentToolAllowlist = config.toolFilterState?.allowlist ??
-      config.toolAllowlist;
-    const currentToolDenylist = config.toolFilterState?.denylist ??
-      config.toolDenylist;
+    const currentToolAllowlist = effectiveAllowlist(config);
+    const currentToolDenylist = effectiveDenylist(config);
     const runTool = (args: unknown = coercedArgs) =>
       executeToolWithTimeout({
         toolFn: tool.fn,
@@ -1610,6 +1613,7 @@ export async function executeToolCalls(
   };
 
   const results = new Array<ToolExecutionResult>(toolCalls.length);
+  const deniedToolsThisTurn = new Set<string>();
   for (const batch of partitionToolCalls()) {
     if (batch.kind === "parallel") {
       const batchResults = await Promise.all(
@@ -1631,13 +1635,33 @@ export async function executeToolCalls(
     }
 
     const rateLimited = checkRateLimit();
-    results[batch.startIndex] = rateLimited ??
+    const call = batch.calls[0];
+    const normalizedName =
+      normalizeToolName(call.toolName, config.toolOwnerId) ??
+        call.toolName;
+    if (deniedToolsThisTurn.has(normalizedName)) {
+      results[batch.startIndex] = buildToolErrorResult(
+        call.toolName,
+        `Tool execution denied: ${call.toolName}`,
+        Date.now(),
+        config,
+        call.id,
+        { source: "permission" },
+      );
+      continue;
+    }
+
+    const result = rateLimited ??
       await executeToolCall(
-        batch.calls[0],
+        call,
         config,
         batch.startIndex,
         total,
       );
+    results[batch.startIndex] = result;
+    if (!result.success && result.failure?.kind === "permission_denied") {
+      deniedToolsThisTurn.add(normalizedName);
+    }
   }
 
   return results;

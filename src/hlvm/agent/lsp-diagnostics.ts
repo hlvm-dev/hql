@@ -6,15 +6,15 @@
  */
 
 import {
-  type PlatformCommandProcess,
   getPlatform,
+  type PlatformCommandProcess,
 } from "../../platform/platform.ts";
 import { readProcessStream } from "../../common/stream-utils.ts";
+import { TimeoutError, withTimeout } from "../../common/timeout-utils.ts";
 import {
-  TimeoutError,
-  withTimeout,
-} from "../../common/timeout-utils.ts";
-import { closeProcessStdin, writeToProcessStdin } from "../../common/process-io.ts";
+  closeProcessStdin,
+  writeToProcessStdin,
+} from "../../common/process-io.ts";
 import {
   getErrorMessage,
   isObjectValue,
@@ -28,9 +28,13 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 const INITIALIZE_TIMEOUT_MS = 5000;
-const DIAGNOSTICS_TIMEOUT_MS = 2500;
+const DIAGNOSTICS_TIMEOUT_MS = 4000;
 const DIAGNOSTICS_SETTLE_MS = 150;
-const EMPTY_DIAGNOSTICS_SETTLE_MS = 1500;
+// Cold language servers, especially `deno lsp`, can publish an initial empty
+// diagnostics set before type-check results land for a newly opened file.
+// Give that empty snapshot a little more time to settle before treating it as
+// a real clean pass.
+const EMPTY_DIAGNOSTICS_SETTLE_MS = 2500;
 const SHUTDOWN_TIMEOUT_MS = 750;
 const MAX_DIAGNOSTICS_TEXT = 1400;
 const MAX_DIAGNOSTIC_COUNT = 8;
@@ -137,7 +141,10 @@ async function resolveDefaultLspCandidates(
       return buildTypeScriptCandidates("javascriptreact", hasDenoConfig);
     case ".py":
       return [
-        candidate("pyright-langserver --stdio", ["pyright-langserver", "--stdio"], "python"),
+        candidate("pyright-langserver --stdio", [
+          "pyright-langserver",
+          "--stdio",
+        ], "python"),
         candidate("pylsp", ["pylsp"], "python"),
       ];
     case ".rs":
@@ -163,11 +170,23 @@ function buildTypeScriptCandidates(
     ));
   }
   candidates.push(
-    candidate("typescript-language-server --stdio", [
-      "typescript-language-server",
-      "--stdio",
-    ], languageId, undefined, 5000),
-    candidate("vtsls --stdio", ["vtsls", "--stdio"], languageId, undefined, 5000),
+    candidate(
+      "typescript-language-server --stdio",
+      [
+        "typescript-language-server",
+        "--stdio",
+      ],
+      languageId,
+      undefined,
+      5000,
+    ),
+    candidate(
+      "vtsls --stdio",
+      ["vtsls", "--stdio"],
+      languageId,
+      undefined,
+      5000,
+    ),
   );
   return candidates;
 }
@@ -245,21 +264,31 @@ function isLspDiagnostic(value: unknown): value is LspDiagnostic {
   return isObjectValue(value) && typeof value.message === "string";
 }
 
-function isPublishDiagnosticsMessage(value: unknown): value is PublishDiagnosticsMessage {
+function isPublishDiagnosticsMessage(
+  value: unknown,
+): value is PublishDiagnosticsMessage {
   if (!isObjectValue(value) || typeof value.uri !== "string") return false;
-  return Array.isArray(value.diagnostics) && value.diagnostics.every(isLspDiagnostic);
+  return Array.isArray(value.diagnostics) &&
+    value.diagnostics.every(isLspDiagnostic);
 }
 
 function formatDiagnosticLine(diagnostic: LspDiagnostic): string {
   const start = diagnostic.range?.start;
   const line = typeof start?.line === "number" ? start.line + 1 : 0;
-  const character = typeof start?.character === "number" ? start.character + 1 : 0;
+  const character = typeof start?.character === "number"
+    ? start.character + 1
+    : 0;
   const location = line > 0 && character > 0 ? ` ${line}:${character}` : "";
-  const code = diagnostic.code !== undefined ? ` ${String(diagnostic.code)}` : "";
-  const source = typeof diagnostic.source === "string" && diagnostic.source.trim().length > 0
-    ? ` (${diagnostic.source.trim()})`
+  const code = diagnostic.code !== undefined
+    ? ` ${String(diagnostic.code)}`
     : "";
-  return `${severityLabel(diagnostic.severity)}${location}${code}${source} ${diagnostic.message.trim()}`;
+  const source =
+    typeof diagnostic.source === "string" && diagnostic.source.trim().length > 0
+      ? ` (${diagnostic.source.trim()})`
+      : "";
+  return `${
+    severityLabel(diagnostic.severity)
+  }${location}${code}${source} ${diagnostic.message.trim()}`;
 }
 
 function summarizeDiagnostics(
@@ -273,10 +302,18 @@ function summarizeDiagnostics(
   let errors = 0, warnings = 0, infos = 0, hints = 0;
   for (const item of ordered) {
     switch (severityRank(item.severity)) {
-      case 1: errors++; break;
-      case 2: warnings++; break;
-      case 3: infos++; break;
-      default: hints++; break;
+      case 1:
+        errors++;
+        break;
+      case 2:
+        warnings++;
+        break;
+      case 3:
+        infos++;
+        break;
+      default:
+        hints++;
+        break;
     }
   }
 
@@ -291,13 +328,19 @@ function summarizeDiagnostics(
 
   const parts: string[] = [];
   if (errors > 0) parts.push(`${errors} error${errors === 1 ? "" : "s"}`);
-  if (warnings > 0) parts.push(`${warnings} warning${warnings === 1 ? "" : "s"}`);
+  if (warnings > 0) {
+    parts.push(`${warnings} warning${warnings === 1 ? "" : "s"}`);
+  }
   if (infos > 0) parts.push(`${infos} info`);
   if (hints > 0) parts.push(`${hints} hint${hints === 1 ? "" : "s"}`);
 
-  const lines = ordered.slice(0, MAX_DIAGNOSTIC_COUNT).map(formatDiagnosticLine);
+  const lines = ordered.slice(0, MAX_DIAGNOSTIC_COUNT).map(
+    formatDiagnosticLine,
+  );
   if (ordered.length > MAX_DIAGNOSTIC_COUNT) {
-    lines.push(`... ${ordered.length - MAX_DIAGNOSTIC_COUNT} more diagnostics omitted`);
+    lines.push(
+      `... ${ordered.length - MAX_DIAGNOSTIC_COUNT} more diagnostics omitted`,
+    );
   }
 
   return {
@@ -335,7 +378,10 @@ function resolveSettingsValue(
 class LspSession {
   private readonly workspaceUri: string;
   private readonly pendingRequests = new Map<number, PendingRequest>();
-  private readonly diagnosticWaiters = new Map<string, PendingDiagnosticsWaiter[]>();
+  private readonly diagnosticWaiters = new Map<
+    string,
+    PendingDiagnosticsWaiter[]
+  >();
   private readonly documents = new Map<string, OpenDocumentState>();
   private readonly stderrTextPromise: Promise<string>;
   private readonly processExitPromise: Promise<void>;
@@ -362,13 +408,15 @@ class LspSession {
     });
 
     if (
-      typeof (this.process.stdout as ReadableStream<Uint8Array> | undefined)?.getReader !==
+      typeof (this.process.stdout as ReadableStream<Uint8Array> | undefined)
+        ?.getReader !==
         "function"
     ) {
       throw new RuntimeError("LSP process stdout is unavailable");
     }
 
-    this.stdoutReader = (this.process.stdout as ReadableStream<Uint8Array>).getReader();
+    this.stdoutReader = (this.process.stdout as ReadableStream<Uint8Array>)
+      .getReader();
     this.stderrTextPromise = readProcessStream(this.process.stderr)
       .then((bytes) => textDecoder.decode(bytes).trim())
       .catch(() => "");
@@ -379,7 +427,9 @@ class LspSession {
         ? `${status.code} (${String(status.signal)})`
         : String(status.code);
       const detail = stderrText
-        ? `: ${truncate(stderrText.replace(/\s+/g, " ").trim(), MAX_STDERR_PREVIEW)}`
+        ? `: ${
+          truncate(stderrText.replace(/\s+/g, " ").trim(), MAX_STDERR_PREVIEW)
+        }`
         : "";
       this.failAll(
         new Error(
@@ -420,30 +470,38 @@ class LspSession {
     const current = this.documents.get(uri);
     const nextVersion = (current?.version ?? 0) + 1;
     const waitPromise = this.waitForDiagnostics(uri, nextVersion, signal);
+    try {
+      if (current) {
+        current.version = nextVersion;
+        await this.sendNotification("textDocument/didChange", {
+          textDocument: { uri, version: nextVersion },
+          contentChanges: [{ text }],
+        });
+      } else {
+        this.documents.set(uri, { version: nextVersion });
+        await this.sendNotification("textDocument/didOpen", {
+          textDocument: {
+            uri,
+            languageId: this.candidate.languageId,
+            version: nextVersion,
+            text,
+          },
+        });
+      }
+      await this.sendNotification("textDocument/didSave", {
+        textDocument: { uri },
+      });
 
-    if (current) {
-      current.version = nextVersion;
-      await this.sendNotification("textDocument/didChange", {
-        textDocument: { uri, version: nextVersion },
-        contentChanges: [{ text }],
-      });
-    } else {
-      this.documents.set(uri, { version: nextVersion });
-      await this.sendNotification("textDocument/didOpen", {
-        textDocument: {
-          uri,
-          languageId: this.candidate.languageId,
-          version: nextVersion,
-          text,
-        },
-      });
+      const published = await waitPromise;
+      return summarizeDiagnostics(this.candidate.label, published.diagnostics);
+    } catch (error) {
+      // `waitPromise` is armed before notifications are sent so we do not miss an
+      // immediate publishDiagnostics packet. If the session dies during those
+      // notifications, drain the waiter rejection here so it cannot escape as an
+      // unhandled rejection and take down the runtime host process.
+      void waitPromise.catch(() => undefined);
+      throw error;
     }
-    await this.sendNotification("textDocument/didSave", {
-      textDocument: { uri },
-    });
-
-    const published = await waitPromise;
-    return summarizeDiagnostics(this.candidate.label, published.diagnostics);
   }
 
   async dispose(): Promise<void> {
@@ -557,10 +615,14 @@ class LspSession {
     } catch (error) {
       const stderrText = await this.stderrTextPromise.catch(() => "");
       const suffix = stderrText
-        ? `: ${truncate(stderrText.replace(/\s+/g, " ").trim(), MAX_STDERR_PREVIEW)}`
+        ? `: ${
+          truncate(stderrText.replace(/\s+/g, " ").trim(), MAX_STDERR_PREVIEW)
+        }`
         : "";
       throw new RuntimeError(
-        `Failed to initialize ${this.candidate.label}: ${getErrorMessage(error)}${suffix}`,
+        `Failed to initialize ${this.candidate.label}: ${
+          getErrorMessage(error)
+        }${suffix}`,
       );
     }
   }
@@ -575,7 +637,9 @@ class LspSession {
         await this.processBufferedMessages();
       }
     } catch (error) {
-      this.failAll(new Error(`LSP read loop failed: ${getErrorMessage(error)}`));
+      this.failAll(
+        new Error(`LSP read loop failed: ${getErrorMessage(error)}`),
+      );
       return;
     }
 
@@ -599,7 +663,10 @@ class LspSession {
       const messageStart = headerBoundary + HEADER_DELIMITER.length;
       if (this.readBuffer.length < messageStart + contentLength) return;
 
-      const bodyBytes = this.readBuffer.slice(messageStart, messageStart + contentLength);
+      const bodyBytes = this.readBuffer.slice(
+        messageStart,
+        messageStart + contentLength,
+      );
       this.readBuffer = this.readBuffer.slice(messageStart + contentLength);
 
       const payload = JSON.parse(textDecoder.decode(bodyBytes));
@@ -610,7 +677,10 @@ class LspSession {
   private async handleIncomingMessage(message: unknown): Promise<void> {
     if (!isObjectValue(message)) return;
 
-    if (typeof message.id === "number" && ("result" in message || "error" in message)) {
+    if (
+      typeof message.id === "number" &&
+      ("result" in message || "error" in message)
+    ) {
       const pending = this.pendingRequests.get(message.id);
       if (!pending) return;
       this.pendingRequests.delete(message.id);
@@ -624,12 +694,15 @@ class LspSession {
 
     if (typeof message.method !== "string") return;
     if (message.method === "textDocument/publishDiagnostics") {
-      const params = isPublishDiagnosticsMessage(message.params) ? message.params : null;
+      const params = isPublishDiagnosticsMessage(message.params)
+        ? message.params
+        : null;
       if (!params) return;
       this.diagnosticsSequence += 1;
       const waiters = this.diagnosticWaiters.get(params.uri) ?? [];
       for (const waiter of waiters) {
-        const matchesVersion = params.version === undefined || params.version >= waiter.version;
+        const matchesVersion = params.version === undefined ||
+          params.version >= waiter.version;
         const matchesSequence = this.diagnosticsSequence >= waiter.minSequence;
         if (matchesVersion && matchesSequence) {
           waiter.consume(params);
@@ -639,7 +712,11 @@ class LspSession {
     }
 
     if (typeof message.id === "number") {
-      await this.handleServerRequest(message.id, message.method, message.params);
+      await this.handleServerRequest(
+        message.id,
+        message.method,
+        message.params,
+      );
     }
   }
 
@@ -676,7 +753,11 @@ class LspSession {
         await this.sendResponse(id, {});
         return;
       default:
-        await this.sendError(id, -32601, `Unsupported client request: ${method}`);
+        await this.sendError(
+          id,
+          -32601,
+          `Unsupported client request: ${method}`,
+        );
     }
   }
 
@@ -811,7 +892,8 @@ class LspSession {
           };
         }),
       {
-        timeoutMs: this.candidate.diagnosticsTimeoutMs ?? DIAGNOSTICS_TIMEOUT_MS,
+        timeoutMs: this.candidate.diagnosticsTimeoutMs ??
+          DIAGNOSTICS_TIMEOUT_MS,
         signal,
         label: "LSP diagnostics wait",
       },
@@ -846,7 +928,8 @@ export function createLspDiagnosticsRuntime(
   const sessions = new Map<string, LspSession>();
   const pendingStarts = new Map<string, Promise<LspSession | null>>();
   const unavailableCandidates = new Set<string>();
-  const resolveCandidates = options.resolveCandidates ?? resolveDefaultLspCandidates;
+  const resolveCandidates = options.resolveCandidates ??
+    resolveDefaultLspCandidates;
 
   const getOrStartSession = async (
     candidate: LspServerCandidate,
@@ -870,7 +953,9 @@ export function createLspDiagnosticsRuntime(
       })
       .catch((error) => {
         unavailableCandidates.add(candidate.key);
-        logger.debug(`LSP unavailable (${candidate.label}): ${getErrorMessage(error)}`);
+        logger.debug(
+          `LSP unavailable (${candidate.label}): ${getErrorMessage(error)}`,
+        );
         return null;
       })
       .finally(() => {
@@ -886,26 +971,42 @@ export function createLspDiagnosticsRuntime(
       signal?: AbortSignal,
     ): Promise<WriteVerificationResult | null> => {
       const absolutePath = toAbsolutePath(filePath, options.workspace);
-      const candidates = await resolveCandidates(absolutePath, options.workspace);
+      const candidates = await resolveCandidates(
+        absolutePath,
+        options.workspace,
+      );
       if (candidates.length === 0) return null;
 
       for (const candidate of candidates) {
-        const session = await getOrStartSession(candidate);
-        if (!session) continue;
-        try {
-          return await session.verifyDocument(absolutePath, signal);
-        } catch (error) {
-          if (error instanceof TimeoutError) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const session = await getOrStartSession(candidate);
+          if (!session) break;
+          try {
+            return await session.verifyDocument(absolutePath, signal);
+          } catch (error) {
+            if (error instanceof TimeoutError) {
+              logger.debug(
+                `LSP diagnostics timed out (${candidate.label}): ${
+                  getErrorMessage(error)
+                }`,
+              );
+              break;
+            }
             logger.debug(
-              `LSP diagnostics timed out (${candidate.label}): ${getErrorMessage(error)}`,
+              `LSP diagnostics failed (${candidate.label}): ${
+                getErrorMessage(error)
+              }`,
             );
-            continue;
+            sessions.delete(candidate.key);
+            await session.dispose().catch(() => {});
+            if (attempt === 0 && session.isClosed) {
+              logger.debug(
+                `Retrying LSP with a fresh session (${candidate.label})`,
+              );
+              continue;
+            }
+            break;
           }
-          logger.debug(
-            `LSP diagnostics failed (${candidate.label}): ${getErrorMessage(error)}`,
-          );
-          sessions.delete(candidate.key);
-          await session.dispose().catch(() => {});
         }
       }
 

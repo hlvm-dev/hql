@@ -22,7 +22,7 @@ import {
   resolveTools,
   type ToolPresentationKind,
 } from "./registry.ts";
-import type { ThinkingState, ToolFilterState } from "./engine.ts";
+import type { ThinkingState } from "./engine.ts";
 import {
   type ContextManager,
   ContextOverflowError,
@@ -139,11 +139,13 @@ import {
   processAgentResponse,
 } from "./orchestrator-response.ts";
 import {
+  BROWSER_SAFE_PROFILE_ID,
   clearToolProfileLayerFromTarget,
   ensureToolProfileState,
   intersectToolLists,
   resolveCanonicalBaselineAllowlist,
   resolveDeclaredToolProfileFilter,
+  resolvePersistentToolFilter,
   uniqueToolList,
   updateToolProfileLayer,
 } from "./tool-profiles.ts";
@@ -588,12 +590,13 @@ export interface OrchestratorConfig {
     args: unknown,
     config: OrchestratorConfig,
   ) => Promise<unknown>;
+  /** Optional flat filter seed used when toolProfileState is omitted. */
   toolAllowlist?: string[];
+  /** Optional flat deny seed used when toolProfileState is omitted. */
   toolDenylist?: string[];
-  /** Shared mutable tool filters (updated by tool_search). */
-  toolFilterState?: ToolFilterState;
-  /** Baseline tool filters before runtime narrowing/pruning. */
-  toolFilterBaseline?: ToolFilterState;
+  /** Explicit permission overrides from the caller, distinct from tool visibility. */
+  permissionToolAllowlist?: string[];
+  permissionToolDenylist?: string[];
   /** Canonical persistent baseline before domain-specific widening. */
   baselineToolAllowlistSeed?: string[];
   /** Discovered deferred tools preserved across reused requests. */
@@ -781,7 +784,7 @@ async function applyRequestDomainToolProfile(
     nextBaselineAllowlist?.length
   ) {
     const browserSafeAllowlist =
-      resolveDeclaredToolProfileFilter("browser_safe").allowlist;
+      resolveDeclaredToolProfileFilter(BROWSER_SAFE_PROFILE_ID).allowlist;
     if (browserSafeAllowlist?.length) {
       nextBaselineAllowlist.push(
         ...browserSafeAllowlist.filter((name) =>
@@ -800,7 +803,7 @@ async function applyRequestDomainToolProfile(
   }
   if (state.cachedDelegationSignal.taskDomain === "browser") {
     updateToolProfileLayer(config, "domain", {
-      profileId: "browser_safe",
+      profileId: BROWSER_SAFE_PROFILE_ID,
       reason: "browser_task_detected",
     });
     return;
@@ -898,14 +901,20 @@ export async function applyAdaptiveToolPhase(
     return phase;
   }
 
-  if (!config.toolFilterState && !config.toolProfileState) {
+  if (
+    !config.toolProfileState && !config.toolAllowlist && !config.toolDenylist
+  ) {
     return phase;
   }
 
-  const baselineAllowlist = config.toolFilterBaseline?.allowlist ??
-    config.toolAllowlist;
-  const baselineDenylist = config.toolFilterBaseline?.denylist ??
-    config.toolDenylist;
+  const persistentFilter = config.toolProfileState
+    ? resolvePersistentToolFilter(config.toolProfileState)
+    : {
+      allowlist: config.toolAllowlist,
+      denylist: config.toolDenylist,
+    };
+  const baselineAllowlist = persistentFilter.allowlist;
+  const baselineDenylist = persistentFilter.denylist;
   const availableTools = resolveTools({
     allowlist: baselineAllowlist,
     denylist: baselineDenylist,
@@ -917,7 +926,9 @@ export async function applyAdaptiveToolPhase(
     .map(([name]) => name);
 
   const loopDenylist: string[] = [];
-  for (const [toolName, remainingTurns] of state.playwright.temporaryToolDenylist) {
+  for (
+    const [toolName, remainingTurns] of state.playwright.temporaryToolDenylist
+  ) {
     if (remainingTurns <= 0) {
       state.playwright.temporaryToolDenylist.delete(toolName);
       continue;
@@ -1496,18 +1507,10 @@ export async function runReActLoop(
   if (!config.l1Confirmations) {
     config = { ...config, l1Confirmations: new Map<string, boolean>() };
   }
-  if (!config.toolFilterBaseline) {
-    config = {
-      ...config,
-      toolFilterBaseline: {
-        allowlist: cloneToolList(
-          config.toolFilterState?.allowlist ?? config.toolAllowlist,
-        ),
-        denylist: cloneToolList(
-          config.toolFilterState?.denylist ?? config.toolDenylist,
-        ),
-      },
-    };
+  if (
+    !config.toolProfileState && (config.toolAllowlist || config.toolDenylist)
+  ) {
+    ensureToolProfileState(config);
   }
   const { context, onTrace } = config;
 

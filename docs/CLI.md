@@ -4,22 +4,22 @@ Complete reference for the `hlvm` command-line interface.
 
 ## Quick Reference
 
-| Command | Description |
-|---------|-------------|
-| `hlvm run` | Execute HQL or JavaScript code |
-| `hlvm repl` | Interactive shell (REPL) |
-| `hlvm ask` | AI agent task execution |
-| `hlvm chat` | Plain one-turn AI chat |
-| `hlvm model` | Model management (list, set, show, pull, rm) |
-| `hlvm ai` | AI model setup (prefer `hlvm model`) |
-| `hlvm serve` | HTTP runtime host |
-| `hlvm hql init` | Initialize an HQL project |
-| `hlvm hql compile` | Compile HQL to JS or native binary |
-| `hlvm hql publish` | Publish an HQL package |
-| `hlvm mcp` | MCP server management |
-| `hlvm ollama` | Ollama server forwarding |
-| `hlvm upgrade` | Check for updates |
-| `hlvm uninstall` | Remove HLVM from system |
+| Command            | Description                                    |
+| ------------------ | ---------------------------------------------- |
+| `hlvm run`         | Execute HQL or JavaScript code                 |
+| `hlvm repl`        | Interactive shell (REPL)                       |
+| `hlvm ask`         | AI agent task execution                        |
+| `hlvm chat`        | Plain one-turn AI chat                         |
+| `hlvm model`       | Model management (list, set, show, pull, rm)   |
+| `hlvm ai`          | AI model setup (prefer `hlvm model`)           |
+| `hlvm serve`       | HTTP runtime host                              |
+| `hlvm hql init`    | Initialize an HQL project                      |
+| `hlvm hql compile` | Compile HQL to JS or native binary             |
+| `hlvm hql publish` | Publish an HQL package                         |
+| `hlvm mcp`         | MCP server management                          |
+| `hlvm ollama`      | Explicit compatibility bridge to system Ollama |
+| `hlvm upgrade`     | Check for updates                              |
+| `hlvm uninstall`   | Remove HLVM from system                        |
 
 ---
 
@@ -34,14 +34,14 @@ hlvm run '<expression>'            Run an HQL S-expression
 
 **Options:**
 
-| Flag | Description |
-|------|-------------|
-| `--verbose, -v` | Enable verbose logging |
-| `--time` | Show performance timing |
-| `--print` | Print transpiled JS without executing |
-| `--debug` | Show detailed debug info and stack traces |
-| `--log <namespaces>` | Filter logging to specified namespaces |
-| `--help, -h` | Show help |
+| Flag                 | Description                               |
+| -------------------- | ----------------------------------------- |
+| `--verbose, -v`      | Enable verbose logging                    |
+| `--time`             | Show performance timing                   |
+| `--print`            | Print transpiled JS without executing     |
+| `--debug`            | Show detailed debug info and stack traces |
+| `--log <namespaces>` | Filter logging to specified namespaces    |
+| `--help, -h`         | Show help                                 |
 
 **Examples:**
 
@@ -51,13 +51,15 @@ hlvm run hello.hql             # Run file
 hlvm run app.js                # Run JavaScript
 ```
 
-Single S-expressions auto-print their result. File targets support `.hql`, `.js`, and `.ts`.
+Single S-expressions auto-print their result. File targets support `.hql`,
+`.js`, and `.ts`.
 
 ---
 
 ## hlvm repl
 
-Start the interactive shell. With no arguments, `hlvm` starts the REPL by default.
+Start the interactive shell. With no arguments, `hlvm` starts the REPL by
+default.
 
 ```
 hlvm repl [options]
@@ -65,27 +67,28 @@ hlvm repl [options]
 
 **Options:**
 
-| Flag | Description |
-|------|-------------|
-| `--ink` | Force Ink REPL (requires interactive terminal) |
-| `--no-banner` | Skip the startup banner |
-| `--help, -h` | Show help |
-| `--version` | Show version |
+| Flag          | Description                                    |
+| ------------- | ---------------------------------------------- |
+| `--ink`       | Force Ink REPL (requires interactive terminal) |
+| `--no-banner` | Skip the startup banner                        |
+| `--help, -h`  | Show help                                      |
+| `--version`   | Show version                                   |
 
 **Input routing:**
 
-| Input | Action |
-|-------|--------|
-| `(expression)` | HQL code evaluation |
-| `(js "code")` | JavaScript evaluation |
-| `/command` | Slash commands |
-| Everything else | AI conversation |
+| Input           | Action                |
+| --------------- | --------------------- |
+| `(expression)`  | HQL code evaluation   |
+| `(js "code")`   | JavaScript evaluation |
+| `/command`      | Slash commands        |
+| Everything else | AI conversation       |
 
 ---
 
 ## hlvm ask
 
-Interactive AI agent for task execution. Runs the full agent orchestration loop with tool calling, planning, and delegation.
+Interactive AI agent for task execution. Runs the full agent orchestration loop
+with tool calling, planning, and delegation.
 
 ```
 hlvm ask "<query>"
@@ -93,20 +96,20 @@ hlvm ask "<query>"
 
 **Options:**
 
-| Flag | Description |
-|------|-------------|
-| `-p, --print` | Non-interactive output (defaults to `dontAsk` permission mode) |
-| `--verbose` | Show agent header, tool labels, stats, and trace output |
-| `--output-format <fmt>` | Output format: `text` (default), `json`, `stream-json` |
-| `--usage` | Show token usage summary after execution |
-| `--attach <path>` | Attach a file input (repeatable) |
-| `--model <provider/model>` | Use a specific AI model |
-| `--no-session-persistence` | Use an isolated hidden session for this run only |
-| `--permission-mode <mode>` | Set permission mode (see below) |
-| `--allowedTools <name>` | Allow specific tool (repeatable) |
-| `--disallowedTools <name>` | Deny specific tool (repeatable) |
-| `--dangerously-skip-permissions` | Alias for `--permission-mode bypassPermissions` |
-| `--help, -h` | Show help |
+| Flag                             | Description                                                    |
+| -------------------------------- | -------------------------------------------------------------- |
+| `-p, --print`                    | Non-interactive output (defaults to `dontAsk` permission mode) |
+| `--verbose`                      | Show agent header, tool labels, stats, and trace output        |
+| `--output-format <fmt>`          | Output format: `text` (default), `json`, `stream-json`         |
+| `--usage`                        | Show token usage summary after execution                       |
+| `--attach <path>`                | Attach a file input (repeatable)                               |
+| `--model <provider/model>`       | Use a specific AI model                                        |
+| `--no-session-persistence`       | Use an isolated hidden session for this run only               |
+| `--permission-mode <mode>`       | Set permission mode (see below)                                |
+| `--allowedTools <name>`          | Allow specific tool (repeatable)                               |
+| `--disallowedTools <name>`       | Deny specific tool (repeatable)                                |
+| `--dangerously-skip-permissions` | Alias for `--permission-mode bypassPermissions`                |
+| `--help, -h`                     | Show help                                                      |
 
 **Examples:**
 
@@ -139,11 +142,11 @@ hlvm ask --no-session-persistence "hello"
 
 ### Output Formats
 
-| Format | Description |
-|--------|-------------|
-| `text` | Human-readable streaming text (default) |
-| `json` | Single JSON object with the final result |
-| `stream-json` | Newline-delimited JSON events (NDJSON) |
+| Format        | Description                              |
+| ------------- | ---------------------------------------- |
+| `text`        | Human-readable streaming text (default)  |
+| `json`        | Single JSON object with the final result |
+| `stream-json` | Newline-delimited JSON events (NDJSON)   |
 
 **`stream-json` events:**
 
@@ -161,15 +164,16 @@ hlvm ask --no-session-persistence "hello"
 
 ### Permission Modes
 
-| Mode | L0 (Read) | L1 (Write) | L2 (Destructive) |
-|------|-----------|------------|-------------------|
-| `default` | Auto-approve | Prompt | Prompt |
-| `acceptEdits` | Auto-approve | Auto-approve | Prompt |
-| `plan` | Auto-approve | Prompt after plan | Prompt after plan |
-| `bypassPermissions` | Auto-approve | Auto-approve | Auto-approve |
-| `dontAsk` | Auto-approve | Auto-deny | Auto-deny |
+| Mode                | L0 (Read)    | L1 (Write)        | L2 (Destructive)  |
+| ------------------- | ------------ | ----------------- | ----------------- |
+| `default`           | Auto-approve | Prompt            | Prompt            |
+| `acceptEdits`       | Auto-approve | Auto-approve      | Prompt            |
+| `plan`              | Auto-approve | Prompt after plan | Prompt after plan |
+| `bypassPermissions` | Auto-approve | Auto-approve      | Auto-approve      |
+| `dontAsk`           | Auto-approve | Auto-deny         | Auto-deny         |
 
 **Tool safety levels:**
+
 - **L0**: Safe read-only (`read_file`, `list_files`, `search_code`)
 - **L1**: Mutations (`write_file`, `edit_file`, `shell_exec`)
 - **L2**: High-risk (destructive shell commands, delete operations)
@@ -188,10 +192,10 @@ hlvm chat "<query>"
 
 **Options:**
 
-| Flag | Description |
-|------|-------------|
+| Flag                       | Description             |
+| -------------------------- | ----------------------- |
 | `--model <provider/model>` | Use a specific AI model |
-| `--help, -h` | Show help |
+| `--help, -h`               | Show help               |
 
 **Examples:**
 
@@ -212,14 +216,14 @@ hlvm model [command]
 
 **Subcommands:**
 
-| Command | Description |
-|---------|-------------|
-| _(none)_ | Show current default model and availability |
-| `list` | List all available models (grouped by provider) |
-| `set <name>` | Set default model (persisted to `~/.hlvm/config.json`) |
-| `show <name>` | Show model details (params, capabilities, size) |
-| `pull <name>` | Download a model (Ollama only) |
-| `rm <name>` | Remove a model (Ollama only) |
+| Command       | Description                                            |
+| ------------- | ------------------------------------------------------ |
+| _(none)_      | Show current default model and availability            |
+| `list`        | List all available models (grouped by provider)        |
+| `set <name>`  | Set default model (persisted to `~/.hlvm/config.json`) |
+| `show <name>` | Show model details (params, capabilities, size)        |
+| `pull <name>` | Download a model (Ollama only)                         |
+| `rm <name>`   | Remove a model (Ollama only)                           |
 
 **Examples:**
 
@@ -232,13 +236,15 @@ hlvm model pull ollama/llama3.2:latest             # Download
 hlvm model rm llama3.2:latest                      # Remove
 ```
 
-The `set` command persists to the same config SSOT used by the REPL model picker, `hlvm ask`, and the `ai()` API.
+The `set` command persists to the same config SSOT used by the REPL model
+picker, `hlvm ask`, and the `ai()` API.
 
 ---
 
 ## hlvm ai
 
-> **Hint:** Prefer `hlvm model` for model management. `hlvm ai` commands still work but will show deprecation hints.
+> **Hint:** Prefer `hlvm model` for model management. `hlvm ai` commands still
+> work but will show deprecation hints.
 
 AI model setup and management.
 
@@ -248,14 +254,14 @@ hlvm ai <command>
 
 **Subcommands:**
 
-| Command | Description |
-|---------|-------------|
-| `setup` | Ensure the default model is installed |
-| `pull <model>` | Download a model (Ollama only) |
-| `list` | List installed models |
-| `downloads` | Show active model downloads |
-| `browse` | Interactive model browser (TUI) |
-| `model` | Show current default model |
+| Command        | Description                           |
+| -------------- | ------------------------------------- |
+| `setup`        | Ensure the default model is installed |
+| `pull <model>` | Download a model (Ollama only)        |
+| `list`         | List installed models                 |
+| `downloads`    | Show active model downloads           |
+| `browse`       | Interactive model browser (TUI)       |
+| `model`        | Show current default model            |
 
 **Examples:**
 
@@ -281,12 +287,12 @@ Starts on port **11435**.
 
 **Endpoints:**
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/chat` | Submit chat, eval, or agent turns |
-| `GET` | `/api/chat/messages` | Read active conversation messages |
-| `GET` | `/api/chat/stream` | Subscribe to active conversation updates |
-| `GET` | `/health` | Health check |
+| Method | Path                 | Description                              |
+| ------ | -------------------- | ---------------------------------------- |
+| `POST` | `/api/chat`          | Submit chat, eval, or agent turns        |
+| `GET`  | `/api/chat/messages` | Read active conversation messages        |
+| `GET`  | `/api/chat/stream`   | Subscribe to active conversation updates |
+| `GET`  | `/health`            | Health check                             |
 
 **Examples:**
 
@@ -307,7 +313,9 @@ curl -X POST http://localhost:11435/api/chat \
   -d '{"mode":"chat","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-GUI-visible top-level submission uses `POST /api/chat`. Internal compatibility endpoints may still exist, but they are not part of the public runtime-host contract.
+GUI-visible top-level submission uses `POST /api/chat`. Internal compatibility
+endpoints may still exist, but they are not part of the public runtime-host
+contract.
 
 ---
 
@@ -325,12 +333,13 @@ hlvm hql init [options]
 
 **Options:**
 
-| Flag | Description |
-|------|-------------|
-| `-y, --yes` | Use default values without prompting |
-| `--help, -h` | Show help |
+| Flag         | Description                          |
+| ------------ | ------------------------------------ |
+| `-y, --yes`  | Use default values without prompting |
+| `--help, -h` | Show help                            |
 
 **What gets created:**
+
 - `hql.json` — Package configuration
 - `mod.hql` — Sample code (if doesn't exist)
 - `README.md` — Minimal template (if doesn't exist)
@@ -353,28 +362,28 @@ hlvm hql compile <file.hql> [options]
 
 **Options:**
 
-| Flag | Description |
-|------|-------------|
-| `--target <target>` | Compilation target (default: `js`) |
-| `-o, --output <path>` | Output file path |
-| `--release` | Production build (minified, optimized) |
-| `--no-sourcemap` | Disable source map generation |
-| `--verbose, -v` | Enable verbose logging |
-| `--time` | Show performance timing |
-| `--debug` | Show detailed error info |
-| `--help, -h` | Show help |
+| Flag                  | Description                            |
+| --------------------- | -------------------------------------- |
+| `--target <target>`   | Compilation target (default: `js`)     |
+| `-o, --output <path>` | Output file path                       |
+| `--release`           | Production build (minified, optimized) |
+| `--no-sourcemap`      | Disable source map generation          |
+| `--verbose, -v`       | Enable verbose logging                 |
+| `--time`              | Show performance timing                |
+| `--debug`             | Show detailed error info               |
+| `--help, -h`          | Show help                              |
 
 **Targets:**
 
-| Target | Description |
-|--------|-------------|
-| `js` | JavaScript output (default) |
-| `native` | Binary for current platform |
-| `all` | All platforms |
-| `linux` | Linux x86_64 binary |
-| `macos` | macOS ARM64 binary (M1/M2/M3/M4) |
-| `macos-intel` | macOS x86_64 binary (Intel) |
-| `windows` | Windows x86_64 binary |
+| Target        | Description                      |
+| ------------- | -------------------------------- |
+| `js`          | JavaScript output (default)      |
+| `native`      | Binary for current platform      |
+| `all`         | All platforms                    |
+| `linux`       | Linux x86_64 binary              |
+| `macos`       | macOS ARM64 binary (M1/M2/M3/M4) |
+| `macos-intel` | macOS x86_64 binary (Intel)      |
+| `windows`     | Windows x86_64 binary            |
 
 **Examples:**
 
@@ -398,14 +407,14 @@ hlvm hql publish [file] [options]
 
 **Options:**
 
-| Flag | Description |
-|------|-------------|
+| Flag                    | Description                                              |
+| ----------------------- | -------------------------------------------------------- |
 | `-r, --registry <name>` | Target registry: `jsr`, `npm`, or `all` (default: `all`) |
-| `-v, --version <ver>` | Explicit version (skips auto-bump) |
-| `-y, --yes` | Auto-accept defaults (no prompts) |
-| `--dry-run` | Preview without publishing |
-| `--verbose` | Enable verbose logging |
-| `--help, -h` | Show help |
+| `-v, --version <ver>`   | Explicit version (skips auto-bump)                       |
+| `-y, --yes`             | Auto-accept defaults (no prompts)                        |
+| `--dry-run`             | Preview without publishing                               |
+| `--verbose`             | Enable verbose logging                                   |
+| `--help, -h`            | Show help                                                |
 
 **Examples:**
 
@@ -420,6 +429,7 @@ hlvm hql publish src/lib.hql    # Explicit entry file
 ```
 
 **Workflow:**
+
 1. Checks for `hql.json` (prompts to create if missing)
 2. Auto-bumps patch version (unless `--version` specified)
 3. Builds and publishes to selected registries
@@ -437,19 +447,19 @@ hlvm mcp <command>
 
 **Subcommands:**
 
-| Command | Description |
-|---------|-------------|
-| `add <name> -- <cmd...>` | Add a stdio MCP server |
-| `add <name> --url <url>` | Add an HTTP MCP server |
-| `list` | List configured servers |
-| `remove <name>` | Remove a server |
-| `login <name>` | OAuth authentication for HTTP server |
-| `logout <name>` | Remove stored OAuth token |
+| Command                  | Description                          |
+| ------------------------ | ------------------------------------ |
+| `add <name> -- <cmd...>` | Add a stdio MCP server               |
+| `add <name> --url <url>` | Add an HTTP MCP server               |
+| `list`                   | List configured servers              |
+| `remove <name>`          | Remove a server                      |
+| `login <name>`           | OAuth authentication for HTTP server |
+| `logout <name>`          | Remove stored OAuth token            |
 
 **Options:**
 
-| Flag | Description |
-|------|-------------|
+| Flag              | Description                                  |
+| ----------------- | -------------------------------------------- |
 | `--env KEY=VALUE` | Environment variable (repeatable, for `add`) |
 
 **Examples:**
@@ -468,13 +478,15 @@ hlvm mcp logout notion
 
 ## hlvm ollama
 
-Ollama server forwarding. Starts the local Ollama server.
+Explicit compatibility bridge to a system Ollama installation.
 
 ```
 hlvm ollama serve
 ```
 
-Requires Ollama to be installed on your system. Download from [ollama.ai](https://ollama.ai).
+This command is never used by HLVM's embedded runtime, bootstrap, or
+`--model auto` pipeline. It requires Ollama to be installed on your system.
+Download from [ollama.ai](https://ollama.ai).
 
 ---
 
@@ -488,10 +500,10 @@ hlvm upgrade [options]
 
 **Options:**
 
-| Flag | Description |
-|------|-------------|
+| Flag          | Description                          |
+| ------------- | ------------------------------------ |
 | `-c, --check` | Check for updates without installing |
-| `--help, -h` | Show help |
+| `--help, -h`  | Show help                            |
 
 ---
 
@@ -505,12 +517,13 @@ hlvm uninstall [options]
 
 **Options:**
 
-| Flag | Description |
-|------|-------------|
-| `-y, --yes` | Skip confirmation prompt |
-| `--help, -h` | Show help |
+| Flag         | Description              |
+| ------------ | ------------------------ |
+| `-y, --yes`  | Skip confirmation prompt |
+| `--help, -h` | Show help                |
 
 **What gets removed:**
+
 - `~/.hlvm/bin/hlvm` — The binary
 - `~/.hlvm/` — Config and cache directory
 
@@ -534,30 +547,30 @@ google/gemini-2.0-flash    # Google
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `HLVM_DIR` | Override HLVM config directory (default: `~/.hlvm`) |
-| `HLVM_AGENT_ENGINE` | Select agent engine: `sdk` or `legacy` |
-| `HLVM_DISABLE_AI_AUTOSTART` | Skip default model download |
-| `HLVM_FORCE_SETUP` | Force first-run setup |
-| `HLVM_ASK_FIXTURE_PATH` | Testing fixture path (internal) |
-| `HLVM_REPL_PORT` | Override REPL server port |
+| Variable                    | Description                                         |
+| --------------------------- | --------------------------------------------------- |
+| `HLVM_DIR`                  | Override HLVM config directory (default: `~/.hlvm`) |
+| `HLVM_AGENT_ENGINE`         | Select agent engine: `sdk` or `legacy`              |
+| `HLVM_DISABLE_AI_AUTOSTART` | Skip default model download                         |
+| `HLVM_FORCE_SETUP`          | Force first-run setup                               |
+| `HLVM_ASK_FIXTURE_PATH`     | Testing fixture path (internal)                     |
+| `HLVM_REPL_PORT`            | Override REPL server port                           |
 
 ---
 
 ## Configuration Files
 
-| File | Description |
-|------|-------------|
-| `hql.json` | HQL package metadata (name, version, exports) |
-| `~/.hlvm/` | Global config and cache directory |
-| `.hlvm/prompt.md` | Per-project agent instructions |
+| File              | Description                                   |
+| ----------------- | --------------------------------------------- |
+| `hql.json`        | HQL package metadata (name, version, exports) |
+| `~/.hlvm/`        | Global config and cache directory             |
+| `.hlvm/prompt.md` | Per-project agent instructions                |
 
 ---
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| `0` | Success |
-| `1` | General failure |
+| Code | Meaning         |
+| ---- | --------------- |
+| `0`  | Success         |
+| `1`  | General failure |

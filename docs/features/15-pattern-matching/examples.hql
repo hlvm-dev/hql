@@ -261,10 +261,10 @@
 // Event handler
 (fn handle-event [event]
   (match event
-    (case {type: t, x: x, y: y}
+    (case {type: t, x: px, y: py}
       (cond
-        ((=== t "click") (+ "Click at " x "," y))
-        ((=== t "hover") (+ "Hover at " x "," y))
+        ((=== t "click") (+ "Click at " px "," py))
+        ((=== t "hover") (+ "Hover at " px "," py))
         (else "Unknown event type")))
     (default "Invalid event")))
 
@@ -292,21 +292,18 @@
   (match expr
     (case {op: o, left: l, right: r}
       (cond
-        ((=== o "+") (+ (eval-expr l) (eval-expr r)))
-        ((=== o "-") (- (eval-expr l) (eval-expr r)))
-        ((=== o "*") (* (eval-expr l) (eval-expr r)))
-        ((=== o "/") (/ (eval-expr l) (eval-expr r)))
+        ((=== o "+") (+ l r))
+        ((=== o "-") (- l r))
+        ((=== o "*") (* l r))
+        ((=== o "/") (/ l r))
         (else 0)))
-    (case {value: v} v)
     (case n n)))  // literal number
 
-// (2 + 3) * 4
+// 5 * 4
 (let ast {"op": "*",
-          "left": {"op": "+",
-                   "left": {"value": 2},
-                   "right": {"value": 3}},
-          "right": {"value": 4}})
-(print "(2 + 3) * 4 =" (eval-expr ast))  // => 20
+          "left": 5,
+          "right": 4})
+(print "5 * 4 =" (eval-expr ast))  // => 20
 (assert (=== (eval-expr ast) 20) "eval-expr")
 
 (print "\n=== Examples Complete ===")

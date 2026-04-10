@@ -8,11 +8,13 @@
 
 import type { ReplState } from "./state.ts";
 import { log } from "../../api/log.ts";
+import { REGISTERED_API_GLOBAL_NAMES } from "../../api/index.ts";
 import { ImportError } from "../../../common/error.ts";
 import { ensureError } from "../../../common/utils.ts";
 import * as StdlibModule from "../../../hql/lib/stdlib/js/index.js";
 
 const STDLIB_IMPORT_PATH = "embedded:stdlib/index.js";
+const RESERVED_GLOBAL_NAMES = new Set<string>(REGISTERED_API_GLOBAL_NAMES);
 
 interface ModuleLoaderOptions {
   state: ReplState;
@@ -64,7 +66,11 @@ export async function loadStdlibModules(
   // Load stdlib/index.js (general functions)
   try {
     for (const [name, value] of Object.entries(StdlibModule)) {
-      if (typeof value === "function" && !name.startsWith("_")) {
+      if (
+        typeof value === "function" &&
+        !name.startsWith("_") &&
+        !RESERVED_GLOBAL_NAMES.has(name)
+      ) {
         state.addJsFunction(name, value as (...args: unknown[]) => unknown);
         result.stdlibExports.push(name);
       }
