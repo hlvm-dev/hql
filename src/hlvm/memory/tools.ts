@@ -11,6 +11,13 @@ import { retrieveMemory } from "./retrieve.ts";
 import { type ModelTier } from "../agent/constants.ts";
 import { writeMemoryFact } from "./pipeline.ts";
 
+function assertToolArgs(args: unknown, toolName: string): Record<string, unknown> {
+  if (!isToolArgsObject(args)) {
+    throw new ValidationError("args must be an object", toolName);
+  }
+  return args as Record<string, unknown>;
+}
+
 let _memoryModelTier: ModelTier = "standard";
 
 export function setMemoryModelTier(tier: ModelTier): void {
@@ -23,11 +30,7 @@ export function _resetMemoryModelTierForTests(): void {
 }
 
 async function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
-  if (!isToolArgsObject(args)) {
-    throw new ValidationError("args must be an object", "memory_write");
-  }
-
-  const record = args as Record<string, unknown>;
+  const record = assertToolArgs(args, "memory_write");
   const content = record.content;
   if (typeof content !== "string" || content.trim() === "") {
     throw new ValidationError("content is required", "memory_write");
@@ -66,11 +69,7 @@ async function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
 }
 
 function memorySearch(args: unknown): Promise<Record<string, unknown>> {
-  if (!isToolArgsObject(args)) {
-    throw new ValidationError("args must be an object", "memory_search");
-  }
-
-  const record = args as Record<string, unknown>;
+  const record = assertToolArgs(args, "memory_search");
   const query = record.query;
   if (typeof query !== "string" || query.trim() === "") {
     throw new ValidationError("query is required", "memory_search");
@@ -94,11 +93,7 @@ function memorySearch(args: unknown): Promise<Record<string, unknown>> {
 }
 
 async function memoryEdit(args: unknown): Promise<Record<string, unknown>> {
-  if (!isToolArgsObject(args)) {
-    throw new ValidationError("args must be an object", "memory_edit");
-  }
-
-  const record = args as Record<string, unknown>;
+  const record = assertToolArgs(args, "memory_edit");
   const action = record.action;
 
   if (action === "delete_section") {

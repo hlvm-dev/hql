@@ -23,13 +23,13 @@ import type { AgentUIEvent } from "../../src/hlvm/agent/orchestrator.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import {
   runSourceAgentWithCompatibleModel,
-  withTemporaryWorkspace,
+  withFullyIsolatedEnv,
 } from "./native-provider-smoke-helpers.ts";
 
 const platform = getPlatform();
 const ENABLED = platform.env.get("HLVM_E2E_GENERAL_PURPOSE") === "1";
 const CASE_FILTER = platform.env.get("HLVM_E2E_GP_CASE")?.trim() ?? "";
-const TIMEOUT_MS = 300_000;
+const TIMEOUT_MS = 600_000;
 
 const DEFAULT_MODEL_CANDIDATES = [
   "claude-code/claude-haiku-4-5-20251001",
@@ -390,7 +390,31 @@ const CASES: GeneralPurposeCase[] = [
     ],
   },
 
-  // ── Case 9: Open a file should use open_path, not shell open ──
+  // ── Case 9: Edit a note should use edit_file, not shell text munging ──
+  {
+    id: "edit_local_note",
+    description:
+      "Agent should use edit_file to update a local note in place, not shell sed/perl/python",
+    query:
+      "In agenda.txt, replace 'Tuesday' with 'Wednesday' and keep everything else the same.",
+    fixtures: {
+      "agenda.txt": "Team lunch on Tuesday.\nBring the updated slides.\n",
+    },
+    toolAllowlist: [
+      "edit_file",
+      "read_file",
+      "list_files",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => [
+      ...expectToolsUsed(result, ["edit_file"]),
+      ...expectNoShellFor(result, [/\bsed\b/i, /\bperl\b/i, /\bpython\b/i]),
+      ...expectTextContains(result.text, ["Wednesday"]),
+    ],
+  },
+
+  // ── Case 10: Open a file should use open_path, not shell open ──
   {
     id: "open_file",
     description:
@@ -415,7 +439,7 @@ const CASES: GeneralPurposeCase[] = [
     ],
   },
 
-  // ── Case 10: File metadata should use file_metadata, not shell stat ──
+  // ── Case 11: File metadata should use file_metadata, not shell stat ──
   {
     id: "check_file_sizes",
     description:
@@ -441,7 +465,7 @@ const CASES: GeneralPurposeCase[] = [
     ],
   },
 
-  // ── Case 11: Folder organization should use make_directory + move_path ──
+  // ── Case 12: Folder organization should use make_directory + move_path ──
   {
     id: "organize_file_into_folder",
     description:
@@ -464,7 +488,29 @@ const CASES: GeneralPurposeCase[] = [
     ],
   },
 
-  // ── Case 12: Copying should use copy_path, not shell cp ──
+  // ── Case 13: Rename should use move_path, not shell mv ──
+  {
+    id: "rename_file",
+    description:
+      "Agent should use move_path to rename a file, not shell_exec mv",
+    query: "Rename draft.txt to final.txt in this folder.",
+    fixtures: {
+      "draft.txt": "working draft",
+    },
+    toolAllowlist: [
+      "move_path",
+      "list_files",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => [
+      ...expectToolsUsed(result, ["move_path"]),
+      ...expectToolsNotUsed(result, ["shell_exec"]),
+      ...expectTextContains(result.text, ["final.txt"]),
+    ],
+  },
+
+  // ── Case 14: Copying should use copy_path, not shell cp ──
   {
     id: "copy_file_backup",
     description:
@@ -487,7 +533,54 @@ const CASES: GeneralPurposeCase[] = [
     ],
   },
 
-  // ── Case 13: Multi-step cleanup reasoning ──
+  // ── Case 15: Directory copy should use copy_path recursively ──
+  {
+    id: "copy_folder_backup",
+    description:
+      "Agent should copy a folder tree with copy_path, not shell_exec cp -R",
+    query: "Copy the folder assets to assets-backup in this workspace.",
+    fixtures: {
+      "assets/logo.txt": "brand asset",
+      "assets/icons/icon-a.txt": "icon asset",
+    },
+    toolAllowlist: [
+      "copy_path",
+      "list_files",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => [
+      ...expectToolsUsed(result, ["copy_path"]),
+      ...expectNoShellFor(result, [/\bcp\b/i, /\brsync\b/i]),
+      ...expectTextContains(result.text, ["assets-backup"]),
+    ],
+  },
+
+  // ── Case 16: Archiving should use archive_files, not shell zip/tar ──
+  {
+    id: "archive_selected_files",
+    description:
+      "Agent should create an archive with archive_files, not shell zip/tar",
+    query:
+      "Create a zip archive called project-bundle.zip that contains notes.txt and report.txt.",
+    fixtures: {
+      "notes.txt": "meeting notes",
+      "report.txt": "quarterly report",
+    },
+    toolAllowlist: [
+      "archive_files",
+      "list_files",
+      "shell_exec",
+      "ask_user",
+    ],
+    validate: (result) => [
+      ...expectToolsUsed(result, ["archive_files"]),
+      ...expectNoShellFor(result, [/\bzip\b/i, /\btar\b/i]),
+      ...expectTextContains(result.text, ["project-bundle.zip"]),
+    ],
+  },
+
+  // ── Case 17: Multi-step cleanup reasoning ──
   {
     id: "selective_cleanup",
     description:
@@ -552,7 +645,7 @@ Deno.test({
     const failures: string[] = [];
 
     try {
-      await withTemporaryWorkspace(async (workspace) => {
+      await withFullyIsolatedEnv(async (workspace) => {
         for (const testCase of ACTIVE_CASES) {
           // Set up workspace fixtures
           if (testCase.fixtures) {
@@ -609,15 +702,16 @@ Deno.test({
             );
           }
 
-          // Clean up fixtures for next case
-          if (testCase.fixtures) {
-            for (const name of Object.keys(testCase.fixtures)) {
-              try {
-                await platform.fs.remove(`${workspace}/${name}`);
-              } catch {
-                // Best-effort cleanup only.
-              }
+          // Clean workspace completely between cases (remove all files/dirs)
+          try {
+            for await (const entry of platform.fs.readDir(workspace)) {
+              await platform.fs.remove(
+                `${workspace}/${entry.name}`,
+                { recursive: true },
+              );
             }
+          } catch {
+            // Best-effort cleanup only.
           }
         }
       });

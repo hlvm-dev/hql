@@ -127,21 +127,28 @@ export function linkFactEntities(factId: number, text: string): number {
       );
     }
 
-    // Link co-occurring entities to each other
+    // Link co-occurring entities to each other (batched to avoid O(n²) individual INSERTs)
+    const pairs: Array<[number, number]> = [];
     for (let i = 0; i < entityIds.length; i++) {
       for (let j = i + 1; j < entityIds.length; j++) {
-        insertRel.run(
-          entityIds[i],
-          entityIds[j],
-          "co_occurs",
-          factId,
-          today,
-          entityIds[i],
-          entityIds[j],
-          "co_occurs",
-          factId,
-        );
+        pairs.push([entityIds[i], entityIds[j]]);
       }
+    }
+    const BATCH_SIZE = 50;
+    for (let offset = 0; offset < pairs.length; offset += BATCH_SIZE) {
+      const batch = pairs.slice(offset, offset + BATCH_SIZE);
+      const placeholders = batch.map(() =>
+        `SELECT ?, ?, 'co_occurs', ?, ? WHERE NOT EXISTS (
+           SELECT 1 FROM relationships
+           WHERE from_entity = ? AND to_entity = ? AND relation = 'co_occurs'
+             AND fact_id = ? AND valid_until IS NULL
+         )`
+      ).join(" UNION ALL ");
+      const params: Array<number | string> = [];
+      for (const [a, b] of batch) {
+        params.push(a, b, factId, today, a, b, factId);
+      }
+      db.prepare(`INSERT INTO relationships(from_entity, to_entity, relation, fact_id, valid_from) ${placeholders}`).run(...params);
     }
 
     return entityIds.length;

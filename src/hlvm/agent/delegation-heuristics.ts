@@ -11,9 +11,10 @@ export interface DelegationSignal {
 async function requestLooksLikeBrowserAutomation(
   request: string,
 ): Promise<boolean> {
-  // Structural short-circuits: tool names and URLs are not semantic
+  // Structural short-circuits: tool names, URLs, and browser-intent phrases
   if (/\b(?:pw|cu)_(?:\*|[a-z0-9_]+)(?![a-z0-9_])/i.test(request)) return true;
   if (/\bhttps?:\/\/|\bwww\./i.test(request)) return true;
+  if (/\b(?:go to|open|navigate to|visit|browse)\b.*\b\w+\.\w{2,}\b/i.test(request)) return true;
 
   const { classifyBrowserAutomation } = await import(
     "../runtime/local-llm.ts"

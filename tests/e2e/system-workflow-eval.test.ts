@@ -22,7 +22,7 @@ import type { AgentUIEvent } from "../../src/hlvm/agent/orchestrator.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import {
   runSourceAgentWithCompatibleModel,
-  withTemporaryWorkspace,
+  withFullyIsolatedEnv,
 } from "./native-provider-smoke-helpers.ts";
 
 const platform = getPlatform();
@@ -213,7 +213,7 @@ Deno.test({
     const failures: string[] = [];
 
     try {
-      await withTemporaryWorkspace(async (workspace) => {
+      await withFullyIsolatedEnv(async (workspace) => {
         for (const testCase of ACTIVE_CASES) {
           const events: AgentUIEvent[] = [];
           let caseModel = "(none)";

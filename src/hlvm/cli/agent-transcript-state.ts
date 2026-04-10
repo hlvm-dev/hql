@@ -475,6 +475,33 @@ function findMatchingRunningToolIndex(
   );
 }
 
+/** Resolve a tool event to its group and tool index, or null if not found. */
+function resolveToolInGroup(
+  items: ConversationItem[],
+  event: { toolCallId?: string; name: string; argsSummary: string },
+): { groupIdx: number; groupItem: ToolGroupItem; resolvedIdx: number } | null {
+  const groupIdx = items.findLastIndex((item) =>
+    item.type === "tool_group" &&
+    findMatchingRunningToolIndex(
+      item.tools,
+      event.toolCallId,
+      event.name,
+      event.argsSummary,
+    ) >= 0
+  );
+  if (groupIdx < 0) return null;
+  const groupItem = items[groupIdx];
+  if (groupItem.type !== "tool_group") return null;
+  const resolvedIdx = findMatchingRunningToolIndex(
+    groupItem.tools,
+    event.toolCallId,
+    event.name,
+    event.argsSummary,
+  );
+  if (resolvedIdx < 0) return null;
+  return { groupIdx, groupItem, resolvedIdx };
+}
+
 function buildActiveToolDisplay(
   tool: Pick<
     ToolCallDisplay,
@@ -905,25 +932,9 @@ export function reduceTranscriptState(
         case "tool_progress": {
           if (event.name === "delegate_agent") return state;
           if (event.name.startsWith("memory_")) return state;
-          const groupIdx = state.items.findLastIndex((item) =>
-            item.type === "tool_group" &&
-            findMatchingRunningToolIndex(
-                item.tools,
-                event.toolCallId,
-                event.name,
-                event.argsSummary,
-              ) >= 0
-          );
-          if (groupIdx < 0) return state;
-          const groupItem = state.items[groupIdx];
-          if (groupItem.type !== "tool_group") return state;
-          const resolvedIdx = findMatchingRunningToolIndex(
-            groupItem.tools,
-            event.toolCallId,
-            event.name,
-            event.argsSummary,
-          );
-          if (resolvedIdx < 0) return state;
+          const match = resolveToolInGroup(state.items, event);
+          if (!match) return state;
+          const { groupIdx, groupItem, resolvedIdx } = match;
 
           const formattedProgress = resolveToolTranscriptProgress(
             event.name,
@@ -949,25 +960,9 @@ export function reduceTranscriptState(
         case "tool_end": {
           if (event.name === "delegate_agent") return state;
           if (event.name.startsWith("memory_")) return state;
-          const groupIdx = state.items.findLastIndex((item) =>
-            item.type === "tool_group" &&
-            findMatchingRunningToolIndex(
-                item.tools,
-                event.toolCallId,
-                event.name,
-                event.argsSummary,
-              ) >= 0
-          );
-          if (groupIdx < 0) return state;
-          const groupItem = state.items[groupIdx];
-          if (groupItem.type !== "tool_group") return state;
-          const resolvedIdx = findMatchingRunningToolIndex(
-            groupItem.tools,
-            event.toolCallId,
-            event.name,
-            event.argsSummary,
-          );
-          if (resolvedIdx < 0) return state;
+          const match = resolveToolInGroup(state.items, event);
+          if (!match) return state;
+          const { groupIdx, groupItem, resolvedIdx } = match;
 
           const nextTools = [...groupItem.tools];
           const transcriptResult = resolveToolTranscriptResult(event.name, {

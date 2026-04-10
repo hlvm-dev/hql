@@ -80,9 +80,7 @@ function readState(): FixtureState {
     const raw = getPlatform().fs.readTextFileSync(statePath);
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return {
-      generation: typeof parsed.generation === "number"
-        ? parsed.generation
-        : 0,
+      generation: typeof parsed.generation === "number" ? parsed.generation : 0,
       disconnectDone: parsed.disconnectDone === true,
     };
   } catch {
@@ -119,6 +117,71 @@ function currentDynamicToolNames(): string[] {
     return ["echo", "stable_echo"];
   }
   return ["reverse", "stable_echo"];
+}
+
+function getProductivityTools(): Array<Record<string, unknown>> {
+  if (!hasMode("productivity_tools")) return [];
+  return [
+    {
+      name: "gmail_create_draft",
+      description:
+        "Create a test-only email draft. Use this for drafting follow-up messages without sending anything.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Recipient email address" },
+          subject: { type: "string", description: "Draft subject line" },
+          body: { type: "string", description: "Draft body content" },
+          cc: { type: "string", description: "Optional CC recipients" },
+          bcc: { type: "string", description: "Optional BCC recipients" },
+        },
+        required: ["to", "subject", "body"],
+      },
+    },
+    {
+      name: "calendar_create_event",
+      description:
+        "Create a test-only calendar event with a title, start/end time, and optional attendees or notes.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Event title" },
+          start: {
+            type: "string",
+            description: "Start timestamp or date/time string",
+          },
+          end: {
+            type: "string",
+            description: "End timestamp or date/time string",
+          },
+          attendees: {
+            type: "array",
+            description: "Optional attendee email addresses",
+            items: { type: "string" },
+          },
+          notes: {
+            type: "string",
+            description: "Optional event notes or agenda",
+          },
+        },
+        required: ["title", "start", "end"],
+      },
+    },
+    {
+      name: "reminders_create_item",
+      description:
+        "Create a test-only reminder with a title and optional due time or notes.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Reminder title" },
+          due_at: { type: "string", description: "Optional due time" },
+          notes: { type: "string", description: "Optional reminder notes" },
+        },
+        required: ["title"],
+      },
+    },
+  ];
 }
 
 function shouldDisconnect(requestMethod: string): boolean {
@@ -327,7 +390,9 @@ function handleRequest(request: {
         tools.push({
           name: "echo",
           description: hasMode("long_description")
-            ? `${"Echo back the input. ".repeat(200)}\u0000\u0007zalgo\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301`
+            ? `${
+              "Echo back the input. ".repeat(200)
+            }\u0000\u0007zalgo\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301\u0301`
             : "Echo back the input",
           inputSchema: {
             type: "object",
@@ -364,7 +429,7 @@ function handleRequest(request: {
     write({
       jsonrpc: "2.0",
       id: request.id,
-      result: { tools },
+      result: { tools: [...tools, ...getProductivityTools()] },
     });
     return;
   }
@@ -394,7 +459,10 @@ function handleRequest(request: {
         jsonrpc: "2.0",
         id: request.id,
         result: {
-          content: [{ type: "text", text: `Transcription: [test content — format: ${format}]` }],
+          content: [{
+            type: "text",
+            text: `Transcription: [test content — format: ${format}]`,
+          }],
         },
       };
       if (toolDelayMs > 0) {
@@ -412,7 +480,10 @@ function handleRequest(request: {
         jsonrpc: "2.0",
         id: request.id,
         result: {
-          content: [{ type: "text", text: `Action completed: ${action} on '${selector}'` }],
+          content: [{
+            type: "text",
+            text: `Action completed: ${action} on '${selector}'`,
+          }],
         },
       };
       if (toolDelayMs > 0) {
@@ -426,7 +497,9 @@ function handleRequest(request: {
     if (toolName === "structured_generate") {
       // Generate response using schema keys (proves input reaches handler)
       const schema = args?.schema as Record<string, unknown> | undefined;
-      const properties = schema?.properties as Record<string, Record<string, unknown>> | undefined;
+      const properties = schema?.properties as
+        | Record<string, Record<string, unknown>>
+        | undefined;
       const result: Record<string, unknown> = {};
       if (properties) {
         for (const [key, propSchema] of Object.entries(properties)) {
@@ -462,7 +535,9 @@ function handleRequest(request: {
       const response = {
         jsonrpc: "2.0",
         id: request.id,
-        result: { content: [{ type: "text", text: text.split("").reverse().join("") }] },
+        result: {
+          content: [{ type: "text", text: text.split("").reverse().join("") }],
+        },
       };
       if (toolDelayMs > 0) {
         setTimeout(() => write(response), toolDelayMs);
@@ -491,6 +566,81 @@ function handleRequest(request: {
       return;
     }
 
+    if (toolName === "gmail_create_draft") {
+      const to = String(args?.to ?? "");
+      const subject = String(args?.subject ?? "");
+      const body = String(args?.body ?? "");
+      const cc = typeof args?.cc === "string" ? args.cc : "";
+      const bcc = typeof args?.bcc === "string" ? args.bcc : "";
+      const response = {
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          content: [{
+            type: "text",
+            text:
+              `Draft created (test only): to=${to}; subject=${subject}; cc=${cc}; bcc=${bcc}; body=${body}`,
+          }],
+        },
+      };
+      if (toolDelayMs > 0) {
+        setTimeout(() => write(response), toolDelayMs);
+      } else {
+        write(response);
+      }
+      return;
+    }
+
+    if (toolName === "calendar_create_event") {
+      const title = String(args?.title ?? "");
+      const start = String(args?.start ?? "");
+      const end = String(args?.end ?? "");
+      const notes = typeof args?.notes === "string" ? args.notes : "";
+      const attendees = Array.isArray(args?.attendees)
+        ? args.attendees.map((value) => String(value)).join(", ")
+        : "";
+      const response = {
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          content: [{
+            type: "text",
+            text:
+              `Event created (test only): title=${title}; start=${start}; end=${end}; attendees=${attendees}; notes=${notes}`,
+          }],
+        },
+      };
+      if (toolDelayMs > 0) {
+        setTimeout(() => write(response), toolDelayMs);
+      } else {
+        write(response);
+      }
+      return;
+    }
+
+    if (toolName === "reminders_create_item") {
+      const title = String(args?.title ?? "");
+      const dueAt = typeof args?.due_at === "string" ? args.due_at : "";
+      const notes = typeof args?.notes === "string" ? args.notes : "";
+      const response = {
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          content: [{
+            type: "text",
+            text:
+              `Reminder created (test only): title=${title}; due_at=${dueAt}; notes=${notes}`,
+          }],
+        },
+      };
+      if (toolDelayMs > 0) {
+        setTimeout(() => write(response), toolDelayMs);
+      } else {
+        write(response);
+      }
+      return;
+    }
+
     const response = {
       jsonrpc: "2.0",
       id: request.id,
@@ -506,7 +656,10 @@ function handleRequest(request: {
           ],
         }
         : {
-          content: [{ type: "text", text: `${replyPrefix}${args?.message ?? ""}` }],
+          content: [{
+            type: "text",
+            text: `${replyPrefix}${args?.message ?? ""}`,
+          }],
         },
     };
     if (toolDelayMs > 0) {

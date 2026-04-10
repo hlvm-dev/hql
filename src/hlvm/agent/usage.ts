@@ -43,56 +43,28 @@ interface ModelPrice {
   outputUsdPerMillion: number;
 }
 
+/** Model pricing table — order matters: first match wins (most-specific first). */
+const MODEL_PRICING: Array<[substring: string, price: ModelPrice]> = [
+  ["claude-haiku-4-5", { inputUsdPerMillion: 1, outputUsdPerMillion: 5 }],
+  ["claude-haiku", { inputUsdPerMillion: 0.8, outputUsdPerMillion: 4 }],
+  ["claude-opus-4-5", { inputUsdPerMillion: 5, outputUsdPerMillion: 25 }],
+  ["claude-opus-4-6", { inputUsdPerMillion: 5, outputUsdPerMillion: 25 }],
+  ["claude-opus", { inputUsdPerMillion: 15, outputUsdPerMillion: 75 }],
+  ["claude-sonnet", { inputUsdPerMillion: 3, outputUsdPerMillion: 15 }],
+  ["gemini-2.5-pro", { inputUsdPerMillion: 1.25, outputUsdPerMillion: 10 }],
+  ["gemini-2.5-flash-lite", { inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.4 }],
+  ["gemini-2.5-flash", { inputUsdPerMillion: 0.3, outputUsdPerMillion: 2.5 }],
+  ["gemini-2.0-flash", { inputUsdPerMillion: 0.3, outputUsdPerMillion: 2.5 }],
+  ["o4-mini", { inputUsdPerMillion: 1.1, outputUsdPerMillion: 4.4 }],
+  ["o3", { inputUsdPerMillion: 2, outputUsdPerMillion: 8 }],
+  ["gpt-5-mini", { inputUsdPerMillion: 0.25, outputUsdPerMillion: 2 }],
+  ["gpt-5", { inputUsdPerMillion: 1.25, outputUsdPerMillion: 10 }],
+];
+
 function resolveModelPrice(modelId?: string): ModelPrice | undefined {
   const normalized = modelId?.toLowerCase().trim();
   if (!normalized) return undefined;
-
-  if (normalized.includes("claude-haiku-4-5")) {
-    return { inputUsdPerMillion: 1, outputUsdPerMillion: 5 };
-  }
-  if (normalized.includes("claude-haiku")) {
-    return { inputUsdPerMillion: 0.8, outputUsdPerMillion: 4 };
-  }
-  if (
-    normalized.includes("claude-opus-4-5") ||
-    normalized.includes("claude-opus-4-6")
-  ) {
-    return { inputUsdPerMillion: 5, outputUsdPerMillion: 25 };
-  }
-  if (normalized.includes("claude-opus")) {
-    return { inputUsdPerMillion: 15, outputUsdPerMillion: 75 };
-  }
-  if (normalized.includes("claude-sonnet")) {
-    return { inputUsdPerMillion: 3, outputUsdPerMillion: 15 };
-  }
-
-  if (normalized.includes("gemini-2.5-pro")) {
-    return { inputUsdPerMillion: 1.25, outputUsdPerMillion: 10 };
-  }
-  if (normalized.includes("gemini-2.5-flash-lite")) {
-    return { inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.4 };
-  }
-  if (
-    normalized.includes("gemini-2.5-flash") ||
-    normalized.includes("gemini-2.0-flash")
-  ) {
-    return { inputUsdPerMillion: 0.3, outputUsdPerMillion: 2.5 };
-  }
-
-  if (normalized.includes("o4-mini")) {
-    return { inputUsdPerMillion: 1.1, outputUsdPerMillion: 4.4 };
-  }
-  if (normalized.includes("o3")) {
-    return { inputUsdPerMillion: 2, outputUsdPerMillion: 8 };
-  }
-  if (normalized.includes("gpt-5-mini")) {
-    return { inputUsdPerMillion: 0.25, outputUsdPerMillion: 2 };
-  }
-  if (normalized.includes("gpt-5")) {
-    return { inputUsdPerMillion: 1.25, outputUsdPerMillion: 10 };
-  }
-
-  return undefined;
+  return MODEL_PRICING.find(([key]) => normalized.includes(key))?.[1];
 }
 
 export function estimateUsageCostUsd(

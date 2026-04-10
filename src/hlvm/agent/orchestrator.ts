@@ -816,7 +816,18 @@ const COMPLETE_TOOLS = new Set([
   "git_diff",
   "git_status",
 ]);
-const DELEGATE_TOOLS = new Set(["delegate_agent", "batch_delegate"]);
+const DELEGATE_TOOLS = new Set([
+  "delegate_agent",
+  "batch_delegate",
+  "team_create",
+  "team_task",
+  "team_inbox",
+  "Teammate",
+  "SendMessage",
+  "TaskCreate",
+  "TaskUpdate",
+  "TaskList",
+]);
 const READ_TOOLS = new Set([
   "read_file",
   "search_code",
@@ -837,11 +848,7 @@ async function deriveRuntimePhase(
   for (const name of state.lastToolNames) {
     if (WRITE_TOOLS.has(name)) hasWrite = true;
     else if (COMPLETE_TOOLS.has(name)) hasComplete = true;
-    else if (
-      DELEGATE_TOOLS.has(name) || name.startsWith("team_") ||
-      name === "Teammate" || name === "SendMessage" ||
-      name === "TaskCreate" || name === "TaskUpdate" || name === "TaskList"
-    ) {
+    else if (DELEGATE_TOOLS.has(name) || name.startsWith("team_")) {
       hasDelegate = true;
     } else if (READ_TOOLS.has(name)) hasRead = true;
   }

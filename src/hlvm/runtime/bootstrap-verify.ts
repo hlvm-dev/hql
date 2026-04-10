@@ -87,10 +87,7 @@ export async function verifyBootstrap(): Promise<BootstrapVerificationResult> {
       const hash = await hashFile(manifest.engine.path);
       engineOk = hash === manifest.engine.hash;
       if (!engineOk) {
-        log.debug?.(
-          "Engine hash mismatch — expected " +
-            manifest.engine.hash + ", got " + hash,
-        );
+        log.debug?.(`Engine hash mismatch — expected ${manifest.engine.hash}, got ${hash}`);
       }
     } catch (err) {
       log.debug?.(`Engine hash check failed: ${(err as Error).message}`);

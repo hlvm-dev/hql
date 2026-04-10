@@ -105,13 +105,6 @@ export function getProvider(
   return entry.factory(mergedConfig);
 }
 
-/** Get the registered capabilities for a provider, or null if not registered. */
-export function getProviderCapabilities(name: string): ProviderCapability[] | null {
-  const key = normalizeProviderName(name);
-  const entry = providers.get(key);
-  return entry?.capabilities ?? null;
-}
-
 /**
  * Get the default provider
  */

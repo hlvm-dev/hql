@@ -1,18 +1,18 @@
-import {
-  assert,
-  assertEquals,
-  assertExists,
-} from "jsr:@std/assert";
+import { assert, assertEquals, assertExists } from "jsr:@std/assert";
 import { runAgentQuery } from "../../src/hlvm/agent/agent-runner.ts";
-import type { AgentUIEvent, TraceEvent } from "../../src/hlvm/agent/orchestrator.ts";
+import type {
+  AgentUIEvent,
+  TraceEvent,
+} from "../../src/hlvm/agent/orchestrator.ts";
 import type { AgentExecutionMode } from "../../src/hlvm/agent/execution-mode.ts";
 import type { ConversationAttachmentPayload } from "../../src/hlvm/attachments/types.ts";
-import {
-  runChatViaHost,
-} from "../../src/hlvm/runtime/host-client.ts";
+import { runChatViaHost } from "../../src/hlvm/runtime/host-client.ts";
 import type { ChatRequestMessage } from "../../src/hlvm/runtime/chat-protocol.ts";
 import type { HostHealthResponse } from "../../src/hlvm/runtime/chat-protocol.ts";
-import { resetHlvmDirCacheForTests } from "../../src/common/paths.ts";
+import {
+  resetHlvmDirCacheForTests,
+  setClaudeCodeMcpDirForTests,
+} from "../../src/common/paths.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import type { PlatformCommandProcess } from "../../src/platform/types.ts";
 import {
@@ -321,6 +321,9 @@ export async function runSourceAgentWithCompatibleModel(options: {
         toolDenylist: options.toolDenylist,
         callbacks: options.callbacks,
       });
+      if (result.text.trim().length === 0) {
+        throw new Error(`Model '${model}' returned an empty response.`);
+      }
       return { model, result };
     } catch (error) {
       lastError = error;
@@ -351,7 +354,9 @@ export async function withIsolatedEnv(
         try {
           await fn(workspace);
         } finally {
-          if (explicitlyStartedRuntimeBaseUrl || explicitlyStartedRuntimeProcess) {
+          if (
+            explicitlyStartedRuntimeBaseUrl || explicitlyStartedRuntimeProcess
+          ) {
             await stopExplicitlyStartedRuntimeHost();
           }
         }
@@ -370,6 +375,27 @@ export async function withIsolatedEnv(
       }
     }
   }
+}
+
+export async function withFullyIsolatedEnv(
+  fn: (workspace: string) => Promise<void>,
+): Promise<void> {
+  await withIsolatedEnv(async (workspace) => {
+    const emptyClaudeMcpDir = await platform.fs.makeTempDir({
+      prefix: "hlvm-empty-claude-mcp-",
+    });
+    try {
+      setClaudeCodeMcpDirForTests(emptyClaudeMcpDir);
+      await fn(workspace);
+    } finally {
+      setClaudeCodeMcpDirForTests(null);
+      try {
+        await platform.fs.remove(emptyClaudeMcpDir, { recursive: true });
+      } catch {
+        // Best-effort temp cleanup only.
+      }
+    }
+  });
 }
 
 export async function withTemporaryWorkspace(
@@ -448,7 +474,6 @@ export function assertHasProviderCitations(result: SmokeRunResult): void {
     }`,
   );
 }
-
 
 export function makeInlineImageAttachment(
   color: "red" | "blue" = "red",
