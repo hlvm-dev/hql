@@ -29,7 +29,7 @@ be replaced")
 - `cu_clipboard_read`, `cu_clipboard_write`
 - `cu_get_frontmost_app`
 
-**V2 (current):** 22 tools matching CC's `computer_20250124` Anthropic SDK spec
+**V2.5 (current):** 25 CU tools: the 22-tool CC-style `computer_20250124` base plus HLVM observation-first additions (`cu_observe`, `cu_click_target`, `cu_type_into_target`)
 
 - All parameter names match SDK: `coordinate: [x,y]`, `scroll_direction`,
   `region: [x1,y1,x2,y2]`
@@ -57,7 +57,7 @@ be replaced")
 
 | Aspect                                 | Status                 |
 | -------------------------------------- | ---------------------- |
-| Tool count (22)                        | Match                  |
+| Tool count (22 base + 3 HLVM extras)   | Extended               |
 | Parameter names (SDK spec)             | Match                  |
 | Result summaries (toolRendering.tsx)   | Identical              |
 | `type` viaClipboard default            | Match (hardcoded true) |
@@ -397,7 +397,7 @@ development platform.
 
 - **Any vision-capable LLM works**: Claude, GPT-4o, Gemini, local models with
   vision (llava, etc.)
-- CC is locked to Claude; HLVM uses the same 22 tools with swappable brain
+- CC is locked to Claude; HLVM uses the same 22-tool base plus grounded observation extras with a swappable brain
 - Test with:
   `./hlvm ask --model claude-code/claude-haiku-4-5-20251001 --dangerously-skip-permissions "take a screenshot"`
 

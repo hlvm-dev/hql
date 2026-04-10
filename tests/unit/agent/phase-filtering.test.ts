@@ -11,6 +11,11 @@ import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
 import { UsageTracker } from "../../../src/hlvm/agent/usage.ts";
 
+type TestOrchestratorConfig = OrchestratorConfig & {
+  toolFilterState?: { allowlist?: string[]; denylist?: string[] };
+  toolFilterBaseline?: { allowlist?: string[]; denylist?: string[] };
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -76,8 +81,8 @@ function cleanupTestTools(): void {
 }
 
 function makeConfig(
-  overrides: Partial<OrchestratorConfig> = {},
-): OrchestratorConfig {
+  overrides: Partial<TestOrchestratorConfig> = {},
+): TestOrchestratorConfig {
   return {
     workspace: "/tmp/phase-test",
     context: new ContextManager({ maxTokens: 4096 }),
@@ -124,10 +129,40 @@ Deno.test("applyAdaptiveToolPhase applies filtering for constrained-tier models"
   registerTestTool(`${testToolPrefix}write`, "write");
   try {
     const state = makeLoopState({ lastToolNames: [] });
-    const config = makeConfig({ modelTier: "constrained" });
+    const config = makeConfig({
+      modelTier: "constrained",
+      toolAllowlist: [`${testToolPrefix}read`, `${testToolPrefix}write`],
+    });
     await applyAdaptiveToolPhase(state, config, "read the file");
     // For constrained models, phase filtering IS applied — allowlist gets populated.
     assertEquals(Array.isArray(config.toolFilterState?.allowlist), true);
+  } finally {
+    cleanupTestTools();
+  }
+});
+
+Deno.test("applyAdaptiveToolPhase decrements and expires the temporary Playwright denylist across turns", async () => {
+  registerTestTool(`${testToolPrefix}read`, "read");
+  try {
+    const state = makeLoopState({
+      playwright: {
+        repeatFailureCount: 0,
+        repeatVisualLoopCount: 0,
+        notifiedVisualLoop: false,
+        finalAnswerRetries: 0,
+        temporaryToolDenylist: new Map([["pw_click", 2]]),
+      },
+    });
+    const config = makeConfig({
+      modelTier: "constrained",
+      toolAllowlist: [`${testToolPrefix}read`, "pw_click"],
+    });
+
+    await applyAdaptiveToolPhase(state, config, "read the file");
+    assertEquals(state.playwright.temporaryToolDenylist.get("pw_click"), 1);
+
+    await applyAdaptiveToolPhase(state, config, "read the file");
+    assertEquals(state.playwright.temporaryToolDenylist.has("pw_click"), false);
   } finally {
     cleanupTestTools();
   }
@@ -168,16 +203,7 @@ Deno.test("tool_search narrowing uses baseline allowlist", async () => {
     const config = makeConfig({
       modelTier: "constrained",
       // Baseline includes both tools; phase filtering might exclude write.
-      toolFilterBaseline: {
-        allowlist: [readTool, writeTool, searchTool],
-        denylist: undefined,
-      },
-      // Current effective allowlist is narrowed by phase to just read.
-      toolAllowlist: [readTool, searchTool],
-      toolFilterState: {
-        allowlist: [readTool, searchTool],
-        denylist: undefined,
-      },
+      toolAllowlist: [readTool, writeTool, searchTool],
     });
     const lc = resolveLoopConfig(config);
 

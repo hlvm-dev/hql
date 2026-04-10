@@ -252,6 +252,12 @@ export type TraceEvent =
   }
   | { type: "loop_detected"; signature: string; count: number }
   | {
+    type: "playwright_trace";
+    status: "started" | "saved";
+    reason: string;
+    path: string;
+  }
+  | {
     type: "context_overflow_retry";
     newBudget: number;
     overflowRetryCount: number;

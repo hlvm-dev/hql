@@ -19,8 +19,13 @@ import { resolveTools } from "../../../src/hlvm/agent/registry.ts";
 import { createToolProfileState } from "../../../src/hlvm/agent/tool-profiles.ts";
 import { buildCitationSourceIndex } from "../../../src/hlvm/agent/tools/web/citation-spans.ts";
 
+type ToolFilterCompatConfig = OrchestratorConfig & {
+  toolFilterState?: { allowlist?: string[]; denylist?: string[] };
+  toolFilterBaseline?: { allowlist?: string[]; denylist?: string[] };
+};
+
 Deno.test("handleTextOnlyResponse retries when a model emits a plain-text function-style tool call", () => {
-  const config: OrchestratorConfig = {
+  const config: ToolFilterCompatConfig = {
     workspace: "/tmp",
     context: new ContextManager(),
   };
@@ -45,7 +50,7 @@ Deno.test("handleTextOnlyResponse retries when a model emits a plain-text functi
 });
 
 Deno.test("handleTextOnlyResponse retries when a model emits XML-style tool-call text", () => {
-  const config: OrchestratorConfig = {
+  const config: ToolFilterCompatConfig = {
     workspace: "/tmp",
     context: new ContextManager(),
   };
@@ -73,7 +78,7 @@ Deno.test("handleTextOnlyResponse retries when a model emits XML-style tool-call
 });
 
 Deno.test("handleTextOnlyResponse retries when a model emits JSON-style function_calls text", () => {
-  const config: OrchestratorConfig = {
+  const config: ToolFilterCompatConfig = {
     workspace: "/tmp",
     context: new ContextManager(),
   };
@@ -99,7 +104,7 @@ Deno.test("handleTextOnlyResponse retries when a model emits JSON-style function
 });
 
 Deno.test("handleTextOnlyResponse repairs a locally executable plain-text function-style tool call after retry budget is exhausted", () => {
-  const config: OrchestratorConfig = {
+  const config: ToolFilterCompatConfig = {
     workspace: "/tmp",
     context: new ContextManager(),
   };
@@ -127,7 +132,7 @@ Deno.test("handleTextOnlyResponse repairs a locally executable plain-text functi
 });
 
 Deno.test("handleFinalResponse retries when a post-tool answer contains a plain-text function-style tool call", async () => {
-  const config: OrchestratorConfig = {
+  const config: ToolFilterCompatConfig = {
     workspace: "/tmp",
     context: new ContextManager(),
   };
@@ -156,7 +161,7 @@ Deno.test("handleFinalResponse retries when a post-tool answer contains a plain-
 });
 
 Deno.test("handleFinalResponse retries when a post-tool answer contains XML-style tool-call text", async () => {
-  const config: OrchestratorConfig = {
+  const config: ToolFilterCompatConfig = {
     workspace: "/tmp",
     context: new ContextManager(),
   };
@@ -188,7 +193,7 @@ Deno.test("handleFinalResponse retries when a post-tool answer contains XML-styl
 });
 
 Deno.test("handleFinalResponse retries when a post-tool answer contains JSON-style function_calls text", async () => {
-  const config: OrchestratorConfig = {
+  const config: ToolFilterCompatConfig = {
     workspace: "/tmp",
     context: new ContextManager(),
   };
@@ -218,7 +223,7 @@ Deno.test("handleFinalResponse retries when a post-tool answer contains JSON-sty
 });
 
 Deno.test("handleFinalResponse retries when the model returns a working-note instead of a direct answer", async () => {
-  const config: OrchestratorConfig = {
+  const config: ToolFilterCompatConfig = {
     workspace: "/tmp",
     context: new ContextManager(),
   };
@@ -564,6 +569,140 @@ Deno.test("handlePostToolExecution keeps browser_safe and recommends pw_goto whe
     recoveryMsg,
     "pw_click is temporarily blocked for the next 2 turns.",
   );
+});
+
+Deno.test("handlePostToolExecution still recovers when a turn mixes successful and failed pw_* calls", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    toolProfileState: createToolProfileState({
+      domain: { slot: "domain", profileId: "browser_safe" },
+    }),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+
+  const mixedTurn = {
+    toolCallsMade: 2,
+    results: [{
+      success: true,
+      result: { snapshot: "- link \"Issues\"" },
+    }, {
+      success: false,
+      error: "Click failed: element is not visible",
+      failure: {
+        source: "tool",
+        kind: "timeout",
+        retryable: true,
+        code: "pw_element_not_visible",
+        facts: {
+          visualBlocker: true,
+          visualReason: "not_visible",
+          selector: "text=Issues",
+          interaction: "click",
+          candidateHref: "https://github.com/denoland/deno/issues",
+        },
+      } satisfies ToolFailureMetadata,
+    }],
+    toolCalls: [{
+      id: "pw-snapshot",
+      toolName: "pw_snapshot",
+      args: {},
+    }, {
+      id: "pw-click",
+      toolName: "pw_click",
+      args: { selector: "text=Issues" },
+    }],
+    toolUses: [],
+    toolBytes: 0,
+  };
+
+  const outcome = await handlePostToolExecution(
+    mixedTurn,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+
+  assertEquals(outcome.action, "continue");
+  assertEquals(state.playwright.temporaryToolDenylist.get("pw_click"), 2);
+  assertStringIncludes(
+    config.context.getMessages().at(-1)?.content ?? "",
+    "Use pw_goto with that URL",
+  );
+});
+
+Deno.test("handlePostToolExecution prioritizes candidateHref recovery over download follow-up when both appear in one turn", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    toolProfileState: createToolProfileState({
+      domain: { slot: "domain", profileId: "browser_safe" },
+    }),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+
+  const mixedFailureTurn = {
+    toolCallsMade: 2,
+    results: [{
+      success: false,
+      error:
+        "Click navigated to https://python.org/downloads/release/python-3144/ instead of triggering a download.",
+      failure: {
+        source: "tool",
+        kind: "invalid_state",
+        retryable: true,
+        code: "pw_download_navigated",
+        facts: {
+          navigatedTo: "https://python.org/downloads/release/python-3144/",
+        },
+      } satisfies ToolFailureMetadata,
+    }, {
+      success: false,
+      error: "Click failed: element is not visible",
+      failure: {
+        source: "tool",
+        kind: "timeout",
+        retryable: true,
+        code: "pw_element_not_visible",
+        facts: {
+          visualBlocker: true,
+          visualReason: "not_visible",
+          selector: "text=Issues",
+          interaction: "click",
+          candidateHref: "https://github.com/denoland/deno/issues",
+        },
+      } satisfies ToolFailureMetadata,
+    }],
+    toolCalls: [{
+      id: "pw-download",
+      toolName: "pw_download",
+      args: { selector: "text=Download Python" },
+    }, {
+      id: "pw-click",
+      toolName: "pw_click",
+      args: { selector: "text=Issues" },
+    }],
+    toolUses: [],
+    toolBytes: 0,
+  };
+
+  const outcome = await handlePostToolExecution(
+    mixedFailureTurn,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+
+  assertEquals(outcome.action, "continue");
+  assertEquals(state.playwright.temporaryToolDenylist.get("pw_click"), 2);
+  assertEquals(state.playwright.temporaryToolDenylist.get("pw_download"), undefined);
+  const recoveryMsg = config.context.getMessages().at(-1)?.content ?? "";
+  assertStringIncludes(recoveryMsg, "Playwright found a deterministic PW-only recovery path.");
+  assertStringIncludes(recoveryMsg, "https://github.com/denoland/deno/issues");
 });
 
 Deno.test("handlePostToolExecution promotes browser_safe to browser_hybrid on repeated structured visual failures with no PW-only alternative", async () => {
@@ -927,7 +1066,7 @@ Deno.test("handleFinalResponse promotes an approved plan-mode draft into executi
   const context = new ContextManager();
   const phaseEvents: string[] = [];
   const uiEvents: string[] = [];
-  const config: OrchestratorConfig = {
+  const config: ToolFilterCompatConfig = {
     workspace: "/tmp",
     context,
     permissionMode: "plan",
@@ -1018,7 +1157,7 @@ Deno.test("handleFinalResponse promotes an approved plan-mode draft into executi
 
 Deno.test("handleFinalResponse narrows plan execution tools and restores the execution denylist", async () => {
   const context = new ContextManager();
-  const config: OrchestratorConfig = {
+  const config: ToolFilterCompatConfig = {
     workspace: "/tmp",
     context,
     permissionMode: "plan",
@@ -1099,7 +1238,7 @@ Deno.test("handleFinalResponse narrows plan execution tools and restores the exe
 Deno.test("handleFinalResponse accepts a markdown PLAN block in plan mode", async () => {
   const context = new ContextManager();
   const phaseEvents: string[] = [];
-  const config: OrchestratorConfig = {
+  const config: ToolFilterCompatConfig = {
     workspace: "/tmp",
     context,
     permissionMode: "plan",
@@ -1466,7 +1605,7 @@ Deno.test("handlePostToolExecution drafts a plan after plan-mode research using 
   const context = new ContextManager();
   const phaseEvents: string[] = [];
   let draftVisibleToolCount = -1;
-  const config: OrchestratorConfig = {
+  const config: ToolFilterCompatConfig = {
     workspace: "/tmp",
     context,
     permissionMode: "plan",

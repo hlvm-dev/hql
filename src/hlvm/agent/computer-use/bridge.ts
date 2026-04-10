@@ -15,8 +15,11 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
+import { assertValidBundleId, isValidBundleId } from "./common.ts";
 import { parseKeySpec } from "./keycodes.ts";
 import type {
+  BoundsRect,
+  ComputerUsePermissionState,
   ComputerUseInputAPI,
   ComputerUseSwiftAPI,
   DisplayGeometry,
@@ -24,12 +27,15 @@ import type {
   ResolvePrepareCaptureResult,
   RunningApp,
   ScreenshotResult,
+  WindowInfo,
 } from "./types.ts";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 /** Default timeout for osascript/JXA subprocess calls (30 seconds). */
 const SUBPROCESS_TIMEOUT_MS = 30_000;
+const PERMISSION_CACHE_MS = 2_000;
+const MIN_WINDOW_EDGE_PX = 40;
 
 /** Run AppleScript and return trimmed stdout. */
 async function osascript(
@@ -74,6 +80,223 @@ function assertFiniteCoord(value: number, name: string): void {
   if (!Number.isFinite(value)) {
     throw new Error(`Invalid ${name}: ${value} (must be a finite number)`);
   }
+}
+
+const DEFAULT_DISPLAY_GEOMETRY: DisplayGeometry = {
+  width: 1920,
+  height: 1080,
+  scaleFactor: 2,
+  displayId: 1,
+  originX: 0,
+  originY: 0,
+};
+
+function selectDisplayGeometry(displayId?: number): DisplayGeometry {
+  if (_cachedDisplayList && _cachedDisplayList.length > 0) {
+    if (displayId !== undefined) {
+      const exact = _cachedDisplayList.find((display) =>
+        display.displayId === displayId
+      );
+      if (exact) return exact;
+    }
+    return _cachedDisplaySize ?? _cachedDisplayList[0]!;
+  }
+  return {
+    ...DEFAULT_DISPLAY_GEOMETRY,
+    displayId: displayId ?? DEFAULT_DISPLAY_GEOMETRY.displayId,
+  };
+}
+
+interface RawWindowRecord {
+  kCGWindowNumber?: number;
+  kCGWindowOwnerPID?: number;
+  kCGWindowOwnerName?: string;
+  kCGWindowName?: string;
+  kCGWindowLayer?: number;
+  kCGWindowAlpha?: number;
+  kCGWindowIsOnscreen?: boolean;
+  kCGWindowBounds?: {
+    X?: number;
+    Y?: number;
+    Width?: number;
+    Height?: number;
+  };
+  bundleId?: string | null;
+  displayName?: string | null;
+}
+
+function normalizeBounds(raw: RawWindowRecord["kCGWindowBounds"]): BoundsRect {
+  return {
+    x: Number(raw?.X ?? 0),
+    y: Number(raw?.Y ?? 0),
+    width: Number(raw?.Width ?? 0),
+    height: Number(raw?.Height ?? 0),
+  };
+}
+
+function pointInBounds(
+  x: number,
+  y: number,
+  bounds: BoundsRect,
+): boolean {
+  return (
+    x >= bounds.x &&
+    y >= bounds.y &&
+    x <= bounds.x + bounds.width &&
+    y <= bounds.y + bounds.height
+  );
+}
+
+function resolveDisplayIdForBounds(bounds: BoundsRect): number | undefined {
+  const displays = _cachedDisplayList ?? [selectDisplayGeometry()];
+  const centerX = bounds.x + bounds.width / 2;
+  const centerY = bounds.y + bounds.height / 2;
+  const containing = displays.find((display) =>
+    centerX >= (display.originX ?? 0) &&
+    centerY >= (display.originY ?? 0) &&
+    centerX <= (display.originX ?? 0) + display.width &&
+    centerY <= (display.originY ?? 0) + display.height
+  );
+  return containing?.displayId;
+}
+
+function filterVisibleWindows(rawWindows: RawWindowRecord[]): WindowInfo[] {
+  return rawWindows.flatMap((raw, index) => {
+    const bounds = normalizeBounds(raw.kCGWindowBounds);
+    const layer = Number(raw.kCGWindowLayer ?? 0);
+    const alpha = Number(raw.kCGWindowAlpha ?? 1);
+    const bundleId = raw.bundleId?.trim() || undefined;
+    const displayName = raw.displayName?.trim() ||
+      raw.kCGWindowOwnerName?.trim() ||
+      bundleId;
+
+    if (!raw.kCGWindowIsOnscreen) return [];
+    if (!displayName) return [];
+    if (!raw.kCGWindowNumber) return [];
+    if (raw.kCGWindowOwnerName === "Window Server") return [];
+    if (alpha <= 0) return [];
+    if (
+      bounds.width < MIN_WINDOW_EDGE_PX ||
+      bounds.height < MIN_WINDOW_EDGE_PX
+    ) {
+      return [];
+    }
+    if (layer >= 1_000) return [];
+
+    return [{
+      windowId: Number(raw.kCGWindowNumber),
+      bundleId,
+      displayName,
+      title: raw.kCGWindowName?.trim() || undefined,
+      bounds,
+      displayId: resolveDisplayIdForBounds(bounds),
+      zIndex: index,
+      layer,
+      ownerPid: raw.kCGWindowOwnerPID
+        ? Number(raw.kCGWindowOwnerPID)
+        : undefined,
+      isOnscreen: true,
+    }];
+  });
+}
+
+async function listVisibleWindowsInternal(
+  displayId?: number,
+): Promise<WindowInfo[]> {
+  const raw = await jxa(`
+    ObjC.import('CoreGraphics');
+    ObjC.import('AppKit');
+    ObjC.import('Foundation');
+    var list = $.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, $.kCGNullWindowID);
+    var count = $.CFArrayGetCount(list);
+    var out = [];
+    for (var i = 0; i < count; i++) {
+      var item = ObjC.deepUnwrap(ObjC.castRefToObject($.CFArrayGetValueAtIndex(list, i)));
+      var pid = item.kCGWindowOwnerPID;
+      var app = pid ? $.NSRunningApplication.runningApplicationWithProcessIdentifier(pid) : null;
+      out.push({
+        kCGWindowNumber: item.kCGWindowNumber,
+        kCGWindowOwnerPID: pid,
+        kCGWindowOwnerName: item.kCGWindowOwnerName,
+        kCGWindowName: item.kCGWindowName || null,
+        kCGWindowLayer: item.kCGWindowLayer,
+        kCGWindowAlpha: item.kCGWindowAlpha,
+        kCGWindowIsOnscreen: item.kCGWindowIsOnscreen,
+        kCGWindowBounds: item.kCGWindowBounds,
+        bundleId: app ? ObjC.unwrap(app.bundleIdentifier) : null,
+        displayName: app ? ObjC.unwrap(app.localizedName) : item.kCGWindowOwnerName
+      });
+    }
+    JSON.stringify(out);
+  `);
+  const parsed = JSON.parse(raw) as RawWindowRecord[];
+  const windows = filterVisibleWindows(parsed);
+  return displayId == null
+    ? windows
+    : windows.filter((window) => window.displayId === displayId);
+}
+
+let _cachedPermissionState: ComputerUsePermissionState | undefined;
+
+async function probeScreenRecordingAccess(): Promise<boolean | null> {
+  const platform = getPlatform();
+  const tmpDir = await platform.fs.makeTempDir({ prefix: "hlvm-cu-perm" });
+  const tmpPath = platform.path.join(tmpDir, "probe.jpg");
+  try {
+    const result = await platform.command.output({
+      cmd: ["screencapture", "-x", "-R", "0,0,1,1", "-t", "jpg", tmpPath],
+      stdin: "null",
+      stdout: "piped",
+      stderr: "piped",
+      timeout: 5000,
+    });
+    return result.success;
+  } catch {
+    return null;
+  } finally {
+    try {
+      await platform.fs.remove(tmpDir, { recursive: true });
+    } catch {
+      // best-effort
+    }
+  }
+}
+
+async function getPermissionStateInternal(): Promise<ComputerUsePermissionState> {
+  if (
+    _cachedPermissionState &&
+    Date.now() - _cachedPermissionState.checkedAt < PERMISSION_CACHE_MS
+  ) {
+    return _cachedPermissionState;
+  }
+
+  let accessibilityTrusted = false;
+  try {
+    const raw = await jxa(`
+      ObjC.import('ApplicationServices');
+      JSON.stringify({ accessibilityTrusted: $.AXIsProcessTrusted() ? true : false });
+    `);
+    accessibilityTrusted = !!(JSON.parse(raw) as {
+      accessibilityTrusted?: boolean;
+    }).accessibilityTrusted;
+  } catch {
+    accessibilityTrusted = false;
+  }
+
+  const screenRecordingAvailable = await probeScreenRecordingAccess();
+  const missing: string[] = [];
+  if (!accessibilityTrusted) missing.push("Accessibility");
+  if (screenRecordingAvailable === false) {
+    missing.push("Screen Recording");
+  }
+
+  _cachedPermissionState = {
+    accessibilityTrusted,
+    screenRecordingAvailable,
+    missing,
+    checkedAt: Date.now(),
+  };
+  return _cachedPermissionState;
 }
 
 // ── execFileNoThrow (replaces CC's ../execFileNoThrow.js) ────────────────
@@ -324,18 +547,19 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
     },
 
     async typeText(text: string): Promise<void> {
-      // Strip NULL bytes (truncate C strings) and other non-printable
-      // control chars that AppleScript's keystroke can't handle.
-      // deno-lint-ignore no-control-regex
-      const sanitized = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
-      const escaped = sanitized
-        .replace(/\\/g, "\\\\")
-        .replace(/"/g, '\\"')
-        .replace(/\n/g, "\\n")
-        .replace(/\r/g, "\\r")
-        .replace(/\t/g, "\\t");
-      await osascript(
-        `tell application "System Events" to keystroke "${escaped}"`,
+      const sanitized = text.replace(/\u0000/g, "");
+      const serialized = JSON.stringify(sanitized);
+      await jxa(
+        `
+          ObjC.import('CoreGraphics');
+          var text = ${serialized};
+          var down = $.CGEventCreateKeyboardEvent(null, 0, true);
+          $.CGEventKeyboardSetUnicodeString(down, text.length, $(text));
+          $.CGEventPost($.kCGHIDEventTap, down);
+          var up = $.CGEventCreateKeyboardEvent(null, 0, false);
+          $.CGEventKeyboardSetUnicodeString(up, text.length, $(text));
+          $.CGEventPost($.kCGHIDEventTap, up);
+        `,
       );
     },
 
@@ -381,19 +605,17 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
 
     display: {
       getSize(displayId?: number): DisplayGeometry {
-        // Synchronous in CC's Swift module. We cache from async init.
-        // For first call, return default. Caller should use async getDisplaySize().
-        // This is used by executor's screenshot/zoom methods which are async anyway.
-        return _cachedDisplaySize ?? {
-          width: 1920,
-          height: 1080,
-          scaleFactor: 2,
-          displayId: displayId ?? 1,
-        };
+        if (!_cachedDisplaySize) {
+          log.warn(
+            "[bridge] Display cache not populated — using fallback dimensions. " +
+            "Screenshots may be incorrectly sized. Call ensureDisplayCache() first.",
+          );
+        }
+        return selectDisplayGeometry(displayId);
       },
 
       listAll(): DisplayGeometry[] {
-        return _cachedDisplayList ?? [this.getSize()];
+        return _cachedDisplayList ?? [selectDisplayGeometry()];
       },
     },
 
@@ -429,6 +651,9 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
         hostBundleId: string,
         _displayId?: number,
       ): Promise<{ activated: string | null; hidden: string[] }> {
+        if (allowedBundleIds.length === 0) {
+          return { activated: null, hidden: [] };
+        }
         // Activate the first allowed app that's running (bring to front).
         // Hide apps NOT in the allowlist and NOT the host terminal.
         // This ensures CU actions target the correct window.
@@ -442,23 +667,39 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
             var hidden = [];
             var activated = null;
             var allowSet = new Set(${JSON.stringify([...allowSet])});
+            var hostBundleId = ${JSON.stringify(hostBundleId)};
+            var regularApps = [];
+            var activatableApps = [];
+            var output = null;
             for (var i = 0; i < apps.count; i++) {
               var app = apps.objectAtIndex(i);
               var bid = app.bundleIdentifier?.js;
               if (!bid) continue;
               var policy = app.activationPolicy;
               if (policy !== $.NSApplicationActivationPolicyRegular) continue;
-              if (allowSet.has(bid)) {
-                if (!activated) {
-                  app.activateWithOptions($.NSApplicationActivateIgnoringOtherApps);
-                  activated = bid;
-                }
-              } else if (!app.isHidden) {
-                app.hide();
-                hidden.push(bid);
+              regularApps.push(app);
+              if (bid !== hostBundleId && allowSet.has(bid)) {
+                activatableApps.push(app);
               }
             }
-            JSON.stringify({ activated: activated, hidden: hidden });
+            if (activatableApps.length === 0) {
+              output = JSON.stringify({ activated: null, hidden: [] });
+            } else {
+              var target = activatableApps[0];
+              target.activateWithOptions($.NSApplicationActivateIgnoringOtherApps);
+              activated = target.bundleIdentifier ? target.bundleIdentifier.js : null;
+              for (var j = 0; j < regularApps.length; j++) {
+                var app = regularApps[j];
+                var bid = app.bundleIdentifier?.js;
+                if (!bid || bid === hostBundleId || allowSet.has(bid)) continue;
+                if (!app.isHidden) {
+                  app.hide();
+                  hidden.push(bid);
+                }
+              }
+              output = JSON.stringify({ activated: activated, hidden: hidden });
+            }
+            output;
           `);
           return JSON.parse(result);
         } catch (err) {
@@ -477,10 +718,22 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
       },
 
       async findWindowDisplays(
-        _bundleIds: string[],
+        bundleIds: string[],
       ): Promise<Array<{ bundleId: string; displayIds: number[] }>> {
-        log.debug("[bridge] findWindowDisplays: stub");
-        return [];
+        const windows = await listVisibleWindowsInternal();
+        return bundleIds.map((bundleId) => ({
+          bundleId,
+          displayIds: [...new Set(
+            windows
+              .filter((window) => window.bundleId === bundleId)
+              .map((window) => window.displayId)
+              .filter((value): value is number => typeof value === "number"),
+          )],
+        }));
+      },
+
+      async listVisibleWindows(displayId?: number): Promise<WindowInfo[]> {
+        return await listVisibleWindowsInternal(displayId);
       },
 
       async listInstalled(): Promise<InstalledApp[]> {
@@ -530,17 +783,16 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
       },
 
       async open(bundleId: string): Promise<void> {
-        // Defense-in-depth: validate bundle ID before passing to osascript
-        if (!bundleId || !/^[\w.-]+$/.test(bundleId)) {
-          throw new Error(`Invalid bundle ID: "${bundleId}"`);
-        }
+        assertValidBundleId(bundleId);
         await osascript(
           `tell application id "${bundleId}" to activate`,
         );
+        _runningAppsReady = initRunningAppsCache().catch(() => {});
       },
 
       async unhide(bundleIds: string[]): Promise<void> {
         for (const bid of bundleIds) {
+          if (!isValidBundleId(bid)) continue;
           try {
             await osascript(
               `tell application id "${bid}" to activate`,
@@ -552,11 +804,31 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
       },
 
       async appUnderPoint(
-        _x: number,
-        _y: number,
-      ): Promise<{ bundleId: string; displayName: string } | null> {
-        log.debug("[bridge] appUnderPoint: stub");
-        return null;
+        x: number,
+        y: number,
+      ): Promise<{
+        bundleId: string;
+        displayName: string;
+        windowId?: number;
+        displayId?: number;
+      } | null> {
+        const windows = await listVisibleWindowsInternal();
+        const match = windows.find((window) =>
+          !!window.bundleId && pointInBounds(x, y, window.bounds)
+        );
+        if (!match?.bundleId) return null;
+        return {
+          bundleId: match.bundleId,
+          displayName: match.displayName,
+          windowId: match.windowId,
+          displayId: match.displayId,
+        };
+      },
+    },
+
+    permissions: {
+      async getState(): Promise<ComputerUsePermissionState> {
+        return await getPermissionStateInternal();
       },
     },
 
@@ -571,8 +843,9 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
       _doHide?: boolean,
     ): Promise<ResolvePrepareCaptureResult> {
       const screenshot = await captureScreenshot(quality, targetW, targetH);
+      const display = selectDisplayGeometry(_displayId);
       return {
-        displayId: 1,
+        displayId: display.displayId ?? 1,
         hidden: [],
         screenshot,
       };
@@ -678,6 +951,7 @@ export function invalidateCaches(): void {
   _cachedRunningApps = undefined;
   _displayCacheReady = undefined;
   _runningAppsReady = undefined;
+  _cachedPermissionState = undefined;
 }
 
 /** Ensure display cache is populated. Await before reading getSize(). */

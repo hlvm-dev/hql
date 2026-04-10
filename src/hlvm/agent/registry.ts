@@ -138,6 +138,8 @@ export interface ToolExecutionOptions {
   sessionId?: string;
   /** Current user request for tools that need to ignore the triggering prompt. */
   currentUserRequest?: string;
+  /** Preferred display id for computer-use capture/action targeting. */
+  displayId?: number;
   /** Optional lifecycle hook runtime for teammate event hooks. */
   hookRuntime?: AgentHookRuntime;
   /** Agent event callback for teammate loop integration. */

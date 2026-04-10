@@ -16,6 +16,7 @@
 import { getAgentLogger } from "../logger.ts";
 import { isLockHeldLocally, releaseComputerUseLock } from "./lock.ts";
 import { unregisterEscHotkey } from "./esc-hotkey.ts";
+import { takeHiddenComputerUseApps } from "./session-state.ts";
 
 // CC: cu.apps.unhide timeout — generous because unhide should be ~instant
 const UNHIDE_TIMEOUT_MS = 5000;
@@ -64,10 +65,13 @@ export async function cleanupComputerUseAfterTurn(
 ): Promise<void> {
   const log = getAgentLogger();
 
-  const hidden = ctx?.getHiddenApps?.();
-  if (hidden && hidden.size > 0) {
+  const hiddenFromContext = ctx?.getHiddenApps?.();
+  const hiddenBundleIds = hiddenFromContext
+    ? [...hiddenFromContext]
+    : takeHiddenComputerUseApps();
+  if (hiddenBundleIds.length > 0) {
     const { unhideComputerUseApps } = await import("./executor.ts");
-    const unhide = unhideComputerUseApps([...hidden]).catch((err) =>
+    const unhide = unhideComputerUseApps(hiddenBundleIds).catch((err) =>
       log.debug(
         `[Computer Use MCP] auto-unhide failed: ${errorMessage(err)}`,
       ),
@@ -77,7 +81,9 @@ export async function cleanupComputerUseAfterTurn(
     await Promise.race([unhide, timeout.promise]).finally(() =>
       clearTimeout(timer),
     );
-    ctx?.clearHiddenApps?.();
+    if (hiddenFromContext) {
+      ctx?.clearHiddenApps?.();
+    }
   }
 
   // Zero-syscall pre-check so non-CU turns don't touch disk.

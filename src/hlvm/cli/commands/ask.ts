@@ -234,6 +234,11 @@ function createTraceCallback(
           log.raw.log(`[TRACE] Result: FAILED - ${event.error}`);
         }
         break;
+      case "playwright_trace":
+        log.raw.log(
+          `[TRACE] Playwright trace ${event.status}: ${event.reason} -> ${event.path}`,
+        );
+        break;
       case "llm_retry":
         log.raw.log(
           `[TRACE] LLM retry ${event.attempt}/${event.max} (${event.class})${

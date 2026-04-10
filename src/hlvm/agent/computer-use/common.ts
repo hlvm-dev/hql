@@ -2,7 +2,7 @@
  * Computer Use — Common (CC clone)
  *
  * CC original: utils/computerUse/common.ts (61 lines)
- * Bridge changes: import paths only (no normalizeNameForMCP, no CC env module).
+ * Bridge changes: import paths + shared HLVM helpers.
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
@@ -63,3 +63,81 @@ export const CLI_CU_CAPABILITIES = {
   screenshotFiltering: "native" as const,
   platform: "darwin" as const,
 };
+
+/** Validate a macOS bundle ID in reverse-DNS form. */
+const BUNDLE_ID_RE = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/;
+
+export function isValidBundleId(bundleId: string | null | undefined): boolean {
+  return typeof bundleId === "string" && BUNDLE_ID_RE.test(bundleId.trim());
+}
+
+export function assertValidBundleId(
+  bundleId: string,
+  fieldName = "bundleId",
+): void {
+  if (!isValidBundleId(bundleId)) {
+    throw new Error(
+      `Invalid ${fieldName}: "${bundleId}". Must be reverse-DNS format (e.g. "com.apple.Safari").`,
+    );
+  }
+}
+
+export function isComputerUseHostBundleId(
+  bundleId: string | null | undefined,
+): boolean {
+  if (!bundleId) return false;
+  return bundleId === CLI_HOST_BUNDLE_ID || bundleId === getTerminalBundleId();
+}
+
+export type ComputerUseSettingsPane =
+  | "general"
+  | "accessibility"
+  | "screen_recording";
+
+export async function openComputerUseSettings(
+  pane: ComputerUseSettingsPane = "general",
+): Promise<void> {
+  const platform = getPlatform();
+  const openTargets = pane === "accessibility"
+    ? [
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+      "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
+    ]
+    : pane === "screen_recording"
+    ? [
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenRecording",
+      "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture",
+      "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenRecording",
+    ]
+    : [];
+
+  for (const target of openTargets) {
+    const result = await platform.command.output({
+      cmd: ["open", target],
+      stdin: "null",
+      stdout: "piped",
+      stderr: "piped",
+      timeout: 5000,
+    });
+    if (result.success) return;
+  }
+
+  const scripts = [
+    'tell application "System Settings" to activate',
+    'tell application "System Preferences" to activate',
+  ];
+  let lastError = "Unable to open macOS Settings.";
+  for (const script of scripts) {
+    const result = await platform.command.output({
+      cmd: ["osascript", "-e", script],
+      stdin: "null",
+      stdout: "piped",
+      stderr: "piped",
+      timeout: 5000,
+    });
+    if (result.success) return;
+    lastError = new TextDecoder().decode(result.stderr).trim() || lastError;
+  }
+  throw new Error(lastError);
+}

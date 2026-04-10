@@ -74,6 +74,8 @@ export function summarizeTraceEvent(
       };
     case "llm_performance":
       return { ...event };
+    case "playwright_trace":
+      return { ...event };
     case "prompt_compiled":
       return {
         type: event.type,

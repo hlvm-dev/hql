@@ -73,7 +73,12 @@ import { executeToolCalls } from "./orchestrator-tool-execution.ts";
 import { callLLM, type LLMFunction } from "./orchestrator-llm.ts";
 import type { ToolUse } from "./grounding.ts";
 import { isMutatingTool } from "./security/safety.ts";
-import { decideBrowserRecovery } from "./playwright/recovery-policy.ts";
+import {
+  type BrowserRecoveryDecision,
+  decideBrowserRecovery,
+} from "./playwright/recovery-policy.ts";
+import { hasStructuredPlaywrightVisualFailure } from "./playwright/failure-enrichment.ts";
+import { startPlaywrightTraceCapture } from "./playwright/browser-manager.ts";
 import {
   BROWSER_HYBRID_PROFILE_ID,
   clearToolProfileLayerFromTarget,
@@ -242,6 +247,12 @@ interface PlaywrightFailureCandidate {
   candidateHref?: string;
 }
 
+interface SelectedPlaywrightRecoveryCandidate {
+  candidate: PlaywrightFailureCandidate;
+  decision: BrowserRecoveryDecision | null;
+  repeatCount: number;
+}
+
 function currentDomainProfileId(
   config: OrchestratorConfig,
 ): string | undefined {
@@ -253,19 +264,21 @@ const PLAYWRIGHT_VISUAL_LOOP_TOOL_NAMES = new Set([
   "pw_screenshot",
 ]);
 
-async function buildPlaywrightFailureCandidate(
+const PLAYWRIGHT_RECOVERY_TEMP_DENY_TURNS = 2;
+
+function collectPlaywrightFailureCandidates(
   result: {
     results: ToolExecutionResult[];
     toolCalls: ToolCall[];
   },
-): Promise<PlaywrightFailureCandidate | null> {
+): PlaywrightFailureCandidate[] {
   const candidates: PlaywrightFailureCandidate[] = [];
 
   for (let index = 0; index < result.results.length; index++) {
     const toolCall = result.toolCalls[index];
     const toolResult = result.results[index];
     if (!toolCall?.toolName.startsWith("pw_")) continue;
-    if (toolResult.success || !toolResult.failure) return null;
+    if (toolResult.success || !toolResult.failure) continue;
     const errorText = toolResult.error ?? toolResult.llmContent ?? "";
     candidates.push({
       signature: `pw:${toolCall.toolName}:${
@@ -285,11 +298,83 @@ async function buildPlaywrightFailureCandidate(
     });
   }
 
+  return candidates;
+}
+
+function playwrightRecoveryPriority(
+  decision: BrowserRecoveryDecision | null,
+  candidate: PlaywrightFailureCandidate,
+): number {
+  switch (decision?.stage) {
+    case "direct_pw_alternative":
+      return 0;
+    case "download_destination_follow":
+      return 1;
+    case "promote_hybrid":
+    case "repeat_visual_pw_guidance":
+      return 2;
+    case "repeat_structural_pw_guidance":
+      return 3;
+    default:
+      return hasStructuredPlaywrightVisualFailure(candidate.failure) ? 4 : 5;
+  }
+}
+
+function selectPlaywrightRecoveryCandidate(
+  candidates: readonly PlaywrightFailureCandidate[],
+  state: LoopState,
+  config: OrchestratorConfig,
+): SelectedPlaywrightRecoveryCandidate | null {
   if (candidates.length === 0) return null;
-  const uniqueSignatures = new Set(
-    candidates.map((candidate) => candidate.signature),
-  );
-  return uniqueSignatures.size === 1 ? candidates[0] : null;
+
+  const domainProfileId = currentDomainProfileId(config);
+  let selected: SelectedPlaywrightRecoveryCandidate | null = null;
+
+  for (const candidate of candidates) {
+    const repeatCount = state.playwright.lastFailureSignature ===
+        candidate.signature
+      ? state.playwright.repeatFailureCount + 1
+      : 1;
+    const decision = decideBrowserRecovery({
+      toolName: candidate.toolName,
+      failure: candidate.failure,
+      repeatCount,
+      currentDomainProfileId: domainProfileId,
+    });
+
+    if (!selected) {
+      selected = { candidate, decision, repeatCount };
+      continue;
+    }
+
+    const nextPriority = playwrightRecoveryPriority(decision, candidate);
+    const currentPriority = playwrightRecoveryPriority(
+      selected.decision,
+      selected.candidate,
+    );
+    if (nextPriority < currentPriority) {
+      selected = { candidate, decision, repeatCount };
+      continue;
+    }
+
+    if (
+      nextPriority === currentPriority &&
+      decision &&
+      !selected.decision
+    ) {
+      selected = { candidate, decision, repeatCount };
+    }
+  }
+
+  return selected;
+}
+
+function shouldCapturePlaywrightTrace(
+  decision: BrowserRecoveryDecision,
+): boolean {
+  return decision.stage === "promote_hybrid" ||
+    decision.stage === "repeat_visual_pw_guidance" ||
+    decision.stage === "repeat_structural_pw_guidance";
 }
 
 function isPlaywrightVisualLoopTurn(
@@ -1643,14 +1728,20 @@ export async function handlePostToolExecution(
     return planDraftDirective;
   }
 
-  const playwrightFailure = await buildPlaywrightFailureCandidate(result);
-  if (playwrightFailure) {
+  const selectedPlaywrightRecovery = selectPlaywrightRecoveryCandidate(
+    collectPlaywrightFailureCandidates(result),
+    state,
+    config,
+  );
+  const playwrightFailure = selectedPlaywrightRecovery?.candidate ?? null;
+  if (playwrightFailure && selectedPlaywrightRecovery) {
     if (state.playwright.lastFailureSignature === playwrightFailure.signature) {
       state.playwright.repeatFailureCount =
-        (state.playwright.repeatFailureCount) + 1;
+        selectedPlaywrightRecovery.repeatCount;
     } else {
       state.playwright.lastFailureSignature = playwrightFailure.signature;
-      state.playwright.repeatFailureCount = 1;
+      state.playwright.repeatFailureCount =
+        selectedPlaywrightRecovery.repeatCount;
       state.playwright.notifiedRecoveryKey = undefined;
     }
   } else {
@@ -1659,17 +1750,18 @@ export async function handlePostToolExecution(
     state.playwright.notifiedRecoveryKey = undefined;
   }
 
-  if (playwrightFailure) {
-    const domainProfileId = currentDomainProfileId(config);
-    const decision = decideBrowserRecovery({
-      toolName: playwrightFailure.toolName,
-      failure: playwrightFailure.failure,
-      repeatCount: state.playwright.repeatFailureCount,
-      currentDomainProfileId: domainProfileId,
-    });
+  if (playwrightFailure && selectedPlaywrightRecovery) {
+    const decision = selectedPlaywrightRecovery.decision;
     if (decision) {
       const recoveryKey = `${playwrightFailure.signature}:${decision.stage}`;
       if (state.playwright.notifiedRecoveryKey !== recoveryKey) {
+        let tracePath: string | undefined;
+        if (shouldCapturePlaywrightTrace(decision)) {
+          tracePath = await startPlaywrightTraceCapture(
+            `${playwrightFailure.signature}:${decision.stage}`,
+            config.sessionId,
+          ).catch(() => undefined);
+        }
         if (decision.promoteToHybrid) {
           widenBaselineForDomainProfile(config, BROWSER_HYBRID_PROFILE_ID);
           updateToolProfileLayer(config, "domain", {
@@ -1685,13 +1777,21 @@ export async function handlePostToolExecution(
         if (decision.temporarilyBlockTool) {
           state.playwright.temporaryToolDenylist.set(
             decision.temporarilyBlockTool,
-            2,
+            PLAYWRIGHT_RECOVERY_TEMP_DENY_TURNS,
           );
         }
         state.playwright.notifiedRecoveryKey = recoveryKey;
         const directive = decision.temporarilyBlockTool
-          ? `${decision.directive}\n${decision.temporarilyBlockTool} is temporarily blocked for the next 2 turns. Use a different browser strategy now.`
+          ? `${decision.directive}\n${decision.temporarilyBlockTool} is temporarily blocked for the next ${PLAYWRIGHT_RECOVERY_TEMP_DENY_TURNS} turns. Use a different browser strategy now.`
           : decision.directive;
+        if (tracePath) {
+          config.onTrace?.({
+            type: "playwright_trace",
+            status: "started",
+            reason: decision.stage,
+            path: tracePath,
+          });
+        }
         addContextMessage(config, {
           role: "user",
           content: runtimeDirective(directive),
@@ -1741,11 +1841,14 @@ export async function handlePostToolExecution(
 
     if (state.loopRecoveryStep === 1 && repeatedTool) {
       state.loopRecoveryStep = 2;
-      state.playwright.temporaryToolDenylist.set(repeatedTool, 2);
+      state.playwright.temporaryToolDenylist.set(
+        repeatedTool,
+        PLAYWRIGHT_RECOVERY_TEMP_DENY_TURNS,
+      );
       addContextMessage(config, {
         role: "user",
         content: runtimeDirective(
-          `Loop recovery: '${repeatedTool}' is temporarily blocked for the next 2 turns. Use a different tool or ask_user instead of repeating it.`,
+          `Loop recovery: '${repeatedTool}' is temporarily blocked for the next ${PLAYWRIGHT_RECOVERY_TEMP_DENY_TURNS} turns. Use a different tool or ask_user instead of repeating it.`,
         ),
       });
       return { action: "continue" };

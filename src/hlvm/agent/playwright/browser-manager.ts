@@ -18,6 +18,8 @@ import { log } from "../../api/log.ts";
 import {
   resolveChromiumExecutablePath,
 } from "../../runtime/chromium-runtime.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+import type { PlaywrightSnapshotRef } from "./snapshot-refs.ts";
 
 // Playwright types — imported dynamically to avoid loading when unused
 type Browser = import("playwright-core").Browser;
@@ -25,16 +27,25 @@ type Page = import("playwright-core").Page;
 type BrowserContext = import("playwright-core").BrowserContext;
 type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
+interface BrowserTraceState {
+  active: boolean;
+  path: string;
+  reason: string;
+}
+
 interface BrowserSessionState {
   browser?: Browser;
   context?: BrowserContext;
   page?: Page;
   isHeaded: boolean;
   launching?: Promise<Page>;
+  snapshotRefs: Map<string, PlaywrightSnapshotRef>;
+  activeTrace?: BrowserTraceState;
 }
 
 const DEFAULT_BROWSER_SESSION_KEY = "__default__";
 const browserSessions = new Map<string, BrowserSessionState>();
+const observedPages = new WeakSet<Page>();
 
 function resolveSessionKey(sessionId?: string | null): string {
   const trimmed = typeof sessionId === "string" ? sessionId.trim() : "";
@@ -47,7 +58,7 @@ function ensureBrowserSessionState(
   const sessionKey = resolveSessionKey(sessionId);
   let state = browserSessions.get(sessionKey);
   if (!state) {
-    state = { isHeaded: false };
+    state = { isHeaded: false, snapshotRefs: new Map() };
     browserSessions.set(sessionKey, state);
   }
   return { sessionKey, state };
@@ -63,8 +74,53 @@ function clearBrowserSessionState(sessionKey: string): void {
   browserSessions.delete(sessionKey);
 }
 
+function clearSnapshotRefs(state?: BrowserSessionState): void {
+  state?.snapshotRefs.clear();
+}
+
 function hasConnectedBrowser(state?: BrowserSessionState): boolean {
   return !!state?.browser?.isConnected();
+}
+
+function sanitizeTraceReason(reason: string): string {
+  const trimmed = reason.trim().toLowerCase();
+  return trimmed.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") ||
+    "recovery";
+}
+
+function createTracePath(sessionKey: string, reason: string): string {
+  const platform = getPlatform();
+  const tempRoot = platform.env.get("TMPDIR") ?? "/tmp";
+  return platform.path.join(
+    tempRoot,
+    "hlvm-playwright-traces",
+    sessionKey,
+    `recovery-${sanitizeTraceReason(reason)}.zip`,
+  );
+}
+
+function observePageLifecycle(
+  sessionKey: string,
+  state: BrowserSessionState,
+  page: Page,
+): void {
+  if (observedPages.has(page)) return;
+  observedPages.add(page);
+
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) {
+      clearSnapshotRefs(state);
+    }
+  });
+  page.on("close", () => {
+    clearSnapshotRefs(state);
+    if (state.page === page) {
+      state.page = undefined;
+    }
+    log.debug?.(
+      `Browser page closed — invalidated snapshot refs for session ${sessionKey}`,
+    );
+  });
 }
 
 /** Clear stale refs when browser crashes or is killed externally. */
@@ -72,6 +128,8 @@ function _onDisconnected(sessionKey: string): void {
   log.info?.(`Browser disconnected — clearing refs for session ${sessionKey}`);
   const state = browserSessions.get(sessionKey);
   if (!state) return;
+  clearSnapshotRefs(state);
+  state.activeTrace = undefined;
   state.browser = undefined;
   state.context = undefined;
   state.page = undefined;
@@ -132,10 +190,14 @@ async function _launchOrRecover(
       await state.browser.newContext();
     const existingPage = state.context.pages().find((p) => !p.isClosed());
     state.page = existingPage ?? await state.context.newPage();
+    clearSnapshotRefs(state);
+    observePageLifecycle(sessionKey, state, state.page);
     return state.page;
   }
 
   // Clean stale refs
+  clearSnapshotRefs(state);
+  state.activeTrace = undefined;
   state.browser = undefined;
   state.context = undefined;
   state.page = undefined;
@@ -165,6 +227,7 @@ async function _launchOrRecover(
     acceptDownloads: true,
   });
   state.page = await state.context.newPage();
+  observePageLifecycle(sessionKey, state, state.page);
   state.isHeaded = false;
   state.browser.on("disconnected", () => _onDisconnected(sessionKey));
 
@@ -219,6 +282,11 @@ export async function promoteToHeaded(
     })
     : undefined;
 
+  if (state.activeTrace?.active) {
+    await stopPlaywrightTraceCapture(sessionId).catch(() => {});
+  }
+  clearSnapshotRefs(state);
+
   // Close headless browser if active
   if (hasConnectedBrowser(state)) {
     log.info?.(
@@ -258,6 +326,7 @@ export async function promoteToHeaded(
     createBrowserContextOptions(storageState),
   );
   state.page = await state.context.newPage();
+  observePageLifecycle(sessionKey, state, state.page);
   state.isHeaded = true;
   state.browser.on("disconnected", () => _onDisconnected(sessionKey));
 
@@ -280,11 +349,183 @@ export async function promoteToHeaded(
   return state.page;
 }
 
+export function resolveSnapshotRef(
+  ref: string,
+  sessionId?: string | null,
+): PlaywrightSnapshotRef | undefined {
+  return getBrowserSessionState(sessionId)?.snapshotRefs.get(ref);
+}
+
+export function replaceSnapshotRefs(
+  refs: readonly PlaywrightSnapshotRef[],
+  sessionId?: string | null,
+): void {
+  const { state } = ensureBrowserSessionState(sessionId);
+  state.snapshotRefs = new Map(refs.map((item) => [item.ref, item]));
+}
+
+export function clearSnapshotRefsForSession(sessionId?: string | null): void {
+  clearSnapshotRefs(getBrowserSessionState(sessionId));
+}
+
+async function currentTabs(
+  sessionId?: string | null,
+): Promise<{
+  state: BrowserSessionState;
+  pages: Page[];
+}> {
+  const page = await getOrCreatePage(sessionId);
+  const { state } = ensureBrowserSessionState(sessionId);
+  const pages = (state.context ?? page.context()).pages().filter((candidate) =>
+    !candidate.isClosed()
+  );
+  return { state, pages };
+}
+
+export async function listBrowserTabs(
+  sessionId?: string | null,
+): Promise<Array<{ index: number; url: string; title: string; active: boolean }>> {
+  const { state, pages } = await currentTabs(sessionId);
+  return await Promise.all(
+    pages.map(async (page, index) => ({
+      index,
+      url: page.url(),
+      title: await page.title().catch(() => ""),
+      active: page === state.page,
+    })),
+  );
+}
+
+export async function selectBrowserTab(
+  index: number,
+  sessionId?: string | null,
+): Promise<Page> {
+  const { sessionKey, state } = ensureBrowserSessionState(sessionId);
+  const { pages } = await currentTabs(sessionId);
+  if (!Number.isInteger(index) || index < 0 || index >= pages.length) {
+    throw new Error(
+      `Invalid tab index: ${index}. Available range is 0-${Math.max(0, pages.length - 1)}.`,
+    );
+  }
+  const page = pages[index]!;
+  state.page = page;
+  clearSnapshotRefs(state);
+  observePageLifecycle(sessionKey, state, page);
+  await page.bringToFront().catch(() => {});
+  return page;
+}
+
+export async function createBrowserTab(
+  url: string | undefined,
+  sessionId?: string | null,
+): Promise<Page> {
+  const { sessionKey, state } = ensureBrowserSessionState(sessionId);
+  const current = await getOrCreatePage(sessionId);
+  const context = state.context ?? current.context();
+  const page = await context.newPage();
+  observePageLifecycle(sessionKey, state, page);
+  state.page = page;
+  clearSnapshotRefs(state);
+  if (url && url.trim().length > 0) {
+    await page.goto(url.trim(), { waitUntil: "domcontentloaded" });
+  }
+  return page;
+}
+
+export async function closeBrowserTab(
+  index: number | undefined,
+  sessionId?: string | null,
+): Promise<Page> {
+  const { sessionKey, state } = ensureBrowserSessionState(sessionId);
+  const { pages } = await currentTabs(sessionId);
+  if (pages.length === 0) {
+    return await getOrCreatePage(sessionId);
+  }
+  const activeIndex = Math.max(0, pages.findIndex((page) => page === state.page));
+  const targetIndex = index ?? activeIndex;
+  if (
+    !Number.isInteger(targetIndex) || targetIndex < 0 ||
+    targetIndex >= pages.length
+  ) {
+    throw new Error(
+      `Invalid tab index: ${targetIndex}. Available range is 0-${Math.max(0, pages.length - 1)}.`,
+    );
+  }
+
+  const target = pages[targetIndex]!;
+  await target.close();
+  const remaining = (state.context?.pages() ?? []).filter((page) =>
+    !page.isClosed()
+  );
+  if (remaining.length === 0) {
+    const currentPage = await getOrCreatePage(sessionId);
+    const context = state.context ?? currentPage.context();
+    const replacement = await context.newPage();
+    observePageLifecycle(sessionKey, state, replacement);
+    state.page = replacement;
+    clearSnapshotRefs(state);
+    return replacement;
+  }
+
+  const nextIndex = Math.min(targetIndex, remaining.length - 1);
+  const nextPage = remaining[nextIndex]!;
+  state.page = nextPage;
+  clearSnapshotRefs(state);
+  observePageLifecycle(sessionKey, state, nextPage);
+  await nextPage.bringToFront().catch(() => {});
+  return nextPage;
+}
+
+export async function startPlaywrightTraceCapture(
+  reason: string,
+  sessionId?: string | null,
+): Promise<string | undefined> {
+  const { sessionKey, state } = ensureBrowserSessionState(sessionId);
+  if (state.activeTrace?.active) return state.activeTrace.path;
+  const page = getExistingPage(sessionId);
+  const context = state.context ?? page?.context();
+  if (!context) return undefined;
+
+  const platform = getPlatform();
+  const path = createTracePath(sessionKey, reason);
+  await platform.fs.mkdir(platform.path.dirname(path), { recursive: true });
+  await context.tracing.start({
+    screenshots: true,
+    snapshots: true,
+    sources: true,
+  });
+  state.activeTrace = { active: true, path, reason };
+  log.debug?.(
+    `Playwright trace capture started for session ${sessionKey}: ${path}`,
+  );
+  return path;
+}
+
+export async function stopPlaywrightTraceCapture(
+  sessionId?: string | null,
+): Promise<string | undefined> {
+  const state = getBrowserSessionState(sessionId);
+  const activeTrace = state?.activeTrace;
+  if (!state || !activeTrace?.active || !state.context) return activeTrace?.path;
+
+  try {
+    await state.context.tracing.stop({ path: activeTrace.path });
+    log.debug?.(
+      `Playwright trace capture saved for session ${resolveSessionKey(sessionId)}: ${activeTrace.path}`,
+    );
+  } finally {
+    state.activeTrace = undefined;
+  }
+  return activeTrace.path;
+}
+
 /** Close the browser and clean up all references. */
 async function closeBrowserSession(
   sessionKey: string,
   state: BrowserSessionState,
 ): Promise<void> {
+  await stopPlaywrightTraceCapture(sessionKey).catch(() => {});
+  clearSnapshotRefs(state);
   try {
     await state.browser?.close();
   } catch (err) {
@@ -299,6 +540,7 @@ async function closeBrowserSession(
   state.page = undefined;
   state.isHeaded = false;
   state.launching = undefined;
+  state.activeTrace = undefined;
   clearBrowserSessionState(sessionKey);
 }
 
@@ -373,7 +615,20 @@ export const _testOnly = {
         isClosed: () => pageClosed,
       } as Page,
       isHeaded: options.headed === true,
+      snapshotRefs: new Map(),
     });
   },
+  getSnapshotRefsForTests: (sessionId?: string): PlaywrightSnapshotRef[] =>
+    [...(getBrowserSessionState(sessionId)?.snapshotRefs.values() ?? [])],
+  setSnapshotRefsForTests: (
+    sessionId: string,
+    refs: readonly PlaywrightSnapshotRef[],
+  ): void => {
+    const { state } = ensureBrowserSessionState(sessionId);
+    state.snapshotRefs = new Map(refs.map((item) => [item.ref, item]));
+  },
+  getActiveTraceForTests: (
+    sessionId?: string,
+  ): BrowserTraceState | undefined => getBrowserSessionState(sessionId)?.activeTrace,
   resolveSessionKey,
 };

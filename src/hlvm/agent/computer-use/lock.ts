@@ -20,6 +20,7 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
 import { invalidateCaches } from "./bridge.ts";
+import { resetComputerUseSessionState } from "./session-state.ts";
 
 const LOCK_FILENAME = "computer-use.lock";
 
@@ -48,7 +49,8 @@ const REENTRANT: AcquireResult = { kind: "acquired", fresh: false };
 /** Return FRESH after invalidating stale caches from a prior session. */
 function acquiredFresh(): AcquireResult {
   invalidateCaches();
-  return acquiredFresh();
+  resetComputerUseSessionState();
+  return FRESH;
 }
 
 function isComputerUseLock(value: unknown): value is ComputerUseLock {
@@ -283,6 +285,7 @@ export async function releaseComputerUseLock(): Promise<boolean> {
   if (!existing || existing.sessionId !== getCurrentSessionId()) return false;
   try {
     await getPlatform().fs.remove(getLockPath());
+    resetComputerUseSessionState();
     getAgentLogger().debug("Released computer-use lock");
     return true;
   } catch {

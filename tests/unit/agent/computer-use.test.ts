@@ -10,6 +10,7 @@ import {
   assertEquals,
   assertExists,
   assertRejects,
+  assertThrows,
 } from "jsr:@std/assert";
 import {
   parseKeySpec,
@@ -35,7 +36,9 @@ import {
 import {
   CLI_HOST_BUNDLE_ID,
   CLI_CU_CAPABILITIES,
+  assertValidBundleId,
   getTerminalBundleId,
+  isValidBundleId,
 } from "../../../src/hlvm/agent/computer-use/common.ts";
 import { drainRunLoop } from "../../../src/hlvm/agent/computer-use/drain-run-loop.ts";
 import {
@@ -45,8 +48,24 @@ import {
 import { filterAppsForDescription } from "../../../src/hlvm/agent/computer-use/app-names.ts";
 import {
   API_RESIZE_PARAMS,
+  type DesktopObservation,
   targetImageSize,
+  type WindowInfo,
 } from "../../../src/hlvm/agent/computer-use/types.ts";
+import {
+  clearStaleComputerUseTargetApp,
+  clearStaleComputerUseTargetWindow,
+  getComputerUseSessionState,
+  getComputerUseTargetBundleId,
+  getComputerUseTargetWindowId,
+  rememberHiddenComputerUseApps,
+  rememberComputerUseObservation,
+  resetComputerUseSessionState,
+  resolveObservationTarget,
+  setComputerUseTargetBundleId,
+  setComputerUseTargetWindow,
+  takeHiddenComputerUseApps,
+} from "../../../src/hlvm/agent/computer-use/session-state.ts";
 
 // ============================================================
 // 1. Keycode Tests (unchanged — keycodes.ts is bridge-specific)
@@ -135,6 +154,218 @@ Deno.test("common: getTerminalBundleId returns string or null", () => {
   assertEquals(typeof result === "string" || result === null, true);
 });
 
+Deno.test("common: isValidBundleId accepts reverse-DNS ids", () => {
+  assertEquals(isValidBundleId("com.apple.Safari"), true);
+  assertEquals(isValidBundleId("dev.warp.Warp-Stable"), true);
+});
+
+Deno.test("common: isValidBundleId rejects malformed ids", () => {
+  assertEquals(isValidBundleId("Safari"), false);
+  assertEquals(isValidBundleId("com..apple"), false);
+  assertEquals(isValidBundleId("com.apple."), false);
+});
+
+Deno.test("common: assertValidBundleId throws on malformed ids", () => {
+  assertThrows(() => assertValidBundleId("Calculator", "bundle_id"));
+});
+
+Deno.test("session-state: target bundle can be set and cleared", () => {
+  resetComputerUseSessionState();
+  setComputerUseTargetBundleId("com.apple.Safari");
+  assertEquals(getComputerUseTargetBundleId(), "com.apple.Safari");
+  setComputerUseTargetBundleId(undefined);
+  assertEquals(getComputerUseTargetBundleId(), undefined);
+});
+
+Deno.test("session-state: hidden apps are deduped and drained", () => {
+  resetComputerUseSessionState();
+  rememberHiddenComputerUseApps([
+    "com.apple.Safari",
+    "com.apple.Safari",
+    "com.apple.TextEdit",
+  ]);
+  assertEquals(takeHiddenComputerUseApps(), [
+    "com.apple.Safari",
+    "com.apple.TextEdit",
+  ]);
+  assertEquals(takeHiddenComputerUseApps(), []);
+});
+
+Deno.test("session-state: reset clears both target bundle and hidden apps", () => {
+  resetComputerUseSessionState();
+  setComputerUseTargetBundleId("com.apple.Safari");
+  rememberHiddenComputerUseApps(["com.apple.TextEdit"]);
+
+  resetComputerUseSessionState();
+
+  assertEquals(getComputerUseTargetBundleId(), undefined);
+  assertEquals(takeHiddenComputerUseApps(), []);
+});
+
+function makeWindow(
+  overrides: Partial<WindowInfo> = {},
+): WindowInfo {
+  return {
+    windowId: overrides.windowId ?? 101,
+    bundleId: overrides.bundleId ?? "com.apple.Safari",
+    displayName: overrides.displayName ?? "Safari",
+    title: overrides.title ?? "Example",
+    bounds: overrides.bounds ?? { x: 100, y: 120, width: 900, height: 700 },
+    displayId: overrides.displayId ?? 2,
+    zIndex: overrides.zIndex ?? 0,
+    layer: overrides.layer ?? 0,
+    ownerPid: overrides.ownerPid ?? 1234,
+    isOnscreen: overrides.isOnscreen ?? true,
+  };
+}
+
+function makeObservation(
+  overrides: Partial<DesktopObservation> = {},
+): DesktopObservation {
+  const window = makeWindow();
+  return {
+    observationId: overrides.observationId ?? "obs-1",
+    createdAt: overrides.createdAt ?? Date.now(),
+    display: overrides.display ?? {
+      width: 1440,
+      height: 900,
+      scaleFactor: 2,
+      displayId: 2,
+      originX: 0,
+      originY: 0,
+    },
+    displaySelectionReason: overrides.displaySelectionReason ?? "target_window",
+    screenshot: overrides.screenshot ?? {
+      base64: "ZmFrZQ==",
+      width: 1280,
+      height: 800,
+    },
+    frontmostApp: overrides.frontmostApp ?? {
+      bundleId: "com.apple.Safari",
+      displayName: "Safari",
+    },
+    runningApps: overrides.runningApps ?? [{
+      bundleId: "com.apple.Safari",
+      displayName: "Safari",
+    }],
+    windows: overrides.windows ?? [window],
+    targets: overrides.targets ?? [{
+      targetId: "obs-1:window:101",
+      kind: "window",
+      label: "Safari - Example",
+      role: "window",
+      bounds: window.bounds,
+      bundleId: "com.apple.Safari",
+      confidence: 0.9,
+      windowId: 101,
+    }],
+    permissions: overrides.permissions ?? {
+      accessibilityTrusted: true,
+      screenRecordingAvailable: true,
+      missing: [],
+      checkedAt: Date.now(),
+    },
+    resolvedTargetBundleId: overrides.resolvedTargetBundleId ??
+      "com.apple.Safari",
+    resolvedTargetWindowId: overrides.resolvedTargetWindowId ?? 101,
+  };
+}
+
+Deno.test("session-state: remember observation updates display, app, window, and last observation", () => {
+  resetComputerUseSessionState();
+  const observation = makeObservation();
+
+  rememberComputerUseObservation(observation);
+
+  assertEquals(getComputerUseTargetBundleId(), "com.apple.Safari");
+  assertEquals(getComputerUseTargetWindowId(), 101);
+  assertEquals(getComputerUseSessionState().selectedDisplayId, 2);
+  assertEquals(
+    getComputerUseSessionState().displaySelectionReason,
+    "target_window",
+  );
+  const resolved = resolveObservationTarget(
+    observation.observationId,
+    observation.targets[0]!.targetId,
+  );
+  assertEquals(resolved.target.bundleId, "com.apple.Safari");
+});
+
+Deno.test("session-state: stale observation ids are rejected", () => {
+  resetComputerUseSessionState();
+  const first = makeObservation();
+  const second = makeObservation({
+    observationId: "obs-2",
+    targets: [{
+      targetId: "obs-2:window:202",
+      kind: "window",
+      label: "TextEdit - Note",
+      role: "window",
+      bounds: { x: 40, y: 50, width: 600, height: 500 },
+      bundleId: "com.apple.TextEdit",
+      confidence: 0.85,
+      windowId: 202,
+    }],
+    windows: [makeWindow({
+      windowId: 202,
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+      title: "Note",
+      bounds: { x: 40, y: 50, width: 600, height: 500 },
+    })],
+    frontmostApp: {
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+    },
+    runningApps: [{
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+    }],
+    resolvedTargetBundleId: "com.apple.TextEdit",
+    resolvedTargetWindowId: 202,
+  });
+
+  rememberComputerUseObservation(first);
+  rememberComputerUseObservation(second);
+
+  assertThrows(
+    () =>
+      resolveObservationTarget(first.observationId, first.targets[0]!.targetId),
+    Error,
+    "Observation is stale",
+  );
+});
+
+Deno.test("session-state: unknown target ids are rejected", () => {
+  resetComputerUseSessionState();
+  const observation = makeObservation();
+  rememberComputerUseObservation(observation);
+
+  assertThrows(
+    () => resolveObservationTarget(observation.observationId, "missing-target"),
+    Error,
+    "Unknown target_id",
+  );
+});
+
+Deno.test("session-state: stale target window is invalidated when it disappears", () => {
+  resetComputerUseSessionState();
+  setComputerUseTargetWindow(makeWindow());
+
+  clearStaleComputerUseTargetWindow([]);
+
+  assertEquals(getComputerUseTargetWindowId(), undefined);
+});
+
+Deno.test("session-state: stale target app is invalidated when it stops running", () => {
+  resetComputerUseSessionState();
+  setComputerUseTargetBundleId("com.apple.Safari");
+
+  clearStaleComputerUseTargetApp(["com.apple.TextEdit"]);
+
+  assertEquals(getComputerUseTargetBundleId(), undefined);
+});
+
 // ============================================================
 // 3. Types Tests (CC clone)
 // ============================================================
@@ -158,11 +389,12 @@ Deno.test("types: targetImageSize preserves small images", () => {
 });
 
 // ============================================================
-// 4. Tool Registration Tests (V2: 22 CC-parity tools)
+// 4. Tool Registration Tests (VNext: 25 cu_* tools)
 // ============================================================
 
-Deno.test("tools: all 22 cu_* tools are exported", () => {
+Deno.test("tools: all 25 cu_* tools are exported", () => {
   const expectedTools = [
+    "cu_observe",
     "cu_screenshot",
     "cu_cursor_position",
     "cu_left_mouse_down",
@@ -182,6 +414,8 @@ Deno.test("tools: all 22 cu_* tools are exported", () => {
     "cu_scroll",
     "cu_left_click_drag",
     "cu_zoom",
+    "cu_click_target",
+    "cu_type_into_target",
     "cu_open_application",
     "cu_request_access",
     "cu_wait",
@@ -192,7 +426,7 @@ Deno.test("tools: all 22 cu_* tools are exported", () => {
       `Missing tool: ${name}`,
     );
   }
-  assertEquals(Object.keys(COMPUTER_USE_TOOLS).length, 22);
+  assertEquals(Object.keys(COMPUTER_USE_TOOLS).length, 25);
 });
 
 Deno.test("tools: L0 read-only tools have correct safety levels", () => {
@@ -211,7 +445,7 @@ Deno.test("tools: L0 read-only tools have correct safety levels", () => {
 });
 
 Deno.test("tools: L1 capture/wait tools have correct safety levels", () => {
-  const l1Tools = ["cu_screenshot", "cu_zoom", "cu_wait"];
+  const l1Tools = ["cu_observe", "cu_screenshot", "cu_zoom", "cu_wait"];
   for (const name of l1Tools) {
     assertEquals(
       COMPUTER_USE_TOOLS[name].safetyLevel,
@@ -237,6 +471,8 @@ Deno.test("tools: write tools have L2 safety level", () => {
     "cu_write_clipboard",
     "cu_scroll",
     "cu_left_click_drag",
+    "cu_click_target",
+    "cu_type_into_target",
     "cu_open_application",
     "cu_request_access",
   ];
@@ -251,6 +487,7 @@ Deno.test("tools: write tools have L2 safety level", () => {
 
 Deno.test("tools: read tools are concurrency-safe", () => {
   const concurrentTools = [
+    "cu_observe",
     "cu_screenshot",
     "cu_cursor_position",
     "cu_list_granted_applications",
@@ -280,6 +517,13 @@ Deno.test("tools: cu_screenshot has formatResult with CC summary", () => {
   const formatted = meta.formatResult!({ width: 1280, height: 720 });
   assertExists(formatted);
   assertEquals(formatted!.summaryDisplay, "Captured 1280x720");
+});
+
+Deno.test("tools: cu_observe is registered as read-only observation entrypoint", () => {
+  const meta = COMPUTER_USE_TOOLS.cu_observe;
+  assertExists(meta);
+  assertEquals(meta.category, "read");
+  assertEquals(meta.safetyLevel, "L1");
 });
 
 Deno.test("tools: click tools use coordinate arg", () => {
@@ -327,6 +571,17 @@ Deno.test("tools: cu_hold_key has text and duration args", () => {
 Deno.test("tools: cu_zoom has region arg", () => {
   const meta = COMPUTER_USE_TOOLS.cu_zoom;
   assertExists(meta.args?.region);
+});
+
+Deno.test("tools: target-grounded CU actions expose observation and target ids", () => {
+  const clickMeta = COMPUTER_USE_TOOLS.cu_click_target;
+  assertExists(clickMeta.args?.observation_id);
+  assertExists(clickMeta.args?.target_id);
+
+  const typeMeta = COMPUTER_USE_TOOLS.cu_type_into_target;
+  assertExists(typeMeta.args?.observation_id);
+  assertExists(typeMeta.args?.target_id);
+  assertExists(typeMeta.args?.text);
 });
 
 Deno.test("tools: cu_open_application has bundle_id arg", () => {
@@ -471,6 +726,24 @@ Deno.test({
       const result = await tryAcquireComputerUseLock(sessionId);
       assertEquals(result.kind, "acquired");
       await releaseComputerUseLock();
+    }),
+  sanitizeOps: false,
+  sanitizeResources: false,
+});
+
+Deno.test({
+  name: "lock: release clears remembered computer-use session state",
+  fn: () =>
+    withIsolatedLock(async () => {
+      const sessionId = `test-state-reset-${Date.now()}`;
+      await tryAcquireComputerUseLock(sessionId);
+      setComputerUseTargetBundleId("com.apple.Safari");
+      rememberHiddenComputerUseApps(["com.apple.TextEdit"]);
+
+      await releaseComputerUseLock();
+
+      assertEquals(getComputerUseTargetBundleId(), undefined);
+      assertEquals(takeHiddenComputerUseApps(), []);
     }),
   sanitizeOps: false,
   sanitizeResources: false,

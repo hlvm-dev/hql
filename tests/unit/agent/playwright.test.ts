@@ -14,9 +14,12 @@ import { PLAYWRIGHT_TOOLS } from "../../../src/hlvm/agent/playwright/mod.ts";
 import {
   _resetBrowserStateForTests,
   _testOnly,
+  clearSnapshotRefsForSession,
   closeBrowser,
   isBrowserActive,
   isHeaded,
+  replaceSnapshotRefs,
+  resolveSnapshotRef,
 } from "../../../src/hlvm/agent/playwright/mod.ts";
 import {
   enrichPlaywrightFailureMetadata,
@@ -31,16 +34,22 @@ import {
   buildPlaywrightSnapshotHint,
   normalizePlaywrightSelector,
 } from "../../../src/hlvm/agent/playwright/selector-utils.ts";
+import {
+  buildPlaywrightRefLocator,
+  parsePlaywrightSnapshotRefs,
+} from "../../../src/hlvm/agent/playwright/snapshot-refs.ts";
 
 // ── Registry completeness ──────────────────────────────────────────────
 
-Deno.test("pw tools — all 13 tools registered", () => {
+Deno.test("pw tools — all 18 tools registered", () => {
   const expected = [
     "pw_goto",
     "pw_click",
     "pw_fill",
     "pw_type",
     "pw_content",
+    "pw_back",
+    "pw_hover",
     "pw_links",
     "pw_wait_for",
     "pw_screenshot",
@@ -48,6 +57,9 @@ Deno.test("pw tools — all 13 tools registered", () => {
     "pw_scroll",
     "pw_snapshot",
     "pw_download",
+    "pw_select_option",
+    "pw_upload_file",
+    "pw_tabs",
     "pw_promote",
   ];
   assertEquals(Object.keys(PLAYWRIGHT_TOOLS).length, expected.length);
@@ -76,13 +88,18 @@ Deno.test("pw tools — safety levels are correct", () => {
   assertEquals(PLAYWRIGHT_TOOLS.pw_scroll.safetyLevel, "L0");
   assertEquals(PLAYWRIGHT_TOOLS.pw_snapshot.safetyLevel, "L0");
   assertEquals(PLAYWRIGHT_TOOLS.pw_goto.safetyLevel, "L1");
+  assertEquals(PLAYWRIGHT_TOOLS.pw_back.safetyLevel, "L1");
   assertEquals(PLAYWRIGHT_TOOLS.pw_screenshot.safetyLevel, "L1");
   // Write tools should be L2
   assertEquals(PLAYWRIGHT_TOOLS.pw_click.safetyLevel, "L2");
   assertEquals(PLAYWRIGHT_TOOLS.pw_fill.safetyLevel, "L2");
   assertEquals(PLAYWRIGHT_TOOLS.pw_type.safetyLevel, "L2");
+  assertEquals(PLAYWRIGHT_TOOLS.pw_hover.safetyLevel, "L2");
   assertEquals(PLAYWRIGHT_TOOLS.pw_evaluate.safetyLevel, "L2");
   assertEquals(PLAYWRIGHT_TOOLS.pw_download.safetyLevel, "L2");
+  assertEquals(PLAYWRIGHT_TOOLS.pw_select_option.safetyLevel, "L2");
+  assertEquals(PLAYWRIGHT_TOOLS.pw_upload_file.safetyLevel, "L2");
+  assertEquals(PLAYWRIGHT_TOOLS.pw_tabs.safetyLevel, "L2");
   assertEquals(PLAYWRIGHT_TOOLS.pw_promote.safetyLevel, "L2");
 });
 
@@ -147,10 +164,71 @@ Deno.test("selector normalization — preserves explicit selector engines and CS
 
 Deno.test("snapshot hint — recommends site search when searchbox is present", () => {
   const hint = buildPlaywrightSnapshotHint(
-    '- navigation:\n  - searchbox "Search"\n  - link "Examples"',
+    '- navigation [ref=s1e1]:\n  - searchbox "Search" [ref=s1e2]\n  - link "Examples" [ref=s1e3]',
   );
   assertEquals(hint.includes("site searchbox"), true);
+  assertEquals(hint.includes("snapshot refs"), true);
   assertEquals(hint.includes('textbox "Email"'), true);
+});
+
+Deno.test("snapshot refs parser extracts refs and minimal attributes", () => {
+  const refs = parsePlaywrightSnapshotRefs(
+    [
+      '- button "Submit" [ref=s1e3]: Go',
+      '- textbox "Email" [ref=s1e4] [disabled=true]',
+      '- checkbox "Remember me" [ref=s1e5] [checked=true]',
+      '- treeitem "Advanced" [ref=s1e6] [expanded=false]',
+    ].join("\n"),
+  );
+
+  assertEquals(refs, [
+    { ref: "s1e3", role: "button", name: "Submit" },
+    { ref: "s1e4", role: "textbox", name: "Email", disabled: true },
+    { ref: "s1e5", role: "checkbox", name: "Remember me", checked: true },
+    { ref: "s1e6", role: "treeitem", name: "Advanced", expanded: false },
+  ]);
+  assertEquals(buildPlaywrightRefLocator("s1e3"), "aria-ref=s1e3");
+});
+
+Deno.test("browser manager — snapshot refs replace and clear per session", () => {
+  _resetBrowserStateForTests();
+
+  replaceSnapshotRefs([
+    { ref: "s1e3", role: "button", name: "Submit" },
+    { ref: "s1e4", role: "textbox", name: "Email" },
+  ], "session-a");
+  assertEquals(resolveSnapshotRef("s1e3", "session-a")?.name, "Submit");
+  assertEquals(_testOnly.getSnapshotRefsForTests("session-a").length, 2);
+
+  replaceSnapshotRefs([
+    { ref: "s2e1", role: "link", name: "Docs" },
+  ], "session-a");
+  assertEquals(resolveSnapshotRef("s1e3", "session-a"), undefined);
+  assertEquals(resolveSnapshotRef("s2e1", "session-a")?.name, "Docs");
+
+  clearSnapshotRefsForSession("session-a");
+  assertEquals(_testOnly.getSnapshotRefsForTests("session-a"), []);
+});
+
+Deno.test("ref-capable pw tools expose ref args across the first-wave interaction surface", () => {
+  const refAwareTools = [
+    "pw_click",
+    "pw_fill",
+    "pw_type",
+    "pw_hover",
+    "pw_select_option",
+    "pw_content",
+    "pw_screenshot",
+    "pw_snapshot",
+    "pw_download",
+    "pw_upload_file",
+  ] as const;
+
+  for (const toolName of refAwareTools) {
+    const tool = PLAYWRIGHT_TOOLS[toolName];
+    assertExists(tool.args.ref, `${toolName} should expose ref`);
+    assertStringIncludes(tool.args.ref, "Snapshot ref");
+  }
 });
 
 Deno.test("pw_download — args mention direct url downloads", () => {

@@ -561,6 +561,42 @@ async function createAiLoopEnhancementFixture(
   return fixturePath;
 }
 
+async function createBrowserCliSmokeFixture(workspace: string): Promise<string> {
+  const fixturePath = platform.path.join(
+    workspace,
+    "browser-cli-smoke-fixture.json",
+  );
+  const fixture = {
+    version: 1,
+    name: "browser cli smoke fixture",
+    cases: [
+      {
+        name: "browser-cli-smoke",
+        match: { contains: ["browser cli smoke"] },
+        steps: [
+          {
+            expect: {
+              contains: [
+                "Allowed tools:",
+                "pw_goto",
+                "pw_snapshot",
+                "pw_click",
+              ],
+            },
+            response: "Browser CLI smoke complete",
+          },
+        ],
+      },
+    ],
+  };
+
+  await platform.fs.writeTextFile(
+    fixturePath,
+    JSON.stringify(fixture, null, 2),
+  );
+  return fixturePath;
+}
+
 async function createAskMultimodalFixture(
   workspace: string,
 ): Promise<{
@@ -685,6 +721,46 @@ localAskTest({
         output,
         "Result:\nMulti-agent parser coordination complete",
       );
+    } finally {
+      await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
+      await runtimeProbe.stop();
+      await platform.fs.remove(hlvmDir, { recursive: true });
+    }
+  },
+});
+
+localAskTest({
+  name:
+    "local ask command exposes browser_safe Playwright tools through the real browser entry path",
+  fn: async () => {
+    const port = await allocateRuntimeShellPort();
+    const hlvmDir = await platform.fs.makeTempDir({
+      prefix: "hlvm-browser-cli-smoke-",
+    });
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const runtimeProbe = createRuntimeHostLifecycleProbe(baseUrl, port);
+
+    try {
+      const fixturePath = await createBrowserCliSmokeFixture(hlvmDir);
+      const result = await runLocalAsk(
+        port,
+        [
+          "--no-session-persistence",
+          "--model",
+          "ollama/test-fixture",
+          "browser cli smoke: go to https://example.com and tell me the title",
+        ],
+        {
+          HLVM_DIR: hlvmDir,
+          HLVM_ASK_FIXTURE_PATH: fixturePath,
+        },
+        hlvmDir,
+        runtimeProbe,
+      );
+
+      const output = describeLocalAskResult(result);
+      assertEquals(result.success, true, output);
+      assertStringIncludes(output, "Browser CLI smoke complete");
     } finally {
       await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
       await runtimeProbe.stop();

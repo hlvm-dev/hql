@@ -40,7 +40,8 @@ export function normalizePlaywrightSelector(selector: string): string {
 
 export function buildPlaywrightSnapshotHint(snapshot: string): string {
   const hints = [
-    "Use role/name from snapshot as selectors: role=button[name='Submit'], role=searchbox[name='Search'], text=Sign in.",
+    "Prefer snapshot refs when available: pass ref from pw_snapshot to pw_click, pw_fill, pw_type, pw_hover, pw_content, pw_screenshot, or pw_download.",
+    "If you do not use refs, use role/name from snapshot as selectors: role=button[name='Submit'], role=searchbox[name='Search'], text=Sign in.",
     'pw_click and pw_fill also accept shorthand like button "Submit", textbox "Email", checkbox "Remember me".',
   ];
 

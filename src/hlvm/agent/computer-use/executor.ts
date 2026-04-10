@@ -22,13 +22,18 @@
 
 import type {
   ComputerExecutor,
+  ComputerUsePermissionState,
   ComputerUseInputAPI,
+  DesktopObservation,
+  DisplaySelectionReason,
   DisplayGeometry,
   FrontmostApp,
   InstalledApp,
+  ObservationTarget,
   ResolvePrepareCaptureResult,
   RunningApp,
   ScreenshotResult,
+  WindowInfo,
 } from "./types.ts";
 
 import { API_RESIZE_PARAMS, targetImageSize } from "./types.ts";
@@ -37,6 +42,7 @@ import { ensureDisplayCache, ensureRunningAppsCache, execFileNoThrow, requireCom
 import {
   CLI_CU_CAPABILITIES,
   CLI_HOST_BUNDLE_ID,
+  assertValidBundleId,
   getTerminalBundleId,
 } from "./common.ts";
 import { drainRunLoop } from "./drain-run-loop.ts";
@@ -70,6 +76,27 @@ function computeTargetDims(
   const physW = Math.round(logicalW * scaleFactor);
   const physH = Math.round(logicalH * scaleFactor);
   return targetImageSize(physW, physH, API_RESIZE_PARAMS);
+}
+
+function buildObservationTargets(
+  observationId: string,
+  windows: readonly WindowInfo[],
+): ObservationTarget[] {
+  return windows
+    .filter((window) => !!window.bundleId)
+    .slice(0, 12)
+    .map((window) => ({
+      targetId: `${observationId}:window:${window.windowId}`,
+      kind: "window" as const,
+      label: window.title
+        ? `${window.displayName} — ${window.title}`
+        : window.displayName,
+      role: "window" as const,
+      bounds: window.bounds,
+      bundleId: window.bundleId!,
+      confidence: window.layer === 0 ? 0.9 : 0.7,
+      windowId: window.windowId,
+    }));
 }
 
 async function readClipboardViaPbpaste(): Promise<string> {
@@ -320,10 +347,12 @@ export function createCliExecutor(opts: {
     // ── Display ──────────────────────────────────────────────────────────
 
     async getDisplaySize(displayId?: number): Promise<DisplayGeometry> {
+      await ensureDisplayCache();
       return cu.display.getSize(displayId);
     },
 
     async listDisplays(): Promise<DisplayGeometry[]> {
+      await ensureDisplayCache();
       return cu.display.listAll();
     },
 
@@ -333,12 +362,18 @@ export function createCliExecutor(opts: {
       return cu.apps.findWindowDisplays(bundleIds);
     },
 
+    async listVisibleWindows(displayId?: number): Promise<WindowInfo[]> {
+      await ensureDisplayCache();
+      return await cu.apps.listVisibleWindows(displayId);
+    },
+
     async resolvePrepareCapture(opts2: {
       allowedBundleIds: string[];
       preferredDisplayId?: number;
       autoResolve: boolean;
       doHide?: boolean;
     }): Promise<ResolvePrepareCaptureResult> {
+      await ensureDisplayCache();
       const d = cu.display.getSize(opts2.preferredDisplayId);
       const [targetW, targetH] = computeTargetDims(
         d.width,
@@ -410,6 +445,59 @@ export function createCliExecutor(opts: {
           displayId,
         ),
       );
+    },
+
+    async observe(opts2: {
+      allowedBundleIds: string[];
+      preferredDisplayId?: number;
+      displaySelectionReason?: DisplaySelectionReason;
+      resolvedTargetBundleId?: string;
+      resolvedTargetWindowId?: number;
+    }): Promise<DesktopObservation> {
+      await ensureDisplayCache();
+      await ensureRunningAppsCache();
+      const display = cu.display.getSize(opts2.preferredDisplayId);
+      const [targetW, targetH] = computeTargetDims(
+        display.width,
+        display.height,
+        display.scaleFactor,
+      );
+      const [frontmostInfo, screenshot, windows, permissions] = await Promise
+        .all([
+          requireComputerUseInput().getFrontmostAppInfo(),
+          drainRunLoop(() =>
+            cu.screenshot.captureExcluding(
+              withoutTerminal(opts2.allowedBundleIds),
+              SCREENSHOT_JPEG_QUALITY,
+              targetW,
+              targetH,
+              opts2.preferredDisplayId,
+            )
+          ),
+          cu.apps.listVisibleWindows(opts2.preferredDisplayId),
+          cu.permissions.getState(),
+        ]);
+      const frontmostApp = frontmostInfo?.bundleId
+        ? {
+          bundleId: frontmostInfo.bundleId,
+          displayName: frontmostInfo.appName,
+        }
+        : null;
+      const observationId = crypto.randomUUID();
+      return {
+        observationId,
+        createdAt: Date.now(),
+        display,
+        displaySelectionReason: opts2.displaySelectionReason ?? "default",
+        screenshot,
+        frontmostApp,
+        runningApps: cu.apps.listRunning(),
+        windows,
+        targets: buildObservationTargets(observationId, windows),
+        permissions,
+        resolvedTargetBundleId: opts2.resolvedTargetBundleId,
+        resolvedTargetWindowId: opts2.resolvedTargetWindowId,
+      };
     },
 
     // ── Keyboard ─────────────────────────────────────────────────────────
@@ -588,7 +676,12 @@ export function createCliExecutor(opts: {
     },
 
     async openApp(bundleId: string): Promise<void> {
+      assertValidBundleId(bundleId);
       await cu.apps.open(bundleId);
+    },
+
+    async getPermissionState(): Promise<ComputerUsePermissionState> {
+      return await cu.permissions.getState();
     },
   };
 }

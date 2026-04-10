@@ -644,7 +644,7 @@ CDP (Chrome DevTools Protocol), CU via pixels (screenshot + CGEvent).
 
 ### Platform Expansion
 
-| Platform | CU (22 tools) | PW (7 tools) | Net |
+| Platform | CU (25 tools) | PW (7 tools) | Net |
 |----------|---------------|--------------|-----|
 | macOS | yes | yes | Full hybrid |
 | Linux | no | yes | Browser automation only |

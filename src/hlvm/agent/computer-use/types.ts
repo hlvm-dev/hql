@@ -17,6 +17,21 @@ export interface DisplayGeometry {
   originY?: number;
 }
 
+export interface BoundsRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type DisplaySelectionReason =
+  | "explicit"
+  | "target_window"
+  | "target_app"
+  | "frontmost_app"
+  | "previous_observation"
+  | "default";
+
 // ── Apps ──────────────────────────────────────────────────────────────────
 
 export interface FrontmostApp {
@@ -36,6 +51,37 @@ export interface RunningApp {
   displayName: string;
 }
 
+export interface WindowInfo {
+  windowId: number;
+  bundleId?: string;
+  displayName: string;
+  title?: string;
+  bounds: BoundsRect;
+  displayId?: number;
+  zIndex: number;
+  layer: number;
+  ownerPid?: number;
+  isOnscreen?: boolean;
+}
+
+export interface ObservationTarget {
+  targetId: string;
+  kind: "window";
+  label: string;
+  role: "window";
+  bounds: BoundsRect;
+  bundleId: string;
+  confidence: number;
+  windowId?: number;
+}
+
+export interface ComputerUsePermissionState {
+  accessibilityTrusted: boolean;
+  screenRecordingAvailable: boolean | null;
+  missing: string[];
+  checkedAt: number;
+}
+
 // ── Screenshot ───────────────────────────────────────────────────────────
 
 export interface ScreenshotResult {
@@ -48,6 +94,21 @@ export interface ResolvePrepareCaptureResult {
   displayId: number;
   hidden: string[];
   screenshot: ScreenshotResult;
+}
+
+export interface DesktopObservation {
+  observationId: string;
+  createdAt: number;
+  display: DisplayGeometry;
+  displaySelectionReason: DisplaySelectionReason;
+  screenshot: ScreenshotResult;
+  frontmostApp: FrontmostApp | null;
+  runningApps: RunningApp[];
+  windows: WindowInfo[];
+  targets: ObservationTarget[];
+  permissions: ComputerUsePermissionState;
+  resolvedTargetBundleId?: string;
+  resolvedTargetWindowId?: number;
 }
 
 // ── Image Sizing (CC: API_RESIZE_PARAMS + targetImageSize) ───────────────
@@ -109,6 +170,7 @@ export interface ComputerExecutor {
   findWindowDisplays(
     bundleIds: string[],
   ): Promise<Array<{ bundleId: string; displayIds: number[] }>>;
+  listVisibleWindows(displayId?: number): Promise<WindowInfo[]>;
   resolvePrepareCapture(opts: {
     allowedBundleIds: string[];
     preferredDisplayId?: number;
@@ -126,6 +188,13 @@ export interface ComputerExecutor {
     allowedBundleIds: string[],
     displayId?: number,
   ): Promise<{ base64: string; width: number; height: number }>;
+  observe(opts: {
+    allowedBundleIds: string[];
+    preferredDisplayId?: number;
+    displaySelectionReason?: DisplaySelectionReason;
+    resolvedTargetBundleId?: string;
+    resolvedTargetWindowId?: number;
+  }): Promise<DesktopObservation>;
 
   // Keyboard
   key(keySequence: string, repeat?: number): Promise<void>;
@@ -157,11 +226,17 @@ export interface ComputerExecutor {
   appUnderPoint(
     x: number,
     y: number,
-  ): Promise<{ bundleId: string; displayName: string } | null>;
+  ): Promise<{
+    bundleId: string;
+    displayName: string;
+    windowId?: number;
+    displayId?: number;
+  } | null>;
   listInstalledApps(): Promise<InstalledApp[]>;
   getAppIcon(path: string): Promise<string | undefined>;
   listRunningApps(): Promise<RunningApp[]>;
   openApp(bundleId: string): Promise<void>;
+  getPermissionState(): Promise<ComputerUsePermissionState>;
 }
 
 // ── Native Module Interfaces (bridge must implement these) ───────────────
@@ -225,6 +300,7 @@ export interface ComputerUseSwiftAPI {
     findWindowDisplays(
       bundleIds: string[],
     ): Promise<Array<{ bundleId: string; displayIds: number[] }>>;
+    listVisibleWindows(displayId?: number): Promise<WindowInfo[]>;
     listInstalled(): Promise<InstalledApp[]>;
     iconDataUrl(path: string): string | null;
     listRunning(): RunningApp[];
@@ -233,7 +309,15 @@ export interface ComputerUseSwiftAPI {
     appUnderPoint(
       x: number,
       y: number,
-    ): Promise<{ bundleId: string; displayName: string } | null>;
+    ): Promise<{
+      bundleId: string;
+      displayName: string;
+      windowId?: number;
+      displayId?: number;
+    } | null>;
+  };
+  permissions: {
+    getState(): Promise<ComputerUsePermissionState>;
   };
   resolvePrepareCapture(
     allowedBundleIds: string[],

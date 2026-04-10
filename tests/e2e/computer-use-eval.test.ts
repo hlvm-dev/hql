@@ -114,6 +114,26 @@ function validateRequiredTools(
 const CASES: ComputerUseCase[] = [
   // ── Tier 1: Atomic Operations ────────────────────────────────────────
   {
+    id: "observe_basic",
+    query:
+      "Use cu_observe to inspect the current desktop. Report the frontmost application if available and how many visible windows were found.",
+    requiredTools: ["cu_observe"],
+    validate: (result) => {
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(result, ["cu_observe"]),
+      ];
+      if (
+        result.plain.length < 20 || !/(frontmost|window|app|\d+)/i.test(result.plain)
+      ) {
+        errors.push(
+          "Expected a desktop observation summary mentioning the frontmost app or visible windows.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
     id: "screenshot_basic",
     query:
       "Take a screenshot of the current screen and describe what you see in 1-2 sentences.",

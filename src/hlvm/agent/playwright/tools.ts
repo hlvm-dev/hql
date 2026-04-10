@@ -1,7 +1,7 @@
 /**
- * Playwright Tools — 12 browser automation tools
+ * Playwright Tools — Browser automation tools
  *
- * Fast, deterministic DOM-level browser control via Chrome DevTools Protocol.
+ * Fast, deterministic DOM-level browser control via Playwright.
  * Complements the 22 cu_* computer use tools (pixel-level desktop control).
  *
  * Tool name prefix: `pw_*`
@@ -20,8 +20,15 @@ import {
 import { encodeBase64 } from "@std/encoding/base64";
 import { isChromiumReady } from "../../runtime/chromium-runtime.ts";
 import {
+  clearSnapshotRefsForSession,
+  closeBrowserTab,
+  createBrowserTab,
   getOrCreatePage,
+  listBrowserTabs,
   promoteToHeaded,
+  replaceSnapshotRefs,
+  resolveSnapshotRef,
+  selectBrowserTab,
 } from "./browser-manager.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { analyzePlaywrightActionability } from "./actionability.ts";
@@ -31,6 +38,15 @@ import {
   buildPlaywrightSnapshotHint,
   normalizePlaywrightSelector,
 } from "./selector-utils.ts";
+import {
+  buildPlaywrightRefLocator,
+  normalizePlaywrightRef,
+  parsePlaywrightSnapshotRefs,
+  type PlaywrightSnapshotRef,
+} from "./snapshot-refs.ts";
+
+type Page = import("playwright-core").Page;
+type Locator = import("playwright-core").Locator;
 
 // ── Result summary labels (matches CU pattern) ──────────────────────────
 
@@ -43,12 +59,29 @@ const RESULT_SUMMARY: Record<string, string> = {
   wait_for: "Waited",
   screenshot: "Captured",
   evaluate: "Evaluated",
+  hover: "Hovered",
   snapshot: "Snapshot",
+  back: "Navigated back",
   download: "Downloaded",
+  select_option: "Selected",
+  upload_file: "Uploaded",
+  tabs: "Tabs",
 };
 
 const MAX_CONTENT_CHARS = 8_000; // ~2K tokens, fits tool result budget
 const MAX_SNAPSHOT_CHARS = 12_000; // accessibility trees are more info-dense
+const PLAYWRIGHT_SELECTOR_ARG =
+  'string (optional) - CSS selector, text= selector, role= selector, or shorthand like button "Submit" / textbox "Email"';
+const PLAYWRIGHT_REF_ARG =
+  "string (optional) - Snapshot ref returned by pw_snapshot. If both ref and selector are provided, ref wins.";
+
+interface PlaywrightResolvedTarget {
+  page: Page;
+  locator: Locator;
+  selector: string;
+  ref?: string;
+  refMeta?: PlaywrightSnapshotRef;
+}
 
 // ── Image attachment (reuses same _imageAttachment format as CU) ────────
 
@@ -138,6 +171,99 @@ function resolveDownloadDirectory(saveTo?: string): string {
     : platform.path.join(homeDir, "Downloads");
 }
 
+function resolveHomePath(path: string): string {
+  const platform = getPlatform();
+  const homeDir = platform.env.get("HOME") ?? platform.env.get("USERPROFILE") ??
+    "/tmp";
+  return path.startsWith("~") ? path.replace("~", homeDir) : path;
+}
+
+function resolveUploadPaths(paths: unknown): string[] {
+  const rawPaths = Array.isArray(paths)
+    ? paths
+    : typeof paths === "string"
+    ? [paths]
+    : [];
+  const normalized = rawPaths
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => resolveHomePath(value.trim()))
+    .filter((value) => value.length > 0);
+  if (normalized.length === 0) {
+    throw new Error("paths must contain at least one file path");
+  }
+  return normalized;
+}
+
+function parseSelectValues(args: {
+  value?: unknown;
+  values?: unknown;
+}): string[] {
+  const values = Array.isArray(args.values)
+    ? args.values
+    : args.value !== undefined
+    ? [args.value]
+    : [];
+  const normalized = values
+    .filter((value): value is string | number => typeof value === "string" ||
+      typeof value === "number")
+    .map((value) => String(value).trim())
+    .filter((value) => value.length > 0);
+  if (normalized.length === 0) {
+    throw new Error("value or values is required");
+  }
+  return normalized;
+}
+
+async function resolvePlaywrightTarget(
+  args: unknown,
+  toolOptions?: ToolExecutionOptions,
+): Promise<PlaywrightResolvedTarget> {
+  const page = await getOrCreatePage(toolOptions?.sessionId);
+  const ref = normalizePlaywrightRef((args as { ref?: unknown })?.ref);
+  if (ref) {
+    const refMeta = resolveSnapshotRef(ref, toolOptions?.sessionId);
+    if (!refMeta) {
+      throw new Error(
+        `Invalid or expired snapshot ref: ${ref}. Call pw_snapshot again to refresh refs.`,
+      );
+    }
+    const selector = buildPlaywrightRefLocator(ref);
+    return {
+      page,
+      locator: page.locator(selector),
+      selector,
+      ref,
+      refMeta,
+    };
+  }
+
+  const selector = typeof (args as { selector?: unknown })?.selector ===
+      "string"
+    ? normalizePlaywrightSelector((args as { selector?: string }).selector ?? "")
+    : "";
+  if (!selector) {
+    throw new Error("selector or ref is required");
+  }
+  return {
+    page,
+    locator: page.locator(selector),
+    selector,
+  };
+}
+
+async function resolveOptionalPlaywrightTarget(
+  args: unknown,
+  toolOptions?: ToolExecutionOptions,
+): Promise<PlaywrightResolvedTarget | null> {
+  const ref = normalizePlaywrightRef((args as { ref?: unknown })?.ref);
+  const selector = typeof (args as { selector?: unknown })?.selector ===
+      "string"
+    ? normalizePlaywrightSelector((args as { selector?: string }).selector ?? "")
+    : "";
+  if (!ref && !selector) return null;
+  return await resolvePlaywrightTarget(args, toolOptions);
+}
+
 function extractFilenameFromContentDisposition(
   contentDisposition?: string,
 ): string | null {
@@ -204,12 +330,13 @@ function pwTool(
       return await fn(args, toolOptions);
     } catch (error) {
       const toolError = formatToolError(errorPrefix, error);
-      const rawSelector = typeof (args as { selector?: unknown })?.selector ===
-          "string"
-        ? ((args as { selector?: string }).selector ?? "").trim()
-        : "";
-      const selector = rawSelector
-        ? normalizePlaywrightSelector(rawSelector) || undefined
+      const ref = normalizePlaywrightRef((args as { ref?: unknown })?.ref);
+      const selector = ref
+        ? buildPlaywrightRefLocator(ref)
+        : typeof (args as { selector?: unknown })?.selector === "string"
+        ? normalizePlaywrightSelector(
+          (args as { selector?: string }).selector ?? "",
+        ) || undefined
         : undefined;
       const actionability = selector
         ? await analyzePlaywrightActionability({
@@ -235,6 +362,7 @@ const pwGotoFn = pwTool("Navigation failed", async (args, toolOptions) => {
   const { url } = args as { url: string };
   if (!url) throw new Error("url is required");
   const page = await getOrCreatePage(toolOptions?.sessionId);
+  clearSnapshotRefsForSession(toolOptions?.sessionId);
   const response = await page.goto(url, { waitUntil: "domcontentloaded" });
   return okTool({
     url: page.url(),
@@ -244,47 +372,42 @@ const pwGotoFn = pwTool("Navigation failed", async (args, toolOptions) => {
 });
 
 const pwClickFn = pwTool("Click failed", async (args, toolOptions) => {
-  const { selector } = args as { selector: string };
-  const sel = typeof selector === "string"
-    ? normalizePlaywrightSelector(selector)
-    : "";
-  if (!sel) throw new Error("selector is required");
-  const page = await getOrCreatePage(toolOptions?.sessionId);
-  await page.click(sel, { timeout: 10_000 });
-  return okTool({ clicked: true, selector: sel });
+  const target = await resolvePlaywrightTarget(args, toolOptions);
+  await target.locator.click({ timeout: 10_000 });
+  return okTool({
+    clicked: true,
+    selector: target.ref ? undefined : target.selector,
+    ref: target.ref,
+  });
 }, { interaction: "click" });
 
 const pwFillFn = pwTool("Fill failed", async (args, toolOptions) => {
-  const { selector, value } = args as { selector: string; value: string };
-  const sel = typeof selector === "string"
-    ? normalizePlaywrightSelector(selector)
-    : "";
-  if (!sel) throw new Error("selector is required");
+  const { value } = args as { value: string };
   if (value == null) throw new Error("value is required");
-  const page = await getOrCreatePage(toolOptions?.sessionId);
-  await page.fill(sel, String(value), { timeout: 10_000 });
-  return okTool({ filled: true, selector: sel });
+  const target = await resolvePlaywrightTarget(args, toolOptions);
+  await target.locator.fill(String(value), { timeout: 10_000 });
+  return okTool({
+    filled: true,
+    selector: target.ref ? undefined : target.selector,
+    ref: target.ref,
+  });
 }, { interaction: "fill" });
 
 const pwTypeFn = pwTool("Type failed", async (args, toolOptions) => {
-  const { selector, value, submit } = args as {
-    selector: string;
+  const { value, submit } = args as {
     value: string;
     submit?: boolean;
   };
-  const sel = typeof selector === "string"
-    ? normalizePlaywrightSelector(selector)
-    : "";
-  if (!sel) throw new Error("selector is required");
   if (value == null) throw new Error("value is required");
-  const page = await getOrCreatePage(toolOptions?.sessionId);
-  await page.fill(sel, String(value), { timeout: 10_000 });
+  const target = await resolvePlaywrightTarget(args, toolOptions);
+  await target.locator.fill(String(value), { timeout: 10_000 });
   if (submit === true) {
-    await page.press(sel, "Enter", { timeout: 10_000 });
+    await target.locator.press("Enter", { timeout: 10_000 });
   }
   return okTool({
     typed: true,
-    selector: sel,
+    selector: target.ref ? undefined : target.selector,
+    ref: target.ref,
     submitted: submit === true,
   });
 }, { interaction: "type" });
@@ -292,15 +415,12 @@ const pwTypeFn = pwTool("Type failed", async (args, toolOptions) => {
 const pwContentFn = pwTool(
   "Content read failed",
   async (args, toolOptions) => {
-    const { selector } = args as { selector?: string };
-    const sel = typeof selector === "string"
-      ? normalizePlaywrightSelector(selector)
-      : "";
-    const page = await getOrCreatePage(toolOptions?.sessionId);
+    const target = await resolveOptionalPlaywrightTarget(args, toolOptions);
+    const page = target?.page ?? await getOrCreatePage(toolOptions?.sessionId);
     let text: string;
-    if (sel) {
-      const el = await page.$(sel);
-      if (!el) throw new Error(`Element not found: ${sel}`);
+    if (target) {
+      const el = await target.locator.elementHandle();
+      if (!el) throw new Error(`Element not found: ${target.selector}`);
       text = (await el.textContent()) ?? "";
     } else {
       text = await page.innerText("body");
@@ -308,8 +428,73 @@ const pwContentFn = pwTool(
     const truncated = text.length > MAX_CONTENT_CHARS
       ? text.slice(0, MAX_CONTENT_CHARS - 3) + "..."
       : text;
-    return okTool({ text: truncated, length: text.length });
+    return okTool({
+      text: truncated,
+      length: text.length,
+      selector: target?.ref ? undefined : target?.selector,
+      ref: target?.ref,
+    });
   },
+);
+
+const pwBackFn = pwTool("Back navigation failed", async (_args, toolOptions) => {
+  const page = await getOrCreatePage(toolOptions?.sessionId);
+  const beforeUrl = page.url();
+  clearSnapshotRefsForSession(toolOptions?.sessionId);
+  const response = await page.goBack({ waitUntil: "domcontentloaded" }).catch(
+    () => null,
+  );
+  return okTool({
+    url: page.url(),
+    title: await page.title(),
+    status: response?.status() ?? null,
+    wentBack: page.url() !== beforeUrl,
+  });
+});
+
+const pwHoverFn = pwTool("Hover failed", async (args, toolOptions) => {
+  const target = await resolvePlaywrightTarget(args, toolOptions);
+  await target.locator.hover({ timeout: 10_000 });
+  return okTool({
+    hovered: true,
+    selector: target.ref ? undefined : target.selector,
+    ref: target.ref,
+  });
+}, { interaction: "hover" });
+
+const pwSelectOptionFn = pwTool(
+  "Select option failed",
+  async (args, toolOptions) => {
+    const target = await resolvePlaywrightTarget(args, toolOptions);
+    const values = parseSelectValues(args as { value?: unknown; values?: unknown });
+    const selected = await target.locator.selectOption(
+      values,
+      { timeout: 10_000 },
+    );
+    return okTool({
+      selected,
+      selector: target.ref ? undefined : target.selector,
+      ref: target.ref,
+    });
+  },
+  { interaction: "select_option" },
+);
+
+const pwUploadFileFn = pwTool(
+  "File upload failed",
+  async (args, toolOptions) => {
+    const target = await resolvePlaywrightTarget(args, toolOptions);
+    const { paths } = args as { paths?: unknown };
+    const uploadPaths = resolveUploadPaths(paths);
+    await target.locator.setInputFiles(uploadPaths, { timeout: 10_000 });
+    return okTool({
+      uploaded: uploadPaths,
+      count: uploadPaths.length,
+      selector: target.ref ? undefined : target.selector,
+      ref: target.ref,
+    });
+  },
+  { interaction: "upload_file" },
 );
 
 const pwLinksFn = pwTool(
@@ -472,21 +657,20 @@ const pwWaitForFn = pwTool("Wait failed", async (args, toolOptions) => {
 const pwScreenshotFn = pwTool(
   "Screenshot failed",
   async (args, toolOptions) => {
-    const { selector, fullPage } = args as {
-      selector?: string;
+    const { fullPage } = args as {
       fullPage?: boolean;
     };
-    const page = await getOrCreatePage(toolOptions?.sessionId);
+    const target = await resolveOptionalPlaywrightTarget(args, toolOptions);
+    const page = target?.page ?? await getOrCreatePage(toolOptions?.sessionId);
 
     let bytes: Uint8Array;
-    if (selector) {
-      const sel = typeof selector === "string"
-        ? normalizePlaywrightSelector(selector)
-        : "";
-      if (!sel) throw new Error("selector must be non-empty");
-      const el = await page.$(sel);
-      if (!el) throw new Error(`Element not found: ${sel}`);
-      bytes = new Uint8Array(await el.screenshot({ type: "png" }));
+    let width: number;
+    let height: number;
+    if (target) {
+      bytes = new Uint8Array(await target.locator.screenshot({ type: "png" }));
+      const box = await target.locator.boundingBox();
+      width = Math.max(1, Math.round(box?.width ?? 0));
+      height = Math.max(1, Math.round(box?.height ?? 0));
     } else {
       bytes = new Uint8Array(
         await page.screenshot({
@@ -494,13 +678,20 @@ const pwScreenshotFn = pwTool(
           fullPage: fullPage === true,
         }),
       );
+      const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
+      width = viewport.width;
+      height = viewport.height;
     }
 
     const base64 = encodeBase64(bytes);
-    const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
     return imageResult(
-      { width: viewport.width, height: viewport.height },
-      { base64, width: viewport.width, height: viewport.height },
+      {
+        width,
+        height,
+        selector: target?.ref ? undefined : target?.selector,
+        ref: target?.ref,
+      },
+      { base64, width, height },
     );
   },
 );
@@ -565,40 +756,40 @@ const pwScrollFn = pwTool("Scroll failed", async (args, toolOptions) => {
 });
 
 const pwSnapshotFn = pwTool("Snapshot failed", async (args, toolOptions) => {
-  const { selector } = args as { selector?: string };
-  const page = await getOrCreatePage(toolOptions?.sessionId);
-  const normalizedSelector = typeof selector === "string"
-    ? normalizePlaywrightSelector(selector)
-    : "";
-  const loc = normalizedSelector
-    ? page.locator(normalizedSelector)
-    : page.locator("body");
-  const yaml = await loc.ariaSnapshot({ timeout: 10_000 });
+  const target = await resolveOptionalPlaywrightTarget(args, toolOptions);
+  const page = target?.page ?? await getOrCreatePage(toolOptions?.sessionId);
+  const loc = target?.locator ?? page.locator("body");
+  const yaml = await loc.ariaSnapshot({ ref: true, timeout: 10_000 });
+  const refs = parsePlaywrightSnapshotRefs(yaml);
+  replaceSnapshotRefs(refs, toolOptions?.sessionId);
   const truncated = yaml.length > MAX_SNAPSHOT_CHARS
     ? yaml.slice(0, MAX_SNAPSHOT_CHARS - 3) + "..."
     : yaml;
   return okTool({
     snapshot: truncated,
     length: yaml.length,
+    refs,
+    refCount: refs.length,
+    selector: target?.ref ? undefined : target?.selector,
+    ref: target?.ref,
     hint: buildPlaywrightSnapshotHint(yaml),
   });
 });
 
 const pwDownloadFn = pwTool("Download failed", async (args, toolOptions) => {
-  const { selector, url, save_to } = args as {
-    selector?: string;
+  const { url, save_to } = args as {
     url?: string;
     save_to?: string;
   };
-  const sel = typeof selector === "string"
-    ? normalizePlaywrightSelector(selector)
-    : "";
   const downloadUrl = typeof url === "string" ? url.trim() : "";
-  if (!sel && !downloadUrl) {
-    throw new Error("selector or url is required");
+  const target = downloadUrl
+    ? null
+    : await resolvePlaywrightTarget(args, toolOptions);
+  if (!target && !downloadUrl) {
+    throw new Error("ref, selector, or url is required");
   }
 
-  const page = await getOrCreatePage(toolOptions?.sessionId);
+  const page = target?.page ?? await getOrCreatePage(toolOptions?.sessionId);
   const platform = getPlatform();
   const destDir = resolveDownloadDirectory(save_to);
   await platform.fs.mkdir(destDir, { recursive: true });
@@ -648,7 +839,7 @@ const pwDownloadFn = pwTool("Download failed", async (args, toolOptions) => {
   try {
     [download] = await Promise.all([
       page.waitForEvent("download", { timeout: 15_000 }),
-      page.click(sel, { timeout: 10_000 }),
+      target!.locator.click({ timeout: 10_000 }),
     ]);
   } catch {
     // Click may have navigated instead of triggering a download
@@ -662,7 +853,8 @@ const pwDownloadFn = pwTool("Download failed", async (args, toolOptions) => {
           kind: "invalid_state",
           code: "pw_download_navigated",
           facts: {
-            selector: sel,
+            selector: target?.selector,
+            ref: target?.ref,
             previousUrl: urlBefore,
             navigatedTo: urlAfter,
             expectedAction: "download",
@@ -678,7 +870,8 @@ const pwDownloadFn = pwTool("Download failed", async (args, toolOptions) => {
         kind: "not_found",
         code: "pw_download_not_triggered",
         facts: {
-          selector: sel,
+          selector: target?.selector,
+          ref: target?.ref,
           url: urlBefore,
           expectedAction: "download",
         },
@@ -694,7 +887,82 @@ const pwDownloadFn = pwTool("Download failed", async (args, toolOptions) => {
     fileName,
     savedTo: destPath,
     size: (await platform.fs.stat(destPath)).size,
+    selector: target?.ref ? undefined : target?.selector,
+    ref: target?.ref,
   });
+});
+
+const VALID_TAB_ACTIONS = new Set(["list", "select", "close", "new"]);
+
+const pwTabsFn = pwTool("Tab action failed", async (args, toolOptions) => {
+  const {
+    action,
+    index,
+    url,
+  } = args as { action?: string; index?: number; url?: string };
+  const normalizedAction = typeof action === "string"
+    ? action.trim().toLowerCase()
+    : "list";
+  if (!VALID_TAB_ACTIONS.has(normalizedAction)) {
+    throw new Error(
+      `Invalid action: "${action}". Must be "list", "select", "close", or "new".`,
+    );
+  }
+
+  switch (normalizedAction) {
+    case "list": {
+      const tabs = await listBrowserTabs(toolOptions?.sessionId);
+      return okTool({
+        action: "list",
+        tabs,
+        activeIndex: tabs.find((tab) => tab.active)?.index ?? null,
+      });
+    }
+    case "select": {
+      if (!Number.isInteger(index)) {
+        throw new Error("index is required for pw_tabs action='select'");
+      }
+      const page = await selectBrowserTab(Number(index), toolOptions?.sessionId);
+      const tabs = await listBrowserTabs(toolOptions?.sessionId);
+      return okTool({
+        action: "select",
+        index: Number(index),
+        url: page.url(),
+        title: await page.title(),
+        tabs,
+      });
+    }
+    case "close": {
+      const closeIndex = index == null ? undefined : Number(index);
+      if (closeIndex != null && !Number.isInteger(closeIndex)) {
+        throw new Error("index must be an integer when provided");
+      }
+      const page = await closeBrowserTab(closeIndex, toolOptions?.sessionId);
+      const tabs = await listBrowserTabs(toolOptions?.sessionId);
+      return okTool({
+        action: "close",
+        index: closeIndex ?? null,
+        url: page.url(),
+        title: await page.title(),
+        tabs,
+      });
+    }
+    case "new": {
+      const page = await createBrowserTab(
+        typeof url === "string" ? url.trim() : undefined,
+        toolOptions?.sessionId,
+      );
+      const tabs = await listBrowserTabs(toolOptions?.sessionId);
+      return okTool({
+        action: "new",
+        url: page.url(),
+        title: await page.title(),
+        tabs,
+      });
+    }
+    default:
+      throw new Error(`Unsupported tab action: ${normalizedAction}`);
+  }
 });
 
 const pwPromoteFn = pwTool("Promote failed", async (_args, toolOptions) => {
@@ -724,10 +992,10 @@ export const PLAYWRIGHT_TOOLS: Record<string, ToolMetadata> = {
   pw_click: {
     fn: pwClickFn,
     description:
-      'Click a DOM element by CSS selector, role/text selector, or shorthand like button "Submit" / link "Docs". Instant and reliable. Use instead of cu_left_click for browser elements.',
+      'Click a DOM element by snapshot ref or selector. Prefer ref from pw_snapshot when available; otherwise use CSS, role/text selector, or shorthand like button "Submit" / link "Docs". Instant and reliable. Use instead of cu_left_click for browser elements.',
     args: {
-      selector:
-        'string - CSS selector, text= selector, role= selector, or shorthand like button "Submit" / checkbox "Remember me"',
+      ref: PLAYWRIGHT_REF_ARG,
+      selector: PLAYWRIGHT_SELECTOR_ARG,
     },
     category: "write",
     safetyLevel: "L2",
@@ -742,10 +1010,10 @@ export const PLAYWRIGHT_TOOLS: Record<string, ToolMetadata> = {
   pw_fill: {
     fn: pwFillFn,
     description:
-      'Fill a form input by CSS selector, role selector, or shorthand like textbox "Email" / searchbox "Search". Sets value directly — no keystrokes needed. Use instead of cu_left_click + cu_type for browser forms.',
+      'Fill a form input by snapshot ref or selector. Prefer ref from pw_snapshot when available; otherwise use CSS/role selector or shorthand like textbox "Email" / searchbox "Search". Sets value directly — no keystrokes needed. Use instead of cu_left_click + cu_type for browser forms.',
     args: {
-      selector:
-        'string - CSS selector, role= selector, or shorthand like textbox "Email" / searchbox "Search"',
+      ref: PLAYWRIGHT_REF_ARG,
+      selector: PLAYWRIGHT_SELECTOR_ARG,
       value: "string - The value to fill",
     },
     category: "write",
@@ -760,10 +1028,10 @@ export const PLAYWRIGHT_TOOLS: Record<string, ToolMetadata> = {
   pw_type: {
     fn: pwTypeFn,
     description:
-      'Type text into a browser input or search field by selector. Accepts CSS selectors, role selectors, or shorthand like textbox "Email" / searchbox "Search". This is a browser-side typing alias for pw_fill; use it when the model naturally wants a typing action. Set submit=true to press Enter after typing.',
+      'Type text into a browser input or search field by snapshot ref or selector. This is a browser-side typing alias for pw_fill; use it when the model naturally wants a typing action. Set submit=true to press Enter after typing.',
     args: {
-      selector:
-        'string - CSS selector, role= selector, or shorthand like textbox "Email" / searchbox "Search"',
+      ref: PLAYWRIGHT_REF_ARG,
+      selector: PLAYWRIGHT_SELECTOR_ARG,
       value: "string - The text to type",
       submit:
         "boolean (optional) - Press Enter after typing. Useful for search boxes and simple forms.",
@@ -782,14 +1050,48 @@ export const PLAYWRIGHT_TOOLS: Record<string, ToolMetadata> = {
     description:
       "Read text content of the page or a specific element. Returns exact DOM text — no OCR or vision needed. Much faster and more accurate than cu_screenshot for reading browser content.",
     args: {
+      ref: PLAYWRIGHT_REF_ARG,
       selector:
-        "string (optional) - CSS selector. If omitted, returns full page body text.",
+        "string (optional) - CSS selector. If omitted and ref is absent, returns full page body text.",
     },
     category: "read",
     safetyLevel: "L0",
     safety: "Read-only content extraction from browser DOM.",
     formatResult: (result) =>
       formatStructuredLlmResult(result, RESULT_SUMMARY.content, "Read content"),
+  },
+
+  pw_back: {
+    fn: pwBackFn,
+    description:
+      "Navigate one step back in browser history. Returns the resulting URL and page title.",
+    args: {},
+    category: "read",
+    safetyLevel: "L1",
+    safety: "Navigates browser history backward.",
+    formatResult: (result) =>
+      formatStructuredLlmResult(
+        result,
+        RESULT_SUMMARY.back,
+        "Navigated back",
+      ),
+  },
+
+  pw_hover: {
+    fn: pwHoverFn,
+    description:
+      "Hover a browser element without clicking it. Useful for menus, tooltips, or hover-triggered controls. Prefer snapshot refs when available.",
+    args: {
+      ref: PLAYWRIGHT_REF_ARG,
+      selector: PLAYWRIGHT_SELECTOR_ARG,
+    },
+    category: "write",
+    safetyLevel: "L2",
+    safety: "Moves the browser pointer over an element without clicking.",
+    formatResult: () => ({
+      summaryDisplay: RESULT_SUMMARY.hover,
+      returnDisplay: "Hovered",
+    }),
   },
 
   pw_links: {
@@ -838,8 +1140,9 @@ export const PLAYWRIGHT_TOOLS: Record<string, ToolMetadata> = {
   pw_screenshot: {
     fn: pwScreenshotFn,
     description:
-      "Take a screenshot of the browser page. Faster than cu_screenshot for browser content. Can target a specific element or capture the full page.",
+      "Take a screenshot of the browser page. Faster than cu_screenshot for browser content. Can target a specific element by ref/selector or capture the full page.",
     args: {
+      ref: PLAYWRIGHT_REF_ARG,
       selector:
         "string (optional) - CSS selector to screenshot a specific element",
       fullPage:
@@ -890,8 +1193,9 @@ export const PLAYWRIGHT_TOOLS: Record<string, ToolMetadata> = {
   pw_snapshot: {
     fn: pwSnapshotFn,
     description:
-      "Get the accessibility tree (ARIA snapshot) of the page. Returns element roles, names, and states in YAML. Use BEFORE pw_click/pw_fill to discover what elements exist — much more reliable than guessing CSS selectors.",
+      "Get the accessibility tree (ARIA snapshot) of the page. Returns element roles, names, and states in YAML plus structured refs. Use BEFORE pw_click/pw_fill/pw_hover to discover what elements exist — much more reliable than guessing selectors.",
     args: {
+      ref: PLAYWRIGHT_REF_ARG,
       selector:
         "string (optional) - CSS selector to snapshot a subtree. If omitted, snapshots full page body.",
     },
@@ -909,8 +1213,9 @@ export const PLAYWRIGHT_TOOLS: Record<string, ToolMetadata> = {
   pw_download: {
     fn: pwDownloadFn,
     description:
-      "Download a file and save it to a specified directory. Either click a selector that triggers a download, or provide a direct file URL when the final artifact href is already known. The file is saved with its original filename when available.",
+      "Download a file and save it to a specified directory. Either click a ref/selector that triggers a download, or provide a direct file URL when the final artifact href is already known. The file is saved with its original filename when available.",
     args: {
+      ref: PLAYWRIGHT_REF_ARG,
       selector:
         "string (optional) - CSS/text selector for the download button/link",
       url:
@@ -926,6 +1231,62 @@ export const PLAYWRIGHT_TOOLS: Record<string, ToolMetadata> = {
         summaryDisplay: "Downloaded",
         returnDisplay: "Downloaded",
       },
+  },
+
+  pw_select_option: {
+    fn: pwSelectOptionFn,
+    description:
+      "Select one or more options in a native <select> or combobox-like control. Prefer snapshot refs when available.",
+    args: {
+      ref: PLAYWRIGHT_REF_ARG,
+      selector: PLAYWRIGHT_SELECTOR_ARG,
+      value: "string (optional) - Single option value to select",
+      values:
+        "string[] (optional) - Multiple option values to select. Use instead of value for multi-select controls.",
+    },
+    category: "write",
+    safetyLevel: "L2",
+    safety: "Changes the selected option(s) in a browser form control.",
+    formatResult: () => ({
+      summaryDisplay: RESULT_SUMMARY.select_option,
+      returnDisplay: "Selected option",
+    }),
+  },
+
+  pw_upload_file: {
+    fn: pwUploadFileFn,
+    description:
+      "Upload one or more files through a file input element. Paths may be absolute or start with ~. Prefer snapshot refs when available.",
+    args: {
+      ref: PLAYWRIGHT_REF_ARG,
+      selector: PLAYWRIGHT_SELECTOR_ARG,
+      paths: "string[] - One or more local file paths to upload",
+    },
+    category: "write",
+    safetyLevel: "L2",
+    safety: "Attaches local files to a browser file input.",
+    formatResult: () => ({
+      summaryDisplay: RESULT_SUMMARY.upload_file,
+      returnDisplay: "Uploaded file(s)",
+    }),
+  },
+
+  pw_tabs: {
+    fn: pwTabsFn,
+    description:
+      "List, switch, close, or open browser tabs within the current session.",
+    args: {
+      action: "string - One of 'list', 'select', 'close', or 'new'",
+      index:
+        "number (optional) - Tab index for 'select' or 'close'. If omitted for 'close', closes the active tab.",
+      url:
+        "string (optional) - URL to open when action='new'. If omitted, opens a blank tab.",
+    },
+    category: "write",
+    safetyLevel: "L2",
+    safety: "Manages browser tabs in the current session.",
+    formatResult: (result) =>
+      formatStructuredLlmResult(result, RESULT_SUMMARY.tabs, "Managed tabs"),
   },
 
   pw_promote: {

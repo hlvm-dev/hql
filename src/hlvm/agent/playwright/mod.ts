@@ -9,9 +9,18 @@ export { PLAYWRIGHT_TOOLS } from "./tools.ts";
 export {
   _resetBrowserStateForTests,
   _testOnly,
+  clearSnapshotRefsForSession,
   closeBrowser,
+  closeBrowserTab,
+  createBrowserTab,
   getOrCreatePage,
   isBrowserActive,
   isHeaded,
+  listBrowserTabs,
   promoteToHeaded,
+  replaceSnapshotRefs,
+  resolveSnapshotRef,
+  selectBrowserTab,
+  startPlaywrightTraceCapture,
+  stopPlaywrightTraceCapture,
 } from "./browser-manager.ts";

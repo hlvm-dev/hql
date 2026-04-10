@@ -388,6 +388,7 @@ export function updateToolProfileLayer(
 ): ToolProfileState {
   const state = ensureToolProfileState(target, registry);
   setToolProfileLayer(state, slot, layer);
+  syncEffectiveToolFilterToConfig(target, state, registry);
   return state;
 }
 
@@ -398,6 +399,7 @@ export function clearToolProfileLayerFromTarget(
 ): ToolProfileState {
   const state = ensureToolProfileState(target, registry);
   clearToolProfileLayer(state, slot);
+  syncEffectiveToolFilterToConfig(target, state, registry);
   return state;
 }
 
