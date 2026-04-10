@@ -117,7 +117,7 @@ Deno.test("ToolProfile resolves declared profile inheritance", () => {
   });
 });
 
-Deno.test("ToolProfile sync updates effective and baseline mirrors", () => {
+Deno.test("ToolProfile sync updates flat compatibility filters from profile state", () => {
   const state = createToolProfileState();
   setToolProfileLayer(state, "baseline", {
     allowlist: ["read_file", "write_file", "tool_search"],
@@ -127,9 +127,12 @@ Deno.test("ToolProfile sync updates effective and baseline mirrors", () => {
     allowlist: ["read_file", "tool_search"],
   });
 
-  const target: ToolProfileCarrier = {
-    toolFilterState: {},
-    toolFilterBaseline: {},
+  const target: ToolProfileCarrier & {
+    toolAllowlist?: string[];
+    toolDenylist?: string[];
+  } = {
+    toolAllowlist: undefined,
+    toolDenylist: undefined,
   };
   const synced = syncEffectiveToolFilterToConfig(target, state);
 
@@ -140,38 +143,32 @@ Deno.test("ToolProfile sync updates effective and baseline mirrors", () => {
     "tool_search",
   ]);
   assertEquals(target.toolAllowlist, ["read_file", "tool_search"]);
-  assertExists(target.toolFilterState);
-  assertExists(target.toolFilterBaseline);
-  assertEquals(target.toolFilterState.allowlist, ["read_file", "tool_search"]);
-  assertEquals(target.toolFilterBaseline.allowlist, [
-    "read_file",
-    "write_file",
-    "tool_search",
-  ]);
+  assertEquals(target.toolDenylist, ["delegate_agent"]);
 });
 
-Deno.test("ToolProfile can lift legacy mirrors into profile state", () => {
-  const target: ToolProfileCarrier = {
+Deno.test("ToolProfile bootstraps profile state from flat compatibility filters only", () => {
+  const target: ToolProfileCarrier & {
+    toolAllowlist?: string[];
+    toolDenylist?: string[];
+  } = {
     toolAllowlist: ["read_file", "tool_search"],
     toolDenylist: ["delegate_agent"],
-    toolFilterState: { allowlist: ["read_file"], denylist: ["delegate_agent"] },
-    toolFilterBaseline: {
-      allowlist: ["read_file", "tool_search"],
-      denylist: ["delegate_agent"],
-    },
   };
 
   const state = ensureToolProfileState(target);
   assertExists(state.layers.baseline);
-  assertExists(state.layers.runtime);
   assertEquals(state.layers.baseline?.allowlist, ["read_file", "tool_search"]);
-  assertEquals(state.layers.runtime?.allowlist, ["read_file"]);
+  assertEquals(state.layers.runtime, undefined);
 
-  updateToolProfileLayer(target, "discovery", {
-    allowlist: ["read_file", "tool_search"],
+  updateToolProfileLayer(target, "runtime", {
+    allowlist: ["read_file"],
   });
-  assertExists(target.toolFilterState);
-  assertEquals(target.toolFilterState.allowlist, ["read_file"]);
+  assertEquals(target.toolAllowlist, ["read_file"]);
+  assertEquals(target.toolDenylist, ["delegate_agent"]);
+  assertEquals(resolvePersistentToolFilter(target.toolProfileState!).allowlist, [
+    "read_file",
+    "tool_search",
+  ]);
 });
 
 Deno.test("browser profiles are declared for future domain routing", () => {

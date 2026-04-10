@@ -31,16 +31,18 @@ import {
   openComputerUseSettings,
 } from "./common.ts";
 import {
+  buildToolFailureMetadata,
   failTool,
   failToolDetailed,
   formatToolError,
+  isToolFailureMetadata,
   okTool,
 } from "../tool-results.ts";
 import type {
   ComputerExecutor,
+  ComputerUsePermissionState,
   DesktopObservation,
   DisplaySelectionReason,
-  ObservationTarget,
   WindowInfo,
 } from "./types.ts";
 import { createCliExecutor } from "./executor.ts";
@@ -55,13 +57,57 @@ import {
   getComputerUseTargetBundleId,
   markComputerUseFailure,
   markComputerUseSuccess,
+  requiresFreshComputerUseObservation,
   rememberComputerUseObservation,
   rememberHiddenComputerUseApps,
   resolveObservationTarget,
+  setComputerUseSelectedDisplay,
   setComputerUsePermissionState,
   setComputerUseTargetBundleId,
   setComputerUseTargetWindow,
 } from "./session-state.ts";
+import { getResolvedBackend } from "./bridge.ts";
+import { getAgentLogger } from "../logger.ts";
+
+/**
+ * Try to execute a target action via the native GUI backend.
+ * Returns true if the native action succeeded, false if unavailable or failed.
+ * On failure, caller falls back to coordinate-based action.
+ */
+async function tryNativeTargetAction(
+  path: string,
+  body: Record<string, unknown>,
+): Promise<boolean> {
+  const resolution = getResolvedBackend();
+  if (!resolution || resolution.backend !== "native_gui" || !resolution.port) {
+    return false;
+  }
+  const platform = getPlatform();
+  const token = platform.env.get("HLVM_AUTH_TOKEN") ?? "";
+  try {
+    const result = await platform.command.output({
+      cmd: [
+        "curl", "-sf", "--max-time", "10",
+        "-H", `Authorization: Bearer ${token}`,
+        "-H", "Content-Type: application/json",
+        "-d", JSON.stringify(body),
+        `http://127.0.0.1:${resolution.port}${path}`,
+      ],
+      stdin: "null",
+      stdout: "piped",
+      stderr: "piped",
+      timeout: 15000,
+    });
+    if (!result.success) return false;
+    const response = JSON.parse(new TextDecoder().decode(result.stdout));
+    return response.ok === true;
+  } catch (err) {
+    getAgentLogger().debug(
+      `[tools] Native target action ${path} failed: ${err}`,
+    );
+    return false;
+  }
+}
 
 // ── CC Result Summary Map (from toolRendering.tsx) ──────────────────────
 
@@ -285,8 +331,91 @@ function observationImageResult(
   );
 }
 
-function formatMissingPermissionError(missing: readonly string[]): string {
-  return `Computer use requires macOS permissions before interactive actions can run. Missing: ${missing.join(", ")}. Call cu_request_access, then grant the missing capability in System Settings.`;
+function runtimeFailure(
+  message: string,
+  failure: Partial<Parameters<typeof buildToolFailureMetadata>[1]> = {},
+): Error & { failure: ReturnType<typeof buildToolFailureMetadata> } {
+  const error = new Error(message) as Error & {
+    failure: ReturnType<typeof buildToolFailureMetadata>;
+  };
+  error.failure = buildToolFailureMetadata(message, {
+    source: "runtime",
+    kind: "invalid_state",
+    retryable: false,
+    ...failure,
+  });
+  return error;
+}
+
+function getFailureMetadata(
+  error: unknown,
+): ReturnType<typeof buildToolFailureMetadata> | undefined {
+  if (!error || typeof error !== "object" || !("failure" in error)) return;
+  const failure = (error as { failure?: unknown }).failure;
+  return isToolFailureMetadata(failure) ? failure : undefined;
+}
+
+function describePermissionBlock(
+  permissions: ComputerUsePermissionState,
+  mode: "observe" | "interactive",
+): {
+  message: string;
+  missing: string[];
+  uncertain: string[];
+  pane: ComputerUseSettingsPane;
+} | null {
+  const missing: string[] = [];
+  const uncertain: string[] = [];
+  if (!permissions.accessibilityTrusted) {
+    missing.push("Accessibility");
+  }
+  if (permissions.screenRecordingAvailable === false) {
+    missing.push("Screen Recording");
+  } else if (
+    mode === "interactive" && permissions.screenRecordingAvailable !== true
+  ) {
+    uncertain.push("Screen Recording");
+  }
+  if (mode === "observe" && missing.length === 0) {
+    return null;
+  }
+  if (mode === "interactive" && missing.length === 0 && uncertain.length === 0) {
+    return null;
+  }
+
+  const pane: ComputerUseSettingsPane = missing.includes("Accessibility")
+    ? "accessibility"
+    : missing.includes("Screen Recording") || uncertain.includes("Screen Recording")
+    ? "screen_recording"
+    : "general";
+  const blockedActions = mode === "interactive"
+    ? "keyboard, mouse, drag, scroll, and app-switch actions"
+    : "screen observation actions";
+  const missingText = missing.length > 0
+    ? `Missing: ${missing.join(", ")}.`
+    : "";
+  const uncertainText = uncertain.length > 0
+    ? ` Verification indeterminate: ${uncertain.join(", ")}.`
+    : "";
+  return {
+    message:
+      `Computer use cannot continue with ${blockedActions} until macOS permissions are verified.${missingText}${uncertainText} Call cu_request_access, then review the indicated pane in System Settings.`,
+    missing,
+    uncertain,
+    pane,
+  };
+}
+
+function ensureFreshObservationAfterPromote(): void {
+  if (!requiresFreshComputerUseObservation()) return;
+  throw runtimeFailure(
+    "After pw_promote, call cu_observe or cu_screenshot before the first desktop action.",
+    {
+      kind: "invalid_state",
+      retryable: false,
+      code: "cu_observation_required_after_promote",
+    },
+  );
 }
 
 async function ensureObservationPermissions(
@@ -294,8 +423,17 @@ async function ensureObservationPermissions(
 ): Promise<void> {
   const permissions = await exec.getPermissionState();
   setComputerUsePermissionState(permissions);
-  if (permissions.screenRecordingAvailable === false) {
-    throw new Error(formatMissingPermissionError(["Screen Recording"]));
+  const blocked = describePermissionBlock(permissions, "observe");
+  if (blocked) {
+    throw runtimeFailure(blocked.message, {
+      kind: "permission_denied",
+      retryable: false,
+      code: "cu_screen_recording_required",
+      facts: {
+        missing: blocked.missing,
+        uncertain: blocked.uncertain,
+      },
+    });
   }
 }
 
@@ -304,8 +442,17 @@ async function ensureInteractivePermissions(
 ): Promise<void> {
   const permissions = await exec.getPermissionState();
   setComputerUsePermissionState(permissions);
-  if (permissions.missing.length > 0) {
-    throw new Error(formatMissingPermissionError(permissions.missing));
+  const blocked = describePermissionBlock(permissions, "interactive");
+  if (blocked) {
+    throw runtimeFailure(blocked.message, {
+      kind: "permission_denied",
+      retryable: false,
+      code: "cu_interactive_permissions_required",
+      facts: {
+        missing: blocked.missing,
+        uncertain: blocked.uncertain,
+      },
+    });
   }
 }
 
@@ -458,18 +605,17 @@ async function verifyFrontmostApp(
       await sleep(100);
     }
   }
-  throw new Error(
+  throw runtimeFailure(
     `Target activation failed. Expected frontmost app '${expectedTargetBundleId}' before sending input.`,
+    {
+      kind: "invalid_state",
+      retryable: true,
+      code: "cu_target_activation_mismatch",
+      facts: {
+        expectedTargetBundleId,
+      },
+    },
   );
-}
-
-async function syncTargetBundleFromFrontmost(
-  exec: ComputerExecutor,
-): Promise<void> {
-  const frontmost = await exec.getFrontmostApp().catch(() => null);
-  if (frontmost?.bundleId && !isComputerUseHostBundleId(frontmost.bundleId)) {
-    setComputerUseTargetBundleId(frontmost.bundleId, frontmost.displayName);
-  }
 }
 
 interface PreparedActionContext {
@@ -483,29 +629,105 @@ async function prepareInteractiveAction(
   options: ToolExecutionOptions | undefined,
   requireTargetApp: boolean | undefined,
 ): Promise<PreparedActionContext> {
+  ensureFreshObservationAfterPromote();
   await ensureInteractivePermissions(exec);
   const displayChoice = await resolveDisplayChoice(exec, options?.displayId);
   const target = await resolvePrepareAllowlist(exec, displayChoice.visibleWindows);
   if (requireTargetApp && target.allowlist.length === 0) {
-    throw new Error(
+    throw runtimeFailure(
       "No target application is selected. Open or focus the app before sending keyboard input.",
+      {
+        kind: "invalid_state",
+        retryable: false,
+        code: "cu_no_target_app",
+      },
     );
   }
-  if (target.allowlist.length > 0) {
-    const hidden = await exec.prepareForAction(
+  const prepareResult = target.allowlist.length > 0
+    ? await exec.prepareForAction(
       target.allowlist,
       displayChoice.displayId,
+    )
+    : undefined;
+  if (prepareResult) {
+    rememberHiddenComputerUseApps(prepareResult.hidden);
+  }
+
+  const selectedDisplayId = prepareResult?.selectedDisplayId ??
+    displayChoice.displayId;
+  if (selectedDisplayId != null) {
+    setComputerUseSelectedDisplay(selectedDisplayId, displayChoice.reason);
+  }
+
+  const expectedTargetBundleId = prepareResult?.selectedTargetBundleId ??
+    target.expectedTargetBundleId;
+  const expectedTargetWindowId = prepareResult?.selectedTargetWindowId ??
+    target.expectedTargetWindowId;
+  if (expectedTargetBundleId) {
+    setComputerUseTargetBundleId(expectedTargetBundleId);
+  }
+  if (expectedTargetWindowId != null) {
+    const visibleWindows = displayChoice.visibleWindows
+      ? [...displayChoice.visibleWindows]
+      : await exec.listVisibleWindows().catch(() => []);
+    const targetWindow = visibleWindows.find((window) =>
+      window.windowId === expectedTargetWindowId
     );
-    rememberHiddenComputerUseApps(hidden);
-    if (target.expectedTargetBundleId) {
-      await verifyFrontmostApp(exec, target.expectedTargetBundleId);
-    }
+    setComputerUseTargetWindow(targetWindow ?? null);
+  }
+
+  if (target.allowlist.length > 0 && prepareResult?.failureReason) {
+    throw runtimeFailure(
+      `Target resolution failed before action: ${prepareResult.failureReason}.`,
+      {
+        kind: "invalid_state",
+        retryable: true,
+        code: "cu_prepare_target_unresolved",
+        facts: {
+          displayId: selectedDisplayId,
+          resolutionReason: prepareResult.resolutionReason,
+          failureReason: prepareResult.failureReason,
+          expectedTargetBundleId,
+          expectedTargetWindowId,
+        },
+      },
+    );
+  }
+
+  if (expectedTargetBundleId) {
+    await verifyFrontmostApp(exec, expectedTargetBundleId);
   }
   return {
-    displayId: displayChoice.displayId,
-    expectedTargetBundleId: target.expectedTargetBundleId,
-    expectedTargetWindowId: target.expectedTargetWindowId,
+    displayId: selectedDisplayId,
+    expectedTargetBundleId,
+    expectedTargetWindowId,
   };
+}
+
+async function prepareInteractiveActionWithRecovery(
+  exec: ComputerExecutor,
+  options: ToolExecutionOptions | undefined,
+  requireTargetApp: boolean | undefined,
+): Promise<PreparedActionContext> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await prepareInteractiveAction(exec, options, requireTargetApp);
+    } catch (error) {
+      lastError = error;
+      const failure = getFailureMetadata(error);
+      if (
+        attempt === 0 &&
+        failure?.source === "runtime" &&
+        failure.retryable
+      ) {
+        await observeDesktop(exec, options);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 async function verifyPostActionObservation(
@@ -522,13 +744,96 @@ async function verifyPostActionObservation(
     resolvedTargetWindowId: prepared.expectedTargetWindowId,
   });
   if (
-    mode === "focus_sensitive" &&
-    prepared.expectedTargetBundleId &&
-    observation.frontmostApp?.bundleId !== prepared.expectedTargetBundleId
+    prepared.displayId != null &&
+    observation.display.displayId != null &&
+    observation.display.displayId !== prepared.displayId
   ) {
-    throw new Error(
-      `Post-action verification failed. Expected frontmost app '${prepared.expectedTargetBundleId}', found '${observation.frontmostApp?.bundleId ?? "none"}'.`,
+    throw runtimeFailure(
+      `Post-action verification failed. Expected display '${prepared.displayId}', found '${observation.display.displayId}'.`,
+      {
+        kind: "invalid_state",
+        retryable: false,
+        code: "cu_post_action_display_mismatch",
+        facts: {
+          expectedDisplayId: prepared.displayId,
+          actualDisplayId: observation.display.displayId,
+        },
+      },
     );
+  }
+  if (prepared.expectedTargetWindowId != null) {
+    const targetWindow = observation.windows.find((window) =>
+      window.windowId === prepared.expectedTargetWindowId
+    );
+    if (!targetWindow) {
+      throw runtimeFailure(
+        `Post-action verification failed. Expected target window '${prepared.expectedTargetWindowId}' to remain visible.`,
+        {
+          kind: "invalid_state",
+          retryable: false,
+          code: "cu_post_action_window_missing",
+          facts: {
+            expectedTargetWindowId: prepared.expectedTargetWindowId,
+          },
+        },
+      );
+    }
+    if (
+      prepared.displayId != null &&
+      targetWindow.displayId != null &&
+      targetWindow.displayId !== prepared.displayId
+    ) {
+      throw runtimeFailure(
+        `Post-action verification failed. Expected target window '${prepared.expectedTargetWindowId}' on display '${prepared.displayId}', found '${targetWindow.displayId}'.`,
+        {
+          kind: "invalid_state",
+          retryable: false,
+          code: "cu_post_action_window_display_mismatch",
+          facts: {
+            expectedTargetWindowId: prepared.expectedTargetWindowId,
+            expectedDisplayId: prepared.displayId,
+            actualDisplayId: targetWindow.displayId,
+          },
+        },
+      );
+    }
+  }
+  if (prepared.expectedTargetBundleId) {
+    const actualFrontmostBundleId = observation.frontmostApp?.bundleId;
+    if (actualFrontmostBundleId !== prepared.expectedTargetBundleId) {
+      throw runtimeFailure(
+        `Post-action verification failed. Expected frontmost app '${prepared.expectedTargetBundleId}', found '${actualFrontmostBundleId ?? "none"}'.`,
+        {
+          kind: "invalid_state",
+          retryable: false,
+          code: mode === "focus_sensitive"
+            ? "cu_post_action_focus_mismatch"
+            : "cu_post_action_target_mismatch",
+          facts: {
+            expectedTargetBundleId: prepared.expectedTargetBundleId,
+            actualFrontmostBundleId,
+          },
+        },
+      );
+    }
+    if (
+      mode === "generic" &&
+      !observation.windows.some((window) =>
+        window.bundleId === prepared.expectedTargetBundleId
+      )
+    ) {
+      throw runtimeFailure(
+        `Post-action verification failed. Expected visible window for '${prepared.expectedTargetBundleId}'.`,
+        {
+          kind: "invalid_state",
+          retryable: false,
+          code: "cu_post_action_window_context_missing",
+          facts: {
+            expectedTargetBundleId: prepared.expectedTargetBundleId,
+          },
+        },
+      );
+    }
   }
   return observation;
 }
@@ -575,7 +880,7 @@ function cuTool(
       const interactive = !opts?.readOnly && opts?.interactive !== false;
       let prepared: PreparedActionContext = {};
       if (interactive) {
-        prepared = await prepareInteractiveAction(
+        prepared = await prepareInteractiveActionWithRecovery(
           exec,
           options,
           opts?.requireTargetApp,
@@ -605,12 +910,14 @@ function cuTool(
       });
       return result;
     } catch (error) {
+      const failure = getFailureMetadata(error);
       markComputerUseFailure({
-        code: opts?.actionKind ?? errorPrefix,
+        code: failure?.code ?? opts?.actionKind ?? errorPrefix,
         message: error instanceof Error ? error.message : String(error),
         at: Date.now(),
+        retryable: failure?.retryable,
       });
-      const toolError = formatToolError(errorPrefix, error);
+      const toolError = formatToolError(errorPrefix, error, failure);
       return failTool(toolError.message, { failure: toolError.failure });
     }
   };
@@ -858,8 +1165,17 @@ const cuOpenApplicationFn = cuTool(
       resolvedTargetBundleId: bundle_id,
     });
     if (observation.frontmostApp?.bundleId !== bundle_id) {
-      throw new Error(
+      throw runtimeFailure(
         `Open application verification failed. Expected '${bundle_id}' to be frontmost, found '${observation.frontmostApp?.bundleId ?? "none"}'.`,
+        {
+          kind: "invalid_state",
+          retryable: false,
+          code: "cu_open_application_verification_failed",
+          facts: {
+            expectedTargetBundleId: bundle_id,
+            actualFrontmostBundleId: observation.frontmostApp?.bundleId ?? null,
+          },
+        },
       );
     }
     return okTool({
@@ -883,25 +1199,43 @@ const cuRequestAccessFn = cuTool(
       "requested apps";
     const permissions = await exec.getPermissionState();
     setComputerUsePermissionState(permissions);
-    const preferredPane: ComputerUseSettingsPane =
-      permissions.missing.includes("Accessibility")
-        ? "accessibility"
-        : permissions.missing.includes("Screen Recording")
-        ? "screen_recording"
-        : "general";
+    const blockedInteractive = describePermissionBlock(
+      permissions,
+      "interactive",
+    );
+    const blockedObserve = describePermissionBlock(permissions, "observe");
+    const preferredPane = blockedInteractive?.pane ?? blockedObserve?.pane ??
+      "general";
     const openedSettings = await openComputerUseSettings(preferredPane)
       .then(() => true)
       .catch(() => false);
+    const exactMissing = [
+      ...new Set([
+        ...(blockedInteractive?.missing ?? []),
+        ...(blockedObserve?.missing ?? []),
+      ]),
+    ];
+    const exactUncertain = blockedInteractive?.uncertain ?? [];
     return okTool({
-      missing: permissions.missing,
+      missing: exactMissing,
+      uncertain: exactUncertain,
+      pane_opened: preferredPane,
       message:
         openedSettings
           ? `Opened macOS Settings for computer-use permissions. Missing: ${
-            permissions.missing.join(", ") || "none"
-          }. Review access for: ${names}.`
+            exactMissing.join(", ") || "none"
+          }.${
+            exactUncertain.length > 0
+              ? ` Verification indeterminate: ${exactUncertain.join(", ")}.`
+              : ""
+          } Review access for: ${names}.`
           : `Access request noted for: ${names}. Missing: ${
-            permissions.missing.join(", ") || "none"
-          }. Open macOS Settings and review Accessibility and Screen Recording permissions.`,
+            exactMissing.join(", ") || "none"
+          }.${
+            exactUncertain.length > 0
+              ? ` Verification indeterminate: ${exactUncertain.join(", ")}.`
+              : ""
+          } Open macOS Settings and review the ${preferredPane.replaceAll("_", " ")} pane.`,
     });
   },
   { interactive: false },
@@ -929,36 +1263,44 @@ const cuClickTargetFn = cuTool(
       observation_id: string;
       target_id: string;
     };
-    await ensureInteractivePermissions(exec);
-    const { target } = resolveObservationTarget(observation_id, target_id);
+    ensureFreshObservationAfterPromote();
+    const { observation, target } = resolveObservationTarget(
+      observation_id,
+      target_id,
+    );
     const centerX = target.bounds.x + target.bounds.width / 2;
     const centerY = target.bounds.y + target.bounds.height / 2;
     setComputerUseTargetBundleId(target.bundleId);
-    const observation = getLastComputerUseObservation();
-    const targetWindow = observation?.windows.find((window) =>
+    const targetWindow = observation.windows.find((window) =>
       window.windowId === target.windowId
     );
     if (targetWindow) {
       setComputerUseTargetWindow(targetWindow);
     }
-    const hidden = await exec.prepareForAction(
-      [target.bundleId],
-      options?.displayId ?? targetWindow?.displayId,
+    const prepared = await prepareInteractiveActionWithRecovery(
+      exec,
+      {
+        ...options,
+        displayId: options?.displayId ?? targetWindow?.displayId,
+      },
+      true,
     );
-    rememberHiddenComputerUseApps(hidden);
-    await verifyFrontmostApp(exec, target.bundleId);
-    await exec.click(centerX, centerY, "left", 1);
+    // Prefer native AX action when available, fall back to coordinate click
+    const nativeClicked = await tryNativeTargetAction(
+      "/cu/click-target",
+      { observationId: observation_id, targetId: target_id },
+    );
+    if (!nativeClicked) {
+      await exec.click(centerX, centerY, "left", 1);
+    }
     const verified = await verifyPostActionObservation(exec, {
       ...options,
       displayId: options?.displayId ?? targetWindow?.displayId,
-    }, {
-      displayId: options?.displayId ?? targetWindow?.displayId,
-      expectedTargetBundleId: target.bundleId,
-      expectedTargetWindowId: target.windowId,
-    }, "focus_sensitive");
+    }, prepared, "focus_sensitive");
     return okTool({
       clicked_target_id: target.targetId,
       clicked_bundle_id: target.bundleId,
+      native_action: nativeClicked,
       observation_id: verified.observationId,
     });
   },
@@ -973,38 +1315,46 @@ const cuTypeIntoTargetFn = cuTool(
       target_id: string;
       text: string;
     };
-    await ensureInteractivePermissions(exec);
-    const { target } = resolveObservationTarget(observation_id, target_id);
+    ensureFreshObservationAfterPromote();
+    const { observation, target } = resolveObservationTarget(
+      observation_id,
+      target_id,
+    );
     const centerX = target.bounds.x + target.bounds.width / 2;
     const centerY = target.bounds.y + target.bounds.height / 2;
     setComputerUseTargetBundleId(target.bundleId);
-    const observation = getLastComputerUseObservation();
-    const targetWindow = observation?.windows.find((window) =>
+    const targetWindow = observation.windows.find((window) =>
       window.windowId === target.windowId
     );
     if (targetWindow) {
       setComputerUseTargetWindow(targetWindow);
     }
-    const hidden = await exec.prepareForAction(
-      [target.bundleId],
-      options?.displayId ?? targetWindow?.displayId,
+    const prepared = await prepareInteractiveActionWithRecovery(
+      exec,
+      {
+        ...options,
+        displayId: options?.displayId ?? targetWindow?.displayId,
+      },
+      true,
     );
-    rememberHiddenComputerUseApps(hidden);
-    await verifyFrontmostApp(exec, target.bundleId);
-    await exec.click(centerX, centerY, "left", 1);
-    await sleep(75);
-    await exec.type(text, { viaClipboard: true });
+    // Prefer native AX focus+type when available, fall back to click+type
+    const nativeTyped = await tryNativeTargetAction(
+      "/cu/type-into-target",
+      { observationId: observation_id, targetId: target_id, text },
+    );
+    if (!nativeTyped) {
+      await exec.click(centerX, centerY, "left", 1);
+      await sleep(75);
+      await exec.type(text, { viaClipboard: true });
+    }
     const verified = await verifyPostActionObservation(exec, {
       ...options,
       displayId: options?.displayId ?? targetWindow?.displayId,
-    }, {
-      displayId: options?.displayId ?? targetWindow?.displayId,
-      expectedTargetBundleId: target.bundleId,
-      expectedTargetWindowId: target.windowId,
-    }, "focus_sensitive");
+    }, prepared, "focus_sensitive");
     return okTool({
       typed_into_target_id: target.targetId,
       typed: text.length > 80 ? text.slice(0, 77) + "..." : text,
+      native_action: nativeTyped,
       observation_id: verified.observationId,
     });
   },

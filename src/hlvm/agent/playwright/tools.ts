@@ -44,6 +44,7 @@ import {
   parsePlaywrightSnapshotRefs,
   type PlaywrightSnapshotRef,
 } from "./snapshot-refs.ts";
+import { markComputerUsePromotionPending } from "../computer-use/session-state.ts";
 
 type Page = import("playwright-core").Page;
 type Locator = import("playwright-core").Locator;
@@ -967,6 +968,7 @@ const pwTabsFn = pwTool("Tab action failed", async (args, toolOptions) => {
 
 const pwPromoteFn = pwTool("Promote failed", async (_args, toolOptions) => {
   await promoteToHeaded(toolOptions?.sessionId);
+  markComputerUsePromotionPending();
   return okTool({
     promoted: true,
     message:

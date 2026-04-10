@@ -32,3 +32,12 @@ export {
   CLI_CU_CAPABILITIES,
   getTerminalBundleId,
 } from "./common.ts";
+
+// Backend resolution (native GUI vs JXA fallback)
+export {
+  resolveBackend,
+  invalidateBackendResolution,
+  getResolvedBackend,
+  upgradeSwiftInstanceToNative,
+} from "./bridge.ts";
+export type { CUBackendResolution, CUNativeCapabilities } from "./types.ts";

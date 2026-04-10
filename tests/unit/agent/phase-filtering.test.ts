@@ -8,13 +8,13 @@ import {
   VERIFY_PHASE_CATEGORIES,
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
+import { effectiveAllowlist } from "../../../src/hlvm/agent/orchestrator-state.ts";
 import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
+import {
+  createToolProfileState,
+  resolvePersistentToolFilter,
+} from "../../../src/hlvm/agent/tool-profiles.ts";
 import { UsageTracker } from "../../../src/hlvm/agent/usage.ts";
-
-type TestOrchestratorConfig = OrchestratorConfig & {
-  toolFilterState?: { allowlist?: string[]; denylist?: string[] };
-  toolFilterBaseline?: { allowlist?: string[]; denylist?: string[] };
-};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,12 +81,11 @@ function cleanupTestTools(): void {
 }
 
 function makeConfig(
-  overrides: Partial<TestOrchestratorConfig> = {},
-): TestOrchestratorConfig {
+  overrides: Partial<OrchestratorConfig> = {},
+): OrchestratorConfig {
   return {
     workspace: "/tmp/phase-test",
     context: new ContextManager({ maxTokens: 4096 }),
-    toolFilterState: { allowlist: undefined, denylist: undefined },
     ...overrides,
   } as OrchestratorConfig;
 }
@@ -102,9 +101,7 @@ Deno.test("applyAdaptiveToolPhase skips filtering for standard-tier models", asy
     const state = makeLoopState({ lastToolNames: [] });
     const config = makeConfig({ modelTier: "standard" });
     const phase = await applyAdaptiveToolPhase(state, config, "fix the bug");
-    // Phase is derived but tool filtering is NOT applied —
-    // toolFilterState.allowlist remains undefined.
-    assertEquals(config.toolFilterState?.allowlist, undefined);
+    assertEquals(effectiveAllowlist(config), undefined);
     assertEquals(typeof phase, "string");
   } finally {
     cleanupTestTools();
@@ -118,7 +115,7 @@ Deno.test("applyAdaptiveToolPhase skips filtering for enhanced-tier models", asy
     const state = makeLoopState({ lastToolNames: [] });
     const config = makeConfig({ modelTier: "enhanced" });
     await applyAdaptiveToolPhase(state, config, "run the tests");
-    assertEquals(config.toolFilterState?.allowlist, undefined);
+    assertEquals(effectiveAllowlist(config), undefined);
   } finally {
     cleanupTestTools();
   }
@@ -134,8 +131,7 @@ Deno.test("applyAdaptiveToolPhase applies filtering for constrained-tier models"
       toolAllowlist: [`${testToolPrefix}read`, `${testToolPrefix}write`],
     });
     await applyAdaptiveToolPhase(state, config, "read the file");
-    // For constrained models, phase filtering IS applied — allowlist gets populated.
-    assertEquals(Array.isArray(config.toolFilterState?.allowlist), true);
+    assertEquals(Array.isArray(effectiveAllowlist(config)), true);
   } finally {
     cleanupTestTools();
   }
@@ -224,7 +220,7 @@ Deno.test("tool_search narrowing uses baseline allowlist", async () => {
 
     // After tool_search, writeTool should be in the allowlist because the
     // baseline includes it (even though the phase-filtered set did not).
-    const allowlist = config.toolFilterState?.allowlist ?? config.toolAllowlist;
+    const allowlist = effectiveAllowlist(config);
     assertEquals(
       allowlist?.includes(writeTool),
       true,
@@ -252,15 +248,13 @@ Deno.test("tool_search narrowing does not persist via toolSearchAllowlist", asyn
     const state = makeLoopState({ lastToolNames: [searchTool] });
     const config = makeConfig({
       modelTier: "constrained",
-      toolFilterBaseline: {
-        allowlist: [readTool, searchTool],
-        denylist: undefined,
-      },
       toolAllowlist: [readTool, searchTool],
-      toolFilterState: {
-        allowlist: [readTool, searchTool],
-        denylist: undefined,
-      },
+      toolProfileState: createToolProfileState({
+        baseline: {
+          slot: "baseline",
+          allowlist: [readTool, searchTool],
+        },
+      }),
     });
     const lc = resolveLoopConfig(config);
 
@@ -303,15 +297,13 @@ Deno.test("tool_search discovery can expand the session baseline before turn-loc
   const state = makeLoopState({ lastToolNames: [searchTool] });
   const config = makeConfig({
     modelTier: "standard",
-    toolFilterBaseline: {
-      allowlist: [searchTool],
-      denylist: undefined,
-    },
     toolAllowlist: [searchTool],
-    toolFilterState: {
-      allowlist: [searchTool],
-      denylist: undefined,
-    },
+    toolProfileState: createToolProfileState({
+      baseline: {
+        slot: "baseline",
+        allowlist: [searchTool],
+      },
+    }),
     onToolSearchDiscovered: () => [searchTool, deferredTool],
   });
   const lc = resolveLoopConfig(config);
@@ -330,6 +322,11 @@ Deno.test("tool_search discovery can expand the session baseline before turn-loc
   const llmFn = async () => ({ content: "", toolCalls: [] });
   await handlePostToolExecution(result, state, lc, config, llmFn);
 
-  assertEquals(config.toolFilterBaseline?.allowlist?.includes(deferredTool), true);
-  assertEquals(config.toolFilterState?.allowlist?.includes(deferredTool), true);
+  assertEquals(
+    resolvePersistentToolFilter(config.toolProfileState!).allowlist?.includes(
+      deferredTool,
+    ),
+    true,
+  );
+  assertEquals(effectiveAllowlist(config)?.includes(deferredTool), true);
 });

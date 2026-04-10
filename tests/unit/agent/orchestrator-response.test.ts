@@ -12,17 +12,19 @@ import {
   handleTextOnlyResponse,
 } from "../../../src/hlvm/agent/orchestrator-response.ts";
 import {
+  effectiveAllowlist,
+  effectiveDenylist,
   initializeLoopState,
   resolveLoopConfig,
 } from "../../../src/hlvm/agent/orchestrator-state.ts";
 import { resolveTools } from "../../../src/hlvm/agent/registry.ts";
-import { createToolProfileState } from "../../../src/hlvm/agent/tool-profiles.ts";
+import {
+  createToolProfileState,
+  resolvePersistentToolFilter,
+} from "../../../src/hlvm/agent/tool-profiles.ts";
 import { buildCitationSourceIndex } from "../../../src/hlvm/agent/tools/web/citation-spans.ts";
-
-type ToolFilterCompatConfig = OrchestratorConfig & {
-  toolFilterState?: { allowlist?: string[]; denylist?: string[] };
-  toolFilterBaseline?: { allowlist?: string[]; denylist?: string[] };
-};
+import { PLAYWRIGHT_TOOLS, closeBrowser } from "../../../src/hlvm/agent/playwright/mod.ts";
+type ToolFilterCompatConfig = OrchestratorConfig;
 
 Deno.test("handleTextOnlyResponse retries when a model emits a plain-text function-style tool call", () => {
   const config: ToolFilterCompatConfig = {
@@ -705,6 +707,78 @@ Deno.test("handlePostToolExecution prioritizes candidateHref recovery over downl
   assertStringIncludes(recoveryMsg, "https://github.com/denoland/deno/issues");
 });
 
+Deno.test({
+  name: "handlePostToolExecution does not emit playwright_trace for one-shot candidateHref recovery",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const sessionId = `pw-trace-direct-${crypto.randomUUID()}`;
+    const traceEvents: Array<{ type: string; status?: string; reason?: string }> = [];
+
+    try {
+      const bootstrap = await PLAYWRIGHT_TOOLS.pw_goto.fn(
+        { url: "data:text/html,<title>Trace Fixture</title>" },
+        "/tmp",
+        { sessionId },
+      ) as Record<string, unknown>;
+      assertEquals(bootstrap.success, true, JSON.stringify(bootstrap));
+
+      const config: OrchestratorConfig = {
+        workspace: "/tmp",
+        context: new ContextManager(),
+        sessionId,
+        onTrace: (event) => traceEvents.push(event),
+        toolProfileState: createToolProfileState({
+          domain: { slot: "domain", profileId: "browser_safe" },
+        }),
+      };
+      const lc = resolveLoopConfig(config);
+      const state = initializeLoopState(config);
+
+      await handlePostToolExecution(
+        {
+          toolCallsMade: 1,
+          results: [{
+            success: false,
+            error: "Click failed: element is not visible",
+            failure: {
+              source: "tool",
+              kind: "timeout",
+              retryable: true,
+              code: "pw_element_not_visible",
+              facts: {
+                visualBlocker: true,
+                visualReason: "not_visible",
+                selector: "text=Issues",
+                interaction: "click",
+                candidateHref: "https://github.com/denoland/deno/issues",
+              },
+            } satisfies ToolFailureMetadata,
+          }],
+          toolCalls: [{
+            id: "pw-visual",
+            toolName: "pw_click",
+            args: { selector: "text=Issues" },
+          }],
+          toolUses: [],
+          toolBytes: 0,
+        },
+        state,
+        lc,
+        config,
+        async () => ({ content: "", toolCalls: [] }),
+      );
+
+      assertEquals(
+        traceEvents.some((event) => event.type === "playwright_trace"),
+        false,
+      );
+    } finally {
+      await closeBrowser(sessionId).catch(() => {});
+    }
+  },
+});
+
 Deno.test("handlePostToolExecution promotes browser_safe to browser_hybrid on repeated structured visual failures with no PW-only alternative", async () => {
   const config: OrchestratorConfig = {
     workspace: "/tmp",
@@ -843,6 +917,86 @@ Deno.test("handlePostToolExecution tells the model to follow navigatedTo for pw_
     config.toolProfileState?.layers.domain?.profileId,
     "browser_safe",
   );
+});
+
+Deno.test({
+  name: "handlePostToolExecution emits playwright_trace when repeated visual failure promotes to hybrid",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const sessionId = `pw-trace-hybrid-${crypto.randomUUID()}`;
+    const traceEvents: Array<{ type: string; status?: string; reason?: string }> = [];
+
+    try {
+      const bootstrap = await PLAYWRIGHT_TOOLS.pw_goto.fn(
+        { url: "data:text/html,<title>Trace Fixture</title>" },
+        "/tmp",
+        { sessionId },
+      ) as Record<string, unknown>;
+      assertEquals(bootstrap.success, true, JSON.stringify(bootstrap));
+
+      const config: OrchestratorConfig = {
+        workspace: "/tmp",
+        context: new ContextManager(),
+        sessionId,
+        onTrace: (event) => traceEvents.push(event),
+        toolProfileState: createToolProfileState({
+          domain: { slot: "domain", profileId: "browser_safe" },
+        }),
+      };
+      const lc = resolveLoopConfig(config);
+      const state = initializeLoopState(config);
+      const repeatedFailure = {
+        toolCallsMade: 1,
+        results: [{
+          success: false,
+          error: "Click failed: element is not visible",
+          failure: {
+            source: "tool",
+            kind: "timeout",
+            retryable: true,
+            code: "pw_element_not_visible",
+            facts: {
+              visualBlocker: true,
+              visualReason: "not_visible",
+              selector: "text=Issues",
+              interaction: "click",
+            },
+          } satisfies ToolFailureMetadata,
+        }],
+        toolCalls: [{
+          id: "pw-visual",
+          toolName: "pw_click",
+          args: { selector: "text=Issues" },
+        }],
+        toolUses: [],
+        toolBytes: 0,
+      };
+
+      await handlePostToolExecution(
+        repeatedFailure,
+        state,
+        lc,
+        config,
+        async () => ({ content: "", toolCalls: [] }),
+      );
+      await handlePostToolExecution(
+        repeatedFailure,
+        state,
+        lc,
+        config,
+        async () => ({ content: "", toolCalls: [] }),
+      );
+
+      const started = traceEvents.filter((event) =>
+        event.type === "playwright_trace" && event.status === "started"
+      );
+      assertEquals(started.length, 1);
+      assertEquals(started[0]?.reason, "promote_hybrid");
+    } finally {
+      await closeBrowser(sessionId).catch(() => {});
+    }
+  },
 });
 
 Deno.test("handleFinalResponse retries browser download answers that omit the artifact details", async () => {
@@ -1071,8 +1225,9 @@ Deno.test("handleFinalResponse promotes an approved plan-mode draft into executi
     context,
     permissionMode: "plan",
     toolAllowlist: ["read_file"],
-    toolFilterState: { allowlist: ["read_file"] },
-    toolFilterBaseline: { allowlist: ["read_file"] },
+    toolProfileState: createToolProfileState({
+      baseline: { slot: "baseline", allowlist: ["read_file"] },
+    }),
     planModeState: {
       active: true,
       phase: "researching",
@@ -1113,8 +1268,8 @@ Deno.test("handleFinalResponse promotes an approved plan-mode draft into executi
   assertEquals(config.planModeState?.phase, "executing");
   assertEquals(config.permissionMode, "acceptEdits");
   assertEquals(config.toolAllowlist, ["read_file", "write_file"]);
-  assertEquals(config.toolFilterState?.allowlist, ["read_file", "write_file"]);
-  assertEquals(config.toolFilterBaseline?.allowlist, [
+  assertEquals(effectiveAllowlist(config), ["read_file", "write_file"]);
+  assertEquals(resolvePersistentToolFilter(config.toolProfileState!).allowlist, [
     "read_file",
     "write_file",
   ]);
@@ -1163,11 +1318,13 @@ Deno.test("handleFinalResponse narrows plan execution tools and restores the exe
     permissionMode: "plan",
     toolAllowlist: ["read_file"],
     toolDenylist: ["complete_task"],
-    toolFilterState: { allowlist: ["read_file"], denylist: ["complete_task"] },
-    toolFilterBaseline: {
-      allowlist: ["read_file"],
-      denylist: ["complete_task"],
-    },
+    toolProfileState: createToolProfileState({
+      baseline: {
+        slot: "baseline",
+        allowlist: ["read_file"],
+        denylist: ["complete_task"],
+      },
+    }),
     planModeState: {
       active: true,
       phase: "researching",
@@ -1207,8 +1364,11 @@ Deno.test("handleFinalResponse narrows plan execution tools and restores the exe
   assertEquals(result.action, "continue");
   assertEquals(config.permissionMode, "acceptEdits");
   assertEquals(config.toolDenylist, undefined);
-  assertEquals(config.toolFilterState?.denylist, undefined);
-  assertEquals(config.toolFilterBaseline?.denylist, undefined);
+  assertEquals(effectiveDenylist(config), undefined);
+  assertEquals(
+    resolvePersistentToolFilter(config.toolProfileState!).denylist,
+    undefined,
+  );
   assertEquals(config.toolAllowlist, [
     "complete_task",
     "edit_file",
@@ -1221,7 +1381,7 @@ Deno.test("handleFinalResponse narrows plan execution tools and restores the exe
     "undo_edit",
     "write_file",
   ]);
-  assertEquals(config.toolFilterBaseline?.allowlist, [
+  assertEquals(resolvePersistentToolFilter(config.toolProfileState!).allowlist, [
     "complete_task",
     "edit_file",
     "list_files",
@@ -1243,7 +1403,9 @@ Deno.test("handleFinalResponse accepts a markdown PLAN block in plan mode", asyn
     context,
     permissionMode: "plan",
     toolAllowlist: ["read_file"],
-    toolFilterState: { allowlist: ["read_file"] },
+    toolProfileState: createToolProfileState({
+      baseline: { slot: "baseline", allowlist: ["read_file"] },
+    }),
     planModeState: {
       active: true,
       phase: "researching",
@@ -1613,10 +1775,13 @@ Deno.test("handlePostToolExecution drafts a plan after plan-mode research using 
       "Make a plan to add a visible checklist header to ConversationPanel.",
     toolAllowlist: ["read_file", "search_code"],
     toolDenylist: [],
-    toolFilterState: {
-      allowlist: ["read_file", "search_code"],
-      denylist: [],
-    },
+    toolProfileState: createToolProfileState({
+      baseline: {
+        slot: "baseline",
+        allowlist: ["read_file", "search_code"],
+        denylist: [],
+      },
+    }),
     planModeState: {
       active: true,
       phase: "researching",
@@ -1660,8 +1825,8 @@ Deno.test("handlePostToolExecution drafts a plan after plan-mode research using 
     async () => ({
       content: (() => {
         draftVisibleToolCount = Object.keys(resolveTools({
-          allowlist: config.toolFilterState?.allowlist ?? config.toolAllowlist,
-          denylist: config.toolFilterState?.denylist ?? config.toolDenylist,
+          allowlist: effectiveAllowlist(config),
+          denylist: effectiveDenylist(config),
         })).length;
         return [
           "PLAN",
@@ -1685,8 +1850,8 @@ Deno.test("handlePostToolExecution drafts a plan after plan-mode research using 
   assertEquals(config.planModeState?.phase, "reviewing");
   assertEquals(phaseEvents, ["drafting", "reviewing"]);
   assertEquals(draftVisibleToolCount, 0);
-  assertEquals(config.toolFilterState?.allowlist, ["read_file", "search_code"]);
-  assertEquals(config.toolFilterState?.denylist, undefined);
+  assertEquals(effectiveAllowlist(config), ["read_file", "search_code"]);
+  assertEquals(effectiveDenylist(config), undefined);
 });
 
 Deno.test("handlePostToolExecution injects one edit_file recovery message", async () => {

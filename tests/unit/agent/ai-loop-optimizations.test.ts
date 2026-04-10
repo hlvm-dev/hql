@@ -7,10 +7,12 @@ import {
 import { runReActLoop } from "../../../src/hlvm/agent/orchestrator.ts";
 import { handlePostToolExecution } from "../../../src/hlvm/agent/orchestrator-response.ts";
 import {
+  effectiveAllowlist,
   initializeLoopState,
   resolveLoopConfig,
 } from "../../../src/hlvm/agent/orchestrator-state.ts";
 import type { LLMResponse } from "../../../src/hlvm/agent/tool-call.ts";
+import { createToolProfileState } from "../../../src/hlvm/agent/tool-profiles.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { isMutatingTool } from "../../../src/hlvm/agent/security/safety.ts";
 
@@ -117,21 +119,25 @@ Deno.test({
     );
 
     const context = new ContextManager();
-    const toolFilterState: { allowlist?: string[]; denylist?: string[] } = {};
     let llmCalls = 0;
     let secondTurnAllowlist: string[] | undefined;
+    const config = {
+      workspace,
+      context,
+      permissionMode: "bypassPermissions" as const,
+      toolProfileState: createToolProfileState({
+        baseline: {
+          slot: "baseline",
+          allowlist: ["read_file", "edit_file", "write_file", "search_web"],
+        },
+      }),
+      modelTier: "constrained" as const,
+    };
 
     try {
       const result = await runReActLoop(
         "Fix src.ts by renaming value to nextValue",
-        {
-          workspace,
-          context,
-          permissionMode: "bypassPermissions",
-          toolFilterState,
-          toolFilterBaseline: {},
-          modelTier: "constrained",
-        },
+        config,
         async () => {
           llmCalls += 1;
           if (llmCalls === 1) {
@@ -140,7 +146,7 @@ Deno.test({
               args: { path: "src.ts" },
             }]);
           }
-          secondTurnAllowlist = toolFilterState.allowlist;
+          secondTurnAllowlist = effectiveAllowlist(config);
           return makeResponse("done");
         },
       );

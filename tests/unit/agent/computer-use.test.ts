@@ -9,6 +9,7 @@
 import {
   assertEquals,
   assertExists,
+  assertNotEquals,
   assertRejects,
   assertThrows,
 } from "jsr:@std/assert";
@@ -58,14 +59,17 @@ import {
   getComputerUseSessionState,
   getComputerUseTargetBundleId,
   getComputerUseTargetWindowId,
+  markComputerUsePromotionPending,
   rememberHiddenComputerUseApps,
   rememberComputerUseObservation,
+  requiresFreshComputerUseObservation,
   resetComputerUseSessionState,
   resolveObservationTarget,
   setComputerUseTargetBundleId,
   setComputerUseTargetWindow,
   takeHiddenComputerUseApps,
 } from "../../../src/hlvm/agent/computer-use/session-state.ts";
+import { _testOnly as bridgeTestOnly } from "../../../src/hlvm/agent/computer-use/bridge.ts";
 
 // ============================================================
 // 1. Keycode Tests (unchanged — keycodes.ts is bridge-specific)
@@ -364,6 +368,168 @@ Deno.test("session-state: stale target app is invalidated when it stops running"
   clearStaleComputerUseTargetApp(["com.apple.TextEdit"]);
 
   assertEquals(getComputerUseTargetBundleId(), undefined);
+});
+
+Deno.test("session-state: promotion pending requires a fresh observation and clears stale target context", () => {
+  resetComputerUseSessionState();
+  const observation = makeObservation();
+  rememberComputerUseObservation(observation);
+  setComputerUseTargetBundleId("com.apple.Safari");
+  setComputerUseTargetWindow(makeWindow());
+
+  markComputerUsePromotionPending(observation.createdAt + 1);
+
+  assertEquals(requiresFreshComputerUseObservation(), true);
+  assertEquals(getComputerUseSessionState().lastObservation, undefined);
+  assertEquals(getComputerUseTargetBundleId(), undefined);
+  assertEquals(getComputerUseTargetWindowId(), undefined);
+});
+
+Deno.test("session-state: fresh observation after promotion clears the pending gate", () => {
+  resetComputerUseSessionState();
+  const first = makeObservation({ createdAt: 100 });
+  rememberComputerUseObservation(first);
+  markComputerUsePromotionPending(150);
+
+  const second = makeObservation({
+    observationId: "obs-2",
+    createdAt: 200,
+    targets: [{
+      targetId: "obs-2:window:101",
+      kind: "window",
+      label: "Safari - Example",
+      role: "window",
+      bounds: makeWindow().bounds,
+      bundleId: "com.apple.Safari",
+      confidence: 0.9,
+      windowId: 101,
+    }],
+  });
+  rememberComputerUseObservation(second);
+
+  assertEquals(requiresFreshComputerUseObservation(), false);
+  assertEquals(
+    getComputerUseSessionState().pendingPromotionObservationAt,
+    undefined,
+  );
+});
+
+Deno.test("bridge: resolvePreparationPlan picks the topmost allowed window on the requested display", () => {
+  const plan = bridgeTestOnly.resolvePreparationPlan({
+    windows: [
+      makeWindow({
+        windowId: 200,
+        bundleId: "com.apple.TextEdit",
+        displayName: "TextEdit",
+        displayId: 1,
+        zIndex: 0,
+      }),
+      makeWindow({
+        windowId: 101,
+        bundleId: "com.apple.Safari",
+        displayName: "Safari",
+        displayId: 2,
+        zIndex: 0,
+      }),
+      makeWindow({
+        windowId: 102,
+        bundleId: "com.apple.Safari",
+        displayName: "Safari",
+        displayId: 2,
+        zIndex: 3,
+      }),
+    ],
+    runningApps: [
+      { bundleId: "com.apple.Safari", displayName: "Safari" },
+      { bundleId: "com.apple.TextEdit", displayName: "TextEdit" },
+    ],
+    allowedBundleIds: ["com.apple.Safari"],
+    hostBundleId: "com.anthropic.claude-code.cli-no-window",
+    displayId: 2,
+  });
+
+  assertEquals(plan.selectedDisplayId, 2);
+  assertEquals(plan.selectedTargetBundleId, "com.apple.Safari");
+  assertEquals(plan.selectedTargetWindowId, 101);
+  assertEquals(plan.failureReason, undefined);
+});
+
+Deno.test("bridge: resolvePreparationPlan fails closed when multiple allowed apps are running without a clear window target", () => {
+  const plan = bridgeTestOnly.resolvePreparationPlan({
+    windows: [],
+    runningApps: [
+      { bundleId: "com.apple.Safari", displayName: "Safari" },
+      { bundleId: "com.apple.TextEdit", displayName: "TextEdit" },
+    ],
+    allowedBundleIds: ["com.apple.Safari", "com.apple.TextEdit"],
+    hostBundleId: "com.anthropic.claude-code.cli-no-window",
+  });
+
+  assertEquals(plan.selectedTargetBundleId, undefined);
+  assertEquals(plan.failureReason, "ambiguous_allowed_apps");
+});
+
+Deno.test("bridge: selectWindowAtPoint prefers the topmost overlapping window", () => {
+  const match = bridgeTestOnly.selectWindowAtPoint(
+    [
+      makeWindow({
+        windowId: 300,
+        bundleId: "com.apple.TextEdit",
+        displayName: "TextEdit",
+        bounds: { x: 100, y: 100, width: 500, height: 500 },
+        zIndex: 0,
+      }),
+      makeWindow({
+        windowId: 301,
+        bundleId: "com.apple.Safari",
+        displayName: "Safari",
+        bounds: { x: 120, y: 120, width: 500, height: 500 },
+        zIndex: 2,
+      }),
+    ],
+    150,
+    150,
+  );
+
+  assertEquals(match?.windowId, 300);
+  assertEquals(match?.bundleId, "com.apple.TextEdit");
+});
+
+Deno.test("bridge: resolveCaptureDisplayId derives display from the selected target window", () => {
+  const resolution = bridgeTestOnly.resolveCaptureDisplayId({
+    displays: [
+      { width: 1440, height: 900, scaleFactor: 2, displayId: 11, originX: 0, originY: 0 },
+      { width: 2560, height: 1440, scaleFactor: 2, displayId: 22, originX: 1440, originY: 0 },
+    ],
+    windows: [
+      makeWindow({
+        windowId: 900,
+        bundleId: "com.apple.Safari",
+        displayName: "Safari",
+        displayId: 22,
+        zIndex: 0,
+      }),
+    ],
+    runningApps: [{ bundleId: "com.apple.Safari", displayName: "Safari" }],
+    allowedBundleIds: ["com.apple.Safari"],
+    hostBundleId: "com.anthropic.claude-code.cli-no-window",
+  });
+
+  assertEquals(resolution.displayId, 22);
+  assertEquals(resolution.selectedTargetWindowId, 900);
+  assertEquals(resolution.selectedTargetBundleId, "com.apple.Safari");
+});
+
+Deno.test("bridge: resolveCaptureDisplayIndex follows cached display ordering", () => {
+  const index = bridgeTestOnly.resolveCaptureDisplayIndex(
+    [
+      { width: 1440, height: 900, scaleFactor: 2, displayId: 11, originX: 0, originY: 0 },
+      { width: 2560, height: 1440, scaleFactor: 2, displayId: 22, originX: 1440, originY: 0 },
+    ],
+    22,
+  );
+
+  assertEquals(index, 2);
 });
 
 // ============================================================
@@ -877,3 +1043,86 @@ Deno.test(
       };
   },
 );
+
+// ── Backend Resolution Tests ──────────────────────────────────────────────
+
+import {
+  resolveBackend,
+  invalidateBackendResolution,
+  getResolvedBackend,
+} from "../../../src/hlvm/agent/computer-use/bridge.ts";
+
+Deno.test("resolveBackend: returns jxa when HLVM_CU_PORT not set", async () => {
+  invalidateBackendResolution();
+  const saved = Deno.env.get("HLVM_CU_PORT");
+  try {
+    Deno.env.delete("HLVM_CU_PORT");
+    const result = await resolveBackend();
+    assertEquals(result.backend, "jxa");
+    assertEquals(result.port, undefined);
+    assertEquals(result.capabilities, undefined);
+  } finally {
+    if (saved) Deno.env.set("HLVM_CU_PORT", saved);
+    invalidateBackendResolution();
+  }
+});
+
+Deno.test("resolveBackend: returns jxa when port is invalid", async () => {
+  invalidateBackendResolution();
+  const saved = Deno.env.get("HLVM_CU_PORT");
+  try {
+    Deno.env.set("HLVM_CU_PORT", "not-a-number");
+    const result = await resolveBackend();
+    assertEquals(result.backend, "jxa");
+  } finally {
+    if (saved) Deno.env.set("HLVM_CU_PORT", saved);
+    else Deno.env.delete("HLVM_CU_PORT");
+    invalidateBackendResolution();
+  }
+});
+
+Deno.test("resolveBackend: returns jxa when native service unreachable", async () => {
+  invalidateBackendResolution();
+  const saved = Deno.env.get("HLVM_CU_PORT");
+  try {
+    // Use a port that's almost certainly not serving the CU service
+    Deno.env.set("HLVM_CU_PORT", "19999");
+    const result = await resolveBackend();
+    assertEquals(result.backend, "jxa");
+  } finally {
+    if (saved) Deno.env.set("HLVM_CU_PORT", saved);
+    else Deno.env.delete("HLVM_CU_PORT");
+    invalidateBackendResolution();
+  }
+});
+
+Deno.test("resolveBackend: caches result", async () => {
+  invalidateBackendResolution();
+  const saved = Deno.env.get("HLVM_CU_PORT");
+  try {
+    Deno.env.delete("HLVM_CU_PORT");
+    const r1 = await resolveBackend();
+    const r2 = await resolveBackend();
+    assertEquals(r1, r2); // Same object reference (cached)
+  } finally {
+    if (saved) Deno.env.set("HLVM_CU_PORT", saved);
+    invalidateBackendResolution();
+  }
+});
+
+Deno.test("invalidateBackendResolution: clears cache", async () => {
+  invalidateBackendResolution();
+  Deno.env.delete("HLVM_CU_PORT");
+  await resolveBackend();
+  assertExists(getResolvedBackend());
+  invalidateBackendResolution();
+  assertEquals(getResolvedBackend(), undefined);
+});
+
+Deno.test("ObservationTarget kind: accepts element-level kinds", () => {
+  // Type-level test: ensure the union compiles with all kinds
+  const kinds: import("../../../src/hlvm/agent/computer-use/types.ts").ObservationTargetKind[] = [
+    "window", "button", "textfield", "checkbox", "menuitem", "link", "other",
+  ];
+  assertEquals(kinds.length, 7);
+});

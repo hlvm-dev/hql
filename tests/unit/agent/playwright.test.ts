@@ -38,6 +38,38 @@ import {
   buildPlaywrightRefLocator,
   parsePlaywrightSnapshotRefs,
 } from "../../../src/hlvm/agent/playwright/snapshot-refs.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
+import { startBrowserFixtureServer } from "../../shared/browser-fixture-server.ts";
+
+const platform = getPlatform();
+
+type SuccessfulToolResult = Record<string, unknown> & { success: true };
+
+function assertToolSucceeded(result: unknown): SuccessfulToolResult {
+  const record = result as Record<string, unknown>;
+  assertEquals(
+    record.success,
+    true,
+    typeof record.message === "string"
+      ? record.message
+      : JSON.stringify(record),
+  );
+  return record as SuccessfulToolResult;
+}
+
+function findRefByName(
+  refs: unknown,
+  name: string,
+): string | undefined {
+  if (!Array.isArray(refs)) return undefined;
+  const match = refs.find((item) =>
+    item &&
+    typeof item === "object" &&
+    "name" in item &&
+    (item as { name?: unknown }).name === name
+  ) as { ref?: unknown } | undefined;
+  return typeof match?.ref === "string" ? match.ref : undefined;
+}
 
 // ── Registry completeness ──────────────────────────────────────────────
 
@@ -354,6 +386,234 @@ Deno.test("browser manager — closing one session leaves the others intact", as
     _testOnly.getBrowserSessionKeysForTests(),
     [_testOnly.resolveSessionKey("session-b")],
   );
+});
+
+Deno.test({
+  name: "pw fixtures — tabs and back navigation work against the local fixture server",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const sessionId = `pw-fixture-tabs-${crypto.randomUUID()}`;
+    const { server, baseUrl } = startBrowserFixtureServer();
+
+    try {
+      const first = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_goto.fn(
+          { url: `${baseUrl}/tabs/start` },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      assertEquals(first.title, "Tabs Fixture Start");
+
+      const second = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_goto.fn(
+          { url: `${baseUrl}/tabs/next` },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      assertEquals(second.title, "Tabs Fixture Next");
+
+      const wentBack = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_back.fn({}, "/tmp", { sessionId }),
+      );
+      assertEquals(wentBack.title, "Tabs Fixture Start");
+      assertEquals(wentBack.wentBack, true);
+
+      assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_tabs.fn(
+          { action: "new", url: `${baseUrl}/tabs/other` },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      const listed = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_tabs.fn(
+          { action: "list" },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      const tabs = Array.isArray(listed.tabs) ? listed.tabs : [];
+      assertEquals(tabs.length, 2);
+      assertEquals(listed.activeIndex, 1);
+
+      const selected = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_tabs.fn(
+          { action: "select", index: 0 },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      assertEquals(selected.title, "Tabs Fixture Start");
+
+      const closed = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_tabs.fn(
+          { action: "close", index: 1 },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      const remainingTabs = Array.isArray(closed.tabs) ? closed.tabs : [];
+      assertEquals(remainingTabs.length, 1);
+      assertEquals(remainingTabs[0]?.title, "Tabs Fixture Start");
+    } finally {
+      await closeBrowser(sessionId).catch(() => {});
+      await server.shutdown();
+    }
+  },
+});
+
+Deno.test({
+  name: "pw fixtures — pw_select_option can act on a native select by ref",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const sessionId = `pw-fixture-select-${crypto.randomUUID()}`;
+    const { server, baseUrl } = startBrowserFixtureServer();
+
+    try {
+      assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_goto.fn(
+          { url: `${baseUrl}/select` },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      const snapshot = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_snapshot.fn({}, "/tmp", { sessionId }),
+      );
+      const selectRef = findRefByName(snapshot.refs, "Favorite pet");
+      assertExists(selectRef);
+
+      assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_select_option.fn(
+          { ref: selectRef, value: "hamster" },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      const selected = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_evaluate.fn(
+          { expression: "document.getElementById('pet-select').value" },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      assertEquals(selected.result, "hamster");
+
+      const content = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_content.fn(
+          { selector: "#selected-value" },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      assertStringIncludes(String(content.text ?? ""), "hamster");
+    } finally {
+      await closeBrowser(sessionId).catch(() => {});
+      await server.shutdown();
+    }
+  },
+});
+
+Deno.test({
+  name: "pw fixtures — pw_upload_file can act on a file input by ref",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const sessionId = `pw-fixture-upload-${crypto.randomUUID()}`;
+    const { server, baseUrl } = startBrowserFixtureServer();
+    const tempDir = await platform.fs.makeTempDir({
+      prefix: "hlvm-pw-upload-",
+    });
+    const uploadPath = platform.path.join(tempDir, "notes.txt");
+
+    try {
+      await platform.fs.writeTextFile(uploadPath, "fixture upload\n");
+      assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_goto.fn(
+          { url: `${baseUrl}/upload` },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      const snapshot = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_snapshot.fn({}, "/tmp", { sessionId }),
+      );
+      const uploadRef = findRefByName(snapshot.refs, "Upload documents");
+      assertExists(uploadRef);
+
+      const upload = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_upload_file.fn(
+          { ref: uploadRef, paths: [uploadPath] },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      assertEquals(upload.count, 1);
+
+      const content = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_content.fn(
+          { selector: "#uploaded-names" },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      assertStringIncludes(String(content.text ?? ""), "notes.txt");
+    } finally {
+      await closeBrowser(sessionId).catch(() => {});
+      await server.shutdown();
+      await platform.fs.remove(tempDir, { recursive: true }).catch(() => {});
+    }
+  },
+});
+
+Deno.test({
+  name: "pw fixtures — snapshot refs invalidate on navigation",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const sessionId = `pw-fixture-refs-${crypto.randomUUID()}`;
+    const { server, baseUrl } = startBrowserFixtureServer();
+
+    try {
+      assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_goto.fn(
+          { url: `${baseUrl}/select` },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      const snapshot = assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_snapshot.fn({}, "/tmp", { sessionId }),
+      );
+      const selectRef = findRefByName(snapshot.refs, "Favorite pet");
+      assertExists(selectRef);
+
+      assertToolSucceeded(
+        await PLAYWRIGHT_TOOLS.pw_goto.fn(
+          { url: `${baseUrl}/tabs/start` },
+          "/tmp",
+          { sessionId },
+        ),
+      );
+      const invalidated = await PLAYWRIGHT_TOOLS.pw_select_option.fn(
+        { ref: selectRef, value: "hamster" },
+        "/tmp",
+        { sessionId },
+      ) as Record<string, unknown>;
+      assertEquals(invalidated.success, false);
+      assertStringIncludes(
+        String(invalidated.message ?? ""),
+        "Invalid or expired snapshot ref",
+      );
+    } finally {
+      await closeBrowser(sessionId).catch(() => {});
+      await server.shutdown();
+    }
+  },
 });
 
 // ── Chromium gate ───────────────────────────────────────────────────────

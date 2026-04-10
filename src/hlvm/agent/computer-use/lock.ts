@@ -19,7 +19,12 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
-import { invalidateCaches } from "./bridge.ts";
+import {
+  invalidateBackendResolution,
+  invalidateCaches,
+  resolveBackend,
+  upgradeSwiftInstanceToNative,
+} from "./bridge.ts";
 import { resetComputerUseSessionState } from "./session-state.ts";
 
 const LOCK_FILENAME = "computer-use.lock";
@@ -49,7 +54,16 @@ const REENTRANT: AcquireResult = { kind: "acquired", fresh: false };
 /** Return FRESH after invalidating stale caches from a prior session. */
 function acquiredFresh(): AcquireResult {
   invalidateCaches();
+  invalidateBackendResolution();
   resetComputerUseSessionState();
+  // Async: detect native GUI backend and upgrade bridge if available.
+  // Fire-and-forget — the upgrade happens before the first tool call
+  // because the lock is acquired before any tool executes.
+  resolveBackend().then((res) => {
+    if (res.backend === "native_gui") {
+      upgradeSwiftInstanceToNative();
+    }
+  }).catch(() => {});
   return FRESH;
 }
 

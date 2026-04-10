@@ -28,8 +28,10 @@ import type {
   DisplaySelectionReason,
   DisplayGeometry,
   FrontmostApp,
+  HideCandidate,
   InstalledApp,
   ObservationTarget,
+  PrepareForActionResult,
   ResolvePrepareCaptureResult,
   RunningApp,
   ScreenshotResult,
@@ -307,29 +309,39 @@ export function createCliExecutor(opts: {
     async prepareForAction(
       allowlistBundleIds: string[],
       displayId?: number,
-    ): Promise<string[]> {
-      if (!getHideBeforeActionEnabled()) {
-        return [];
-      }
+    ): Promise<PrepareForActionResult> {
       return drainRunLoop(async () => {
         try {
           const result = await cu.apps.prepareDisplay(
             allowlistBundleIds,
             surrogateHost,
             displayId,
+            getHideBeforeActionEnabled(),
           );
           if (result.activated) {
             logForDebugging(
               `[computer-use] prepareForAction: activated ${result.activated}`,
             );
           }
-          return result.hidden;
+          if (result.failureReason) {
+            logForDebugging(
+              `[computer-use] prepareForAction unresolved: ${result.failureReason} (${result.resolutionReason ?? "unknown"})`,
+              { level: "warn" },
+            );
+          }
+          return result;
         } catch (err) {
           logForDebugging(
             `[computer-use] prepareForAction failed; continuing to action: ${errorMessage(err)}`,
             { level: "warn" },
           );
-          return [];
+          return {
+            activated: null,
+            hidden: [],
+            selectedDisplayId: displayId,
+            resolutionReason: "bridge_error",
+            failureReason: "prepare_display_failed",
+          };
         }
       });
     },
@@ -337,7 +349,7 @@ export function createCliExecutor(opts: {
     async previewHideSet(
       allowlistBundleIds: string[],
       displayId?: number,
-    ): Promise<Array<{ bundleId: string; displayName: string }>> {
+    ): Promise<HideCandidate[]> {
       return cu.apps.previewHideSet(
         [...allowlistBundleIds, surrogateHost],
         displayId,
@@ -658,7 +670,12 @@ export function createCliExecutor(opts: {
     async appUnderPoint(
       x: number,
       y: number,
-    ): Promise<{ bundleId: string; displayName: string } | null> {
+    ): Promise<{
+      bundleId: string;
+      displayName: string;
+      windowId?: number;
+      displayId?: number;
+    } | null> {
       return cu.apps.appUnderPoint(x, y);
     },
 

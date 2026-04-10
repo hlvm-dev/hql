@@ -64,11 +64,20 @@ export interface WindowInfo {
   isOnscreen?: boolean;
 }
 
+export type ObservationTargetKind =
+  | "window"
+  | "button"
+  | "textfield"
+  | "checkbox"
+  | "menuitem"
+  | "link"
+  | "other";
+
 export interface ObservationTarget {
   targetId: string;
-  kind: "window";
+  kind: ObservationTargetKind;
   label: string;
-  role: "window";
+  role: string;
   bounds: BoundsRect;
   bundleId: string;
   confidence: number;
@@ -90,10 +99,29 @@ export interface ScreenshotResult {
   height: number;
 }
 
+export interface HideCandidate {
+  bundleId: string;
+  displayName: string;
+}
+
+export interface PrepareForActionResult {
+  activated: string | null;
+  hidden: string[];
+  selectedDisplayId?: number;
+  selectedTargetBundleId?: string;
+  selectedTargetWindowId?: number;
+  resolutionReason?: string;
+  failureReason?: string;
+}
+
 export interface ResolvePrepareCaptureResult {
   displayId: number;
   hidden: string[];
   screenshot: ScreenshotResult;
+  selectedTargetBundleId?: string;
+  selectedTargetWindowId?: number;
+  resolutionReason?: string;
+  failureReason?: string;
 }
 
 export interface DesktopObservation {
@@ -158,11 +186,11 @@ export interface ComputerExecutor {
   prepareForAction(
     allowlistBundleIds: string[],
     displayId?: number,
-  ): Promise<string[]>;
+  ): Promise<PrepareForActionResult>;
   previewHideSet(
     allowlistBundleIds: string[],
     displayId?: number,
-  ): Promise<Array<{ bundleId: string; displayName: string }>>;
+  ): Promise<HideCandidate[]>;
 
   // Display
   getDisplaySize(displayId?: number): Promise<DisplayGeometry>;
@@ -292,11 +320,12 @@ export interface ComputerUseSwiftAPI {
       allowedBundleIds: string[],
       hostBundleId: string,
       displayId?: number,
-    ): Promise<{ activated: string | null; hidden: string[] }>;
+      hideDistractors?: boolean,
+    ): Promise<PrepareForActionResult>;
     previewHideSet(
       bundleIds: string[],
       displayId?: number,
-    ): Promise<Array<{ bundleId: string; displayName: string }>>;
+    ): Promise<HideCandidate[]>;
     findWindowDisplays(
       bundleIds: string[],
     ): Promise<Array<{ bundleId: string; displayIds: number[] }>>;
@@ -334,4 +363,19 @@ export interface ComputerUseSwiftAPI {
     unregister(): void;
     notifyExpectedEscape(): void;
   };
+}
+
+// ── CU Backend Selection ────────────────────────────────────────────────
+
+export type CUBackendKind = "native_gui" | "jxa";
+
+export interface CUNativeCapabilities {
+  version: string;
+  features: string[];
+}
+
+export interface CUBackendResolution {
+  backend: CUBackendKind;
+  capabilities?: CUNativeCapabilities;
+  port?: number;
 }

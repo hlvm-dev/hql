@@ -37,8 +37,6 @@ export interface ToolProfileState {
 export interface ToolFilterSyncTarget {
   toolAllowlist?: string[];
   toolDenylist?: string[];
-  toolFilterState?: ToolFilterState;
-  toolFilterBaseline?: ToolFilterState;
 }
 
 export interface ToolProfileCarrier {
@@ -347,26 +345,6 @@ export function syncEffectiveToolFilterToConfig(
   target.toolAllowlist = cloneToolList(effective.allowlist);
   target.toolDenylist = cloneToolList(effective.denylist);
 
-  if (target.toolFilterState) {
-    target.toolFilterState.allowlist = cloneToolList(effective.allowlist);
-    target.toolFilterState.denylist = cloneToolList(effective.denylist);
-  } else {
-    target.toolFilterState = {
-      allowlist: cloneToolList(effective.allowlist),
-      denylist: cloneToolList(effective.denylist),
-    };
-  }
-
-  if (target.toolFilterBaseline) {
-    target.toolFilterBaseline.allowlist = cloneToolList(persistent.allowlist);
-    target.toolFilterBaseline.denylist = cloneToolList(persistent.denylist);
-  } else {
-    target.toolFilterBaseline = {
-      allowlist: cloneToolList(persistent.allowlist),
-      denylist: cloneToolList(persistent.denylist),
-    };
-  }
-
   return { effective, persistent };
 }
 
@@ -506,12 +484,8 @@ function deriveToolProfileStateFromFilters(
   target: ToolFilterSyncTarget,
 ): ToolProfileState {
   const state = createToolProfileState();
-  const baselineAllowlist = cloneToolList(
-    target.toolFilterBaseline?.allowlist ?? target.toolAllowlist,
-  );
-  const baselineDenylist = cloneToolList(
-    target.toolFilterBaseline?.denylist ?? target.toolDenylist,
-  );
+  const baselineAllowlist = cloneToolList(target.toolAllowlist);
+  const baselineDenylist = cloneToolList(target.toolDenylist);
   if (baselineAllowlist || baselineDenylist) {
     setToolProfileLayer(state, "baseline", {
       allowlist: baselineAllowlist,
@@ -519,30 +493,5 @@ function deriveToolProfileStateFromFilters(
     });
   }
 
-  const effectiveAllowlist = cloneToolList(
-    target.toolFilterState?.allowlist ?? target.toolAllowlist,
-  );
-  const effectiveDenylist = cloneToolList(
-    target.toolFilterState?.denylist ?? target.toolDenylist,
-  );
-  if (
-    !toolListsEqual(baselineAllowlist, effectiveAllowlist) ||
-    !toolListsEqual(baselineDenylist, effectiveDenylist)
-  ) {
-    setToolProfileLayer(state, "runtime", {
-      allowlist: effectiveAllowlist,
-      denylist: effectiveDenylist,
-    });
-  }
-
   return state;
-}
-
-function toolListsEqual(
-  left?: readonly string[],
-  right?: readonly string[],
-): boolean {
-  if (!left?.length && !right?.length) return true;
-  if ((left?.length ?? 0) !== (right?.length ?? 0)) return false;
-  return (left ?? []).every((value, index) => value === right?.[index]);
 }

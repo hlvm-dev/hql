@@ -15,15 +15,23 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
-import { assertValidBundleId, isValidBundleId } from "./common.ts";
+import {
+  assertValidBundleId,
+  CLI_HOST_BUNDLE_ID,
+  isValidBundleId,
+} from "./common.ts";
 import { parseKeySpec } from "./keycodes.ts";
 import type {
   BoundsRect,
+  CUBackendResolution,
+  CUNativeCapabilities,
   ComputerUsePermissionState,
   ComputerUseInputAPI,
   ComputerUseSwiftAPI,
   DisplayGeometry,
+  HideCandidate,
   InstalledApp,
+  PrepareForActionResult,
   ResolvePrepareCaptureResult,
   RunningApp,
   ScreenshotResult,
@@ -200,6 +208,292 @@ function filterVisibleWindows(rawWindows: RawWindowRecord[]): WindowInfo[] {
   });
 }
 
+interface BridgePreparationPlan {
+  selectedDisplayId?: number;
+  selectedTargetBundleId?: string;
+  selectedTargetWindowId?: number;
+  resolutionReason: string;
+  failureReason?: string;
+  hideCandidates: HideCandidate[];
+}
+
+function sortWindowsForSelection(
+  windows: readonly WindowInfo[],
+): WindowInfo[] {
+  return [...windows].sort((a, b) =>
+    (a.layer - b.layer) ||
+    (a.zIndex - b.zIndex) ||
+    (a.windowId - b.windowId)
+  );
+}
+
+function buildDisplayOrderMap(
+  displays: readonly DisplayGeometry[],
+): Map<number, number> {
+  const order = new Map<number, number>();
+  displays.forEach((display, index) => {
+    order.set(display.displayId ?? index + 1, index);
+  });
+  return order;
+}
+
+function sortDisplayIdsByDisplayOrder(
+  displayIds: readonly number[],
+  displays: readonly DisplayGeometry[],
+): number[] {
+  const order = buildDisplayOrderMap(displays);
+  return [...new Set(displayIds)].sort((a, b) =>
+    (order.get(a) ?? Number.MAX_SAFE_INTEGER) -
+      (order.get(b) ?? Number.MAX_SAFE_INTEGER) ||
+    (a - b)
+  );
+}
+
+function computeHideCandidates(
+  windows: readonly WindowInfo[],
+  runningApps: readonly RunningApp[],
+  allowedBundleIds: readonly string[],
+  hostBundleId: string,
+  selectedDisplayId?: number,
+  selectedTargetBundleId?: string,
+): HideCandidate[] {
+  const allowSet = new Set(
+    allowedBundleIds.filter((bundleId) => bundleId && bundleId !== hostBundleId),
+  );
+  allowSet.add(hostBundleId);
+  if (selectedTargetBundleId) {
+    allowSet.add(selectedTargetBundleId);
+  }
+
+  const runningNameByBundle = new Map(
+    runningApps.map((app) => [app.bundleId, app.displayName]),
+  );
+  const scopedWindows = sortWindowsForSelection(
+    selectedDisplayId != null
+      ? windows.filter((window) => window.displayId === selectedDisplayId)
+      : windows,
+  );
+  const hideByBundle = new Map<string, HideCandidate>();
+  for (const window of scopedWindows) {
+    const bundleId = window.bundleId?.trim();
+    if (!bundleId || allowSet.has(bundleId)) continue;
+    if (hideByBundle.has(bundleId)) continue;
+    hideByBundle.set(bundleId, {
+      bundleId,
+      displayName: window.displayName || runningNameByBundle.get(bundleId) ||
+        bundleId,
+    });
+  }
+  return [...hideByBundle.values()].sort((a, b) =>
+    a.displayName.localeCompare(b.displayName) ||
+    a.bundleId.localeCompare(b.bundleId)
+  );
+}
+
+function resolvePreparationPlan(
+  params: {
+    windows: readonly WindowInfo[];
+    runningApps: readonly RunningApp[];
+    allowedBundleIds: readonly string[];
+    hostBundleId: string;
+    displayId?: number;
+  },
+): BridgePreparationPlan {
+  const allowedBundleIds = [...new Set(
+    params.allowedBundleIds.filter((bundleId) =>
+      bundleId && bundleId !== params.hostBundleId && isValidBundleId(bundleId)
+    ),
+  )];
+  const orderedWindows = sortWindowsForSelection(
+    params.windows.filter((window) => !!window.bundleId),
+  );
+  const runningAllowed = params.runningApps.filter((app) =>
+    allowedBundleIds.includes(app.bundleId)
+  );
+  const windowsOnRequestedDisplay = params.displayId != null
+    ? orderedWindows.filter((window) => window.displayId === params.displayId)
+    : orderedWindows;
+  const allowedWindowsOnRequestedDisplay = windowsOnRequestedDisplay.filter(
+    (window) => !!window.bundleId &&
+      allowedBundleIds.includes(window.bundleId),
+  );
+
+  if (allowedBundleIds.length === 0) {
+    return {
+      selectedDisplayId: params.displayId,
+      resolutionReason: params.displayId != null
+        ? "explicit_display_no_allowlist"
+        : "no_allowlist",
+      hideCandidates: [],
+    };
+  }
+
+  if (allowedWindowsOnRequestedDisplay.length > 0) {
+    const targetWindow = allowedWindowsOnRequestedDisplay[0]!;
+    const selectedDisplayId = targetWindow.displayId ?? params.displayId;
+    return {
+      selectedDisplayId,
+      selectedTargetBundleId: targetWindow.bundleId,
+      selectedTargetWindowId: targetWindow.windowId,
+      resolutionReason: params.displayId != null
+        ? "requested_display_window"
+        : "allowed_window",
+      hideCandidates: computeHideCandidates(
+        params.windows,
+        params.runningApps,
+        allowedBundleIds,
+        params.hostBundleId,
+        selectedDisplayId,
+        targetWindow.bundleId,
+      ),
+    };
+  }
+
+  if (params.displayId != null) {
+    if (runningAllowed.length === 1) {
+      return {
+        selectedDisplayId: params.displayId,
+        selectedTargetBundleId: runningAllowed[0]!.bundleId,
+        resolutionReason: "requested_display_running_app",
+        hideCandidates: computeHideCandidates(
+          params.windows,
+          params.runningApps,
+          allowedBundleIds,
+          params.hostBundleId,
+          params.displayId,
+          runningAllowed[0]!.bundleId,
+        ),
+      };
+    }
+    return {
+      selectedDisplayId: params.displayId,
+      resolutionReason: "requested_display_unresolved",
+      failureReason: runningAllowed.length > 1
+        ? "ambiguous_allowed_apps_on_display"
+        : "no_allowed_app_on_display",
+      hideCandidates: [],
+    };
+  }
+
+  const allowedWindows = orderedWindows.filter((window) =>
+    !!window.bundleId && allowedBundleIds.includes(window.bundleId)
+  );
+  if (allowedWindows.length > 0) {
+    const targetWindow = allowedWindows[0]!;
+    return {
+      selectedDisplayId: targetWindow.displayId,
+      selectedTargetBundleId: targetWindow.bundleId,
+      selectedTargetWindowId: targetWindow.windowId,
+      resolutionReason: "fallback_allowed_window",
+      hideCandidates: computeHideCandidates(
+        params.windows,
+        params.runningApps,
+        allowedBundleIds,
+        params.hostBundleId,
+        targetWindow.displayId,
+        targetWindow.bundleId,
+      ),
+    };
+  }
+
+  if (runningAllowed.length === 1) {
+    return {
+      selectedDisplayId: params.displayId,
+      selectedTargetBundleId: runningAllowed[0]!.bundleId,
+      resolutionReason: "single_running_app",
+      hideCandidates: computeHideCandidates(
+        params.windows,
+        params.runningApps,
+        allowedBundleIds,
+        params.hostBundleId,
+        params.displayId,
+        runningAllowed[0]!.bundleId,
+      ),
+    };
+  }
+
+  return {
+    selectedDisplayId: params.displayId,
+    resolutionReason: "unresolved_target",
+    failureReason: runningAllowed.length > 1
+      ? "ambiguous_allowed_apps"
+      : "no_allowed_app",
+    hideCandidates: [],
+  };
+}
+
+function selectWindowAtPoint(
+  windows: readonly WindowInfo[],
+  x: number,
+  y: number,
+): WindowInfo | undefined {
+  return sortWindowsForSelection(windows).find((window) =>
+    !!window.bundleId && pointInBounds(x, y, window.bounds)
+  );
+}
+
+function resolveCaptureDisplayId(
+  params: {
+    displays: readonly DisplayGeometry[];
+    windows: readonly WindowInfo[];
+    runningApps: readonly RunningApp[];
+    allowedBundleIds: readonly string[];
+    hostBundleId: string;
+    preferredDisplayId?: number;
+  },
+): {
+  displayId: number;
+  selectedTargetBundleId?: string;
+  selectedTargetWindowId?: number;
+  resolutionReason: string;
+  failureReason?: string;
+} {
+  const fallbackDisplayId = params.preferredDisplayId ??
+    params.displays[0]?.displayId ??
+    DEFAULT_DISPLAY_GEOMETRY.displayId ??
+    1;
+  const plan = resolvePreparationPlan({
+    windows: params.windows,
+    runningApps: params.runningApps,
+    allowedBundleIds: params.allowedBundleIds,
+    hostBundleId: params.hostBundleId,
+    displayId: params.preferredDisplayId,
+  });
+
+  if (plan.selectedDisplayId != null) {
+    return {
+      displayId: plan.selectedDisplayId,
+      selectedTargetBundleId: plan.selectedTargetBundleId,
+      selectedTargetWindowId: plan.selectedTargetWindowId,
+      resolutionReason: plan.resolutionReason,
+      failureReason: plan.failureReason,
+    };
+  }
+
+  return {
+    displayId: fallbackDisplayId,
+    selectedTargetBundleId: plan.selectedTargetBundleId,
+    selectedTargetWindowId: plan.selectedTargetWindowId,
+    resolutionReason: params.preferredDisplayId != null
+      ? "explicit_display"
+      : "default_display",
+    failureReason: plan.failureReason,
+  };
+}
+
+function resolveCaptureDisplayIndex(
+  displays: readonly DisplayGeometry[],
+  displayId?: number,
+): number {
+  if (displayId == null) return 1;
+  const order = buildDisplayOrderMap(displays);
+  const displayOrder = order.get(displayId);
+  if (displayOrder == null) {
+    throw new Error(`Unknown display id for capture: ${displayId}`);
+  }
+  return displayOrder + 1;
+}
+
 async function listVisibleWindowsInternal(
   displayId?: number,
 ): Promise<WindowInfo[]> {
@@ -297,6 +591,75 @@ async function getPermissionStateInternal(): Promise<ComputerUsePermissionState>
     checkedAt: Date.now(),
   };
   return _cachedPermissionState;
+}
+
+function bridgeSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function refreshBridgeCaches(): Promise<void> {
+  await Promise.all([
+    ensureDisplayCache(),
+    ensureRunningAppsCache(),
+  ]);
+}
+
+async function getFrontmostBundleId(): Promise<string | null> {
+  try {
+    const raw = await jxa(`
+      ObjC.import('AppKit');
+      var app = $.NSWorkspace.sharedWorkspace.frontmostApplication;
+      JSON.stringify({
+        bundleId: app && app.bundleIdentifier ? ObjC.unwrap(app.bundleIdentifier) : null
+      });
+    `);
+    return (JSON.parse(raw) as { bundleId?: string | null }).bundleId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function activateBundleId(bundleId: string): Promise<boolean> {
+  if (!isValidBundleId(bundleId)) return false;
+  try {
+    await osascript(`tell application id "${bundleId}" to activate`);
+  } catch {
+    return false;
+  }
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const frontmostBundleId = await getFrontmostBundleId();
+    if (frontmostBundleId === bundleId) {
+      return true;
+    }
+    await bridgeSleep(100);
+  }
+  return false;
+}
+
+async function hideBundleIds(bundleIds: readonly string[]): Promise<string[]> {
+  const validBundleIds = [...new Set(bundleIds.filter(isValidBundleId))];
+  if (validBundleIds.length === 0) return [];
+  try {
+    const raw = await jxa(`
+      ObjC.import('AppKit');
+      var hidden = [];
+      var targets = new Set(${JSON.stringify(validBundleIds)});
+      var apps = $.NSWorkspace.sharedWorkspace.runningApplications;
+      for (var i = 0; i < apps.count; i++) {
+        var app = apps.objectAtIndex(i);
+        var bid = app.bundleIdentifier ? ObjC.unwrap(app.bundleIdentifier) : null;
+        if (!bid || !targets.has(bid)) continue;
+        if (app.activationPolicy !== $.NSApplicationActivationPolicyRegular) continue;
+        app.hide();
+        hidden.push(bid);
+      }
+      JSON.stringify(hidden);
+    `);
+    return JSON.parse(raw) as string[];
+  } catch {
+    return [];
+  }
 }
 
 // ── execFileNoThrow (replaces CC's ../execFileNoThrow.js) ────────────────
@@ -589,6 +952,110 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
   return _inputInstance;
 }
 
+// ── CU Backend Resolution ─────────────────────────────────────────────────
+
+let _backendResolution: CUBackendResolution | undefined;
+
+/**
+ * Resolve which CU backend to use: native GUI app (AX-level) or JXA (fallback).
+ * Checks HLVM_CU_PORT env → fetches /cu/capabilities with auth → caches result.
+ * Call invalidateBackendResolution() on fresh lock acquire to re-detect.
+ */
+export async function resolveBackend(): Promise<CUBackendResolution> {
+  if (_backendResolution) return _backendResolution;
+  const platform = getPlatform();
+  const portStr = platform.env.get("HLVM_CU_PORT");
+  if (!portStr) {
+    _backendResolution = { backend: "jxa" };
+    return _backendResolution;
+  }
+  const port = Number(portStr);
+  if (!Number.isFinite(port) || port <= 0) {
+    _backendResolution = { backend: "jxa" };
+    return _backendResolution;
+  }
+  const token = platform.env.get("HLVM_AUTH_TOKEN") ?? "";
+  try {
+    const result = await platform.command.output({
+      cmd: [
+        "curl", "-sf", "--max-time", "1",
+        "-H", `Authorization: Bearer ${token}`,
+        `http://127.0.0.1:${port}/cu/capabilities`,
+      ],
+      stdin: "null",
+      stdout: "piped",
+      stderr: "piped",
+      timeout: 2000,
+    });
+    if (!result.success) {
+      _backendResolution = { backend: "jxa" };
+      return _backendResolution;
+    }
+    const body = new TextDecoder().decode(result.stdout);
+    const caps: CUNativeCapabilities = JSON.parse(body);
+    if (!caps.version || !Array.isArray(caps.features)) {
+      _backendResolution = { backend: "jxa" };
+      return _backendResolution;
+    }
+    getAgentLogger().info(
+      `[bridge] Native CU backend detected on :${port} (v${caps.version}, features: ${caps.features.join(",")})`,
+    );
+    _backendResolution = { backend: "native_gui", capabilities: caps, port };
+  } catch {
+    _backendResolution = { backend: "jxa" };
+  }
+  return _backendResolution;
+}
+
+/** Invalidate cached backend — called on fresh lock acquire and session reset. */
+export function invalidateBackendResolution(): void {
+  _backendResolution = undefined;
+}
+
+/** Get the resolved backend synchronously (returns undefined if not yet resolved). */
+export function getResolvedBackend(): CUBackendResolution | undefined {
+  return _backendResolution;
+}
+
+/**
+ * Fetch JSON from the native GUI CU service. Falls back to JXA on failure.
+ * Used by NativeGuiBackend methods.
+ */
+async function cuNativeFetch<T>(
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const resolution = _backendResolution;
+  if (!resolution || resolution.backend !== "native_gui" || !resolution.port) {
+    throw new Error("Native CU backend not available");
+  }
+  const platform = getPlatform();
+  const token = platform.env.get("HLVM_AUTH_TOKEN") ?? "";
+  const url = `http://127.0.0.1:${resolution.port}${path}`;
+  const method = body !== undefined ? "POST" : "GET";
+  const curlArgs = [
+    "curl", "-sf", "--max-time", "10",
+    "-H", `Authorization: Bearer ${token}`,
+    "-H", "Content-Type: application/json",
+  ];
+  if (body !== undefined) {
+    curlArgs.push("-d", JSON.stringify(body));
+  }
+  curlArgs.push(url);
+  const result = await platform.command.output({
+    cmd: curlArgs,
+    stdin: "null",
+    stdout: "piped",
+    stderr: "piped",
+    timeout: 15000,
+  });
+  if (!result.success) {
+    const stderr = new TextDecoder().decode(result.stderr);
+    throw new Error(`CU native fetch failed: ${path} (${stderr.trim()})`);
+  }
+  return JSON.parse(new TextDecoder().decode(result.stdout)) as T;
+}
+
 // ── ComputerUseSwift (replaces @ant/computer-use-swift) ──────────────────
 
 let _swiftInstance: ComputerUseSwiftAPI | undefined;
@@ -621,13 +1088,35 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
 
     screenshot: {
       async captureExcluding(
-        _allowedBundleIds: string[],
+        allowedBundleIds: string[],
         quality: number,
         targetW: number,
         targetH: number,
-        _displayId?: number,
+        displayId?: number,
       ): Promise<ScreenshotResult> {
-        return captureScreenshot(quality, targetW, targetH);
+        await refreshBridgeCaches();
+        const displays = _cachedDisplayList ?? [selectDisplayGeometry(displayId)];
+        const windows = await listVisibleWindowsInternal();
+        const runningApps = _cachedRunningApps ?? [];
+        const resolution = resolveCaptureDisplayId({
+          displays,
+          windows,
+          runningApps,
+          allowedBundleIds,
+          hostBundleId: CLI_HOST_BUNDLE_ID,
+          preferredDisplayId: displayId,
+        });
+        if (resolution.failureReason) {
+          log.debug(
+            `[bridge] captureExcluding proceeding with display ${resolution.displayId} despite resolution failure: ${resolution.failureReason}`,
+          );
+        }
+        return captureScreenshot(
+          quality,
+          targetW,
+          targetH,
+          resolution.displayId,
+        );
       },
 
       async captureRegion(
@@ -649,86 +1138,100 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
       async prepareDisplay(
         allowedBundleIds: string[],
         hostBundleId: string,
-        _displayId?: number,
-      ): Promise<{ activated: string | null; hidden: string[] }> {
+        displayId?: number,
+        hideDistractors = true,
+      ): Promise<PrepareForActionResult> {
+        await refreshBridgeCaches();
+        const windows = await listVisibleWindowsInternal();
+        const runningApps = _cachedRunningApps ?? [];
+        const plan = resolvePreparationPlan({
+          windows,
+          runningApps,
+          allowedBundleIds,
+          hostBundleId,
+          displayId,
+        });
+
         if (allowedBundleIds.length === 0) {
-          return { activated: null, hidden: [] };
+          return {
+            activated: null,
+            hidden: [],
+            selectedDisplayId: plan.selectedDisplayId,
+            resolutionReason: plan.resolutionReason,
+          };
         }
-        // Activate the first allowed app that's running (bring to front).
-        // Hide apps NOT in the allowlist and NOT the host terminal.
-        // This ensures CU actions target the correct window.
-        const allowSet = new Set(allowedBundleIds);
-        allowSet.add(hostBundleId); // Never hide the terminal
-        try {
-          const result = await jxa(`
-            ObjC.import('AppKit');
-            var ws = $.NSWorkspace.sharedWorkspace;
-            var apps = ws.runningApplications;
-            var hidden = [];
-            var activated = null;
-            var allowSet = new Set(${JSON.stringify([...allowSet])});
-            var hostBundleId = ${JSON.stringify(hostBundleId)};
-            var regularApps = [];
-            var activatableApps = [];
-            var output = null;
-            for (var i = 0; i < apps.count; i++) {
-              var app = apps.objectAtIndex(i);
-              var bid = app.bundleIdentifier?.js;
-              if (!bid) continue;
-              var policy = app.activationPolicy;
-              if (policy !== $.NSApplicationActivationPolicyRegular) continue;
-              regularApps.push(app);
-              if (bid !== hostBundleId && allowSet.has(bid)) {
-                activatableApps.push(app);
-              }
-            }
-            if (activatableApps.length === 0) {
-              output = JSON.stringify({ activated: null, hidden: [] });
-            } else {
-              var target = activatableApps[0];
-              target.activateWithOptions($.NSApplicationActivateIgnoringOtherApps);
-              activated = target.bundleIdentifier ? target.bundleIdentifier.js : null;
-              for (var j = 0; j < regularApps.length; j++) {
-                var app = regularApps[j];
-                var bid = app.bundleIdentifier?.js;
-                if (!bid || bid === hostBundleId || allowSet.has(bid)) continue;
-                if (!app.isHidden) {
-                  app.hide();
-                  hidden.push(bid);
-                }
-              }
-              output = JSON.stringify({ activated: activated, hidden: hidden });
-            }
-            output;
-          `);
-          return JSON.parse(result);
-        } catch (err) {
-          log.debug(
-            `[bridge] prepareDisplay failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-          return { activated: null, hidden: [] };
+
+        if (!plan.selectedTargetBundleId) {
+          return {
+            activated: null,
+            hidden: [],
+            selectedDisplayId: plan.selectedDisplayId,
+            selectedTargetWindowId: plan.selectedTargetWindowId,
+            resolutionReason: plan.resolutionReason,
+            failureReason: plan.failureReason ?? "no_target_bundle",
+          };
         }
+
+        const activated = await activateBundleId(plan.selectedTargetBundleId)
+          ? plan.selectedTargetBundleId
+          : null;
+        if (!activated) {
+          return {
+            activated: null,
+            hidden: [],
+            selectedDisplayId: plan.selectedDisplayId,
+            selectedTargetBundleId: plan.selectedTargetBundleId,
+            selectedTargetWindowId: plan.selectedTargetWindowId,
+            resolutionReason: plan.resolutionReason,
+            failureReason: "activation_verification_failed",
+          };
+        }
+
+        const hidden = hideDistractors
+          ? await hideBundleIds(plan.hideCandidates.map((candidate) =>
+            candidate.bundleId
+          ))
+          : [];
+        return {
+          activated,
+          hidden,
+          selectedDisplayId: plan.selectedDisplayId,
+          selectedTargetBundleId: plan.selectedTargetBundleId,
+          selectedTargetWindowId: plan.selectedTargetWindowId,
+          resolutionReason: plan.resolutionReason,
+        };
       },
 
       async previewHideSet(
-        _bundleIds: string[],
-        _displayId?: number,
-      ): Promise<Array<{ bundleId: string; displayName: string }>> {
-        return [];
+        bundleIds: string[],
+        displayId?: number,
+      ): Promise<HideCandidate[]> {
+        await refreshBridgeCaches();
+        const windows = await listVisibleWindowsInternal();
+        const runningApps = _cachedRunningApps ?? [];
+        return resolvePreparationPlan({
+          windows,
+          runningApps,
+          allowedBundleIds: bundleIds,
+          hostBundleId: CLI_HOST_BUNDLE_ID,
+          displayId,
+        }).hideCandidates;
       },
 
       async findWindowDisplays(
         bundleIds: string[],
       ): Promise<Array<{ bundleId: string; displayIds: number[] }>> {
+        await refreshBridgeCaches();
         const windows = await listVisibleWindowsInternal();
+        const displays = _cachedDisplayList ?? [selectDisplayGeometry()];
         return bundleIds.map((bundleId) => ({
           bundleId,
-          displayIds: [...new Set(
+          displayIds: sortDisplayIdsByDisplayOrder([...new Set(
             windows
               .filter((window) => window.bundleId === bundleId)
               .map((window) => window.displayId)
               .filter((value): value is number => typeof value === "number"),
-          )],
+          )], displays),
         }));
       },
 
@@ -813,9 +1316,7 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
         displayId?: number;
       } | null> {
         const windows = await listVisibleWindowsInternal();
-        const match = windows.find((window) =>
-          !!window.bundleId && pointInBounds(x, y, window.bounds)
-        );
+        const match = selectWindowAtPoint(windows, x, y);
         if (!match?.bundleId) return null;
         return {
           bundleId: match.bundleId,
@@ -833,21 +1334,65 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
     },
 
     async resolvePrepareCapture(
-      _allowedBundleIds: string[],
-      _hostBundleId: string,
+      allowedBundleIds: string[],
+      hostBundleId: string,
       quality: number,
       targetW: number,
       targetH: number,
-      _displayId?: number,
-      _autoResolve?: boolean,
-      _doHide?: boolean,
+      displayId?: number,
+      autoResolve = true,
+      doHide = false,
     ): Promise<ResolvePrepareCaptureResult> {
-      const screenshot = await captureScreenshot(quality, targetW, targetH);
-      const display = selectDisplayGeometry(_displayId);
+      await refreshBridgeCaches();
+      const displays = _cachedDisplayList ?? [selectDisplayGeometry(displayId)];
+      const windows = await listVisibleWindowsInternal();
+      const runningApps = _cachedRunningApps ?? [];
+      const resolution = autoResolve
+        ? resolveCaptureDisplayId({
+          displays,
+          windows,
+          runningApps,
+          allowedBundleIds,
+          hostBundleId,
+          preferredDisplayId: displayId,
+        })
+        : {
+          displayId: displayId ??
+            displays[0]?.displayId ??
+            DEFAULT_DISPLAY_GEOMETRY.displayId ??
+            1,
+          selectedTargetBundleId: undefined,
+          selectedTargetWindowId: undefined,
+          resolutionReason: displayId != null ? "explicit_display" : "default_display",
+          failureReason: undefined,
+        };
+
+      const prepared = (doHide || autoResolve) && allowedBundleIds.length > 0
+        ? await _swiftInstance!.apps.prepareDisplay(
+          allowedBundleIds,
+          hostBundleId,
+          resolution.displayId,
+          doHide,
+        )
+        : undefined;
+      const selectedDisplayId = prepared?.selectedDisplayId ??
+        resolution.displayId;
+      const screenshot = await captureScreenshot(
+        quality,
+        targetW,
+        targetH,
+        selectedDisplayId,
+      );
       return {
-        displayId: display.displayId ?? 1,
-        hidden: [],
+        displayId: selectedDisplayId,
+        hidden: prepared?.hidden ?? [],
         screenshot,
+        selectedTargetBundleId: prepared?.selectedTargetBundleId ??
+          resolution.selectedTargetBundleId,
+        selectedTargetWindowId: prepared?.selectedTargetWindowId ??
+          resolution.selectedTargetWindowId,
+        resolutionReason: prepared?.resolutionReason ?? resolution.resolutionReason,
+        failureReason: prepared?.failureReason ?? resolution.failureReason,
       };
     },
 
@@ -869,6 +1414,84 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
   _runningAppsReady = initRunningAppsCache().catch(() => {});
 
   return _swiftInstance;
+}
+
+/**
+ * Upgrade the Swift API instance to route through the native GUI backend
+ * for methods where native AX/CGWindow APIs provide better results.
+ * JXA fallback is preserved — if any native call fails with a connection
+ * error, the original JXA method is called instead.
+ *
+ * Call this AFTER resolveBackend() confirms native_gui is available.
+ */
+export function upgradeSwiftInstanceToNative(): void {
+  const instance = requireComputerUseSwift();
+  const resolution = _backendResolution;
+  if (!resolution || resolution.backend !== "native_gui") return;
+
+  const log = getAgentLogger();
+  log.info("[bridge] Upgrading CU bridge to native GUI backend");
+
+  // Save JXA originals for fallback
+  const jxaPrepareDisplay = instance.apps.prepareDisplay.bind(instance.apps);
+  const jxaAppUnderPoint = instance.apps.appUnderPoint.bind(instance.apps);
+  const jxaListVisibleWindows = instance.apps.listVisibleWindows.bind(
+    instance.apps,
+  );
+  const jxaPermissions = instance.permissions.getState.bind(
+    instance.permissions,
+  );
+
+  // Override with native — fall back to JXA on connection failure
+  instance.apps.prepareDisplay = async (
+    allowedBundleIds,
+    hostBundleId,
+    displayId?,
+    hideDistractors?,
+  ) => {
+    try {
+      return await cuNativeFetch<PrepareForActionResult>("/cu/prepare-display", {
+        allowedBundleIds,
+        hostBundleId,
+        displayId,
+        hideDistractors,
+      });
+    } catch (err) {
+      log.debug(`[bridge] Native prepareDisplay failed, falling back to JXA: ${err}`);
+      return jxaPrepareDisplay(allowedBundleIds, hostBundleId, displayId, hideDistractors);
+    }
+  };
+
+  instance.apps.appUnderPoint = async (x, y) => {
+    try {
+      return await cuNativeFetch("/cu/element-at-point", { x, y });
+    } catch (err) {
+      log.debug(`[bridge] Native appUnderPoint failed, falling back to JXA: ${err}`);
+      return jxaAppUnderPoint(x, y);
+    }
+  };
+
+  instance.apps.listVisibleWindows = async (displayId?) => {
+    try {
+      const result = await cuNativeFetch<{ windows: WindowInfo[] }>(
+        "/cu/windows",
+        displayId != null ? { displayId } : undefined,
+      );
+      return result.windows;
+    } catch (err) {
+      log.debug(`[bridge] Native listVisibleWindows failed, falling back to JXA: ${err}`);
+      return jxaListVisibleWindows(displayId);
+    }
+  };
+
+  instance.permissions.getState = async () => {
+    try {
+      return await cuNativeFetch<ComputerUsePermissionState>("/cu/permissions");
+    } catch (err) {
+      log.debug(`[bridge] Native permissions failed, falling back to JXA: ${err}`);
+      return jxaPermissions();
+    }
+  };
 }
 
 // ── Display cache (bridge sync→async adaptation) ─────────────────────────
@@ -972,15 +1595,31 @@ async function captureScreenshot(
   quality: number,
   targetW: number,
   targetH: number,
+  displayId?: number,
 ): Promise<ScreenshotResult> {
   const platform = getPlatform();
   const tmpDir = await platform.fs.makeTempDir({ prefix: "hlvm-cu" });
   const tmpPath = platform.path.join(tmpDir, `screenshot-${Date.now()}.jpg`);
 
   try {
-    // Capture full screen
+    await ensureDisplayCache();
+    const displays = _cachedDisplayList ?? [selectDisplayGeometry(displayId)];
+    const selectedDisplayId = displayId ??
+      displays[0]?.displayId ??
+      DEFAULT_DISPLAY_GEOMETRY.displayId ??
+      1;
+    const displayIndex = resolveCaptureDisplayIndex(displays, selectedDisplayId);
+    const captureArgs = [
+      "screencapture",
+      "-x",
+      "-t",
+      "jpg",
+      `-D${displayIndex}`,
+      tmpPath,
+    ];
+
     const capResult = await platform.command.output({
-      cmd: ["screencapture", "-x", "-t", "jpg", tmpPath],
+      cmd: captureArgs,
       stdin: "null",
       stdout: "piped",
       stderr: "piped",
@@ -1022,6 +1661,16 @@ async function captureScreenshot(
     } catch { /* ignore */ }
   }
 }
+
+export const _testOnly = {
+  sortWindowsForSelection,
+  sortDisplayIdsByDisplayOrder,
+  computeHideCandidates,
+  resolvePreparationPlan,
+  selectWindowAtPoint,
+  resolveCaptureDisplayId,
+  resolveCaptureDisplayIndex,
+};
 
 async function captureScreenshotRegion(
   x: number,

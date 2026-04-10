@@ -20,6 +20,7 @@ import {
   runSourceAgentWithCompatibleModel,
   withTemporaryWorkspace,
 } from "./native-provider-smoke-helpers.ts";
+import { startBrowserFixtureServer } from "../shared/browser-fixture-server.ts";
 
 // ── Gating ────────────────────────────────────────────────────────────────
 
@@ -46,113 +47,6 @@ const MODEL_CANDIDATES = [
     ),
   ),
 ];
-
-// ── Fixture HTML ──────────────────────────────────────────────────────────
-
-/**
- * Cookie-overlay fixture. PW pw_click on "Submit" will fail with
- * pw_click_intercepted because the overlay div covers the button.
- * After pw_promote + CU, the agent can visually click "Accept" to
- * dismiss the overlay, then click "Submit" to reveal "Success".
- */
-/**
- * Fixture: an overlay that CANNOT be dismissed by Playwright DOM interaction.
- *
- * The overlay uses a canvas-rendered "Accept" button — visually present
- * but not a DOM element, so PW pw_click has nothing to target.
- * Only a CU visual click at the canvas coordinates can dismiss it.
- *
- * PW pw_click("Submit") → pw_click_intercepted (overlay covers it).
- * PW pw_click("Accept") → pw_element_not_found (it's canvas, not DOM).
- * After pw_promote, CU can see and click the canvas button visually.
- */
-const FIXTURE_HTML = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>Hybrid Escalation Fixture</title></head>
-<body style="margin:0;font-family:sans-serif;">
-  <div id="overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;
-    background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;">
-    <div style="background:white;padding:40px;border-radius:8px;text-align:center;min-width:300px;">
-      <p style="font-size:18px;margin-bottom:20px;">Click the button below to continue</p>
-      <canvas id="accept-canvas" width="200" height="50" style="cursor:pointer;"></canvas>
-    </div>
-  </div>
-  <div style="text-align:center;margin-top:100px;">
-    <h1>Hybrid Escalation Test</h1>
-    <button id="submit-btn" onclick="document.getElementById('result').textContent='Success'"
-      style="padding:16px 48px;font-size:20px;cursor:pointer;">Submit</button>
-    <p><span id="result" style="font-size:24px;font-weight:bold;color:#4CAF50;"></span></p>
-  </div>
-  <script>
-    // Draw "Accept" button on canvas (not a DOM element, PW can't click it)
-    var c = document.getElementById('accept-canvas');
-    var ctx = c.getContext('2d');
-    ctx.fillStyle = '#4CAF50';
-    ctx.beginPath();
-    ctx.roundRect(0, 0, 200, 50, 8);
-    ctx.fill();
-    ctx.fillStyle = 'white';
-    ctx.font = 'bold 16px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Accept', 100, 25);
-    // Canvas click handler — dismiss overlay
-    c.addEventListener('click', function() {
-      document.getElementById('overlay').style.display = 'none';
-    });
-  </script>
-</body>
-</html>`;
-
-/** Multi-step form: fill fields → submit → result page. Pure PW task (no CU needed). */
-const FORM_FIXTURE_HTML = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>Form Fixture</title></head>
-<body style="margin:40px;font-family:sans-serif;">
-  <h1>Registration Form</h1>
-  <form id="reg-form" onsubmit="event.preventDefault();
-    document.getElementById('form-area').style.display='none';
-    document.getElementById('result-area').style.display='block';
-    document.getElementById('result-name').textContent=document.getElementById('name-input').value;
-    document.getElementById('result-email').textContent=document.getElementById('email-input').value;">
-    <div id="form-area">
-      <label>Name: <input id="name-input" type="text" placeholder="Your name" style="padding:8px;font-size:16px;"></label><br><br>
-      <label>Email: <input id="email-input" type="email" placeholder="you@example.com" style="padding:8px;font-size:16px;"></label><br><br>
-      <button type="submit" style="padding:12px 32px;font-size:16px;cursor:pointer;">Register</button>
-    </div>
-  </form>
-  <div id="result-area" style="display:none;">
-    <h2>Registration Complete</h2>
-    <p>Name: <span id="result-name"></span></p>
-    <p>Email: <span id="result-email"></span></p>
-  </div>
-</body>
-</html>`;
-
-/** Delayed content: text appears after 2s via JS setTimeout. Tests pw_wait_for. */
-const DELAYED_FIXTURE_HTML = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>Delayed Content</title></head>
-<body style="margin:40px;font-family:sans-serif;">
-  <h1>Loading...</h1>
-  <div id="content" style="display:none;">
-    <p id="secret">The answer is 42.</p>
-  </div>
-  <script>
-    setTimeout(function() {
-      document.querySelector('h1').textContent = 'Ready';
-      document.getElementById('content').style.display = 'block';
-    }, 2000);
-  </script>
-</body>
-</html>`;
-
-/** Route map for multi-fixture server. */
-const FIXTURE_ROUTES: Record<string, string> = {
-  "/": FIXTURE_HTML,
-  "/form": FORM_FIXTURE_HTML,
-  "/delayed": DELAYED_FIXTURE_HTML,
-};
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -216,6 +110,30 @@ function validateEscalationOrder(result: HybridResult): string[] {
   return errors;
 }
 
+function validateFreshObservationAfterPromote(result: HybridResult): string[] {
+  const errors: string[] = [];
+  const promoteIdx = result.toolNames.indexOf("pw_promote");
+  if (promoteIdx < 0) return errors;
+  const firstInteractiveCuIdx = result.toolNames.findIndex((name, index) =>
+    index > promoteIdx &&
+    name.startsWith("cu_") &&
+    name !== "cu_observe" &&
+    name !== "cu_screenshot"
+  );
+  if (firstInteractiveCuIdx < 0) return errors;
+  const observationIdx = result.toolNames.findIndex((name, index) =>
+    index > promoteIdx &&
+    index < firstInteractiveCuIdx &&
+    (name === "cu_observe" || name === "cu_screenshot")
+  );
+  if (observationIdx < 0) {
+    errors.push(
+      "Expected cu_observe or cu_screenshot after pw_promote and before the first interactive cu_* action.",
+    );
+  }
+  return errors;
+}
+
 function validateNoEscalation(result: HybridResult): string[] {
   const errors: string[] = [];
   if (result.toolNames.includes("pw_promote")) {
@@ -241,6 +159,7 @@ const CASES: HybridEscalationCase[] = [
       const errors = [
         ...validateEscalationOccurred(result),
         ...validateEscalationOrder(result),
+        ...validateFreshObservationAfterPromote(result),
       ];
       if (!result.toolNames.includes("pw_goto")) {
         errors.push("Expected pw_goto to be called (navigation).");
@@ -274,7 +193,10 @@ const CASES: HybridEscalationCase[] = [
     query: (port) =>
       `Go to http://127.0.0.1:${port}/ and click the Submit button. The page has an overlay blocking it — a canvas-based Accept button that DOM selectors can't target. Use pw_click on Submit first (it will fail from the overlay), retry pw_click once more, then use pw_promote and cu_* tools to dismiss the overlay. After the overlay is gone, use pw_content to read the page text and report whether the word "Success" appears.`,
     validate: (result) => {
-      const errors = validateEscalationOccurred(result);
+      const errors = [
+        ...validateEscalationOccurred(result),
+        ...validateFreshObservationAfterPromote(result),
+      ];
       // Verify PW was used to READ content after CU was used to CLICK
       const pwContentIdx = result.toolNames.lastIndexOf("pw_content");
       const firstCuIdx = result.toolNames.findIndex((n) => n.startsWith("cu_"));
@@ -345,18 +267,7 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    // Start local fixture server with multi-route support
-    const server = Deno.serve(
-      { port: 0, onListen: () => {} },
-      (req) => {
-        const url = new URL(req.url);
-        const html = FIXTURE_ROUTES[url.pathname] ?? FIXTURE_HTML;
-        return new Response(html, {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        });
-      },
-    );
-    const port = server.addr.port;
+    const { server, port } = startBrowserFixtureServer();
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);

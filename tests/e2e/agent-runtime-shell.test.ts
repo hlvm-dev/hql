@@ -13,6 +13,7 @@ import {
   type RuntimeHostLifecycleDiagnostics,
   type RuntimeHostLifecycleProbe,
 } from "../shared/runtime-host-test-helpers.ts";
+import { startBrowserFixtureServer } from "../shared/browser-fixture-server.ts";
 
 const platform = getPlatform();
 const FIXTURE_PATH = platform.path.fromFileUrl(
@@ -597,6 +598,101 @@ async function createBrowserCliSmokeFixture(workspace: string): Promise<string> 
   return fixturePath;
 }
 
+async function createBrowserCliHybridFixture(
+  workspace: string,
+  baseUrl: string,
+): Promise<string> {
+  const fixturePath = platform.path.join(
+    workspace,
+    "browser-cli-hybrid-fixture.json",
+  );
+  const fixture = {
+    version: 1,
+    name: "browser cli hybrid fixture",
+    cases: [
+      {
+        name: "browser-cli-hybrid",
+        match: { contains: ["browser cli hybrid smoke"] },
+        steps: [
+          {
+            expect: {
+              contains: [
+                "Allowed tools:",
+                "pw_goto",
+                "pw_click",
+                "pw_snapshot",
+              ],
+            },
+            toolCalls: [{
+              id: "pw_goto_1",
+              toolName: "pw_goto",
+              args: { url: `${baseUrl}/` },
+            }],
+          },
+          {
+            toolCalls: [{
+              id: "pw_click_1",
+              toolName: "pw_click",
+              args: { selector: "#submit-btn" },
+            }],
+          },
+          {
+            expect: { contains: ["pw_click_intercepted"] },
+            toolCalls: [{
+              id: "pw_click_2",
+              toolName: "pw_click",
+              args: { selector: "#submit-btn" },
+            }],
+          },
+          {
+            expect: {
+              contains: [
+                "pw_promote",
+                "cu_screenshot",
+                "cu_mouse_move",
+                "Do not switch to cu_* before pw_promote",
+              ],
+            },
+            toolCalls: [{
+              id: "pw_promote_1",
+              toolName: "pw_promote",
+              args: {},
+            }],
+          },
+          {
+            expect: {
+              contains: [
+                "After pw_promote, call cu_observe or cu_screenshot before the first desktop action.",
+              ],
+            },
+            toolCalls: [{
+              id: "cu_screenshot_1",
+              toolName: "cu_screenshot",
+              args: {},
+            }],
+          },
+          {
+            toolCalls: [{
+              id: "cu_mouse_move_1",
+              toolName: "cu_mouse_move",
+              args: { coordinate: [10, 10] },
+            }],
+          },
+          {
+            response: "Browser CLI hybrid smoke complete",
+          },
+        ],
+      },
+    ],
+  };
+
+  await platform.fs.writeTextFile(
+    fixturePath,
+    JSON.stringify(fixture, null, 2),
+  );
+  return fixturePath;
+}
+
 async function createAskMultimodalFixture(
   workspace: string,
 ): Promise<{
@@ -764,6 +860,53 @@ localAskTest({
     } finally {
       await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
       await runtimeProbe.stop();
+      await platform.fs.remove(hlvmDir, { recursive: true });
+    }
+  },
+});
+
+localAskTest({
+  name:
+    "local ask command deterministically promotes from browser_safe to hybrid before interactive cu_* actions",
+  ignore: platform.build.os !== "darwin",
+  fn: async () => {
+    const port = await allocateRuntimeShellPort();
+    const hlvmDir = await platform.fs.makeTempDir({
+      prefix: "hlvm-browser-cli-hybrid-",
+    });
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const runtimeProbe = createRuntimeHostLifecycleProbe(baseUrl, port);
+    const browserFixture = startBrowserFixtureServer();
+
+    try {
+      const fixturePath = await createBrowserCliHybridFixture(
+        hlvmDir,
+        browserFixture.baseUrl,
+      );
+      const result = await runLocalAsk(
+        port,
+        [
+          "--no-session-persistence",
+          "--verbose",
+          "--model",
+          "ollama/test-fixture",
+          "browser cli hybrid smoke: promote after repeated blocked pw_click failures",
+        ],
+        {
+          HLVM_DIR: hlvmDir,
+          HLVM_ASK_FIXTURE_PATH: fixturePath,
+        },
+        hlvmDir,
+        runtimeProbe,
+      );
+
+      const output = describeLocalAskResult(result);
+      assertEquals(result.success, true, output);
+      assertStringIncludes(output, "Browser CLI hybrid smoke complete");
+    } finally {
+      await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
+      await runtimeProbe.stop();
+      await browserFixture.server.shutdown();
       await platform.fs.remove(hlvmDir, { recursive: true });
     }
   },

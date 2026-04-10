@@ -31,6 +31,7 @@ export interface ComputerUseFailureRecord {
 export interface ComputerUseSessionState {
   selectedDisplayId?: number;
   displaySelectionReason?: DisplaySelectionReason;
+  pendingPromotionObservationAt?: number;
   targetApp?: {
     bundleId: string;
     displayName?: string;
@@ -104,6 +105,25 @@ export function setComputerUseSelectedDisplay(
   state.displaySelectionReason = reason;
 }
 
+export function markComputerUsePromotionPending(
+  at = Date.now(),
+): void {
+  state.pendingPromotionObservationAt = at;
+  delete state.lastObservation;
+  delete state.targetApp;
+  delete state.targetWindow;
+}
+
+export function clearPendingComputerUsePromotion(): void {
+  delete state.pendingPromotionObservationAt;
+}
+
+export function requiresFreshComputerUseObservation(): boolean {
+  const pendingAt = state.pendingPromotionObservationAt;
+  if (pendingAt == null) return false;
+  return !state.lastObservation || state.lastObservation.createdAt < pendingAt;
+}
+
 export function rememberHiddenComputerUseApps(
   bundleIds: readonly string[],
 ): void {
@@ -125,6 +145,12 @@ export function rememberComputerUseObservation(
   state.permissions = observation.permissions;
   state.selectedDisplayId = observation.display.displayId;
   state.displaySelectionReason = observation.displaySelectionReason;
+  if (
+    state.pendingPromotionObservationAt != null &&
+    observation.createdAt >= state.pendingPromotionObservationAt
+  ) {
+    delete state.pendingPromotionObservationAt;
+  }
 
   if (observation.frontmostApp?.bundleId) {
     setComputerUseTargetBundleId(
@@ -223,6 +249,7 @@ export function resetComputerUseSessionState(): void {
   state.hiddenApps.clear();
   delete state.selectedDisplayId;
   delete state.displaySelectionReason;
+  delete state.pendingPromotionObservationAt;
   delete state.targetApp;
   delete state.targetWindow;
   delete state.lastObservation;

@@ -20,6 +20,7 @@ import {
   type ToolCall,
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { callLLM } from "../../../src/hlvm/agent/orchestrator-llm.ts";
+import { effectiveAllowlist } from "../../../src/hlvm/agent/orchestrator-state.ts";
 import {
   buildIsToolAllowed,
   buildToolResultOutputs,
@@ -1976,17 +1977,22 @@ Deno.test({
   async fn() {
     resetApprovals();
     const context = new ContextManager();
-    const toolFilterState: { allowlist?: string[]; denylist?: string[] } = {};
+    const config: OrchestratorConfig = {
+      workspace: TEST_WORKSPACE,
+      context,
+      permissionMode: "bypassPermissions",
+      toolProfileState: createToolProfileState({
+        baseline: {
+          slot: "baseline",
+          allowlist: ["tool_search", "read_file"],
+        },
+      }),
+    };
     let calls = 0;
 
     const result = await runReActLoop(
       "Find the right tool",
-      {
-        workspace: TEST_WORKSPACE,
-        context,
-        permissionMode: "bypassPermissions",
-        toolFilterState,
-      },
+      config,
       async () => {
         calls += 1;
         if (calls === 1) {
@@ -1999,8 +2005,8 @@ Deno.test({
     );
 
     assertEquals(result, "done");
-    assertEquals(toolFilterState.allowlist?.includes("tool_search"), true);
-    assertEquals(toolFilterState.allowlist?.includes("read_file"), true);
+    assertEquals(effectiveAllowlist(config)?.includes("tool_search"), true);
+    assertEquals(effectiveAllowlist(config)?.includes("read_file"), true);
   },
 });
 
@@ -2015,8 +2021,6 @@ Deno.test({
       context,
       permissionMode: "bypassPermissions",
       l1Confirmations: new Map(),
-      toolFilterState: {},
-      toolFilterBaseline: {},
       toolProfileState: createToolProfileState(),
       baselineToolAllowlistSeed: [...STANDARD_EAGER_TOOLS],
       discoveredDeferredTools: [],
@@ -2040,7 +2044,7 @@ Deno.test({
       config.toolProfileState?.layers.domain?.profileId,
       "browser_safe",
     );
-    const browserAllowlist = config.toolFilterState?.allowlist ?? [];
+    const browserAllowlist = effectiveAllowlist(config) ?? [];
     assertEquals(browserAllowlist.includes("pw_goto"), true);
     assertEquals(browserAllowlist.includes("pw_promote"), false);
     assertEquals(
