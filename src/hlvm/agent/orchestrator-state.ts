@@ -30,6 +30,7 @@ import {
   cloneToolList,
   resolveEffectiveToolFilterCached,
   type ToolProfileState,
+  uniqueToolList,
 } from "./tool-profiles.ts";
 
 /** Result of tool execution */
@@ -283,7 +284,11 @@ export function effectiveDenylist(
   config: OrchestratorConfig,
 ): string[] | undefined {
   if (config.toolProfileState) {
-    return resolveEffectiveToolFilterCached(config.toolProfileState).denylist;
+    const profileDenylist =
+      resolveEffectiveToolFilterCached(config.toolProfileState).denylist ?? [];
+    const explicitDenylist = config.toolDenylist ?? [];
+    const merged = uniqueToolList([...profileDenylist, ...explicitDenylist]);
+    return merged.length > 0 ? merged : undefined;
   }
   return config.toolDenylist;
 }

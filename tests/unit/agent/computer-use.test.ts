@@ -1195,6 +1195,7 @@ Deno.test(
 import {
   fetchNativeObservationTargets,
   performNativeTargetAction,
+  requireComputerUseInput,
   requireComputerUseSwift,
   resolveBackend,
   invalidateBackendResolution,
@@ -1593,6 +1594,133 @@ Deno.test("upgradeSwiftInstanceToNative upgrades the live bridge methods to nati
       "/cu/element-at-point",
       "/cu/windows",
       "/cu/permissions",
+    ]);
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
+Deno.test("upgradeSwiftInstanceToNative upgrades native input, frontmost, and activate-app routes", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    const display = makeDisplay();
+    const fallbackCalls = {
+      moveMouse: 0,
+      mouseButton: 0,
+      mouseScroll: 0,
+      mouseLocation: 0,
+      keys: 0,
+      key: 0,
+      typeText: 0,
+      frontmost: 0,
+      open: 0,
+    };
+    const fakeInput: ComputerUseInputAPI = {
+      async moveMouse() {
+        fallbackCalls.moveMouse++;
+      },
+      async mouseButton() {
+        fallbackCalls.mouseButton++;
+      },
+      async mouseScroll() {
+        fallbackCalls.mouseScroll++;
+      },
+      async mouseLocation() {
+        fallbackCalls.mouseLocation++;
+        return { x: 0, y: 0 };
+      },
+      async keys() {
+        fallbackCalls.keys++;
+      },
+      async key() {
+        fallbackCalls.key++;
+      },
+      async typeText() {
+        fallbackCalls.typeText++;
+      },
+      async getFrontmostAppInfo() {
+        fallbackCalls.frontmost++;
+        return { bundleId: "fallback.app", appName: "Fallback" };
+      },
+    };
+    const fakeSwift = makeFakeSwift({
+      display,
+      windows: [makeWindow()],
+      runningApps: [makeRunningApp()],
+      permissions: makePermissionState(),
+    });
+    fakeSwift.apps.open = async () => {
+      fallbackCalls.open++;
+    };
+    bridgeTestOnly.setInputInstance(fakeInput);
+    bridgeTestOnly.setSwiftInstance(fakeSwift);
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: {
+        version: "1",
+        features: ["input", "frontmost", "activate-app"],
+      },
+    });
+    const seenPaths: string[] = [];
+    bridgeTestOnly.setNativeFetchOverride(async (path) => {
+      seenPaths.push(path);
+      switch (path) {
+        case "/cu/input/move-mouse":
+        case "/cu/input/mouse-button":
+        case "/cu/input/mouse-scroll":
+        case "/cu/input/keys":
+        case "/cu/input/key":
+        case "/cu/input/type-text":
+        case "/cu/activate-app":
+          return { ok: true };
+        case "/cu/input/mouse-location":
+          return { x: 42, y: 24 };
+        case "/cu/frontmost":
+          return { bundleId: "com.apple.TextEdit", name: "TextEdit" };
+        default:
+          throw new Error(`Unexpected path ${path}`);
+      }
+    });
+
+    upgradeSwiftInstanceToNative();
+    const input = requireComputerUseInput();
+    const swift = requireComputerUseSwift();
+
+    await input.moveMouse(10, 20, false);
+    await input.mouseButton("left", "click", 1);
+    await input.mouseScroll(12, "vertical");
+    assertEquals(await input.mouseLocation(), { x: 42, y: 24 });
+    await input.keys(["command", "v"]);
+    await input.key("shift", "press");
+    await input.typeText("hello");
+    assertEquals(await input.getFrontmostAppInfo(), {
+      bundleId: "com.apple.TextEdit",
+      appName: "TextEdit",
+    });
+    await swift.apps.open("com.apple.TextEdit");
+
+    assertEquals(fallbackCalls, {
+      moveMouse: 0,
+      mouseButton: 0,
+      mouseScroll: 0,
+      mouseLocation: 0,
+      keys: 0,
+      key: 0,
+      typeText: 0,
+      frontmost: 0,
+      open: 0,
+    });
+    assertEquals(seenPaths, [
+      "/cu/input/move-mouse",
+      "/cu/input/mouse-button",
+      "/cu/input/mouse-scroll",
+      "/cu/input/mouse-location",
+      "/cu/input/keys",
+      "/cu/input/key",
+      "/cu/input/type-text",
+      "/cu/frontmost",
+      "/cu/activate-app",
     ]);
   } finally {
     bridgeTestOnly.resetBridgeState();

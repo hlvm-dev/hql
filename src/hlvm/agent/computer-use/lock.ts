@@ -52,18 +52,18 @@ const FRESH: AcquireResult = { kind: "acquired", fresh: true };
 const REENTRANT: AcquireResult = { kind: "acquired", fresh: false };
 
 /** Return FRESH after invalidating stale caches from a prior session. */
-function acquiredFresh(): AcquireResult {
+async function acquiredFresh(): Promise<AcquireResult> {
   invalidateCaches();
   invalidateBackendResolution();
   resetComputerUseSessionState();
-  // Async: detect native GUI backend and upgrade bridge if available.
-  // Fire-and-forget — the upgrade happens before the first tool call
-  // because the lock is acquired before any tool executes.
-  resolveBackend().then((res) => {
+  try {
+    const res = await resolveBackend();
     if (res.backend === "native_gui") {
       upgradeSwiftInstanceToNative();
     }
-  }).catch(() => {});
+  } catch {
+    // Fall through: JXA remains available as the closed fallback.
+  }
   return FRESH;
 }
 
@@ -241,7 +241,7 @@ export async function tryAcquireComputerUseLock(
   // Fresh acquisition.
   if (await tryCreateExclusive(lock)) {
     registerLockCleanup();
-    return acquiredFresh();
+    return await acquiredFresh();
   }
 
   const existing = await readLock();
@@ -253,7 +253,7 @@ export async function tryAcquireComputerUseLock(
     } catch { /* ignore */ }
     if (await tryCreateExclusive(lock)) {
       registerLockCleanup();
-      return acquiredFresh();
+      return await acquiredFresh();
     }
     return {
       kind: "blocked",
@@ -278,7 +278,7 @@ export async function tryAcquireComputerUseLock(
   } catch { /* ignore */ }
   if (await tryCreateExclusive(lock)) {
     registerLockCleanup();
-    return acquiredFresh();
+    return await acquiredFresh();
   }
   return {
     kind: "blocked",

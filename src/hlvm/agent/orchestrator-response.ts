@@ -282,9 +282,10 @@ function collectPlaywrightFailureCandidates(
     if (toolResult.success || !toolResult.failure) continue;
     const errorText = toolResult.error ?? toolResult.llmContent ?? "";
     candidates.push({
-      signature: `pw:${toolCall.toolName}:${
-        toolResult.failure.code ?? toolResult.failure.kind
-      }`,
+      signature: buildPlaywrightFailureSignature(
+        toolCall.toolName,
+        toolResult.failure,
+      ),
       toolName: toolCall.toolName,
       errorText,
       failure: toolResult.failure,
@@ -300,6 +301,17 @@ function collectPlaywrightFailureCandidates(
   }
 
   return candidates;
+}
+
+function buildPlaywrightFailureSignature(
+  toolName: string,
+  failure: ToolExecutionResult["failure"] extends infer T ? T : never,
+): string {
+  if (failure && hasStructuredPlaywrightVisualFailure(failure)) {
+    return `pw:${toolName}:visual_blocker`;
+  }
+  const code = failure?.code ?? failure?.kind ?? "unknown";
+  return `pw:${toolName}:${code}`;
 }
 
 function playwrightRecoveryPriority(

@@ -1414,6 +1414,7 @@ export async function runAgentQuery(
         baselineToolAllowlistSeed: session.baseToolAllowlist,
         discoveredDeferredTools: session.discoveredDeferredTools,
         toolProfileState: session.toolProfileState,
+        toolDenylist: effectiveToolDenylist,
         toolSearchUniverseAllowlist: requestedToolAllowlist,
         toolSearchUniverseDenylist: effectiveToolDenylist,
         onToolSearchDiscovered: (toolNames: readonly string[]) =>

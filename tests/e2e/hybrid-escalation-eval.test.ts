@@ -155,6 +155,7 @@ const CASES: HybridEscalationCase[] = [
     id: "click_intercepted_escalation",
     query: (port) =>
       `Go to http://127.0.0.1:${port}/ and click the Submit button. Try clicking it with pw_click — it will fail because an overlay is blocking it. Retry pw_click on the Submit button at least once more. After the repeated click failures, the system will offer you hybrid browser mode with pw_promote and cu_* tools — use those to visually dismiss the overlay and click Submit. Report the exact result text.`,
+    denyTools: ["pw_evaluate"],
     validate: (result) => {
       const errors = [
         ...validateEscalationOccurred(result),
@@ -192,6 +193,7 @@ const CASES: HybridEscalationCase[] = [
     id: "pw_read_after_cu_click",
     query: (port) =>
       `Go to http://127.0.0.1:${port}/ and click the Submit button. The page has an overlay blocking it — a canvas-based Accept button that DOM selectors can't target. Use pw_click on Submit first (it will fail from the overlay), retry pw_click once more, then use pw_promote and cu_* tools to dismiss the overlay. After the overlay is gone, use pw_content to read the page text and report whether the word "Success" appears.`,
+    denyTools: ["pw_evaluate"],
     validate: (result) => {
       const errors = [
         ...validateEscalationOccurred(result),

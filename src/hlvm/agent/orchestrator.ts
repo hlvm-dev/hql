@@ -950,8 +950,6 @@ export async function applyAdaptiveToolPhase(
   // Mid/frontier tiers keep their normal allowlist, but still benefit from
   // targeted denylist pruning once the loop is clearly in edit/verify mode.
   if ((config.modelTier ?? "standard") !== "constrained") {
-    ensureToolProfileState(config);
-    const currentAllowlist = effectiveAllowlist(config);
     const phaseDenylist = phase === "editing" || phase === "verifying" ||
         phase === "completing"
       ? Object.entries(availableTools)
@@ -964,7 +962,7 @@ export async function applyAdaptiveToolPhase(
       ...loopDenylist,
     ]);
     updateToolProfileLayer(config, "runtime", {
-      allowlist: cloneToolList(currentAllowlist),
+      allowlist: undefined,
       denylist: nextDenylist.length > 0 ? nextDenylist : undefined,
     });
     return phase;

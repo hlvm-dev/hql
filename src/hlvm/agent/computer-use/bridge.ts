@@ -14,6 +14,7 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
+import { http } from "../../../common/http-client.ts";
 import { getAgentLogger } from "../logger.ts";
 import {
   assertValidBundleId,
@@ -21,6 +22,7 @@ import {
   isValidBundleId,
 } from "./common.ts";
 import { parseKeySpec } from "./keycodes.ts";
+import { getHlvmRuntimeBaseUrl } from "../../runtime/host-config.ts";
 import type {
   BoundsRect,
   CUBackendResolution,
@@ -956,6 +958,7 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
 // ── CU Backend Resolution ─────────────────────────────────────────────────
 
 let _backendResolution: CUBackendResolution | undefined;
+let _resolvedNativeAuthToken: string | undefined;
 let _cuNativeFetchOverride:
   | ((path: string, body?: unknown) => Promise<unknown>)
   | undefined;
@@ -1024,6 +1027,55 @@ function normalizeNativeTarget(
   };
 }
 
+async function resolveNativeCuAuthToken(): Promise<string> {
+  const platform = getPlatform();
+  const explicitToken = (platform.env.get("HLVM_CU_AUTH_TOKEN") ?? "").trim();
+  if (explicitToken.length > 0) {
+    _resolvedNativeAuthToken = explicitToken;
+    return explicitToken;
+  }
+  try {
+    const home = platform.env.get("HOME") ?? "";
+    const fileToken = await platform.fs.readTextFile(
+      platform.path.join(home, ".hlvm", "cu-native-auth-token"),
+    ).then((value) => value.trim());
+    if (fileToken.length > 0) {
+      _resolvedNativeAuthToken = fileToken;
+      return fileToken;
+    }
+  } catch {
+    // Token file absent — continue with fallback discovery.
+  }
+  const envToken = (platform.env.get("HLVM_AUTH_TOKEN") ?? "").trim();
+  if (envToken.length > 0) {
+    _resolvedNativeAuthToken = envToken;
+    return envToken;
+  }
+  if (_resolvedNativeAuthToken?.length) {
+    return _resolvedNativeAuthToken;
+  }
+  try {
+    const response = await http.fetchRaw(`${getHlvmRuntimeBaseUrl()}/health`, {
+      timeout: 1000,
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      return "";
+    }
+    const health = await response.json() as { authToken?: string | null };
+    const discovered = typeof health.authToken === "string"
+      ? health.authToken.trim()
+      : "";
+    if (discovered.length > 0) {
+      _resolvedNativeAuthToken = discovered;
+      return discovered;
+    }
+  } catch {
+    // Best-effort only; native auth discovery fails closed.
+  }
+  return "";
+}
+
 /**
  * Resolve which CU backend to use: native GUI app (AX-level) or JXA (fallback).
  * Checks HLVM_CU_PORT env → fetches /cu/capabilities with auth → caches result.
@@ -1053,25 +1105,23 @@ export async function resolveBackend(): Promise<CUBackendResolution> {
     _backendResolution = { backend: "jxa" };
     return _backendResolution;
   }
-  const token = platform.env.get("HLVM_AUTH_TOKEN") ?? "";
+  const token = await resolveNativeCuAuthToken();
   try {
-    const result = await platform.command.output({
-      cmd: [
-        "curl", "-sf", "--max-time", "1",
-        "-H", `Authorization: Bearer ${token}`,
-        `http://127.0.0.1:${port}/cu/capabilities`,
-      ],
-      stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
-      timeout: 2000,
-    });
-    if (!result.success) {
+    const response = await http.fetchRaw(
+      `http://127.0.0.1:${port}/cu/capabilities`,
+      {
+        timeout: 2000,
+        headers: token.length > 0
+          ? { Authorization: `Bearer ${token}` }
+          : undefined,
+      },
+    );
+    if (!response.ok) {
+      await response.body?.cancel();
       _backendResolution = { backend: "jxa" };
       return _backendResolution;
     }
-    const body = new TextDecoder().decode(result.stdout);
-    const caps: CUNativeCapabilities = JSON.parse(body);
+    const caps = await response.json() as CUNativeCapabilities;
     if (!caps.version || !Array.isArray(caps.features)) {
       _backendResolution = { backend: "jxa" };
       return _backendResolution;
@@ -1089,6 +1139,7 @@ export async function resolveBackend(): Promise<CUBackendResolution> {
 /** Invalidate cached backend — called on fresh lock acquire and session reset. */
 export function invalidateBackendResolution(): void {
   _backendResolution = undefined;
+  _resolvedNativeAuthToken = undefined;
 }
 
 /** Get the resolved backend synchronously (returns undefined if not yet resolved). */
@@ -1111,31 +1162,31 @@ async function cuNativeFetch<T>(
   if (!resolution || resolution.backend !== "native_gui" || !resolution.port) {
     throw new Error("Native CU backend not available");
   }
-  const platform = getPlatform();
-  const token = platform.env.get("HLVM_AUTH_TOKEN") ?? "";
-  const url = `http://127.0.0.1:${resolution.port}${path}`;
-  const method = body !== undefined ? "POST" : "GET";
-  const curlArgs = [
-    "curl", "-sf", "--max-time", "10",
-    "-H", `Authorization: Bearer ${token}`,
-    "-H", "Content-Type: application/json",
-  ];
-  if (body !== undefined) {
-    curlArgs.push("-d", JSON.stringify(body));
+  const token = await resolveNativeCuAuthToken();
+  const response = await http.fetchRaw(
+    `http://127.0.0.1:${resolution.port}${path}`,
+    {
+      timeout: 15000,
+      method: body !== undefined ? "POST" : "GET",
+      headers: {
+        ...(token.length > 0 ? { Authorization: `Bearer ${token}` } : {}),
+        "Content-Type": "application/json",
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    },
+  );
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    if (response.status === 401 || response.status === 403) {
+      _resolvedNativeAuthToken = undefined;
+    }
+    throw new Error(
+      `CU native fetch failed: ${path} (${response.status} ${response.statusText}${
+        errorText.trim().length > 0 ? `: ${errorText.trim()}` : ""
+      })`,
+    );
   }
-  curlArgs.push(url);
-  const result = await platform.command.output({
-    cmd: curlArgs,
-    stdin: "null",
-    stdout: "piped",
-    stderr: "piped",
-    timeout: 15000,
-  });
-  if (!result.success) {
-    const stderr = new TextDecoder().decode(result.stderr);
-    throw new Error(`CU native fetch failed: ${path} (${stderr.trim()})`);
-  }
-  return JSON.parse(new TextDecoder().decode(result.stdout)) as T;
+  return await response.json() as T;
 }
 
 export async function fetchNativeObservationTargets(
@@ -1579,6 +1630,7 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
  */
 export function upgradeSwiftInstanceToNative(): void {
   const instance = requireComputerUseSwift();
+  const input = requireComputerUseInput();
   const resolution = _backendResolution;
   if (!resolution || resolution.backend !== "native_gui") return;
 
@@ -1594,6 +1646,15 @@ export function upgradeSwiftInstanceToNative(): void {
   const jxaPermissions = instance.permissions.getState.bind(
     instance.permissions,
   );
+  const jxaOpen = instance.apps.open.bind(instance.apps);
+  const jxaMoveMouse = input.moveMouse.bind(input);
+  const jxaMouseButton = input.mouseButton.bind(input);
+  const jxaMouseScroll = input.mouseScroll.bind(input);
+  const jxaMouseLocation = input.mouseLocation.bind(input);
+  const jxaKeys = input.keys.bind(input);
+  const jxaKey = input.key.bind(input);
+  const jxaTypeText = input.typeText.bind(input);
+  const jxaGetFrontmostAppInfo = input.getFrontmostAppInfo.bind(input);
 
   // Override with native — fall back to JXA on connection failure
   instance.apps.prepareDisplay = async (
@@ -1645,6 +1706,185 @@ export function upgradeSwiftInstanceToNative(): void {
       return jxaPermissions();
     }
   };
+
+  if (nativeFeatureAvailable(resolution, "activate-app")) {
+    instance.apps.open = async (bundleId: string): Promise<void> => {
+      try {
+        const response = await cuNativeFetch<{ ok?: unknown }>(
+          "/cu/activate-app",
+          { bundleId },
+        );
+        if (response.ok !== true) {
+          throw new Error(`Unexpected activate-app response for ${bundleId}`);
+        }
+        _cachedRunningApps = undefined;
+        _runningAppsReady = undefined;
+        log.debug(`[bridge] Native activate-app used bundle=${bundleId}`);
+      } catch (err) {
+        log.debug(`[bridge] Native activate-app failed, falling back to JXA: ${err}`);
+        await jxaOpen(bundleId);
+      }
+    };
+  }
+
+  if (nativeFeatureAvailable(resolution, "frontmost")) {
+    input.getFrontmostAppInfo = async () => {
+      try {
+        const raw = await cuNativeFetch<{
+          bundleId?: unknown;
+          name?: unknown;
+        }>("/cu/frontmost");
+        const bundleId = typeof raw.bundleId === "string" ? raw.bundleId : "";
+        const appName = typeof raw.name === "string" ? raw.name : "";
+        if (!bundleId && !appName) return null;
+        log.debug(`[bridge] Native frontmost used bundle=${bundleId}`);
+        return { bundleId, appName };
+      } catch (err) {
+        log.debug(`[bridge] Native frontmost failed, falling back to JXA: ${err}`);
+        return jxaGetFrontmostAppInfo();
+      }
+    };
+  }
+
+  if (nativeFeatureAvailable(resolution, "input")) {
+    input.moveMouse = async (x: number, y: number, animated: boolean) => {
+      try {
+        await cuNativeFetch<{ ok?: unknown }>("/cu/input/move-mouse", {
+          x,
+          y,
+          animated,
+        });
+        log.debug(`[bridge] Native input.moveMouse used x=${x} y=${y}`);
+      } catch (err) {
+        log.debug(`[bridge] Native input.moveMouse failed, falling back to JXA: ${err}`);
+        await jxaMoveMouse(x, y, animated);
+      }
+    };
+
+    input.mouseButton = async (
+      button: "left" | "right" | "middle",
+      action: "click" | "press" | "release",
+      count?: number,
+    ) => {
+      try {
+        await cuNativeFetch<{ ok?: unknown }>("/cu/input/mouse-button", {
+          button,
+          action,
+          count,
+        });
+        log.debug(`[bridge] Native input.mouseButton used button=${button} action=${action}`);
+      } catch (err) {
+        log.debug(`[bridge] Native input.mouseButton failed, falling back to JXA: ${err}`);
+        await jxaMouseButton(button, action, count);
+      }
+    };
+
+    input.mouseScroll = async (
+      delta: number,
+      axis: "vertical" | "horizontal",
+    ) => {
+      try {
+        await cuNativeFetch<{ ok?: unknown }>("/cu/input/mouse-scroll", {
+          delta,
+          axis,
+        });
+        log.debug(`[bridge] Native input.mouseScroll used axis=${axis} delta=${delta}`);
+      } catch (err) {
+        log.debug(`[bridge] Native input.mouseScroll failed, falling back to JXA: ${err}`);
+        await jxaMouseScroll(delta, axis);
+      }
+    };
+
+    input.mouseLocation = async () => {
+      try {
+        const location = await cuNativeFetch<{ x?: unknown; y?: unknown }>(
+          "/cu/input/mouse-location",
+        );
+        const x = Number(location.x);
+        const y = Number(location.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          throw new Error("Invalid native mouse-location response");
+        }
+        log.debug(`[bridge] Native input.mouseLocation used x=${x} y=${y}`);
+        return { x, y };
+      } catch (err) {
+        log.debug(`[bridge] Native input.mouseLocation failed, falling back to JXA: ${err}`);
+        return await jxaMouseLocation();
+      }
+    };
+
+    input.keys = async (parts: string[]) => {
+      if (parts.length === 0) return;
+      const keyName = parts[parts.length - 1];
+      const modNames = parts.slice(0, -1);
+      const parsed = parseKeySpec(
+        modNames.length > 0 ? `${modNames.join("+")}+${keyName}` : keyName,
+      );
+      if (!parsed) {
+        throw new Error(`Unknown key spec: "${parts.join("+")}"`);
+      }
+      try {
+        await cuNativeFetch<{ ok?: unknown }>("/cu/input/keys", {
+          keyCode: parsed.keyCode,
+          modifiers: parsed.modifiers,
+        });
+        log.debug(
+          `[bridge] Native input.keys used keyCode=${parsed.keyCode} modifiers=${parsed.modifiers.join(",")}`,
+        );
+      } catch (err) {
+        log.debug(`[bridge] Native input.keys failed, falling back to JXA: ${err}`);
+        await jxaKeys(parts);
+      }
+    };
+
+    input.key = async (
+      name: string,
+      action: "press" | "release",
+    ) => {
+      const effectiveName = name.toLowerCase();
+      const modifierKeyCode: Record<string, number> = {
+        command: 55,
+        cmd: 55,
+        shift: 56,
+        option: 58,
+        alt: 58,
+        control: 59,
+        ctrl: 59,
+        fn: 63,
+      };
+      let keyCode: number;
+      if (effectiveName in modifierKeyCode) {
+        keyCode = modifierKeyCode[effectiveName];
+      } else {
+        const parsed = parseKeySpec(effectiveName);
+        if (!parsed) throw new Error(`Unknown key: "${name}"`);
+        keyCode = parsed.keyCode;
+      }
+      try {
+        await cuNativeFetch<{ ok?: unknown }>("/cu/input/key", {
+          keyCode,
+          action,
+        });
+        log.debug(`[bridge] Native input.key used keyCode=${keyCode} action=${action}`);
+      } catch (err) {
+        log.debug(`[bridge] Native input.key failed, falling back to JXA: ${err}`);
+        await jxaKey(name, action);
+      }
+    };
+
+    input.typeText = async (text: string) => {
+      const sanitized = text.replace(/\u0000/g, "");
+      try {
+        await cuNativeFetch<{ ok?: unknown }>("/cu/input/type-text", {
+          text: sanitized,
+        });
+        log.debug(`[bridge] Native input.typeText used length=${sanitized.length}`);
+      } catch (err) {
+        log.debug(`[bridge] Native input.typeText failed, falling back to JXA: ${err}`);
+        await jxaTypeText(text);
+      }
+    };
+  }
 }
 
 // ── Display cache (bridge sync→async adaptation) ─────────────────────────

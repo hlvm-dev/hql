@@ -1,5 +1,8 @@
 import type { ToolFailureMetadata } from "../tool-results.ts";
-import { BROWSER_SAFE_PROFILE_ID } from "../tool-profiles.ts";
+import {
+  BROWSER_HYBRID_PROFILE_ID,
+  BROWSER_SAFE_PROFILE_ID,
+} from "../tool-profiles.ts";
 import { hasStructuredPlaywrightVisualFailure } from "./failure-enrichment.ts";
 
 export interface BrowserRecoveryDecision {
@@ -100,7 +103,25 @@ export function decideBrowserRecovery(
   }
 
   if (hasStructuredPlaywrightVisualFailure(input.failure)) {
-    if (input.currentDomainProfileId === BROWSER_SAFE_PROFILE_ID) {
+    if (
+      !input.currentDomainProfileId ||
+      input.currentDomainProfileId === BROWSER_SAFE_PROFILE_ID
+    ) {
+      return {
+        stage: "promote_hybrid",
+        directive: [
+          "Repeated Playwright failure: visibility or native blocker with no better PW-only recovery path.",
+          "Hybrid browser mode is now available.",
+          "If visible or native interaction is required, call pw_promote first, then use cu_* on the headed browser window.",
+          "Do not switch to cu_* before pw_promote.",
+        ].join("\n"),
+        temporarilyBlockTool: canTemporarilyBlock(input.toolName)
+          ? input.toolName
+          : undefined,
+        promoteToHybrid: true,
+      };
+    }
+    if (input.currentDomainProfileId !== BROWSER_HYBRID_PROFILE_ID) {
       return {
         stage: "promote_hybrid",
         directive: [
