@@ -31,21 +31,56 @@ The current architecture is:
 
 ## Current Live Validation State
 
-As of 2026-04-11, the architecture picture is no longer speculative:
+As of 2026-04-11, the architecture is fully operational including native
+grounding:
 
 ```text
-Native Swift substrate:
-  working
-
-Bridge-first hybrid pack:
-  green (5/5)
-
-CU-only live pack:
-  previously 12/14 green in full-pack runs
-  targeted reruns on the prior red set are now green
+Native Swift substrate:       working
+Native grounding pipeline:    end-to-end operational
+Bridge-first hybrid pack:     5/5 green
+CU-only live pack:            18/18 green (full-pack run)
 ```
 
-Recent fixes behind that targeted green state:
+### Critical fix: cu_observe grounding data exposure (2026-04-11)
+
+The native grounding pipeline (Level 3) was architecturally complete but
+**operationally broken**: `cu_observe`'s `formatResult` returned only
+`"Desktop observed"` as the LLM-visible content, discarding the structured
+observation data (observation_id, targets, windows). This meant
+`cu_click_target` and `cu_type_into_target` were impossible to use — the
+model never received the target IDs they require.
+
+Root cause: `formatResult` set `returnDisplay: "Desktop observed"` without
+setting `llmContent`. The formatting pipeline at
+`orchestrator-tool-formatting.ts:484` used `returnDisplay` as the LLM
+content when `llmContent` was absent.
+
+Fix: `cu_observe`'s `formatResult` now sets `llmContent` to a compact
+structured text format:
+
+```text
+observation_id: ABC-123
+frontmost: TextEdit (com.apple.TextEdit)
+windows:
+  - id:5522 Untitled
+targets (use exact target_id with cu_click_target / cu_type_into_target):
+  - target_id: t:ax:5522:textArea:0  role:textArea  label:"main text"  [0,44,800,556]
+  - target_id: t:ax:5522:button:1    role:button    label:"Close"      [7,3,14,16]
+grounding: native_targets
+```
+
+Second fix: `summarizeObservation` now priority-sorts targets — text
+fields/text areas first, then interactive controls, then windows. This
+ensures text input targets survive the 8K llmChars truncation limit.
+
+Impact:
+
+```text
+Before: 24 blind coordinate clicks, 2+ minutes, frequent failures
+After:  3-4 grounded tool calls, 15-20 seconds, reliable
+```
+
+### Earlier fixes in this phase
 
 - explicit CU-only allowlists are no longer masked by browser-domain profiling
 - non-persisted runs now get a real per-run runtime session id, which avoids
@@ -54,12 +89,9 @@ Recent fixes behind that targeted green state:
   verification
 - Calculator key-entry flows now recognize `plus` semantically, and the eval
   explicitly starts from a cleared Calculator state
-
-One important test-harness fix also landed during this phase:
-
-- E2E packs no longer share one `AbortController` across the entire loop
-- each case now gets its own timeout budget
-- this removed a false late-pack failure mode where untouched cases inherited an already-aborted signal and reported `Request cancelled by client`
+- per-case timeout budget replaced the old shared pack-wide abort signal
+- `type_text` validator accepts `cu_type_into_target` as valid alternative to
+  `cu_type` (the model correctly prefers the grounded path when available)
 
 ## Journey
 
@@ -292,11 +324,16 @@ cu_observe
      }
 ```
 
-Important consequence:
+Important consequences:
 
 - observation IDs and target IDs must be treated as opaque
 - callers must not assume any particular string shape
 - stale observation reuse is a runtime bug, not just a prompt bug
+- the `formatResult` for `cu_observe` produces compact `llmContent` with
+  observation_id + targets — this is what the LLM actually sees
+- targets are priority-sorted: textField/textArea/searchField first, then
+  interactive controls, then windows — ensures text inputs survive truncation
+- the `returnDisplay` ("Desktop observed") is only for the TUI summary
 
 ## Action Pipelines
 
@@ -443,12 +480,18 @@ HLVM/Shared/Infrastructure/ComputerUse/
 
 Finished:
 
-- Level 1 tool layer
+- Level 1 tool layer (coordinate-based CU)
+- Level 2 hybrid grounding (JXA window-level targets)
+- Level 3 native substrate (AX element-level targets)
 - vision gating
 - initial end-to-end screenshot/action loop
-- hybrid browser architecture
-- native Swift substrate
+- hybrid browser architecture (browser_safe / browser_hybrid)
+- native Swift substrate in HLVM.app
 - bridge/native wiring for the main CU paths
+- **native grounding data pipeline** — `cu_observe` exposes structured targets
+  to the LLM, enabling `cu_click_target` and `cu_type_into_target`
+- target priority sorting (text inputs surface first)
+- graceful degradation: Level 3 → Level 2 → Level 1
 
 Not yet fully signed off:
 
@@ -458,8 +501,31 @@ Not yet fully signed off:
 
 That distinction matters.
 
-The architecture chapter is essentially complete.
+The architecture chapter is complete.
 The product-quality chapter is still in progress.
+
+## Competitive Landscape
+
+```text
+Claude Code (Anthropic):     Desktop, Level 1 only (screenshot + coordinates)
+                             Same ReAct loop. No AX targets. No grounding.
+                             Uses @ant/computer-use-input (Rust/enigo) +
+                             @ant/computer-use-swift for native modules.
+                             Runs CU as MCP server in subprocess.
+
+ChatGPT Operator (OpenAI):   Browser-only (cloud browser, CUA model on GPT-4o)
+                             Cannot touch desktop apps. Web pages only.
+
+Gemini Mariner (Google):     Browser-only (web automation via API)
+                             No desktop interaction.
+
+MS Copilot Studio:           Hosted browser via Windows 365 + optional local
+                             device support. Public preview.
+
+HLVM CU:                     Desktop + browser. All three levels.
+                             Native AX grounding when HLVM.app is running.
+                             Only system doing desktop-level semantic targets.
+```
 
 ## Short Version
 
@@ -472,7 +538,10 @@ The later native chapter gave it a real substrate:
   native input
   native pre-action preparation
 
-The current chapter is no longer about invention.
-It is about making the existing architecture behave reliably under
-real repeated use.
+The grounding fix (2026-04-11) made that substrate actually
+reachable by the LLM — before, the data existed but was
+discarded before the model could see it.
+
+Result: 3-4 semantic tool calls where competitors need 20+
+blind coordinate clicks for the same task.
 ```

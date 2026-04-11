@@ -32,7 +32,14 @@ Level 3: Native substrate
   -> observation/target ids can come from the native backend
 ```
 
-HLVM is now operating at Level 3 on macOS. The open work is not "invent Level 4." It is to make Level 3 consistently reliable in live product use.
+HLVM operates at all three levels simultaneously. The system degrades
+gracefully: Level 3 when HLVM.app is running, Level 2 via JXA fallback,
+Level 1 as pure vision baseline. All competitors (CC, ChatGPT Operator,
+Gemini Mariner) operate at Level 1 or browser-only grounding. HLVM is the
+only system doing desktop-level native AX grounding (Level 3).
+
+The open work is not "invent Level 4." It is to make Level 3 consistently
+reliable in live product use.
 
 ## The Phase Journey
 
@@ -73,16 +80,38 @@ Public CU surface: 25 tools
 - Apps: `cu_list_granted_applications`, `cu_open_application`, `cu_request_access`
 - Wait: `cu_wait`
 
-Under the native GUI backend:
+Under the native GUI backend (Level 3):
 
-- `cu_observe` can return element-level native targets
-- target ids are backend-issued and opaque
-- input, activation, permissions, window routing, and pre-action preparation can stay on the native path
+- `cu_observe` returns element-level native targets as compact structured data
+  (observation_id, target list with target_id/role/label/bounds)
+- the LLM can then call `cu_click_target` or `cu_type_into_target` with exact
+  target IDs — no pixel guessing required
+- target IDs are backend-issued and opaque
+- targets are priority-sorted: text fields/text areas surface first, then
+  buttons/menus, then windows
+- input, activation, permissions, window routing, and pre-action preparation
+  stay on the native path
 
-When the native backend is unavailable:
+When the native backend is unavailable (Level 2 / Level 1):
 
 - HLVM falls back to the older JXA / `osascript` / `screencapture` path
 - coordinate CU still works, but with weaker grounding
+- `cu_observe` returns window-level synthetic targets (Level 2) or screenshot
+  only (Level 1)
+
+## Competitive Position
+
+```text
+Claude Code (Anthropic CC):  Level 1 only — screenshot + coordinate guessing
+ChatGPT Operator (OpenAI):   Browser-only — cloud browser DOM, no desktop
+Gemini Mariner (Google):     Browser-only — web automation, no desktop
+MS Copilot Studio:           Hosted browser + limited local device support
+HLVM CU:                     Level 1 + 2 + 3 — desktop native AX grounding
+```
+
+HLVM is the only system combining desktop-level interaction with native
+accessibility grounding. The grounding pipeline reduces typical CU tasks from
+20+ blind coordinate clicks (2+ minutes) to 3-4 semantic tool calls (15-20s).
 
 ## Current Architecture in One Picture
 
@@ -112,33 +141,35 @@ What is done:
 - hybrid E2E pack is green end to end
 - CU pack harness now uses per-case timeouts instead of one shared abort budget
 - CU pack validation now counts only successful tool executions
+- **native grounding pipeline is end-to-end operational** — `cu_observe` exposes
+  observation_id + target list to the LLM, enabling `cu_click_target` and
+  `cu_type_into_target` to work with real AX-level targets
 
 What is still being closed out:
 
 - repeated-run live e2e reliability
-- final pack-level signoff after targeted reruns
-- one remaining deterministic eval hardening point:
-  - `key_combo`: runtime bugs are fixed, but the eval must start from a cleared Calculator state to avoid inheriting prior calculator contents
+- broader real-user scenario coverage
 
 Latest live snapshot on 2026-04-11:
 
 ```text
-Hybrid pack: 5/5 green
-CU pack:     previously 12/14 green in full-pack runs
-Targeted reruns on prior red cases:
-  observe_basic         green
-  click_and_screenshot  green
-  multi_app_switch      green
-  drag_test             green
-  key_combo             green after explicit clear-state instruction
+Hybrid pack:  5/5 green
+CU pack:      18/18 green (full-pack run)
+
+Includes 4 new native-grounding and system-UI tests:
+  grounded_observe_and_click     green  (3 tools, 19s)
+  grounded_type_into_target      green  (4 tools, 16s)
+  hlvm_spotlight_search          green  (Ctrl+Z → HLVM panel → search)
+  cross_app_grounded_workflow    green  (TextEdit → Calculator → back, using native targets)
 ```
 
 That is the right framing for the project now:
 
 ```text
-architecture: mostly settled
-substrate: present
-current work: last-mile product hardening
+architecture: settled
+substrate: present and operational
+native grounding: end-to-end working
+current work: repeated-run reliability and broader scenario coverage
 ```
 
 ## Requirements

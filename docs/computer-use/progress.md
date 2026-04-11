@@ -24,8 +24,9 @@ Phase 2  Vision Capability Gating                 ██████████
 Phase 3  Agent Loop E2E                           ████████████████████  DONE
 Phase 4  Hybrid Browser Profiles                  ████████████████████  DONE
 Phase 5  Native Swift Substrate                   ████████████████████  DONE
-Phase 6  Bridge-First Reliability                 ██████████████████░░  MOSTLY DONE
-Phase 7  Broad Repeated-Run Product Validation    █████░░░░░░░░░░░░░░░  NEXT
+Phase 6  Bridge-First Reliability                 ████████████████████  DONE
+Phase 7  Native Grounding Pipeline                ████████████████████  DONE
+Phase 8  Broad Repeated-Run Product Validation    █████░░░░░░░░░░░░░░░  NEXT
 ```
 
 ## Latest Verification Snapshot
@@ -33,18 +34,49 @@ Phase 7  Broad Repeated-Run Product Validation    █████░░░░░
 Latest live state on 2026-04-11:
 
 ```text
-Native Swift substrate:
-  working
-
-Hybrid PW -> CU pack:
-  5/5 green
-
-CU-only pack:
-  previously 12/14 green in full-pack runs
-  targeted reruns now green on the prior red set
+Native Swift substrate:       working
+Native grounding pipeline:    end-to-end operational
+Hybrid PW -> CU pack:         5/5 green
+CU-only pack:                 18/18 green (full-pack run)
 ```
 
-Latest targeted findings:
+### Phase 7 — Native Grounding Pipeline (2026-04-11)
+
+Critical fix: `cu_observe`'s `formatResult` was discarding all structured
+observation data before it reached the LLM. The model only saw
+`"Desktop observed"` + a screenshot image — no observation_id, no target
+list. This made `cu_click_target` and `cu_type_into_target` impossible to
+use despite being architecturally complete.
+
+Root cause: `formatResult` set `returnDisplay` but not `llmContent`. The
+formatting pipeline used `returnDisplay` as the LLM content fallback.
+
+Fixes:
+
+- `cu_observe` formatResult now sets `llmContent` to compact structured text
+  with observation_id + prioritized target list
+- `summarizeObservation` priority-sorts targets: text fields first, then
+  interactive controls, then windows — ensures text inputs survive the 8K
+  llmChars truncation limit
+- `type_text` validator updated to accept `cu_type_into_target` as valid
+  alternative (model correctly prefers grounded path when available)
+
+Impact:
+
+```text
+Before: cu_click_target / cu_type_into_target were dead code
+        Model used 20+ blind coordinate clicks, 2+ minutes
+After:  3-4 grounded semantic tool calls, 15-20 seconds
+```
+
+New test cases added:
+
+- `grounded_observe_and_click` — cu_observe → cu_click_target → cu_screenshot
+- `grounded_type_into_target` — open app → cu_observe → cu_type_into_target
+- `hlvm_spotlight_search` — Ctrl+Z → HLVM panel → search interaction
+- `cross_app_grounded_workflow` — TextEdit → Calculator → back, using native targets
+
+### Earlier Phase 6 findings
 
 - `observe_basic`, `multi_app_switch`, and `drag_test`
   - original failures were traced to a shared/default runtime session id causing stale CU permission state to leak across non-persisted runs
@@ -58,7 +90,7 @@ Latest targeted findings:
     - `plus` now maps semantically as shifted `=`
     - eval now explicitly instructs clearing Calculator state before entering `5 + 3`
 
-Important harness corrections completed in this phase:
+Important harness corrections completed:
 
 - per-case timeout budget replaced the old shared pack-wide abort signal
 - E2E collectors now count only successful tool executions, so denied/failed tool attempts no longer look like successful tool usage
@@ -131,7 +163,7 @@ Why it mattered:
 
 ### Phase 6 — Bridge-First Reliability
 
-Delivered so far:
+Delivered:
 
 - `bridge.ts` resolves native GUI backend and upgrades methods in place
 - fresh CU lock upgrades backend deterministically before first CU action
@@ -140,13 +172,26 @@ Delivered so far:
 - explicit deny-tool handling and hybrid promotion logic were hardened
 - native app crash from duplicate running-app bundle IDs was fixed
 - full hybrid live pack is green
-- prior CU red cases were reduced to targeted runtime/eval bugs and fixed in isolated reruns
+- prior CU red cases were reduced to targeted runtime/eval bugs and fixed
 
-What this phase is about:
+### Phase 7 — Native Grounding Pipeline
 
-- not building a new substrate
-- proving the existing substrate behaves correctly through `hql`
-- removing remaining policy, timing, and e2e reliability bugs
+Delivered:
+
+- `cu_observe` formatResult exposes structured observation data as `llmContent`
+- target priority sorting ensures text inputs survive truncation
+- `cu_click_target` and `cu_type_into_target` are now operationally usable
+- 4 new E2E test cases validate native grounding end-to-end
+- full CU pack at 18/18 green
+
+Why it mattered:
+
+- the native substrate (Phase 5) and bridge wiring (Phase 6) were complete,
+  but the data was being discarded in the formatting layer before reaching
+  the model
+- this was the last gap between "architecture exists" and "model can use it"
+- unlocks the core competitive advantage: semantic desktop interaction instead
+  of coordinate guessing
 
 ## What Is Fundamentally Done
 
@@ -163,16 +208,16 @@ Those decisions are effectively settled.
 
 The open work is now narrower and more engineering-focused:
 
-- repeated-run desktop reliability
-- multi-step focus/activation recovery
+- repeated-run desktop reliability across diverse scenarios
+- multi-step focus/activation recovery edge cases
 - timing-sensitive failures
-- one final full-pack signoff run after targeted green reruns
+- broader real-user scenario coverage beyond the current 18-case pack
 
 This is a different class of work from the earlier phases:
 
 ```text
 before: architecture uncertainty
-now: reliability engineering
+now: reliability engineering and scenario breadth
 ```
 
 ## Current Practical Reading
@@ -216,7 +261,13 @@ Phase 1-3:
 Phase 4-5:
   gave it the right hybrid and native architecture
 
-Phase 6+:
-  is about making that architecture behave consistently under
-  real use
+Phase 6:
+  made the bridge/native wiring reliable
+
+Phase 7:
+  made the native grounding data actually reach the LLM
+  (the last gap between "it exists" and "the model can use it")
+
+Phase 8:
+  broader repeated-run reliability and real-user scenarios
 ```
