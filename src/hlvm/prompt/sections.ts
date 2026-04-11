@@ -580,6 +580,20 @@ You have computer control tools (cu_* prefix) for GUI automation on macOS.
 - Use cu_zoom to inspect small or ambiguous UI regions before clicking
 - For text input: prefer cu_type_into_target when a grounded target exists; otherwise focus the field, then use cu_type
 - For short deterministic workflows, prefer cu_execute_plan over spending extra turns on wait/retry/re-verify loops
+- cu_execute_plan step rules are strict:
+  - open_app: requires bundle_id
+  - wait_for_ready: requires bundle_id or target_ref
+  - find_target: requires id plus selector { bundle_id, role_in, optional window_title_contains, label_contains, value_contains, index }
+  - click and type_into: require target_ref pointing to an earlier find_target id
+  - press_keys: requires keys string plus optional bundle_id or target_ref
+  - verify: use one of frontmost_app_is, window_visible, target_exists, target_enabled, target_value_contains; target_* predicates require target_ref, and target_value_contains also requires value_contains
+- When using cu_execute_plan, always create stable find_target ids and reference them later. Do not invent raw target ids.
+- Minimal cu_execute_plan pattern:
+  1. open_app { bundle_id }
+  2. wait_for_ready { bundle_id }
+  3. find_target { id: "editor", selector: { bundle_id, role_in: ["textArea", "textField"] } }
+  4. type_into { target_ref: "editor", text: "..." }
+  5. verify { predicate: "target_value_contains", target_ref: "editor", value_contains: "..." }
 - Use cu_key for keyboard shortcuts (e.g. "command+c", "command+v", "command+l")
 - Use cu_scroll at the coordinates of the scrollable area
 - Prefer keyboard shortcuts over mouse navigation when well-known

@@ -15,7 +15,7 @@
 
 import { getAgentLogger } from "../logger.ts";
 import { isLockHeldLocally, releaseComputerUseLock } from "./lock.ts";
-import { unregisterEscHotkey } from "./esc-hotkey.ts";
+import { clearEscapeCallback, sendCuNotification } from "./esc-hotkey.ts";
 import { takeHiddenComputerUseApps } from "./session-state.ts";
 
 // CC: cu.apps.unhide timeout — generous because unhide should be ~instant
@@ -92,17 +92,10 @@ export async function cleanupComputerUseAfterTurn(
   // Unregister before lock release so the pump-retain drops as soon as the
   // CU session ends. Swallow throws so an unregister error never prevents
   // lock release.
-  try {
-    unregisterEscHotkey();
-  } catch (err) {
-    log.debug(
-      `[Computer Use MCP] unregisterEscHotkey failed: ${errorMessage(err)}`,
-    );
-  }
+  clearEscapeCallback();
 
   if (await releaseComputerUseLock()) {
-    // CC sends OS notification: "Claude is done using your computer"
-    // HLVM bridge: log instead (no OS notification API)
+    sendCuNotification("HLVM is done using your computer").catch(() => {});
     log.info("Computer use session ended — released lock");
   }
 

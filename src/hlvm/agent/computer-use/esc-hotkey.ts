@@ -1,41 +1,46 @@
 /**
- * Computer Use — Escape Hotkey (HLVM bridge)
+ * Computer Use — Escape Hotkey (event-driven)
  *
- * CC's `escHotkey.ts` registers a global CGEventTap via `@ant/computer-use-swift`
- * that intercepts Escape keypresses system-wide. When the user presses Escape,
- * it fires the abort callback (PI defense — prevents prompt-injected Escape).
- *
- * HLVM doesn't have CGEventTap access (no Swift native module). Abort is
- * handled by the existing SIGINT → AbortSignal pipeline. These are no-op stubs.
- *
- * CC original: 54 lines (registerEscape via Swift, pump retain/release).
- * HLVM bridge: no-op stubs.
+ * HLVM.app runs an always-on global Escape monitor. On bare Escape,
+ * HLVM.app POSTs to hql's /api/cu/escape, which calls fireEscapeAbort().
+ * Without HLVM.app, Ctrl+C (SIGINT) is the fallback.
  */
 
 import { getAgentLogger } from "../logger.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+import { cuNativeRequest } from "./bridge.ts";
 
-// deno-lint-ignore no-unused-vars
-let _registered = false;
+let _onEscape: (() => void) | undefined;
 
-/**
- * Register ESC hotkey. No-op in HLVM — we use SIGINT for abort.
- * Returns false (registration "failed") — matches CC's fallback path where
- * CU still works without ESC abort when CGEvent.tapCreate fails.
- */
-// deno-lint-ignore no-unused-vars
-export function registerEscHotkey(_onEscape: () => void): boolean {
-  getAgentLogger().debug(
-    "[cu-esc] registerEscape skipped (HLVM bridge — no CGEventTap)",
-  );
-  return false;
+export function setEscapeCallback(onEscape: () => void): void {
+  _onEscape = onEscape;
 }
 
-/** Unregister ESC hotkey. No-op. */
-export function unregisterEscHotkey(): void {
-  // no-op
+export function clearEscapeCallback(): void {
+  _onEscape = undefined;
 }
 
-/** Notify that a model-synthesized Escape is expected. No-op. */
+/** Arm hole-punch so model-sent Escape doesn't trigger abort. */
 export function notifyExpectedEscape(): void {
-  // no-op
+  cuNativeRequest("/cu/esc/notify-expected", {}).catch(() => {});
+}
+
+/** Called by /api/cu/escape when HLVM.app detects user Escape. */
+export function fireEscapeAbort(): boolean {
+  if (!_onEscape) return false;
+  getAgentLogger().info("[cu-esc] user Escape — aborting CU");
+  _onEscape();
+  return true;
+}
+
+export async function sendCuNotification(message: string): Promise<void> {
+  try {
+    await getPlatform().command.output({
+      cmd: [
+        "osascript", "-e",
+        `display notification "${message.replaceAll('"', '\\"')}" with title "HLVM"`,
+      ],
+      stdin: "null", stdout: "piped", stderr: "piped",
+    });
+  } catch { /* best-effort */ }
 }

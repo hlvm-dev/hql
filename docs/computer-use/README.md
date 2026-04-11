@@ -2,15 +2,15 @@
 
 HLVM computer use is the desktop-control subsystem that lets the agent see and
 act on a macOS desktop: screenshots, mouse, keyboard, app activation, window
-grounding, browser-to-desktop handoff, and native AX-backed target actions when
-the GUI backend is available.
+grounding, browser-to-desktop handoff, native AX-backed target actions, and a
+bounded native subplan executor when the GUI backend is available.
 
 The important reality now is:
 
 - the native Swift substrate exists
 - the `hql` bridge can use it
-- the current chapter is reliability validation, not another architecture
-  rewrite
+- the current chapter is reliability validation and generic Level 3 consistency,
+  not another architecture rewrite
 
 ## Quick Links
 
@@ -19,6 +19,7 @@ The important reality now is:
 | [Architecture](./architecture.md)       | Full system map, pipeline diagrams, phase journey, current design     |
 | [Progress](./progress.md)               | Phase timeline, current status, what is done vs still being validated |
 | [Hybrid Strategy](./hybrid-strategy.md) | Browser-first `pw_*` + `pw_promote` + `cu_*` design                   |
+| [Ceiling Vision](../vision/cu-ceiling.md) | Roadmap: native executor, safety, AX fusion, virtual display         |
 
 ## The Three Levels
 
@@ -86,6 +87,7 @@ Public CU surface: 26 tools
 - Apps: `cu_list_granted_applications`, `cu_open_application`,
   `cu_request_access`
 - Wait: `cu_wait`
+- Native subplan executor: `cu_execute_plan`
 
 Under the native GUI backend (Level 3):
 
@@ -93,11 +95,16 @@ Under the native GUI backend (Level 3):
   (observation_id, target list with target_id/role/label/bounds)
 - the LLM can then call `cu_click_target` or `cu_type_into_target` with exact
   target IDs — no pixel guessing required
+- the LLM can also call `cu_execute_plan` for short deterministic native
+  subplans (`open_app`, `wait_for_ready`, `find_target`, `click`, `type_into`,
+  `press_keys`, `verify`)
 - target IDs are backend-issued and opaque
 - targets are priority-sorted: text fields/text areas surface first, then
   buttons/menus, then windows
 - input, activation, permissions, window routing, and pre-action preparation
   stay on the native path
+- keyboard/text continuity now fails closed when the remembered target app or
+  window disappears unexpectedly
 
 When the native backend is unavailable (Level 2 / Level 1):
 
@@ -146,39 +153,55 @@ What is done:
 - browser-safe / browser-hybrid strategy
 - native Swift substrate
 - bridge/native upgrade path
-- hybrid E2E pack is green end to end
-- CU pack harness now uses per-case timeouts instead of one shared abort budget
-- CU pack validation now counts only successful tool executions
+- historical hybrid E2E pack is green end to end
+- historical native-grounded CU pack reached 18/18 green on the pre-plan live pack
+- CU harness now uses per-case timeouts instead of one shared abort budget
+- CU grading distinguishes attempted/successful/failed tool executions
 - **native grounding pipeline is end-to-end operational** — `cu_observe` exposes
   observation_id + target list to the LLM, enabling `cu_click_target` and
   `cu_type_into_target` to work with real AX-level targets
+- `cu_execute_plan` v1 exists as an additive, Level 3-only, bounded DSL path
+- keyboard/text continuity is partially hardened with fail-closed app/window
+  context checks
+- native target matching now has a shared descriptor path for observation and
+  execute-plan target resolution
 
 What is still being closed out:
 
-- repeated-run live e2e reliability
-- broader real-user scenario coverage
+- repeated-run live E2E reliability
+- broader one-at-a-time real-user scenario coverage
+- consistency between observation target extraction and execute-plan target
+  resolution in edge-case AX trees
+- full live product sign-off for `cu_execute_plan`
 
-Latest live snapshot on 2026-04-11:
+Historical baseline snapshot on 2026-04-11:
 
 ```text
 Hybrid pack:  5/5 green
 CU pack:      18/18 green (full-pack run)
 
-Includes 4 new native-grounding and system-UI tests:
+Included 4 native-grounding and system-UI tests:
   grounded_observe_and_click     green  (3 tools, 19s)
   grounded_type_into_target      green  (4 tools, 16s)
   hlvm_spotlight_search          green  (Ctrl+Z → HLVM panel → search)
   cross_app_grounded_workflow    green  (TextEdit → Calculator → back, using native targets)
 ```
 
-That is the right framing for the project now:
+Current framing on 2026-04-12:
 
 ```text
 architecture: settled
 substrate: present and operational
 native grounding: end-to-end working
-current work: repeated-run reliability and broader scenario coverage
+native subplan executor: implemented but still being live-hardened
+current work: one-at-a-time reliability loops and generic Level 3 consistency
 ```
+
+Important non-goal for the current chapter:
+
+- no app-specific hardcoding
+- no new escape-hotkey path; `esc-hotkey.ts` remains a stub until intentionally
+  revisited
 
 ## Requirements
 

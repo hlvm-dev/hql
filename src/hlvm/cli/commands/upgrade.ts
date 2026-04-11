@@ -8,9 +8,12 @@
 
 import { VERSION } from "../../../common/version.ts";
 import { log } from "../../api/log.ts";
-import { http } from "../../../common/http-client.ts";
 import { platformExit } from "../utils/platform-helpers.ts";
-import { isNewer, GITHUB_RELEASES_API } from "../utils/update-check.ts";
+import {
+  isNewer,
+  fetchLatestRelease,
+  getUpgradeCommand,
+} from "../utils/update-check.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 
 /**
@@ -22,19 +25,10 @@ export async function upgrade(args: string[]): Promise<void> {
   log.raw.log(`Current version: ${VERSION}`);
   log.raw.log("Checking for updates...");
 
-  // Fetch latest release info (SSOT: use http client)
-  let latestVersion: string;
+  let release;
   try {
-    const release = await http.get<{ tag_name?: string }>(GITHUB_RELEASES_API, {
-      headers: {
-        Accept: "application/vnd.github.v3+json",
-        "User-Agent": "hlvm-cli",
-      },
-    });
-
-    latestVersion = (release.tag_name || "").replace(/^v/, "");
-
-    if (!latestVersion) {
+    release = await fetchLatestRelease();
+    if (!release) {
       log.raw.error("Failed to parse latest version");
       return platformExit(1);
     }
@@ -43,30 +37,29 @@ export async function upgrade(args: string[]): Promise<void> {
     return platformExit(1);
   }
 
-  // Compare versions
-  if (latestVersion === VERSION) {
+  if (release.version === VERSION) {
     log.raw.log("\nAlready up to date!");
     return;
   }
 
-  if (!isNewer(latestVersion, VERSION)) {
-    log.raw.log(`\nYou have version ${VERSION}, latest is ${latestVersion}`);
+  if (!isNewer(release.version, VERSION)) {
+    log.raw.log(
+      `\nYou have version ${VERSION}, latest is ${release.version}`,
+    );
     log.raw.log("You're on a newer or equal version.");
     return;
   }
 
-  log.raw.log(`\nNew version available: ${latestVersion}`);
+  log.raw.log(`\nNew version available: ${release.version}`);
 
-  // Check-only mode
   if (checkOnly) {
     log.raw.log("\nRun 'hlvm upgrade' to see update instructions.");
     return;
   }
 
-  log.raw.log("\nTo upgrade, rebuild HLVM from source:");
-  log.raw.log("  make build");
-  log.raw.log("  ./hlvm --version");
-  log.raw.log("\nSee docs/BUILD.md for more options.");
+  const cmd = getUpgradeCommand();
+  log.raw.log(`\nTo upgrade, run:\n  ${cmd}`);
+  log.raw.log("\nOr rebuild from source:\n  make build\n  ./hlvm --version");
 }
 
 /**
@@ -83,9 +76,6 @@ USAGE:
 OPTIONS:
   -c, --check   Check for updates without installing
   -h, --help    Show this help message
-
-NOTES:
-  - Upgrades require rebuilding from source
 
 EXAMPLES:
   hlvm upgrade           # Show upgrade instructions

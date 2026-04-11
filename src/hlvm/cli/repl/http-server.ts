@@ -704,6 +704,24 @@ const router = createRouter();
 router.add("POST", "/api/chat", (req) => handleChat(req));
 router.add("POST", "/eval", (req) => handleEval(req));
 router.add("POST", "/api/chat/cancel", (req) => handleChatCancel(req));
+router.add("POST", "/api/cu/escape", async () => {
+  // Reverse callback from HLVM.app — user pressed Escape during CU.
+  // 1. Fire the esc-hotkey callback (for non-server paths)
+  const { fireEscapeAbort } = await import(
+    "../../agent/computer-use/esc-hotkey.ts"
+  );
+  fireEscapeAbort();
+  // 2. Abort all active chat requests (same pattern as /api/chat/cancel)
+  const { activeRequests } = await import("./handlers/chat-session.ts");
+  let abortedCount = 0;
+  for (const [id, entry] of activeRequests) {
+    if (entry.cancel) entry.cancel();
+    else entry.controller.abort("User pressed Escape");
+    activeRequests.delete(id);
+    abortedCount++;
+  }
+  return Response.json({ aborted: abortedCount > 0, count: abortedCount });
+});
 router.add(
   "POST",
   "/api/chat/interaction",

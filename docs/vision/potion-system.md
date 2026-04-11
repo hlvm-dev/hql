@@ -501,6 +501,183 @@ Monitoring dashboard  open Grafana/Datadog/Slack in exact layout every morning
 Remote help           create potion for the thing someone always asks you to do
 ```
 
+## Text Expansion Potions — Universal Prompt Snippets
+
+Beyond desktop automation, potions have a second killer mode: **text expansion
+that works anywhere.**
+
+### The Problem
+
+Power users type the same instructions over and over:
+
+```text
+"take a hard look at what you did - KISS and DRY and leave only best code
+ - no repetition allowed"
+
+"test this, fix any failures, then commit with a clear message"
+
+"refactor this function - extract helpers, remove duplication, keep the
+ same public API"
+```
+
+These get typed into Claude Code, Codex, Grok, ChatGPT, Cursor, Xcode,
+Slack — anywhere with a text field. They're 80-100% reusable. They're
+essentially functions that take arguments.
+
+### The Solution
+
+A text expansion potion copies its output to the clipboard and pastes it
+into whatever has keyboard focus. It works in **any app on the desktop** —
+not just HLVM.
+
+```text
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║   TEXT EXPANSION POTION — Pipeline                                  ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+  User is typing in Claude Code (or Cursor, or Slack, or anything).
+  They want their standard code review prompt.
+
+  User presses Ctrl+3 (Hotbar shortcut for "review" potion)
+       │
+       ▼
+  ┌─ GUI ─────────────────────────────────────────────────────────────┐
+  │  Hotbar slot 3 → { module: "review-prompt", action: "run" }      │
+  │  POST :11435/module/run                                          │
+  └──────────────────────────┬────────────────────────────────────────┘
+                              │
+                              ▼
+  ┌─ Server ──────────────────────────────────────────────────────────┐
+  │  import("~/hlvm-modules/review-prompt.mjs")                      │
+  │  module.run(ctx)                                                  │
+  │    │                                                              │
+  │    ├── ctx.clipboard.read()   ← read what user selected/copied   │
+  │    ├── Expand template with context                               │
+  │    ├── ctx.clipboard.write(expanded)                              │
+  │    └── ctx.cu.pressKeys(["cmd+v"])  ← paste into focused app     │
+  │                                                                    │
+  └────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+  Text appears at keyboard cursor in whatever app was focused.
+  Claude Code, Cursor, Xcode, Slack, browser — doesn't matter.
+  Total time: <100ms. One keypress.
+```
+
+### Example Potions
+
+```javascript
+// ~/hlvm-modules/review-prompt.mjs
+export const meta = {
+  name: "review-prompt",
+  icon: "magnifying-glass",
+  description: "Standard code review instruction",
+  actions: { run: { label: "Paste", shortDescription: "Review prompt" } },
+};
+
+export async function run(ctx) {
+  const text = `Take a hard look at what you did. KISS and DRY — leave \
+only the best code. No repetition allowed. Verify all tests pass. \
+Fix any issues before committing.`;
+  await ctx.clipboard.write(text);
+  await ctx.cu.pressKeys(["cmd+v"]);
+}
+```
+
+```javascript
+// ~/hlvm-modules/refactor-prompt.mjs — parameterized version
+export const meta = {
+  name: "refactor-prompt",
+  icon: "wrench",
+  description: "Refactor instruction with context from clipboard",
+  actions: { run: { label: "Paste", shortDescription: "Refactor prompt" } },
+};
+
+export async function run(ctx) {
+  // Read whatever code the user selected/copied
+  const selected = await ctx.clipboard.read();
+  const text = `Refactor the following code:
+- Extract helpers for any repeated logic
+- Remove duplication (DRY)
+- Keep the same public API
+- Simplify where possible (KISS)
+- Run tests after changes
+
+\`\`\`
+${selected}
+\`\`\``;
+  await ctx.clipboard.write(text);
+  await ctx.cu.pressKeys(["cmd+v"]);
+}
+```
+
+```javascript
+// ~/hlvm-modules/smart-commit.mjs — AI-enhanced expansion
+export const meta = {
+  name: "smart-commit",
+  icon: "checkmark",
+  description: "Generate commit message from staged changes",
+  actions: { run: { label: "Paste", shortDescription: "Commit msg" } },
+};
+
+export async function run(ctx) {
+  const diff = await ctx.shell("git diff --staged");
+  // Use HLVM's AI to generate the commit message
+  const msg = await ctx.ai.ask(`Write a concise commit message for:\n${diff}`);
+  await ctx.clipboard.write(msg);
+  await ctx.cu.pressKeys(["cmd+v"]);
+}
+```
+
+### Why This Is Different From TextExpander / Alfred Snippets
+
+```text
+TextExpander:    static text replacement, no code, no AI, no context
+Alfred snippets: static text, keyword trigger, no programmatic logic
+Raycast snippets: static text + simple variables (date, clipboard)
+
+HLVM potions:    full ESM runtime — read clipboard, run shell commands,
+                 call AI, read files, generate dynamic content,
+                 paste result into any focused app
+```
+
+The difference: potions are **programs**, not templates. They can read your
+git diff, ask AI to summarize it, and paste the result. A TextExpander
+snippet can insert today's date.
+
+### Where This Goes
+
+```text
+Level 1: Static text expansion          "paste my standard review prompt"
+Level 2: Context-aware expansion         "read clipboard, wrap in template"
+Level 3: AI-powered expansion            "read git diff, generate commit msg"
+Level 4: Multi-step orchestration        "read error, search docs, paste fix"
+```
+
+All four levels use the same potion format, same Hotbar trigger, same
+paste-into-focused-app mechanism. The complexity is in the module code,
+not the infrastructure.
+
+### The Insight
+
+Text expansion potions turn Hotbar into a **universal command palette for
+every app on the desktop**. Not just HLVM's own UI — every app. Claude Code
+gets your standard prompts. Xcode gets your code templates. Slack gets your
+standup format. All from the same 10 Hotbar slots, all one keypress each.
+
+The potion ecosystem then lets users share their best prompts and workflows:
+
+```text
+@hlvm/prompt-code-review      ← community's best code review prompt
+@hlvm/prompt-refactor          ← parameterized refactor instruction
+@hlvm/commit-msg-generator     ← AI commit messages from staged diff
+@hlvm/standup-generator        ← yesterday's git log → formatted standup
+```
+
+Install from Launchpad. Pin to Hotbar. Use in any app. One keypress.
+
 ## Risks
 
 1. **Cross-machine replay reliability** — potions must encode semantic intent,

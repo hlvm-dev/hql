@@ -1693,15 +1693,22 @@ import {
 
 Deno.test("resolveBackend: returns jxa when HLVM_CU_PORT not set", async () => {
   invalidateBackendResolution();
-  const saved = Deno.env.get("HLVM_CU_PORT");
+  const savedPort = Deno.env.get("HLVM_CU_PORT");
+  const savedHome = Deno.env.get("HOME");
+  const tempHome = await Deno.makeTempDir();
   try {
     Deno.env.delete("HLVM_CU_PORT");
+    Deno.env.set("HOME", tempHome);
     const result = await resolveBackend();
     assertEquals(result.backend, "jxa");
     assertEquals(result.port, undefined);
     assertEquals(result.capabilities, undefined);
   } finally {
-    if (saved) Deno.env.set("HLVM_CU_PORT", saved);
+    if (savedPort) Deno.env.set("HLVM_CU_PORT", savedPort);
+    else Deno.env.delete("HLVM_CU_PORT");
+    if (savedHome) Deno.env.set("HOME", savedHome);
+    else Deno.env.delete("HOME");
+    await Deno.remove(tempHome, { recursive: true }).catch(() => undefined);
     invalidateBackendResolution();
   }
 });

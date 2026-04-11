@@ -1211,6 +1211,14 @@ async function cuNativeFetch<T>(
   return await response.json() as T;
 }
 
+/** Public wrapper for esc-hotkey.ts and other bridge consumers. */
+export async function cuNativeRequest<T>(
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  return await cuNativeFetch<T>(path, body);
+}
+
 export async function fetchNativeObservationTargets(
   bundleId: string,
   windowId?: number,

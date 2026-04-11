@@ -59,8 +59,9 @@ const CU_TOOL_ALLOWLIST = Object.keys(COMPUTER_USE_TOOLS);
 interface ComputerUseCase {
   id: string;
   query: string;
-  /** cu_* tools that MUST appear in tool_end events. */
+  /** cu_* tools that MUST appear in the selected tool event stream. */
   requiredTools: string[];
+  requiredToolMode?: "success" | "attempted";
   validate: (result: ComputerUseResult) => Promise<string[]> | string[];
 }
 
@@ -68,18 +69,42 @@ interface ComputerUseResult {
   text: string;
   /** Text with markdown bold/italic/heading markers stripped. */
   plain: string;
-  toolNames: string[];
+  successfulToolNames: string[];
+  attemptedToolNames: string[];
+  failedToolNames: string[];
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────
 
-function collectToolNames(events: AgentUIEvent[]): string[] {
-  return events
+function uniqueNames(names: string[]): string[] {
+  return [...new Set(names)];
+}
+
+function collectSuccessfulToolNames(events: AgentUIEvent[]): string[] {
+  return uniqueNames(events
     .filter(
       (event): event is Extract<AgentUIEvent, { type: "tool_end" }> =>
         event.type === "tool_end" && event.success,
     )
-    .map((event) => event.name);
+    .map((event) => event.name));
+}
+
+function collectAttemptedToolNames(events: AgentUIEvent[]): string[] {
+  return uniqueNames(events
+    .filter(
+      (event): event is Extract<AgentUIEvent, { type: "tool_start" }> =>
+        event.type === "tool_start",
+    )
+    .map((event) => event.name));
+}
+
+function collectFailedToolNames(events: AgentUIEvent[]): string[] {
+  return uniqueNames(events
+    .filter(
+      (event): event is Extract<AgentUIEvent, { type: "tool_end" }> =>
+        event.type === "tool_end" && !event.success,
+    )
+    .map((event) => event.name));
 }
 
 function stripMarkdown(text: string): string {
@@ -89,7 +114,9 @@ function stripMarkdown(text: string): string {
 }
 
 function validateCuOnlyUsage(result: ComputerUseResult): string[] {
-  const pwTools = result.toolNames.filter((name) => name.startsWith("pw_"));
+  const pwTools = result.attemptedToolNames.filter((name) =>
+    name.startsWith("pw_")
+  );
   if (pwTools.length > 0) {
     return [
       `Expected CU-only execution but pw_* tools were used: ${
@@ -103,11 +130,19 @@ function validateCuOnlyUsage(result: ComputerUseResult): string[] {
 function validateRequiredTools(
   result: ComputerUseResult,
   required: string[],
+  mode: "success" | "attempted" = "success",
 ): string[] {
   const errors: string[] = [];
+  const usedToolNames = mode === "attempted"
+    ? result.attemptedToolNames
+    : result.successfulToolNames;
   for (const tool of required) {
-    if (!result.toolNames.includes(tool)) {
-      errors.push(`Required tool '${tool}' was not called.`);
+    if (!usedToolNames.includes(tool)) {
+      errors.push(
+        `Required tool '${tool}' was not ${
+          mode === "attempted" ? "attempted" : "called successfully"
+        }.`,
+      );
     }
   }
   return errors;
@@ -130,7 +165,8 @@ const CASES: ComputerUseCase[] = [
       // cu_observe was called — accept if response has any substance
       // (Haiku sometimes hallucinates "tool not available" even after calling it)
       if (
-        result.toolNames.includes("cu_observe") && result.plain.length >= 10
+        result.successfulToolNames.includes("cu_observe") &&
+        result.plain.length >= 10
       ) {
         return errors;
       }
@@ -255,8 +291,8 @@ const CASES: ComputerUseCase[] = [
       ];
       // Accept either cu_type (coordinate-based) or cu_type_into_target (grounded)
       if (
-        !result.toolNames.includes("cu_type") &&
-        !result.toolNames.includes("cu_type_into_target")
+        !result.successfulToolNames.includes("cu_type") &&
+        !result.successfulToolNames.includes("cu_type_into_target")
       ) {
         errors.push("Expected cu_type or cu_type_into_target to be called.");
       }
@@ -336,8 +372,8 @@ const CASES: ComputerUseCase[] = [
       const errors = validateCuOnlyUsage(result);
       // cu_zoom may not be picked by all models — accept cu_screenshot as fallback
       if (
-        !result.toolNames.includes("cu_zoom") &&
-        !result.toolNames.includes("cu_screenshot")
+        !result.successfulToolNames.includes("cu_zoom") &&
+        !result.successfulToolNames.includes("cu_screenshot")
       ) {
         errors.push("Expected cu_zoom or cu_screenshot to be called.");
       }
@@ -361,8 +397,8 @@ const CASES: ComputerUseCase[] = [
         ]),
       ];
       if (
-        !result.toolNames.includes("cu_screenshot") &&
-        !result.toolNames.includes("cu_wait")
+        !result.successfulToolNames.includes("cu_screenshot") &&
+        !result.successfulToolNames.includes("cu_wait")
       ) {
         errors.push(
           "Expected final visual confirmation via cu_screenshot or cu_wait.",
@@ -416,9 +452,9 @@ const CASES: ComputerUseCase[] = [
         ...validateRequiredTools(result, ["cu_observe", "cu_click_target"]),
       ];
       if (
-        !result.toolNames.includes("cu_screenshot") &&
-        !result.toolNames.includes("cu_wait") &&
-        !result.toolNames.includes("cu_observe")
+        !result.successfulToolNames.includes("cu_screenshot") &&
+        !result.successfulToolNames.includes("cu_wait") &&
+        !result.successfulToolNames.includes("cu_observe")
       ) {
         errors.push(
           "Expected visual confirmation after clicking target.",
@@ -480,9 +516,9 @@ const CASES: ComputerUseCase[] = [
       ];
       // Must have observed or screenshotted
       if (
-        !result.toolNames.includes("cu_screenshot") &&
-        !result.toolNames.includes("cu_observe") &&
-        !result.toolNames.includes("cu_wait")
+        !result.successfulToolNames.includes("cu_screenshot") &&
+        !result.successfulToolNames.includes("cu_observe") &&
+        !result.successfulToolNames.includes("cu_wait")
       ) {
         errors.push(
           "Expected visual confirmation of HLVM Spotlight panel.",
@@ -517,8 +553,9 @@ const CASES: ComputerUseCase[] = [
         ...validateRequiredTools(result, ["cu_open_application", "cu_observe"]),
       ];
       // Should have used grounded tools
-      const usedGrounded = result.toolNames.includes("cu_click_target") ||
-        result.toolNames.includes("cu_type_into_target");
+      const usedGrounded =
+        result.successfulToolNames.includes("cu_click_target") ||
+        result.successfulToolNames.includes("cu_type_into_target");
       if (!usedGrounded) {
         errors.push(
           "Expected cu_click_target or cu_type_into_target (native grounding) to be used.",
@@ -538,14 +575,36 @@ const CASES: ComputerUseCase[] = [
       "Open TextEdit (com.apple.TextEdit), wait for it to be ready, find the main text field, type 'Hello from execute plan', and verify the target value contains that text. " +
       "If the plan blocks, continue using ordinary cu_* tools and explain where it blocked.",
     requiredTools: ["cu_execute_plan"],
+    requiredToolMode: "attempted",
     validate: (result) => {
+      const planSucceeded = result.successfulToolNames.includes(
+        "cu_execute_plan",
+      );
+      const planFailed = result.failedToolNames.includes("cu_execute_plan");
       const errors = [
         ...validateCuOnlyUsage(result),
-        ...validateRequiredTools(result, ["cu_execute_plan"]),
+        ...validateRequiredTools(result, ["cu_execute_plan"], "attempted"),
       ];
-      if (!/execute plan|textedit|hello/i.test(result.plain)) {
+      if (!planSucceeded && !planFailed) {
+        errors.push("Expected cu_execute_plan to complete or fail cleanly.");
+      }
+      if (
+        planSucceeded &&
+        !/execute plan|textedit|hello/i.test(result.plain)
+      ) {
         errors.push(
           "Expected response to mention the execute-plan flow or typed text.",
+        );
+      }
+      if (
+        !planSucceeded &&
+        planFailed &&
+        !/block|blocked|permission|fallback|unavailable|failed/i.test(
+          result.plain,
+        )
+      ) {
+        errors.push(
+          "Expected blocked execute-plan response to explain why the plan could not continue.",
         );
       }
       return errors;
@@ -557,14 +616,36 @@ const CASES: ComputerUseCase[] = [
       "Open TextEdit, wait for ready, find the text area, type 'Task: plan executor', open Calculator, wait for ready, press keys '4', '2', '*', '2', then Return if needed, reopen TextEdit, and verify the text area still contains 'Task: plan executor'. " +
       "If the native plan blocks, continue with regular cu_* tools and report the block point.",
     requiredTools: ["cu_execute_plan"],
+    requiredToolMode: "attempted",
     validate: (result) => {
+      const planSucceeded = result.successfulToolNames.includes(
+        "cu_execute_plan",
+      );
+      const planFailed = result.failedToolNames.includes("cu_execute_plan");
       const errors = [
         ...validateCuOnlyUsage(result),
-        ...validateRequiredTools(result, ["cu_execute_plan"]),
+        ...validateRequiredTools(result, ["cu_execute_plan"], "attempted"),
       ];
-      if (!/textedit|calculator|plan executor|task/i.test(result.plain)) {
+      if (!planSucceeded && !planFailed) {
+        errors.push("Expected cu_execute_plan to complete or fail cleanly.");
+      }
+      if (
+        planSucceeded &&
+        !/textedit|calculator|plan executor|task/i.test(result.plain)
+      ) {
         errors.push(
           "Expected response to mention the cross-app execute-plan workflow.",
+        );
+      }
+      if (
+        !planSucceeded &&
+        planFailed &&
+        !/block|blocked|permission|fallback|unavailable|failed/i.test(
+          result.plain,
+        )
+      ) {
+        errors.push(
+          "Expected blocked execute-plan response to explain the block point or fallback.",
         );
       }
       return errors;
@@ -576,13 +657,23 @@ const CASES: ComputerUseCase[] = [
       "Call cu_execute_plan with an intentionally ambiguous selector in TextEdit so the plan should block safely instead of guessing. " +
       "After it blocks, continue using normal cu_observe or other cu_* tools if needed and explain why the selector was ambiguous.",
     requiredTools: ["cu_execute_plan"],
+    requiredToolMode: "attempted",
     validate: (result) => {
+      const planSucceeded = result.successfulToolNames.includes(
+        "cu_execute_plan",
+      );
+      const planFailed = result.failedToolNames.includes("cu_execute_plan");
       const errors = [
         ...validateCuOnlyUsage(result),
-        ...validateRequiredTools(result, ["cu_execute_plan"]),
+        ...validateRequiredTools(result, ["cu_execute_plan"], "attempted"),
       ];
+      if (!planSucceeded && !planFailed) {
+        errors.push("Expected cu_execute_plan to complete or fail cleanly.");
+      }
       if (
-        !/ambiguous|selector|blocked|fallback|cu_observe/i.test(result.plain)
+        !/ambiguous|selector|blocked|fallback|cu_observe|failed/i.test(
+          result.plain,
+        )
       ) {
         errors.push(
           "Expected response to describe the blocked selector or fallback path.",
@@ -652,12 +743,16 @@ Deno.test({
           );
           caseModel = model;
 
-          const toolNames = collectToolNames(events);
+          const successfulToolNames = collectSuccessfulToolNames(events);
+          const attemptedToolNames = collectAttemptedToolNames(events);
+          const failedToolNames = collectFailedToolNames(events);
           const trimmedText = result.text.trim();
           const semanticResult: ComputerUseResult = {
             text: trimmedText,
             plain: stripMarkdown(trimmedText),
-            toolNames,
+            successfulToolNames,
+            attemptedToolNames,
+            failedToolNames,
           };
           const errors = await testCase.validate(semanticResult);
           if (errors.length > 0) {
@@ -665,15 +760,23 @@ Deno.test({
               [
                 `FAIL ${testCase.id}`,
                 `  Model: ${caseModel}`,
-                `  Tools: ${toolNames.join(", ") || "(none)"}`,
+                `  Successful Tools: ${
+                  successfulToolNames.join(", ") || "(none)"
+                }`,
+                `  Attempted Tools: ${
+                  attemptedToolNames.join(", ") || "(none)"
+                }`,
+                `  Failed Tools: ${failedToolNames.join(", ") || "(none)"}`,
                 `  Response: ${semanticResult.text.slice(0, 300)}`,
                 `  Errors: ${errors.join(" | ")}`,
               ].join("\n"),
             );
           } else {
             console.log(
-              `PASS ${testCase.id} | Model: ${caseModel} | Tools: ${
-                toolNames.join(", ") || "(none)"
+              `PASS ${testCase.id} | Model: ${caseModel} | Successful: ${
+                successfulToolNames.join(", ") || "(none)"
+              } | Attempted: ${attemptedToolNames.join(", ") || "(none)"} | Failed: ${
+                failedToolNames.join(", ") || "(none)"
               }`,
             );
           }

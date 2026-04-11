@@ -50,8 +50,10 @@ import type {
   WindowInfo,
 } from "./types.ts";
 import { createCliExecutor } from "./executor.ts";
+import { getAgentLogger } from "../logger.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { tryAcquireComputerUseLock } from "./lock.ts";
+import { sendCuNotification, setEscapeCallback } from "./esc-hotkey.ts";
 import {
   clearStaleComputerUseTargetApp,
   clearStaleComputerUseTargetWindow,
@@ -150,6 +152,15 @@ async function guards(
         facts: { ownerSessionId: result.by },
       },
     );
+  }
+  // On fresh lock acquire, set up escape callback + notify user
+  if (result.fresh) {
+    setEscapeCallback(() => {
+      getAgentLogger().info("[cu-esc] escape abort fired");
+    });
+    sendCuNotification(
+      "HLVM is using your computer. Press Escape to stop.",
+    ).catch(() => {});
   }
   return null;
 }

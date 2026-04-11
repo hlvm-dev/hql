@@ -25,6 +25,10 @@ import {
   getModelReadiness,
 } from "../../../runtime/configured-model-readiness.ts";
 import { ensureRuntimeHostReady } from "../../../runtime/host-client.ts";
+import {
+  checkForUpdate,
+  type UpdateInfo,
+} from "../../utils/update-check.ts";
 
 interface InitializationState {
   loading: boolean;
@@ -40,6 +44,8 @@ interface InitializationState {
   modelToSetup: string;
   /** Current initialization progress (only set during loading) */
   progress?: InitProgressEvent;
+  /** Available update info (null if up-to-date or check failed) */
+  updateInfo: UpdateInfo | null;
   refreshAiReadiness: (
     modelId?: string,
     options?: { force?: boolean },
@@ -76,6 +82,7 @@ export function useInitialization(state: ReplState): InitializationState {
   const [aiAvailable, setAiAvailable] = useState(false);
   const [needsModelSetup, setNeedsModelSetup] = useState(false);
   const [modelToSetup, setModelToSetup] = useState("");
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const initialized = useRef(false);
   const lastReadinessModelIdRef = useRef<string | null>(null);
 
@@ -155,6 +162,11 @@ export function useInitialization(state: ReplState): InitializationState {
       try {
         // Pre-index files in background for @ mention feature
         prewarmFileIndex().catch(() => {});
+
+        // Check for updates in background (non-blocking, never-throw)
+        checkForUpdate().then((info) => {
+          if (info) setUpdateInfo(info);
+        }).catch(() => {});
 
         // Load persistent history early (in parallel with other init)
         const historyInit = startReplHistoryInit(state, (error) => {
@@ -250,6 +262,7 @@ export function useInitialization(state: ReplState): InitializationState {
     aiAvailable,
     needsModelSetup,
     modelToSetup,
+    updateInfo,
     refreshAiReadiness,
   };
 }

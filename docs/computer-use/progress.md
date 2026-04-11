@@ -1,6 +1,6 @@
 # Computer Use — Progress
 
-Last updated: 2026-04-11
+Last updated: 2026-04-12
 
 ## Executive Summary
 
@@ -26,12 +26,12 @@ Phase 4  Hybrid Browser Profiles                  ██████████
 Phase 5  Native Swift Substrate                   ████████████████████  DONE
 Phase 6  Bridge-First Reliability                 ████████████████████  DONE
 Phase 7  Native Grounding Pipeline                ████████████████████  DONE
-Phase 8  Broad Repeated-Run Product Validation    █████░░░░░░░░░░░░░░░  NEXT
+Phase 8  Broad Repeated-Run Product Validation    ███████░░░░░░░░░░░░░  IN PROGRESS
 ```
 
 ## Latest Verification Snapshot
 
-Latest live state on 2026-04-11:
+Historical live baseline on 2026-04-11:
 
 ```text
 Native Swift substrate:       working
@@ -39,6 +39,51 @@ Native grounding pipeline:    end-to-end operational
 Hybrid PW -> CU pack:         5/5 green
 CU-only pack:                 18/18 green (full-pack run)
 ```
+
+Current reality on 2026-04-12:
+
+```text
+Foundation / native substrate:                 working
+Grounded target actions:                       working
+cu_execute_plan v1:                            implemented, additive, not fully signed off
+Keyboard/text continuity contract:             partially shipped
+Current validation style:                      one live scenario at a time
+Current broad gap:                             observation vs execute-plan target consistency
+```
+
+### Phase 8 — Broad Product Validation (2026-04-12)
+
+The project has moved past "does the architecture work?" and into a narrower
+reliability loop:
+
+```text
+pick one real scenario
+run it live
+capture one concrete failure
+fix the generic cause
+rerun the same scenario
+only then broaden coverage
+```
+
+Newly established status in this chapter:
+
+- `cu_execute_plan` v1 is shipped as an additive Level 3-only bounded DSL
+  (`open_app`, `wait_for_ready`, `find_target`, `click`, `type_into`,
+  `press_keys`, `verify`)
+- keyboard/text actions now fail closed when the remembered target app or
+  window disappears unexpectedly
+- passive observation no longer silently overwrites explicit target context
+- harness grading now distinguishes attempted, successful, and failed tool
+  executions so blocked plans do not look like invisible no-ops
+
+The current generic issue is not app-specific:
+
+- the native execute-plan path and the ordinary observation target surface were
+  not equally strong
+- `resolvePlanTarget(...)` could sometimes reason about a focused text target
+  that `getAXTargets(...)` still failed to expose
+- the current fix direction is to share one target descriptor / candidate model
+  between observation and execute-plan rather than adding per-app branches
 
 ### Phase 7 — Native Grounding Pipeline (2026-04-11)
 
@@ -211,7 +256,10 @@ The open work is now narrower and more engineering-focused:
 - repeated-run desktop reliability across diverse scenarios
 - multi-step focus/activation recovery edge cases
 - timing-sensitive failures
-- broader real-user scenario coverage beyond the current 18-case pack
+- broader real-user scenario coverage beyond the historical 18-case pack
+- `cu_execute_plan` live product sign-off under broader scenario variety
+- generic Level 3 target-surface consistency across editors/forms with weak AX
+  geometry
 
 This is a different class of work from the earlier phases:
 
@@ -242,9 +290,11 @@ full product sign-off:
 
 ### Immediate next loop
 
-- keep validating focused live cases instead of repeatedly running the whole pack
-- do a final CU full-pack signoff run once the targeted red set has stayed green
-- continue separating genuine product bugs from environment interference
+- keep validating one focused live case at a time instead of repeatedly running
+  the whole pack
+- continue fixing generic causes, not app-specific recipes
+- do a final regression/full-pack signoff only after the current targeted loops
+  have stabilized
 
 ### After that
 

@@ -27,18 +27,29 @@ The current architecture is:
 
 - Level 3 substrate on macOS is in place
 - `hql` can consume that substrate through the bridge
-- the remaining work is product reliability, not another substrate rewrite
+- `cu_execute_plan` exists as an additive Level 3 executor path
+- keyboard/text continuity now has explicit fail-closed context checks
+- the remaining work is product reliability and Level 3 consistency, not
+  another substrate rewrite
 
 ## Current Live Validation State
 
-As of 2026-04-11, the architecture is fully operational including native
-grounding:
+Historical baseline on 2026-04-11:
 
 ```text
 Native Swift substrate:       working
 Native grounding pipeline:    end-to-end operational
 Bridge-first hybrid pack:     5/5 green
 CU-only live pack:            18/18 green (full-pack run)
+```
+
+Current reading on 2026-04-12:
+
+```text
+Native substrate:             working
+Native grounding:             working
+Native subplan executor:      implemented, additive, still being live-hardened
+Current bottleneck:           broader scenario reliability, not architecture
 ```
 
 ### Critical fix: cu_observe grounding data exposure (2026-04-11)
@@ -220,6 +231,7 @@ LLM (vision-capable)
 |  - lock acquisition                                              |
 |  - stale observation / target checks                             |
 |  - permission gating                                             |
+|  - continuity checks for keyboard/text actions                   |
 |  - post-action verification hooks                                |
 +------------------------------------------------------------------+
   |
@@ -262,11 +274,16 @@ LLM (vision-capable)
 |  - /cu/targets                                                   |
 |  - /cu/click-target                                              |
 |  - /cu/type-into-target                                          |
+|  - /cu/execute-plan                                              |
 |  - /cu/prepare-display                                           |
 |  - /cu/element-at-point                                          |
 |  - /cu/frontmost                                                 |
 |  - /cu/permissions                                               |
 |  - /cu/input/*                                                   |
+|                                                                  |
+|  Current reliability work:                                       |
+|  - shared target model across observe + execute-plan             |
+|  - target app/window continuity for keyboard/text                |
 +------------------------------------------------------------------+
   |
   +-------------------------- fallback path -----------------------+

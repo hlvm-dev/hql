@@ -12,6 +12,7 @@ import React, {
 } from "react";
 import { Box, type Key, Static, useApp, useInput, useStdout } from "ink";
 import { Banner } from "./Banner.tsx";
+import { UpdateBanner } from "./UpdateBanner.tsx";
 import { LoadingScreen } from "./LoadingScreen.tsx";
 import { ConfigOverlay } from "./ConfigOverlay.tsx";
 import {
@@ -1709,6 +1710,7 @@ function AppContent(
       }) && (
         <>
           <Banner errors={init.errors} />
+          {init.updateInfo && <UpdateBanner update={init.updateInfo} />}
           {!init.ready && <LoadingScreen progress={init.progress} />}
         </>
       )}
