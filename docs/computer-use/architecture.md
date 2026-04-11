@@ -47,16 +47,16 @@ The native grounding pipeline (Level 3) was architecturally complete but
 **operationally broken**: `cu_observe`'s `formatResult` returned only
 `"Desktop observed"` as the LLM-visible content, discarding the structured
 observation data (observation_id, targets, windows). This meant
-`cu_click_target` and `cu_type_into_target` were impossible to use — the
-model never received the target IDs they require.
+`cu_click_target` and `cu_type_into_target` were impossible to use — the model
+never received the target IDs they require.
 
 Root cause: `formatResult` set `returnDisplay: "Desktop observed"` without
 setting `llmContent`. The formatting pipeline at
-`orchestrator-tool-formatting.ts:484` used `returnDisplay` as the LLM
-content when `llmContent` was absent.
+`orchestrator-tool-formatting.ts:484` used `returnDisplay` as the LLM content
+when `llmContent` was absent.
 
-Fix: `cu_observe`'s `formatResult` now sets `llmContent` to a compact
-structured text format:
+Fix: `cu_observe`'s `formatResult` now sets `llmContent` to a compact structured
+text format:
 
 ```text
 observation_id: ABC-123
@@ -69,9 +69,9 @@ targets (use exact target_id with cu_click_target / cu_type_into_target):
 grounding: native_targets
 ```
 
-Second fix: `summarizeObservation` now priority-sorts targets — text
-fields/text areas first, then interactive controls, then windows. This
-ensures text input targets survive the 8K llmChars truncation limit.
+Second fix: `summarizeObservation` now priority-sorts targets — text fields/text
+areas first, then interactive controls, then windows. This ensures text input
+targets survive the 8K llmChars truncation limit.
 
 Impact:
 
@@ -99,7 +99,8 @@ After:  3-4 grounded tool calls, 15-20 seconds, reliable
 
 Goal:
 
-- make HLVM expose a real Claude Code style computer-use surface instead of a custom one-off tool set
+- make HLVM expose a real Claude Code style computer-use surface instead of a
+  custom one-off tool set
 
 What changed:
 
@@ -136,12 +137,14 @@ Result:
 
 Goal:
 
-- prove the full loop works: prompt -> tool call -> screenshot -> image attachment -> model interpretation -> next action
+- prove the full loop works: prompt -> tool call -> screenshot -> image
+  attachment -> model interpretation -> next action
 
 What changed:
 
 - CU prompt guidance was added to the self-hosted prompt pipeline
-- real-model live runs proved screenshot capture and interpretation worked end to end
+- real-model live runs proved screenshot capture and interpretation worked end
+  to end
 
 Result:
 
@@ -150,10 +153,13 @@ Result:
 
 ### Post-Phase-3 Chapter: Hybrid and Native Substrate
 
-After the initial end-to-end loop worked, the work split into two harder problems:
+After the initial end-to-end loop worked, the work split into two harder
+problems:
 
-1. browser tasks should stay Playwright-first and only escalate to desktop/native control when necessary
-2. macOS desktop control needed a stronger substrate than TS/JXA alone could provide
+1. browser tasks should stay Playwright-first and only escalate to
+   desktop/native control when necessary
+2. macOS desktop control needed a stronger substrate than TS/JXA alone could
+   provide
 
 That led to two important chapters:
 
@@ -207,7 +213,7 @@ LLM (vision-capable)
 +------------------------------------------------------------------+
 | CU tool layer (tools.ts)                                         |
 |                                                                  |
-|  Public surface: 25 cu_* tools                                   |
+|  Public surface: 26 cu_* tools                                   |
 |                                                                  |
 |  Responsibilities:                                               |
 |  - argument validation                                           |
@@ -446,7 +452,8 @@ Native upgrade currently covers:
 - app activation
 - native input
 
-This is the core reason the current system is stronger than the original TS/JXA-only version:
+This is the core reason the current system is stronger than the original
+TS/JXA-only version:
 
 - the runtime still has fallback behavior
 - but it no longer depends on fallback for the primary happy path
@@ -501,8 +508,8 @@ Not yet fully signed off:
 
 That distinction matters.
 
-The architecture chapter is complete.
-The product-quality chapter is still in progress.
+The architecture chapter is complete. The product-quality chapter is still in
+progress.
 
 ## Competitive Landscape
 

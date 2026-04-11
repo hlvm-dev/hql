@@ -14,30 +14,31 @@ import {
   assertThrows,
 } from "jsr:@std/assert";
 import {
-  parseKeySpec,
   KEY_CODES,
   MODIFIER_MAP,
+  parseKeySpec,
 } from "../../../src/hlvm/agent/computer-use/keycodes.ts";
 import { COMPUTER_USE_TOOLS } from "../../../src/hlvm/agent/computer-use/mod.ts";
+import { _testOnly as toolsTestOnly } from "../../../src/hlvm/agent/computer-use/tools.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import {
+  _resetLockStateForTests,
+  _setLockPathForTests,
   acquireLock,
+  checkComputerUseLock,
+  isLockHeldLocally,
+  releaseComputerUseLock,
   releaseLock,
   tryAcquireComputerUseLock,
-  releaseComputerUseLock,
-  isLockHeldLocally,
-  checkComputerUseLock,
-  _setLockPathForTests,
-  _resetLockStateForTests,
 } from "../../../src/hlvm/agent/computer-use/lock.ts";
 import {
   cleanupComputerUse,
   cleanupComputerUseAfterTurn,
 } from "../../../src/hlvm/agent/computer-use/cleanup.ts";
 import {
-  CLI_HOST_BUNDLE_ID,
-  CLI_CU_CAPABILITIES,
   assertValidBundleId,
+  CLI_CU_CAPABILITIES,
+  CLI_HOST_BUNDLE_ID,
   getTerminalBundleId,
   isValidBundleId,
 } from "../../../src/hlvm/agent/computer-use/common.ts";
@@ -49,8 +50,10 @@ import {
 import { filterAppsForDescription } from "../../../src/hlvm/agent/computer-use/app-names.ts";
 import {
   API_RESIZE_PARAMS,
+  type ComputerExecutor,
   type ComputerUseInputAPI,
   type ComputerUsePermissionState,
+  type PrepareForActionResult,
   type ComputerUseSwiftAPI,
   type DesktopObservation,
   type DisplayGeometry,
@@ -66,8 +69,8 @@ import {
   getComputerUseTargetBundleId,
   getComputerUseTargetWindowId,
   markComputerUsePromotionPending,
-  rememberHiddenComputerUseApps,
   rememberComputerUseObservation,
+  rememberHiddenComputerUseApps,
   requiresFreshComputerUseObservation,
   resetComputerUseSessionState,
   resolveObservationTarget,
@@ -287,9 +290,12 @@ function makeObservation(
       missing: [],
       checkedAt: Date.now(),
     },
-    resolvedTargetBundleId: overrides.resolvedTargetBundleId ??
-      "com.apple.Safari",
-    resolvedTargetWindowId: overrides.resolvedTargetWindowId ?? 101,
+    resolvedTargetBundleId: "resolvedTargetBundleId" in overrides
+      ? overrides.resolvedTargetBundleId
+      : "com.apple.Safari",
+    resolvedTargetWindowId: "resolvedTargetWindowId" in overrides
+      ? overrides.resolvedTargetWindowId
+      : 101,
   };
 }
 
@@ -340,6 +346,39 @@ function makeFakeInput(
     typeText: async () => {},
     getFrontmostAppInfo: async () => frontmost,
   };
+}
+
+function makePrepareExecutor(
+  opts: {
+    runningApps?: RunningApp[];
+    visibleWindows?: WindowInfo[];
+    frontmostApp?: { bundleId: string; displayName: string } | null;
+    prepareResult?: Partial<PrepareForActionResult> | null;
+  } = {},
+): ComputerExecutor {
+  return {
+    getPermissionState: async () => makePermissionState(),
+    listRunningApps: async () => opts.runningApps ?? [makeRunningApp()],
+    listVisibleWindows: async () => opts.visibleWindows ?? [],
+    findWindowDisplays: async (bundleIds: string[]) =>
+      bundleIds.map((bundleId) => ({
+        bundleId,
+        displayIds: [],
+      })),
+    getFrontmostApp: async () => opts.frontmostApp ?? {
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+    },
+    prepareForAction: async () => ({
+      activated: null,
+      hidden: [],
+      selectedDisplayId: undefined,
+      selectedTargetBundleId: opts.prepareResult?.selectedTargetBundleId,
+      selectedTargetWindowId: opts.prepareResult?.selectedTargetWindowId,
+      resolutionReason: opts.prepareResult?.resolutionReason,
+      failureReason: opts.prepareResult?.failureReason,
+    }),
+  } as unknown as ComputerExecutor;
 }
 
 function makeFakeSwift(
@@ -571,6 +610,97 @@ Deno.test("session-state: fresh observation after promotion clears the pending g
   );
 });
 
+Deno.test("session-state: passive observation does not overwrite an explicit target app", () => {
+  resetComputerUseSessionState();
+  setComputerUseTargetBundleId(
+    "com.apple.calculator",
+    "Calculator",
+    "open_application",
+  );
+  setComputerUseTargetWindow(makeWindow({
+    windowId: 404,
+    bundleId: "com.apple.calculator",
+    displayName: "Calculator",
+    title: "Calculator",
+  }), "target_action");
+
+  rememberComputerUseObservation(makeObservation({
+    frontmostApp: {
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+    },
+    runningApps: [
+      {
+        bundleId: "com.apple.calculator",
+        displayName: "Calculator",
+      },
+      {
+        bundleId: "com.apple.TextEdit",
+        displayName: "TextEdit",
+      },
+    ],
+    windows: [
+      makeWindow({
+        windowId: 505,
+        bundleId: "com.apple.TextEdit",
+        displayName: "TextEdit",
+        title: "Untitled",
+      }),
+    ],
+    resolvedTargetBundleId: undefined,
+    resolvedTargetWindowId: undefined,
+  }));
+
+  assertEquals(getComputerUseTargetBundleId(), "com.apple.calculator");
+  assertEquals(getComputerUseTargetWindowId(), 404);
+});
+
+Deno.test("session-state: passive observation does not overwrite an explicit target window in the same app", () => {
+  resetComputerUseSessionState();
+  setComputerUseTargetBundleId(
+    "com.apple.TextEdit",
+    "TextEdit",
+    "open_application",
+  );
+  setComputerUseTargetWindow(makeWindow({
+    windowId: 404,
+    bundleId: "com.apple.TextEdit",
+    displayName: "TextEdit",
+    title: "Draft A",
+  }), "target_action");
+
+  rememberComputerUseObservation(makeObservation({
+    frontmostApp: {
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+    },
+    runningApps: [{
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+    }],
+    windows: [
+      makeWindow({
+        windowId: 404,
+        bundleId: "com.apple.TextEdit",
+        displayName: "TextEdit",
+        title: "Draft A",
+      }),
+      makeWindow({
+        windowId: 505,
+        bundleId: "com.apple.TextEdit",
+        displayName: "TextEdit",
+        title: "Draft B",
+        zIndex: 1,
+      }),
+    ],
+    resolvedTargetBundleId: undefined,
+    resolvedTargetWindowId: undefined,
+  }));
+
+  assertEquals(getComputerUseTargetBundleId(), "com.apple.TextEdit");
+  assertEquals(getComputerUseTargetWindowId(), 404);
+});
+
 Deno.test("bridge: resolvePreparationPlan picks the topmost allowed window on the requested display", () => {
   const plan = bridgeTestOnly.resolvePreparationPlan({
     windows: [
@@ -655,8 +785,22 @@ Deno.test("bridge: selectWindowAtPoint prefers the topmost overlapping window", 
 Deno.test("bridge: resolveCaptureDisplayId derives display from the selected target window", () => {
   const resolution = bridgeTestOnly.resolveCaptureDisplayId({
     displays: [
-      { width: 1440, height: 900, scaleFactor: 2, displayId: 11, originX: 0, originY: 0 },
-      { width: 2560, height: 1440, scaleFactor: 2, displayId: 22, originX: 1440, originY: 0 },
+      {
+        width: 1440,
+        height: 900,
+        scaleFactor: 2,
+        displayId: 11,
+        originX: 0,
+        originY: 0,
+      },
+      {
+        width: 2560,
+        height: 1440,
+        scaleFactor: 2,
+        displayId: 22,
+        originX: 1440,
+        originY: 0,
+      },
     ],
     windows: [
       makeWindow({
@@ -680,8 +824,22 @@ Deno.test("bridge: resolveCaptureDisplayId derives display from the selected tar
 Deno.test("bridge: resolveCaptureDisplayIndex follows cached display ordering", () => {
   const index = bridgeTestOnly.resolveCaptureDisplayIndex(
     [
-      { width: 1440, height: 900, scaleFactor: 2, displayId: 11, originX: 0, originY: 0 },
-      { width: 2560, height: 1440, scaleFactor: 2, displayId: 22, originX: 1440, originY: 0 },
+      {
+        width: 1440,
+        height: 900,
+        scaleFactor: 2,
+        displayId: 11,
+        originX: 0,
+        originY: 0,
+      },
+      {
+        width: 2560,
+        height: 1440,
+        scaleFactor: 2,
+        displayId: 22,
+        originX: 1440,
+        originY: 0,
+      },
     ],
     22,
   );
@@ -712,10 +870,10 @@ Deno.test("types: targetImageSize preserves small images", () => {
 });
 
 // ============================================================
-// 4. Tool Registration Tests (VNext: 25 cu_* tools)
+// 4. Tool Registration Tests (VNext: 26 cu_* tools)
 // ============================================================
 
-Deno.test("tools: all 25 cu_* tools are exported", () => {
+Deno.test("tools: all 26 cu_* tools are exported", () => {
   const expectedTools = [
     "cu_observe",
     "cu_screenshot",
@@ -739,6 +897,7 @@ Deno.test("tools: all 25 cu_* tools are exported", () => {
     "cu_zoom",
     "cu_click_target",
     "cu_type_into_target",
+    "cu_execute_plan",
     "cu_open_application",
     "cu_request_access",
     "cu_wait",
@@ -749,7 +908,7 @@ Deno.test("tools: all 25 cu_* tools are exported", () => {
       `Missing tool: ${name}`,
     );
   }
-  assertEquals(Object.keys(COMPUTER_USE_TOOLS).length, 25);
+  assertEquals(Object.keys(COMPUTER_USE_TOOLS).length, 26);
 });
 
 Deno.test("tools: L0 read-only tools have correct safety levels", () => {
@@ -796,6 +955,7 @@ Deno.test("tools: write tools have L2 safety level", () => {
     "cu_left_click_drag",
     "cu_click_target",
     "cu_type_into_target",
+    "cu_execute_plan",
     "cu_open_application",
     "cu_request_access",
   ];
@@ -910,6 +1070,321 @@ Deno.test("tools: target-grounded CU actions expose observation and target ids",
 Deno.test("tools: cu_open_application has bundle_id arg", () => {
   const meta = COMPUTER_USE_TOOLS.cu_open_application;
   assertExists(meta.args?.bundle_id);
+});
+
+Deno.test("tools: cu_execute_plan has steps arg and L2 write safety", () => {
+  const meta = COMPUTER_USE_TOOLS.cu_execute_plan;
+  assertExists(meta.args?.steps);
+  assertEquals(meta.category, "write");
+  assertEquals(meta.safetyLevel, "L2");
+});
+
+Deno.test("tools: cu_execute_plan formatResult includes plan status", () => {
+  const meta = COMPUTER_USE_TOOLS.cu_execute_plan;
+  assertExists(meta.formatResult);
+  const formatted = meta.formatResult!({
+    success: true,
+    execution_status: "completed",
+    executed_steps: 3,
+    plan_steps: [
+      { index: 0, op: "open_app", status: "completed" },
+      { index: 1, op: "wait_for_ready", status: "completed" },
+      { index: 2, op: "verify", status: "completed" },
+    ],
+    observation_id: "obs-plan-1",
+    grounding_source: "native_targets",
+    screen: { width: 1440, height: 900 },
+    frontmost_app: { bundleId: "com.apple.TextEdit", displayName: "TextEdit" },
+    windows: [],
+    targets: [],
+  });
+  assertExists(formatted);
+  assertEquals(formatted!.summaryDisplay, "Executed");
+  assertEquals(formatted!.returnDisplay, "Executed plan");
+  assertEquals(
+    formatted!.llmContent?.includes("execution_status: completed"),
+    true,
+  );
+  assertEquals(formatted!.llmContent?.includes("plan_steps:"), true);
+});
+
+Deno.test("tools: cu_execute_plan parser rejects missing steps", () => {
+  assertThrows(
+    () => toolsTestOnly.parseExecutePlanArgs({}),
+    Error,
+    "'steps' must be a non-empty array",
+  );
+});
+
+Deno.test("tools: cu_execute_plan parser rejects overly long plans", () => {
+  assertThrows(
+    () =>
+      toolsTestOnly.parseExecutePlanArgs({
+        steps: Array.from({ length: 21 }, () => ({
+          op: "open_app",
+          bundle_id: "com.apple.TextEdit",
+        })),
+      }),
+    Error,
+    "'steps' may contain at most 20 items",
+  );
+});
+
+Deno.test("tools: cu_execute_plan parser rejects ambiguous find_target ids", () => {
+  assertThrows(
+    () =>
+      toolsTestOnly.parseExecutePlanArgs({
+        steps: [
+          {
+            op: "find_target",
+            id: "editor",
+            selector: {
+              bundle_id: "com.apple.TextEdit",
+              role_in: ["textfield"],
+            },
+          },
+          {
+            op: "find_target",
+            id: "editor",
+            selector: {
+              bundle_id: "com.apple.TextEdit",
+              role_in: ["textfield"],
+            },
+          },
+        ],
+      }),
+    Error,
+    "Duplicate step id 'editor'",
+  );
+});
+
+Deno.test("tools: cu_execute_plan parser rejects unknown target_ref references", () => {
+  assertThrows(
+    () =>
+      toolsTestOnly.parseExecutePlanArgs({
+        steps: [
+          {
+            op: "wait_for_ready",
+            target_ref: "editor",
+          },
+        ],
+      }),
+    Error,
+    "steps[0].target_ref must reference a prior find_target id",
+  );
+});
+
+Deno.test("tools: cu_execute_plan parser accepts nested JSON-stringified selector payloads", () => {
+  const parsed = toolsTestOnly.parseExecutePlanArgs({
+    steps: [
+      JSON.stringify({
+        op: "find_target",
+        id: "editor",
+        selector: JSON.stringify({
+          bundle_id: "com.apple.TextEdit",
+          role_in: JSON.stringify(["textfield", "text area"]),
+          label_contains: "Body",
+        }),
+      }),
+      {
+        op: "type_into",
+        target_ref: "editor",
+        text: "Hello",
+      },
+    ],
+  });
+
+  assertEquals(parsed.steps, [
+    {
+      op: "find_target",
+      id: "editor",
+      selector: {
+        bundle_id: "com.apple.TextEdit",
+        role_in: ["textfield", "text area"],
+        label_contains: "Body",
+      },
+    },
+    {
+      op: "type_into",
+      target_ref: "editor",
+      text: "Hello",
+    },
+  ]);
+});
+
+Deno.test("tools: cu_execute_plan blocked result keeps failure metadata and screenshot attachment", () => {
+  const observation = makeObservation();
+  const result = toolsTestOnly.buildExecutePlanFailureResult(
+    {
+      code: "cu_execute_plan_ambiguous_selector",
+      message: "Selector matched multiple targets.",
+      retryable: false,
+      stepIndex: 2,
+      stepOp: "find_target",
+      facts: { matchCount: 3 },
+    },
+    [
+      { index: 0, op: "open_app", status: "completed" },
+      { index: 1, op: "wait_for_ready", status: "completed" },
+      { index: 2, op: "find_target", status: "blocked" },
+    ],
+    observation,
+  ) as {
+    success: boolean;
+    failure?: { code?: string; facts?: { matchCount?: number } };
+    _imageAttachment?: { width?: number; height?: number };
+    observation_id?: string;
+  };
+
+  assertEquals(result.success, false);
+  assertEquals(result.failure?.code, "cu_execute_plan_ambiguous_selector");
+  assertEquals(result.failure?.facts?.matchCount, 3);
+  assertEquals(result._imageAttachment?.width, observation.screenshot.width);
+  assertEquals(result.observation_id, observation.observationId);
+});
+
+Deno.test("tools: prepareInteractiveAction fails closed when remembered target app disappears", async () => {
+  resetComputerUseSessionState();
+  setComputerUseTargetBundleId(
+    "com.apple.calculator",
+    "Calculator",
+    "open_application",
+  );
+
+  const exec = makePrepareExecutor({
+    runningApps: [makeRunningApp({
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+    })],
+    frontmostApp: {
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+    },
+  });
+
+  let caught: unknown;
+  try {
+    await toolsTestOnly.prepareInteractiveAction(exec, undefined, true, true);
+  } catch (error) {
+    caught = error;
+  }
+
+  assertExists(caught);
+  const failure = (caught as {
+    failure?: {
+      code?: string;
+      facts?: Record<string, unknown>;
+    };
+  }).failure;
+  assertEquals(failure?.code, "cu_target_app_lost");
+  assertEquals(failure?.facts?.expectedTargetBundleId, "com.apple.calculator");
+  assertEquals(failure?.facts?.actualFrontmostBundleId, "com.apple.TextEdit");
+  assertEquals(getComputerUseTargetBundleId(), undefined);
+});
+
+Deno.test("tools: prepareInteractiveAction fails closed when remembered target window disappears", async () => {
+  resetComputerUseSessionState();
+  setComputerUseTargetBundleId(
+    "com.apple.TextEdit",
+    "TextEdit",
+    "open_application",
+  );
+  setComputerUseTargetWindow(makeWindow({
+    windowId: 404,
+    bundleId: "com.apple.TextEdit",
+    displayName: "TextEdit",
+    title: "Draft A",
+  }), "target_action");
+
+  const exec = makePrepareExecutor({
+    runningApps: [makeRunningApp({
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+    })],
+    visibleWindows: [makeWindow({
+      windowId: 505,
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+      title: "Draft B",
+    })],
+    frontmostApp: {
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+    },
+  });
+
+  let caught: unknown;
+  try {
+    await toolsTestOnly.prepareInteractiveAction(exec, undefined, true, true);
+  } catch (error) {
+    caught = error;
+  }
+
+  assertExists(caught);
+  const failure = (caught as {
+    failure?: {
+      code?: string;
+      facts?: Record<string, unknown>;
+    };
+  }).failure;
+  assertEquals(failure?.code, "cu_target_window_lost");
+  assertEquals(failure?.facts?.expectedTargetWindowId, 404);
+  assertEquals(getComputerUseTargetWindowId(), undefined);
+});
+
+Deno.test("tools: prepareInteractiveAction fails closed when target window context changes within the same app", async () => {
+  resetComputerUseSessionState();
+  setComputerUseTargetBundleId(
+    "com.apple.TextEdit",
+    "TextEdit",
+    "open_application",
+  );
+  setComputerUseTargetWindow(makeWindow({
+    windowId: 404,
+    bundleId: "com.apple.TextEdit",
+    displayName: "TextEdit",
+    title: "Draft A",
+  }), "target_action");
+
+  const exec = makePrepareExecutor({
+    runningApps: [makeRunningApp({
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+    })],
+    visibleWindows: [makeWindow({
+      windowId: 404,
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+      title: "Draft A",
+    })],
+    frontmostApp: {
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+    },
+    prepareResult: {
+      selectedTargetBundleId: "com.apple.TextEdit",
+      selectedTargetWindowId: 505,
+      resolutionReason: "fallback_allowed_window",
+    },
+  });
+
+  let caught: unknown;
+  try {
+    await toolsTestOnly.prepareInteractiveAction(exec, undefined, true, true);
+  } catch (error) {
+    caught = error;
+  }
+
+  assertExists(caught);
+  const failure = (caught as {
+    failure?: {
+      code?: string;
+      facts?: Record<string, unknown>;
+    };
+  }).failure;
+  assertEquals(failure?.code, "cu_target_context_changed");
+  assertEquals(failure?.facts?.expectedTargetWindowId, 404);
+  assertEquals(failure?.facts?.actualTargetWindowId, 505);
 });
 
 Deno.test("tools: cu_wait has duration arg", () => {
@@ -1186,18 +1661,19 @@ Deno.test(
   () => {
     // Type-level test: verify the type compiles with imageAttachments
     // deno-lint-ignore no-unused-vars
-    const result: import("../../../src/hlvm/agent/orchestrator-state.ts").ToolExecutionResult =
-      {
-        success: true,
-        imageAttachments: [
-          {
-            data: "base64data",
-            mimeType: "image/jpeg",
-            width: 1280,
-            height: 720,
-          },
-        ],
-      };
+    const result:
+      import("../../../src/hlvm/agent/orchestrator-state.ts").ToolExecutionResult =
+        {
+          success: true,
+          imageAttachments: [
+            {
+              data: "base64data",
+              mimeType: "image/jpeg",
+              width: 1280,
+              height: 720,
+            },
+          ],
+        };
   },
 );
 
@@ -1205,12 +1681,13 @@ Deno.test(
 
 import {
   fetchNativeObservationTargets,
+  getResolvedBackend,
+  invalidateBackendResolution,
+  performNativeExecutePlan,
   performNativeTargetAction,
   requireComputerUseInput,
   requireComputerUseSwift,
   resolveBackend,
-  invalidateBackendResolution,
-  getResolvedBackend,
   upgradeSwiftInstanceToNative,
 } from "../../../src/hlvm/agent/computer-use/bridge.ts";
 
@@ -1283,9 +1760,17 @@ Deno.test("invalidateBackendResolution: clears cache", async () => {
 
 Deno.test("ObservationTarget kind: accepts element-level kinds", () => {
   // Type-level test: ensure the union compiles with all kinds
-  const kinds: import("../../../src/hlvm/agent/computer-use/types.ts").ObservationTargetKind[] = [
-    "window", "button", "textfield", "checkbox", "menuitem", "link", "other",
-  ];
+  const kinds:
+    import("../../../src/hlvm/agent/computer-use/types.ts").ObservationTargetKind[] =
+      [
+        "window",
+        "button",
+        "textfield",
+        "checkbox",
+        "menuitem",
+        "link",
+        "other",
+      ];
   assertEquals(kinds.length, 7);
 });
 
@@ -1362,6 +1847,234 @@ Deno.test("bridge: performNativeTargetAction routes through native backend", asy
   }
 });
 
+Deno.test("bridge: performNativeExecutePlan returns null when capability is unavailable", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: { version: "1", features: ["targets"] },
+    });
+    const result = await performNativeExecutePlan({
+      steps: [{ op: "open_app", bundle_id: "com.apple.TextEdit" }],
+    });
+    assertEquals(result, null);
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
+Deno.test("bridge: performNativeExecutePlan routes through native backend", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: { version: "1", features: ["execute-plan"] },
+    });
+    bridgeTestOnly.setNativeFetchOverride(async (path, body) => {
+      assertEquals(path, "/cu/execute-plan");
+      assertEquals(body, {
+        steps: [
+          { op: "open_app", bundle_id: "com.apple.TextEdit" },
+          { op: "wait_for_ready", bundle_id: "com.apple.TextEdit" },
+        ],
+        displayId: 2,
+      });
+      return {
+        ok: true,
+        status: "completed",
+        steps: [
+          { index: 0, op: "open_app", status: "completed" },
+          { index: 1, op: "wait_for_ready", status: "completed" },
+        ],
+        finalBundleId: "com.apple.TextEdit",
+        finalWindowId: 101,
+        finalDisplayId: 2,
+      };
+    });
+
+    const result = await performNativeExecutePlan({
+      steps: [
+        { op: "open_app", bundle_id: "com.apple.TextEdit" },
+        { op: "wait_for_ready", bundle_id: "com.apple.TextEdit" },
+      ],
+      displayId: 2,
+    });
+
+    assertExists(result);
+    assertEquals(result!.ok, true);
+    assertEquals(result!.status, "completed");
+    assertEquals(result!.steps.length, 2);
+    assertEquals(result!.finalBundleId, "com.apple.TextEdit");
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
+Deno.test("bridge: performNativeExecutePlan preserves blocked target-app-lost failures", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: { version: "1", features: ["execute-plan"] },
+    });
+    bridgeTestOnly.setNativeFetchOverride(async (path, body) => {
+      assertEquals(path, "/cu/execute-plan");
+      assertEquals(body, {
+        steps: [
+          { op: "open_app", bundle_id: "com.apple.calculator" },
+          { op: "press_keys", keys: "9" },
+        ],
+      });
+      return {
+        ok: false,
+        status: "blocked",
+        steps: [
+          { index: 0, op: "open_app", status: "completed" },
+          { index: 1, op: "press_keys", status: "blocked" },
+        ],
+        failure: {
+          code: "cu_execute_plan_target_app_lost",
+          message: "Expected target app is no longer running.",
+          retryable: false,
+          stepIndex: 1,
+          stepOp: "press_keys",
+          facts: { expectedBundleId: "com.apple.calculator" },
+        },
+        finalBundleId: "com.apple.calculator",
+      };
+    });
+
+    const result = await performNativeExecutePlan({
+      steps: [
+        { op: "open_app", bundle_id: "com.apple.calculator" },
+        { op: "press_keys", keys: "9" },
+      ],
+    });
+
+    assertExists(result);
+    assertEquals(result!.status, "blocked");
+    assertEquals(result!.failure?.code, "cu_execute_plan_target_app_lost");
+    assertEquals(
+      result!.failure?.facts?.expectedBundleId,
+      "com.apple.calculator",
+    );
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
+Deno.test("bridge: performNativeExecutePlan preserves blocked target-window-lost failures", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: { version: "1", features: ["execute-plan"] },
+    });
+    bridgeTestOnly.setNativeFetchOverride(async () => ({
+      ok: false,
+      status: "blocked",
+      steps: [
+        { index: 0, op: "find_target", status: "completed" },
+        { index: 1, op: "type_into", status: "blocked" },
+      ],
+      failure: {
+        code: "cu_execute_plan_target_window_lost",
+        message: "Expected target window is no longer visible.",
+        retryable: false,
+        stepIndex: 1,
+        stepOp: "type_into",
+        facts: {
+          expectedBundleId: "com.apple.TextEdit",
+          expectedWindowId: 404,
+        },
+      },
+      finalBundleId: "com.apple.TextEdit",
+      finalWindowId: 404,
+    }));
+
+    const result = await performNativeExecutePlan({
+      steps: [
+        {
+          op: "find_target",
+          id: "editor",
+          selector: {
+            bundle_id: "com.apple.TextEdit",
+            role_in: ["textfield"],
+          },
+        },
+        { op: "type_into", target_ref: "editor", text: "Hello" },
+      ],
+    });
+
+    assertExists(result);
+    assertEquals(result!.status, "blocked");
+    assertEquals(result!.failure?.code, "cu_execute_plan_target_window_lost");
+    assertEquals(result!.failure?.facts?.expectedWindowId, 404);
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
+Deno.test("bridge: performNativeExecutePlan preserves blocked target-context-changed failures", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: { version: "1", features: ["execute-plan"] },
+    });
+    bridgeTestOnly.setNativeFetchOverride(async () => ({
+      ok: false,
+      status: "blocked",
+      steps: [
+        { index: 0, op: "find_target", status: "completed" },
+        { index: 1, op: "type_into", status: "blocked" },
+      ],
+      failure: {
+        code: "cu_execute_plan_target_context_changed",
+        message: "Target context changed to a different window.",
+        retryable: false,
+        stepIndex: 1,
+        stepOp: "type_into",
+        facts: {
+          expectedBundleId: "com.apple.TextEdit",
+          expectedWindowId: 404,
+          actualBundleId: "com.apple.TextEdit",
+          actualWindowId: 505,
+        },
+      },
+      finalBundleId: "com.apple.TextEdit",
+      finalWindowId: 505,
+    }));
+
+    const result = await performNativeExecutePlan({
+      steps: [
+        {
+          op: "find_target",
+          id: "editor",
+          selector: {
+            bundle_id: "com.apple.TextEdit",
+            role_in: ["textfield"],
+          },
+        },
+        { op: "type_into", target_ref: "editor", text: "Hello" },
+      ],
+    });
+
+    assertExists(result);
+    assertEquals(result!.status, "blocked");
+    assertEquals(result!.failure?.code, "cu_execute_plan_target_context_changed");
+    assertEquals(result!.failure?.facts?.expectedWindowId, 404);
+    assertEquals(result!.failure?.facts?.actualWindowId, 505);
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
 Deno.test("executor.observe uses native target ids when the native backend is available", async () => {
   bridgeTestOnly.resetBridgeState();
   try {
@@ -1427,7 +2140,10 @@ Deno.test("executor.observe uses native target ids when the native backend is av
     assertEquals(observation.observationId, "native-obs-2");
     assertEquals(observation.targets.length, 1);
     assertEquals(observation.targets[0]?.kind, "textfield");
-    assertEquals(observation.targets[0]?.targetId, "native-obs-2:w101:textfield:0.0");
+    assertEquals(
+      observation.targets[0]?.targetId,
+      "native-obs-2:w101:textfield:0.0",
+    );
     assertEquals(observation.targets[0]?.displayId, display.displayId);
   } finally {
     bridgeTestOnly.resetBridgeState();

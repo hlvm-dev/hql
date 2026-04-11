@@ -66,6 +66,19 @@ function parseBaseType(typeToken: string): JsonSchemaProperty["type"] | "any" {
   return "string";
 }
 
+function parseArrayToken(token: string): { baseToken: string; isArray: boolean } | null {
+  if (token.endsWith("[]")) {
+    const baseToken = token.slice(0, -2).trim();
+    return { baseToken: baseToken || "string", isArray: true };
+  }
+  const genericMatch = token.match(/^array<\s*([^>]+)\s*>$/i);
+  if (genericMatch) {
+    const baseToken = genericMatch[1]?.trim() || "string";
+    return { baseToken, isArray: true };
+  }
+  return null;
+}
+
 /** Extract the raw type token, array flag, and optional flag from an arg descriptor string. */
 function extractArgDescriptor(description: string): {
   baseToken: string;
@@ -78,14 +91,20 @@ function extractArgDescriptor(description: string): {
   // Handle union types like "string | string[]" — if any variant is an array,
   // treat the whole arg as array-typed so coercion can parse stringified arrays.
   const tokens = cleaned.split(/\s*\|\s*/);
-  const arrayToken = tokens.find((t) => t.endsWith("[]"));
+  const arrayToken = tokens
+    .map((token) => parseArrayToken(token.trim()))
+    .find((token) => token !== null);
   if (arrayToken) {
-    const baseToken = arrayToken.slice(0, -2);
-    return { baseToken: baseToken || "string", isArray: true, optional };
+    return {
+      baseToken: arrayToken.baseToken,
+      isArray: true,
+      optional,
+    };
   }
   const typeToken = tokens[0]?.split(/\s+/)[0] ?? "string";
-  const isArray = typeToken.endsWith("[]");
-  const baseToken = isArray ? typeToken.slice(0, -2) : typeToken;
+  const parsedArrayToken = parseArrayToken(typeToken);
+  const isArray = parsedArrayToken?.isArray ?? false;
+  const baseToken = parsedArrayToken?.baseToken ?? typeToken;
   return { baseToken: baseToken || "string", isArray, optional };
 }
 

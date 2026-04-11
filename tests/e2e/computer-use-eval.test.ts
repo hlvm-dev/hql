@@ -31,8 +31,7 @@ import {
 
 const platform = getPlatform();
 const IS_MACOS = platform.build.os === "darwin";
-const ENABLED =
-  platform.env.get("HLVM_E2E_COMPUTER_USE") === "1" && IS_MACOS;
+const ENABLED = platform.env.get("HLVM_E2E_COMPUTER_USE") === "1" && IS_MACOS;
 const CASE_FILTER = platform.env.get("HLVM_E2E_CU_CASE")?.trim() ?? "";
 const TIMEOUT_MS = 420_000; // 7 minutes
 
@@ -92,7 +91,11 @@ function stripMarkdown(text: string): string {
 function validateCuOnlyUsage(result: ComputerUseResult): string[] {
   const pwTools = result.toolNames.filter((name) => name.startsWith("pw_"));
   if (pwTools.length > 0) {
-    return [`Expected CU-only execution but pw_* tools were used: ${pwTools.join(", ")}`];
+    return [
+      `Expected CU-only execution but pw_* tools were used: ${
+        pwTools.join(", ")
+      }`,
+    ];
   }
   return [];
 }
@@ -126,11 +129,14 @@ const CASES: ComputerUseCase[] = [
       ];
       // cu_observe was called — accept if response has any substance
       // (Haiku sometimes hallucinates "tool not available" even after calling it)
-      if (result.toolNames.includes("cu_observe") && result.plain.length >= 10) {
+      if (
+        result.toolNames.includes("cu_observe") && result.plain.length >= 10
+      ) {
         return errors;
       }
       if (
-        result.plain.length < 20 || !/(frontmost|window|app|\d+)/i.test(result.plain)
+        result.plain.length < 20 ||
+        !/(frontmost|window|app|\d+)/i.test(result.plain)
       ) {
         errors.push(
           "Expected a desktop observation summary mentioning the frontmost app or visible windows.",
@@ -329,7 +335,10 @@ const CASES: ComputerUseCase[] = [
     validate: (result) => {
       const errors = validateCuOnlyUsage(result);
       // cu_zoom may not be picked by all models — accept cu_screenshot as fallback
-      if (!result.toolNames.includes("cu_zoom") && !result.toolNames.includes("cu_screenshot")) {
+      if (
+        !result.toolNames.includes("cu_zoom") &&
+        !result.toolNames.includes("cu_screenshot")
+      ) {
         errors.push("Expected cu_zoom or cu_screenshot to be called.");
       }
       if (result.plain.length < 15) {
@@ -378,7 +387,9 @@ const CASES: ComputerUseCase[] = [
         ...validateRequiredTools(result, ["cu_screenshot"]),
       ];
       if (result.plain.length < 30) {
-        errors.push("Expected a meaningful description of the screen (30+ chars).");
+        errors.push(
+          "Expected a meaningful description of the screen (30+ chars).",
+        );
       }
       return errors;
     },
@@ -491,8 +502,7 @@ const CASES: ComputerUseCase[] = [
   },
   {
     id: "cross_app_grounded_workflow",
-    query:
-      "Perform a cross-app workflow using native grounding:\n" +
+    query: "Perform a cross-app workflow using native grounding:\n" +
       "1. Open TextEdit (com.apple.TextEdit)\n" +
       "2. Use cu_observe to get targets, then cu_type_into_target to type 'Task: check system' into the text area\n" +
       "3. Open Calculator (com.apple.calculator)\n" +
@@ -523,6 +533,65 @@ const CASES: ComputerUseCase[] = [
     },
   },
   {
+    id: "execute_plan_open_wait_type_verify",
+    query: "Use cu_execute_plan for a short deterministic native subplan. " +
+      "Open TextEdit (com.apple.TextEdit), wait for it to be ready, find the main text field, type 'Hello from execute plan', and verify the target value contains that text. " +
+      "If the plan blocks, continue using ordinary cu_* tools and explain where it blocked.",
+    requiredTools: ["cu_execute_plan"],
+    validate: (result) => {
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(result, ["cu_execute_plan"]),
+      ];
+      if (!/execute plan|textedit|hello/i.test(result.plain)) {
+        errors.push(
+          "Expected response to mention the execute-plan flow or typed text.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
+    id: "execute_plan_cross_app_short_flow",
+    query: "Use cu_execute_plan for a short deterministic cross-app subplan. " +
+      "Open TextEdit, wait for ready, find the text area, type 'Task: plan executor', open Calculator, wait for ready, press keys '4', '2', '*', '2', then Return if needed, reopen TextEdit, and verify the text area still contains 'Task: plan executor'. " +
+      "If the native plan blocks, continue with regular cu_* tools and report the block point.",
+    requiredTools: ["cu_execute_plan"],
+    validate: (result) => {
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(result, ["cu_execute_plan"]),
+      ];
+      if (!/textedit|calculator|plan executor|task/i.test(result.plain)) {
+        errors.push(
+          "Expected response to mention the cross-app execute-plan workflow.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
+    id: "execute_plan_blocked_selector",
+    query:
+      "Call cu_execute_plan with an intentionally ambiguous selector in TextEdit so the plan should block safely instead of guessing. " +
+      "After it blocks, continue using normal cu_observe or other cu_* tools if needed and explain why the selector was ambiguous.",
+    requiredTools: ["cu_execute_plan"],
+    validate: (result) => {
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(result, ["cu_execute_plan"]),
+      ];
+      if (
+        !/ambiguous|selector|blocked|fallback|cu_observe/i.test(result.plain)
+      ) {
+        errors.push(
+          "Expected response to describe the blocked selector or fallback path.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
     id: "drag_test",
     query:
       "Move the mouse to (200, 200), then perform a left click drag from (200, 200) to (400, 400). Take a screenshot after the drag to confirm the mouse moved.",
@@ -530,7 +599,10 @@ const CASES: ComputerUseCase[] = [
     validate: (result) => {
       const errors = [
         ...validateCuOnlyUsage(result),
-        ...validateRequiredTools(result, ["cu_left_click_drag", "cu_screenshot"]),
+        ...validateRequiredTools(result, [
+          "cu_left_click_drag",
+          "cu_screenshot",
+        ]),
       ];
       return errors;
     },
@@ -617,25 +689,45 @@ Deno.test({
         try {
           await getPlatform().command.output({
             cmd: ["osascript", "-e", 'tell application "Calculator" to quit'],
-            stdin: "null", stdout: "piped", stderr: "piped", timeout: 3000,
+            stdin: "null",
+            stdout: "piped",
+            stderr: "piped",
+            timeout: 3000,
           });
         } catch { /* may not be running */ }
         try {
           await getPlatform().command.output({
-            cmd: ["osascript", "-e", 'tell application "TextEdit" to quit saving no'],
-            stdin: "null", stdout: "piped", stderr: "piped", timeout: 3000,
+            cmd: [
+              "osascript",
+              "-e",
+              'tell application "TextEdit" to quit saving no',
+            ],
+            stdin: "null",
+            stdout: "piped",
+            stderr: "piped",
+            timeout: 3000,
           });
         } catch { /* may not be running */ }
         try {
           await getPlatform().command.output({
             cmd: ["osascript", "-e", 'tell application "Disk Utility" to quit'],
-            stdin: "null", stdout: "piped", stderr: "piped", timeout: 3000,
+            stdin: "null",
+            stdout: "piped",
+            stderr: "piped",
+            timeout: 3000,
           });
         } catch { /* may not be running */ }
         try {
           await getPlatform().command.output({
-            cmd: ["osascript", "-e", 'tell application "System Information" to quit'],
-            stdin: "null", stdout: "piped", stderr: "piped", timeout: 3000,
+            cmd: [
+              "osascript",
+              "-e",
+              'tell application "System Information" to quit',
+            ],
+            stdin: "null",
+            stdout: "piped",
+            stderr: "piped",
+            timeout: 3000,
           });
         } catch { /* may not be running */ }
       }

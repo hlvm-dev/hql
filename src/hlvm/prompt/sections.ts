@@ -569,15 +569,17 @@ You have computer control tools (cu_* prefix) for GUI automation on macOS.
 ## Workflow
 1. Prefer cu_observe first to capture the latest desktop state, display metadata, frontmost app, visible windows, and actionable targets
 2. Prefer cu_click_target / cu_type_into_target when cu_observe returns reliable targets; use raw coordinates only as fallback
-3. observation_id and target_id are single-use grounding tokens tied to the latest observation only; if the screen changes or an action runs, take a fresh observation before reusing targets
-4. After performing an action (click, type, key, drag, app switch), re-observe before deciding the next step
-5. If you only need pixels or a visual attachment, cu_screenshot and cu_zoom are allowed, but still treat the latest observation as the SSOT for targeting
+3. Use cu_execute_plan only for short deterministic desktop subplans with clear success criteria (typically 3+ steps like open app -> wait -> find target -> type -> verify). Do not use it for exploratory UI discovery or ambiguous screens.
+4. observation_id and target_id are single-use grounding tokens tied to the latest observation only; if the screen changes or an action runs, take a fresh observation before reusing targets
+5. After performing an action (click, type, key, drag, app switch), re-observe before deciding the next step unless the action tool already returned a fresh post-action observation
+6. If you only need pixels or a visual attachment, cu_screenshot and cu_zoom are allowed, but still treat the latest observation as the SSOT for targeting
 
 ## Best Practices
 - Click at the CENTER of UI elements, not at edges
 - After clicking a menu or button, use cu_wait if content needs time to load, then re-observe
 - Use cu_zoom to inspect small or ambiguous UI regions before clicking
 - For text input: prefer cu_type_into_target when a grounded target exists; otherwise focus the field, then use cu_type
+- For short deterministic workflows, prefer cu_execute_plan over spending extra turns on wait/retry/re-verify loops
 - Use cu_key for keyboard shortcuts (e.g. "command+c", "command+v", "command+l")
 - Use cu_scroll at the coordinates of the scrollable area
 - Prefer keyboard shortcuts over mouse navigation when well-known

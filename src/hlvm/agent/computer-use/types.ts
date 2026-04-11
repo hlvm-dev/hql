@@ -256,12 +256,14 @@ export interface ComputerExecutor {
   appUnderPoint(
     x: number,
     y: number,
-  ): Promise<{
-    bundleId: string;
-    displayName: string;
-    windowId?: number;
-    displayId?: number;
-  } | null>;
+  ): Promise<
+    {
+      bundleId: string;
+      displayName: string;
+      windowId?: number;
+      displayId?: number;
+    } | null
+  >;
   listInstalledApps(): Promise<InstalledApp[]>;
   getAppIcon(path: string): Promise<string | undefined>;
   listRunningApps(): Promise<RunningApp[]>;
@@ -284,10 +286,12 @@ export interface ComputerUseInputAPI {
   keys(parts: string[]): Promise<void>;
   key(name: string, action: "press" | "release"): Promise<void>;
   typeText(text: string): Promise<void>;
-  getFrontmostAppInfo(): Promise<{
-    bundleId: string;
-    appName: string;
-  } | null>;
+  getFrontmostAppInfo(): Promise<
+    {
+      bundleId: string;
+      appName: string;
+    } | null
+  >;
 }
 
 /** Mirrors `@ant/computer-use-swift` API. */
@@ -340,12 +344,14 @@ export interface ComputerUseSwiftAPI {
     appUnderPoint(
       x: number,
       y: number,
-    ): Promise<{
-      bundleId: string;
-      displayName: string;
-      windowId?: number;
-      displayId?: number;
-    } | null>;
+    ): Promise<
+      {
+        bundleId: string;
+        displayName: string;
+        windowId?: number;
+        displayId?: number;
+      } | null
+    >;
   };
   permissions: {
     getState(): Promise<ComputerUsePermissionState>;
@@ -380,4 +386,92 @@ export interface CUBackendResolution {
   backend: CUBackendKind;
   capabilities?: CUNativeCapabilities;
   port?: number;
+}
+
+// ── Native Execute Plan ─────────────────────────────────────────────────
+
+export interface CUPlanTargetSelector {
+  bundle_id: string;
+  window_title_contains?: string;
+  role_in: string[];
+  label_contains?: string;
+  value_contains?: string;
+  index?: number;
+}
+
+export type CUPlanStep =
+  | {
+    op: "open_app";
+    bundle_id: string;
+  }
+  | {
+    op: "wait_for_ready";
+    bundle_id?: string;
+    target_ref?: string;
+    timeout_ms?: number;
+  }
+  | {
+    op: "find_target";
+    id: string;
+    selector: CUPlanTargetSelector;
+  }
+  | {
+    op: "click";
+    target_ref: string;
+  }
+  | {
+    op: "type_into";
+    target_ref: string;
+    text: string;
+  }
+  | {
+    op: "press_keys";
+    keys: string;
+    repeat?: number;
+  }
+  | {
+    op: "verify";
+    predicate:
+      | "frontmost_app_is"
+      | "window_visible"
+      | "target_exists"
+      | "target_value_contains"
+      | "target_enabled";
+    bundle_id?: string;
+    window_title_contains?: string;
+    target_ref?: string;
+    value_contains?: string;
+    enabled?: boolean;
+  };
+
+export interface CUExecutePlanRequest {
+  steps: CUPlanStep[];
+  displayId?: number;
+}
+
+export interface CUExecutePlanStepRecord {
+  index: number;
+  op: CUPlanStep["op"];
+  status: "completed" | "blocked";
+  stepId?: string;
+  message?: string;
+}
+
+export interface CUExecutePlanFailure {
+  code: string;
+  message: string;
+  retryable: boolean;
+  stepIndex?: number;
+  stepOp?: CUPlanStep["op"];
+  facts?: Record<string, unknown>;
+}
+
+export interface CUExecutePlanResponse {
+  ok: boolean;
+  status: "completed" | "blocked";
+  steps: CUExecutePlanStepRecord[];
+  failure?: CUExecutePlanFailure;
+  finalBundleId?: string;
+  finalWindowId?: number;
+  finalDisplayId?: number;
 }

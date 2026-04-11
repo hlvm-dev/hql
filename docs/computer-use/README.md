@@ -1,20 +1,24 @@
 # Computer Use — Overview
 
-HLVM computer use is the desktop-control subsystem that lets the agent see and act on a macOS desktop: screenshots, mouse, keyboard, app activation, window grounding, browser-to-desktop handoff, and native AX-backed target actions when the GUI backend is available.
+HLVM computer use is the desktop-control subsystem that lets the agent see and
+act on a macOS desktop: screenshots, mouse, keyboard, app activation, window
+grounding, browser-to-desktop handoff, and native AX-backed target actions when
+the GUI backend is available.
 
 The important reality now is:
 
 - the native Swift substrate exists
 - the `hql` bridge can use it
-- the current chapter is reliability validation, not another architecture rewrite
+- the current chapter is reliability validation, not another architecture
+  rewrite
 
 ## Quick Links
 
-| Document | Purpose |
-|----------|---------|
-| [Architecture](./architecture.md) | Full system map, pipeline diagrams, phase journey, current design |
-| [Progress](./progress.md) | Phase timeline, current status, what is done vs still being validated |
-| [Hybrid Strategy](./hybrid-strategy.md) | Browser-first `pw_*` + `pw_promote` + `cu_*` design |
+| Document                                | Purpose                                                               |
+| --------------------------------------- | --------------------------------------------------------------------- |
+| [Architecture](./architecture.md)       | Full system map, pipeline diagrams, phase journey, current design     |
+| [Progress](./progress.md)               | Phase timeline, current status, what is done vs still being validated |
+| [Hybrid Strategy](./hybrid-strategy.md) | Browser-first `pw_*` + `pw_promote` + `cu_*` design                   |
 
 ## The Three Levels
 
@@ -33,10 +37,10 @@ Level 3: Native substrate
 ```
 
 HLVM operates at all three levels simultaneously. The system degrades
-gracefully: Level 3 when HLVM.app is running, Level 2 via JXA fallback,
-Level 1 as pure vision baseline. All competitors (CC, ChatGPT Operator,
-Gemini Mariner) operate at Level 1 or browser-only grounding. HLVM is the
-only system doing desktop-level native AX grounding (Level 3).
+gracefully: Level 3 when HLVM.app is running, Level 2 via JXA fallback, Level 1
+as pure vision baseline. All competitors (CC, ChatGPT Operator, Gemini Mariner)
+operate at Level 1 or browser-only grounding. HLVM is the only system doing
+desktop-level native AX grounding (Level 3).
 
 The open work is not "invent Level 4." It is to make Level 3 consistently
 reliable in live product use.
@@ -66,18 +70,21 @@ Phase 6  Bridge-First Reliability
 
 ## What It Can Do
 
-Public CU surface: 25 tools
+Public CU surface: 26 tools
 
 - Observation: `cu_observe`
 - Screenshot: `cu_screenshot`, `cu_zoom`
 - Cursor: `cu_cursor_position`
-- Click: `cu_left_click`, `cu_right_click`, `cu_middle_click`, `cu_double_click`, `cu_triple_click`
-- Mouse: `cu_mouse_move`, `cu_left_mouse_down`, `cu_left_mouse_up`, `cu_left_click_drag`
+- Click: `cu_left_click`, `cu_right_click`, `cu_middle_click`,
+  `cu_double_click`, `cu_triple_click`
+- Mouse: `cu_mouse_move`, `cu_left_mouse_down`, `cu_left_mouse_up`,
+  `cu_left_click_drag`
 - Keyboard: `cu_type`, `cu_key`, `cu_hold_key`
 - Grounded target actions: `cu_click_target`, `cu_type_into_target`
 - Clipboard: `cu_read_clipboard`, `cu_write_clipboard`
 - Scroll: `cu_scroll`
-- Apps: `cu_list_granted_applications`, `cu_open_application`, `cu_request_access`
+- Apps: `cu_list_granted_applications`, `cu_open_application`,
+  `cu_request_access`
 - Wait: `cu_wait`
 
 Under the native GUI backend (Level 3):
@@ -126,7 +133,8 @@ LLM
   -> macOS
 ```
 
-For the full pipeline and file-level system map, read [architecture.md](./architecture.md).
+For the full pipeline and file-level system map, read
+[architecture.md](./architecture.md).
 
 ## Current Status
 
@@ -178,4 +186,5 @@ current work: repeated-run reliability and broader scenario coverage
 - vision-capable model for full screenshot-based CU
 - Accessibility permission
 - Screen Recording permission
-- running `HLVM.app` if you want the native Level 3 backend instead of JXA fallback
+- running `HLVM.app` if you want the native Level 3 backend instead of JXA
+  fallback

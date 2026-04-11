@@ -22,3 +22,24 @@ Deno.test("tool schema: any[] args emit an explicit empty items schema", () => {
     description: "string - Label",
   });
 });
+
+Deno.test("tool schema: Array<object> args emit array-of-object schema", () => {
+  const schema = buildToolJsonSchema({
+    fn: () => Promise.resolve(null),
+    description: "Test tool",
+    args: {
+      steps: "Array<object> - Ordered plan steps",
+      name: "string - Plan name",
+    },
+  } satisfies ToolMetadata);
+
+  assertEquals(schema.properties.steps, {
+    type: "array",
+    description: "Array<object> - Ordered plan steps",
+    items: { type: "object" },
+  });
+  assertEquals(schema.properties.name, {
+    type: "string",
+    description: "string - Plan name",
+  });
+});

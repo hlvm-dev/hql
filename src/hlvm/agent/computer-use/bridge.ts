@@ -25,11 +25,13 @@ import { parseKeySpec } from "./keycodes.ts";
 import { getHlvmRuntimeBaseUrl } from "../../runtime/host-config.ts";
 import type {
   BoundsRect,
-  CUBackendResolution,
-  CUNativeCapabilities,
-  ComputerUsePermissionState,
   ComputerUseInputAPI,
+  ComputerUsePermissionState,
   ComputerUseSwiftAPI,
+  CUBackendResolution,
+  CUExecutePlanRequest,
+  CUExecutePlanResponse,
+  CUNativeCapabilities,
   DisplayGeometry,
   HideCandidate,
   InstalledApp,
@@ -261,7 +263,9 @@ function computeHideCandidates(
   selectedTargetBundleId?: string,
 ): HideCandidate[] {
   const allowSet = new Set(
-    allowedBundleIds.filter((bundleId) => bundleId && bundleId !== hostBundleId),
+    allowedBundleIds.filter((bundleId) =>
+      bundleId && bundleId !== hostBundleId
+    ),
   );
   allowSet.add(hostBundleId);
   if (selectedTargetBundleId) {
@@ -302,11 +306,14 @@ function resolvePreparationPlan(
     displayId?: number;
   },
 ): BridgePreparationPlan {
-  const allowedBundleIds = [...new Set(
-    params.allowedBundleIds.filter((bundleId) =>
-      bundleId && bundleId !== params.hostBundleId && isValidBundleId(bundleId)
+  const allowedBundleIds = [
+    ...new Set(
+      params.allowedBundleIds.filter((bundleId) =>
+        bundleId && bundleId !== params.hostBundleId &&
+        isValidBundleId(bundleId)
+      ),
     ),
-  )];
+  ];
   const orderedWindows = sortWindowsForSelection(
     params.windows.filter((window) => !!window.bundleId),
   );
@@ -317,7 +324,8 @@ function resolvePreparationPlan(
     ? orderedWindows.filter((window) => window.displayId === params.displayId)
     : orderedWindows;
   const allowedWindowsOnRequestedDisplay = windowsOnRequestedDisplay.filter(
-    (window) => !!window.bundleId &&
+    (window) =>
+      !!window.bundleId &&
       allowedBundleIds.includes(window.bundleId),
   );
 
@@ -559,7 +567,9 @@ async function probeScreenRecordingAccess(): Promise<boolean | null> {
   }
 }
 
-async function getPermissionStateInternal(): Promise<ComputerUsePermissionState> {
+async function getPermissionStateInternal(): Promise<
+  ComputerUsePermissionState
+> {
   if (
     _cachedPermissionState &&
     Date.now() - _cachedPermissionState.checkedAt < PERMISSION_CACHE_MS
@@ -784,7 +794,9 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
         },
       };
       if (!(button in buttonMap)) {
-        throw new Error(`Invalid mouse button: "${button}". Must be "left", "right", or "middle".`);
+        throw new Error(
+          `Invalid mouse button: "${button}". Must be "left", "right", or "middle".`,
+        );
       }
       const { down, up, btn } = buttonMap[button];
 
@@ -810,10 +822,14 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
             ObjC.import('CoreGraphics');
             var loc = $.CGEventGetLocation($.CGEventCreate(null));
             var evDown = $.CGEventCreateMouseEvent(null, $.${down}, loc, ${btn});
-            $.CGEventSetIntegerValueField(evDown, $.kCGMouseEventClickState, ${i + 1});
+            $.CGEventSetIntegerValueField(evDown, $.kCGMouseEventClickState, ${
+            i + 1
+          });
             $.CGEventPost($.kCGHIDEventTap, evDown);
             var evUp = $.CGEventCreateMouseEvent(null, $.${up}, loc, ${btn});
-            $.CGEventSetIntegerValueField(evUp, $.kCGMouseEventClickState, ${i + 1});
+            $.CGEventSetIntegerValueField(evUp, $.kCGMouseEventClickState, ${
+            i + 1
+          });
             $.CGEventPost($.kCGHIDEventTap, evUp);
           `);
         }
@@ -828,13 +844,17 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
       if (axis === "vertical") {
         await jxa(`
           ObjC.import('CoreGraphics');
-          var ev = $.CGEventCreateScrollWheelEvent(null, $.kCGScrollEventUnitPixel, 1, ${Math.round(delta)});
+          var ev = $.CGEventCreateScrollWheelEvent(null, $.kCGScrollEventUnitPixel, 1, ${
+          Math.round(delta)
+        });
           $.CGEventPost($.kCGHIDEventTap, ev);
         `);
       } else {
         await jxa(`
           ObjC.import('CoreGraphics');
-          var ev = $.CGEventCreateScrollWheelEvent(null, $.kCGScrollEventUnitPixel, 2, 0, ${Math.round(delta)});
+          var ev = $.CGEventCreateScrollWheelEvent(null, $.kCGScrollEventUnitPixel, 2, 0, ${
+          Math.round(delta)
+        });
           $.CGEventPost($.kCGHIDEventTap, ev);
         `);
       }
@@ -859,9 +879,7 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
 
       // Map CC modifier names (e.g. 'command', 'shift') to our MODIFIER_MAP
       const parsed = parseKeySpec(
-        modNames.length > 0
-          ? `${modNames.join("+")}+${keyName}`
-          : keyName,
+        modNames.length > 0 ? `${modNames.join("+")}+${keyName}` : keyName,
       );
       if (!parsed) {
         throw new Error(`Unknown key spec: "${parts.join("+")}"`);
@@ -932,10 +950,12 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
     // Bridge note: CC's getFrontmostAppInfo() is synchronous (Rust native module).
     // In HLVM, osascript is async. The executor's getFrontmostApp() calls this
     // and awaits it — this is the one executor.ts change from CC's original.
-    async getFrontmostAppInfo(): Promise<{
-      bundleId: string;
-      appName: string;
-    } | null> {
+    async getFrontmostAppInfo(): Promise<
+      {
+        bundleId: string;
+        appName: string;
+      } | null
+    > {
       try {
         const raw = await jxa(`
           ObjC.import('AppKit');
@@ -1127,7 +1147,9 @@ export async function resolveBackend(): Promise<CUBackendResolution> {
       return _backendResolution;
     }
     getAgentLogger().info(
-      `[bridge] Native CU backend detected on :${port} (v${caps.version}, features: ${caps.features.join(",")})`,
+      `[bridge] Native CU backend detected on :${port} (v${caps.version}, features: ${
+        caps.features.join(",")
+      })`,
     );
     _backendResolution = { backend: "native_gui", capabilities: caps, port };
   } catch {
@@ -1216,7 +1238,9 @@ export async function fetchNativeObservationTargets(
       return normalized ? [normalized] : [];
     });
     getAgentLogger().debug(
-      `[bridge] Native target enumeration used bundle=${bundleId} window=${windowId ?? "auto"} targets=${targets.length}`,
+      `[bridge] Native target enumeration used bundle=${bundleId} window=${
+        windowId ?? "auto"
+      } targets=${targets.length}`,
     );
     return {
       observationId: raw.observationId,
@@ -1249,7 +1273,9 @@ export async function performNativeTargetAction(
     const response = await cuNativeFetch<{ ok?: unknown }>(path, body);
     const ok = response.ok === true;
     getAgentLogger().debug(
-      `[bridge] Native target action ${action} ${ok ? "used" : "failed"} target=${body.targetId}`,
+      `[bridge] Native target action ${action} ${
+        ok ? "used" : "failed"
+      } target=${body.targetId}`,
     );
     return ok;
   } catch (err) {
@@ -1257,6 +1283,37 @@ export async function performNativeTargetAction(
       `[bridge] Native target action ${action} failed, falling back to coordinates: ${err}`,
     );
     return false;
+  }
+}
+
+export async function performNativeExecutePlan(
+  request: CUExecutePlanRequest,
+): Promise<CUExecutePlanResponse | null> {
+  const resolution = await resolveBackend();
+  if (!nativeFeatureAvailable(resolution, "execute-plan")) {
+    return null;
+  }
+  try {
+    const response = await cuNativeFetch<CUExecutePlanResponse>(
+      "/cu/execute-plan",
+      request,
+    );
+    if (
+      typeof response?.ok !== "boolean" ||
+      (response?.status !== "completed" && response?.status !== "blocked") ||
+      !Array.isArray(response?.steps)
+    ) {
+      throw new Error("Invalid execute-plan response");
+    }
+    getAgentLogger().debug(
+      `[bridge] Native execute-plan used status=${response.status} steps=${response.steps.length}`,
+    );
+    return response;
+  } catch (err) {
+    getAgentLogger().debug(
+      `[bridge] Native execute-plan failed: ${err}`,
+    );
+    return null;
   }
 }
 
@@ -1279,7 +1336,7 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
         if (!_cachedDisplaySize) {
           log.warn(
             "[bridge] Display cache not populated — using fallback dimensions. " +
-            "Screenshots may be incorrectly sized. Call ensureDisplayCache() first.",
+              "Screenshots may be incorrectly sized. Call ensureDisplayCache() first.",
           );
         }
         return selectDisplayGeometry(displayId);
@@ -1299,7 +1356,8 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
         displayId?: number,
       ): Promise<ScreenshotResult> {
         await refreshBridgeCaches();
-        const displays = _cachedDisplayList ?? [selectDisplayGeometry(displayId)];
+        const displays = _cachedDisplayList ??
+          [selectDisplayGeometry(displayId)];
         const windows = await listVisibleWindowsInternal();
         const runningApps = _cachedRunningApps ?? [];
         const resolution = resolveCaptureDisplayId({
@@ -1392,9 +1450,9 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
         }
 
         const hidden = hideDistractors
-          ? await hideBundleIds(plan.hideCandidates.map((candidate) =>
-            candidate.bundleId
-          ))
+          ? await hideBundleIds(
+            plan.hideCandidates.map((candidate) => candidate.bundleId),
+          )
           : [];
         return {
           activated,
@@ -1430,12 +1488,14 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
         const displays = _cachedDisplayList ?? [selectDisplayGeometry()];
         return bundleIds.map((bundleId) => ({
           bundleId,
-          displayIds: sortDisplayIdsByDisplayOrder([...new Set(
-            windows
-              .filter((window) => window.bundleId === bundleId)
-              .map((window) => window.displayId)
-              .filter((value): value is number => typeof value === "number"),
-          )], displays),
+          displayIds: sortDisplayIdsByDisplayOrder([
+            ...new Set(
+              windows
+                .filter((window) => window.bundleId === bundleId)
+                .map((window) => window.displayId)
+                .filter((value): value is number => typeof value === "number"),
+            ),
+          ], displays),
         }));
       },
 
@@ -1513,12 +1573,14 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
       async appUnderPoint(
         x: number,
         y: number,
-      ): Promise<{
-        bundleId: string;
-        displayName: string;
-        windowId?: number;
-        displayId?: number;
-      } | null> {
+      ): Promise<
+        {
+          bundleId: string;
+          displayName: string;
+          windowId?: number;
+          displayId?: number;
+        } | null
+      > {
         const windows = await listVisibleWindowsInternal();
         const match = selectWindowAtPoint(windows, x, y);
         if (!match?.bundleId) return null;
@@ -1567,7 +1629,9 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
             1,
           selectedTargetBundleId: undefined,
           selectedTargetWindowId: undefined,
-          resolutionReason: displayId != null ? "explicit_display" : "default_display",
+          resolutionReason: displayId != null
+            ? "explicit_display"
+            : "default_display",
           failureReason: undefined,
         };
 
@@ -1595,7 +1659,8 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
           resolution.selectedTargetBundleId,
         selectedTargetWindowId: prepared?.selectedTargetWindowId ??
           resolution.selectedTargetWindowId,
-        resolutionReason: prepared?.resolutionReason ?? resolution.resolutionReason,
+        resolutionReason: prepared?.resolutionReason ??
+          resolution.resolutionReason,
         failureReason: prepared?.failureReason ?? resolution.failureReason,
       };
     },
@@ -1664,15 +1729,25 @@ export function upgradeSwiftInstanceToNative(): void {
     hideDistractors?,
   ) => {
     try {
-      return await cuNativeFetch<PrepareForActionResult>("/cu/prepare-display", {
+      return await cuNativeFetch<PrepareForActionResult>(
+        "/cu/prepare-display",
+        {
+          allowedBundleIds,
+          hostBundleId,
+          displayId,
+          hideDistractors,
+        },
+      );
+    } catch (err) {
+      log.debug(
+        `[bridge] Native prepareDisplay failed, falling back to JXA: ${err}`,
+      );
+      return jxaPrepareDisplay(
         allowedBundleIds,
         hostBundleId,
         displayId,
         hideDistractors,
-      });
-    } catch (err) {
-      log.debug(`[bridge] Native prepareDisplay failed, falling back to JXA: ${err}`);
-      return jxaPrepareDisplay(allowedBundleIds, hostBundleId, displayId, hideDistractors);
+      );
     }
   };
 
@@ -1680,7 +1755,9 @@ export function upgradeSwiftInstanceToNative(): void {
     try {
       return await cuNativeFetch("/cu/element-at-point", { x, y });
     } catch (err) {
-      log.debug(`[bridge] Native appUnderPoint failed, falling back to JXA: ${err}`);
+      log.debug(
+        `[bridge] Native appUnderPoint failed, falling back to JXA: ${err}`,
+      );
       return jxaAppUnderPoint(x, y);
     }
   };
@@ -1693,7 +1770,9 @@ export function upgradeSwiftInstanceToNative(): void {
       );
       return result.windows;
     } catch (err) {
-      log.debug(`[bridge] Native listVisibleWindows failed, falling back to JXA: ${err}`);
+      log.debug(
+        `[bridge] Native listVisibleWindows failed, falling back to JXA: ${err}`,
+      );
       return jxaListVisibleWindows(displayId);
     }
   };
@@ -1702,7 +1781,9 @@ export function upgradeSwiftInstanceToNative(): void {
     try {
       return await cuNativeFetch<ComputerUsePermissionState>("/cu/permissions");
     } catch (err) {
-      log.debug(`[bridge] Native permissions failed, falling back to JXA: ${err}`);
+      log.debug(
+        `[bridge] Native permissions failed, falling back to JXA: ${err}`,
+      );
       return jxaPermissions();
     }
   };
@@ -1721,7 +1802,9 @@ export function upgradeSwiftInstanceToNative(): void {
         _runningAppsReady = undefined;
         log.debug(`[bridge] Native activate-app used bundle=${bundleId}`);
       } catch (err) {
-        log.debug(`[bridge] Native activate-app failed, falling back to JXA: ${err}`);
+        log.debug(
+          `[bridge] Native activate-app failed, falling back to JXA: ${err}`,
+        );
         await jxaOpen(bundleId);
       }
     };
@@ -1740,7 +1823,9 @@ export function upgradeSwiftInstanceToNative(): void {
         log.debug(`[bridge] Native frontmost used bundle=${bundleId}`);
         return { bundleId, appName };
       } catch (err) {
-        log.debug(`[bridge] Native frontmost failed, falling back to JXA: ${err}`);
+        log.debug(
+          `[bridge] Native frontmost failed, falling back to JXA: ${err}`,
+        );
         return jxaGetFrontmostAppInfo();
       }
     };
@@ -1756,7 +1841,9 @@ export function upgradeSwiftInstanceToNative(): void {
         });
         log.debug(`[bridge] Native input.moveMouse used x=${x} y=${y}`);
       } catch (err) {
-        log.debug(`[bridge] Native input.moveMouse failed, falling back to JXA: ${err}`);
+        log.debug(
+          `[bridge] Native input.moveMouse failed, falling back to JXA: ${err}`,
+        );
         await jxaMoveMouse(x, y, animated);
       }
     };
@@ -1772,9 +1859,13 @@ export function upgradeSwiftInstanceToNative(): void {
           action,
           count,
         });
-        log.debug(`[bridge] Native input.mouseButton used button=${button} action=${action}`);
+        log.debug(
+          `[bridge] Native input.mouseButton used button=${button} action=${action}`,
+        );
       } catch (err) {
-        log.debug(`[bridge] Native input.mouseButton failed, falling back to JXA: ${err}`);
+        log.debug(
+          `[bridge] Native input.mouseButton failed, falling back to JXA: ${err}`,
+        );
         await jxaMouseButton(button, action, count);
       }
     };
@@ -1788,9 +1879,13 @@ export function upgradeSwiftInstanceToNative(): void {
           delta,
           axis,
         });
-        log.debug(`[bridge] Native input.mouseScroll used axis=${axis} delta=${delta}`);
+        log.debug(
+          `[bridge] Native input.mouseScroll used axis=${axis} delta=${delta}`,
+        );
       } catch (err) {
-        log.debug(`[bridge] Native input.mouseScroll failed, falling back to JXA: ${err}`);
+        log.debug(
+          `[bridge] Native input.mouseScroll failed, falling back to JXA: ${err}`,
+        );
         await jxaMouseScroll(delta, axis);
       }
     };
@@ -1808,7 +1903,9 @@ export function upgradeSwiftInstanceToNative(): void {
         log.debug(`[bridge] Native input.mouseLocation used x=${x} y=${y}`);
         return { x, y };
       } catch (err) {
-        log.debug(`[bridge] Native input.mouseLocation failed, falling back to JXA: ${err}`);
+        log.debug(
+          `[bridge] Native input.mouseLocation failed, falling back to JXA: ${err}`,
+        );
         return await jxaMouseLocation();
       }
     };
@@ -1829,10 +1926,14 @@ export function upgradeSwiftInstanceToNative(): void {
           modifiers: parsed.modifiers,
         });
         log.debug(
-          `[bridge] Native input.keys used keyCode=${parsed.keyCode} modifiers=${parsed.modifiers.join(",")}`,
+          `[bridge] Native input.keys used keyCode=${parsed.keyCode} modifiers=${
+            parsed.modifiers.join(",")
+          }`,
         );
       } catch (err) {
-        log.debug(`[bridge] Native input.keys failed, falling back to JXA: ${err}`);
+        log.debug(
+          `[bridge] Native input.keys failed, falling back to JXA: ${err}`,
+        );
         await jxaKeys(parts);
       }
     };
@@ -1865,9 +1966,13 @@ export function upgradeSwiftInstanceToNative(): void {
           keyCode,
           action,
         });
-        log.debug(`[bridge] Native input.key used keyCode=${keyCode} action=${action}`);
+        log.debug(
+          `[bridge] Native input.key used keyCode=${keyCode} action=${action}`,
+        );
       } catch (err) {
-        log.debug(`[bridge] Native input.key failed, falling back to JXA: ${err}`);
+        log.debug(
+          `[bridge] Native input.key failed, falling back to JXA: ${err}`,
+        );
         await jxaKey(name, action);
       }
     };
@@ -1878,9 +1983,13 @@ export function upgradeSwiftInstanceToNative(): void {
         await cuNativeFetch<{ ok?: unknown }>("/cu/input/type-text", {
           text: sanitized,
         });
-        log.debug(`[bridge] Native input.typeText used length=${sanitized.length}`);
+        log.debug(
+          `[bridge] Native input.typeText used length=${sanitized.length}`,
+        );
       } catch (err) {
-        log.debug(`[bridge] Native input.typeText failed, falling back to JXA: ${err}`);
+        log.debug(
+          `[bridge] Native input.typeText failed, falling back to JXA: ${err}`,
+        );
         await jxaTypeText(text);
       }
     };
@@ -2001,7 +2110,10 @@ async function captureScreenshot(
       displays[0]?.displayId ??
       DEFAULT_DISPLAY_GEOMETRY.displayId ??
       1;
-    const displayIndex = resolveCaptureDisplayIndex(displays, selectedDisplayId);
+    const displayIndex = resolveCaptureDisplayIndex(
+      displays,
+      selectedDisplayId,
+    );
     const captureArgs = [
       "screencapture",
       "-x",
@@ -2130,7 +2242,9 @@ async function captureScreenshotRegion(
     });
     if (!capResult.success) {
       throw new Error(
-        `screencapture region failed: ${new TextDecoder().decode(capResult.stderr)}`,
+        `screencapture region failed: ${
+          new TextDecoder().decode(capResult.stderr)
+        }`,
       );
     }
 

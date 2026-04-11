@@ -21,6 +21,14 @@ export interface ComputerUseActionRecord {
   observationId?: string;
 }
 
+export type ComputerUseContextSource =
+  | "passive_observation"
+  | "resolved_observation"
+  | "open_application"
+  | "prepare_for_action"
+  | "target_action"
+  | "execute_plan";
+
 export interface ComputerUseFailureRecord {
   code: string;
   message: string;
@@ -35,6 +43,7 @@ export interface ComputerUseSessionState {
   targetApp?: {
     bundleId: string;
     displayName?: string;
+    source: ComputerUseContextSource;
     updatedAt: number;
   };
   targetWindow?: {
@@ -42,6 +51,7 @@ export interface ComputerUseSessionState {
     bundleId?: string;
     title?: string;
     displayId?: number;
+    source: ComputerUseContextSource;
     updatedAt: number;
   };
   hiddenApps: Set<string>;
@@ -66,6 +76,7 @@ export function getComputerUseTargetBundleId(): string | undefined {
 export function setComputerUseTargetBundleId(
   bundleId: string | null | undefined,
   displayName?: string,
+  source: ComputerUseContextSource = "passive_observation",
 ): void {
   const next = bundleId?.trim();
   if (!next) {
@@ -75,6 +86,7 @@ export function setComputerUseTargetBundleId(
   state.targetApp = {
     bundleId: next,
     displayName,
+    source,
     updatedAt: Date.now(),
   };
 }
@@ -83,7 +95,10 @@ export function getComputerUseTargetWindowId(): number | undefined {
   return state.targetWindow?.windowId;
 }
 
-export function setComputerUseTargetWindow(window: WindowInfo | null): void {
+export function setComputerUseTargetWindow(
+  window: WindowInfo | null,
+  source: ComputerUseContextSource = "passive_observation",
+): void {
   if (!window) {
     delete state.targetWindow;
     return;
@@ -93,8 +108,15 @@ export function setComputerUseTargetWindow(window: WindowInfo | null): void {
     bundleId: window.bundleId,
     title: window.title,
     displayId: window.displayId,
+    source,
     updatedAt: Date.now(),
   };
+}
+
+function isExplicitContextSource(
+  source: ComputerUseContextSource | undefined,
+): boolean {
+  return source != null && source !== "passive_observation";
 }
 
 export function setComputerUseSelectedDisplay(
@@ -152,10 +174,33 @@ export function rememberComputerUseObservation(
     delete state.pendingPromotionObservationAt;
   }
 
-  if (observation.frontmostApp?.bundleId) {
+  const resolvedTargetBundleId = observation.resolvedTargetBundleId;
+  const existingTargetBundleId = state.targetApp?.bundleId;
+  const existingTargetAppSource = state.targetApp?.source;
+  if (resolvedTargetBundleId) {
+    const displayName =
+      observation.runningApps.find((app) => app.bundleId === resolvedTargetBundleId)
+        ?.displayName ??
+      (observation.frontmostApp?.bundleId === resolvedTargetBundleId
+        ? observation.frontmostApp.displayName
+        : undefined);
+    setComputerUseTargetBundleId(
+      resolvedTargetBundleId,
+      displayName,
+      "resolved_observation",
+    );
+  } else if (
+    observation.frontmostApp?.bundleId &&
+    (
+      existingTargetBundleId == null ||
+      existingTargetBundleId === observation.frontmostApp.bundleId ||
+      !isExplicitContextSource(existingTargetAppSource)
+    )
+  ) {
     setComputerUseTargetBundleId(
       observation.frontmostApp.bundleId,
       observation.frontmostApp.displayName,
+      "passive_observation",
     );
   }
 
@@ -163,17 +208,39 @@ export function rememberComputerUseObservation(
     const targetWindow = observation.windows.find((window) =>
       window.windowId === observation.resolvedTargetWindowId
     );
-    setComputerUseTargetWindow(targetWindow ?? null);
+    setComputerUseTargetWindow(targetWindow ?? null, "resolved_observation");
     return;
   }
 
+  if (resolvedTargetBundleId) {
+    const resolvedWindow = observation.windows.find((window) =>
+      window.bundleId === resolvedTargetBundleId
+    );
+    setComputerUseTargetWindow(resolvedWindow ?? null, "resolved_observation");
+    return;
+  }
+
+  const targetBundleForWindow = state.targetApp?.bundleId;
+  const existingTargetWindowId = state.targetWindow?.windowId;
+  const existingTargetWindowSource = state.targetWindow?.source;
   const frontmostWindow = observation.frontmostApp?.bundleId
     ? observation.windows.find((window) =>
       window.bundleId === observation.frontmostApp?.bundleId
     )
     : undefined;
-  if (frontmostWindow) {
-    setComputerUseTargetWindow(frontmostWindow);
+  if (
+    frontmostWindow &&
+    (
+      existingTargetWindowId == null ||
+      existingTargetWindowId === frontmostWindow.windowId ||
+      !isExplicitContextSource(existingTargetWindowSource)
+    ) &&
+    (
+      targetBundleForWindow == null ||
+      frontmostWindow.bundleId === targetBundleForWindow
+    )
+  ) {
+    setComputerUseTargetWindow(frontmostWindow, "passive_observation");
   }
 }
 

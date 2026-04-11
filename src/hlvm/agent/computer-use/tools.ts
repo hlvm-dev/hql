@@ -1,7 +1,7 @@
 /**
  * Computer Use — Tool Definitions (V2: CC Parity)
  *
- * 25 tools: the original Claude Code `computer_20250124`-style coordinate
+ * 26 tools: the original Claude Code `computer_20250124`-style coordinate
  * suite plus HLVM's observation-first target actions (`cu_observe`,
  * `cu_click_target`, `cu_type_into_target`).
  * Each tool wraps the ComputerExecutor interface with guards + error handling.
@@ -26,8 +26,8 @@
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import {
   assertValidBundleId,
-  isComputerUseHostBundleId,
   type ComputerUseSettingsPane,
+  isComputerUseHostBundleId,
   openComputerUseSettings,
 } from "./common.ts";
 import {
@@ -41,6 +41,10 @@ import {
 import type {
   ComputerExecutor,
   ComputerUsePermissionState,
+  CUExecutePlanFailure,
+  CUExecutePlanResponse,
+  CUPlanStep,
+  CUPlanTargetSelector,
   DesktopObservation,
   DisplaySelectionReason,
   WindowInfo,
@@ -52,21 +56,25 @@ import {
   clearStaleComputerUseTargetApp,
   clearStaleComputerUseTargetWindow,
   getComputerUseSessionState,
+  getComputerUseTargetBundleId,
   getComputerUseTargetWindowId,
   getLastComputerUseObservation,
-  getComputerUseTargetBundleId,
   markComputerUseFailure,
   markComputerUseSuccess,
-  requiresFreshComputerUseObservation,
   rememberComputerUseObservation,
   rememberHiddenComputerUseApps,
+  requiresFreshComputerUseObservation,
   resolveObservationTarget,
-  setComputerUseSelectedDisplay,
   setComputerUsePermissionState,
+  setComputerUseSelectedDisplay,
   setComputerUseTargetBundleId,
   setComputerUseTargetWindow,
 } from "./session-state.ts";
-import { performNativeTargetAction } from "./bridge.ts";
+import {
+  performNativeExecutePlan,
+  performNativeTargetAction,
+  resolveBackend,
+} from "./bridge.ts";
 
 // ── CC Result Summary Map (from toolRendering.tsx) ──────────────────────
 
@@ -77,6 +85,7 @@ const RESULT_SUMMARY: Record<string, string> = {
   request_access: "Access updated",
   left_click: "Clicked",
   click_target: "Clicked",
+  execute_plan: "Executed",
   right_click: "Clicked",
   middle_click: "Clicked",
   double_click: "Clicked",
@@ -89,6 +98,8 @@ const RESULT_SUMMARY: Record<string, string> = {
   left_click_drag: "Dragged",
   open_application: "Opened",
 };
+
+const MAX_PLAN_STEPS = 20;
 
 // ── Executor singleton ───────────────────────────────────────────────────
 
@@ -284,6 +295,482 @@ function observationImageResult(
   );
 }
 
+function buildObservationLlmContent(result: Record<string, unknown>): string {
+  const targets = Array.isArray(result.targets) ? result.targets : [];
+  const windows = Array.isArray(result.windows) ? result.windows : [];
+  const front = result.frontmost_app as
+    | { bundleId?: string; displayName?: string }
+    | null;
+  const lines: string[] = [
+    `observation_id: ${result.observation_id}`,
+  ];
+  if (front) {
+    lines.push(
+      `frontmost: ${front.displayName ?? ""} (${front.bundleId ?? ""})`,
+    );
+  }
+  if (windows.length > 0) {
+    lines.push("windows:");
+    for (const w of windows.slice(0, 6)) {
+      const wRec = w as Record<string, unknown>;
+      lines.push(
+        `  - id:${wRec.window_id} ${wRec.title ?? wRec.bundleId ?? ""}`,
+      );
+    }
+  }
+  if (targets.length > 0) {
+    lines.push(
+      "targets (use exact target_id with cu_click_target / cu_type_into_target):",
+    );
+    for (const t of targets) {
+      const tRec = t as Record<string, unknown>;
+      const b = tRec.bounds as Record<string, unknown> | undefined;
+      const boundsStr = b ? `[${b.x},${b.y},${b.width},${b.height}]` : "";
+      lines.push(
+        `  - target_id: ${tRec.target_id}  role:${tRec.role}  label:"${
+          tRec.label ?? ""
+        }"  ${boundsStr}`,
+      );
+    }
+  } else {
+    lines.push("targets: (none — use coordinate-based tools instead)");
+  }
+  lines.push(`grounding: ${result.grounding_source ?? "unknown"}`);
+  return lines.join("\n");
+}
+
+function formatObservationResult(
+  result: Record<string, unknown> | null,
+  summaryDisplay: string,
+  returnDisplay: string,
+  extraLines: string[] = [],
+) {
+  if (!result || typeof result !== "object" || !result.observation_id) {
+    return {
+      summaryDisplay,
+      returnDisplay,
+    };
+  }
+  const lines = [
+    ...extraLines.filter((line) => line.trim().length > 0),
+    buildObservationLlmContent(result),
+  ];
+  return {
+    summaryDisplay,
+    returnDisplay,
+    llmContent: lines.join("\n"),
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function asRecordLoose(value: unknown): Record<string, unknown> | undefined {
+  const direct = asRecord(value);
+  if (direct) return direct;
+  if (typeof value !== "string") return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return asRecord(parsed);
+  } catch {
+    return undefined;
+  }
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function ensureStringArray(
+  value: unknown,
+  field: string,
+): string[] {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        value = parsed;
+      }
+    } catch {
+      // fall through to validation below
+    }
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${field} must be a non-empty string array`);
+  }
+  const items = value.map((entry) =>
+    typeof entry === "string" ? entry.trim() : ""
+  );
+  if (items.some((entry) => entry.length === 0)) {
+    throw new Error(`${field} entries must be non-empty strings`);
+  }
+  return items;
+}
+
+function parsePlanSelector(
+  raw: unknown,
+): CUPlanTargetSelector {
+  const selector = asRecordLoose(raw);
+  if (!selector) {
+    throw new Error("find_target.selector must be an object");
+  }
+  const bundleId = selector.bundle_id;
+  const roleIn = selector.role_in;
+  if (!isNonEmptyString(bundleId)) {
+    throw new Error(
+      "find_target.selector.bundle_id must be a non-empty string",
+    );
+  }
+  assertValidBundleId(bundleId, "find_target.selector.bundle_id");
+  const parsed: CUPlanTargetSelector = {
+    bundle_id: bundleId,
+    role_in: ensureStringArray(roleIn, "find_target.selector.role_in"),
+  };
+  if (selector.window_title_contains != null) {
+    if (!isNonEmptyString(selector.window_title_contains)) {
+      throw new Error(
+        "find_target.selector.window_title_contains must be a non-empty string",
+      );
+    }
+    parsed.window_title_contains = selector.window_title_contains;
+  }
+  if (selector.label_contains != null) {
+    if (!isNonEmptyString(selector.label_contains)) {
+      throw new Error(
+        "find_target.selector.label_contains must be a non-empty string",
+      );
+    }
+    parsed.label_contains = selector.label_contains;
+  }
+  if (selector.value_contains != null) {
+    if (!isNonEmptyString(selector.value_contains)) {
+      throw new Error(
+        "find_target.selector.value_contains must be a non-empty string",
+      );
+    }
+    parsed.value_contains = selector.value_contains;
+  }
+  if (selector.index != null) {
+    const index = Number(selector.index);
+    if (!Number.isInteger(index) || index < 0) {
+      throw new Error(
+        "find_target.selector.index must be a non-negative integer",
+      );
+    }
+    parsed.index = index;
+  }
+  return parsed;
+}
+
+function parseExecutePlanArgs(args: unknown): {
+  steps: CUPlanStep[];
+  displayId?: number;
+} {
+  const input = asRecordLoose(args);
+  if (!input) {
+    throw new Error("Arguments must be an object");
+  }
+  if (!Array.isArray(input.steps) || input.steps.length === 0) {
+    throw new Error("'steps' must be a non-empty array");
+  }
+  if (input.steps.length > MAX_PLAN_STEPS) {
+    throw new Error(`'steps' may contain at most ${MAX_PLAN_STEPS} items`);
+  }
+  const seenIds = new Set<string>();
+  const assertKnownTargetRef = (targetRef: string, index: number) => {
+    if (!seenIds.has(targetRef)) {
+      throw new Error(
+        `steps[${index}].target_ref must reference a prior find_target id`,
+      );
+    }
+  };
+  const steps = input.steps.map((rawStep, index) => {
+    const step = asRecordLoose(rawStep);
+    if (!step) {
+      throw new Error(`steps[${index}] must be an object`);
+    }
+    const op = step.op;
+    if (!isNonEmptyString(op)) {
+      throw new Error(`steps[${index}].op must be a non-empty string`);
+    }
+    switch (op) {
+      case "open_app": {
+        const bundleId = step.bundle_id;
+        if (!isNonEmptyString(bundleId)) {
+          throw new Error(
+            `steps[${index}].bundle_id must be a non-empty string`,
+          );
+        }
+        assertValidBundleId(bundleId, `steps[${index}].bundle_id`);
+        return { op, bundle_id: bundleId } satisfies CUPlanStep;
+      }
+      case "wait_for_ready": {
+        const bundleId = step.bundle_id;
+        const targetRef = step.target_ref;
+        if (!isNonEmptyString(bundleId) && !isNonEmptyString(targetRef)) {
+          throw new Error(
+            `steps[${index}] must specify bundle_id or target_ref for wait_for_ready`,
+          );
+        }
+        if (isNonEmptyString(bundleId)) {
+          assertValidBundleId(bundleId, `steps[${index}].bundle_id`);
+        }
+        if (targetRef != null && !isNonEmptyString(targetRef)) {
+          throw new Error(
+            `steps[${index}].target_ref must be a non-empty string`,
+          );
+        }
+        if (isNonEmptyString(targetRef)) {
+          assertKnownTargetRef(targetRef, index);
+        }
+        const timeout = step.timeout_ms != null
+          ? Number(step.timeout_ms)
+          : undefined;
+        if (
+          timeout != null &&
+          (!Number.isFinite(timeout) || timeout <= 0)
+        ) {
+          throw new Error(
+            `steps[${index}].timeout_ms must be a positive number`,
+          );
+        }
+        return {
+          op,
+          ...(isNonEmptyString(bundleId) ? { bundle_id: bundleId } : {}),
+          ...(isNonEmptyString(targetRef) ? { target_ref: targetRef } : {}),
+          ...(timeout != null ? { timeout_ms: timeout } : {}),
+        } satisfies CUPlanStep;
+      }
+      case "find_target": {
+        const id = step.id;
+        if (!isNonEmptyString(id)) {
+          throw new Error(`steps[${index}].id must be a non-empty string`);
+        }
+        if (seenIds.has(id)) {
+          throw new Error(`Duplicate step id '${id}'`);
+        }
+        seenIds.add(id);
+        return {
+          op,
+          id,
+          selector: parsePlanSelector(step.selector),
+        } satisfies CUPlanStep;
+      }
+      case "click": {
+        const targetRef = step.target_ref;
+        if (!isNonEmptyString(targetRef)) {
+          throw new Error(
+            `steps[${index}].target_ref must be a non-empty string`,
+          );
+        }
+        assertKnownTargetRef(targetRef, index);
+        return { op, target_ref: targetRef } satisfies CUPlanStep;
+      }
+      case "type_into": {
+        const targetRef = step.target_ref;
+        const text = step.text;
+        if (!isNonEmptyString(targetRef)) {
+          throw new Error(
+            `steps[${index}].target_ref must be a non-empty string`,
+          );
+        }
+        assertKnownTargetRef(targetRef, index);
+        if (typeof text !== "string") {
+          throw new Error(`steps[${index}].text must be a string`);
+        }
+        return { op, target_ref: targetRef, text } satisfies CUPlanStep;
+      }
+      case "press_keys": {
+        const keys = step.keys;
+        if (!isNonEmptyString(keys)) {
+          throw new Error(`steps[${index}].keys must be a non-empty string`);
+        }
+        const repeat = step.repeat != null ? Number(step.repeat) : undefined;
+        if (
+          repeat != null &&
+          (!Number.isInteger(repeat) || repeat <= 0)
+        ) {
+          throw new Error(`steps[${index}].repeat must be a positive integer`);
+        }
+        return {
+          op,
+          keys,
+          ...(repeat != null ? { repeat } : {}),
+        } satisfies CUPlanStep;
+      }
+      case "verify": {
+        const predicate = step.predicate;
+        if (!isNonEmptyString(predicate)) {
+          throw new Error(
+            `steps[${index}].predicate must be a non-empty string`,
+          );
+        }
+        const allowed = new Set([
+          "frontmost_app_is",
+          "window_visible",
+          "target_exists",
+          "target_value_contains",
+          "target_enabled",
+        ]);
+        if (!allowed.has(predicate)) {
+          throw new Error(`Unsupported verify predicate '${predicate}'`);
+        }
+        const parsed: Extract<CUPlanStep, { op: "verify" }> = {
+          op,
+          predicate: predicate as Extract<
+            CUPlanStep,
+            { op: "verify" }
+          >["predicate"],
+        };
+        if (step.bundle_id != null) {
+          if (!isNonEmptyString(step.bundle_id)) {
+            throw new Error(
+              `steps[${index}].bundle_id must be a non-empty string`,
+            );
+          }
+          assertValidBundleId(step.bundle_id, `steps[${index}].bundle_id`);
+          parsed.bundle_id = step.bundle_id;
+        }
+        if (step.window_title_contains != null) {
+          if (!isNonEmptyString(step.window_title_contains)) {
+            throw new Error(
+              `steps[${index}].window_title_contains must be a non-empty string`,
+            );
+          }
+          parsed.window_title_contains = step.window_title_contains;
+        }
+        if (step.target_ref != null) {
+          if (!isNonEmptyString(step.target_ref)) {
+            throw new Error(
+              `steps[${index}].target_ref must be a non-empty string`,
+            );
+          }
+          assertKnownTargetRef(step.target_ref, index);
+          parsed.target_ref = step.target_ref;
+        }
+        if (step.value_contains != null) {
+          if (!isNonEmptyString(step.value_contains)) {
+            throw new Error(
+              `steps[${index}].value_contains must be a non-empty string`,
+            );
+          }
+          parsed.value_contains = step.value_contains;
+        }
+        if (step.enabled != null) {
+          if (typeof step.enabled !== "boolean") {
+            throw new Error(`steps[${index}].enabled must be a boolean`);
+          }
+          parsed.enabled = step.enabled;
+        }
+        switch (parsed.predicate) {
+          case "frontmost_app_is":
+            if (!parsed.bundle_id) {
+              throw new Error(
+                `steps[${index}].bundle_id is required for frontmost_app_is`,
+              );
+            }
+            break;
+          case "window_visible":
+            if (!parsed.bundle_id) {
+              throw new Error(
+                `steps[${index}].bundle_id is required for window_visible`,
+              );
+            }
+            break;
+          case "target_exists":
+          case "target_enabled":
+            if (!parsed.target_ref) {
+              throw new Error(
+                `steps[${index}].target_ref is required for ${parsed.predicate}`,
+              );
+            }
+            break;
+          case "target_value_contains":
+            if (!parsed.target_ref || !parsed.value_contains) {
+              throw new Error(
+                `steps[${index}] requires target_ref and value_contains for target_value_contains`,
+              );
+            }
+            break;
+        }
+        return parsed satisfies CUPlanStep;
+      }
+      default:
+        throw new Error(`Unsupported step op '${op}' at steps[${index}]`);
+    }
+  });
+
+  const displayId = input.display_id != null
+    ? Number(input.display_id)
+    : undefined;
+  if (
+    displayId != null &&
+    (!Number.isInteger(displayId) || displayId <= 0)
+  ) {
+    throw new Error("'display_id' must be a positive integer");
+  }
+  return { steps, displayId };
+}
+
+function formatExecutePlanSteps(
+  records: readonly {
+    index?: number;
+    op?: string;
+    status?: string;
+    stepId?: string;
+    message?: string;
+  }[],
+): string[] {
+  if (records.length === 0) return [];
+  const lines = ["plan_steps:"];
+  for (const record of records) {
+    const index = record.index ?? 0;
+    const op = record.op ?? "unknown";
+    const status = record.status ?? "unknown";
+    const suffix = record.stepId ? ` id:${record.stepId}` : "";
+    const message = record.message ? ` ${record.message}` : "";
+    lines.push(`  - [${index}] ${status} ${op}${suffix}${message}`);
+  }
+  return lines;
+}
+
+function buildExecutePlanFailureResult(
+  failure: CUExecutePlanFailure | undefined,
+  steps: CUExecutePlanResponse["steps"],
+  observation?: DesktopObservation,
+) {
+  const message = failure?.message ?? "Execute plan failed.";
+  const result = failTool(message, {
+    failure: buildToolFailureMetadata(message, {
+      source: "runtime",
+      kind: failure?.code === "cu_execute_plan_unsupported"
+        ? "unsupported"
+        : "invalid_state",
+      retryable: failure?.retryable ?? false,
+      code: failure?.code,
+      facts: failure?.facts,
+    }),
+    execution_status: "blocked",
+    plan_steps: steps,
+    blocked_step_index: failure?.stepIndex,
+    blocked_step_op: failure?.stepOp,
+  });
+  if (!observation) return result;
+  return {
+    ...result,
+    ...summarizeObservation(observation),
+    _imageAttachment: {
+      data: observation.screenshot.base64,
+      mimeType: "image/jpeg",
+      width: observation.screenshot.width,
+      height: observation.screenshot.height,
+    },
+  };
+}
+
 function runtimeFailure(
   message: string,
   failure: Partial<Parameters<typeof buildToolFailureMetadata>[1]> = {},
@@ -332,13 +819,16 @@ function describePermissionBlock(
   if (mode === "observe" && missing.length === 0) {
     return null;
   }
-  if (mode === "interactive" && missing.length === 0 && uncertain.length === 0) {
+  if (
+    mode === "interactive" && missing.length === 0 && uncertain.length === 0
+  ) {
     return null;
   }
 
   const pane: ComputerUseSettingsPane = missing.includes("Accessibility")
     ? "accessibility"
-    : missing.includes("Screen Recording") || uncertain.includes("Screen Recording")
+    : missing.includes("Screen Recording") ||
+        uncertain.includes("Screen Recording")
     ? "screen_recording"
     : "general";
   const blockedActions = mode === "interactive"
@@ -444,7 +934,9 @@ async function resolveDisplayChoice(
 
   const targetBundleId = getComputerUseTargetBundleId();
   if (targetBundleId) {
-    const matches = await exec.findWindowDisplays([targetBundleId]).catch(() => []);
+    const matches = await exec.findWindowDisplays([targetBundleId]).catch(
+      () => [],
+    );
     const displayId = matches[0]?.displayIds[0];
     if (displayId != null) {
       return { displayId, reason: "target_app", visibleWindows };
@@ -462,7 +954,9 @@ async function resolveDisplayChoice(
 
   const frontmost = await exec.getFrontmostApp().catch(() => null);
   if (frontmost?.bundleId && !isComputerUseHostBundleId(frontmost.bundleId)) {
-    const matches = await exec.findWindowDisplays([frontmost.bundleId]).catch(() => []);
+    const matches = await exec.findWindowDisplays([frontmost.bundleId]).catch(
+      () => [],
+    );
     const displayId = matches[0]?.displayIds[0];
     if (displayId != null) {
       return { displayId, reason: "frontmost_app", visibleWindows };
@@ -500,27 +994,49 @@ async function observeDesktop(
 async function resolvePrepareAllowlist(
   exec: ComputerExecutor,
   visibleWindows?: readonly WindowInfo[],
+  rememberedTargetBundleId = getComputerUseTargetBundleId(),
+  rememberedTargetWindowId = getComputerUseTargetWindowId(),
 ): Promise<{
   allowlist: string[];
+  rememberedTargetBundleId?: string;
+  rememberedTargetWindowId?: number;
   expectedTargetBundleId?: string;
   expectedTargetWindowId?: number;
+  lostRememberedTargetBundleId?: string;
+  lostRememberedTargetWindowId?: number;
+  actualFrontmostBundleId?: string;
 }> {
   const runningApps = await exec.listRunningApps().catch(() => []);
-  clearStaleComputerUseTargetApp(runningApps.map((app) => app.bundleId));
+  const runningBundleIds = runningApps.map((app) => app.bundleId);
+  const lostRememberedTargetBundleId = rememberedTargetBundleId &&
+      !runningBundleIds.includes(rememberedTargetBundleId)
+    ? rememberedTargetBundleId
+    : undefined;
+  clearStaleComputerUseTargetApp(runningBundleIds);
 
   const windows = visibleWindows ? [...visibleWindows] : await exec
     .listVisibleWindows()
     .catch(() => []);
+  const lostRememberedTargetWindowId = rememberedTargetWindowId != null &&
+      !windows.some((window) => window.windowId === rememberedTargetWindowId)
+    ? rememberedTargetWindowId
+    : undefined;
   clearStaleComputerUseTargetWindow(windows);
 
   const targetWindowId = getComputerUseTargetWindowId();
   if (targetWindowId != null) {
-    const targetWindow = windows.find((window) => window.windowId === targetWindowId);
+    const targetWindow = windows.find((window) =>
+      window.windowId === targetWindowId
+    );
     if (targetWindow?.bundleId) {
       return {
         allowlist: [targetWindow.bundleId],
+        rememberedTargetBundleId,
+        rememberedTargetWindowId,
         expectedTargetBundleId: targetWindow.bundleId,
         expectedTargetWindowId: targetWindow.windowId,
+        lostRememberedTargetBundleId,
+        lostRememberedTargetWindowId,
       };
     }
   }
@@ -529,7 +1045,11 @@ async function resolvePrepareAllowlist(
   if (remembered && runningApps.some((app) => app.bundleId === remembered)) {
     return {
       allowlist: [remembered],
+      rememberedTargetBundleId,
+      rememberedTargetWindowId,
       expectedTargetBundleId: remembered,
+      lostRememberedTargetBundleId,
+      lostRememberedTargetWindowId,
     };
   }
 
@@ -537,11 +1057,63 @@ async function resolvePrepareAllowlist(
   if (frontmost?.bundleId && !isComputerUseHostBundleId(frontmost.bundleId)) {
     return {
       allowlist: [frontmost.bundleId],
+      rememberedTargetBundleId,
+      rememberedTargetWindowId,
       expectedTargetBundleId: frontmost.bundleId,
+      lostRememberedTargetBundleId,
+      lostRememberedTargetWindowId,
+      actualFrontmostBundleId: frontmost.bundleId,
     };
   }
 
-  return { allowlist: [] };
+  return {
+    allowlist: [],
+    rememberedTargetBundleId,
+    rememberedTargetWindowId,
+    lostRememberedTargetBundleId,
+    lostRememberedTargetWindowId,
+    actualFrontmostBundleId: frontmost?.bundleId,
+  };
+}
+
+function failForLostTargetContext(target: {
+  lostRememberedTargetBundleId?: string;
+  lostRememberedTargetWindowId?: number;
+  actualFrontmostBundleId?: string;
+}): never {
+  if (target.lostRememberedTargetBundleId) {
+    throw runtimeFailure(
+      `Target app '${target.lostRememberedTargetBundleId}' is no longer running. Stop and re-establish the target before sending keyboard input.`,
+      {
+        kind: "invalid_state",
+        retryable: false,
+        code: "cu_target_app_lost",
+        facts: {
+          expectedTargetBundleId: target.lostRememberedTargetBundleId,
+          actualFrontmostBundleId: target.actualFrontmostBundleId ?? null,
+        },
+      },
+    );
+  }
+  if (target.lostRememberedTargetWindowId != null) {
+    throw runtimeFailure(
+      `Target window '${target.lostRememberedTargetWindowId}' is no longer visible. Stop and re-establish the target before sending keyboard input.`,
+      {
+        kind: "invalid_state",
+        retryable: false,
+        code: "cu_target_window_lost",
+        facts: {
+          expectedTargetWindowId: target.lostRememberedTargetWindowId,
+          actualFrontmostBundleId: target.actualFrontmostBundleId ?? null,
+        },
+      },
+    );
+  }
+  throw runtimeFailure("Target context is no longer valid.", {
+    kind: "invalid_state",
+    retryable: false,
+    code: "cu_target_context_changed",
+  });
 }
 
 async function verifyFrontmostApp(
@@ -551,7 +1123,11 @@ async function verifyFrontmostApp(
   for (let attempt = 0; attempt < 2; attempt++) {
     const frontmost = await exec.getFrontmostApp().catch(() => null);
     if (frontmost?.bundleId === expectedTargetBundleId) {
-      setComputerUseTargetBundleId(frontmost.bundleId, frontmost.displayName);
+      setComputerUseTargetBundleId(
+        frontmost.bundleId,
+        frontmost.displayName,
+        "prepare_for_action",
+      );
       return;
     }
     if (attempt === 0) {
@@ -581,11 +1157,28 @@ async function prepareInteractiveAction(
   exec: ComputerExecutor,
   options: ToolExecutionOptions | undefined,
   requireTargetApp: boolean | undefined,
+  enforceTargetContextContinuity = false,
 ): Promise<PreparedActionContext> {
   ensureFreshObservationAfterPromote();
   await ensureInteractivePermissions(exec);
+  const rememberedTargetBundleId = getComputerUseTargetBundleId();
+  const rememberedTargetWindowId = getComputerUseTargetWindowId();
   const displayChoice = await resolveDisplayChoice(exec, options?.displayId);
-  const target = await resolvePrepareAllowlist(exec, displayChoice.visibleWindows);
+  const target = await resolvePrepareAllowlist(
+    exec,
+    displayChoice.visibleWindows,
+    rememberedTargetBundleId,
+    rememberedTargetWindowId,
+  );
+  if (
+    enforceTargetContextContinuity &&
+    (
+      target.lostRememberedTargetBundleId ||
+      target.lostRememberedTargetWindowId != null
+    )
+  ) {
+    failForLostTargetContext(target);
+  }
   if (requireTargetApp && target.allowlist.length === 0) {
     throw runtimeFailure(
       "No target application is selected. Open or focus the app before sending keyboard input.",
@@ -616,8 +1209,65 @@ async function prepareInteractiveAction(
     target.expectedTargetBundleId;
   const expectedTargetWindowId = prepareResult?.selectedTargetWindowId ??
     target.expectedTargetWindowId;
+  if (
+    enforceTargetContextContinuity &&
+    target.rememberedTargetWindowId != null
+  ) {
+    if (expectedTargetBundleId !== target.rememberedTargetBundleId) {
+      throw runtimeFailure(
+        "Target context changed to a different app before keyboard input. Re-establish the intended window explicitly.",
+        {
+          kind: "invalid_state",
+          retryable: false,
+          code: "cu_target_context_changed",
+          facts: {
+            expectedTargetBundleId: target.rememberedTargetBundleId ?? null,
+            expectedTargetWindowId: target.rememberedTargetWindowId,
+            actualTargetBundleId: expectedTargetBundleId ?? null,
+            actualTargetWindowId: expectedTargetWindowId ?? null,
+          },
+        },
+      );
+    }
+    if (expectedTargetWindowId == null) {
+      throw runtimeFailure(
+        "Target window continuity could not be preserved before keyboard input. Re-establish the intended window explicitly.",
+        {
+          kind: "invalid_state",
+          retryable: false,
+          code: "cu_target_context_changed",
+          facts: {
+            expectedTargetBundleId: target.rememberedTargetBundleId ?? null,
+            expectedTargetWindowId: target.rememberedTargetWindowId,
+            actualTargetBundleId: expectedTargetBundleId ?? null,
+            actualTargetWindowId: null,
+          },
+        },
+      );
+    }
+    if (expectedTargetWindowId !== target.rememberedTargetWindowId) {
+      throw runtimeFailure(
+        "Target context changed to a different window before keyboard input. Re-establish the intended window explicitly.",
+        {
+          kind: "invalid_state",
+          retryable: false,
+          code: "cu_target_context_changed",
+          facts: {
+            expectedTargetBundleId: target.rememberedTargetBundleId ?? null,
+            expectedTargetWindowId: target.rememberedTargetWindowId,
+            actualTargetBundleId: expectedTargetBundleId ?? null,
+            actualTargetWindowId: expectedTargetWindowId,
+          },
+        },
+      );
+    }
+  }
   if (expectedTargetBundleId) {
-    setComputerUseTargetBundleId(expectedTargetBundleId);
+    setComputerUseTargetBundleId(
+      expectedTargetBundleId,
+      undefined,
+      "prepare_for_action",
+    );
   }
   if (expectedTargetWindowId != null) {
     const visibleWindows = displayChoice.visibleWindows
@@ -626,7 +1276,7 @@ async function prepareInteractiveAction(
     const targetWindow = visibleWindows.find((window) =>
       window.windowId === expectedTargetWindowId
     );
-    setComputerUseTargetWindow(targetWindow ?? null);
+    setComputerUseTargetWindow(targetWindow ?? null, "prepare_for_action");
   }
 
   if (target.allowlist.length > 0 && prepareResult?.failureReason) {
@@ -661,11 +1311,17 @@ async function prepareInteractiveActionWithRecovery(
   exec: ComputerExecutor,
   options: ToolExecutionOptions | undefined,
   requireTargetApp: boolean | undefined,
+  enforceTargetContextContinuity = false,
 ): Promise<PreparedActionContext> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return await prepareInteractiveAction(exec, options, requireTargetApp);
+      return await prepareInteractiveAction(
+        exec,
+        options,
+        requireTargetApp,
+        enforceTargetContextContinuity,
+      );
     } catch (error) {
       lastError = error;
       const failure = getFailureMetadata(error);
@@ -755,7 +1411,9 @@ async function verifyPostActionObservation(
     const actualFrontmostBundleId = observation.frontmostApp?.bundleId;
     if (actualFrontmostBundleId !== prepared.expectedTargetBundleId) {
       throw runtimeFailure(
-        `Post-action verification failed. Expected frontmost app '${prepared.expectedTargetBundleId}', found '${actualFrontmostBundleId ?? "none"}'.`,
+        `Post-action verification failed. Expected frontmost app '${prepared.expectedTargetBundleId}', found '${
+          actualFrontmostBundleId ?? "none"
+        }'.`,
         {
           kind: "invalid_state",
           retryable: false,
@@ -813,6 +1471,7 @@ function cuTool(
     requireTargetApp?: boolean;
     actionKind?: string;
     postActionVerify?: "generic" | "focus_sensitive" | false;
+    enforceTargetContextContinuity?: boolean;
     afterSuccess?: (
       args: unknown,
       exec: ComputerExecutor,
@@ -837,6 +1496,7 @@ function cuTool(
           exec,
           options,
           opts?.requireTargetApp,
+          opts?.enforceTargetContextContinuity,
         );
       }
       const result = await fn(args, exec, options);
@@ -1015,6 +1675,7 @@ const cuTypeFn = cuTool("Type failed", async (args, exec) => {
   actionKind: "cu_type",
   requireTargetApp: true,
   postActionVerify: "focus_sensitive",
+  enforceTargetContextContinuity: true,
 });
 
 const cuKeyFn = cuTool("Key press failed", async (args, exec) => {
@@ -1026,6 +1687,7 @@ const cuKeyFn = cuTool("Key press failed", async (args, exec) => {
   actionKind: "cu_key",
   requireTargetApp: true,
   postActionVerify: "focus_sensitive",
+  enforceTargetContextContinuity: true,
 });
 
 const cuHoldKeyFn = cuTool("Hold key failed", async (args, exec) => {
@@ -1038,6 +1700,7 @@ const cuHoldKeyFn = cuTool("Hold key failed", async (args, exec) => {
   actionKind: "cu_hold_key",
   requireTargetApp: true,
   postActionVerify: "focus_sensitive",
+  enforceTargetContextContinuity: true,
 });
 
 const cuWriteClipboardFn = cuTool(
@@ -1121,13 +1784,15 @@ const cuOpenApplicationFn = cuTool(
     const { bundle_id } = args as { bundle_id: string };
     assertValidBundleId(bundle_id, "bundle_id");
     await exec.openApp(bundle_id);
-    setComputerUseTargetBundleId(bundle_id);
+    setComputerUseTargetBundleId(bundle_id, undefined, "open_application");
     const observation = await observeDesktop(exec, options, {
       resolvedTargetBundleId: bundle_id,
     });
     if (observation.frontmostApp?.bundleId !== bundle_id) {
       throw runtimeFailure(
-        `Open application verification failed. Expected '${bundle_id}' to be frontmost, found '${observation.frontmostApp?.bundleId ?? "none"}'.`,
+        `Open application verification failed. Expected '${bundle_id}' to be frontmost, found '${
+          observation.frontmostApp?.bundleId ?? "none"
+        }'.`,
         {
           kind: "invalid_state",
           retryable: false,
@@ -1181,22 +1846,23 @@ const cuRequestAccessFn = cuTool(
       missing: exactMissing,
       uncertain: exactUncertain,
       pane_opened: preferredPane,
-      message:
-        openedSettings
-          ? `Opened macOS Settings for computer-use permissions. Missing: ${
-            exactMissing.join(", ") || "none"
-          }.${
-            exactUncertain.length > 0
-              ? ` Verification indeterminate: ${exactUncertain.join(", ")}.`
-              : ""
-          } Review access for: ${names}.`
-          : `Access request noted for: ${names}. Missing: ${
-            exactMissing.join(", ") || "none"
-          }.${
-            exactUncertain.length > 0
-              ? ` Verification indeterminate: ${exactUncertain.join(", ")}.`
-              : ""
-          } Open macOS Settings and review the ${preferredPane.replaceAll("_", " ")} pane.`,
+      message: openedSettings
+        ? `Opened macOS Settings for computer-use permissions. Missing: ${
+          exactMissing.join(", ") || "none"
+        }.${
+          exactUncertain.length > 0
+            ? ` Verification indeterminate: ${exactUncertain.join(", ")}.`
+            : ""
+        } Review access for: ${names}.`
+        : `Access request noted for: ${names}. Missing: ${
+          exactMissing.join(", ") || "none"
+        }.${
+          exactUncertain.length > 0
+            ? ` Verification indeterminate: ${exactUncertain.join(", ")}.`
+            : ""
+        } Open macOS Settings and review the ${
+          preferredPane.replaceAll("_", " ")
+        } pane.`,
     });
   },
   { interactive: false },
@@ -1231,12 +1897,12 @@ const cuClickTargetFn = cuTool(
     );
     const centerX = target.bounds.x + target.bounds.width / 2;
     const centerY = target.bounds.y + target.bounds.height / 2;
-    setComputerUseTargetBundleId(target.bundleId);
+    setComputerUseTargetBundleId(target.bundleId, undefined, "target_action");
     const targetWindow = observation.windows.find((window) =>
       window.windowId === target.windowId
     );
     if (targetWindow) {
-      setComputerUseTargetWindow(targetWindow);
+      setComputerUseTargetWindow(targetWindow, "target_action");
     }
     const prepared = await prepareInteractiveActionWithRecovery(
       exec,
@@ -1254,10 +1920,15 @@ const cuClickTargetFn = cuTool(
     if (!nativeClicked) {
       await exec.click(centerX, centerY, "left", 1);
     }
-    const verified = await verifyPostActionObservation(exec, {
-      ...options,
-      displayId: options?.displayId ?? targetWindow?.displayId,
-    }, prepared, "focus_sensitive");
+    const verified = await verifyPostActionObservation(
+      exec,
+      {
+        ...options,
+        displayId: options?.displayId ?? targetWindow?.displayId,
+      },
+      prepared,
+      "focus_sensitive",
+    );
     return okTool({
       clicked_target_id: target.targetId,
       clicked_bundle_id: target.bundleId,
@@ -1283,12 +1954,12 @@ const cuTypeIntoTargetFn = cuTool(
     );
     const centerX = target.bounds.x + target.bounds.width / 2;
     const centerY = target.bounds.y + target.bounds.height / 2;
-    setComputerUseTargetBundleId(target.bundleId);
+    setComputerUseTargetBundleId(target.bundleId, undefined, "target_action");
     const targetWindow = observation.windows.find((window) =>
       window.windowId === target.windowId
     );
     if (targetWindow) {
-      setComputerUseTargetWindow(targetWindow);
+      setComputerUseTargetWindow(targetWindow, "target_action");
     }
     const prepared = await prepareInteractiveActionWithRecovery(
       exec,
@@ -1308,10 +1979,15 @@ const cuTypeIntoTargetFn = cuTool(
       await sleep(75);
       await exec.type(text, { viaClipboard: true });
     }
-    const verified = await verifyPostActionObservation(exec, {
-      ...options,
-      displayId: options?.displayId ?? targetWindow?.displayId,
-    }, prepared, "focus_sensitive");
+    const verified = await verifyPostActionObservation(
+      exec,
+      {
+        ...options,
+        displayId: options?.displayId ?? targetWindow?.displayId,
+      },
+      prepared,
+      "focus_sensitive",
+    );
     return okTool({
       typed_into_target_id: target.targetId,
       typed: text.length > 80 ? text.slice(0, 77) + "..." : text,
@@ -1322,6 +1998,168 @@ const cuTypeIntoTargetFn = cuTool(
   { interactive: false, actionKind: "cu_type_into_target" },
 );
 
+async function captureExecutePlanObservation(
+  exec: ComputerExecutor,
+  options: ToolExecutionOptions | undefined,
+  response: {
+    finalDisplayId?: number;
+    finalBundleId?: string;
+    finalWindowId?: number;
+  },
+): Promise<DesktopObservation | undefined> {
+  try {
+    return await observeDesktop(exec, {
+      ...options,
+      displayId: response.finalDisplayId ?? options?.displayId,
+    }, {
+      resolvedTargetBundleId: response.finalBundleId,
+      resolvedTargetWindowId: response.finalWindowId,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+const cuExecutePlanFn = async (
+  args: unknown,
+  _cwd: string,
+  options?: ToolExecutionOptions,
+): Promise<unknown> => {
+  const err = await guards(options);
+  if (err) return err;
+  const exec = getExecutor();
+  try {
+    await ensureInteractivePermissions(exec);
+    const parsed = parseExecutePlanArgs(args);
+    const resolution = await resolveBackend();
+    const hasNativeExecutePlan = resolution.backend === "native_gui" &&
+      resolution.capabilities?.features.includes("execute-plan") === true;
+    if (!hasNativeExecutePlan) {
+      const unsupportedObservation = await captureExecutePlanObservation(
+        exec,
+        options,
+        {
+          finalDisplayId: parsed.displayId,
+        },
+      );
+      return buildExecutePlanFailureResult(
+        {
+          code: "cu_execute_plan_unsupported",
+          message:
+            "Native execute-plan is unavailable on this machine. Fall back to individual cu_* tools.",
+          retryable: false,
+          facts: {
+            backend: resolution.backend,
+            features: resolution.capabilities?.features ?? [],
+          },
+        },
+        [],
+        unsupportedObservation,
+      );
+    }
+
+    const response = await performNativeExecutePlan({
+      steps: parsed.steps,
+      displayId: parsed.displayId,
+    });
+    if (!response) {
+      const failedObservation = await captureExecutePlanObservation(
+        exec,
+        options,
+        {
+          finalDisplayId: parsed.displayId,
+        },
+      );
+      return buildExecutePlanFailureResult(
+        {
+          code: "cu_execute_plan_transport_failed",
+          message:
+            "Native execute-plan failed before returning a result. Fall back to smaller cu_* steps.",
+          retryable: true,
+          facts: {
+            displayId: parsed.displayId ?? null,
+          },
+        },
+        [],
+        failedObservation,
+      );
+    }
+
+    const observation = await captureExecutePlanObservation(
+      exec,
+      options,
+      response,
+    );
+    if (!response.ok || response.status !== "completed") {
+      markComputerUseFailure({
+        code: response.failure?.code ?? "cu_execute_plan_blocked",
+        message: response.failure?.message ?? "Execute plan blocked",
+        at: Date.now(),
+        retryable: response.failure?.retryable,
+      });
+      return buildExecutePlanFailureResult(
+        response.failure,
+        response.steps,
+        observation,
+      );
+    }
+
+    if (response.finalBundleId) {
+      setComputerUseTargetBundleId(
+        response.finalBundleId,
+        observation?.frontmostApp?.bundleId === response.finalBundleId
+          ? observation.frontmostApp.displayName
+          : undefined,
+        "execute_plan",
+      );
+    }
+    if (response.finalWindowId != null) {
+      const targetWindow = observation?.windows.find((window) =>
+        window.windowId === response.finalWindowId
+      ) ?? getLastComputerUseObservation()?.windows.find((window) =>
+        window.windowId === response.finalWindowId
+      );
+      if (targetWindow) {
+        setComputerUseTargetWindow(targetWindow, "execute_plan");
+      }
+    }
+
+    markComputerUseSuccess({
+      kind: "cu_execute_plan",
+      at: Date.now(),
+      targetBundleId: response.finalBundleId ??
+        observation?.frontmostApp?.bundleId,
+      targetWindowId: response.finalWindowId,
+      observationId: observation?.observationId,
+    });
+    if (!observation) {
+      return okTool({
+        execution_status: "completed",
+        executed_steps: response.steps.length,
+        plan_steps: response.steps,
+      });
+    }
+    return observationImageResult(observation, {
+      execution_status: "completed",
+      executed_steps: response.steps.length,
+      plan_steps: response.steps,
+      final_bundle_id: response.finalBundleId ?? null,
+      final_window_id: response.finalWindowId ?? null,
+      final_display_id: response.finalDisplayId ?? null,
+    });
+  } catch (error) {
+    const failure = getFailureMetadata(error);
+    markComputerUseFailure({
+      code: failure?.code ?? "cu_execute_plan",
+      message: error instanceof Error ? error.message : String(error),
+      at: Date.now(),
+      retryable: failure?.retryable,
+    });
+    const toolError = formatToolError("Execute plan failed", error, failure);
+    return failTool(toolError.message, { failure: toolError.failure });
+  }
+};
+
 // ── Read-only metadata constants ─────────────────────────────────────────
 
 const READ_SAFE: Pick<ToolMetadata, "execution" | "presentation"> = {
@@ -1329,7 +2167,7 @@ const READ_SAFE: Pick<ToolMetadata, "execution" | "presentation"> = {
   presentation: { kind: "read" },
 };
 
-// ── Tool Metadata (25 entries) ───────────────────────────────────────────
+// ── Tool Metadata (26 entries) ───────────────────────────────────────────
 
 export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
   cu_observe: {
@@ -1339,58 +2177,15 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     args: {},
     category: "read",
     safetyLevel: "L1",
-    safety: "Captures visible desktop content and structured metadata. No side effects.",
+    safety:
+      "Captures visible desktop content and structured metadata. No side effects.",
     ...READ_SAFE,
     formatResult: (result) => {
-      // TUI gets a short summary; LLM gets a compact observation
-      // with observation_id + targets so it can use cu_click_target /
-      // cu_type_into_target with real IDs.  Must stay under ~4K chars
-      // to survive the llmChars truncation limit.
-      const r = result as Record<string, unknown> | null;
-      if (!r || typeof r !== "object" || !r.observation_id) {
-        return {
-          summaryDisplay: RESULT_SUMMARY.observe,
-          returnDisplay: "Desktop observed",
-        };
-      }
-      const targets = Array.isArray(r.targets) ? r.targets : [];
-      const windows = Array.isArray(r.windows) ? r.windows : [];
-      const front = r.frontmost_app as
-        | { bundleId?: string; displayName?: string }
-        | null;
-      // Build compact text — one line per target, no wasted space.
-      const lines: string[] = [
-        `observation_id: ${r.observation_id}`,
-      ];
-      if (front) {
-        lines.push(`frontmost: ${front.displayName ?? ""} (${front.bundleId ?? ""})`);
-      }
-      if (windows.length > 0) {
-        lines.push(`windows:`);
-        for (const w of windows.slice(0, 6)) {
-          const wRec = w as Record<string, unknown>;
-          lines.push(`  - id:${wRec.window_id} ${wRec.title ?? wRec.bundleId ?? ""}`);
-        }
-      }
-      if (targets.length > 0) {
-        lines.push(`targets (use exact target_id with cu_click_target / cu_type_into_target):`);
-        for (const t of targets) {
-          const tRec = t as Record<string, unknown>;
-          const b = tRec.bounds as Record<string, unknown> | undefined;
-          const boundsStr = b ? `[${b.x},${b.y},${b.width},${b.height}]` : "";
-          lines.push(
-            `  - target_id: ${tRec.target_id}  role:${tRec.role}  label:"${tRec.label ?? ""}"  ${boundsStr}`,
-          );
-        }
-      } else {
-        lines.push("targets: (none — use coordinate-based tools instead)");
-      }
-      lines.push(`grounding: ${r.grounding_source ?? "unknown"}`);
-      return {
-        summaryDisplay: RESULT_SUMMARY.observe,
-        returnDisplay: "Desktop observed",
-        llmContent: lines.join("\n"),
-      };
+      return formatObservationResult(
+        result as Record<string, unknown> | null,
+        RESULT_SUMMARY.observe,
+        "Desktop observed",
+      );
     },
   },
 
@@ -1653,7 +2448,8 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     },
     category: "write",
     safetyLevel: "L2",
-    safety: "Clicks a grounded desktop target identified from the latest observation.",
+    safety:
+      "Clicks a grounded desktop target identified from the latest observation.",
     formatResult: () => ({
       summaryDisplay: RESULT_SUMMARY.click_target,
       returnDisplay: "Target clicked",
@@ -1679,6 +2475,68 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
         summaryDisplay: RESULT_SUMMARY.type_into_target,
         returnDisplay: `Typed into target: ${r.typed ?? ""}`,
       };
+    },
+  },
+
+  cu_execute_plan: {
+    fn: cuExecutePlanFn,
+    description:
+      "Execute a short deterministic desktop subplan natively through the Level 3 backend. Prefer this for bounded 3+ step flows with clear success criteria.",
+    args: {
+      steps:
+        "object[] - Ordered plan steps using ops: open_app, wait_for_ready, find_target, click, type_into, press_keys, verify",
+      display_id:
+        "number (optional) - Preferred display id for plan execution and final observation",
+    },
+    category: "write",
+    safetyLevel: "L2",
+    safety:
+      "Executes multiple grounded desktop actions natively. Use only for short deterministic subplans.",
+    formatResult: (result) => {
+      const r = result as Record<string, unknown> | null;
+      if (!r || typeof r !== "object") {
+        return {
+          summaryDisplay: RESULT_SUMMARY.execute_plan,
+          returnDisplay: "Executed plan",
+        };
+      }
+      const steps = Array.isArray(r.plan_steps) ? r.plan_steps : [];
+      const extraLines = [
+        `execution_status: ${r.execution_status ?? "unknown"}`,
+        ...(typeof r.executed_steps === "number"
+          ? [`executed_steps: ${r.executed_steps}`]
+          : []),
+        ...formatExecutePlanSteps(
+          steps.map((entry) => {
+            const record = asRecord(entry);
+            return {
+              index: typeof record?.index === "number"
+                ? record.index
+                : undefined,
+              op: typeof record?.op === "string" ? record.op : undefined,
+              status: typeof record?.status === "string"
+                ? record.status
+                : undefined,
+              stepId: typeof record?.stepId === "string"
+                ? record.stepId
+                : undefined,
+              message: typeof record?.message === "string"
+                ? record.message
+                : undefined,
+            };
+          }),
+        ),
+        ...(typeof r.message === "string" ? [`message: ${r.message}`] : []),
+      ];
+      const summary = typeof r.execution_status === "string" &&
+          r.execution_status !== "completed"
+        ? `Plan ${r.execution_status}`
+        : RESULT_SUMMARY.execute_plan;
+      const returnDisplay = typeof r.execution_status === "string" &&
+          r.execution_status !== "completed"
+        ? `Plan ${r.execution_status}`
+        : "Executed plan";
+      return formatObservationResult(r, summary, returnDisplay, extraLines);
     },
   },
 
@@ -1736,4 +2594,10 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
       };
     },
   },
+};
+
+export const _testOnly = {
+  parseExecutePlanArgs,
+  buildExecutePlanFailureResult,
+  prepareInteractiveAction,
 };
