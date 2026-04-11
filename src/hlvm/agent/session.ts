@@ -605,6 +605,8 @@ export async function createAgentSession(
           : {}),
       },
       contextBudget: resolved.budget,
+      toolAllowlist: cloneToolList(tierFilter.allowlist),
+      toolDenylist: cloneToolList(tierFilter.denylist),
       toolProfileState,
       eagerToolCount: initialPersistentFilter.allowlist?.length,
       discoveredDeferredToolCount: discoveredDeferredTools.size,

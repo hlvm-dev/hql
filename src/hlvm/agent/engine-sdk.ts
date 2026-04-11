@@ -808,7 +808,23 @@ export class SdkAgentEngine implements AgentEngine {
 
     const resolveToolFilters = (): ToolFilterState => {
       if (config.toolProfileState) {
-        return resolveEffectiveToolFilterCached(config.toolProfileState);
+        const profileFilter = resolveEffectiveToolFilterCached(
+          config.toolProfileState,
+        );
+        // Merge caller's explicit denylist so denied tools don't appear
+        // in the LLM's tool schema. Without this, profile-only denylist
+        // would miss caller-specified denies (e.g., test-level pw_evaluate).
+        const callerDeny = config.toolDenylist ?? [];
+        if (callerDeny.length > 0) {
+          return {
+            allowlist: profileFilter.allowlist,
+            denylist: [...new Set([
+              ...(profileFilter.denylist ?? []),
+              ...callerDeny,
+            ])],
+          };
+        }
+        return profileFilter;
       }
       return {
         allowlist: config.toolAllowlist,
