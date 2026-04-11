@@ -31,6 +31,7 @@ import type {
   DisplayGeometry,
   HideCandidate,
   InstalledApp,
+  ObservationTarget,
   PrepareForActionResult,
   ResolvePrepareCaptureResult,
   RunningApp,
@@ -955,6 +956,73 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
 // ── CU Backend Resolution ─────────────────────────────────────────────────
 
 let _backendResolution: CUBackendResolution | undefined;
+let _cuNativeFetchOverride:
+  | ((path: string, body?: unknown) => Promise<unknown>)
+  | undefined;
+
+interface NativeTargetsResponse {
+  observationId: string;
+  targets: ObservationTarget[];
+}
+
+function nativeFeatureAvailable(
+  resolution: CUBackendResolution | undefined,
+  feature: string,
+): boolean {
+  return (
+    resolution?.backend === "native_gui" &&
+    !!resolution.port &&
+    !!resolution.capabilities?.features.includes(feature)
+  );
+}
+
+function normalizeNativeTarget(
+  raw: unknown,
+  fallbackBundleId: string,
+): ObservationTarget | undefined {
+  if (!raw || typeof raw !== "object") return;
+  const target = raw as Record<string, unknown>;
+  const bounds = target.bounds;
+  if (!bounds || typeof bounds !== "object") return;
+  const rect = bounds as Record<string, unknown>;
+  const targetId = typeof target.targetId === "string" ? target.targetId : "";
+  const kind = typeof target.kind === "string" ? target.kind : "";
+  const label = typeof target.label === "string" ? target.label : "";
+  const role = typeof target.role === "string" ? target.role : "";
+  const x = Number(rect.x);
+  const y = Number(rect.y);
+  const width = Number(rect.width);
+  const height = Number(rect.height);
+  const confidence = Number(target.confidence);
+  if (
+    !targetId ||
+    !kind ||
+    !label ||
+    !role ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    !Number.isFinite(confidence)
+  ) {
+    return;
+  }
+  return {
+    targetId,
+    kind: kind as ObservationTarget["kind"],
+    label,
+    role,
+    bounds: { x, y, width, height },
+    bundleId: typeof target.bundleId === "string" && target.bundleId.length > 0
+      ? target.bundleId
+      : fallbackBundleId,
+    confidence,
+    windowId: typeof target.windowId === "number" ? target.windowId : undefined,
+    displayId: typeof target.displayId === "number"
+      ? target.displayId
+      : undefined,
+  };
+}
 
 /**
  * Resolve which CU backend to use: native GUI app (AX-level) or JXA (fallback).
@@ -1036,6 +1104,9 @@ async function cuNativeFetch<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
+  if (_cuNativeFetchOverride) {
+    return await _cuNativeFetchOverride(path, body) as T;
+  }
   const resolution = _backendResolution;
   if (!resolution || resolution.backend !== "native_gui" || !resolution.port) {
     throw new Error("Native CU backend not available");
@@ -1065,6 +1136,77 @@ async function cuNativeFetch<T>(
     throw new Error(`CU native fetch failed: ${path} (${stderr.trim()})`);
   }
   return JSON.parse(new TextDecoder().decode(result.stdout)) as T;
+}
+
+export async function fetchNativeObservationTargets(
+  bundleId: string,
+  windowId?: number,
+): Promise<NativeTargetsResponse | null> {
+  const resolution = await resolveBackend();
+  if (!nativeFeatureAvailable(resolution, "targets")) {
+    return null;
+  }
+  try {
+    const raw = await cuNativeFetch<{
+      observationId?: unknown;
+      targets?: unknown;
+    }>(
+      "/cu/targets",
+      windowId != null ? { bundleId, windowId } : { bundleId },
+    );
+    if (
+      typeof raw.observationId !== "string" ||
+      !Array.isArray(raw.targets)
+    ) {
+      throw new Error("Invalid native targets response");
+    }
+    const targets = raw.targets.flatMap((target) => {
+      const normalized = normalizeNativeTarget(target, bundleId);
+      return normalized ? [normalized] : [];
+    });
+    getAgentLogger().debug(
+      `[bridge] Native target enumeration used bundle=${bundleId} window=${windowId ?? "auto"} targets=${targets.length}`,
+    );
+    return {
+      observationId: raw.observationId,
+      targets,
+    };
+  } catch (err) {
+    getAgentLogger().debug(
+      `[bridge] Native target enumeration failed, falling back to window targets: ${err}`,
+    );
+    return null;
+  }
+}
+
+export async function performNativeTargetAction(
+  action: "click-target" | "type-into-target",
+  body: {
+    observationId: string;
+    targetId: string;
+    text?: string;
+  },
+): Promise<boolean> {
+  const resolution = await resolveBackend();
+  if (!nativeFeatureAvailable(resolution, action)) {
+    return false;
+  }
+  const path = action === "click-target"
+    ? "/cu/click-target"
+    : "/cu/type-into-target";
+  try {
+    const response = await cuNativeFetch<{ ok?: unknown }>(path, body);
+    const ok = response.ok === true;
+    getAgentLogger().debug(
+      `[bridge] Native target action ${action} ${ok ? "used" : "failed"} target=${body.targetId}`,
+    );
+    return ok;
+  } catch (err) {
+    getAgentLogger().debug(
+      `[bridge] Native target action ${action} failed, falling back to coordinates: ${err}`,
+    );
+    return false;
+  }
 }
 
 // ── ComputerUseSwift (replaces @ant/computer-use-swift) ──────────────────
@@ -1681,6 +1823,40 @@ export const _testOnly = {
   selectWindowAtPoint,
   resolveCaptureDisplayId,
   resolveCaptureDisplayIndex,
+  setSwiftInstance(instance: ComputerUseSwiftAPI | undefined) {
+    _swiftInstance = instance;
+  },
+  setInputInstance(instance: ComputerUseInputAPI | undefined) {
+    _inputInstance = instance;
+  },
+  seedCaches(opts: {
+    displaySize?: DisplayGeometry;
+    displayList?: DisplayGeometry[];
+    runningApps?: RunningApp[];
+  }) {
+    _cachedDisplaySize = opts.displaySize;
+    _cachedDisplayList = opts.displayList;
+    _cachedRunningApps = opts.runningApps;
+    _displayCacheReady = Promise.resolve();
+    _runningAppsReady = Promise.resolve();
+  },
+  setBackendResolution(resolution: CUBackendResolution | undefined) {
+    _backendResolution = resolution;
+  },
+  setNativeFetchOverride(
+    override:
+      | ((path: string, body?: unknown) => Promise<unknown>)
+      | undefined,
+  ) {
+    _cuNativeFetchOverride = override;
+  },
+  resetBridgeState() {
+    _inputInstance = undefined;
+    _swiftInstance = undefined;
+    _cuNativeFetchOverride = undefined;
+    invalidateCaches();
+    invalidateBackendResolution();
+  },
 };
 
 async function captureScreenshotRegion(

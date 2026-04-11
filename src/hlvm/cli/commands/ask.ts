@@ -1240,7 +1240,7 @@ export async function askCommand(args: string[]): Promise<void> {
 
     if (verbose) {
       if (
-        visibleResultText && !(await shouldSuppressFinalResponse(visibleResultText))
+        visibleResultText && !shouldSuppressFinalResponse(visibleResultText)
       ) {
         log.raw.log(`\nResult:\n${visibleResultText}\n`);
       }

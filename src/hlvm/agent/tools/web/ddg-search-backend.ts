@@ -45,7 +45,7 @@ import {
   annotateSearchResultSourcesAsync,
 } from "./source-authority.ts";
 import {
-  detectSearchQueryIntentAsync,
+  detectSearchQueryIntent,
   prefersSingleHostSources,
 } from "./query-strategy.ts";
 import { hasStructuredEvidence, isAuthoritativeSourceClass, resultHost } from "./web-utils.ts";
@@ -337,7 +337,7 @@ export class DdgSearchBackend implements WebSearchBackend {
     } = request;
 
     const candidatePoolLimit = resolveCandidatePoolLimit(limit, shouldPrefetch);
-    const intent = await detectSearchQueryIntentAsync(query);
+    const intent = detectSearchQueryIntent(query);
     const result = await provider.search(query, {
       limit: candidatePoolLimit,
       timeoutMs: timeout,

@@ -118,6 +118,49 @@ function hasDeprecatedSessionIdField(body: ChatRequest): boolean {
   );
 }
 
+function validateCapturedContexts(
+  capturedContexts: ChatRequest["captured_contexts"],
+): string | null {
+  if (capturedContexts === undefined) return null;
+  if (!Array.isArray(capturedContexts)) {
+    return "captured_contexts must be an array";
+  }
+
+  for (const context of capturedContexts) {
+    if (!context || typeof context !== "object" || Array.isArray(context)) {
+      return "captured_contexts entries must be objects";
+    }
+    if (typeof context.source !== "string" || context.source.trim().length === 0) {
+      return "captured_contexts.source must be a non-empty string";
+    }
+    if (typeof context.name !== "string" || context.name.trim().length === 0) {
+      return "captured_contexts.name must be a non-empty string";
+    }
+    if (
+      context.detail !== undefined && context.detail !== null &&
+      typeof context.detail !== "string"
+    ) {
+      return "captured_contexts.detail must be a string when provided";
+    }
+
+    if (context.metadata !== undefined) {
+      if (
+        !context.metadata || typeof context.metadata !== "object" ||
+        Array.isArray(context.metadata)
+      ) {
+        return "captured_contexts.metadata must be an object";
+      }
+      for (const value of Object.values(context.metadata)) {
+        if (typeof value !== "string") {
+          return "captured_contexts.metadata values must be strings";
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function buildEvalAttachments(
   attachmentIds: readonly string[],
 ): Promise<AnyAttachment[] | undefined> {
@@ -306,6 +349,12 @@ export async function handleChat(req: Request): Promise<Response> {
   const requestValidationError = validateChatRequestMessages(body.messages);
   if (requestValidationError) {
     return jsonError(requestValidationError, 400);
+  }
+  const capturedContextValidationError = validateCapturedContexts(
+    body.captured_contexts,
+  );
+  if (capturedContextValidationError) {
+    return jsonError(capturedContextValidationError, 400);
   }
 
   const currentUserMessage = getLastUserMessage(body.messages)!;

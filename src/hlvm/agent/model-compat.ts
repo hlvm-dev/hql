@@ -3,13 +3,13 @@
  *
  * Detection functions for handling model misbehavior:
  * - Text-based tool call detection
- * - Tool instruction detection
  * - Response suppression logic
  *
  * Extracted from orchestrator.ts to keep the ReAct loop focused.
  */
 
 import { PLAN_END, PLAN_START } from "./planning.ts";
+import { analyzeAssistantResponse } from "./response-analysis.ts";
 
 // Pre-compiled regexes — hoisted to module level to avoid recompilation per call
 const RE_TOOL_CALL_JSON =
@@ -81,38 +81,21 @@ export function stripPlanEnvelopeBlocks(text: string): string {
   return text.replace(RE_PLAN_BLOCK, "").trim();
 }
 
-/**
- * Detect explicit instructional patterns about tool calling in text
- * using LLM classification. Falls back to false on error.
- */
-async function looksLikeToolInstruction(text: string): Promise<boolean> {
-  if (!text.trim()) return false;
-  const { classifyToolInstruction } = await import("../runtime/local-llm.ts");
-  const result = await classifyToolInstruction(text);
-  return result.isInstruction;
-}
-
-/**
- * Check if a response asks the user a question using LLM classification.
- * Falls back to false on LLM failure (safe default — won't trigger follow-up interaction).
- */
-export async function responseAsksQuestion(response: string): Promise<boolean> {
+/** Check if a response asks the user a question. */
+export function responseAsksQuestion(response: string): boolean {
   if (!response) return false;
-  const { classifyResponseIntent } = await import("../runtime/local-llm.ts");
-  const intent = await classifyResponseIntent(response);
-  return intent.asksQuestion;
+  return analyzeAssistantResponse(response).asksQuestion;
 }
 
 /**
  * Determine if a final response should be suppressed (not shown to user).
  * Suppresses empty responses, raw tool call JSON, and tool instructions.
  */
-export async function shouldSuppressFinalResponse(response: string): Promise<boolean> {
+export function shouldSuppressFinalResponse(response: string): boolean {
   if (!response.trim()) return true;
   if (looksLikeToolCallJsonAnywhere(response)) return true;
   if (looksLikeToolCallTextEnvelope(response)) return true;
   if (looksLikePlanEnvelope(response)) return true;
-  if (await looksLikeToolInstruction(response)) return true;
   return false;
 }
 
@@ -236,7 +219,7 @@ export async function classifyAgentFinalResponse(
     message === trimmed
   );
   return {
-    suppressFinalResponse: await shouldSuppressFinalResponse(trimmed),
+    suppressFinalResponse: shouldSuppressFinalResponse(trimmed),
     orchestratorFailureCode: failureMatch?.[0] ?? null,
   };
 }

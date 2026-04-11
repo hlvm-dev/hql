@@ -268,7 +268,7 @@ export function generateQueryVariants(query: string, maxVariants = 2): string[] 
   return variants.slice(0, limit);
 }
 
-/** Derive computed intent fields from primary LLM-classified fields. */
+/** Derive computed intent fields from primary intent flags. */
 function deriveIntentFields(
   trimmed: string,
   primary: {
@@ -317,29 +317,6 @@ export function detectSearchQueryIntent(query: string): SearchQueryIntent {
   });
 }
 
-/**
- * Detects search intent signals using LLM classification (async, for search pipeline).
- * Falls back to regex-based detection on LLM failure.
- */
-export async function detectSearchQueryIntentAsync(query: string): Promise<SearchQueryIntent> {
-  const trimmed = query.trim();
-  if (!trimmed) return detectSearchQueryIntent(query);
-  try {
-    const { classifySearchIntent } = await import("../../../runtime/local-llm.ts");
-    const result = await classifySearchIntent(trimmed);
-    return deriveIntentFields(trimmed, {
-      wantsOfficialDocs: result.officialDocs,
-      wantsComparison: result.comparison,
-      wantsRecency: result.recency,
-      wantsVersionSpecific: result.versionSpecific,
-      wantsReleaseNotes: result.releaseNotes,
-      wantsReference: result.reference,
-    });
-  } catch {
-    return detectSearchQueryIntent(query);
-  }
-}
-
 export function prefersSingleHostSources(
   query: string,
   intent?: SearchQueryIntent,
@@ -351,22 +328,6 @@ export function prefersSingleHostSources(
     return true;
   }
   return /\b(official|api|manual|spec)\b/i.test(query);
-}
-
-export async function prefersSingleHostSourcesAsync(
-  query: string,
-  intent?: SearchQueryIntent,
-  allowedDomains?: string[],
-): Promise<boolean> {
-  const resolvedIntent = intent ?? await detectSearchQueryIntentAsync(query);
-  return prefersSingleHostSources(query, resolvedIntent, allowedDomains);
-}
-
-export async function buildFollowupQueriesAsync(
-  input: FollowupQueryInput,
-): Promise<string[]> {
-  const intent = await detectSearchQueryIntentAsync(input.userQuery.trim());
-  return buildFollowupQueriesWithIntent({ ...input, intent });
 }
 
 export function buildFollowupQueries(

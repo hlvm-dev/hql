@@ -103,40 +103,37 @@ Deno.test("error taxonomy: SDK-specific auth, no-content, and missing-model erro
 
 Deno.test("error taxonomy: recovery hints cover filesystem and command errors", async () => {
   assertStringIncludes(
-    await getRecoveryHint("ENOENT: No such file or directory: /tmp/missing.txt") ?? "",
+    getRecoveryHint("ENOENT: No such file or directory: /tmp/missing.txt") ?? "",
     "list_files",
   );
   assertStringIncludes(
-    await getRecoveryHint("Permission denied: /etc/shadow") ?? "",
+    getRecoveryHint("Permission denied: /etc/shadow") ?? "",
     "Permission denied",
   );
   assertStringIncludes(
-    await getRecoveryHint("bash: foo: command not found") ?? "",
+    getRecoveryHint("bash: foo: command not found") ?? "",
     "alternative command",
   );
 });
 
 Deno.test("error taxonomy: recovery hints cover network, auth, schema, and user-denial flows", async () => {
   assertStringIncludes(
-    await getRecoveryHint("Operation timed out after 30000ms") ?? "",
+    getRecoveryHint("Operation timed out after 30000ms") ?? "",
     "smaller steps",
   );
   assertStringIncludes(
-    await getRecoveryHint("Provider HTTP 401: Unauthorized") ?? "",
+    getRecoveryHint("Provider HTTP 401: Unauthorized") ?? "",
     "API key",
   );
   assertStringIncludes(
-    await getRecoveryHint("Invalid tool schema for search_code") ?? "",
+    getRecoveryHint("Invalid tool schema for search_code") ?? "",
     "schema",
   );
   assertStringIncludes(
-    await getRecoveryHint("Action denied by user") ?? "",
+    getRecoveryHint("Action denied by user") ?? "",
     "alternative approach",
   );
-  // With LLM fallback, unknown errors receive a generated hint.
-  // The LLM call may fail under parallel load, returning null.
-  const novelHint = await getRecoveryHint("Some completely novel error");
-  assertEquals(novelHint === null || typeof novelHint === "string", true);
+  assertEquals(getRecoveryHint("Some completely novel error"), null);
 });
 
 Deno.test("error taxonomy: buildEditFileRecovery produces a structured recovery payload for missing edit targets", () => {

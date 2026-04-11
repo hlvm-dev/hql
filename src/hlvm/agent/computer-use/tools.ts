@@ -66,48 +66,7 @@ import {
   setComputerUseTargetBundleId,
   setComputerUseTargetWindow,
 } from "./session-state.ts";
-import { getResolvedBackend } from "./bridge.ts";
-import { getAgentLogger } from "../logger.ts";
-
-/**
- * Try to execute a target action via the native GUI backend.
- * Returns true if the native action succeeded, false if unavailable or failed.
- * On failure, caller falls back to coordinate-based action.
- */
-async function tryNativeTargetAction(
-  path: string,
-  body: Record<string, unknown>,
-): Promise<boolean> {
-  const resolution = getResolvedBackend();
-  if (!resolution || resolution.backend !== "native_gui" || !resolution.port) {
-    return false;
-  }
-  const platform = getPlatform();
-  const token = platform.env.get("HLVM_AUTH_TOKEN") ?? "";
-  try {
-    const result = await platform.command.output({
-      cmd: [
-        "curl", "-sf", "--max-time", "10",
-        "-H", `Authorization: Bearer ${token}`,
-        "-H", "Content-Type: application/json",
-        "-d", JSON.stringify(body),
-        `http://127.0.0.1:${resolution.port}${path}`,
-      ],
-      stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
-      timeout: 15000,
-    });
-    if (!result.success) return false;
-    const response = JSON.parse(new TextDecoder().decode(result.stdout));
-    return response.ok === true;
-  } catch (err) {
-    getAgentLogger().debug(
-      `[tools] Native target action ${path} failed: ${err}`,
-    );
-    return false;
-  }
-}
+import { performNativeTargetAction } from "./bridge.ts";
 
 // ── CC Result Summary Map (from toolRendering.tsx) ──────────────────────
 
@@ -312,9 +271,11 @@ function summarizeObservation(
       bundleId: target.bundleId,
       confidence: target.confidence,
       window_id: target.windowId ?? null,
+      display_id: target.displayId ?? null,
     })),
     resolved_target_bundle_id: observation.resolvedTargetBundleId ?? null,
     resolved_target_window_id: observation.resolvedTargetWindowId ?? null,
+    grounding_source: observation.groundingSource,
   };
 }
 
@@ -1286,8 +1247,8 @@ const cuClickTargetFn = cuTool(
       true,
     );
     // Prefer native AX action when available, fall back to coordinate click
-    const nativeClicked = await tryNativeTargetAction(
-      "/cu/click-target",
+    const nativeClicked = await performNativeTargetAction(
+      "click-target",
       { observationId: observation_id, targetId: target_id },
     );
     if (!nativeClicked) {
@@ -1338,8 +1299,8 @@ const cuTypeIntoTargetFn = cuTool(
       true,
     );
     // Prefer native AX focus+type when available, fall back to click+type
-    const nativeTyped = await tryNativeTargetAction(
-      "/cu/type-into-target",
+    const nativeTyped = await performNativeTargetAction(
+      "type-into-target",
       { observationId: observation_id, targetId: target_id, text },
     );
     if (!nativeTyped) {

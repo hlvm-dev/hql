@@ -40,12 +40,20 @@ import type {
 
 import { API_RESIZE_PARAMS, targetImageSize } from "./types.ts";
 import { getAgentLogger } from "../logger.ts";
-import { ensureDisplayCache, ensureRunningAppsCache, execFileNoThrow, requireComputerUseInput, requireComputerUseSwift } from "./bridge.ts";
+import {
+  ensureDisplayCache,
+  ensureRunningAppsCache,
+  execFileNoThrow,
+  fetchNativeObservationTargets,
+  requireComputerUseInput,
+  requireComputerUseSwift,
+} from "./bridge.ts";
 import {
   CLI_CU_CAPABILITIES,
   CLI_HOST_BUNDLE_ID,
   assertValidBundleId,
   getTerminalBundleId,
+  isComputerUseHostBundleId,
 } from "./common.ts";
 import { drainRunLoop } from "./drain-run-loop.ts";
 import { notifyExpectedEscape } from "./esc-hotkey.ts";
@@ -98,7 +106,46 @@ function buildObservationTargets(
       bundleId: window.bundleId!,
       confidence: window.layer === 0 ? 0.9 : 0.7,
       windowId: window.windowId,
+      displayId: window.displayId,
     }));
+}
+
+function selectNativeObservationContext(
+  opts: {
+    resolvedTargetBundleId?: string;
+    resolvedTargetWindowId?: number;
+  },
+  frontmostApp: FrontmostApp | null,
+  windows: readonly WindowInfo[],
+): {
+  bundleId?: string;
+  windowId?: number;
+} {
+  const windowsByWindowId = new Map(
+    windows.map((window) => [window.windowId, window]),
+  );
+  if (opts.resolvedTargetWindowId != null) {
+    const targetWindow = windowsByWindowId.get(opts.resolvedTargetWindowId);
+    if (targetWindow?.bundleId) {
+      return {
+        bundleId: targetWindow.bundleId,
+        windowId: targetWindow.windowId,
+      };
+    }
+  }
+
+  const preferredBundleId = opts.resolvedTargetBundleId ??
+    frontmostApp?.bundleId;
+  if (!preferredBundleId || isComputerUseHostBundleId(preferredBundleId)) {
+    return {};
+  }
+  const targetWindow = windows.find((window) =>
+    window.bundleId === preferredBundleId
+  );
+  return {
+    bundleId: preferredBundleId,
+    windowId: targetWindow?.windowId,
+  };
 }
 
 async function readClipboardViaPbpaste(): Promise<string> {
@@ -495,17 +542,42 @@ export function createCliExecutor(opts: {
           displayName: frontmostInfo.appName,
         }
         : null;
-      const observationId = crypto.randomUUID();
+      const nativeContext = selectNativeObservationContext(
+        opts2,
+        frontmostApp,
+        windows,
+      );
+      const nativeTargets = nativeContext.bundleId
+        ? await fetchNativeObservationTargets(
+          nativeContext.bundleId,
+          nativeContext.windowId,
+        )
+        : null;
+      const observationId = nativeTargets?.observationId ?? crypto.randomUUID();
+      const windowsById = new Map(
+        windows.map((window) => [window.windowId, window]),
+      );
+      const targets = (nativeTargets?.targets ?? buildObservationTargets(
+        observationId,
+        windows,
+      )).map((target) => ({
+        ...target,
+        displayId: target.displayId ??
+          (target.windowId != null
+            ? windowsById.get(target.windowId)?.displayId
+            : undefined),
+      }));
       return {
         observationId,
         createdAt: Date.now(),
+        groundingSource: nativeTargets ? "native_targets" : "window_fallback",
         display,
         displaySelectionReason: opts2.displaySelectionReason ?? "default",
         screenshot,
         frontmostApp,
         runningApps: cu.apps.listRunning(),
         windows,
-        targets: buildObservationTargets(observationId, windows),
+        targets,
         permissions,
         resolvedTargetBundleId: opts2.resolvedTargetBundleId,
         resolvedTargetWindowId: opts2.resolvedTargetWindowId,

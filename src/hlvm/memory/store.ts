@@ -63,25 +63,3 @@ export function sanitizeSensitiveContent(
   }
   return { sanitized, stripped };
 }
-
-/**
- * Async PII detection: regex first, then LLM for patterns regex misses.
- * Returns the same shape as sanitizeSensitiveContent so callers can swap freely.
- */
-export async function sanitizeSensitiveContentAsync(
-  text: string,
-): Promise<{ sanitized: string; stripped: string[] }> {
-  // First pass: existing regex
-  const regexResult = sanitizeSensitiveContent(text);
-  // Second pass: LLM for patterns regex misses
-  try {
-    const { classifySensitiveContent } = await import("../runtime/local-llm.ts");
-    const llmResult = await classifySensitiveContent(regexResult.sanitized);
-    if (llmResult.additionalPII && llmResult.types.length > 0) {
-      // LLM detected additional PII types the regex missed — merge them into stripped list
-      const merged = [...regexResult.stripped, ...llmResult.types];
-      return { sanitized: regexResult.sanitized, stripped: merged };
-    }
-  } catch { /* fall through — keep regex results */ }
-  return regexResult;
-}

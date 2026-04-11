@@ -82,6 +82,7 @@ export interface ObservationTarget {
   bundleId: string;
   confidence: number;
   windowId?: number;
+  displayId?: number;
 }
 
 export interface ComputerUsePermissionState {
@@ -127,6 +128,7 @@ export interface ResolvePrepareCaptureResult {
 export interface DesktopObservation {
   observationId: string;
   createdAt: number;
+  groundingSource: "native_targets" | "window_fallback";
   display: DisplayGeometry;
   displaySelectionReason: DisplaySelectionReason;
   screenshot: ScreenshotResult;

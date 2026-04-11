@@ -42,6 +42,7 @@ import {
   responseAsksQuestion,
 } from "./model-compat.ts";
 import { renderEditFileRecoveryPrompt } from "./error-taxonomy.ts";
+import { analyzeAssistantResponse } from "./response-analysis.ts";
 import {
   advancePlanState,
   createPlanState,
@@ -961,37 +962,24 @@ async function maybeDraftPlanFromResearch(
   return { action: "continue" };
 }
 
-async function extractClarifyingQuestion(
-  response: string,
-): Promise<string | null> {
-  if (!response.trim()) return null;
-  const { classifyClarifyingQuestion } = await import(
-    "../runtime/local-llm.ts"
-  );
-  const result = await classifyClarifyingQuestion(response);
-  return result.question;
+function extractClarifyingQuestion(response: string): string | null {
+  const analysis = analyzeAssistantResponse(response);
+  if (!analysis.asksQuestion || analysis.isGenericConversational) return null;
+  return analysis.question;
 }
 
-async function responseNeedsConcreteTask(response: string): Promise<boolean> {
-  const { classifyResponseIntent } = await import("../runtime/local-llm.ts");
-  const intent = await classifyResponseIntent(response);
-  return intent.needsConcreteTask;
+function responseNeedsConcreteTask(response: string): boolean {
+  return analyzeAssistantResponse(response).needsConcreteTask;
 }
 
-async function responseLooksLikeWorkingNote(
-  response: string,
-): Promise<boolean> {
-  const { classifyResponseIntent } = await import("../runtime/local-llm.ts");
-  const intent = await classifyResponseIntent(response);
-  return intent.isWorkingNote;
+function responseLooksLikeWorkingNote(response: string): boolean {
+  return analyzeAssistantResponse(response).isWorkingNote;
 }
 
-async function buildDefaultFollowUpOptions(
+function buildDefaultFollowUpOptions(
   question: string,
-): Promise<InteractionOption[] | undefined> {
-  const { classifyFollowUp } = await import("../runtime/local-llm.ts");
-  const followUp = await classifyFollowUp(question);
-  if (!followUp.isBinaryQuestion) {
+): InteractionOption[] | undefined {
+  if (!analyzeAssistantResponse(question).isBinaryQuestion) {
     return undefined;
   }
   return [
@@ -1018,21 +1006,13 @@ async function shouldConvertDefaultFollowUpToInteraction(
   if (config.planModeState?.active) return false;
   if (state.planState) return false;
   if (state.toolUses.length === 0) return false;
-  if (!(await responseAsksQuestion(response))) return false;
-
-  const { classifyFollowUp } = await import("../runtime/local-llm.ts");
-  const followUp = await classifyFollowUp(response);
-  if (followUp.isGenericConversational) return false;
-  return followUp.isBinaryQuestion || followUp.asksFollowUp;
+  const analysis = analyzeAssistantResponse(response);
+  if (!analysis.asksQuestion || analysis.isGenericConversational) return false;
+  return analysis.isBinaryQuestion || analysis.asksQuestion;
 }
 
-async function shouldAutoContinuePrematureFollowUp(
-  userRequest: string,
-  response: string,
-): Promise<boolean> {
-  const { classifyPrematureFollowUp } = await import("../runtime/local-llm.ts");
-  const result = await classifyPrematureFollowUp(userRequest, response);
-  return result.shouldContinueWithoutAsking;
+function shouldAutoContinuePrematureFollowUp(response: string): boolean {
+  return analyzeAssistantResponse(response).isPrematureContinuationOffer;
 }
 
 const DOWNLOAD_REQUEST_PATTERN =
@@ -1217,12 +1197,12 @@ export async function handleFinalResponse(
     // Check if the model is asking a clarifying question or the response needs
     // a concrete task — but only BEFORE the format retry is exhausted.
     if (state.finalResponseFormatRetries < 1) {
-      const clarificationQuestion = await extractClarifyingQuestion(
+      const clarificationQuestion = extractClarifyingQuestion(
         finalResponse,
       );
       if (
         clarificationQuestion ||
-        (await responseNeedsConcreteTask(finalResponse))
+        responseNeedsConcreteTask(finalResponse)
       ) {
         const question = clarificationQuestion ??
           "What concrete task do you want me to plan?";
@@ -1274,10 +1254,7 @@ export async function handleFinalResponse(
     state.toolUses.length > 0 &&
     typeof config.currentUserRequest === "string" &&
     config.currentUserRequest.trim().length > 0 &&
-    await shouldAutoContinuePrematureFollowUp(
-      config.currentUserRequest,
-      finalResponse,
-    )
+    shouldAutoContinuePrematureFollowUp(finalResponse)
   ) {
     addContextMessage(config, {
       role: "user",
@@ -1295,14 +1272,14 @@ export async function handleFinalResponse(
       config,
     )
   ) {
-    const question = (await extractClarifyingQuestion(finalResponse)) ??
+      const question = extractClarifyingQuestion(finalResponse) ??
       "How would you like to proceed?";
     const interaction = await config.onInteraction!({
       type: "interaction_request",
       requestId: crypto.randomUUID(),
       mode: "question",
       question,
-      options: await buildDefaultFollowUpOptions(question),
+      options: buildDefaultFollowUpOptions(question),
     });
     const answer = interaction.userInput?.trim();
     if (answer) {
@@ -1341,7 +1318,7 @@ export async function handleFinalResponse(
   if (
     state.toolUses.length > 0 &&
     state.finalResponseFormatRetries < 1 &&
-    (await responseLooksLikeWorkingNote(finalResponse))
+    responseLooksLikeWorkingNote(finalResponse)
   ) {
     state.finalResponseFormatRetries++;
     addContextMessage(config, {
@@ -1431,7 +1408,7 @@ export async function handleFinalResponse(
     !lc.skipCompensation &&
     lc.noInputEnabled &&
     state.noInputRetries < lc.maxNoInputRetries &&
-    (await responseAsksQuestion(finalResponse))
+    responseAsksQuestion(finalResponse)
   ) {
     state.noInputRetries++;
     addContextMessage(config, {

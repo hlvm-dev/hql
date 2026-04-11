@@ -181,6 +181,60 @@ function getChatSystemPrompt(): string {
   }).text;
 }
 
+function buildCapturedContextSystemMessage(
+  capturedContexts: ChatRequest["captured_contexts"],
+) {
+  if (!capturedContexts?.length) return null;
+
+  const toPromptEntry = (context: NonNullable<ChatRequest["captured_contexts"]>[number]) => {
+    const entry: Record<string, string> = {
+      type: context.source,
+      name: context.name,
+    };
+    for (const [key, value] of Object.entries(context.metadata ?? {})) {
+      entry[key] = value;
+    }
+    if (typeof context.detail === "string" && context.detail.length > 0) {
+      entry.detail = context.detail;
+    }
+    return entry;
+  };
+
+  const referenceContexts = capturedContexts.filter((context) =>
+    context.source === "reference"
+  );
+  const localContexts = capturedContexts.filter((context) =>
+    context.source !== "reference"
+  );
+
+  const sections: string[] = [];
+  if (referenceContexts.length > 0) {
+    sections.push(
+      [
+        "Referenced Items (the user has pinned these items — focus your response on them):",
+        JSON.stringify(referenceContexts.map(toPromptEntry), null, 2),
+      ].join("\n"),
+    );
+  }
+  if (localContexts.length > 0) {
+    sections.push(
+      [
+        "Captured Contexts:",
+        JSON.stringify(localContexts.map(toPromptEntry), null, 2),
+      ].join("\n"),
+    );
+  }
+  if (sections.length === 0) return null;
+
+  return {
+    role: "system" as const,
+    content: [
+      "Supplemental local GUI context. Use this only when it helps answer the user's request.",
+      sections.join("\n\n"),
+    ].join("\n\n"),
+  };
+}
+
 export async function handleChatMode(
   body: ChatRequest,
   resolvedModel: string | undefined,
@@ -229,6 +283,16 @@ export async function handleChatMode(
     role: "system",
     content: getChatSystemPrompt(),
   });
+  const capturedContextMessage = buildCapturedContextSystemMessage(
+    body.captured_contexts,
+  );
+  if (capturedContextMessage) {
+    const lastUserIndex = providerMessages.findLastIndex((message) =>
+      message.role === "user"
+    );
+    const insertionIndex = lastUserIndex >= 0 ? lastUserIndex : providerMessages.length;
+    providerMessages.splice(insertionIndex, 0, capturedContextMessage);
+  }
   traceReplMainThreadForSource(body.query_source, "server.chat.context_ready", {
     requestId: requestId ?? null,
     sessionId,

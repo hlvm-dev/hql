@@ -49,10 +49,16 @@ import {
 import { filterAppsForDescription } from "../../../src/hlvm/agent/computer-use/app-names.ts";
 import {
   API_RESIZE_PARAMS,
+  type ComputerUseInputAPI,
+  type ComputerUsePermissionState,
+  type ComputerUseSwiftAPI,
   type DesktopObservation,
+  type DisplayGeometry,
+  type RunningApp,
   targetImageSize,
   type WindowInfo,
 } from "../../../src/hlvm/agent/computer-use/types.ts";
+import { createCliExecutor } from "../../../src/hlvm/agent/computer-use/executor.ts";
 import {
   clearStaleComputerUseTargetApp,
   clearStaleComputerUseTargetWindow,
@@ -230,6 +236,7 @@ function makeObservation(
   return {
     observationId: overrides.observationId ?? "obs-1",
     createdAt: overrides.createdAt ?? Date.now(),
+    groundingSource: overrides.groundingSource ?? "window_fallback",
     display: overrides.display ?? {
       width: 1440,
       height: 900,
@@ -272,6 +279,145 @@ function makeObservation(
     resolvedTargetBundleId: overrides.resolvedTargetBundleId ??
       "com.apple.Safari",
     resolvedTargetWindowId: overrides.resolvedTargetWindowId ?? 101,
+  };
+}
+
+function makeDisplay(
+  overrides: Partial<DisplayGeometry> = {},
+): DisplayGeometry {
+  return {
+    width: overrides.width ?? 1440,
+    height: overrides.height ?? 900,
+    scaleFactor: overrides.scaleFactor ?? 2,
+    displayId: overrides.displayId ?? 2,
+    originX: overrides.originX ?? 0,
+    originY: overrides.originY ?? 0,
+  };
+}
+
+function makePermissionState(): ComputerUsePermissionState {
+  return {
+    accessibilityTrusted: true,
+    screenRecordingAvailable: true,
+    missing: [],
+    checkedAt: Date.now(),
+  };
+}
+
+function makeRunningApp(
+  overrides: Partial<RunningApp> = {},
+): RunningApp {
+  return {
+    bundleId: overrides.bundleId ?? "com.apple.TextEdit",
+    displayName: overrides.displayName ?? "TextEdit",
+  };
+}
+
+function makeFakeInput(
+  frontmost = {
+    bundleId: "com.apple.TextEdit",
+    appName: "TextEdit",
+  },
+): ComputerUseInputAPI {
+  return {
+    moveMouse: async () => {},
+    mouseButton: async () => {},
+    mouseScroll: async () => {},
+    mouseLocation: async () => ({ x: 0, y: 0 }),
+    keys: async () => {},
+    key: async () => {},
+    typeText: async () => {},
+    getFrontmostAppInfo: async () => frontmost,
+  };
+}
+
+function makeFakeSwift(
+  opts: {
+    display?: DisplayGeometry;
+    windows?: WindowInfo[];
+    runningApps?: RunningApp[];
+    permissions?: ComputerUsePermissionState;
+  } = {},
+): ComputerUseSwiftAPI {
+  const display = opts.display ?? makeDisplay();
+  const windows = opts.windows ?? [makeWindow({
+    windowId: 101,
+    bundleId: "com.apple.TextEdit",
+    displayName: "TextEdit",
+    title: "Untitled",
+    displayId: display.displayId,
+  })];
+  const runningApps = opts.runningApps ?? [makeRunningApp()];
+  const permissions = opts.permissions ?? makePermissionState();
+  return {
+    _drainMainRunLoop: () => {},
+    display: {
+      getSize: () => display,
+      listAll: () => [display],
+    },
+    screenshot: {
+      captureExcluding: async () => ({
+        base64: "ZmFrZQ==",
+        width: 1280,
+        height: 800,
+      }),
+      captureRegion: async () => ({
+        base64: "ZmFrZQ==",
+        width: 400,
+        height: 300,
+      }),
+    },
+    apps: {
+      prepareDisplay: async () => ({
+        activated: "com.apple.TextEdit",
+        hidden: [],
+        selectedDisplayId: display.displayId,
+        selectedTargetBundleId: "com.apple.TextEdit",
+        selectedTargetWindowId: 101,
+        resolutionReason: "allowed_window",
+      }),
+      previewHideSet: async () => [],
+      findWindowDisplays: async (bundleIds) =>
+        bundleIds.map((bundleId) => ({
+          bundleId,
+          displayIds: [display.displayId!],
+        })),
+      listVisibleWindows: async (displayId) =>
+        displayId == null
+          ? windows
+          : windows.filter((window) => window.displayId === displayId),
+      listInstalled: async () => [],
+      iconDataUrl: () => null,
+      listRunning: () => runningApps,
+      open: async () => {},
+      unhide: async () => {},
+      appUnderPoint: async () => ({
+        bundleId: "com.apple.TextEdit",
+        displayName: "TextEdit",
+        windowId: 101,
+        displayId: display.displayId,
+      }),
+    },
+    permissions: {
+      getState: async () => permissions,
+    },
+    resolvePrepareCapture: async () => ({
+      displayId: display.displayId!,
+      hidden: [],
+      screenshot: {
+        base64: "ZmFrZQ==",
+        width: 1280,
+        height: 800,
+      },
+      selectedTargetBundleId: "com.apple.TextEdit",
+      selectedTargetWindowId: 101,
+      resolutionReason: "allowed_window",
+    }),
+    hotkey: {
+      registerEscape: () => true,
+      unregister: () => {},
+      notifyExpectedEscape: () => {},
+    },
   };
 }
 
@@ -1047,9 +1193,13 @@ Deno.test(
 // ── Backend Resolution Tests ──────────────────────────────────────────────
 
 import {
+  fetchNativeObservationTargets,
+  performNativeTargetAction,
+  requireComputerUseSwift,
   resolveBackend,
   invalidateBackendResolution,
   getResolvedBackend,
+  upgradeSwiftInstanceToNative,
 } from "../../../src/hlvm/agent/computer-use/bridge.ts";
 
 Deno.test("resolveBackend: returns jxa when HLVM_CU_PORT not set", async () => {
@@ -1125,4 +1275,326 @@ Deno.test("ObservationTarget kind: accepts element-level kinds", () => {
     "window", "button", "textfield", "checkbox", "menuitem", "link", "other",
   ];
   assertEquals(kinds.length, 7);
+});
+
+Deno.test("bridge: fetchNativeObservationTargets returns normalized native targets", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: { version: "1", features: ["targets"] },
+    });
+    bridgeTestOnly.setNativeFetchOverride(async (path, body) => {
+      assertEquals(path, "/cu/targets");
+      assertEquals(body, {
+        bundleId: "com.apple.TextEdit",
+        windowId: 101,
+      });
+      return {
+        observationId: "native-obs-1",
+        targets: [{
+          targetId: "native-obs-1:w101:button:0.1",
+          kind: "button",
+          label: "Save",
+          role: "button",
+          bounds: { x: 100, y: 120, width: 88, height: 30 },
+          bundleId: "com.apple.TextEdit",
+          confidence: 0.9,
+          windowId: 101,
+        }],
+      };
+    });
+
+    const result = await fetchNativeObservationTargets(
+      "com.apple.TextEdit",
+      101,
+    );
+
+    assertExists(result);
+    assertEquals(result.observationId, "native-obs-1");
+    assertEquals(result.targets.length, 1);
+    assertEquals(result.targets[0]?.targetId, "native-obs-1:w101:button:0.1");
+    assertEquals(result.targets[0]?.kind, "button");
+    assertEquals(result.targets[0]?.bundleId, "com.apple.TextEdit");
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
+Deno.test("bridge: performNativeTargetAction routes through native backend", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: { version: "1", features: ["click-target"] },
+    });
+    bridgeTestOnly.setNativeFetchOverride(async (path, body) => {
+      assertEquals(path, "/cu/click-target");
+      assertEquals(body, {
+        observationId: "native-obs-1",
+        targetId: "target-1",
+      });
+      return { ok: true };
+    });
+
+    const ok = await performNativeTargetAction("click-target", {
+      observationId: "native-obs-1",
+      targetId: "target-1",
+    });
+
+    assertEquals(ok, true);
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
+Deno.test("executor.observe uses native target ids when the native backend is available", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    const display = makeDisplay();
+    const window = makeWindow({
+      windowId: 101,
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+      title: "Untitled",
+      displayId: display.displayId,
+    });
+    bridgeTestOnly.setSwiftInstance(makeFakeSwift({
+      display,
+      windows: [window],
+      runningApps: [makeRunningApp()],
+      permissions: makePermissionState(),
+    }));
+    bridgeTestOnly.setInputInstance(makeFakeInput());
+    bridgeTestOnly.seedCaches({
+      displaySize: display,
+      displayList: [display],
+      runningApps: [makeRunningApp()],
+    });
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: { version: "1", features: ["targets"] },
+    });
+    bridgeTestOnly.setNativeFetchOverride(async (path, body) => {
+      assertEquals(path, "/cu/targets");
+      assertEquals(body, {
+        bundleId: "com.apple.TextEdit",
+        windowId: 101,
+      });
+      return {
+        observationId: "native-obs-2",
+        targets: [{
+          targetId: "native-obs-2:w101:textfield:0.0",
+          kind: "textfield",
+          label: "Document",
+          role: "text field",
+          bounds: { x: 40, y: 70, width: 500, height: 300 },
+          bundleId: "com.apple.TextEdit",
+          confidence: 0.9,
+          windowId: 101,
+        }],
+      };
+    });
+
+    const exec = createCliExecutor({
+      getMouseAnimationEnabled: () => false,
+      getHideBeforeActionEnabled: () => true,
+    });
+    const observation = await exec.observe({
+      allowedBundleIds: [],
+      preferredDisplayId: display.displayId,
+      displaySelectionReason: "target_window",
+      resolvedTargetBundleId: "com.apple.TextEdit",
+      resolvedTargetWindowId: 101,
+    });
+
+    assertEquals(observation.groundingSource, "native_targets");
+    assertEquals(observation.observationId, "native-obs-2");
+    assertEquals(observation.targets.length, 1);
+    assertEquals(observation.targets[0]?.kind, "textfield");
+    assertEquals(observation.targets[0]?.targetId, "native-obs-2:w101:textfield:0.0");
+    assertEquals(observation.targets[0]?.displayId, display.displayId);
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
+Deno.test("executor.observe falls back to window targets when native enumeration fails", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    const display = makeDisplay();
+    const window = makeWindow({
+      windowId: 202,
+      bundleId: "com.apple.TextEdit",
+      displayName: "TextEdit",
+      title: "Fallback",
+      displayId: display.displayId,
+    });
+    bridgeTestOnly.setSwiftInstance(makeFakeSwift({
+      display,
+      windows: [window],
+      runningApps: [makeRunningApp()],
+      permissions: makePermissionState(),
+    }));
+    bridgeTestOnly.setInputInstance(makeFakeInput());
+    bridgeTestOnly.seedCaches({
+      displaySize: display,
+      displayList: [display],
+      runningApps: [makeRunningApp()],
+    });
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: { version: "1", features: ["targets"] },
+    });
+    bridgeTestOnly.setNativeFetchOverride(async () => {
+      throw new Error("native targets unavailable");
+    });
+
+    const exec = createCliExecutor({
+      getMouseAnimationEnabled: () => false,
+      getHideBeforeActionEnabled: () => true,
+    });
+    const observation = await exec.observe({
+      allowedBundleIds: [],
+      preferredDisplayId: display.displayId,
+      displaySelectionReason: "frontmost_app",
+      resolvedTargetBundleId: "com.apple.TextEdit",
+      resolvedTargetWindowId: 202,
+    });
+
+    assertEquals(observation.groundingSource, "window_fallback");
+    assertEquals(observation.targets.length, 1);
+    assertEquals(observation.targets[0]?.kind, "window");
+    assertEquals(observation.targets[0]?.windowId, 202);
+    assertEquals(observation.targets[0]?.displayId, display.displayId);
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
+Deno.test("upgradeSwiftInstanceToNative upgrades the live bridge methods to native routes", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    const display = makeDisplay();
+    const fallbackCalls = {
+      prepareDisplay: 0,
+      appUnderPoint: 0,
+      listVisibleWindows: 0,
+      permissions: 0,
+    };
+    const fakeSwift = makeFakeSwift({
+      display,
+      windows: [makeWindow({
+        windowId: 101,
+        bundleId: "com.apple.TextEdit",
+        displayName: "TextEdit",
+        displayId: display.displayId,
+      })],
+      runningApps: [makeRunningApp()],
+      permissions: makePermissionState(),
+    });
+    fakeSwift.apps.prepareDisplay = async (..._args) => {
+      fallbackCalls.prepareDisplay++;
+      return {
+        activated: null,
+        hidden: [],
+      };
+    };
+    fakeSwift.apps.appUnderPoint = async () => {
+      fallbackCalls.appUnderPoint++;
+      return null;
+    };
+    fakeSwift.apps.listVisibleWindows = async () => {
+      fallbackCalls.listVisibleWindows++;
+      return [];
+    };
+    fakeSwift.permissions.getState = async () => {
+      fallbackCalls.permissions++;
+      return makePermissionState();
+    };
+    bridgeTestOnly.setSwiftInstance(fakeSwift);
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: {
+        version: "1",
+        features: [
+          "prepare-display",
+          "element-at-point",
+          "windows",
+          "permissions",
+        ],
+      },
+    });
+    const seenPaths: string[] = [];
+    bridgeTestOnly.setNativeFetchOverride(async (path) => {
+      seenPaths.push(path);
+      switch (path) {
+        case "/cu/prepare-display":
+          return {
+            activated: "com.apple.TextEdit",
+            hidden: [],
+            selectedDisplayId: display.displayId,
+            selectedTargetBundleId: "com.apple.TextEdit",
+            selectedTargetWindowId: 101,
+            resolutionReason: "allowed_window",
+          };
+        case "/cu/element-at-point":
+          return {
+            bundleId: "com.apple.TextEdit",
+            displayName: "TextEdit",
+            windowId: 101,
+            displayId: display.displayId,
+          };
+        case "/cu/windows":
+          return {
+            windows: [makeWindow({
+              windowId: 101,
+              bundleId: "com.apple.TextEdit",
+              displayName: "TextEdit",
+              displayId: display.displayId,
+            })],
+          };
+        case "/cu/permissions":
+          return makePermissionState();
+        default:
+          throw new Error(`Unexpected path ${path}`);
+      }
+    });
+
+    upgradeSwiftInstanceToNative();
+    const swift = requireComputerUseSwift();
+    const prepared = await swift.apps.prepareDisplay(
+      ["com.apple.TextEdit"],
+      "com.anthropic.claude-code.cli-no-window",
+      display.displayId,
+      true,
+    );
+    const hit = await swift.apps.appUnderPoint(100, 100);
+    const windows = await swift.apps.listVisibleWindows(display.displayId);
+    const permissions = await swift.permissions.getState();
+
+    assertEquals(prepared.selectedTargetBundleId, "com.apple.TextEdit");
+    assertEquals(hit?.bundleId, "com.apple.TextEdit");
+    assertEquals(windows.length, 1);
+    assertEquals(permissions.accessibilityTrusted, true);
+    assertEquals(fallbackCalls, {
+      prepareDisplay: 0,
+      appUnderPoint: 0,
+      listVisibleWindows: 0,
+      permissions: 0,
+    });
+    assertEquals(seenPaths, [
+      "/cu/prepare-display",
+      "/cu/element-at-point",
+      "/cu/windows",
+      "/cu/permissions",
+    ]);
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
 });

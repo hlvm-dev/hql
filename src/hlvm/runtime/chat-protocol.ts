@@ -22,6 +22,13 @@ export interface ChatRequestMessage {
   client_turn_id?: string;
 }
 
+export interface ChatRequestCapturedContext {
+  source: string;
+  name: string;
+  detail?: string;
+  metadata?: Record<string, string>;
+}
+
 export interface ChatRequest {
   mode: ChatMode;
   query_source?: string;
@@ -33,6 +40,7 @@ export interface ChatRequest {
   max_tokens?: number;
   client_turn_id?: string;
   assistant_client_turn_id?: string;
+  captured_contexts?: ChatRequestCapturedContext[];
   expected_version?: number;
   context_window?: number;
   permission_mode?: AgentExecutionMode;

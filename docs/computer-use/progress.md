@@ -9,7 +9,7 @@ Phase 1: Tool Layer (CC Clone)          █████████████�
 Phase 2: Vision Capability Gating       ████████████████████ 100%  DONE  (162ef7e)
 Phase 3: Agent Loop E2E                 ████████████████████ 100%  DONE  (162ef7e)
 Phase 4a: ToolProfile Infrastructure    ████████████████████ 100%  DONE  (tool-profiles.ts)
-Phase 4b: Browser Profile Activation    ░░░░░░░░░░░░░░░░░░░░   0%  NEXT
+Phase 4b: Bridge-First Reliability      ██████████░░░░░░░░░░  50%  IN PROGRESS
 Phase 5: Cross-Platform                 ░░░░░░░░░░░░░░░░░░░░   0%  FUTURE (CC is also macOS-only)
 ```
 
@@ -401,7 +401,9 @@ development platform.
 - Test with:
   `./hlvm ask --model claude-code/claude-haiku-4-5-20251001 --dangerously-skip-permissions "take a screenshot"`
 
-### Next priority: Phase 4 (Hybrid Playwright + CU)
+### Next priority: Bridge-first reliability validation
 
-See [hybrid-strategy.md](./hybrid-strategy.md). Playwright for
-fast/deterministic browser ops, CU for native/visual tasks.
+The native Swift substrate is in place. The next loop is to make `hql`
+consume native observation/target identity deterministically, prove the
+bridge-driven path without LLMs, and run a focused live smoke pack before
+broader repeated-run UX sweeps.

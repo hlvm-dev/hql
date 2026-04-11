@@ -2,7 +2,7 @@
 
 HLVM's computer use system gives the AI agent the ability to see and interact with the user's macOS desktop — take screenshots, click, type, scroll, drag, manage applications, and ground actions through structured desktop observations. The baseline originated as a port of Claude Code's computer use implementation and now extends it with HLVM-specific observation and target actions.
 
-**Status:** Phases 1-3 complete (tool layer + vision gating + E2E verified). Phase 4 (Playwright hybrid) is next.
+**Status:** The native Swift CU substrate is in place. The current chapter is bridge-first integration and reliability validation in `hql`, followed by focused live smoke before broader repeated-run UX sweeps.
 
 ## Quick Links
 
@@ -55,7 +55,7 @@ hlvm ask --model openai/gpt-4o "find and open VS Code"
 
 ## 25 Tools (CC Base + HLVM VNext)
 
-HLVM preserves the 22-tool Anthropic `computer_20250124`-style coordinate suite and adds 3 grounded desktop tools: `cu_observe`, `cu_click_target`, and `cu_type_into_target`.
+HLVM preserves the 22-tool Anthropic `computer_20250124`-style coordinate suite and adds 3 grounded desktop tools: `cu_observe`, `cu_click_target`, and `cu_type_into_target`. Under the native GUI backend, `cu_observe` can return element-level AX targets with opaque backend-issued target IDs. When the native backend is unavailable or target enumeration fails, HLVM falls back to window-derived targets.
 
 | Category | Tools | Safety |
 |----------|-------|--------|

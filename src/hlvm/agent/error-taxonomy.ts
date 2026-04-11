@@ -232,21 +232,6 @@ export function renderEditFileRecoveryPrompt(
   ].join("\n");
 }
 
-/** Map LLM error class names to retryable status */
-function isRetryable(errorClass: ErrorClass): boolean {
-  switch (errorClass) {
-    case "rate_limit":
-    case "timeout":
-    case "context_overflow":
-    case "transient":
-    case "unknown":
-      return true;
-    case "abort":
-    case "permanent":
-      return false;
-  }
-}
-
 export async function classifyError(err: unknown): Promise<ClassifiedError> {
   const message = getErrorMessage(err).toLowerCase();
 
@@ -333,19 +318,6 @@ export async function classifyError(err: unknown): Promise<ClassifiedError> {
     return { class: "permanent", retryable: false, message };
   }
 
-  // ── LLM fallback for unrecognized error messages ──
-  try {
-    const { classifyErrorMessage } = await import("../runtime/local-llm.ts");
-    const llmResult = await classifyErrorMessage(message);
-    if (llmResult.errorClass !== "unknown") {
-      // Map LLM "auth" class to our "permanent" ErrorClass
-      const mappedClass: ErrorClass = llmResult.errorClass === "auth"
-        ? "permanent"
-        : llmResult.errorClass as ErrorClass;
-      return { class: mappedClass, retryable: isRetryable(mappedClass), message };
-    }
-  } catch { /* fall through to unknown */ }
-
   return { class: "unknown", retryable: true, message };
 }
 
@@ -397,16 +369,11 @@ function matchStaticRecoveryRule(errorMessage: string): string | null {
  * Get an actionable recovery hint for a tool error message.
  * Helps the model self-correct instead of blindly retrying.
  */
-export async function getRecoveryHint(errorMessage: string): Promise<string | null> {
+export function getRecoveryHint(errorMessage: string): string | null {
   // Fast path: static rules
   const staticHint = matchStaticRecoveryRule(errorMessage);
   if (staticHint) return staticHint;
-
-  // LLM fallback: generate contextual hint
-  try {
-    const { suggestRecoveryHint } = await import("../runtime/local-llm.ts");
-    return await suggestRecoveryHint(errorMessage);
-  } catch { return null; }
+  return null;
 }
 
 function extractStructuredErrorCode(
@@ -433,7 +400,7 @@ export async function describeErrorForDisplay(err: unknown): Promise<Displayable
   const message = stripErrorCodeFromMessage(rawMessage).trim() ||
     rawMessage.trim() ||
     "Unknown error";
-  const hint = await getRecoveryHint(message) ??
+  const hint = getRecoveryHint(message) ??
     (code != null ? getErrorFixes(code)[0] ?? null : null);
 
   return {

@@ -19,7 +19,6 @@ import {
 } from "../../../src/hlvm/runtime/local-fallback.ts";
 import {
   classifyTask,
-  classifyFollowUp,
   extractJson,
   getLocalModelDisplayName,
 } from "../../../src/hlvm/runtime/local-llm.ts";
@@ -802,11 +801,4 @@ Deno.test("classifyTask: returns defaults on empty query", async () => {
   assertEquals(result.isCodeTask, false);
   assertEquals(result.isReasoningTask, false);
   assertEquals(result.needsStructuredOutput, false);
-});
-
-Deno.test("classifyFollowUp: returns defaults on empty response", async () => {
-  const result = await classifyFollowUp("");
-  assertEquals(result.asksFollowUp, false);
-  assertEquals(result.isBinaryQuestion, false);
-  assertEquals(result.isGenericConversational, false);
 });

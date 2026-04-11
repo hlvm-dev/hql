@@ -144,7 +144,7 @@ async function buildFailureObservation(
     parts.push(`Key facts: ${facts}`);
   }
   parts.push(`Error: ${errorText}`);
-  const hint = await getRecoveryHint(errorText);
+  const hint = getRecoveryHint(errorText);
   if (hint) {
     parts.push(`Hint: ${hint}`);
   }
@@ -640,7 +640,7 @@ export async function buildToolObservation(
     const fullResultText = toolResult.llmContent ??
       stringifyToolResult(toolResult.result);
     if (isToolResultFailure(fullResultText)) {
-      const hint = await getRecoveryHint(fullResultText);
+      const hint = getRecoveryHint(fullResultText);
       const observation = hint
         ? `${fullResultText}\nHint: ${hint}`
         : fullResultText;
