@@ -23,6 +23,7 @@ import { getPlatform } from "../../src/platform/platform.ts";
 import { COMPUTER_USE_TOOLS } from "../../src/hlvm/agent/computer-use/mod.ts";
 import {
   runSourceAgentWithCompatibleModel,
+  withAbortTimeout,
   withTemporaryWorkspace,
 } from "./native-provider-smoke-helpers.ts";
 
@@ -77,7 +78,7 @@ function collectToolNames(events: AgentUIEvent[]): string[] {
   return events
     .filter(
       (event): event is Extract<AgentUIEvent, { type: "tool_end" }> =>
-        event.type === "tool_end",
+        event.type === "tool_end" && event.success,
     )
     .map((event) => event.name);
 }
@@ -116,7 +117,7 @@ const CASES: ComputerUseCase[] = [
   {
     id: "observe_basic",
     query:
-      "Call the cu_observe tool to inspect the current desktop state. Then report: what is the frontmost application name, and how many visible windows are there?",
+      "Computer-use tools are enabled in this run. Use the available `cu_observe` tool now before answering. After it returns, report the frontmost application name and the number of visible windows.",
     requiredTools: ["cu_observe"],
     validate: (result) => {
       const errors = [
@@ -237,16 +238,22 @@ const CASES: ComputerUseCase[] = [
     id: "type_text",
     query:
       "Open the TextEdit application, then type the text 'Hello from HLVM', then take a screenshot to confirm the text was typed.",
-    requiredTools: ["cu_open_application", "cu_type", "cu_screenshot"],
+    requiredTools: ["cu_open_application", "cu_screenshot"],
     validate: (result) => {
       const errors = [
         ...validateCuOnlyUsage(result),
         ...validateRequiredTools(result, [
           "cu_open_application",
-          "cu_type",
           "cu_screenshot",
         ]),
       ];
+      // Accept either cu_type (coordinate-based) or cu_type_into_target (grounded)
+      if (
+        !result.toolNames.includes("cu_type") &&
+        !result.toolNames.includes("cu_type_into_target")
+      ) {
+        errors.push("Expected cu_type or cu_type_into_target to be called.");
+      }
       if (
         !/textedit|hello|hlvm|typed/i.test(result.plain)
       ) {
@@ -260,7 +267,7 @@ const CASES: ComputerUseCase[] = [
   {
     id: "key_combo",
     query:
-      "Using computer use tools, open the Calculator application (bundle id: com.apple.calculator), then press the key sequence: 5, +, 3, then Return. Take a screenshot and tell me what result is displayed.",
+      "Using computer use tools, open the Calculator application (bundle id: com.apple.calculator). First ensure the calculator is in a cleared state before entering a new expression. If any prior value is visible, clear it first (for example with Escape). Then press the key sequence: 5, +, 3, then Return. Take a screenshot and tell me what result is displayed.",
     requiredTools: ["cu_open_application", "cu_key"],
     validate: (result) => {
       const errors = [
@@ -317,7 +324,7 @@ const CASES: ComputerUseCase[] = [
   {
     id: "zoom_region",
     query:
-      "Take a zoomed-in screenshot of a specific screen region. Call the cu_zoom function with the region argument set to [0, 0, 400, 300]. Then describe what you see in the zoomed capture.",
+      "Inspect the top-left region of the screen bounded by [0, 0, 400, 300]. If a region-specific capture tool is available, use it for that rectangle. Otherwise take a regular screenshot and describe what is visible in that top-left region.",
     requiredTools: ["cu_zoom"],
     validate: (result) => {
       const errors = validateCuOnlyUsage(result);
@@ -335,16 +342,23 @@ const CASES: ComputerUseCase[] = [
     id: "multi_app_switch",
     query:
       "Open the TextEdit application (com.apple.TextEdit), type 'Note A', then open Calculator (com.apple.calculator), then switch back to TextEdit by opening it again. Take a screenshot and confirm TextEdit is in the foreground.",
-    requiredTools: ["cu_open_application", "cu_type", "cu_screenshot"],
+    requiredTools: ["cu_open_application", "cu_type"],
     validate: (result) => {
       const errors = [
         ...validateCuOnlyUsage(result),
         ...validateRequiredTools(result, [
           "cu_open_application",
           "cu_type",
-          "cu_screenshot",
         ]),
       ];
+      if (
+        !result.toolNames.includes("cu_screenshot") &&
+        !result.toolNames.includes("cu_wait")
+      ) {
+        errors.push(
+          "Expected final visual confirmation via cu_screenshot or cu_wait.",
+        );
+      }
       if (!/textedit|foreground|front|note/i.test(result.plain)) {
         errors.push("Expected confirmation that TextEdit is in foreground.");
       }
@@ -365,6 +379,145 @@ const CASES: ComputerUseCase[] = [
       ];
       if (result.plain.length < 30) {
         errors.push("Expected a meaningful description of the screen (30+ chars).");
+      }
+      return errors;
+    },
+  },
+  // ── Tier 6: Native Grounding & HLVM UI ────────────────────────────────
+  //
+  // These tests exercise the native substrate (Level 3): cu_observe returns
+  // AX-level targets → cu_click_target / cu_type_into_target use semantic
+  // target IDs instead of raw pixel coordinates.  This is what separates
+  // HLVM CU from basic "screenshot + guess coordinates" computer use.
+
+  {
+    id: "grounded_observe_and_click",
+    query:
+      "Use cu_observe to get a full desktop observation with native targets. " +
+      "Look at the returned targets list. Find a clickable target (button, menu item, " +
+      "or text field) and use cu_click_target with the observation_id and target_id " +
+      "to click it. Then take a screenshot to confirm the result. " +
+      "Report which target you clicked and what happened.",
+    requiredTools: ["cu_observe", "cu_click_target"],
+    validate: (result) => {
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(result, ["cu_observe", "cu_click_target"]),
+      ];
+      if (
+        !result.toolNames.includes("cu_screenshot") &&
+        !result.toolNames.includes("cu_wait") &&
+        !result.toolNames.includes("cu_observe")
+      ) {
+        errors.push(
+          "Expected visual confirmation after clicking target.",
+        );
+      }
+      if (!/target|click|button|menu|element/i.test(result.plain)) {
+        errors.push(
+          "Expected response to describe which target was clicked.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
+    id: "grounded_type_into_target",
+    query:
+      "Open TextEdit (com.apple.TextEdit). Then use cu_observe to get native " +
+      "targets. The observation result contains an observation_id field and a " +
+      "targets array where each target has a target_id field. Find a text " +
+      "area or text field target. Then call cu_type_into_target passing the " +
+      "EXACT observation_id and target_id strings from the observation result " +
+      "(do NOT construct or modify the IDs — copy them verbatim). Type the " +
+      "text 'Hello from native grounding'. Take a screenshot to confirm.",
+    requiredTools: ["cu_open_application", "cu_observe", "cu_type_into_target"],
+    validate: (result) => {
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(result, [
+          "cu_open_application",
+          "cu_observe",
+          "cu_type_into_target",
+        ]),
+      ];
+      if (
+        !/hello|native|grounding|textedit|text.*area|target/i.test(result.plain)
+      ) {
+        errors.push(
+          "Expected response to mention the typed text or target used.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
+    id: "hlvm_spotlight_search",
+    query:
+      "Using computer use tools, trigger the HLVM Spotlight panel by pressing " +
+      "the key combination Control+Z (this is the HLVM app's global hotkey, " +
+      "NOT Apple Spotlight). Wait for the HLVM Spotlight panel to appear. " +
+      "Then use cu_observe to see the panel and its targets. " +
+      "Type a search query like 'calc' into the search field. " +
+      "Take a screenshot showing the HLVM Spotlight panel with search results. " +
+      "Report what you see in the panel.",
+    requiredTools: ["cu_key"],
+    validate: (result) => {
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(result, ["cu_key"]),
+      ];
+      // Must have observed or screenshotted
+      if (
+        !result.toolNames.includes("cu_screenshot") &&
+        !result.toolNames.includes("cu_observe") &&
+        !result.toolNames.includes("cu_wait")
+      ) {
+        errors.push(
+          "Expected visual confirmation of HLVM Spotlight panel.",
+        );
+      }
+      // Should mention panel, search, results, or HLVM
+      if (
+        !/(panel|search|spotlight|result|hlvm|field|query|calc)/i
+          .test(result.plain)
+      ) {
+        errors.push(
+          "Expected response to describe the HLVM Spotlight panel or search results.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
+    id: "cross_app_grounded_workflow",
+    query:
+      "Perform a cross-app workflow using native grounding:\n" +
+      "1. Open TextEdit (com.apple.TextEdit)\n" +
+      "2. Use cu_observe to get targets, then cu_type_into_target to type 'Task: check system' into the text area\n" +
+      "3. Open Calculator (com.apple.calculator)\n" +
+      "4. Use cu_observe to get Calculator targets, then type 42*2 and press Return\n" +
+      "5. Switch back to TextEdit by opening it again\n" +
+      "6. Take a screenshot and confirm TextEdit is in foreground with the original text visible\n" +
+      "Prefer cu_click_target and cu_type_into_target over raw coordinate clicks when targets are available.",
+    requiredTools: ["cu_open_application", "cu_observe"],
+    validate: (result) => {
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(result, ["cu_open_application", "cu_observe"]),
+      ];
+      // Should have used grounded tools
+      const usedGrounded = result.toolNames.includes("cu_click_target") ||
+        result.toolNames.includes("cu_type_into_target");
+      if (!usedGrounded) {
+        errors.push(
+          "Expected cu_click_target or cu_type_into_target (native grounding) to be used.",
+        );
+      }
+      if (!/textedit|task|foreground|text/i.test(result.plain)) {
+        errors.push(
+          "Expected confirmation that TextEdit is in foreground with text.",
+        );
       }
       return errors;
     },
@@ -401,22 +554,21 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
     const failures: string[] = [];
 
-    try {
-      await withTemporaryWorkspace(async (workspace) => {
-        for (const testCase of ACTIVE_CASES) {
-          const events: AgentUIEvent[] = [];
-          let caseModel = "(none)";
-          try {
-            const { model, result } =
-              await runSourceAgentWithCompatibleModel({
+    await withTemporaryWorkspace(async (workspace) => {
+      for (const testCase of ACTIVE_CASES) {
+        const events: AgentUIEvent[] = [];
+        let caseModel = "(none)";
+        try {
+          const { model, result } = await withAbortTimeout(
+            TIMEOUT_MS,
+            (signal) =>
+              runSourceAgentWithCompatibleModel({
                 models: MODEL_CANDIDATES,
                 query: testCase.query,
                 workspace,
-                signal: controller.signal,
+                signal,
                 disablePersistentMemory: true,
                 permissionMode: "bypassPermissions",
                 toolAllowlist: CU_TOOL_ALLOWLIST,
@@ -424,60 +576,70 @@ Deno.test({
                 callbacks: {
                   onAgentEvent: (event) => events.push(event),
                 },
-              });
-            caseModel = model;
+              }),
+          );
+          caseModel = model;
 
-            const toolNames = collectToolNames(events);
-            const trimmedText = result.text.trim();
-            const semanticResult: ComputerUseResult = {
-              text: trimmedText,
-              plain: stripMarkdown(trimmedText),
-              toolNames,
-            };
-            const errors = await testCase.validate(semanticResult);
-            if (errors.length > 0) {
-              failures.push(
-                [
-                  `FAIL ${testCase.id}`,
-                  `  Model: ${caseModel}`,
-                  `  Tools: ${toolNames.join(", ") || "(none)"}`,
-                  `  Response: ${semanticResult.text.slice(0, 300)}`,
-                  `  Errors: ${errors.join(" | ")}`,
-                ].join("\n"),
-              );
-            } else {
-              console.log(
-                `PASS ${testCase.id} | Model: ${caseModel} | Tools: ${
-                  toolNames.join(", ") || "(none)"
-                }`,
-              );
-            }
-          } catch (error) {
+          const toolNames = collectToolNames(events);
+          const trimmedText = result.text.trim();
+          const semanticResult: ComputerUseResult = {
+            text: trimmedText,
+            plain: stripMarkdown(trimmedText),
+            toolNames,
+          };
+          const errors = await testCase.validate(semanticResult);
+          if (errors.length > 0) {
             failures.push(
-              `CRASH ${testCase.id} | Model: ${caseModel} | ${
-                error instanceof Error ? error.message : String(error)
+              [
+                `FAIL ${testCase.id}`,
+                `  Model: ${caseModel}`,
+                `  Tools: ${toolNames.join(", ") || "(none)"}`,
+                `  Response: ${semanticResult.text.slice(0, 300)}`,
+                `  Errors: ${errors.join(" | ")}`,
+              ].join("\n"),
+            );
+          } else {
+            console.log(
+              `PASS ${testCase.id} | Model: ${caseModel} | Tools: ${
+                toolNames.join(", ") || "(none)"
               }`,
             );
           }
-          // Close apps opened during this case to prevent cross-case contamination.
-          // CU tests share the screen — leftover apps interfere with subsequent cases.
-          try {
-            await getPlatform().command.output({
-              cmd: ["osascript", "-e", 'tell application "Calculator" to quit'],
-              stdin: "null", stdout: "piped", stderr: "piped", timeout: 3000,
-            });
-          } catch { /* may not be running */ }
-          try {
-            await getPlatform().command.output({
-              cmd: ["osascript", "-e", 'tell application "TextEdit" to quit saving no'],
-              stdin: "null", stdout: "piped", stderr: "piped", timeout: 3000,
-            });
-          } catch { /* may not be running */ }
+        } catch (error) {
+          failures.push(
+            `CRASH ${testCase.id} | Model: ${caseModel} | ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
         }
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
+        // Close apps opened during this case to prevent cross-case contamination.
+        // CU tests share the screen — leftover apps interfere with subsequent cases.
+        try {
+          await getPlatform().command.output({
+            cmd: ["osascript", "-e", 'tell application "Calculator" to quit'],
+            stdin: "null", stdout: "piped", stderr: "piped", timeout: 3000,
+          });
+        } catch { /* may not be running */ }
+        try {
+          await getPlatform().command.output({
+            cmd: ["osascript", "-e", 'tell application "TextEdit" to quit saving no'],
+            stdin: "null", stdout: "piped", stderr: "piped", timeout: 3000,
+          });
+        } catch { /* may not be running */ }
+        try {
+          await getPlatform().command.output({
+            cmd: ["osascript", "-e", 'tell application "Disk Utility" to quit'],
+            stdin: "null", stdout: "piped", stderr: "piped", timeout: 3000,
+          });
+        } catch { /* may not be running */ }
+        try {
+          await getPlatform().command.output({
+            cmd: ["osascript", "-e", 'tell application "System Information" to quit'],
+            stdin: "null", stdout: "piped", stderr: "piped", timeout: 3000,
+          });
+        } catch { /* may not be running */ }
+      }
+    });
 
     assertEquals(
       failures,

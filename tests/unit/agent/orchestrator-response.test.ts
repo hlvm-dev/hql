@@ -21,6 +21,7 @@ import { resolveTools } from "../../../src/hlvm/agent/registry.ts";
 import {
   createToolProfileState,
   resolvePersistentToolFilter,
+  syncEffectiveToolFilterToConfig,
 } from "../../../src/hlvm/agent/tool-profiles.ts";
 import { buildCitationSourceIndex } from "../../../src/hlvm/agent/tools/web/citation-spans.ts";
 import { PLAYWRIGHT_TOOLS, closeBrowser } from "../../../src/hlvm/agent/playwright/mod.ts";
@@ -131,6 +132,47 @@ Deno.test("handleTextOnlyResponse repairs a locally executable plain-text functi
   assertEquals(response.toolCalls.length, 1);
   assertEquals(response.toolCalls[0]?.toolName, "read_file");
   assertEquals(response.toolCalls[0]?.args.path, "README.md");
+});
+
+Deno.test("handleTextOnlyResponse does not repair a denied local tool after retry budget is exhausted", () => {
+  const config: ToolFilterCompatConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    toolProfileState: createToolProfileState({
+      baseline: {
+        slot: "baseline",
+        allowlist: ["pw_snapshot", "pw_evaluate"],
+        denylist: ["pw_evaluate"],
+      },
+    }),
+    toolDenylist: ["pw_evaluate"],
+  };
+  syncEffectiveToolFilterToConfig(config, config.toolProfileState!);
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.midLoopFormatRetries = lc.maxToolCallRetries;
+  const response: LLMResponse = {
+    content: 'pw_evaluate({"expression":"1+1"})',
+    toolCalls: [],
+  };
+
+  const result = handleTextOnlyResponse(
+    response,
+    response.content,
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "return");
+  assertEquals(response.toolCalls.length, 0);
+  if (result.action !== "return") {
+    throw new Error(`Expected return action, got ${result.action}`);
+  }
+  assertStringIncludes(
+    result.value,
+    "Native tool calling required",
+  );
 });
 
 Deno.test("handleFinalResponse retries when a post-tool answer contains a plain-text function-style tool call", async () => {
@@ -846,6 +888,61 @@ Deno.test("handlePostToolExecution promotes browser_safe to browser_hybrid on re
   );
   assertStringIncludes(recoveryMsg, "pw_promote");
   assertStringIncludes(recoveryMsg, "cu_*");
+});
+
+Deno.test("handlePostToolExecution promotes browser_safe immediately on click_intercepted failures", async () => {
+  const config: OrchestratorConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+    toolProfileState: createToolProfileState({
+      domain: { slot: "domain", profileId: "browser_safe" },
+    }),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  const failure = {
+    toolCallsMade: 1,
+    results: [{
+      success: false,
+      error: "Click failed: intercepted by overlay",
+      failure: {
+        source: "tool",
+        kind: "timeout",
+        retryable: true,
+        code: "pw_click_intercepted",
+        facts: {
+          visualBlocker: true,
+          visualReason: "click_intercepted",
+          selector: "text=Submit",
+          interaction: "click",
+        },
+      } satisfies ToolFailureMetadata,
+    }],
+    toolCalls: [{
+      id: "pw-intercepted",
+      toolName: "pw_click",
+      args: { selector: "text=Submit" },
+    }],
+    toolUses: [],
+    toolBytes: 0,
+  };
+
+  const result = await handlePostToolExecution(
+    failure,
+    state,
+    lc,
+    config,
+    async () => ({ content: "", toolCalls: [] }),
+  );
+
+  assertEquals(result.action, "continue");
+  assertEquals(
+    config.toolProfileState?.layers.domain?.profileId,
+    "browser_hybrid",
+  );
+  assertEquals(state.playwright.temporaryToolDenylist.get("pw_click"), 2);
+  const recoveryMsg = config.context.getMessages().at(-1)?.content ?? "";
+  assertStringIncludes(recoveryMsg, "Call pw_promote now");
 });
 
 Deno.test("handlePostToolExecution tells the model to follow navigatedTo for pw_download_navigated failures without promoting hybrid", async () => {

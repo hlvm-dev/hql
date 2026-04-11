@@ -799,6 +799,24 @@ Deno.test("recovery policy returns null on first failure without candidateHref a
   assertEquals(decision, null);
 });
 
+Deno.test("recovery policy promotes immediately on first click_intercepted failure in browser_safe", () => {
+  const decision = decideBrowserRecovery({
+    toolName: "pw_click",
+    failure: {
+      source: "tool",
+      kind: "timeout",
+      retryable: true,
+      code: "pw_click_intercepted",
+      facts: { visualBlocker: true, visualReason: "click_intercepted" },
+    },
+    repeatCount: 1,
+    currentDomainProfileId: "browser_safe",
+  });
+  assertEquals(decision?.stage, "promote_hybrid");
+  assertEquals(decision?.promoteToHybrid, true);
+  assertEquals(decision?.temporarilyBlockTool, "pw_click");
+});
+
 Deno.test("recovery policy promotes to hybrid after 2 repeated visual failures in browser_safe", () => {
   const decision = decideBrowserRecovery({
     toolName: "pw_click",

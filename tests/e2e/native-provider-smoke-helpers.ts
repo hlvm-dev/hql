@@ -438,6 +438,19 @@ export async function withTemporaryWorkspace(
   }
 }
 
+export async function withAbortTimeout<T>(
+  timeoutMs: number,
+  fn: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fn(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export function assertNoLocalToolEvents(
   events: AgentUIEvent[],
   toolName: string,

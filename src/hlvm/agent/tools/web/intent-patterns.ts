@@ -36,13 +36,17 @@ export const COMPARISON_TERMS = [
 const RECENCY_TERMS = [
   "latest",
   "recent",
+  "recently",
   "today",
   "current",
   "new",
+  "newest",
   "updated",
   "update",
   "change",
   "changes",
+  "lately",
+  "upcoming",
 ] as const;
 export const REFERENCE_TERMS = [
   "reference",

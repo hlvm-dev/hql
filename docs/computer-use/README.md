@@ -1,88 +1,150 @@
 # Computer Use — Overview
 
-HLVM's computer use system gives the AI agent the ability to see and interact with the user's macOS desktop — take screenshots, click, type, scroll, drag, manage applications, and ground actions through structured desktop observations. The baseline originated as a port of Claude Code's computer use implementation and now extends it with HLVM-specific observation and target actions.
+HLVM computer use is the desktop-control subsystem that lets the agent see and act on a macOS desktop: screenshots, mouse, keyboard, app activation, window grounding, browser-to-desktop handoff, and native AX-backed target actions when the GUI backend is available.
 
-**Status:** The native Swift CU substrate is in place. The current chapter is bridge-first integration and reliability validation in `hql`, followed by focused live smoke before broader repeated-run UX sweeps.
+The important reality now is:
+
+- the native Swift substrate exists
+- the `hql` bridge can use it
+- the current chapter is reliability validation, not another architecture rewrite
 
 ## Quick Links
 
 | Document | Purpose |
 |----------|---------|
-| [Architecture](./architecture.md) | System design, data flow, vision gating, component map |
-| [Progress](./progress.md) | What's done, what's remaining, current gaps |
-| [Hybrid Strategy](./hybrid-strategy.md) | Playwright + CU hybrid approach for browser tasks |
+| [Architecture](./architecture.md) | Full system map, pipeline diagrams, phase journey, current design |
+| [Progress](./progress.md) | Phase timeline, current status, what is done vs still being validated |
+| [Hybrid Strategy](./hybrid-strategy.md) | Browser-first `pw_*` + `pw_promote` + `cu_*` design |
 
-## What It Does
+## The Three Levels
 
-The agent can autonomously control the Mac desktop with **any vision-capable LLM**:
+```text
+Level 1: Vision + coordinates
+  Screenshot -> model guesses -> click/type/scroll by pixel
 
-```
-User: "Open Safari, search for Cursor, and download it"
-  → Agent calls cu_observe (sees desktop + windows + targets)
-  → Agent calls cu_open_application (opens Safari)
-  → Agent calls cu_key cmd+l (focuses address bar)
-  → Agent calls cu_type "cursor editor download" + cu_key return
-  → Agent calls cu_screenshot (sees Google results)
-  → Agent calls cu_left_click at download link coordinates
-  → Agent calls cu_screenshot (sees download page)
-  → Agent calls cu_left_click on download button
-  → Done
-```
+Level 2: Hybrid grounding
+  Runtime also knows apps, windows, displays, frontmost app,
+  browser-vs-desktop boundaries, and observation coherence
 
-**Any vision-capable LLM works as the brain:**
-```bash
-# Free (local, private, offline)
-hlvm ask --model ollama/llava:13b "take a screenshot and describe it"
-
-# Cheap (CC-proxied, no API key needed)
-hlvm ask --model claude-code/claude-haiku-4-5-20251001 "open Finder"
-
-# Powerful
-hlvm ask --model anthropic/claude-sonnet-4-20250514 "reorganize my desktop"
-
-# OpenAI
-hlvm ask --model openai/gpt-4o "find and open VS Code"
+Level 3: Native substrate
+  GUI app provides native AX/window/input services
+  -> bridge upgrades to native routes
+  -> observation/target ids can come from the native backend
 ```
 
-**CC comparison:**
-| | Claude Code | HLVM |
-|---|-------------|------|
-| CU Tools | 22 | 25 (22 base + 3 HLVM grounded-observation tools) |
-| Brain | Claude only | Any vision-capable LLM |
-| Vision gating | N/A (Claude always has vision) | Auto-deny for non-vision models |
-| CU system prompt | Injected by Anthropic API backend | Self-contained in binary |
-| Cost | Per-token only | Free with local vision models |
+HLVM is now operating at Level 3 on macOS. The open work is not "invent Level 4." It is to make Level 3 consistently reliable in live product use.
 
-## 25 Tools (CC Base + HLVM VNext)
+## The Phase Journey
 
-HLVM preserves the 22-tool Anthropic `computer_20250124`-style coordinate suite and adds 3 grounded desktop tools: `cu_observe`, `cu_click_target`, and `cu_type_into_target`. Under the native GUI backend, `cu_observe` can return element-level AX targets with opaque backend-issued target IDs. When the native backend is unavailable or target enumeration fails, HLVM falls back to window-derived targets.
+```text
+Phase 1  Tool Layer
+  -> CC-style computer-use tool surface
 
-| Category | Tools | Safety |
-|----------|-------|--------|
-| Observation | `cu_observe` | L1 (read) |
-| Screenshot | `cu_screenshot`, `cu_zoom` | L1 (read) |
-| Cursor | `cu_cursor_position` | L0 (read) |
-| Click | `cu_left_click`, `cu_right_click`, `cu_middle_click`, `cu_double_click`, `cu_triple_click` | L2 (write) |
-| Mouse | `cu_mouse_move`, `cu_left_mouse_down`, `cu_left_mouse_up`, `cu_left_click_drag` | L2 (write) |
-| Keyboard | `cu_type`, `cu_key`, `cu_hold_key` | L2 (write) |
-| Grounded Target Actions | `cu_click_target`, `cu_type_into_target` | L2 (write) |
-| Clipboard | `cu_read_clipboard`, `cu_write_clipboard` | L0/L2 |
-| Scroll | `cu_scroll` | L2 (write) |
-| Apps | `cu_list_granted_applications`, `cu_open_application`, `cu_request_access` | L0/L2 |
-| Wait | `cu_wait` (sleep + screenshot) | L1 (read) |
+Phase 2  Vision Gating
+  -> only vision-capable models see cu_*
 
-## Vision Gating
+Phase 3  Agent Loop E2E
+  -> screenshot/action loop proven end to end
 
-Non-vision models (e.g., `llama3.1:8b` text-only) are **automatically blocked** from CU:
-- `cu_*` tools are removed from tool list
-- CU system prompt section is suppressed
-- Any stray image attachments get text fallback instead of binary injection
+Phase 4  Hybrid Browser Profiles
+  -> browser_safe and browser_hybrid
 
-Derived from `modelInfo.capabilities` — frontier providers (anthropic/openai/google) default to vision-capable.
+Phase 5  Native Swift Substrate
+  -> GUI app provides native AX/window/input routes
+
+Phase 6  Bridge-First Reliability
+  -> hql consumes the native substrate deterministically
+  -> current chapter
+```
+
+## What It Can Do
+
+Public CU surface: 25 tools
+
+- Observation: `cu_observe`
+- Screenshot: `cu_screenshot`, `cu_zoom`
+- Cursor: `cu_cursor_position`
+- Click: `cu_left_click`, `cu_right_click`, `cu_middle_click`, `cu_double_click`, `cu_triple_click`
+- Mouse: `cu_mouse_move`, `cu_left_mouse_down`, `cu_left_mouse_up`, `cu_left_click_drag`
+- Keyboard: `cu_type`, `cu_key`, `cu_hold_key`
+- Grounded target actions: `cu_click_target`, `cu_type_into_target`
+- Clipboard: `cu_read_clipboard`, `cu_write_clipboard`
+- Scroll: `cu_scroll`
+- Apps: `cu_list_granted_applications`, `cu_open_application`, `cu_request_access`
+- Wait: `cu_wait`
+
+Under the native GUI backend:
+
+- `cu_observe` can return element-level native targets
+- target ids are backend-issued and opaque
+- input, activation, permissions, window routing, and pre-action preparation can stay on the native path
+
+When the native backend is unavailable:
+
+- HLVM falls back to the older JXA / `osascript` / `screencapture` path
+- coordinate CU still works, but with weaker grounding
+
+## Current Architecture in One Picture
+
+```text
+LLM
+  -> orchestrator
+  -> cu tools
+  -> executor
+  -> bridge
+     -> native GUI CU service when available
+     -> else JXA fallback
+  -> macOS
+```
+
+For the full pipeline and file-level system map, read [architecture.md](./architecture.md).
+
+## Current Status
+
+What is done:
+
+- CC-style tool layer
+- vision gating
+- initial end-to-end CU loop
+- browser-safe / browser-hybrid strategy
+- native Swift substrate
+- bridge/native upgrade path
+- hybrid E2E pack is green end to end
+- CU pack harness now uses per-case timeouts instead of one shared abort budget
+- CU pack validation now counts only successful tool executions
+
+What is still being closed out:
+
+- repeated-run live e2e reliability
+- final pack-level signoff after targeted reruns
+- one remaining deterministic eval hardening point:
+  - `key_combo`: runtime bugs are fixed, but the eval must start from a cleared Calculator state to avoid inheriting prior calculator contents
+
+Latest live snapshot on 2026-04-11:
+
+```text
+Hybrid pack: 5/5 green
+CU pack:     previously 12/14 green in full-pack runs
+Targeted reruns on prior red cases:
+  observe_basic         green
+  click_and_screenshot  green
+  multi_app_switch      green
+  drag_test             green
+  key_combo             green after explicit clear-state instruction
+```
+
+That is the right framing for the project now:
+
+```text
+architecture: mostly settled
+substrate: present
+current work: last-mile product hardening
+```
 
 ## Requirements
 
-- **macOS only** (platform guard rejects non-Darwin)
-- **Vision-capable LLM** (auto-detected — non-vision models silently skip CU)
-- **Accessibility permissions** (System Preferences > Privacy & Security)
-- **`--dangerously-skip-permissions`** for non-interactive use (L2 tools require approval)
+- macOS only
+- vision-capable model for full screenshot-based CU
+- Accessibility permission
+- Screen Recording permission
+- running `HLVM.app` if you want the native Level 3 backend instead of JXA fallback

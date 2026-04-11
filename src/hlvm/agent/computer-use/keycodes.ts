@@ -48,6 +48,15 @@ export const MODIFIER_MAP: Readonly<Record<string, string>> = {
   fn: "function down",
 };
 
+const KEY_SPEC_ALIASES: Readonly<
+  Record<string, { keyName: string; modifiers?: string[] }>
+> = {
+  equal: { keyName: "=" },
+  equals: { keyName: "=" },
+  minus: { keyName: "-" },
+  plus: { keyName: "=", modifiers: ["shift down"] },
+};
+
 /**
  * Parse a key spec like "cmd+shift+a" into { keyCode, modifiers }.
  * Returns null if the key name is unknown.
@@ -56,13 +65,15 @@ export function parseKeySpec(
   spec: string,
 ): { keyCode: number; modifiers: string[] } | null {
   const parts = spec.toLowerCase().split("+").map((s) => s.trim());
-  const keyName = parts.pop();
-  if (!keyName) return null;
+  const rawKeyName = parts.pop();
+  if (!rawKeyName) return null;
+  const alias = KEY_SPEC_ALIASES[rawKeyName];
+  const keyName = alias?.keyName ?? rawKeyName;
 
   const keyCode = KEY_CODES[keyName];
   if (keyCode === undefined) return null;
 
-  const modifiers: string[] = [];
+  const modifiers: string[] = alias?.modifiers ? [...alias.modifiers] : [];
   for (const part of parts) {
     const mod = MODIFIER_MAP[part];
     if (!mod) return null;

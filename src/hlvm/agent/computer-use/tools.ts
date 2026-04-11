@@ -219,62 +219,54 @@ function imageResult(
   };
 }
 
+/** Compact target roles for priority sorting — text inputs first. */
+const TARGET_ROLE_PRIORITY: Record<string, number> = {
+  textField: 0,
+  textArea: 0,
+  searchField: 0,
+  comboBox: 1,
+  popUpButton: 2,
+  button: 3,
+  menuItem: 3,
+  window: 4,
+};
+
 function summarizeObservation(
   observation: DesktopObservation,
 ): Record<string, unknown> {
+  // Prioritize text-input targets so they survive truncation.
+  const MAX_TARGETS = 16;
+  const sortedTargets = [...observation.targets].sort((a, b) => {
+    const pa = TARGET_ROLE_PRIORITY[a.role] ?? 5;
+    const pb = TARGET_ROLE_PRIORITY[b.role] ?? 5;
+    return pa - pb || (b.confidence - a.confidence);
+  }).slice(0, MAX_TARGETS);
+
   return {
     observation_id: observation.observationId,
-    created_at: observation.createdAt,
-    width: observation.screenshot.width,
-    height: observation.screenshot.height,
-    display: {
-      display_id: observation.display.displayId,
+    screen: {
       width: observation.display.width,
       height: observation.display.height,
-      origin_x: observation.display.originX ?? 0,
-      origin_y: observation.display.originY ?? 0,
-      scale_factor: observation.display.scaleFactor,
     },
-    display_selection_reason: observation.displaySelectionReason,
     frontmost_app: observation.frontmostApp
       ? {
         bundleId: observation.frontmostApp.bundleId,
         displayName: observation.frontmostApp.displayName,
       }
       : null,
-    permissions: {
-      accessibility_trusted: observation.permissions.accessibilityTrusted,
-      screen_recording_available:
-        observation.permissions.screenRecordingAvailable,
-      missing: observation.permissions.missing,
-    },
-    running_apps: observation.runningApps.slice(0, 12).map((app) => ({
-      bundleId: app.bundleId,
-      displayName: app.displayName,
-    })),
-    windows: observation.windows.slice(0, 12).map((window) => ({
+    windows: observation.windows.slice(0, 8).map((window) => ({
       window_id: window.windowId,
       bundleId: window.bundleId ?? null,
-      displayName: window.displayName,
       title: window.title ?? null,
-      display_id: window.displayId ?? null,
       bounds: window.bounds,
-      z_index: window.zIndex,
-      layer: window.layer,
     })),
-    targets: observation.targets.slice(0, 12).map((target) => ({
+    targets: sortedTargets.map((target) => ({
       target_id: target.targetId,
       kind: target.kind,
       label: target.label,
       role: target.role,
       bounds: target.bounds,
-      bundleId: target.bundleId,
-      confidence: target.confidence,
-      window_id: target.windowId ?? null,
-      display_id: target.displayId ?? null,
     })),
-    resolved_target_bundle_id: observation.resolvedTargetBundleId ?? null,
-    resolved_target_window_id: observation.resolvedTargetWindowId ?? null,
     grounding_source: observation.groundingSource,
   };
 }
@@ -904,6 +896,9 @@ function makeClickFn(
     },
     {
       actionKind: errorPrefix,
+      // Coordinate clicks often legitimately change focus/frontmost app, so
+      // the generic post-action verification creates false negatives here.
+      postActionVerify: false,
     },
   );
 }
@@ -1083,6 +1078,11 @@ const cuLeftClickDragFn = cuTool("Drag failed", async (args, exec) => {
   return okTool({ dragged: { from: from ?? "current cursor", to } });
 }, {
   actionKind: "cu_left_click_drag",
+  // Drag is coordinate-based and may legitimately cross app boundaries or let
+  // another app become frontmost mid-gesture. Requiring generic frontmost-app
+  // verification after the drag creates false failures unrelated to whether
+  // the drag itself succeeded.
+  postActionVerify: false,
 });
 
 const cuZoomFn = cuTool("Zoom failed", async (args, exec, options) => {
@@ -1341,10 +1341,57 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     safetyLevel: "L1",
     safety: "Captures visible desktop content and structured metadata. No side effects.",
     ...READ_SAFE,
-    formatResult: () => ({
-      summaryDisplay: RESULT_SUMMARY.observe,
-      returnDisplay: "Desktop observed",
-    }),
+    formatResult: (result) => {
+      // TUI gets a short summary; LLM gets a compact observation
+      // with observation_id + targets so it can use cu_click_target /
+      // cu_type_into_target with real IDs.  Must stay under ~4K chars
+      // to survive the llmChars truncation limit.
+      const r = result as Record<string, unknown> | null;
+      if (!r || typeof r !== "object" || !r.observation_id) {
+        return {
+          summaryDisplay: RESULT_SUMMARY.observe,
+          returnDisplay: "Desktop observed",
+        };
+      }
+      const targets = Array.isArray(r.targets) ? r.targets : [];
+      const windows = Array.isArray(r.windows) ? r.windows : [];
+      const front = r.frontmost_app as
+        | { bundleId?: string; displayName?: string }
+        | null;
+      // Build compact text — one line per target, no wasted space.
+      const lines: string[] = [
+        `observation_id: ${r.observation_id}`,
+      ];
+      if (front) {
+        lines.push(`frontmost: ${front.displayName ?? ""} (${front.bundleId ?? ""})`);
+      }
+      if (windows.length > 0) {
+        lines.push(`windows:`);
+        for (const w of windows.slice(0, 6)) {
+          const wRec = w as Record<string, unknown>;
+          lines.push(`  - id:${wRec.window_id} ${wRec.title ?? wRec.bundleId ?? ""}`);
+        }
+      }
+      if (targets.length > 0) {
+        lines.push(`targets (use exact target_id with cu_click_target / cu_type_into_target):`);
+        for (const t of targets) {
+          const tRec = t as Record<string, unknown>;
+          const b = tRec.bounds as Record<string, unknown> | undefined;
+          const boundsStr = b ? `[${b.x},${b.y},${b.width},${b.height}]` : "";
+          lines.push(
+            `  - target_id: ${tRec.target_id}  role:${tRec.role}  label:"${tRec.label ?? ""}"  ${boundsStr}`,
+          );
+        }
+      } else {
+        lines.push("targets: (none — use coordinate-based tools instead)");
+      }
+      lines.push(`grounding: ${r.grounding_source ?? "unknown"}`);
+      return {
+        summaryDisplay: RESULT_SUMMARY.observe,
+        returnDisplay: "Desktop observed",
+        llmContent: lines.join("\n"),
+      };
+    },
   },
 
   cu_screenshot: {

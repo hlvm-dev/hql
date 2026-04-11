@@ -28,9 +28,9 @@ import type { ToolPresentationKind } from "./registry.ts";
 import type { ToolFailureMetadata } from "./tool-results.ts";
 import {
   cloneToolList,
+  mergeDenylists,
   resolveEffectiveToolFilterCached,
   type ToolProfileState,
-  uniqueToolList,
 } from "./tool-profiles.ts";
 
 /** Result of tool execution */
@@ -284,11 +284,10 @@ export function effectiveDenylist(
   config: OrchestratorConfig,
 ): string[] | undefined {
   if (config.toolProfileState) {
-    const profileDenylist =
-      resolveEffectiveToolFilterCached(config.toolProfileState).denylist ?? [];
-    const explicitDenylist = config.toolDenylist ?? [];
-    const merged = uniqueToolList([...profileDenylist, ...explicitDenylist]);
-    return merged.length > 0 ? merged : undefined;
+    return mergeDenylists(
+      resolveEffectiveToolFilterCached(config.toolProfileState).denylist,
+      config.toolDenylist,
+    );
   }
   return config.toolDenylist;
 }

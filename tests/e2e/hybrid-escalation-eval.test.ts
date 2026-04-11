@@ -18,6 +18,7 @@ import type { AgentUIEvent } from "../../src/hlvm/agent/orchestrator.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import {
   runSourceAgentWithCompatibleModel,
+  withAbortTimeout,
   withTemporaryWorkspace,
 } from "./native-provider-smoke-helpers.ts";
 import { startBrowserFixtureServer } from "../shared/browser-fixture-server.ts";
@@ -70,7 +71,7 @@ function collectToolNames(events: AgentUIEvent[]): string[] {
   return events
     .filter(
       (event): event is Extract<AgentUIEvent, { type: "tool_end" }> =>
-        event.type === "tool_end",
+        event.type === "tool_end" && event.success,
     )
     .map((event) => event.name);
 }
@@ -271,8 +272,6 @@ Deno.test({
   async fn() {
     const { server, port } = startBrowserFixtureServer();
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
     const failures: string[] = [];
 
     try {
@@ -281,23 +280,26 @@ Deno.test({
           const events: AgentUIEvent[] = [];
           let caseModel = "(none)";
           try {
-            const { model, result } =
-              await runSourceAgentWithCompatibleModel({
-                models: MODEL_CANDIDATES,
-                query: testCase.query(port),
-                workspace,
-                signal: controller.signal,
-                disablePersistentMemory: true,
-                permissionMode: "bypassPermissions",
-                // No explicit allowlist — let the domain profile system
-                // manage browser_safe → browser_hybrid naturally.
-                // Use denylist to block specific tools per case.
-                toolDenylist: testCase.denyTools,
-                maxTokens: 8_000,
-                callbacks: {
-                  onAgentEvent: (event) => events.push(event),
-                },
-              });
+            const { model, result } = await withAbortTimeout(
+              TIMEOUT_MS,
+              (signal) =>
+                runSourceAgentWithCompatibleModel({
+                  models: MODEL_CANDIDATES,
+                  query: testCase.query(port),
+                  workspace,
+                  signal,
+                  disablePersistentMemory: true,
+                  permissionMode: "bypassPermissions",
+                  // No explicit allowlist — let the domain profile system
+                  // manage browser_safe → browser_hybrid naturally.
+                  // Use denylist to block specific tools per case.
+                  toolDenylist: testCase.denyTools,
+                  maxTokens: 8_000,
+                  callbacks: {
+                    onAgentEvent: (event) => events.push(event),
+                  },
+                }),
+            );
             caseModel = model;
 
             const toolNames = collectToolNames(events);
@@ -335,7 +337,6 @@ Deno.test({
         }
       });
     } finally {
-      clearTimeout(timeout);
       await server.shutdown();
     }
 

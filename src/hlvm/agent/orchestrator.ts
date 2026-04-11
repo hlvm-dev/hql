@@ -774,6 +774,28 @@ async function applyRequestDomainToolProfile(
   if (isMainThreadQuerySource(config.querySource)) {
     return;
   }
+  // Caller-provided tool allowlists are authoritative. Do not infer a
+  // browser-safe domain profile on top of an explicit CU-only (or other
+  // specialized) allowlist, or the intersection will mask the caller's tools.
+  if (config.permissionToolAllowlist?.length) {
+    const baselineLayer = ensureToolProfileState(config).layers.baseline;
+    const canonicalBaselineAllowlist = resolveCanonicalBaselineAllowlist({
+      querySource: config.querySource,
+      baseAllowlist: config.baselineToolAllowlistSeed,
+      discoveredDeferredTools: config.discoveredDeferredTools,
+      ownerId: config.toolOwnerId,
+    });
+    if (config.baselineToolAllowlistSeed) {
+      updateToolProfileLayer(config, "baseline", {
+        profileId: baselineLayer?.profileId,
+        allowlist: cloneToolList(canonicalBaselineAllowlist),
+        denylist: cloneToolList(baselineLayer?.denylist),
+        reason: baselineLayer?.reason,
+      });
+    }
+    clearToolProfileLayerFromTarget(config, "domain");
+    return;
+  }
   if (!state.cachedDelegationSignal) {
     state.cachedDelegationSignal = await evaluateDelegationSignal(userRequest);
   }

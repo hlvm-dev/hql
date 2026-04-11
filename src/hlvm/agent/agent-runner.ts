@@ -775,6 +775,10 @@ export async function runAgentQuery(
   const sessionKey = shouldPersistSession
     ? (options.sessionId ?? deriveDefaultSessionKey())
     : null;
+  // Even when we skip persisted session history, runtime subsystems such as
+  // browser/CU need a stable per-run session id so they do not fall back to a
+  // shared process-wide default and leak stale state across runs.
+  const runtimeSessionId = options.sessionId ?? sessionKey ?? turnId;
   const shouldRestorePersistedTodos = !!sessionKey;
   const persistedTurnSessionId = transcriptPersistenceMode === "runner"
     ? sessionKey
@@ -881,7 +885,7 @@ export async function runAgentQuery(
       workspace,
       model,
       fixturePath: options.fixturePath,
-      sessionId: sessionKey ?? undefined,
+      sessionId: runtimeSessionId,
       temperature: options.temperature,
       maxOutputTokens: options.maxOutputTokens,
       contextWindow: options.contextWindow,
@@ -1388,7 +1392,7 @@ export async function runAgentQuery(
         skipModelCompensation: false,
         modelTier: session.modelTier,
         modelId: model,
-        sessionId: sessionKey ?? undefined,
+        sessionId: runtimeSessionId,
         turnId,
         querySource,
         eagerToolCount: resolveSessionPersistentToolFilter(session).allowlist
@@ -1438,7 +1442,11 @@ export async function runAgentQuery(
           // The primary may be enhanced (bounded eager core + delegation) while
           // the fallback may be standard (leaner eager core).
           const fbTier = classifyModelTier(undefined, fallbackModel);
-          const fbToolFilter = computeTierToolFilter(fbTier);
+          const fbToolFilter = computeTierToolFilter(
+            fbTier,
+            requestedToolAllowlist,
+            effectiveToolDenylist,
+          );
           const fbPrompt = fbToolFilter.allowlist
             ? compileSystemPrompt({
               toolAllowlist: fbToolFilter.allowlist,

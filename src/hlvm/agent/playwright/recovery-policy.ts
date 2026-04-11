@@ -98,6 +98,41 @@ export function decideBrowserRecovery(
     };
   }
 
+  const isImmediateHybridBlocker = input.toolName === "pw_click" &&
+    input.failure.code === "pw_click_intercepted";
+  if (isImmediateHybridBlocker) {
+    if (
+      !input.currentDomainProfileId ||
+      input.currentDomainProfileId === BROWSER_SAFE_PROFILE_ID ||
+      input.currentDomainProfileId !== BROWSER_HYBRID_PROFILE_ID
+    ) {
+      return {
+        stage: "promote_hybrid",
+        directive: [
+          "Playwright confirmed a visible/native blocker intercepted the click.",
+          "Call pw_promote now on the next step.",
+          "Immediately after pw_promote, call cu_observe or cu_screenshot before any interactive cu_* action.",
+          "Then use cu_* on the headed browser window.",
+          "Do not spend more turns on Playwright-only inspection before promoting.",
+          "Do not switch to cu_* before pw_promote.",
+        ].join("\n"),
+        temporarilyBlockTool: "pw_click",
+        promoteToHybrid: true,
+      };
+    }
+    return {
+      stage: "repeat_visual_pw_guidance",
+      directive: [
+        "Playwright confirmed a visible/native blocker intercepted the click.",
+        "Hybrid browser mode is already available. Call pw_promote before using cu_*.",
+        "Immediately after pw_promote, call cu_observe or cu_screenshot before any interactive cu_* action.",
+        "Do not keep probing the blocker with more Playwright-only clicks.",
+      ].join("\n"),
+      temporarilyBlockTool: "pw_click",
+      promoteToHybrid: false,
+    };
+  }
+
   if (input.repeatCount < 2) {
     return null;
   }
@@ -112,7 +147,9 @@ export function decideBrowserRecovery(
         directive: [
           "Repeated Playwright failure: visibility or native blocker with no better PW-only recovery path.",
           "Hybrid browser mode is now available.",
-          "If visible or native interaction is required, call pw_promote first, then use cu_* on the headed browser window.",
+          "If visible or native interaction is required, call pw_promote first.",
+          "Immediately after pw_promote, call cu_observe or cu_screenshot before any interactive cu_* action.",
+          "Then use cu_* on the headed browser window.",
           "Do not switch to cu_* before pw_promote.",
         ].join("\n"),
         temporarilyBlockTool: canTemporarilyBlock(input.toolName)
@@ -127,7 +164,9 @@ export function decideBrowserRecovery(
         directive: [
           "Repeated Playwright failure: visibility or native blocker with no better PW-only recovery path.",
           "Hybrid browser mode is now available.",
-          "If visible or native interaction is required, call pw_promote first, then use cu_* on the headed browser window.",
+          "If visible or native interaction is required, call pw_promote first.",
+          "Immediately after pw_promote, call cu_observe or cu_screenshot before any interactive cu_* action.",
+          "Then use cu_* on the headed browser window.",
           "Do not switch to cu_* before pw_promote.",
         ].join("\n"),
         temporarilyBlockTool: canTemporarilyBlock(input.toolName)
@@ -141,6 +180,7 @@ export function decideBrowserRecovery(
       directive: [
         "Repeated Playwright failure: visibility or native blocker.",
         "Hybrid browser mode is already available. If browser-native or visible interaction is required, call pw_promote before using cu_*.",
+        "Immediately after pw_promote, call cu_observe or cu_screenshot before any interactive cu_* action.",
         "Do not repeat the same selector guess.",
       ].join("\n"),
       temporarilyBlockTool: canTemporarilyBlock(input.toolName)
@@ -155,7 +195,7 @@ export function decideBrowserRecovery(
     directive: [
       "Repeated Playwright failure: structural mismatch with no visual/native blocker.",
       "Stay in PW-only mode and use page evidence to change strategy.",
-      "Prefer pw_snapshot, pw_links, pw_content, or pw_evaluate over repeating the same selector guess.",
+      "Prefer pw_snapshot, pw_links, or pw_content over repeating the same selector guess.",
     ].join("\n"),
     temporarilyBlockTool: canTemporarilyBlock(input.toolName)
       ? input.toolName

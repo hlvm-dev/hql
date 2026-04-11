@@ -84,6 +84,37 @@ interface PlaywrightResolvedTarget {
   refMeta?: PlaywrightSnapshotRef;
 }
 
+function escapePlaywrightRoleSelectorValue(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
+}
+
+function buildPlaywrightActionabilitySelector(
+  args: unknown,
+  toolOptions?: ToolExecutionOptions,
+): string | undefined {
+  const ref = normalizePlaywrightRef((args as { ref?: unknown })?.ref);
+  if (ref) {
+    const refMeta = resolveSnapshotRef(ref, toolOptions?.sessionId);
+    const role = typeof refMeta?.role === "string" ? refMeta.role.trim() : "";
+    const name = typeof refMeta?.name === "string" ? refMeta.name.trim() : "";
+    if (role && name) {
+      return `role=${role}[name="${escapePlaywrightRoleSelectorValue(name)}"]`;
+    }
+    if (role) {
+      return `role=${role}`;
+    }
+    return buildPlaywrightRefLocator(ref);
+  }
+
+  if (typeof (args as { selector?: unknown })?.selector === "string") {
+    return normalizePlaywrightSelector(
+      (args as { selector?: string }).selector ?? "",
+    ) || undefined;
+  }
+
+  return undefined;
+}
+
 // ── Image attachment (reuses same _imageAttachment format as CU) ────────
 
 function formatByteSize(size: unknown): string | null {
@@ -331,14 +362,7 @@ function pwTool(
       return await fn(args, toolOptions);
     } catch (error) {
       const toolError = formatToolError(errorPrefix, error);
-      const ref = normalizePlaywrightRef((args as { ref?: unknown })?.ref);
-      const selector = ref
-        ? buildPlaywrightRefLocator(ref)
-        : typeof (args as { selector?: unknown })?.selector === "string"
-        ? normalizePlaywrightSelector(
-          (args as { selector?: string }).selector ?? "",
-        ) || undefined
-        : undefined;
+      const selector = buildPlaywrightActionabilitySelector(args, toolOptions);
       const actionability = selector
         ? await analyzePlaywrightActionability({
           sessionId: toolOptions?.sessionId,
@@ -972,7 +996,7 @@ const pwPromoteFn = pwTool("Promote failed", async (_args, toolOptions) => {
   return okTool({
     promoted: true,
     message:
-      "Browser is now visible. Cookies and localStorage-backed session state should survive, and the current URL is restored best-effort. Unsaved form inputs, sessionStorage-only state, scroll position, JS heap state, and live connections are not guaranteed to survive promotion.",
+      "Browser is now visible. Next, call cu_observe or cu_screenshot before any interactive cu_* action. Cookies and localStorage-backed session state should survive, and the current URL is restored best-effort. Unsaved form inputs, sessionStorage-only state, scroll position, JS heap state, and live connections are not guaranteed to survive promotion.",
   });
 });
 

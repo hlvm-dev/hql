@@ -58,6 +58,7 @@ import {
   checkToolResultBytesLimit,
   cloneToolList,
   effectiveAllowlist,
+  effectiveDenylist,
   type LoopConfig,
   type LoopDirective,
   type LoopState,
@@ -418,7 +419,7 @@ function isPlaywrightVisualLoopTurn(
 function buildPlaywrightVisualLoopMessage(): string {
   return [
     "Playwright is spending multiple turns on screenshots or scrolling without structural progress.",
-    "Switch to pw_snapshot, pw_links, pw_content, or pw_evaluate.",
+    "Switch to pw_snapshot, pw_links, or pw_content.",
     "Do not continue visual browsing loops.",
   ].join("\n");
 }
@@ -723,7 +724,11 @@ function canRepairTextEnvelopeIntoLocalToolCall(
   toolName: string,
   config: OrchestratorConfig,
 ): boolean {
-  return hasTool(toolName, config.toolOwnerId);
+  if (!hasTool(toolName, config.toolOwnerId)) return false;
+  const allowlist = effectiveAllowlist(config);
+  if (allowlist?.length && !allowlist.includes(toolName)) return false;
+  const denylist = effectiveDenylist(config);
+  return !denylist?.includes(toolName);
 }
 
 function formatPlanPreview(

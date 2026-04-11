@@ -44,6 +44,7 @@ import {
 } from "../../../src/hlvm/agent/tool-profiles.ts";
 import { UsageTracker } from "../../../src/hlvm/agent/usage.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { COMPUTER_USE_TOOLS } from "../../../src/hlvm/agent/computer-use/mod.ts";
 import {
   cleanupWorkspaceDir,
   ensureWorkspaceDir,
@@ -2060,6 +2061,43 @@ Deno.test({
 
     assertEquals(nonBrowserResult, "done");
     assertEquals(config.toolProfileState?.layers.domain, undefined);
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: explicit CU allowlist prevents browser_safe masking on browser-shaped requests",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const cuAllowlist = Object.keys(COMPUTER_USE_TOOLS);
+    const config: OrchestratorConfig = {
+      workspace: TEST_WORKSPACE,
+      context,
+      permissionMode: "bypassPermissions",
+      l1Confirmations: new Map(),
+      toolProfileState: createToolProfileState({
+        baseline: {
+          slot: "baseline",
+          allowlist: [...cuAllowlist],
+        },
+      }),
+      baselineToolAllowlistSeed: [...cuAllowlist],
+      permissionToolAllowlist: [...cuAllowlist],
+      discoveredDeferredTools: [],
+    };
+
+    const result = await runReActLoop(
+      "Open https://example.com in the browser and inspect what is there",
+      config,
+      async () => makeResponse("done"),
+    );
+
+    assertEquals(result, "done");
+    assertEquals(config.toolProfileState?.layers.domain, undefined);
+    const allowlist = effectiveAllowlist(config) ?? [];
+    assertEquals(allowlist.includes("cu_observe"), true);
+    assertEquals(allowlist.includes("pw_goto"), false);
   },
 });
 

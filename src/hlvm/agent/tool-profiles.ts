@@ -97,6 +97,18 @@ export function cloneToolList(list?: string[]): string[] | undefined {
   return list?.length ? [...list] : undefined;
 }
 
+/**
+ * Merge two optional denylists into one, preserving both caller-specified
+ * and profile-derived denies.  Returns `undefined` when the result is empty.
+ */
+export function mergeDenylists(
+  a: readonly string[] | undefined,
+  b: readonly string[] | undefined,
+): string[] | undefined {
+  const merged = uniqueToolList([...(a ?? []), ...(b ?? [])]);
+  return merged.length > 0 ? merged : undefined;
+}
+
 export function uniqueToolList(items: readonly string[]): string[] {
   return [...new Set(items)];
 }
@@ -329,10 +341,7 @@ export function syncPersistentToolFilterToTarget(
   const persistent = resolvePersistentToolFilter(profileState, registry);
   target.toolAllowlist = cloneToolList(persistent.allowlist);
   // Merge, not replace — preserve caller denies.
-  const profileDeny = persistent.denylist ?? [];
-  const existingDeny = target.toolDenylist ?? [];
-  const mergedDeny = uniqueToolList([...existingDeny, ...profileDeny]);
-  target.toolDenylist = mergedDeny.length > 0 ? mergedDeny : undefined;
+  target.toolDenylist = mergeDenylists(target.toolDenylist, persistent.denylist);
   return persistent;
 }
 
@@ -350,10 +359,7 @@ export function syncEffectiveToolFilterToConfig(
   // Merge profile denylist INTO existing toolDenylist instead of replacing.
   // This preserves caller-specified denies (e.g., test-level pw_evaluate deny)
   // that would otherwise be dropped when profile layers mutate.
-  const profileDeny = effective.denylist ?? [];
-  const existingDeny = target.toolDenylist ?? [];
-  const mergedDeny = uniqueToolList([...existingDeny, ...profileDeny]);
-  target.toolDenylist = mergedDeny.length > 0 ? mergedDeny : undefined;
+  target.toolDenylist = mergeDenylists(target.toolDenylist, effective.denylist);
 
   return { effective, persistent };
 }

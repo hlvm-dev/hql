@@ -13,7 +13,7 @@ function normalizeAssistantResponse(text: string): string {
 }
 
 function isLikelyBinaryQuestion(question: string): boolean {
-  return /^(would|should|could|can|do|does|did|will|is|are|am|have|has|had)\b/i
+  return /^(would|should|could|can|do|does|did|will|is|are|am|have|has|had|shall|may)\b/i
     .test(question.trim());
 }
 
@@ -40,7 +40,7 @@ function looksLikeWorkingNote(response: string): boolean {
 function looksLikePrematureContinuationOffer(response: string): boolean {
   const normalized = normalizeAssistantResponse(response);
   if (!normalized) return false;
-  return /(if you'd like,? i can|would you like me to|should i continue|should i go ahead|if you want,? i can)/i
+  return /(if you'd like,? i can|would you like me to|should i continue|should i go ahead|if you want,? i can|shall i (?:proceed|go ahead|continue)|do you want me to|want me to (?:go ahead|proceed|continue)|i can (?:also|go ahead and))/i
     .test(normalized);
 }
 
@@ -48,6 +48,12 @@ export function extractTrailingQuestionText(response: string): string | null {
   const normalized = normalizeAssistantResponse(response);
   const end = normalized.lastIndexOf("?");
   if (end < 0) return null;
+
+  // If the last sentence-ending punctuation is a "." or "!" AFTER the last "?",
+  // the question is mid-text (rhetorical), not a trailing user-directed question.
+  const lastPeriod = normalized.lastIndexOf(".");
+  const lastExclamation = normalized.lastIndexOf("!");
+  if (lastPeriod > end || lastExclamation > end) return null;
 
   let start = end;
   while (start > 0) {

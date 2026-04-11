@@ -124,6 +124,17 @@ Deno.test("keycodes: parseKeySpec ctrl+c", () => {
   assertEquals(result.modifiers, ["control down"]);
 });
 
+Deno.test("keycodes: parseKeySpec supports calculator-friendly aliases", () => {
+  const equal = parseKeySpec("equal");
+  const plus = parseKeySpec("plus");
+  assertExists(equal);
+  assertExists(plus);
+  assertEquals(equal.keyCode, KEY_CODES["="]);
+  assertEquals(equal.modifiers, []);
+  assertEquals(plus.keyCode, KEY_CODES["="]);
+  assertEquals(plus.modifiers, ["shift down"]);
+});
+
 Deno.test("keycodes: parseKeySpec unknown key returns null", () => {
   assertEquals(parseKeySpec("nonexistent"), null);
 });
