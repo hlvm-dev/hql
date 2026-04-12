@@ -98,6 +98,52 @@ Deno.test("harness: missing @include shows placeholder", async () => {
   });
 });
 
+Deno.test("harness: @include blocks path traversal", async () => {
+  await withTestEnv(async ({ hlvmDir, fs, path }) => {
+    // Create a secret file OUTSIDE the hlvm dir
+    const secretPath = path.join(path.dirname(hlvmDir), "secret.txt");
+    await fs.writeTextFile(secretPath, "SECRET_API_KEY=abc123");
+
+    // Try to include it via traversal
+    await fs.writeTextFile(
+      path.join(hlvmDir, "HLVM.md"),
+      "Before\n@./../secret.txt\n@./rules/legit.md\nAfter",
+    );
+    await fs.writeTextFile(path.join(hlvmDir, "rules", "legit.md"), "Legit.");
+
+    const { loadInstructionHierarchy } = await import(
+      "../../src/hlvm/prompt/instructions.ts",
+    );
+    const h = await loadInstructionHierarchy();
+    assertEquals(h.global.includes("SECRET"), false, "secret NOT leaked");
+    assertEquals(h.global.includes("[include blocked:"), true, "blocked message shown");
+    assertEquals(h.global.includes("Legit"), true, "legit include still works");
+    assertEquals(h.global.includes("Before"), true, "surrounding text preserved");
+    assertEquals(h.global.includes("After"), true, "surrounding text preserved");
+  });
+});
+
+Deno.test("harness: @include blocks symlinks", async () => {
+  await withTestEnv(async ({ hlvmDir, fs, path }) => {
+    const secretPath = path.join(path.dirname(hlvmDir), "secret2.txt");
+    await fs.writeTextFile(secretPath, "SYMLINK_SECRET");
+    await Deno.symlink(secretPath, path.join(hlvmDir, "rules", "link.md"));
+    await fs.writeTextFile(path.join(hlvmDir, "rules", "real.md"), "Real content.");
+    await fs.writeTextFile(
+      path.join(hlvmDir, "HLVM.md"),
+      "@./rules/link.md\n@./rules/real.md",
+    );
+
+    const { loadInstructionHierarchy } = await import(
+      "../../src/hlvm/prompt/instructions.ts",
+    );
+    const h = await loadInstructionHierarchy();
+    assertEquals(h.global.includes("SYMLINK_SECRET"), false, "symlink secret NOT leaked");
+    assertEquals(h.global.includes("symlink"), true, "blocked message mentions symlink");
+    assertEquals(h.global.includes("Real content"), true, "real file still works");
+  });
+});
+
 // ═══════════════════════════════════════════════
 // E2E 2: Skill lifecycle
 // ═══════════════════════════════════════════════

@@ -46,8 +46,15 @@ Always use TypeScript strict mode.
 - Missing files produce: `[include not found: ./path]`
 - Resolved BEFORE rules loading, so @includes can reference rules/ files
 
+**Security**:
+- Path traversal blocked: `@./../../etc/passwd` produces `[include blocked: ... escapes base directory]`
+  — resolved path must stay within the instruction file's parent directory
+- Symlinks blocked: `[include blocked: ... is a symlink]`
+  — prevents symlinks inside allowed dirs from pointing to files outside
+- Both checks happen before file read — no data leaks on blocked includes
+
 **Implementation**: `src/hlvm/prompt/instructions.ts`
-- `resolveIncludes(text, baseDir, seen?, depth?)` — recursive resolver
+- `resolveIncludes(text, baseDir, seen?, depth?)` — recursive resolver with path containment + symlink checks
 
 **Verified**: E2E test `harness: @include resolves files into HLVM.md`
 
@@ -94,6 +101,13 @@ context: inline                              # optional: "inline" (default) or "
 Skill body — instructions the agent follows.
 Use ${ARGS} for user-provided arguments.
 ```
+
+**Type validation**: All frontmatter fields are runtime-validated during loading.
+Wrong types fall to safe defaults (no crash, no type leaks):
+- `description` must be string (required — skill skipped without it)
+- `allowed_tools` must be string array (scalar string silently dropped)
+- `context` must be `"inline"` or `"fork"` (other values → undefined → defaults to inline)
+- `user_invocable` must be boolean (string `"false"` silently dropped → defaults to true)
 
 **Types**: `src/hlvm/skills/types.ts`
 - `SkillDefinition` — resolved skill ready for execution
@@ -530,7 +544,7 @@ llm-integration.test.ts    all   passed (includes budget fix)
 
 ### E2E Integration Tests (new suite)
 ```
-tests/e2e/harness-engineering.test.ts    18/18 passed
+tests/e2e/harness-engineering.test.ts    20/20 passed
 ```
 
 | # | Test | Feature Verified |
@@ -538,21 +552,23 @@ tests/e2e/harness-engineering.test.ts    18/18 passed
 | 1 | @include resolves files into HLVM.md | @include directive |
 | 2 | rules/*.md auto-loaded and sorted | Rules directory |
 | 3 | missing @include shows placeholder | Error handling |
-| 4 | bundled skills load by default | Skill discovery |
-| 5 | user skill loaded and invoked with args | User skills + ${ARGS} |
-| 6 | user skill overrides bundled by name | Override priority |
-| 7 | untrusted project skill blocked | Trust gating |
-| 8 | trusted project skill loaded | Trust gating |
-| 9 | malformed skills silently skipped | Error handling |
-| 10 | /commit activates inline skill | Slash commands |
-| 11 | /review activates fork skill | Fork execution |
-| 12 | unknown slash command rejected | Error handling |
-| 13 | skills section renders in system prompt | Prompt rendering |
-| 14 | skill tool registered in registry | Tool registration |
-| 15 | hook runtime loads all 3 types + new events | Hook system |
-| 16 | old-format hooks still work | Backward compatibility |
-| 17 | trust gates agents, skills, rules consistently | Security model |
-| 18 | completion catalog includes skills | Tab completion |
+| 4 | @include blocks path traversal | Security: path containment |
+| 5 | @include blocks symlinks | Security: symlink bypass |
+| 6 | bundled skills load by default | Skill discovery |
+| 7 | user skill loaded and invoked with args | User skills + ${ARGS} |
+| 8 | user skill overrides bundled by name | Override priority |
+| 9 | untrusted project skill blocked | Trust gating |
+| 10 | trusted project skill loaded | Trust gating |
+| 11 | malformed skills silently skipped | Error handling |
+| 12 | /commit activates inline skill | Slash commands |
+| 13 | /review activates fork skill | Fork execution |
+| 14 | unknown slash command rejected | Error handling |
+| 15 | skills section renders in system prompt | Prompt rendering |
+| 16 | skill tool registered in registry | Tool registration |
+| 17 | hook runtime loads all 3 types + new events | Hook system |
+| 18 | old-format hooks still work | Backward compatibility |
+| 19 | trust gates agents, skills, rules consistently | Security model |
+| 20 | completion catalog includes skills | Tab completion |
 
 ### SSOT Compliance
 Zero violations in all harness files. Verified via `deno task ssot:check`.

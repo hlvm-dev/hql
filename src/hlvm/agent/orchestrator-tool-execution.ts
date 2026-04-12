@@ -261,8 +261,12 @@ async function executeToolWithTimeout(
   } = opts;
   return await withTimeout(
     async (signal) => {
+      // Wrap signal in a controller so CU escape can abort the current tool
+      const toolAbortController = new AbortController();
+      signal.addEventListener("abort", () => toolAbortController.abort(signal.reason), { once: true });
       const toolOptions: ToolExecutionOptions = {
-        signal,
+        signal: toolAbortController.signal,
+        abortController: toolAbortController,
         toolName: toolCall.toolName,
         toolCallId: toolCall.id,
         argsSummary: generateArgsSummary(toolCall.toolName, args),

@@ -95,6 +95,8 @@ export interface InteractionRequestEvent {
 /** Optional execution options passed to tools (e.g., cancellation signal) */
 export interface ToolExecutionOptions {
   signal?: AbortSignal;
+  /** AbortController for the current tool — used by CU escape abort. */
+  abortController?: AbortController;
   /** Current tool name for tool-local progress reporting. */
   toolName?: string;
   /** Current tool call ID for tool-local progress reporting. */

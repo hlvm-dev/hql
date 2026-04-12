@@ -60,6 +60,24 @@ async function resolveIncludes(
     const relativePath = match[1];
     const absolutePath = platform.path.resolve(baseDir, relativePath);
 
+    // Security: prevent path traversal — included file must stay within baseDir
+    if (!absolutePath.startsWith(baseDir + platform.path.sep) && absolutePath !== baseDir) {
+      result.push(`[include blocked: ${relativePath} escapes base directory]`);
+      continue;
+    }
+
+    // Security: block symlinks — they can point outside the base directory
+    try {
+      const stat = await platform.fs.lstat(absolutePath);
+      if (stat.isSymlink) {
+        result.push(`[include blocked: ${relativePath} is a symlink]`);
+        continue;
+      }
+    } catch {
+      result.push(`[include not found: ${relativePath}]`);
+      continue;
+    }
+
     if (seen.has(absolutePath)) {
       result.push(line); // circular — keep directive as-is
       continue;

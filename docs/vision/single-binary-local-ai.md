@@ -657,7 +657,7 @@ Both layers operate on the same visible Chromium window. Playwright via CDP
 
 ### Platform Expansion
 
-| Platform | CU (26 tools) | PW (7 tools) | Net                     |
+| Platform | CU (27 tools) | PW (7 tools) | Net                     |
 | -------- | ------------- | ------------ | ----------------------- |
 | macOS    | yes           | yes          | Full hybrid             |
 | Linux    | no            | yes          | Browser automation only |

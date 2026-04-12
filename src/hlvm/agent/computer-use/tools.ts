@@ -1,7 +1,7 @@
 /**
  * Computer Use — Tool Definitions (V2: CC Parity)
  *
- * 26 tools: the original Claude Code `computer_20250124`-style coordinate
+ * 27 tools: the original Claude Code `computer_20250124`-style coordinate
  * suite plus HLVM's observation-first target actions (`cu_observe`,
  * `cu_click_target`, `cu_type_into_target`).
  * Each tool wraps the ComputerExecutor interface with guards + error handling.
@@ -43,8 +43,10 @@ import type {
   ComputerUsePermissionState,
   CUExecutePlanFailure,
   CUExecutePlanResponse,
+  CUObservedTargetRef,
   CUPlanStep,
   CUPlanTargetSelector,
+  CUReadTargetKind,
   DesktopObservation,
   DisplaySelectionReason,
   WindowInfo,
@@ -64,10 +66,12 @@ import {
   markComputerUseFailure,
   markComputerUseExplicitContextRequired,
   markComputerUseSuccess,
+  COMPUTER_USE_OBSERVATION_MAX_AGE_MS,
   rememberComputerUseObservation,
   rememberHiddenComputerUseApps,
   requiresFreshComputerUseObservation,
   resolveObservationTarget,
+  resolveRecentObservationTarget,
   setComputerUsePermissionState,
   setComputerUseSelectedDisplay,
   setComputerUseTargetBundleId,
@@ -75,6 +79,7 @@ import {
 } from "./session-state.ts";
 import {
   performNativeExecutePlan,
+  performNativeReadTarget,
   performNativeTargetAction,
   resolveBackend,
 } from "./bridge.ts";
@@ -89,6 +94,7 @@ const RESULT_SUMMARY: Record<string, string> = {
   left_click: "Clicked",
   click_target: "Clicked",
   execute_plan: "Executed",
+  read_target: "Read",
   right_click: "Clicked",
   middle_click: "Clicked",
   double_click: "Clicked",
@@ -134,11 +140,19 @@ function platformGuard(): ReturnType<typeof failTool> | null {
   return null;
 }
 
+// Module-level abort — always points to the current turn's controller.
+// Updated on every CU tool call, like CC's tuc().abortController.
+let _cuAbortController: AbortController | undefined;
+
 async function guards(
   options?: ToolExecutionOptions,
 ): Promise<ReturnType<typeof failTool> | null> {
   const pGuard = platformGuard();
   if (pGuard) return pGuard;
+  // Track the current turn's abort controller (updated every tool call)
+  if (options?.abortController) {
+    _cuAbortController = options.abortController;
+  }
   const sessionId = options?.sessionId ?? "default";
   const result = await tryAcquireComputerUseLock(sessionId);
   if (result.kind === "blocked") {
@@ -154,10 +168,10 @@ async function guards(
       },
     );
   }
-  // On fresh lock acquire, set up escape callback + notify user
   if (result.fresh) {
     setEscapeCallback(() => {
       getAgentLogger().info("[cu-esc] escape abort fired");
+      _cuAbortController?.abort("User pressed Escape");
     });
     sendCuNotification(
       "HLVM is using your computer. Press Escape to stop.",
@@ -450,16 +464,18 @@ function parsePlanSelector(
   }
   const bundleId = selector.bundle_id;
   const roleIn = selector.role_in;
-  if (!isNonEmptyString(bundleId)) {
-    throw new Error(
-      "find_target.selector.bundle_id must be a non-empty string",
-    );
-  }
-  assertValidBundleId(bundleId, "find_target.selector.bundle_id");
   const parsed: CUPlanTargetSelector = {
-    bundle_id: bundleId,
     role_in: ensureStringArray(roleIn, "find_target.selector.role_in"),
   };
+  if (bundleId != null) {
+    if (!isNonEmptyString(bundleId)) {
+      throw new Error(
+        "find_target.selector.bundle_id must be a non-empty string",
+      );
+    }
+    assertValidBundleId(bundleId, "find_target.selector.bundle_id");
+    parsed.bundle_id = bundleId;
+  }
   if (selector.window_title_contains != null) {
     if (!isNonEmptyString(selector.window_title_contains)) {
       throw new Error(
@@ -496,6 +512,39 @@ function parsePlanSelector(
   return parsed;
 }
 
+function parseObservedTargetRef(
+  raw: unknown,
+): CUObservedTargetRef {
+  const ref = asRecordLoose(raw);
+  if (!ref) {
+    throw new Error("find_target.observed_target must be an object");
+  }
+  const observationId = ref.observation_id;
+  const targetId = ref.target_id;
+  if (!isNonEmptyString(observationId)) {
+    throw new Error(
+      "find_target.observed_target.observation_id must be a non-empty string",
+    );
+  }
+  if (!isNonEmptyString(targetId)) {
+    throw new Error(
+      "find_target.observed_target.target_id must be a non-empty string",
+    );
+  }
+  resolveObservationTarget(observationId, targetId);
+  return {
+    observation_id: observationId,
+    target_id: targetId,
+  };
+}
+
+function parseReadTargetKind(raw: unknown): CUReadTargetKind {
+  if (raw === "value" || raw === "enabled") {
+    return raw;
+  }
+  throw new Error("read_kind must be 'value' or 'enabled'");
+}
+
 function parseExecutePlanArgs(args: unknown): {
   steps: CUPlanStep[];
   displayId?: number;
@@ -511,6 +560,7 @@ function parseExecutePlanArgs(args: unknown): {
   if (input.steps.length > MAX_PLAN_STEPS) {
     throw new Error(`'steps' may contain at most ${MAX_PLAN_STEPS} items`);
   }
+  const rawSteps = input.steps as unknown[];
   const seenIds = new Set<string>();
   const assertKnownTargetRef = (targetRef: string, index: number) => {
     if (!seenIds.has(targetRef)) {
@@ -519,7 +569,7 @@ function parseExecutePlanArgs(args: unknown): {
       );
     }
   };
-  const steps = input.steps.map((rawStep, index) => {
+  const steps = rawSteps.map((rawStep, index) => {
     const step = asRecordLoose(rawStep);
     if (!step) {
       throw new Error(`steps[${index}] must be an object`);
@@ -542,10 +592,14 @@ function parseExecutePlanArgs(args: unknown): {
       case "wait_for_ready": {
         const bundleId = step.bundle_id;
         const targetRef = step.target_ref;
+        const nextStep = asRecordLoose(rawSteps[index + 1]);
+        const allowsImplicitSurfaceWait = nextStep?.op === "find_target";
         if (!isNonEmptyString(bundleId) && !isNonEmptyString(targetRef)) {
-          throw new Error(
-            `steps[${index}] must specify bundle_id or target_ref for wait_for_ready`,
-          );
+          if (!allowsImplicitSurfaceWait) {
+            throw new Error(
+              `steps[${index}] must specify bundle_id or target_ref for wait_for_ready unless the next step is find_target`,
+            );
+          }
         }
         if (isNonEmptyString(bundleId)) {
           assertValidBundleId(bundleId, `steps[${index}].bundle_id`);
@@ -585,6 +639,20 @@ function parseExecutePlanArgs(args: unknown): {
           throw new Error(`Duplicate step id '${id}'`);
         }
         seenIds.add(id);
+        const hasSelector = step.selector != null;
+        const hasObservedTarget = step.observed_target != null;
+        if (hasSelector === hasObservedTarget) {
+          throw new Error(
+            `steps[${index}] must specify exactly one of selector or observed_target`,
+          );
+        }
+        if (hasObservedTarget) {
+          return {
+            op,
+            id,
+            observed_target: parseObservedTargetRef(step.observed_target),
+          } satisfies CUPlanStep;
+        }
         return {
           op,
           id,
@@ -802,21 +870,22 @@ function normalizePlanSteps(steps: CUPlanStep[]): CUPlanStep[] {
         break;
       }
       case "find_target": {
-        // Normalize role aliases in selector.role_in
-        const normalizedRoles = step.selector.role_in.map(normalizeRole);
-        // Deduplicate
-        const uniqueRoles = [...new Set(normalizedRoles)];
-        normalized.push({
-          ...step,
-          selector: {
-            ...step.selector,
-            // Fill in bundle_id from last opened app if missing from selector
-            bundle_id: step.selector.bundle_id ||
-              lastOpenedBundleId ||
-              step.selector.bundle_id,
-            role_in: uniqueRoles,
-          },
-        });
+        if (step.selector) {
+          const normalizedRoles = step.selector.role_in.map(normalizeRole);
+          const uniqueRoles = [...new Set(normalizedRoles)];
+          normalized.push({
+            ...step,
+            selector: {
+              ...step.selector,
+              bundle_id: step.selector.bundle_id ||
+                lastOpenedBundleId ||
+                step.selector.bundle_id,
+              role_in: uniqueRoles,
+            },
+          });
+        } else {
+          normalized.push(step);
+        }
         break;
       }
       default:
@@ -2154,6 +2223,57 @@ async function verifyAndReturnObservation(
   return observationImageResult(verified, actionData);
 }
 
+const cuReadTargetFn = cuTool(
+  "Read target failed",
+  async (args) => {
+    const {
+      observation_id,
+      target_id,
+      read_kind: rawReadKind,
+    } = args as {
+      observation_id: string;
+      target_id: string;
+      read_kind: unknown;
+    };
+    const read_kind = parseReadTargetKind(rawReadKind);
+    resolveRecentObservationTarget(observation_id, target_id);
+    const response = await performNativeReadTarget({
+      observationId: observation_id,
+      targetId: target_id,
+      readKind: read_kind,
+    });
+    if (!response) {
+      throw runtimeFailure(
+        "Native grounded target read is unavailable on this machine.",
+        {
+          kind: "unsupported",
+          retryable: false,
+          code: "cu_read_target_unsupported",
+        },
+      );
+    }
+    if (!response.ok) {
+      throw runtimeFailure(
+        response.message ?? "Grounded target read failed.",
+        {
+          retryable: false,
+          code: response.code ?? "cu_read_target_failed",
+          facts: {
+            targetId: response.targetId,
+            readKind: response.readKind,
+          },
+        },
+      );
+    }
+    return {
+      target_id: response.targetId,
+      read_kind: response.readKind,
+      value: response.value ?? null,
+    };
+  },
+  { readOnly: true, interactive: false },
+);
+
 const cuClickTargetFn = cuTool(
   "Click target failed",
   async (args, exec, options) => {
@@ -2739,6 +2859,39 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
         `Typed into target: ${typed}`,
         ["action: type_into_target"],
       );
+    },
+  },
+
+  cu_read_target: {
+    fn: cuReadTargetFn,
+    description:
+      "Read exact grounded target state from a recent grounded observation without using a screenshot. observation_id and target_id should come from the latest observation, or from the immediately preceding successful grounded target action when reading back the same element.",
+    args: {
+      observation_id:
+        "string - Observation id returned by cu_observe or the immediately preceding successful grounded target action",
+      target_id:
+        "string - Target id from observation.targets[] or the immediately preceding successful grounded target action",
+      read_kind: "string - One of: value, enabled",
+    },
+    category: "read",
+    safetyLevel: "L1",
+    safety:
+      "Reads exact grounded target state from the native AX cache. No side effects.",
+    ...READ_SAFE,
+    formatResult: (result) => {
+      const r = result as {
+        target_id?: string;
+        read_kind?: string;
+        value?: string | boolean | null;
+      };
+      const value = r.value === null || r.value === undefined
+        ? "null"
+        : String(r.value);
+      return {
+        summaryDisplay: RESULT_SUMMARY.read_target,
+        returnDisplay:
+          `Read target ${r.target_id ?? "unknown"} ${r.read_kind ?? "value"} = ${value}`,
+      };
     },
   },
 

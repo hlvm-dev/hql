@@ -1,6 +1,6 @@
 # Computer Use — Overview
 
-Last updated: 2026-04-12
+Last updated: 2026-04-13
 
 HLVM computer use is the desktop-control subsystem that lets the agent see and
 act on a macOS desktop: screenshots, mouse, keyboard, app activation, window
@@ -74,7 +74,7 @@ Phase 6  Bridge-First Reliability
 
 ## What It Can Do
 
-Public CU surface: 26 tools
+Public CU surface: 27 tools
 
 - Observation: `cu_observe`
 - Screenshot: `cu_screenshot`, `cu_zoom`
@@ -85,6 +85,7 @@ Public CU surface: 26 tools
   `cu_left_click_drag`
 - Keyboard: `cu_type`, `cu_key`, `cu_hold_key`
 - Grounded target actions: `cu_click_target`, `cu_type_into_target`
+- Read-first AX: `cu_read_target`
 - Clipboard: `cu_read_clipboard`, `cu_write_clipboard`
 - Scroll: `cu_scroll`
 - Apps: `cu_list_granted_applications`, `cu_open_application`,
@@ -173,12 +174,13 @@ What is still being closed out:
 
 - repeated-run live E2E reliability
 - broader one-at-a-time real-user scenario coverage
-- consistency between observation target extraction and execute-plan target
-  resolution in edge-case AX trees
-- full live product sign-off for `cu_execute_plan`
-- reducing cloud-turn latency on shortcut/palette/modal workflows
+- final broad repeated-run sign-off for `cu_execute_plan`
 - moving from "LLM orchestrates every micro-step" toward a declarative native
   interaction engine for context shifts, waits, settling, and verification
+- lightweight `cu_screenshot` path so screenshot-only reads stop paying for full
+  observation assembly
+- JXA fallback cleanup that restores hidden apps without changing window
+  z-order
 
 Historical baseline snapshot on 2026-04-11:
 
@@ -193,23 +195,25 @@ Included 4 native-grounding and system-UI tests:
   cross_app_grounded_workflow    green  (TextEdit → Calculator → back, using native targets)
 ```
 
-Current framing on 2026-04-12:
+Current framing on 2026-04-13:
 
 ```text
 architecture: settled
 substrate: present and operational
 native grounding: end-to-end working
-native subplan executor: implemented but still being live-hardened
-current work: one-at-a-time reliability loops and generic Level 3 consistency
+read-first AX v1: shipped
+native subplan executor: working on targeted Step 3/5 scenarios
+current work: broader repeated-run sign-off and low-risk cleanup
 ```
 
-Latest one-at-a-time live probes on 2026-04-12:
+Latest targeted live probes on 2026-04-13:
 
 ```text
-execute_plan_cross_app_short_flow   PASS  (~22s)  cu_execute_plan only
-execute_plan_open_wait_type_verify  PASS  (~18s)  safe ambiguity retry, then success
-cross_app_grounded_workflow         PASS  (~40s)  grounded non-plan path still healthy
-hlvm_spotlight_search               PASS  (~1m52s) safe after shortcut fixes, but too slow
+read_target_value_after_type             PASS clean
+execute_plan_observed_target_type_verify PASS clean
+execute_plan_shortcut_surface            PASS clean
+execute_plan_open_wait_type_verify       PASS clean
+execute_plan_cross_app_short_flow        PASS with one expected ambiguity retry
 ```
 
 Measured latency split:
@@ -232,6 +236,7 @@ foundation: solid
 native path: real and operational
 main user-visible bottleneck: cloud-turn orchestration overhead
 next generic upgrade: declarative native interaction engine
+remaining non-critical cleanup: screenshot fast path and JXA unhide polish
 ```
 
 In plain terms, the next smart upgrade is not more app-specific fixes. It is to

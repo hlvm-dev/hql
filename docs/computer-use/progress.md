@@ -1,6 +1,6 @@
 # Computer Use — Progress
 
-Last updated: 2026-04-12
+Last updated: 2026-04-13
 
 ## Executive Summary
 
@@ -40,24 +40,28 @@ Hybrid PW -> CU pack:         5/5 green
 CU-only pack:                 18/18 green (full-pack run)
 ```
 
-Current reality on 2026-04-12:
+Current reality on 2026-04-13:
 
 ```text
 Foundation / native substrate:                 working
 Grounded target actions:                       working
-cu_execute_plan v1:                            implemented, additive, not fully signed off
-Keyboard/text continuity contract:             partially shipped
-Current validation style:                      one live scenario at a time
-Current broad gap:                             observation vs execute-plan target consistency
+cu_execute_plan v1:                            implemented, additive, targeted paths now validated
+Keyboard/text continuity contract:             shipped on the native path
+Read-first AX v1 (`cu_read_target`):           shipped and live-green
+Observed-target execute-plan path:             shipped and live-green
+Shortcut-surface execute-plan path:            shipped and live-green
+Current validation style:                      targeted live scenarios, then broader repeated-run sign-off
+Current broad gap:                             scenario breadth, not architecture
 ```
 
-Additional verified reading later on 2026-04-12:
+Additional verified reading later on 2026-04-13:
 
 ```text
-execute_plan_cross_app_short_flow:            PASS (~22s, one successful cu_execute_plan)
-execute_plan_open_wait_type_verify:           PASS (~18s, safe ambiguity retry then success)
-cross_app_grounded_workflow:                  PASS (~40s, no failed tools)
-hlvm_spotlight_search:                        PASS (~1m52s, safe but still too slow)
+read_target_value_after_type:                PASS clean
+execute_plan_observed_target_type_verify:    PASS clean
+execute_plan_shortcut_surface:               PASS clean
+execute_plan_open_wait_type_verify:          PASS clean
+execute_plan_cross_app_short_flow:           PASS with one expected ambiguity retry
 ```
 
 Measured latency split:
@@ -103,23 +107,29 @@ after each action without calling `cu_observe` again.
 Measured: `chained_grounded_actions` 50s → 29s (42% faster).
 Zero `cu_observe` calls needed in grounded workflows.
 
-#### Execute-plan reliability (Step 2) — MATERIALLY IMPROVED
+#### Execute-plan reliability (Step 2) — SHIPPED FOR THE CORE PATHS
 
 - `observationId` passes from TS to Swift `/cu/execute-plan`
 - Native `resolvePlanTarget` uses observation-backed target cache
 - Target pinning: resolved targets reused across plan steps
 - Blind `index:0` auto-retry removed — ambiguity returns to LLM
 - Size-based disambiguation threshold raised from 2x to 10x
+- `find_target` now accepts grounded `observed_target { observation_id, target_id }`
+- shortcut-surface readiness and transient-window continuity are fixed on the
+  native path
 
-Measured (5x repeated runs):
+Current targeted reading:
 
 ```text
-execute_plan_open_wait_type_verify:   5/5 first-attempt success (was ~0%)
-execute_plan_cross_app_short_flow:    1/5 first-attempt, 5/5 semantic pass
+execute_plan_open_wait_type_verify:        clean pass
+execute_plan_observed_target_type_verify:  clean pass
+execute_plan_shortcut_surface:             clean pass
+execute_plan_cross_app_short_flow:         pass with one expected ambiguity retry
 ```
 
-Single-app execute-plan is now 100% reliable. Cross-app still has first-attempt
-failures but always recovers.
+Single-app execute-plan is now clean on the validated scenarios. Cross-app can
+still incur one extra model turn for real ambiguity, but it recovers
+correctly.
 
 #### Recovery safety (Step 4) — DONE
 
@@ -128,11 +138,19 @@ failures but always recovers.
 - Unit tests verify: fn called exactly once, verification failure doesn't
   replay, non-retryable errors pass through
 
-#### Deferred work
+#### Step 3 (read-first AX APIs) — DONE FOR V1
 
-- **Step 3 (read-first AX APIs)**: code removed during cleanup, will be
-  reintroduced as one generic `/cu/read-target` endpoint after Step 2 is stable
-- **Step 5 (semantic transitions)**: not started, depends on Steps 2-4 stable
+- native `/cu/read-target` endpoint shipped
+- public `cu_read_target` shipped
+- exact `value` and `enabled` reads are available from grounded targets
+- immediate read-after-write of the same grounded target is live-green
+
+#### Step 5 (semantic transitions) — FIRST CUT SHIPPED
+
+- open-app plus ready transition is handled locally
+- grounded find-target plus type plus verify transition is handled locally
+- shortcut-surface execute-plan path is live-green
+- next work here is broader declarative-native coverage, not basic viability
 
 #### Previous Phase 8 progress (earlier in 2026-04-12)
 
@@ -316,12 +334,12 @@ The open work is now narrower and more engineering-focused:
 - multi-step focus/activation recovery edge cases
 - timing-sensitive failures
 - broader real-user scenario coverage beyond the historical 18-case pack
-- `cu_execute_plan` live product sign-off under broader scenario variety
-- reducing cloud-turn overhead on shortcut/palette/modal flows
+- `cu_execute_plan` broad repeated-run sign-off under broader scenario variety
 - evolving `cu_execute_plan` from a bounded step runner toward a more semantic
   transition executor
-- generic Level 3 target-surface consistency across editors/forms with weak AX
-  geometry
+- lightweight `cu_screenshot` path so screenshot-only reads do not pay for full
+  observation assembly
+- JXA fallback unhide that preserves user window z-order during cleanup
 
 This is a different class of work from the earlier phases:
 

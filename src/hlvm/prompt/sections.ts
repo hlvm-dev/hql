@@ -572,7 +572,7 @@ You have computer control tools (cu_* prefix) for GUI automation on macOS.
 1. Most interactive tools (cu_open_application, cu_click_target, cu_type_into_target, cu_type, cu_key, cu_scroll) return a fresh post-action observation with updated targets and screenshot — use that directly for your next action. Only call cu_observe when starting from scratch or after actions that do not return observations (coordinate clicks, drag).
 2. Prefer cu_click_target / cu_type_into_target when observation targets are available; use raw coordinates only as fallback
 3. Use cu_execute_plan for short deterministic desktop subplans with clear success criteria (typically 3+ steps like open app -> wait -> find target -> type -> verify). Do not use it for exploratory UI discovery or ambiguous screens.
-4. observation_id and target_id are single-use grounding tokens tied to the latest observation only; if the screen changes or an action runs, take a fresh observation before reusing targets
+4. observation_id and target_id are normally single-use grounding tokens tied to the latest observation; if the screen changes or an action runs, take a fresh observation before reusing targets. Exception: for an immediate read-back of the exact same grounded element, cu_read_target may reuse the observation_id + target_id from the immediately preceding successful grounded target action.
 5. If you only need pixels or a visual attachment, cu_screenshot and cu_zoom are allowed, but still treat the latest observation as the SSOT for targeting
 
 ## Best Practices
@@ -583,15 +583,18 @@ You have computer control tools (cu_* prefix) for GUI automation on macOS.
 - For short deterministic workflows, prefer cu_execute_plan over spending extra turns on wait/retry/re-verify loops
 - cu_execute_plan step rules are strict:
   - open_app: requires bundle_id
-  - wait_for_ready: requires bundle_id or target_ref; default waits are intentionally short, so only set a larger timeout_ms when you genuinely expect a slower app or view
-  - find_target: requires id plus selector { bundle_id, role_in, optional window_title_contains, label_contains, value_contains, index }
+- wait_for_ready: usually requires bundle_id or target_ref; exception: immediately after a shortcut-driven surface transition, it may omit both when the next step is find_target for the surfaced UI. Default waits are intentionally short, so only set a larger timeout_ms when you genuinely expect a slower app or view
+  - find_target: requires id plus either selector { role_in, optional bundle_id, window_title_contains, label_contains, value_contains, index } or observed_target { observation_id, target_id }. For shortcut-triggered unknown surfaces, bundle_id may be omitted so native resolves inside the current/frontmost surfaced app
   - click and type_into: require target_ref pointing to an earlier find_target id
   - press_keys: requires keys string plus optional bundle_id or target_ref
 - verify: use one of frontmost_app_is, window_visible, target_exists, target_enabled, target_value_contains; target_* predicates require target_ref, and target_value_contains also requires value_contains
 - When using cu_execute_plan, always create stable find_target ids and reference them later. Do not invent raw target ids.
+- If the app is already observed and the target you want is present in observation.targets, prefer find_target with observed_target { observation_id, target_id } over writing a fresh selector. Only use selector-based find_target when the app/target has not been observed yet.
+- For press_keys inside cu_execute_plan, use one step per literal key when entering calculator-style or text-like sequences. Reserve a single keys string for actual shortcuts/chords like command+l or ctrl+z. Do not collapse 4, 2, *, 2, Return into one combined keys string.
 - Write precise find_target selectors to avoid ambiguity: use a single role_in value (not both textArea and textField), add label_contains when the target has a known label, or add index: 0 when you specifically want the primary/largest match. Broad selectors cause ambiguity failures and cost an extra retry turn.
 - If cu_execute_plan returns cu_execute_plan_ambiguous_selector with candidate descriptions, use the descriptions to pick the right candidate and retry with selector.index before falling back to ordinary cu_* tools.
 - Prefer cu_execute_plan for deterministic shortcut-driven flows too: e.g. press_keys for a global shortcut, wait_for_ready, then find_target/type_into/verify. This avoids long cloud pauses between separate cu_key, cu_wait, cu_observe, and cu_type turns.
+- Use cu_read_target when you need exact grounded target state such as the current value or enabled state. Prefer it over screenshot-based verification when you already have observation_id + target_id. For immediate read-after-write of the same grounded element, reuse the exact observation_id + target_id that just succeeded for cu_type_into_target instead of re-selecting a new target from the follow-up observation.
 - Minimal cu_execute_plan pattern:
   1. open_app { bundle_id }
   2. wait_for_ready { bundle_id }

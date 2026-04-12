@@ -391,12 +391,17 @@ export interface CUBackendResolution {
 // ── Native Execute Plan ─────────────────────────────────────────────────
 
 export interface CUPlanTargetSelector {
-  bundle_id: string;
+  bundle_id?: string;
   window_title_contains?: string;
   role_in: string[];
   label_contains?: string;
   value_contains?: string;
   index?: number;
+}
+
+export interface CUObservedTargetRef {
+  observation_id: string;
+  target_id: string;
 }
 
 export type CUPlanStep =
@@ -414,6 +419,13 @@ export type CUPlanStep =
     op: "find_target";
     id: string;
     selector: CUPlanTargetSelector;
+    observed_target?: never;
+  }
+  | {
+    op: "find_target";
+    id: string;
+    observed_target: CUObservedTargetRef;
+    selector?: never;
   }
   | {
     op: "click";
@@ -468,6 +480,23 @@ export interface CUExecutePlanFailure {
   stepIndex?: number;
   stepOp?: CUPlanStep["op"];
   facts?: Record<string, unknown>;
+}
+
+export type CUReadTargetKind = "value" | "enabled";
+
+export interface CUReadTargetRequest {
+  observationId: string;
+  targetId: string;
+  readKind: CUReadTargetKind;
+}
+
+export interface CUReadTargetResponse {
+  ok: boolean;
+  targetId: string;
+  readKind: CUReadTargetKind;
+  value?: string | boolean | null;
+  code?: string;
+  message?: string;
 }
 
 export interface CUExecutePlanResponse {

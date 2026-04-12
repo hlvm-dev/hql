@@ -57,6 +57,7 @@ export interface ComputerUseSessionState {
   };
   hiddenApps: Set<string>;
   lastObservation?: DesktopObservation;
+  recentObservations: DesktopObservation[];
   lastSuccessfulAction?: ComputerUseActionRecord;
   recentFailureReason?: ComputerUseFailureRecord;
   permissions?: ComputerUsePermissionState;
@@ -64,7 +65,10 @@ export interface ComputerUseSessionState {
 
 const state: ComputerUseSessionState = {
   hiddenApps: new Set<string>(),
+  recentObservations: [],
 };
+
+export const COMPUTER_USE_OBSERVATION_MAX_AGE_MS = 10_000;
 
 export function getComputerUseSessionState(): ComputerUseSessionState {
   return state;
@@ -178,6 +182,12 @@ export function rememberComputerUseObservation(
   observation: DesktopObservation,
 ): void {
   state.lastObservation = observation;
+  state.recentObservations = [
+    observation,
+    ...state.recentObservations.filter((entry) =>
+      entry.observationId !== observation.observationId
+    ),
+  ].slice(0, 3);
   state.permissions = observation.permissions;
   state.selectedDisplayId = observation.display.displayId;
   state.displaySelectionReason = observation.displaySelectionReason;
@@ -266,6 +276,14 @@ export function getLastComputerUseObservation(): DesktopObservation | undefined 
   return state.lastObservation;
 }
 
+export function getRecentComputerUseObservation(
+  observationId: string,
+): DesktopObservation | undefined {
+  return state.recentObservations.find((entry) =>
+    entry.observationId === observationId
+  );
+}
+
 export function resolveObservationTarget(
   observationId: string,
   targetId: string,
@@ -277,6 +295,40 @@ export function resolveObservationTarget(
   if (!observation || observation.observationId !== observationId) {
     throw new Error(
       "Observation is stale. Call cu_observe again before using target-based actions.",
+    );
+  }
+  if (Date.now() - observation.createdAt > COMPUTER_USE_OBSERVATION_MAX_AGE_MS) {
+    throw new Error(
+      "Observation is too old. Call cu_observe again before using target-based actions.",
+    );
+  }
+  const target = observation.targets.find((candidate) =>
+    candidate.targetId === targetId
+  );
+  if (!target) {
+    throw new Error(
+      `Unknown target_id '${targetId}' for observation '${observationId}'.`,
+    );
+  }
+  return { observation, target };
+}
+
+export function resolveRecentObservationTarget(
+  observationId: string,
+  targetId: string,
+): {
+  observation: DesktopObservation;
+  target: ObservationTarget;
+} {
+  const observation = getRecentComputerUseObservation(observationId);
+  if (!observation) {
+    throw new Error(
+      "Observation is stale. Call cu_observe again before using target-based actions.",
+    );
+  }
+  if (Date.now() - observation.createdAt > COMPUTER_USE_OBSERVATION_MAX_AGE_MS) {
+    throw new Error(
+      "Observation is too old. Call cu_observe again before using target-based actions.",
     );
   }
   const target = observation.targets.find((candidate) =>
@@ -332,6 +384,7 @@ export function clearStaleComputerUseTargetApp(
 
 export function resetComputerUseSessionState(): void {
   state.hiddenApps.clear();
+  state.recentObservations = [];
   delete state.selectedDisplayId;
   delete state.displaySelectionReason;
   delete state.pendingPromotionObservationAt;

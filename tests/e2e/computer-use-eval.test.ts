@@ -74,6 +74,12 @@ interface ComputerUseResult {
   failedToolNames: string[];
 }
 
+interface CapturedAgentEvent {
+  at: string;
+  offsetMs: number;
+  event: AgentUIEvent;
+}
+
 // ── Utilities ─────────────────────────────────────────────────────────────
 
 function uniqueNames(names: string[]): string[] {
@@ -146,6 +152,109 @@ function validateRequiredTools(
     }
   }
   return errors;
+}
+
+function slugifyCaseId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/-+/g, "-");
+}
+
+function truncateForLog(text: string, max = 280): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized.length <= max
+    ? normalized
+    : `${normalized.slice(0, Math.max(0, max - 3))}...`;
+}
+
+function formatTimelineEvent(entry: CapturedAgentEvent): string {
+  const prefix =
+    `[+${String(entry.offsetMs).padStart(5, " ")}ms] ${entry.event.type}`;
+  switch (entry.event.type) {
+    case "tool_start":
+      return `${prefix} ${entry.event.name} :: ${entry.event.argsSummary}`;
+    case "tool_progress":
+      return `${prefix} ${entry.event.name} :: ${entry.event.message}`;
+    case "tool_end":
+      return `${prefix} ${entry.event.name} success=${entry.event.success} durationMs=${entry.event.durationMs} :: ${
+        truncateForLog(entry.event.content)
+      }`;
+    case "reasoning_update":
+    case "planning_update":
+      return `${prefix} :: ${entry.event.summary}`;
+    case "turn_stats":
+      return `${prefix} tools=${entry.event.toolCount} durationMs=${entry.event.durationMs} model=${entry.event.modelId ?? "(unknown)"}`;
+    default:
+      return `${prefix} :: ${truncateForLog(JSON.stringify(entry.event))}`;
+  }
+}
+
+async function writeCaseArtifacts(options: {
+  rootDir: string;
+  testCase: ComputerUseCase;
+  model: string;
+  status: "pass" | "fail" | "crash";
+  query: string;
+  responseText: string;
+  events: CapturedAgentEvent[];
+  successfulToolNames: string[];
+  attemptedToolNames: string[];
+  failedToolNames: string[];
+  errors: string[];
+  crashMessage?: string;
+}): Promise<string> {
+  const caseDir = platform.path.join(
+    options.rootDir,
+    slugifyCaseId(options.testCase.id),
+  );
+  await platform.fs.mkdir(caseDir, { recursive: true });
+
+  const summary = [
+    `# CU E2E Case: ${options.testCase.id}`,
+    "",
+    `- status: ${options.status}`,
+    `- model: ${options.model}`,
+    `- attempted_tools: ${options.attemptedToolNames.join(", ") || "(none)"}`,
+    `- successful_tools: ${
+      options.successfulToolNames.join(", ") || "(none)"
+    }`,
+    `- failed_tools: ${options.failedToolNames.join(", ") || "(none)"}`,
+    `- event_count: ${options.events.length}`,
+    "",
+    "## Query",
+    "",
+    options.query,
+    "",
+    "## Response",
+    "",
+    options.responseText || "(empty)",
+    "",
+    "## Errors",
+    "",
+    options.errors.length > 0 ? options.errors.map((e) => `- ${e}`).join("\n") : "- (none)",
+    "",
+    "## Crash",
+    "",
+    options.crashMessage ? `- ${options.crashMessage}` : "- (none)",
+    "",
+    "## Timeline",
+    "",
+    ...options.events.map((entry) => `- ${formatTimelineEvent(entry)}`),
+    "",
+  ].join("\n");
+
+  await platform.fs.writeTextFile(
+    platform.path.join(caseDir, "summary.md"),
+    summary,
+  );
+  await platform.fs.writeTextFile(
+    platform.path.join(caseDir, "events.json"),
+    JSON.stringify(options.events, null, 2),
+  );
+  await platform.fs.writeTextFile(
+    platform.path.join(caseDir, "timeline.log"),
+    options.events.map((entry) => formatTimelineEvent(entry)).join("\n") + "\n",
+  );
+
+  return caseDir;
 }
 
 // ── Test Cases ────────────────────────────────────────────────────────────
@@ -668,6 +777,104 @@ const CASES: ComputerUseCase[] = [
     },
   },
   {
+    id: "read_target_value_after_type",
+    query: "Open TextEdit (com.apple.TextEdit). Use the grounded observation returned by cu_open_application or cu_observe to identify the main text area target. " +
+      "Call cu_type_into_target to type the exact text 'Read target works'. " +
+      "For the immediate read-back, reuse the exact same observation_id and target_id that succeeded for cu_type_into_target instead of selecting a new target from the follow-up observation. " +
+      "Then call cu_read_target with read_kind 'value'. " +
+      "Report the exact returned value and whether it contains 'Read target works'.",
+    requiredTools: [
+      "cu_open_application",
+      "cu_type_into_target",
+      "cu_read_target",
+    ],
+    validate: (result) => {
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(result, [
+          "cu_open_application",
+          "cu_type_into_target",
+          "cu_read_target",
+        ]),
+      ];
+      if (!/read target works|value|contains|textedit/i.test(result.plain)) {
+        errors.push(
+          "Expected response to mention the grounded read value or the typed text.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
+    id: "execute_plan_observed_target_type_verify",
+    query: "Open TextEdit (com.apple.TextEdit). Use the grounded observation returned by cu_open_application or cu_observe for the main text area target. " +
+      "Take the exact observation_id and target_id for that text area. " +
+      "Now call cu_execute_plan using a grounded find_target step with observed_target { observation_id, target_id } instead of a selector. " +
+      "Have the plan type 'Observed target plan' into that target and verify the value contains that text. " +
+      "If the plan blocks, explain where it blocked.",
+    requiredTools: ["cu_open_application", "cu_execute_plan"],
+    requiredToolMode: "attempted",
+    validate: (result) => {
+      const planSucceeded = result.successfulToolNames.includes(
+        "cu_execute_plan",
+      );
+      const planFailed = result.failedToolNames.includes("cu_execute_plan");
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(
+          result,
+          ["cu_open_application", "cu_execute_plan"],
+          "attempted",
+        ),
+      ];
+      if (!planSucceeded && !planFailed) {
+        errors.push("Expected grounded cu_execute_plan to complete or fail cleanly.");
+      }
+      if (
+        planSucceeded &&
+        !/observed target plan|textedit|grounded|observed_target/i.test(
+          result.plain,
+        )
+      ) {
+        errors.push(
+          "Expected response to mention the grounded observed-target plan.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
+    id: "execute_plan_shortcut_surface",
+    query: "Use cu_execute_plan for a shortcut-driven flow. " +
+      "Press the HLVM spotlight hotkey Control+Z, wait for the search surface to be ready, find the search text field, type 'calc', and verify the target is enabled or contains that value. " +
+      "If the plan blocks, continue with normal cu_* tools and report the block point.",
+    requiredTools: ["cu_execute_plan"],
+    requiredToolMode: "attempted",
+    validate: (result) => {
+      const planSucceeded = result.successfulToolNames.includes(
+        "cu_execute_plan",
+      );
+      const planFailed = result.failedToolNames.includes("cu_execute_plan");
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(result, ["cu_execute_plan"], "attempted"),
+      ];
+      if (!planSucceeded && !planFailed) {
+        errors.push("Expected shortcut cu_execute_plan to complete or fail cleanly.");
+      }
+      if (
+        !/hlvm|spotlight|calc|search|block|blocked|fallback|failed/i.test(
+          result.plain,
+        )
+      ) {
+        errors.push(
+          "Expected response to describe the shortcut surface or the block/fallback path.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
     id: "execute_plan_blocked_selector",
     query:
       "Call cu_execute_plan with an intentionally ambiguous selector in TextEdit so the plan should block safely instead of guessing. " +
@@ -944,11 +1151,21 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     const failures: string[] = [];
+    const artifactRoot = await platform.fs.makeTempDir({
+      prefix: "hlvm-cu-e2e-",
+    });
+    console.log(`CU E2E artifacts: ${artifactRoot}`);
 
     await withTemporaryWorkspace(async (workspace) => {
       for (const testCase of ACTIVE_CASES) {
         const events: AgentUIEvent[] = [];
+        const capturedEvents: CapturedAgentEvent[] = [];
+        const caseStartedAt = Date.now();
         let caseModel = "(none)";
+        let responseText = "";
+        let caseErrors: string[] = [];
+        let crashMessage: string | undefined;
+        let caseStatus: "pass" | "fail" | "crash" = "pass";
         try {
           const { model, result } = await withAbortTimeout(
             TIMEOUT_MS,
@@ -963,7 +1180,14 @@ Deno.test({
                 toolAllowlist: CU_TOOL_ALLOWLIST,
                 maxTokens: 2_400,
                 callbacks: {
-                  onAgentEvent: (event) => events.push(event),
+                  onAgentEvent: (event) => {
+                    events.push(event);
+                    capturedEvents.push({
+                      at: new Date().toISOString(),
+                      offsetMs: Date.now() - caseStartedAt,
+                      event,
+                    });
+                  },
                 },
               }),
           );
@@ -973,6 +1197,7 @@ Deno.test({
           const attemptedToolNames = collectAttemptedToolNames(events);
           const failedToolNames = collectFailedToolNames(events);
           const trimmedText = result.text.trim();
+          responseText = trimmedText;
           const semanticResult: ComputerUseResult = {
             text: trimmedText,
             plain: stripMarkdown(trimmedText),
@@ -981,7 +1206,22 @@ Deno.test({
             failedToolNames,
           };
           const errors = await testCase.validate(semanticResult);
+          caseErrors = errors;
           if (errors.length > 0) {
+            caseStatus = "fail";
+            const artifactDir = await writeCaseArtifacts({
+              rootDir: artifactRoot,
+              testCase,
+              model: caseModel,
+              status: caseStatus,
+              query: testCase.query,
+              responseText,
+              events: capturedEvents,
+              successfulToolNames,
+              attemptedToolNames,
+              failedToolNames,
+              errors,
+            });
             failures.push(
               [
                 `FAIL ${testCase.id}`,
@@ -993,6 +1233,7 @@ Deno.test({
                   attemptedToolNames.join(", ") || "(none)"
                 }`,
                 `  Failed Tools: ${failedToolNames.join(", ") || "(none)"}`,
+                `  Artifacts: ${artifactDir}`,
                 `  Response: ${semanticResult.text.slice(0, 300)}`,
                 `  Errors: ${errors.join(" | ")}`,
               ].join("\n"),
@@ -1004,19 +1245,46 @@ Deno.test({
                 e.type === "tool_start" && e.name === "cu_observe",
             ).length;
             const failedCount = failedToolNames.length;
+            const artifactDir = await writeCaseArtifacts({
+              rootDir: artifactRoot,
+              testCase,
+              model: caseModel,
+              status: caseStatus,
+              query: testCase.query,
+              responseText,
+              events: capturedEvents,
+              successfulToolNames,
+              attemptedToolNames,
+              failedToolNames,
+              errors,
+            });
             console.log(
               `PASS ${testCase.id} | Model: ${caseModel} | Successful: ${
                 successfulToolNames.join(", ") || "(none)"
               } | Attempted: ${attemptedToolNames.join(", ") || "(none)"} | Failed: ${
                 failedToolNames.join(", ") || "(none)"
-              } | observe:${observeCount} failed:${failedCount}`,
+              } | observe:${observeCount} failed:${failedCount} | artifacts:${artifactDir}`,
             );
           }
         } catch (error) {
+          caseStatus = "crash";
+          crashMessage = error instanceof Error ? error.message : String(error);
+          const artifactDir = await writeCaseArtifacts({
+            rootDir: artifactRoot,
+            testCase,
+            model: caseModel,
+            status: caseStatus,
+            query: testCase.query,
+            responseText,
+            events: capturedEvents,
+            successfulToolNames: collectSuccessfulToolNames(events),
+            attemptedToolNames: collectAttemptedToolNames(events),
+            failedToolNames: collectFailedToolNames(events),
+            errors: caseErrors,
+            crashMessage,
+          });
           failures.push(
-            `CRASH ${testCase.id} | Model: ${caseModel} | ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+            `CRASH ${testCase.id} | Model: ${caseModel} | Artifacts: ${artifactDir} | ${crashMessage}`,
           );
         }
         // Clean up between cases to prevent cross-case contamination.

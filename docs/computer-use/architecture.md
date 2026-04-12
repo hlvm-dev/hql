@@ -69,21 +69,23 @@ Bridge-first hybrid pack:     5/5 green
 CU-only live pack:            18/18 green (full-pack run)
 ```
 
-Current reading on 2026-04-12:
+Current reading on 2026-04-13:
 
 ```text
 Native substrate:             working
 Native grounding:             working
-Native subplan executor:      implemented, additive, still being live-hardened
+Read-first AX v1:             shipped
+Native subplan executor:      working on the validated Step 3/5 paths
 Current bottleneck:           broader scenario reliability, not architecture
 ```
 
-Refined reading later on 2026-04-12:
+Refined reading later on 2026-04-13:
 
 ```text
 native execution path:        relatively fast
 main user-visible bottleneck: cloud/model turn overhead between local actions
-main generic gap:             weak transition semantics between context shifts and subsequent actions
+main generic gap:             broader declarative transition coverage
+remaining pragmatic cleanup:  screenshot fast path and JXA unhide z-order
 ```
 
 ### Critical fix: cu_observe grounding data exposure (2026-04-11)
@@ -258,7 +260,7 @@ LLM (vision-capable)
 +------------------------------------------------------------------+
 | CU tool layer (tools.ts)                                         |
 |                                                                  |
-|  Public surface: 26 cu_* tools                                   |
+|  Public surface: 27 cu_* tools                                   |
 |                                                                  |
 |  Responsibilities:                                               |
 |  - argument validation                                           |

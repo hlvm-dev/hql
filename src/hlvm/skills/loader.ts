@@ -17,7 +17,7 @@ import { getPlatform } from "../../platform/platform.ts";
 import { getProjectSkillsDir, getSkillsDir } from "../../common/paths.ts";
 import { isWorkspaceTrusted } from "../prompt/instructions.ts";
 import { getBundledSkills } from "./bundled/index.ts";
-import type { SkillDefinition, SkillFrontmatter } from "./types.ts";
+import type { SkillDefinition } from "./types.ts";
 
 // ── Session Cache ────────────────────────────────────────────
 
@@ -55,14 +55,21 @@ async function loadSkillsFromDir(
         continue; // Unreadable file — skip
       }
 
-      const { meta, body } = parseFrontmatter<SkillFrontmatter>(text);
-      if (!meta || !meta.description) continue;
+      const { meta, body } = parseFrontmatter<Record<string, unknown>>(text);
+      if (!meta || typeof meta.description !== "string") continue;
 
       const name = entry.name.replace(/\.md$/, "");
       skills.push({
         name,
         source,
-        frontmatter: meta,
+        frontmatter: {
+          description: meta.description,
+          when_to_use: typeof meta.when_to_use === "string" ? meta.when_to_use : undefined,
+          allowed_tools: Array.isArray(meta.allowed_tools) ? meta.allowed_tools.filter((t): t is string => typeof t === "string") : undefined,
+          model: typeof meta.model === "string" ? meta.model : undefined,
+          user_invocable: typeof meta.user_invocable === "boolean" ? meta.user_invocable : undefined,
+          context: meta.context === "inline" || meta.context === "fork" ? meta.context : undefined,
+        },
         body,
         filePath,
       });

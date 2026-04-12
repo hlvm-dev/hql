@@ -37,7 +37,7 @@ Each transition should own:
 
 The LLM should specify intent, not every tiny step.
 
-## 2. Native Autonomous Executor (cu_execute_plan) — SHIPPED, STILL HARDENING
+## 2. Native Autonomous Executor (cu_execute_plan) — SHIPPED, CORE PATHS VALIDATED
 
 Move from `LLM → one tool → LLM → one tool` to
 `LLM sets subgoal → native backend executes locally until done/blocked`.
@@ -46,9 +46,10 @@ Smart wait, settle detection, actionability checks, self-healing targets, and
 local retries all live below the LLM.
 
 Status: v1 shipped. Bounded DSL with 7 step ops, capability-gated, Level 3
-only. Additive tool, foundation unchanged. The remaining work is live product
-hardening and broader scenario coverage, plus evolving it into the more
-semantic interaction engine above.
+only. Additive tool, foundation unchanged. Core flows now validate live:
+open-app -> wait -> find -> type -> verify, grounded observed-target plans,
+and shortcut-surface flows. The remaining work is broader repeated-run product
+coverage plus evolving it into the more semantic interaction engine above.
 
 ## 3. Fail-Closed Interaction Continuity — PARTIALLY SHIPPED
 
@@ -61,20 +62,26 @@ interaction context (app + window) is lost unexpectedly.
   `cu_target_context_changed`)
 - Mouse/click continuity: deferred until keyboard contract is stable
 
-## 4. Shared Native Target Model — IN PROGRESS
+## 4. Shared Native Target Model — MOSTLY SHIPPED
 
 Observation targets and execute-plan target resolution should not drift apart.
-The current generic work is to keep one target descriptor / candidate model
+The important generic work is to keep one target descriptor / candidate model
 across:
 
 - `cu_observe` / native target extraction
 - `cu_click_target` / `cu_type_into_target`
 - `cu_execute_plan` selector resolution
 
-This is the right fix for editor/form UIs that expose focused text elements but
-weak AX geometry. It avoids app-specific hacks.
+Current status:
 
-## 5. Read-First AX APIs
+- `observed_target { observation_id, target_id }` is live in `cu_execute_plan`
+- target pinning and observation-age checks are live
+- core grounded observe -> act -> verify consistency is working
+
+Remaining work here is broader edge-case consistency, not the original
+selector-vs-identity gap.
+
+## 5. Read-First AX APIs — V1 SHIPPED
 
 Add strong read primitives that don't require screenshots:
 
@@ -87,6 +94,15 @@ Add strong read primitives that don't require screenshots:
 
 Each one eliminates a screenshot + vision round-trip. Cheaper, faster, 100%
 accurate.
+
+Current status:
+
+- `cu_read_target` is live
+- native `/cu/read-target` is live
+- exact grounded `value` and `enabled` reads are shipped
+
+Remaining work is breadth: selected text, menus, scroll position, richer dialog
+state.
 
 ## 6. Local Recovery Engine
 
@@ -180,7 +196,7 @@ Every item above is **additive**. The foundation does not change:
 
 ```
 ReAct loop:          stays
-26 cu_* tools:       stay (cu_execute_plan added as 26th)
+27 cu_* tools:       stay (`cu_read_target` added; `cu_execute_plan` stays additive)
 3-level fallback:    stays (Level 3 → 2 → 1)
 Native AX backend:   stays (new endpoints added to it)
 Hybrid browser:      stays (PW → CU escalation unchanged)

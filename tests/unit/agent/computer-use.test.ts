@@ -536,6 +536,24 @@ Deno.test("session-state: stale observation ids are rejected", () => {
   );
 });
 
+Deno.test("session-state: aged observations are rejected even when ids still match", () => {
+  resetComputerUseSessionState();
+  const observation = makeObservation({
+    createdAt: Date.now() - 11_000,
+  });
+  rememberComputerUseObservation(observation);
+
+  assertThrows(
+    () =>
+      resolveObservationTarget(
+        observation.observationId,
+        observation.targets[0]!.targetId,
+      ),
+    Error,
+    "too old",
+  );
+});
+
 Deno.test("session-state: unknown target ids are rejected", () => {
   resetComputerUseSessionState();
   const observation = makeObservation();
@@ -870,10 +888,10 @@ Deno.test("types: targetImageSize preserves small images", () => {
 });
 
 // ============================================================
-// 4. Tool Registration Tests (VNext: 26 cu_* tools)
+// 4. Tool Registration Tests (VNext: 27 cu_* tools)
 // ============================================================
 
-Deno.test("tools: all 26 cu_* tools are exported", () => {
+Deno.test("tools: all 27 cu_* tools are exported", () => {
   const expectedTools = [
     "cu_observe",
     "cu_screenshot",
@@ -897,6 +915,7 @@ Deno.test("tools: all 26 cu_* tools are exported", () => {
     "cu_zoom",
     "cu_click_target",
     "cu_type_into_target",
+    "cu_read_target",
     "cu_execute_plan",
     "cu_open_application",
     "cu_request_access",
@@ -908,7 +927,7 @@ Deno.test("tools: all 26 cu_* tools are exported", () => {
       `Missing tool: ${name}`,
     );
   }
-  assertEquals(Object.keys(COMPUTER_USE_TOOLS).length, 26);
+  assertEquals(Object.keys(COMPUTER_USE_TOOLS).length, 27);
 });
 
 Deno.test("tools: L0 read-only tools have correct safety levels", () => {
@@ -926,8 +945,14 @@ Deno.test("tools: L0 read-only tools have correct safety levels", () => {
   }
 });
 
-Deno.test("tools: L1 capture/wait tools have correct safety levels", () => {
-  const l1Tools = ["cu_observe", "cu_screenshot", "cu_zoom", "cu_wait"];
+Deno.test("tools: L1 capture/wait/grounded-read tools have correct safety levels", () => {
+  const l1Tools = [
+    "cu_observe",
+    "cu_screenshot",
+    "cu_zoom",
+    "cu_wait",
+    "cu_read_target",
+  ];
   for (const name of l1Tools) {
     assertEquals(
       COMPUTER_USE_TOOLS[name].safetyLevel,
@@ -977,6 +1002,7 @@ Deno.test("tools: read tools are concurrency-safe", () => {
     "cu_read_clipboard",
     "cu_zoom",
     "cu_wait",
+    "cu_read_target",
   ];
   for (const name of concurrentTools) {
     assertEquals(
@@ -1065,6 +1091,27 @@ Deno.test("tools: target-grounded CU actions expose observation and target ids",
   assertExists(typeMeta.args?.observation_id);
   assertExists(typeMeta.args?.target_id);
   assertExists(typeMeta.args?.text);
+
+  const readMeta = COMPUTER_USE_TOOLS.cu_read_target;
+  assertExists(readMeta.args?.observation_id);
+  assertExists(readMeta.args?.target_id);
+  assertExists(readMeta.args?.read_kind);
+});
+
+Deno.test("tools: cu_read_target formatResult includes grounded read value", () => {
+  const meta = COMPUTER_USE_TOOLS.cu_read_target;
+  assertExists(meta.formatResult);
+  const formatted = meta.formatResult!({
+    target_id: "obs-1:window:101",
+    read_kind: "enabled",
+    value: true,
+  });
+  assertExists(formatted);
+  assertEquals(formatted!.summaryDisplay, "Read");
+  assertEquals(
+    formatted!.returnDisplay,
+    "Read target obs-1:window:101 enabled = true",
+  );
 });
 
 Deno.test("tools: cu_open_application has bundle_id arg", () => {
@@ -1158,6 +1205,50 @@ Deno.test("tools: cu_execute_plan parser rejects ambiguous find_target ids", () 
   );
 });
 
+Deno.test("tools: cu_execute_plan parser rejects find_target without selector or observed_target", () => {
+  assertThrows(
+    () =>
+      toolsTestOnly.parseExecutePlanArgs({
+        steps: [
+          {
+            op: "find_target",
+            id: "editor",
+          },
+        ],
+      }),
+    Error,
+    "must specify exactly one of selector or observed_target",
+  );
+});
+
+Deno.test("tools: cu_execute_plan parser rejects find_target with both selector and observed_target", () => {
+  resetComputerUseSessionState();
+  const observation = makeObservation();
+  rememberComputerUseObservation(observation);
+
+  assertThrows(
+    () =>
+      toolsTestOnly.parseExecutePlanArgs({
+        steps: [
+          {
+            op: "find_target",
+            id: "editor",
+            selector: {
+              bundle_id: "com.apple.Safari",
+              role_in: ["window"],
+            },
+            observed_target: {
+              observation_id: observation.observationId,
+              target_id: observation.targets[0]!.targetId,
+            },
+          },
+        ],
+      }),
+    Error,
+    "must specify exactly one of selector or observed_target",
+  );
+});
+
 Deno.test("tools: cu_execute_plan parser rejects unknown target_ref references", () => {
   assertThrows(
     () =>
@@ -1202,6 +1293,46 @@ Deno.test("tools: cu_execute_plan parser accepts nested JSON-stringified selecto
         bundle_id: "com.apple.TextEdit",
         role_in: ["textfield", "text area"],
         label_contains: "Body",
+      },
+    },
+    {
+      op: "type_into",
+      target_ref: "editor",
+      text: "Hello",
+    },
+  ]);
+});
+
+Deno.test("tools: cu_execute_plan parser accepts grounded observed_target references", () => {
+  resetComputerUseSessionState();
+  const observation = makeObservation();
+  rememberComputerUseObservation(observation);
+
+  const parsed = toolsTestOnly.parseExecutePlanArgs({
+    steps: [
+      {
+        op: "find_target",
+        id: "editor",
+        observed_target: {
+          observation_id: observation.observationId,
+          target_id: observation.targets[0]!.targetId,
+        },
+      },
+      {
+        op: "type_into",
+        target_ref: "editor",
+        text: "Hello",
+      },
+    ],
+  });
+
+  assertEquals(parsed.steps, [
+    {
+      op: "find_target",
+      id: "editor",
+      observed_target: {
+        observation_id: observation.observationId,
+        target_id: observation.targets[0]!.targetId,
       },
     },
     {
@@ -1699,6 +1830,7 @@ import {
   getResolvedBackend,
   invalidateBackendResolution,
   performNativeExecutePlan,
+  performNativeReadTarget,
   performNativeTargetAction,
   requireComputerUseInput,
   requireComputerUseSwift,
@@ -1881,6 +2013,64 @@ Deno.test("bridge: performNativeExecutePlan returns null when capability is unav
       steps: [{ op: "open_app", bundle_id: "com.apple.TextEdit" }],
     });
     assertEquals(result, null);
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
+Deno.test("bridge: performNativeReadTarget returns null when capability is unavailable", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: { version: "1", features: ["targets"] },
+    });
+    const result = await performNativeReadTarget({
+      observationId: "obs-1",
+      targetId: "target-1",
+      readKind: "value",
+    });
+    assertEquals(result, null);
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
+Deno.test("bridge: performNativeReadTarget routes through native backend", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: { version: "1", features: ["read-target"] },
+    });
+    bridgeTestOnly.setNativeFetchOverride(async (path, body) => {
+      assertEquals(path, "/cu/read-target");
+      assertEquals(body, {
+        observationId: "obs-1",
+        targetId: "target-1",
+        readKind: "enabled",
+      });
+      return {
+        ok: true,
+        targetId: "target-1",
+        readKind: "enabled",
+        value: true,
+      };
+    });
+
+    const result = await performNativeReadTarget({
+      observationId: "obs-1",
+      targetId: "target-1",
+      readKind: "enabled",
+    });
+
+    assertExists(result);
+    assertEquals(result!.ok, true);
+    assertEquals(result!.targetId, "target-1");
+    assertEquals(result!.readKind, "enabled");
+    assertEquals(result!.value, true);
   } finally {
     bridgeTestOnly.resetBridgeState();
   }
@@ -2799,13 +2989,35 @@ Deno.test("tools: normalizePlanSteps normalizes role aliases", () => {
     },
   ]);
   assertEquals(steps.length, 1);
-  if (steps[0].op === "find_target") {
+  if (steps[0].op === "find_target" && steps[0].selector) {
     // "text" → "textField", "textarea" → "textArea", "textfield" → "textField"
     // After deduplication: ["textField", "textArea"]
     assertEquals(steps[0].selector.role_in.includes("textField"), true);
     assertEquals(steps[0].selector.role_in.includes("textArea"), true);
     assertEquals(steps[0].selector.role_in.length, 2);
   }
+});
+
+Deno.test("tools: normalizePlanSteps preserves observed_target find_target steps", () => {
+  const steps = toolsTestOnly.normalizePlanSteps([
+    {
+      op: "find_target",
+      id: "editor",
+      observed_target: {
+        observation_id: "obs-1",
+        target_id: "obs-1:window:101",
+      },
+    },
+  ]);
+
+  assertEquals(steps, [{
+    op: "find_target",
+    id: "editor",
+    observed_target: {
+      observation_id: "obs-1",
+      target_id: "obs-1:window:101",
+    },
+  }]);
 });
 
 Deno.test("tools: normalizePlanSteps does not insert wait_for_ready when already present", () => {

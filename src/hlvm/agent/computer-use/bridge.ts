@@ -32,6 +32,8 @@ import type {
   CUExecutePlanRequest,
   CUExecutePlanResponse,
   CUNativeCapabilities,
+  CUReadTargetRequest,
+  CUReadTargetResponse,
   DisplayGeometry,
   HideCandidate,
   InstalledApp,
@@ -1351,6 +1353,37 @@ export async function performNativeExecutePlan(
   } catch (err) {
     getAgentLogger().debug(
       `[bridge] Native execute-plan failed: ${err}`,
+    );
+    return null;
+  }
+}
+
+export async function performNativeReadTarget(
+  request: CUReadTargetRequest,
+): Promise<CUReadTargetResponse | null> {
+  const resolution = await resolveBackend();
+  if (!nativeFeatureAvailable(resolution, "read-target")) {
+    return null;
+  }
+  try {
+    const response = await cuNativeFetch<CUReadTargetResponse>(
+      "/cu/read-target",
+      request,
+    );
+    if (
+      typeof response?.ok !== "boolean" ||
+      typeof response?.targetId !== "string" ||
+      typeof response?.readKind !== "string"
+    ) {
+      throw new Error("Invalid read-target response");
+    }
+    getAgentLogger().debug(
+      `[bridge] Native read-target used ok=${response.ok} target=${response.targetId} kind=${response.readKind}`,
+    );
+    return response;
+  } catch (err) {
+    getAgentLogger().debug(
+      `[bridge] Native read-target failed: ${err}`,
     );
     return null;
   }
