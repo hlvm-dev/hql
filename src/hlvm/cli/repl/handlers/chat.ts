@@ -27,6 +27,7 @@ import { pushSSEEvent } from "../../../store/sse-store.ts";
 import {
   ensureInitialModelConfigured,
 } from "../../../../common/ai-default-model.ts";
+import { DEFAULT_MODEL_ID } from "../../../../common/config/types.ts";
 import { describeErrorForDisplay } from "../../../agent/error-taxonomy.ts";
 import {
   jsonError,
@@ -422,7 +423,7 @@ export async function handleChat(req: Request): Promise<Response> {
     }
   }
 
-  const resolvedModel = isEvalMode
+  let resolvedModel = isEvalMode
     ? undefined
     : body.model ?? (await ensureInitialModelConfigured()).model;
   const requestAttachmentIds = getRequestAttachmentIds(body.messages);
@@ -454,7 +455,8 @@ export async function handleChat(req: Request): Promise<Response> {
     (body.mode === "agent" || body.mode === CLAUDE_CODE_AGENT_MODE) &&
     !resolvedModel
   ) {
-    return jsonError("No model configured for agent mode", 400);
+    // Guaranteed local default is always available — use it as last resort
+    resolvedModel = DEFAULT_MODEL_ID;
   }
 
   let resolvedModelInfo:
@@ -475,19 +477,55 @@ export async function handleChat(req: Request): Promise<Response> {
       modelDiscoveryFailed = true;
       modelDiscoveryError = getErrorMessage(error);
     }
-    if (body.model && resolvedModelInfo === null && !modelDiscoveryFailed) {
-      return jsonError(`Model not found: ${body.model}`, 400);
+    if (resolvedModelInfo === null && !modelDiscoveryFailed) {
+      // Configured model not found — fall back to guaranteed local default
+      if (resolvedModel !== DEFAULT_MODEL_ID) {
+        const [defProvider, defModelName] = parseModelString(DEFAULT_MODEL_ID);
+        try {
+          resolvedModelInfo = await ai.models.get(
+            defModelName,
+            defProvider ?? undefined,
+          );
+          if (resolvedModelInfo) {
+            resolvedModel = DEFAULT_MODEL_ID;
+          }
+        } catch { /* modelDiscoveryFailed stays false, fallback continues */ }
+      }
+      // Only error if both the configured model AND the default are missing
+      if (resolvedModelInfo === null) {
+        return jsonError(
+          `Model not found: ${body.model ?? resolvedModel}. Default model (${DEFAULT_MODEL_ID}) also unavailable.`,
+          400,
+        );
+      }
     }
     if (
       (body.mode === "agent" || body.mode === CLAUDE_CODE_AGENT_MODE) &&
       resolvedModelInfo === null &&
       modelDiscoveryFailed
     ) {
-      return jsonError(
-        modelDiscoveryError ??
-          "Could not verify selected model capabilities for agent mode. Check provider connection and model availability.",
-        503,
-      );
+      // Discovery failed for configured model — try guaranteed local default
+      if (resolvedModel !== DEFAULT_MODEL_ID) {
+        const [defProvider, defModelName] = parseModelString(DEFAULT_MODEL_ID);
+        try {
+          const fallbackInfo = await ai.models.get(
+            defModelName,
+            defProvider ?? undefined,
+          );
+          if (fallbackInfo) {
+            resolvedModelInfo = fallbackInfo;
+            resolvedModel = DEFAULT_MODEL_ID;
+            modelDiscoveryFailed = false;
+          }
+        } catch { /* default also unreachable — fall through to error */ }
+      }
+      if (resolvedModelInfo === null) {
+        return jsonError(
+          modelDiscoveryError ??
+            "Could not verify selected model capabilities for agent mode. Check provider connection and model availability.",
+          503,
+        );
+      }
     }
     if (hasMediaAttachments) {
       const attachmentSupport = await checkModelAttachmentIds(

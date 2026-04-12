@@ -1403,6 +1403,11 @@ async function runLlmResponsePass(
     callOptions,
     onContextOverflowRetry: () => {
       state.compactionReason = "overflow_retry";
+      config.hookRuntime?.dispatchDetached("pre_compact", {
+        workspace: config.workspace,
+        sessionId: config.sessionId,
+        modelId: config.modelId,
+      });
     },
   };
 

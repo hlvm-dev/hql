@@ -1630,15 +1630,21 @@ export function requireComputerUseSwift(): ComputerUseSwiftAPI {
       },
 
       async unhide(bundleIds: string[]): Promise<void> {
-        for (const bid of bundleIds) {
-          if (!isValidBundleId(bid)) continue;
-          try {
-            await osascript(
-              `tell application id "${bid}" to activate`,
-            );
-          } catch {
-            // best-effort
-          }
+        const valid = bundleIds.filter(isValidBundleId);
+        if (valid.length === 0) return;
+        try {
+          await jxa(`
+            ObjC.import('AppKit');
+            var bids = new Set(${JSON.stringify(valid)});
+            var apps = $.NSWorkspace.sharedWorkspace.runningApplications;
+            for (var i = 0; i < apps.count; i++) {
+              var app = apps.objectAtIndex(i);
+              var bid = app.bundleIdentifier ? ObjC.unwrap(app.bundleIdentifier) : null;
+              if (bid && bids.has(bid)) app.unhide();
+            }
+          `);
+        } catch {
+          // best-effort — apps may already be visible
         }
       },
 

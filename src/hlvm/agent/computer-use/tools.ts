@@ -1856,8 +1856,16 @@ function makeClickMeta(
 const cuScreenshotFn = cuTool(
   "Screenshot failed",
   async (_args, exec, options) => {
-    const observation = await observeDesktop(exec, options);
-    return observationImageResult(observation);
+    await ensureObservationPermissions(exec);
+    const displayChoice = await resolveDisplayChoice(exec, options?.displayId);
+    const screenshot = await exec.screenshot({
+      allowedBundleIds: [],
+      displayId: displayChoice.displayId,
+    });
+    return imageResult(
+      { width: screenshot.width, height: screenshot.height },
+      screenshot,
+    );
   },
   { readOnly: true },
 );

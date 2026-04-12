@@ -77,7 +77,7 @@ function canonicalizeLocalOllamaEndpoint(endpoint: string): string {
     const parsed = new URL(endpoint);
     const host = parsed.hostname.toLowerCase();
     const isLoopbackHost = host === "localhost" || host === "127.0.0.1";
-    if (isLoopbackHost && (parsed.port === "11434" || parsed.port === "11439")) {
+    if (isLoopbackHost && parsed.port === "11439") {
       return DEFAULT_OLLAMA_ENDPOINT;
     }
   } catch {

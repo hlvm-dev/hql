@@ -25,6 +25,7 @@ import {
   getConfiguredModel,
   resolveCompatibleClaudeCodeModel,
 } from "../../common/ai-default-model.ts";
+import { DEFAULT_MODEL_ID } from "../../common/config/types.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { loadInstructionHierarchy } from "../prompt/mod.ts";
 import { deriveDefaultSessionKey } from "../runtime/session-key.ts";
@@ -784,13 +785,19 @@ export async function runAgentQuery(
   }
 
   if (!supportsAgentExecution(model, options.modelInfo)) {
-    throw new ValidationError(
-      "Constrained models do not support agent mode. Use direct chat mode instead.",
-      "agent_runner",
-    );
+    // Configured model is constrained — fall back to guaranteed local default
+    if (model !== DEFAULT_MODEL_ID && supportsAgentExecution(DEFAULT_MODEL_ID)) {
+      model = DEFAULT_MODEL_ID;
+    } else {
+      throw new ValidationError(
+        "Constrained models do not support agent mode. Use direct chat mode instead.",
+        "agent_runner",
+      );
+    }
   }
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const hookRuntime = await loadAgentHookRuntime(workspace);
+  hookRuntime?.dispatchDetached("session_start", { workspace, model });
   const profile = ENGINE_PROFILES.normal;
   const turnId = crypto.randomUUID();
   const runStartedAt = Date.now();
@@ -1509,6 +1516,11 @@ export async function runAgentQuery(
           isAvailable: isLocalFallbackReady,
         },
       } satisfies Parameters<typeof runReActLoop>[1];
+      hookRuntime?.dispatchDetached("user_prompt_submit", {
+        workspace,
+        query,
+        model,
+      });
       text = await runReActLoop(
         query,
         reactLoopConfig,
@@ -1666,6 +1678,7 @@ export async function runAgentQuery(
       },
     };
   } finally {
+    hookRuntime?.dispatchDetached("session_end", { workspace, model });
     // Only dispose ad-hoc sessions here; reusable sessions are cleaned up by disposeAllSessions().
     if (!isReusableSession && !keepSessionAlive) {
       const disposeStartedAt = Date.now();
