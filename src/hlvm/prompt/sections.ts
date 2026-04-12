@@ -573,7 +573,7 @@ You have computer control tools (cu_* prefix) for GUI automation on macOS.
 2. Prefer cu_click_target / cu_type_into_target when cu_observe returns reliable targets; use raw coordinates only as fallback
 3. Use cu_execute_plan only for short deterministic desktop subplans with clear success criteria (typically 3+ steps like open app -> wait -> find target -> type -> verify). Do not use it for exploratory UI discovery or ambiguous screens.
 4. observation_id and target_id are single-use grounding tokens tied to the latest observation only; if the screen changes or an action runs, take a fresh observation before reusing targets
-5. After performing an action (click, type, key, drag, app switch), re-observe before deciding the next step unless the action tool already returned a fresh post-action observation
+5. Most interactive tools (cu_open_application, cu_click_target, cu_type_into_target, cu_type, cu_key, cu_scroll) return a fresh post-action observation with updated targets and screenshot — use that directly instead of calling cu_observe again. Only call cu_observe when you need a fresh grounding from scratch or after actions that do not return observations (coordinate clicks, drag)
 6. If you only need pixels or a visual attachment, cu_screenshot and cu_zoom are allowed, but still treat the latest observation as the SSOT for targeting
 
 ## Best Practices

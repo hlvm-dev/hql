@@ -1220,7 +1220,7 @@ function estimateExecutePlanTimeoutMs(
     switch (step.op) {
       case "wait_for_ready":
         timeoutMs += Math.min(
-          Math.max(step.timeout_ms ?? 30_000, 250),
+          Math.max(step.timeout_ms ?? 10_000, 250),
           30_000,
         ) + 1000;
         break;

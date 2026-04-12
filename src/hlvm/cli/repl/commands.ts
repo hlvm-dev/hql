@@ -101,10 +101,19 @@ ${BOLD}Bindings (auto-persist def/defn):${RESET}
 ${BOLD}Keybindings & Commands:${RESET}
 ${shortcuts}
 
+${BOLD}Skills & Hooks:${RESET}
+
+  ${CYAN}/skills${RESET}              List available skills
+  ${CYAN}/hooks${RESET}               List active hooks
+  ${CYAN}/init${RESET}                Scaffold skill/rules directories + templates
+  ${CYAN}/commit${RESET}              Create a git commit (bundled skill)
+  ${CYAN}/test${RESET}                Run project tests (bundled skill)
+  ${CYAN}/review${RESET}              Review code changes (bundled skill)
+
 ${BOLD}Input Routing:${RESET}
   ${CYAN}(expression)${RESET}         HQL code evaluation
   ${CYAN}(js "code")${RESET}          JavaScript evaluation
-  ${CYAN}/command${RESET}             Slash commands
+  ${CYAN}/command${RESET}             Slash commands (including skills)
   Everything else      AI conversation
 
 ${BOLD}Tip:${RESET} Press ${YELLOW}Ctrl+P${RESET} to open the command palette with fuzzy search.
@@ -321,6 +330,233 @@ export const commands: Record<string, Command> = {
           }`,
         );
       }
+    },
+  },
+
+  "/skills": {
+    description: "List available skills",
+    handler: async (_state, _args, context) => {
+      try {
+        const { loadSkillCatalog, resetSkillCatalogCache } = await import(
+          "../../skills/mod.ts"
+        );
+        resetSkillCatalogCache();
+        const workspace = getPlatform().process.cwd();
+        const catalog = await loadSkillCatalog(workspace);
+
+        context.output(`${BOLD}HLVM Skills${RESET}`);
+        context.output("");
+
+        if (catalog.size === 0) {
+          context.output(
+            `  ${DIM_GRAY}No skills found.${RESET}`,
+          );
+          context.output(
+            `  Create skills at ${CYAN}~/.hlvm/skills/name.md${RESET}`,
+          );
+          return;
+        }
+
+        const groups: Record<string, { name: string; desc: string; ctx: string }[]> = {
+          bundled: [],
+          user: [],
+          project: [],
+        };
+        for (const [name, skill] of catalog) {
+          groups[skill.source].push({
+            name,
+            desc: skill.frontmatter.description,
+            ctx: skill.frontmatter.context === "fork" ? " (fork)" : "",
+          });
+        }
+
+        const sections: [string, string, string][] = [
+          ["bundled", "Bundled", ""],
+          ["user", "User", ` ${DIM_GRAY}(~/.hlvm/skills/)${RESET}`],
+          ["project", "Project", ` ${DIM_GRAY}(.hlvm/skills/)${RESET}`],
+        ];
+        for (const [key, label, hint] of sections) {
+          const entries = groups[key];
+          if (!entries.length) continue;
+          context.output(`  ${BOLD}${label}${RESET}${hint}`);
+          for (const e of entries) {
+            context.output(
+              `    ${CYAN}/${e.name}${RESET}  ${e.desc}${DIM_GRAY}${e.ctx}${RESET}`,
+            );
+          }
+          context.output("");
+        }
+
+        context.output(
+          `  ${DIM_GRAY}Type /<name> to invoke. Create at ~/.hlvm/skills/<name>.md${RESET}`,
+        );
+      } catch (err: unknown) {
+        context.output(
+          `${YELLOW}Could not load skills: ${
+            err instanceof Error ? err.message : String(err)
+          }${RESET}`,
+        );
+      }
+    },
+  },
+
+  "/hooks": {
+    description: "List active hooks",
+    handler: async (_state, _args, context) => {
+      const platform = getPlatform();
+      const workspace = platform.process.cwd();
+      const hooksPath = platform.path.join(workspace, ".hlvm", "hooks.json");
+
+      context.output(`${BOLD}HLVM Hooks${RESET}`);
+      context.output("");
+
+      let raw: string;
+      try {
+        raw = await platform.fs.readTextFile(hooksPath);
+      } catch {
+        context.output(`  ${DIM_GRAY}No hooks configured.${RESET}`);
+        context.output(
+          `  Create ${CYAN}.hlvm/hooks.json${RESET} to add lifecycle hooks.`,
+        );
+        context.output("");
+        context.output(`  ${DIM_GRAY}Example:${RESET}`);
+        context.output(`  ${DIM_GRAY}{${RESET}`);
+        context.output(`  ${DIM_GRAY}  "version": 1,${RESET}`);
+        context.output(`  ${DIM_GRAY}  "hooks": {${RESET}`);
+        context.output(
+          `  ${DIM_GRAY}    "pre_tool": [{ "command": ["lint.sh"] }]${RESET}`,
+        );
+        context.output(`  ${DIM_GRAY}  }${RESET}`);
+        context.output(`  ${DIM_GRAY}}${RESET}`);
+        return;
+      }
+
+      let config: { version?: number; hooks?: Record<string, unknown[]> };
+      try {
+        config = JSON.parse(raw);
+      } catch {
+        context.output(`  ${YELLOW}hooks.json is not valid JSON.${RESET}`);
+        return;
+      }
+
+      if (config.version !== 1 || !config.hooks) {
+        context.output(
+          `  ${YELLOW}hooks.json must have "version": 1 and a "hooks" object.${RESET}`,
+        );
+        return;
+      }
+
+      let found = false;
+      for (const [event, handlers] of Object.entries(config.hooks)) {
+        if (!Array.isArray(handlers) || handlers.length === 0) continue;
+        found = true;
+        context.output(
+          `  ${CYAN}${event}${RESET}  ${GREEN}${handlers.length} handler${handlers.length > 1 ? "s" : ""}${RESET}`,
+        );
+        for (const h of handlers) {
+          if (typeof h !== "object" || h === null) continue;
+          const handler = h as Record<string, unknown>;
+          const type = typeof handler.type === "string" ? handler.type : "command";
+          if (type === "command" && Array.isArray(handler.command)) {
+            context.output(
+              `    ${DIM_GRAY}command${RESET}  ${handler.command.join(" ")}`,
+            );
+          } else if (type === "prompt" && typeof handler.prompt === "string") {
+            const preview = handler.prompt.length > 50
+              ? handler.prompt.slice(0, 50) + "..."
+              : handler.prompt;
+            context.output(`    ${DIM_GRAY}prompt${RESET}   "${preview}"`);
+          } else if (type === "http" && typeof handler.url === "string") {
+            context.output(`    ${DIM_GRAY}http${RESET}     ${handler.url}`);
+          }
+        }
+      }
+
+      if (!found) {
+        context.output(
+          `  ${DIM_GRAY}hooks.json loaded but no valid handlers found.${RESET}`,
+        );
+      }
+    },
+  },
+
+  "/init": {
+    description: "Scaffold skill/rules directories and templates",
+    handler: async (_state, _args, context) => {
+      const platform = getPlatform();
+      const home = platform.env.get("HOME") ?? "~";
+      const skillsDir = platform.path.join(home, ".hlvm", "skills");
+      const rulesDir = platform.path.join(home, ".hlvm", "rules");
+      const hlvmMd = platform.path.join(home, ".hlvm", "HLVM.md");
+
+      context.output(`${BOLD}HLVM Init${RESET}`);
+      context.output("");
+
+      // Create directories
+      for (const [dir, label] of [
+        [skillsDir, "~/.hlvm/skills/"],
+        [rulesDir, "~/.hlvm/rules/"],
+      ] as const) {
+        try {
+          if (await platform.fs.exists(dir)) {
+            context.output(`  ${DIM_GRAY}exists${RESET}   ${label}`);
+          } else {
+            await platform.fs.mkdir(dir, { recursive: true });
+            context.output(`  ${GREEN}created${RESET}  ${label}`);
+          }
+        } catch {
+          context.output(`  ${YELLOW}failed${RESET}   ${label}`);
+        }
+      }
+
+      // Check HLVM.md
+      try {
+        if (await platform.fs.exists(hlvmMd)) {
+          context.output(`  ${DIM_GRAY}exists${RESET}   ~/.hlvm/HLVM.md`);
+        } else {
+          await platform.fs.writeTextFile(
+            hlvmMd,
+            "# HLVM Global Instructions\n\n# Add your global rules here.\n",
+          );
+          context.output(`  ${GREEN}created${RESET}  ~/.hlvm/HLVM.md`);
+        }
+      } catch {
+        context.output(`  ${YELLOW}failed${RESET}   ~/.hlvm/HLVM.md`);
+      }
+
+      context.output("");
+      context.output(`${BOLD}Skill Template:${RESET}`);
+      context.output("");
+      context.output(`  ${DIM_GRAY}---${RESET}`);
+      context.output(
+        `  ${DIM_GRAY}description: "What this skill does"${RESET}`,
+      );
+      context.output(
+        `  ${DIM_GRAY}allowed_tools: [shell_exec, read_file]${RESET}`,
+      );
+      context.output(`  ${DIM_GRAY}context: inline${RESET}`);
+      context.output(`  ${DIM_GRAY}---${RESET}`);
+      context.output(
+        `  ${DIM_GRAY}Your skill instructions here.${RESET}`,
+      );
+      context.output(
+        `  ${DIM_GRAY}Use \${ARGS} for user arguments.${RESET}`,
+      );
+
+      context.output("");
+      context.output(`${BOLD}Next Steps:${RESET}`);
+      context.output(
+        `  1. Create a skill: ${CYAN}~/.hlvm/skills/my-skill.md${RESET}`,
+      );
+      context.output(
+        `  2. Add a rule: ${CYAN}~/.hlvm/rules/naming.md${RESET}`,
+      );
+      context.output(
+        `  3. Set up hooks: ${CYAN}.hlvm/hooks.json${RESET}`,
+      );
+      context.output(
+        `  4. Type ${CYAN}/skills${RESET} to see available skills`,
+      );
     },
   },
 };

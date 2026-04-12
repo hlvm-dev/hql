@@ -668,6 +668,8 @@ export const CommandProvider: CompletionProvider = {
     // Use fuzzy matching for command filtering
     const items: CompletionItem[] = [];
 
+    // Use static catalog + cached skill entries.
+    // Skills are appended lazily — first /skills or session start populates the cache.
     for (const cmd of COMMAND_CATALOG) {
       // Fuzzy match against command name without the leading /
       const cmdName = cmd.name.slice(1); // Remove /

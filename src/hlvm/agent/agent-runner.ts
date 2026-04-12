@@ -256,6 +256,11 @@ export async function disposeAllSessions(): Promise<void> {
   reusableSessions.clear();
   await Promise.allSettled(sessions.map((s) => s.dispose()));
   closeFactDb();
+  // Reset cached skill catalog (may reference stale HLVM_DIR in test environments)
+  try {
+    const { resetSkillCatalogCache } = await import("../skills/mod.ts");
+    resetSkillCatalogCache();
+  } catch { /* skills module not available */ }
 }
 
 /**

@@ -305,6 +305,7 @@ function summarizeObservation(
       kind: target.kind,
       label: target.label,
       role: target.role,
+      bundle_id: target.bundleId,
       bounds: target.bounds,
     })),
     grounding_source: observation.groundingSource,
@@ -355,10 +356,11 @@ function buildObservationLlmContent(result: Record<string, unknown>): string {
       const tRec = t as Record<string, unknown>;
       const b = tRec.bounds as Record<string, unknown> | undefined;
       const boundsStr = b ? `[${b.x},${b.y},${b.width},${b.height}]` : "";
+      const appHint = tRec.bundle_id ? `  app:${tRec.bundle_id}` : "";
       lines.push(
         `  - target_id: ${tRec.target_id}  role:${tRec.role}  label:"${
           tRec.label ?? ""
-        }"  ${boundsStr}`,
+        }"${appHint}  ${boundsStr}`,
       );
     }
   } else {
@@ -743,6 +745,96 @@ function parseExecutePlanArgs(args: unknown): {
     throw new Error("'display_id' must be a positive integer");
   }
   return { steps, displayId };
+}
+
+// ── Plan Normalizer ──────────────────────────────────────────────────────
+//
+// Canonicalize model-authored plans before native execution.
+// Pure function: no side effects, no I/O.
+
+/** Common role aliases the model might use → canonical AX roles. */
+const ROLE_ALIAS_MAP: Record<string, string> = {
+  text: "textField",
+  textarea: "textArea",
+  textfield: "textField",
+  text_area: "textArea",
+  text_field: "textField",
+  button: "button",
+  checkbox: "checkBox",
+  check_box: "checkBox",
+};
+
+function normalizeRole(role: string): string {
+  return ROLE_ALIAS_MAP[role.toLowerCase()] ?? role;
+}
+
+function normalizePlanSteps(steps: CUPlanStep[]): CUPlanStep[] {
+  const normalized: CUPlanStep[] = [];
+  let lastOpenedBundleId: string | undefined;
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!;
+    const next = steps[i + 1];
+
+    switch (step.op) {
+      case "open_app": {
+        normalized.push(step);
+        lastOpenedBundleId = step.bundle_id;
+        // Insert wait_for_ready if the model forgot it after open_app
+        if (!next || next.op !== "wait_for_ready") {
+          normalized.push({
+            op: "wait_for_ready",
+            bundle_id: step.bundle_id,
+          });
+        }
+        break;
+      }
+      case "wait_for_ready": {
+        // Fill in bundle_id from the last open_app if missing
+        if (!step.bundle_id && !step.target_ref && lastOpenedBundleId) {
+          normalized.push({
+            ...step,
+            bundle_id: lastOpenedBundleId,
+          });
+        } else {
+          normalized.push(step);
+        }
+        break;
+      }
+      case "find_target": {
+        // Normalize role aliases in selector.role_in
+        const normalizedRoles = step.selector.role_in.map(normalizeRole);
+        // Deduplicate
+        const uniqueRoles = [...new Set(normalizedRoles)];
+        normalized.push({
+          ...step,
+          selector: {
+            ...step.selector,
+            // Fill in bundle_id from last opened app if missing from selector
+            bundle_id: step.selector.bundle_id ||
+              lastOpenedBundleId ||
+              step.selector.bundle_id,
+            role_in: uniqueRoles,
+          },
+        });
+        break;
+      }
+      default:
+        normalized.push(step);
+        break;
+    }
+
+    // Track app context changes
+    if (step.op === "open_app") {
+      // Already handled above
+    } else if (
+      step.op === "find_target" && step.selector.bundle_id
+    ) {
+      lastOpenedBundleId = step.selector.bundle_id;
+    }
+  }
+
+  return normalized;
 }
 
 function formatExecutePlanSteps(
@@ -1209,7 +1301,7 @@ async function prepareInteractiveAction(
   exec: ComputerExecutor,
   options: ToolExecutionOptions | undefined,
   requireTargetApp: boolean | undefined,
-  enforceTargetContextContinuity = false,
+  enforceTargetContextContinuity: false | "app" | "app_and_window" = false,
 ): Promise<PreparedActionContext> {
   ensureFreshObservationAfterPromote();
   await ensureInteractivePermissions(exec);
@@ -1222,14 +1314,20 @@ async function prepareInteractiveAction(
     rememberedTargetBundleId,
     rememberedTargetWindowId,
   );
-  if (
-    enforceTargetContextContinuity &&
-    (
-      target.lostRememberedTargetBundleId ||
+  if (enforceTargetContextContinuity) {
+    // App lost → always fail (both "app" and "app_and_window" modes)
+    if (target.lostRememberedTargetBundleId) {
+      failForLostTargetContext(target);
+    }
+    // Window lost → only fail in "app_and_window" mode (cu_type).
+    // In "app" mode (cu_key), tolerate window changes — keys go to the
+    // frontmost window of the correct app regardless of window ID.
+    if (
+      enforceTargetContextContinuity === "app_and_window" &&
       target.lostRememberedTargetWindowId != null
-    )
-  ) {
-    failForLostTargetContext(target);
+    ) {
+      failForLostTargetContext(target);
+    }
   }
   if (requireTargetApp && target.allowlist.length === 0) {
     throw runtimeFailure(
@@ -1265,6 +1363,7 @@ async function prepareInteractiveAction(
     enforceTargetContextContinuity &&
     target.rememberedTargetWindowId != null
   ) {
+    // App-level continuity: always enforced when continuity is requested
     if (expectedTargetBundleId !== target.rememberedTargetBundleId) {
       throw runtimeFailure(
         "Target context changed to a different app before keyboard input. Re-establish the intended window explicitly.",
@@ -1281,37 +1380,42 @@ async function prepareInteractiveAction(
         },
       );
     }
-    if (expectedTargetWindowId == null) {
-      throw runtimeFailure(
-        "Target window continuity could not be preserved before keyboard input. Re-establish the intended window explicitly.",
-        {
-          kind: "invalid_state",
-          retryable: false,
-          code: "cu_target_context_changed",
-          facts: {
-            expectedTargetBundleId: target.rememberedTargetBundleId ?? null,
-            expectedTargetWindowId: target.rememberedTargetWindowId,
-            actualTargetBundleId: expectedTargetBundleId ?? null,
-            actualTargetWindowId: null,
+    // Window-level continuity: only in "app_and_window" mode (cu_type).
+    // cu_key uses "app" mode — keys go to whichever window is focused
+    // in the correct app, so window ID drift is tolerated.
+    if (enforceTargetContextContinuity === "app_and_window") {
+      if (expectedTargetWindowId == null) {
+        throw runtimeFailure(
+          "Target window continuity could not be preserved before keyboard input. Re-establish the intended window explicitly.",
+          {
+            kind: "invalid_state",
+            retryable: false,
+            code: "cu_target_context_changed",
+            facts: {
+              expectedTargetBundleId: target.rememberedTargetBundleId ?? null,
+              expectedTargetWindowId: target.rememberedTargetWindowId,
+              actualTargetBundleId: expectedTargetBundleId ?? null,
+              actualTargetWindowId: null,
+            },
           },
-        },
-      );
-    }
-    if (expectedTargetWindowId !== target.rememberedTargetWindowId) {
-      throw runtimeFailure(
-        "Target context changed to a different window before keyboard input. Re-establish the intended window explicitly.",
-        {
-          kind: "invalid_state",
-          retryable: false,
-          code: "cu_target_context_changed",
-          facts: {
-            expectedTargetBundleId: target.rememberedTargetBundleId ?? null,
-            expectedTargetWindowId: target.rememberedTargetWindowId,
-            actualTargetBundleId: expectedTargetBundleId ?? null,
-            actualTargetWindowId: expectedTargetWindowId,
+        );
+      }
+      if (expectedTargetWindowId !== target.rememberedTargetWindowId) {
+        throw runtimeFailure(
+          "Target context changed to a different window before keyboard input. Re-establish the intended window explicitly.",
+          {
+            kind: "invalid_state",
+            retryable: false,
+            code: "cu_target_context_changed",
+            facts: {
+              expectedTargetBundleId: target.rememberedTargetBundleId ?? null,
+              expectedTargetWindowId: target.rememberedTargetWindowId,
+              actualTargetBundleId: expectedTargetBundleId ?? null,
+              actualTargetWindowId: expectedTargetWindowId,
+            },
           },
-        },
-      );
+        );
+      }
     }
   }
   if (expectedTargetBundleId) {
@@ -1363,7 +1467,7 @@ async function prepareInteractiveActionWithRecovery(
   exec: ComputerExecutor,
   options: ToolExecutionOptions | undefined,
   requireTargetApp: boolean | undefined,
-  enforceTargetContextContinuity = false,
+  enforceTargetContextContinuity: false | "app" | "app_and_window" = false,
 ): Promise<PreparedActionContext> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -1527,7 +1631,7 @@ function cuTool(
       | "focus_sensitive"
       | false
       | ((args: unknown) => "generic" | "focus_sensitive" | false);
-    enforceTargetContextContinuity?: boolean;
+    enforceTargetContextContinuity?: false | "app" | "app_and_window";
     afterSuccess?: (
       args: unknown,
       exec: ComputerExecutor,
@@ -1581,6 +1685,19 @@ function cuTool(
         targetWindowId: prepared.expectedTargetWindowId,
         observationId: verifiedObservation?.observationId,
       });
+      // If we have a verified post-action observation and the tool returned
+      // a plain result (not already an observation), upgrade it to include
+      // the observation data. This lets the model see the updated desktop
+      // state immediately without a redundant cu_observe turn.
+      if (
+        verifiedObservation &&
+        result != null &&
+        typeof result === "object" &&
+        !("_imageAttachment" in (result as Record<string, unknown>))
+      ) {
+        const toolData = result as Record<string, unknown>;
+        return observationImageResult(verifiedObservation, toolData);
+      }
       return result;
     } catch (error) {
       const failure = getFailureMetadata(error);
@@ -1660,7 +1777,18 @@ const cuScreenshotFn = cuTool(
 const cuObserveFn = cuTool(
   "Observe failed",
   async (_args, exec, options) => {
-    const observation = await observeDesktop(exec, options);
+    // When a prior tool (execute_plan, open_application, target_action)
+    // established an explicit target app, scope native target enumeration
+    // to that app. This ensures that after a blocked execute-plan, the next
+    // observation returns targets for the app the model was working with.
+    // Passive observation context is NOT used — the model may have moved on.
+    const state = getComputerUseSessionState();
+    const explicitBundleId = state.targetApp?.source !== "passive_observation"
+      ? state.targetApp?.bundleId
+      : undefined;
+    const observation = await observeDesktop(exec, options, explicitBundleId
+      ? { resolvedTargetBundleId: explicitBundleId }
+      : undefined);
     return observationImageResult(observation);
   },
   { readOnly: true },
@@ -1735,7 +1863,7 @@ const cuTypeFn = cuTool("Type failed", async (args, exec) => {
   actionKind: "cu_type",
   requireTargetApp: true,
   postActionVerify: "focus_sensitive",
-  enforceTargetContextContinuity: true,
+  enforceTargetContextContinuity: "app_and_window",
 });
 
 const cuKeyFn = cuTool("Key press failed", async (args, exec) => {
@@ -1753,7 +1881,9 @@ const cuKeyFn = cuTool("Key press failed", async (args, exec) => {
     requiresExplicitContextAfterShortcut((args as { text?: string }).text)
       ? false
       : "focus_sensitive",
-  enforceTargetContextContinuity: true,
+  // App-level continuity only — keys go to whichever window is focused
+  // in the correct app. Window ID drift is tolerated for key presses.
+  enforceTargetContextContinuity: "app",
 });
 
 const cuHoldKeyFn = cuTool("Hold key failed", async (args, exec) => {
@@ -1772,7 +1902,7 @@ const cuHoldKeyFn = cuTool("Hold key failed", async (args, exec) => {
     requiresExplicitContextAfterShortcut((args as { text?: string }).text)
       ? false
       : "focus_sensitive",
-  enforceTargetContextContinuity: true,
+  enforceTargetContextContinuity: "app",
 });
 
 const cuWriteClipboardFn = cuTool(
@@ -1876,9 +2006,10 @@ const cuOpenApplicationFn = cuTool(
         },
       );
     }
-    return okTool({
+    // Return the full post-open observation so the model can see targets
+    // immediately — avoids a redundant cu_observe turn after opening.
+    return observationImageResult(observation, {
       opened: bundle_id,
-      observation_id: observation.observationId,
     });
   },
   {
@@ -2001,11 +2132,12 @@ const cuClickTargetFn = cuTool(
       prepared,
       "focus_sensitive",
     );
-    return okTool({
+    // Return the full post-action observation so the model can see the
+    // updated desktop state immediately — avoids a redundant cu_observe turn.
+    return observationImageResult(verified, {
       clicked_target_id: target.targetId,
       clicked_bundle_id: target.bundleId,
       native_action: nativeClicked,
-      observation_id: verified.observationId,
     });
   },
   { interactive: false, actionKind: "cu_click_target" },
@@ -2060,11 +2192,12 @@ const cuTypeIntoTargetFn = cuTool(
       prepared,
       "focus_sensitive",
     );
-    return okTool({
+    // Return the full post-action observation so the model can see the
+    // updated desktop state immediately — avoids a redundant cu_observe turn.
+    return observationImageResult(verified, {
       typed_into_target_id: target.targetId,
       typed: text.length > 80 ? text.slice(0, 77) + "..." : text,
       native_action: nativeTyped,
-      observation_id: verified.observationId,
     });
   },
   { interactive: false, actionKind: "cu_type_into_target" },
@@ -2130,10 +2263,55 @@ const cuExecutePlanFn = async (
       );
     }
 
-    const response = await performNativeExecutePlan({
-      steps: parsed.steps,
+    const normalizedSteps = normalizePlanSteps(parsed.steps);
+    // Preflight: ensure fresh observation context when the plan starts with
+    // find_target or type_into (needs current AX state). Plans starting with
+    // open_app establish their own context, so skip the preflight overhead.
+    const firstOp = normalizedSteps[0]?.op;
+    const needsPreflight = firstOp !== "open_app" && firstOp !== "press_keys";
+    const lastObs = getLastComputerUseObservation();
+    const isStale = !lastObs || (Date.now() - lastObs.createdAt > 10_000);
+    if (needsPreflight && isStale) {
+      await observeDesktop(exec, options).catch(() => {});
+    }
+    // Execute with one automatic retry for recoverable failures.
+    // Common case: ambiguous selector → retry with first candidate index.
+    let stepsToExecute = normalizedSteps;
+    let response = await performNativeExecutePlan({
+      steps: stepsToExecute,
       displayId: parsed.displayId,
     });
+    if (
+      response &&
+      !response.ok &&
+      response.failure?.retryable &&
+      response.failure?.code === "cu_execute_plan_ambiguous_selector" &&
+      response.failure?.stepIndex != null
+    ) {
+      const candidates = Array.isArray(response.failure.facts?.candidates)
+        ? response.failure.facts.candidates
+        : [];
+      if (candidates.length > 0) {
+        // Apply first candidate index to the blocked find_target step
+        const retrySteps = stepsToExecute.map((step, i) => {
+          if (
+            i === response!.failure!.stepIndex &&
+            step.op === "find_target"
+          ) {
+            return {
+              ...step,
+              selector: { ...step.selector, index: 0 },
+            };
+          }
+          return step;
+        });
+        stepsToExecute = retrySteps;
+        response = await performNativeExecutePlan({
+          steps: stepsToExecute,
+          displayId: parsed.displayId,
+        });
+      }
+    }
     if (!response) {
       const failedObservation = await captureExecutePlanObservation(
         exec,
@@ -2163,6 +2341,25 @@ const cuExecutePlanFn = async (
       response,
     );
     if (!response.ok || response.status !== "completed") {
+      // Propagate whatever context the plan DID establish before blocking,
+      // so fallback cu_* tools start from the correct app/window state.
+      if (response.finalBundleId) {
+        setComputerUseTargetBundleId(
+          response.finalBundleId,
+          observation?.frontmostApp?.bundleId === response.finalBundleId
+            ? observation?.frontmostApp?.displayName
+            : undefined,
+          "execute_plan",
+        );
+      }
+      if (response.finalWindowId != null) {
+        const targetWindow = observation?.windows.find((w) =>
+          w.windowId === response.finalWindowId
+        );
+        if (targetWindow) {
+          setComputerUseTargetWindow(targetWindow, "execute_plan");
+        }
+      }
       markComputerUseFailure({
         code: response.failure?.code ?? "cu_execute_plan_blocked",
         message: response.failure?.message ?? "Execute plan blocked",
@@ -2383,11 +2580,12 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     safetyLevel: "L2",
     safety: "Types text into focused application. Uses clipboard paste.",
     formatResult: (result) => {
-      const r = result as { typed?: string };
-      return {
-        summaryDisplay: RESULT_SUMMARY.type,
-        returnDisplay: `Typed: ${r.typed ?? ""}`,
-      };
+      const r = result as Record<string, unknown> | null;
+      return formatObservationResult(
+        r,
+        RESULT_SUMMARY.type,
+        `Typed: ${r?.typed ?? ""}`,
+      );
     },
   },
 
@@ -2403,11 +2601,12 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     safetyLevel: "L2",
     safety: "Sends keyboard input. May trigger any keyboard shortcut.",
     formatResult: (result) => {
-      const r = result as { pressed?: string };
-      return {
-        summaryDisplay: RESULT_SUMMARY.key,
-        returnDisplay: `Pressed: ${r.pressed ?? ""}`,
-      };
+      const r = result as Record<string, unknown> | null;
+      return formatObservationResult(
+        r,
+        RESULT_SUMMARY.key,
+        `Pressed: ${r?.pressed ?? ""}`,
+      );
     },
   },
 
@@ -2423,11 +2622,12 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     safetyLevel: "L2",
     safety: "Holds key(s) for duration. May trigger long-press behaviors.",
     formatResult: (result) => {
-      const r = result as { held?: string };
-      return {
-        summaryDisplay: RESULT_SUMMARY.hold_key,
-        returnDisplay: `Held: ${r.held ?? ""}`,
-      };
+      const r = result as Record<string, unknown> | null;
+      return formatObservationResult(
+        r,
+        RESULT_SUMMARY.hold_key,
+        `Held: ${r?.held ?? ""}`,
+      );
     },
   },
 
@@ -2455,15 +2655,15 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     safetyLevel: "L2",
     safety: "Scrolls at screen coordinates.",
     formatResult: (result) => {
-      const r = result as {
-        scrolled?: { direction?: string; amount?: number };
-      };
-      return {
-        summaryDisplay: RESULT_SUMMARY.scroll,
-        returnDisplay: `Scrolled ${r.scrolled?.direction ?? ""} ${
-          r.scrolled?.amount ?? ""
-        }`,
-      };
+      const r = result as Record<string, unknown> | null;
+      const scrolled = r?.scrolled as
+        | { direction?: string; amount?: number }
+        | undefined;
+      return formatObservationResult(
+        r,
+        RESULT_SUMMARY.scroll,
+        `Scrolled ${scrolled?.direction ?? ""} ${scrolled?.amount ?? ""}`,
+      );
     },
   },
 
@@ -2522,10 +2722,13 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     safetyLevel: "L2",
     safety:
       "Clicks a grounded desktop target identified from the latest observation.",
-    formatResult: () => ({
-      summaryDisplay: RESULT_SUMMARY.click_target,
-      returnDisplay: "Target clicked",
-    }),
+    formatResult: (result) =>
+      formatObservationResult(
+        result as Record<string, unknown> | null,
+        RESULT_SUMMARY.click_target,
+        "Target clicked",
+        ["action: click_target"],
+      ),
   },
 
   cu_type_into_target: {
@@ -2542,11 +2745,14 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     safety:
       "Focuses a grounded desktop target and types text with post-action verification.",
     formatResult: (result) => {
-      const r = result as { typed?: string };
-      return {
-        summaryDisplay: RESULT_SUMMARY.type_into_target,
-        returnDisplay: `Typed into target: ${r.typed ?? ""}`,
-      };
+      const r = result as Record<string, unknown> | null;
+      const typed = r?.typed ?? r?.typed_into_target_id ?? "";
+      return formatObservationResult(
+        r,
+        RESULT_SUMMARY.type_into_target,
+        `Typed into target: ${typed}`,
+        ["action: type_into_target"],
+      );
     },
   },
 
@@ -2621,11 +2827,13 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
     safetyLevel: "L2",
     safety: "Opens an application.",
     formatResult: (result) => {
-      const r = result as { opened?: string };
-      return {
-        summaryDisplay: RESULT_SUMMARY.open_application,
-        returnDisplay: `Opened: ${r.opened ?? ""}`,
-      };
+      const r = result as Record<string, unknown> | null;
+      return formatObservationResult(
+        r,
+        RESULT_SUMMARY.open_application,
+        `Opened: ${r?.opened ?? ""}`,
+        ["action: open_application"],
+      );
     },
   },
 

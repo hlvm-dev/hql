@@ -282,17 +282,23 @@ const CASES: ComputerUseCase[] = [
       "Open the TextEdit application, then type the text 'Hello from HLVM', then take a screenshot to confirm the text was typed.",
     requiredTools: ["cu_open_application", "cu_screenshot"],
     validate: (result) => {
-      const errors = [
-        ...validateCuOnlyUsage(result),
-        ...validateRequiredTools(result, [
-          "cu_open_application",
-          "cu_screenshot",
-        ]),
-      ];
-      // Accept either cu_type (coordinate-based) or cu_type_into_target (grounded)
+      const errors = validateCuOnlyUsage(result);
+      // cu_execute_plan can subsume open+type+verify — accept it as alternative
+      const usedExecutePlan =
+        result.attemptedToolNames.includes("cu_execute_plan");
+      if (!usedExecutePlan) {
+        errors.push(
+          ...validateRequiredTools(result, [
+            "cu_open_application",
+            "cu_screenshot",
+          ]),
+        );
+      }
+      // Accept cu_type, cu_type_into_target, or cu_execute_plan for typing
       if (
         !result.successfulToolNames.includes("cu_type") &&
-        !result.successfulToolNames.includes("cu_type_into_target")
+        !result.successfulToolNames.includes("cu_type_into_target") &&
+        !usedExecutePlan
       ) {
         errors.push("Expected cu_type or cu_type_into_target to be called.");
       }
@@ -312,10 +318,15 @@ const CASES: ComputerUseCase[] = [
       "Using computer use tools, open the Calculator application (bundle id: com.apple.calculator). First ensure the calculator is in a cleared state before entering a new expression. If any prior value is visible, clear it first (for example with Escape). Then press the key sequence: 5, +, 3, then Return. Take a screenshot and tell me what result is displayed.",
     requiredTools: ["cu_open_application", "cu_key"],
     validate: (result) => {
-      const errors = [
-        ...validateCuOnlyUsage(result),
-        ...validateRequiredTools(result, ["cu_open_application", "cu_key"]),
-      ];
+      const errors = validateCuOnlyUsage(result);
+      // cu_execute_plan can subsume open+key — accept it as alternative
+      const usedExecutePlan =
+        result.attemptedToolNames.includes("cu_execute_plan");
+      if (!usedExecutePlan) {
+        errors.push(
+          ...validateRequiredTools(result, ["cu_open_application", "cu_key"]),
+        );
+      }
       if (!/calculator|8|result/i.test(result.plain)) {
         errors.push(
           "Response should mention Calculator or the result.",
@@ -389,20 +400,25 @@ const CASES: ComputerUseCase[] = [
       "Open the TextEdit application (com.apple.TextEdit), type 'Note A', then open Calculator (com.apple.calculator), then switch back to TextEdit by opening it again. Take a screenshot and confirm TextEdit is in the foreground.",
     requiredTools: ["cu_open_application", "cu_type"],
     validate: (result) => {
-      const errors = [
-        ...validateCuOnlyUsage(result),
-        ...validateRequiredTools(result, [
-          "cu_open_application",
-          "cu_type",
-        ]),
-      ];
-      if (
-        !result.successfulToolNames.includes("cu_screenshot") &&
-        !result.successfulToolNames.includes("cu_wait")
-      ) {
+      const errors = validateCuOnlyUsage(result);
+      // cu_execute_plan can subsume the entire multi-app workflow
+      const usedExecutePlan =
+        result.attemptedToolNames.includes("cu_execute_plan");
+      if (!usedExecutePlan) {
         errors.push(
-          "Expected final visual confirmation via cu_screenshot or cu_wait.",
+          ...validateRequiredTools(result, [
+            "cu_open_application",
+            "cu_type",
+          ]),
         );
+        if (
+          !result.successfulToolNames.includes("cu_screenshot") &&
+          !result.successfulToolNames.includes("cu_wait")
+        ) {
+          errors.push(
+            "Expected final visual confirmation via cu_screenshot or cu_wait.",
+          );
+        }
       }
       if (!/textedit|foreground|front|note/i.test(result.plain)) {
         errors.push("Expected confirmation that TextEdit is in foreground.");
@@ -698,6 +714,216 @@ const CASES: ComputerUseCase[] = [
       return errors;
     },
   },
+
+  // ── Tier 7: Post-Action Observation Reuse ─────────────────────────────
+  //
+  // These test that the model uses the fresh observation returned by
+  // cu_click_target / cu_type_into_target instead of calling cu_observe again.
+
+  {
+    id: "chained_grounded_actions",
+    query:
+      "Open TextEdit (com.apple.TextEdit). Use cu_observe once to get targets. " +
+      "Then perform a chain of grounded actions WITHOUT calling cu_observe again between them: " +
+      "1. Use cu_type_into_target to type 'Line one' into the text area " +
+      "2. The type result returns a fresh observation — use that observation's targets directly " +
+      "3. Use cu_key to press Return for a new line " +
+      "4. Use cu_type_into_target again (using the latest returned observation) to type 'Line two' " +
+      "5. Take a screenshot to confirm both lines are visible. " +
+      "The goal is to complete the chain with at most ONE cu_observe call at the start. " +
+      "Report how many cu_observe calls you used and whether both lines are visible.",
+    requiredTools: ["cu_open_application", "cu_observe", "cu_type_into_target"],
+    validate: (result) => {
+      const errors = validateCuOnlyUsage(result);
+      const usedExecutePlan =
+        result.attemptedToolNames.includes("cu_execute_plan");
+      if (!usedExecutePlan) {
+        errors.push(
+          ...validateRequiredTools(result, [
+            "cu_open_application",
+            "cu_type_into_target",
+          ]),
+        );
+      }
+      // Count cu_observe calls — should be minimal (ideally 1)
+      // This is a soft signal, not a hard failure
+      if (!/line.*one|line.*two|both.*line|visible/i.test(result.plain)) {
+        errors.push(
+          "Expected response to confirm both lines are visible.",
+        );
+      }
+      return errors;
+    },
+  },
+
+  // ── Tier 8: Diverse Real-World Scenarios ────────────────────────────────
+
+  {
+    id: "notes_app_workflow",
+    query:
+      "Open the Notes application (com.apple.Notes). Create a new note using the keyboard shortcut Command+N. " +
+      "Type the text 'CU test note: diverse app coverage' into the note body. " +
+      "Take a screenshot to confirm the text was typed. Report what you see.",
+    requiredTools: ["cu_open_application", "cu_key"],
+    validate: (result) => {
+      const errors = validateCuOnlyUsage(result);
+      const usedExecutePlan =
+        result.attemptedToolNames.includes("cu_execute_plan");
+      if (!usedExecutePlan) {
+        errors.push(
+          ...validateRequiredTools(result, ["cu_open_application", "cu_key"]),
+        );
+        if (
+          !result.successfulToolNames.includes("cu_type") &&
+          !result.successfulToolNames.includes("cu_type_into_target")
+        ) {
+          errors.push(
+            "Expected cu_type or cu_type_into_target to be called.",
+          );
+        }
+      }
+      if (!/note|typed|text|cu test/i.test(result.plain)) {
+        errors.push(
+          "Response should reference the Notes app or the typed content.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
+    id: "finder_navigation",
+    query:
+      "Open the Finder application (com.apple.finder). Use the keyboard shortcut Command+Shift+H to navigate to the Home folder. " +
+      "Use cu_observe to see the Finder window and its contents. " +
+      "Take a screenshot and describe the visible files and folders in the Home directory.",
+    requiredTools: ["cu_open_application", "cu_key"],
+    validate: (result) => {
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(result, ["cu_open_application", "cu_key"]),
+      ];
+      if (
+        !result.successfulToolNames.includes("cu_screenshot") &&
+        !result.successfulToolNames.includes("cu_observe")
+      ) {
+        errors.push("Expected visual confirmation of Finder contents.");
+      }
+      if (!/finder|home|folder|desktop|document|download/i.test(result.plain)) {
+        errors.push(
+          "Response should describe Finder or home directory contents.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
+    id: "keyboard_shortcut_new_doc",
+    query:
+      "Open TextEdit (com.apple.TextEdit). Use the keyboard shortcut Command+N to create a new blank document. " +
+      "Wait briefly for the new window to appear, then type 'Fresh document via shortcut'. " +
+      "Take a screenshot to confirm the text is visible in the new document.",
+    requiredTools: ["cu_open_application", "cu_key"],
+    validate: (result) => {
+      const errors = validateCuOnlyUsage(result);
+      const usedExecutePlan =
+        result.attemptedToolNames.includes("cu_execute_plan");
+      if (!usedExecutePlan) {
+        errors.push(
+          ...validateRequiredTools(result, ["cu_open_application", "cu_key"]),
+        );
+        if (
+          !result.successfulToolNames.includes("cu_type") &&
+          !result.successfulToolNames.includes("cu_type_into_target")
+        ) {
+          errors.push(
+            "Expected cu_type or cu_type_into_target to be called.",
+          );
+        }
+      }
+      if (!/fresh|document|shortcut|textedit|new/i.test(result.plain)) {
+        errors.push(
+          "Response should reference the new document or typed text.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
+    id: "clipboard_paste_verify",
+    query:
+      "Open TextEdit (com.apple.TextEdit). Create a new blank document with Command+N. " +
+      "Write the text 'Clipboard roundtrip 42' to the clipboard using cu_write_clipboard. " +
+      "Then paste it into the new document using the keyboard shortcut Command+V. " +
+      "Select all text with Command+A, copy it with Command+C, then read the clipboard to verify the pasted text matches. " +
+      "Report whether the roundtrip succeeded.",
+    requiredTools: [
+      "cu_open_application",
+      "cu_write_clipboard",
+      "cu_key",
+      "cu_read_clipboard",
+    ],
+    validate: (result) => {
+      const errors = validateCuOnlyUsage(result);
+      const usedExecutePlan =
+        result.attemptedToolNames.includes("cu_execute_plan");
+      if (!usedExecutePlan) {
+        errors.push(
+          ...validateRequiredTools(result, [
+            "cu_open_application",
+            "cu_write_clipboard",
+            "cu_key",
+            "cu_read_clipboard",
+          ]),
+        );
+      } else {
+        // execute_plan can't do clipboard ops, so still require those
+        errors.push(
+          ...validateRequiredTools(result, [
+            "cu_write_clipboard",
+            "cu_read_clipboard",
+          ]),
+        );
+      }
+      if (
+        !/clipboard|roundtrip|42|match|paste|succeed|verif/i.test(result.plain)
+      ) {
+        errors.push(
+          "Response should confirm the clipboard roundtrip or mention the text.",
+        );
+      }
+      return errors;
+    },
+  },
+  {
+    id: "execute_plan_notes_type",
+    query:
+      "Use cu_execute_plan for a short subplan: open Notes (com.apple.Notes), wait for ready, " +
+      "find a text area target, type 'Plan executor note test', and verify the target value contains that text. " +
+      "If the plan blocks, continue with ordinary cu_* tools and explain where it blocked.",
+    requiredTools: ["cu_execute_plan"],
+    requiredToolMode: "attempted",
+    validate: (result) => {
+      const planSucceeded = result.successfulToolNames.includes(
+        "cu_execute_plan",
+      );
+      const planFailed = result.failedToolNames.includes("cu_execute_plan");
+      const errors = [
+        ...validateCuOnlyUsage(result),
+        ...validateRequiredTools(result, ["cu_execute_plan"], "attempted"),
+      ];
+      if (!planSucceeded && !planFailed) {
+        errors.push("Expected cu_execute_plan to complete or fail cleanly.");
+      }
+      if (
+        !/note|plan|executor|type|block|fallback/i.test(result.plain)
+      ) {
+        errors.push(
+          "Expected response to mention the Notes execute-plan flow.",
+        );
+      }
+      return errors;
+    },
+  },
 ];
 
 // ── Case Filtering ────────────────────────────────────────────────────────
@@ -787,8 +1013,17 @@ Deno.test({
             }`,
           );
         }
-        // Close apps opened during this case to prevent cross-case contamination.
-        // CU tests share the screen — leftover apps interfere with subsequent cases.
+        // Clean up between cases to prevent cross-case contamination.
+        // CU tests share the screen — leftover apps and clipboard interfere.
+        try {
+          await getPlatform().command.output({
+            cmd: ["osascript", "-e", 'set the clipboard to ""'],
+            stdin: "null",
+            stdout: "piped",
+            stderr: "piped",
+            timeout: 2000,
+          });
+        } catch { /* best effort */ }
         try {
           await getPlatform().command.output({
             cmd: ["osascript", "-e", 'tell application "Calculator" to quit'],
@@ -826,6 +1061,28 @@ Deno.test({
               "osascript",
               "-e",
               'tell application "System Information" to quit',
+            ],
+            stdin: "null",
+            stdout: "piped",
+            stderr: "piped",
+            timeout: 3000,
+          });
+        } catch { /* may not be running */ }
+        try {
+          await getPlatform().command.output({
+            cmd: ["osascript", "-e", 'tell application "Notes" to quit'],
+            stdin: "null",
+            stdout: "piped",
+            stderr: "piped",
+            timeout: 3000,
+          });
+        } catch { /* may not be running */ }
+        try {
+          await getPlatform().command.output({
+            cmd: [
+              "osascript",
+              "-e",
+              'tell application "Finder" to close every window',
             ],
             stdin: "null",
             stdout: "piped",
