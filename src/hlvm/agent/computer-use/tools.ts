@@ -2274,12 +2274,16 @@ const cuExecutePlanFn = async (
     if (needsPreflight && isStale) {
       await observeDesktop(exec, options).catch(() => {});
     }
+    // Pass the latest observation ID so the native service can correlate
+    // find_target resolution with the same AX snapshot the model saw.
+    const currentObsId = getLastComputerUseObservation()?.observationId;
     // Execute with one automatic retry for recoverable failures.
     // Common case: ambiguous selector → retry with first candidate index.
     let stepsToExecute = normalizedSteps;
     let response = await performNativeExecutePlan({
       steps: stepsToExecute,
       displayId: parsed.displayId,
+      observationId: currentObsId,
     });
     if (
       response &&

@@ -447,6 +447,10 @@ export type CUPlanStep =
 export interface CUExecutePlanRequest {
   steps: CUPlanStep[];
   displayId?: number;
+  /** Hint: observation ID from the most recent cu_observe / post-action observation.
+   *  Lets the native service correlate with an existing AX snapshot instead of
+   *  re-walking the tree independently for find_target resolution. */
+  observationId?: string;
 }
 
 export interface CUExecutePlanStepRecord {
