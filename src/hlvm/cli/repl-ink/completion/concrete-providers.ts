@@ -641,23 +641,43 @@ function createCommandRenderSpec(
 /**
  * Provider for slash command completions.
  */
+// Module-level cache for the full command+skill catalog.
+// Populated on first completion trigger, reused until session end.
+let _fullCatalogCache: readonly { name: string; description: string }[] | null =
+  null;
+
+async function getOrLoadFullCatalog(): Promise<
+  readonly { name: string; description: string }[]
+> {
+  if (_fullCatalogCache) return _fullCatalogCache;
+  try {
+    const { getFullCommandCatalog } = await import(
+      "../../../repl/commands.ts"
+    );
+    _fullCatalogCache = await getFullCommandCatalog();
+  } catch {
+    _fullCatalogCache = COMMAND_CATALOG;
+  }
+  return _fullCatalogCache ?? COMMAND_CATALOG;
+}
+
 export const CommandProvider: CompletionProvider = {
   id: "command",
-  isAsync: false,
+  isAsync: true, // async to load skill catalog on first trigger
+  debounceMs: 50, // fast — catalog is cached after first load
   helpText: PROVIDER_HELP_TEXT.COMMAND,
-  appliesOnNavigate: false, // Arrow keys only navigate (no auto-apply)
+  appliesOnNavigate: false,
 
   shouldTrigger(context: CompletionContext): boolean {
     return shouldTriggerCommand(context);
   },
 
-  getCompletions(context: CompletionContext): Promise<CompletionResult> {
+  async getCompletions(context: CompletionContext): Promise<CompletionResult> {
     const query = extractCommandQuery(context);
     if (query === null) {
-      return Promise.resolve({ items: [], anchor: context.cursorPosition });
+      return { items: [], anchor: context.cursorPosition };
     }
 
-    // Find the / position for anchor
     const slashPos = context.textBeforeCursor.trimStart().indexOf("/");
     const leadingSpaces = context.textBeforeCursor.length -
       context.textBeforeCursor.trimStart().length;
@@ -665,21 +685,15 @@ export const CommandProvider: CompletionProvider = {
 
     resetItemIdCounter();
 
-    // Use fuzzy matching for command filtering
+    const catalog = await getOrLoadFullCatalog();
     const items: CompletionItem[] = [];
 
-    // Use static catalog + cached skill entries.
-    // Skills are appended lazily — first /skills or session start populates the cache.
-    for (const cmd of COMMAND_CATALOG) {
-      // Fuzzy match against command name without the leading /
-      const cmdName = cmd.name.slice(1); // Remove /
+    for (const cmd of catalog) {
+      const cmdName = cmd.name.slice(1);
       const matchResult = query ? fuzzyMatch(query, cmdName, "command") : null;
-
-      // Include all for empty query, or only matches for non-empty
       if (query && !matchResult) continue;
 
       const score = COMPLETION_SCORES.COMMAND_BASE + (matchResult?.score ?? 0);
-      // Shift indices by 1 to account for the leading /
       const matchIndices = matchResult?.indices.map((i) => i + 1);
 
       items.push({
@@ -689,7 +703,6 @@ export const CommandProvider: CompletionProvider = {
         description: cmd.description,
         score,
         matchIndices,
-        // Commands only support SELECT - no drilling
         availableActions: ["SELECT"] as const,
         applyAction: createCommandApplyAction(cmd.name),
         getRenderSpec: createCommandRenderSpec(
@@ -700,7 +713,6 @@ export const CommandProvider: CompletionProvider = {
       });
     }
 
-    // Sort by score (higher = better match)
     items.sort((a, b) =>
       compareScoredFuzzyMatches(
         a.label,
@@ -712,10 +724,7 @@ export const CommandProvider: CompletionProvider = {
       )
     );
 
-    return Promise.resolve({
-      items,
-      anchor,
-    });
+    return { items, anchor };
   },
 };
 

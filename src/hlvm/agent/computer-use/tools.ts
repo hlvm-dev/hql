@@ -823,15 +823,6 @@ function normalizePlanSteps(steps: CUPlanStep[]): CUPlanStep[] {
         normalized.push(step);
         break;
     }
-
-    // Track app context changes
-    if (step.op === "open_app") {
-      // Already handled above
-    } else if (
-      step.op === "find_target" && step.selector.bundle_id
-    ) {
-      lastOpenedBundleId = step.selector.bundle_id;
-    }
   }
 
   return normalized;
@@ -1648,18 +1639,46 @@ function cuTool(
     const err = await guards(options);
     if (err) return err;
     const exec = getExecutor();
+    const interactive = !opts?.readOnly && opts?.interactive !== false;
+
     try {
-      const interactive = !opts?.readOnly && opts?.interactive !== false;
+      // Phase 1: Prepare — can be retried safely (no side effects).
       let prepared: PreparedActionContext = {};
       if (interactive) {
-        prepared = await prepareInteractiveActionWithRecovery(
-          exec,
-          options,
-          opts?.requireTargetApp,
-          opts?.enforceTargetContextContinuity,
-        );
+        try {
+          prepared = await prepareInteractiveActionWithRecovery(
+            exec,
+            options,
+            opts?.requireTargetApp,
+            opts?.enforceTargetContextContinuity,
+          );
+        } catch (prepareError) {
+          // Bounded local recovery: if preparation failed with a retryable
+          // error, refocus the target app, take a fresh observation, and
+          // retry preparation once. Safe because preparation has no side
+          // effects — it only reads state and activates the target app.
+          const prepFailure = getFailureMetadata(prepareError);
+          if (prepFailure?.retryable) {
+            const targetBundleId = getComputerUseTargetBundleId();
+            if (targetBundleId) {
+              await exec.openApp(targetBundleId).catch(() => {});
+            }
+            await sleep(300);
+            await observeDesktop(exec, options).catch(() => {});
+            prepared = await prepareInteractiveActionWithRecovery(
+              exec,
+              options,
+              opts?.requireTargetApp,
+              opts?.enforceTargetContextContinuity,
+            );
+          } else {
+            throw prepareError;
+          }
+        }
       }
+      // Phase 2: Execute — NOT retried (may have side effects like typing).
       const result = await fn(args, exec, options);
+      // Phase 3: Verify — post-action observation check.
       const configuredVerificationMode = typeof opts?.postActionVerify ===
           "function"
         ? opts.postActionVerify(args)
@@ -2086,6 +2105,55 @@ const cuWaitFn = cuTool("Wait failed", async (args, exec, options) => {
   });
 }, { readOnly: true });
 
+// ── Shared target action setup (DRY: click_target + type_into_target) ───
+
+async function resolveTargetActionContext(
+  observationId: string,
+  targetId: string,
+  exec: ComputerExecutor,
+  options?: ToolExecutionOptions,
+) {
+  ensureFreshObservationAfterPromote();
+  const { observation, target } = resolveObservationTarget(
+    observationId,
+    targetId,
+  );
+  const centerX = target.bounds.x + target.bounds.width / 2;
+  const centerY = target.bounds.y + target.bounds.height / 2;
+  setComputerUseTargetBundleId(target.bundleId, undefined, "target_action");
+  const targetWindow = observation.windows.find((w) =>
+    w.windowId === target.windowId
+  );
+  if (targetWindow) {
+    setComputerUseTargetWindow(targetWindow, "target_action");
+  }
+  const scopedOptions = {
+    ...options,
+    displayId: options?.displayId ?? targetWindow?.displayId,
+  };
+  const prepared = await prepareInteractiveActionWithRecovery(
+    exec,
+    scopedOptions,
+    true,
+  );
+  return { observation, target, centerX, centerY, targetWindow, scopedOptions, prepared };
+}
+
+async function verifyAndReturnObservation(
+  exec: ComputerExecutor,
+  scopedOptions: ToolExecutionOptions,
+  prepared: PreparedActionContext,
+  actionData: Record<string, unknown>,
+): Promise<unknown> {
+  const verified = await verifyPostActionObservation(
+    exec,
+    scopedOptions,
+    prepared,
+    "focus_sensitive",
+  );
+  return observationImageResult(verified, actionData);
+}
+
 const cuClickTargetFn = cuTool(
   "Click target failed",
   async (args, exec, options) => {
@@ -2093,50 +2161,22 @@ const cuClickTargetFn = cuTool(
       observation_id: string;
       target_id: string;
     };
-    ensureFreshObservationAfterPromote();
-    const { observation, target } = resolveObservationTarget(
+    const ctx = await resolveTargetActionContext(
       observation_id,
       target_id,
-    );
-    const centerX = target.bounds.x + target.bounds.width / 2;
-    const centerY = target.bounds.y + target.bounds.height / 2;
-    setComputerUseTargetBundleId(target.bundleId, undefined, "target_action");
-    const targetWindow = observation.windows.find((window) =>
-      window.windowId === target.windowId
-    );
-    if (targetWindow) {
-      setComputerUseTargetWindow(targetWindow, "target_action");
-    }
-    const prepared = await prepareInteractiveActionWithRecovery(
       exec,
-      {
-        ...options,
-        displayId: options?.displayId ?? targetWindow?.displayId,
-      },
-      true,
+      options,
     );
-    // Prefer native AX action when available, fall back to coordinate click
     const nativeClicked = await performNativeTargetAction(
       "click-target",
       { observationId: observation_id, targetId: target_id },
     );
     if (!nativeClicked) {
-      await exec.click(centerX, centerY, "left", 1);
+      await exec.click(ctx.centerX, ctx.centerY, "left", 1);
     }
-    const verified = await verifyPostActionObservation(
-      exec,
-      {
-        ...options,
-        displayId: options?.displayId ?? targetWindow?.displayId,
-      },
-      prepared,
-      "focus_sensitive",
-    );
-    // Return the full post-action observation so the model can see the
-    // updated desktop state immediately — avoids a redundant cu_observe turn.
-    return observationImageResult(verified, {
-      clicked_target_id: target.targetId,
-      clicked_bundle_id: target.bundleId,
+    return verifyAndReturnObservation(exec, ctx.scopedOptions, ctx.prepared, {
+      clicked_target_id: ctx.target.targetId,
+      clicked_bundle_id: ctx.target.bundleId,
       native_action: nativeClicked,
     });
   },
@@ -2151,51 +2191,23 @@ const cuTypeIntoTargetFn = cuTool(
       target_id: string;
       text: string;
     };
-    ensureFreshObservationAfterPromote();
-    const { observation, target } = resolveObservationTarget(
+    const ctx = await resolveTargetActionContext(
       observation_id,
       target_id,
-    );
-    const centerX = target.bounds.x + target.bounds.width / 2;
-    const centerY = target.bounds.y + target.bounds.height / 2;
-    setComputerUseTargetBundleId(target.bundleId, undefined, "target_action");
-    const targetWindow = observation.windows.find((window) =>
-      window.windowId === target.windowId
-    );
-    if (targetWindow) {
-      setComputerUseTargetWindow(targetWindow, "target_action");
-    }
-    const prepared = await prepareInteractiveActionWithRecovery(
       exec,
-      {
-        ...options,
-        displayId: options?.displayId ?? targetWindow?.displayId,
-      },
-      true,
+      options,
     );
-    // Prefer native AX focus+type when available, fall back to click+type
     const nativeTyped = await performNativeTargetAction(
       "type-into-target",
       { observationId: observation_id, targetId: target_id, text },
     );
     if (!nativeTyped) {
-      await exec.click(centerX, centerY, "left", 1);
+      await exec.click(ctx.centerX, ctx.centerY, "left", 1);
       await sleep(75);
       await exec.type(text, { viaClipboard: true });
     }
-    const verified = await verifyPostActionObservation(
-      exec,
-      {
-        ...options,
-        displayId: options?.displayId ?? targetWindow?.displayId,
-      },
-      prepared,
-      "focus_sensitive",
-    );
-    // Return the full post-action observation so the model can see the
-    // updated desktop state immediately — avoids a redundant cu_observe turn.
-    return observationImageResult(verified, {
-      typed_into_target_id: target.targetId,
+    return verifyAndReturnObservation(exec, ctx.scopedOptions, ctx.prepared, {
+      typed_into_target_id: ctx.target.targetId,
       typed: text.length > 80 ? text.slice(0, 77) + "..." : text,
       native_action: nativeTyped,
     });
@@ -2276,46 +2288,16 @@ const cuExecutePlanFn = async (
     }
     // Pass the latest observation ID so the native service can correlate
     // find_target resolution with the same AX snapshot the model saw.
+    // If preflight failed, this may be stale — native service falls back to
+    // fresh AX walk when the observation ID doesn't match.
     const currentObsId = getLastComputerUseObservation()?.observationId;
-    // Execute with one automatic retry for recoverable failures.
-    // Common case: ambiguous selector → retry with first candidate index.
-    let stepsToExecute = normalizedSteps;
-    let response = await performNativeExecutePlan({
-      steps: stepsToExecute,
+    // No blind retry on ambiguity — return candidates to LLM and let it choose.
+    // The prompt tells the model to retry with selector.index after seeing candidates.
+    const response = await performNativeExecutePlan({
+      steps: normalizedSteps,
       displayId: parsed.displayId,
       observationId: currentObsId,
     });
-    if (
-      response &&
-      !response.ok &&
-      response.failure?.retryable &&
-      response.failure?.code === "cu_execute_plan_ambiguous_selector" &&
-      response.failure?.stepIndex != null
-    ) {
-      const candidates = Array.isArray(response.failure.facts?.candidates)
-        ? response.failure.facts.candidates
-        : [];
-      if (candidates.length > 0) {
-        // Apply first candidate index to the blocked find_target step
-        const retrySteps = stepsToExecute.map((step, i) => {
-          if (
-            i === response!.failure!.stepIndex &&
-            step.op === "find_target"
-          ) {
-            return {
-              ...step,
-              selector: { ...step.selector, index: 0 },
-            };
-          }
-          return step;
-        });
-        stepsToExecute = retrySteps;
-        response = await performNativeExecutePlan({
-          steps: stepsToExecute,
-          displayId: parsed.displayId,
-        });
-      }
-    }
     if (!response) {
       const failedObservation = await captureExecutePlanObservation(
         exec,
@@ -2885,4 +2867,9 @@ export const _testOnly = {
   parseExecutePlanArgs,
   buildExecutePlanFailureResult,
   prepareInteractiveAction,
+  normalizePlanSteps,
+  cuTool,
+  setExecutorForTests: (executor?: ComputerExecutor) => {
+    _executor = executor;
+  },
 };

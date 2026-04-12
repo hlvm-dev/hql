@@ -45,7 +45,7 @@ import {
 import { drainRunLoop } from "../../../src/hlvm/agent/computer-use/drain-run-loop.ts";
 import {
   notifyExpectedEscape,
-  unregisterEscHotkey,
+  clearEscapeCallback,
 } from "../../../src/hlvm/agent/computer-use/esc-hotkey.ts";
 import { filterAppsForDescription } from "../../../src/hlvm/agent/computer-use/app-names.ts";
 import {
@@ -1264,7 +1264,12 @@ Deno.test("tools: prepareInteractiveAction fails closed when remembered target a
 
   let caught: unknown;
   try {
-    await toolsTestOnly.prepareInteractiveAction(exec, undefined, true, true);
+    await toolsTestOnly.prepareInteractiveAction(
+      exec,
+      undefined,
+      true,
+      "app_and_window",
+    );
   } catch (error) {
     caught = error;
   }
@@ -1315,7 +1320,12 @@ Deno.test("tools: prepareInteractiveAction fails closed when remembered target w
 
   let caught: unknown;
   try {
-    await toolsTestOnly.prepareInteractiveAction(exec, undefined, true, true);
+    await toolsTestOnly.prepareInteractiveAction(
+      exec,
+      undefined,
+      true,
+      "app_and_window",
+    );
   } catch (error) {
     caught = error;
   }
@@ -1370,7 +1380,12 @@ Deno.test("tools: prepareInteractiveAction fails closed when target window conte
 
   let caught: unknown;
   try {
-    await toolsTestOnly.prepareInteractiveAction(exec, undefined, true, true);
+    await toolsTestOnly.prepareInteractiveAction(
+      exec,
+      undefined,
+      true,
+      "app_and_window",
+    );
   } catch (error) {
     caught = error;
   }
@@ -1558,7 +1573,7 @@ Deno.test("drain-run-loop: passthrough executes fn", async () => {
 
 Deno.test("esc-hotkey: stubs are no-ops", () => {
   notifyExpectedEscape(); // should not throw
-  unregisterEscHotkey(); // should not throw
+  clearEscapeCallback(); // should not throw
 });
 
 // ============================================================
@@ -1914,6 +1929,52 @@ Deno.test("bridge: performNativeExecutePlan routes through native backend", asyn
     assertEquals(result!.status, "completed");
     assertEquals(result!.steps.length, 2);
     assertEquals(result!.finalBundleId, "com.apple.TextEdit");
+  } finally {
+    bridgeTestOnly.resetBridgeState();
+  }
+});
+
+Deno.test("bridge: performNativeExecutePlan forwards observationId when provided", async () => {
+  bridgeTestOnly.resetBridgeState();
+  try {
+    bridgeTestOnly.setBackendResolution({
+      backend: "native_gui",
+      port: 11436,
+      capabilities: { version: "1", features: ["execute-plan"] },
+    });
+    bridgeTestOnly.setNativeFetchOverride(async (path, body) => {
+      assertEquals(path, "/cu/execute-plan");
+      assertEquals(body, {
+        steps: [{ op: "find_target", id: "editor", selector: {
+          bundle_id: "com.apple.TextEdit",
+          role_in: ["textArea"],
+        } }],
+        observationId: "obs-123",
+      });
+      return {
+        ok: true,
+        status: "completed",
+        steps: [
+          { index: 0, op: "find_target", status: "completed", stepId: "editor" },
+        ],
+      };
+    });
+
+    const result = await performNativeExecutePlan({
+      steps: [{
+        op: "find_target",
+        id: "editor",
+        selector: {
+          bundle_id: "com.apple.TextEdit",
+          role_in: ["textArea"],
+        },
+      }],
+      observationId: "obs-123",
+    });
+
+    assertExists(result);
+    assertEquals(result!.ok, true);
+    assertEquals(result!.status, "completed");
   } finally {
     bridgeTestOnly.resetBridgeState();
   }
@@ -2459,4 +2520,307 @@ Deno.test("upgradeSwiftInstanceToNative upgrades native input, frontmost, and ac
   } finally {
     bridgeTestOnly.resetBridgeState();
   }
+});
+
+// ============================================================
+// Recovery Safety Tests — cuTool wrapper behavior
+// ============================================================
+
+function makeRecoveryExecutorHarness(
+  opts: {
+    runningApps?: RunningApp[];
+    visibleWindows?: WindowInfo[];
+    initialFrontmostApp?: { bundleId: string; displayName: string } | null;
+    prepareForAction?: (
+      attempt: number,
+    ) => Partial<PrepareForActionResult> | null;
+    observedFrontmostApp?: (
+      attempt: number,
+      current: { bundleId: string; displayName: string } | null,
+    ) => { bundleId: string; displayName: string };
+  } = {},
+): {
+  counters: { prepareCalls: number; observeCalls: number; openAppCalls: number };
+  executor: ComputerExecutor;
+} {
+  const visibleWindows = opts.visibleWindows ?? [makeWindow({
+    windowId: 101,
+    bundleId: "com.apple.TextEdit",
+    displayName: "TextEdit",
+    title: "Untitled",
+    displayId: 2,
+  })];
+  const runningApps = opts.runningApps ?? [
+    makeRunningApp({ bundleId: "com.apple.TextEdit", displayName: "TextEdit" }),
+    makeRunningApp({ bundleId: "com.apple.calculator", displayName: "Calculator" }),
+  ];
+  let currentFrontmost: { bundleId: string; displayName: string } | null =
+    "initialFrontmostApp" in opts
+      ? (opts.initialFrontmostApp ?? null)
+      : {
+        bundleId: "com.apple.TextEdit",
+        displayName: "TextEdit",
+      };
+  const counters = { prepareCalls: 0, observeCalls: 0, openAppCalls: 0 };
+
+  const executor = {
+    capabilities: CLI_CU_CAPABILITIES,
+    getPermissionState: async () => makePermissionState(),
+    listRunningApps: async () => runningApps,
+    listVisibleWindows: async () => visibleWindows,
+    findWindowDisplays: async (bundleIds: string[]) =>
+      bundleIds.map((bundleId) => ({
+        bundleId,
+        displayIds: [
+          ...new Set(
+            visibleWindows.flatMap((window) =>
+              window.bundleId === bundleId && window.displayId != null
+                ? [window.displayId]
+                : []
+            ),
+          ),
+        ],
+      })),
+    getFrontmostApp: async () => currentFrontmost,
+    prepareForAction: async () => {
+      counters.prepareCalls++;
+      const result = opts.prepareForAction?.(counters.prepareCalls);
+      return {
+        activated: null,
+        hidden: [],
+        selectedDisplayId: visibleWindows[0]?.displayId,
+        selectedTargetBundleId: "com.apple.TextEdit",
+        selectedTargetWindowId: visibleWindows[0]?.windowId,
+        resolutionReason: "test",
+        failureReason: undefined,
+        ...(result ?? {}),
+      };
+    },
+    observe: async () => {
+      counters.observeCalls++;
+      const observedFrontmost = opts.observedFrontmostApp
+        ? opts.observedFrontmostApp(counters.observeCalls, currentFrontmost)
+        : (currentFrontmost ?? {
+          bundleId: "com.apple.TextEdit",
+          displayName: "TextEdit",
+        });
+      return makeObservation({
+        frontmostApp: observedFrontmost,
+        runningApps,
+        windows: visibleWindows,
+        display: makeDisplay({ displayId: visibleWindows[0]?.displayId ?? 2 }),
+        resolvedTargetBundleId: "com.apple.TextEdit",
+        resolvedTargetWindowId: visibleWindows[0]?.windowId,
+      });
+    },
+    openApp: async (bundleId: string) => {
+      counters.openAppCalls++;
+      const runningApp = runningApps.find((app) => app.bundleId === bundleId);
+      currentFrontmost = {
+        bundleId,
+        displayName: runningApp?.displayName ?? bundleId,
+      };
+    },
+  } as unknown as ComputerExecutor;
+
+  return { counters, executor };
+}
+
+async function withInjectedToolExecutor(
+  executor: ComputerExecutor,
+  fn: (sessionId: string) => Promise<void>,
+): Promise<void> {
+  toolsTestOnly.setExecutorForTests(executor);
+  resetComputerUseSessionState();
+  const sessionId = `tool-test-${Date.now()}`;
+  try {
+    await fn(sessionId);
+  } finally {
+    await releaseComputerUseLock();
+    resetComputerUseSessionState();
+    toolsTestOnly.setExecutorForTests(undefined);
+  }
+}
+
+Deno.test({
+  name:
+    "cuTool wrapper: retryable preparation failure recovers once and calls fn exactly once",
+  fn: () =>
+    withIsolatedLock(async () => {
+      const { counters, executor } = makeRecoveryExecutorHarness({
+        initialFrontmostApp: {
+          bundleId: "com.apple.calculator",
+          displayName: "Calculator",
+        },
+      });
+      let fnCallCount = 0;
+      const wrappedTool = toolsTestOnly.cuTool(
+        "test_action_failed",
+        async () => {
+          fnCallCount++;
+          return { ok: true };
+        },
+        {
+          actionKind: "test_action",
+          requireTargetApp: true,
+          postActionVerify: false,
+        },
+      );
+
+      await withInjectedToolExecutor(executor, async (sessionId) => {
+        setComputerUseTargetBundleId("com.apple.TextEdit");
+        const result = await wrappedTool({}, "/tmp", { sessionId }) as {
+          ok?: boolean;
+        };
+        assertEquals(result.ok, true);
+      });
+
+      assertEquals(fnCallCount, 1);
+      assertEquals(counters.prepareCalls, 3);
+      assertEquals(counters.observeCalls, 2);
+      assertEquals(counters.openAppCalls, 1);
+    }),
+  sanitizeOps: false,
+  sanitizeResources: false,
+});
+
+Deno.test({
+  name:
+    "cuTool wrapper: non-retryable preparation failure does not retry or run fn",
+  fn: () =>
+    withIsolatedLock(async () => {
+      const { counters, executor } = makeRecoveryExecutorHarness({
+        runningApps: [],
+        visibleWindows: [],
+        initialFrontmostApp: null,
+      });
+      let fnCallCount = 0;
+      const wrappedTool = toolsTestOnly.cuTool(
+        "test_prepare_failed",
+        async () => {
+          fnCallCount++;
+          return { ok: true };
+        },
+        {
+          actionKind: "test_prepare",
+          requireTargetApp: true,
+          postActionVerify: false,
+        },
+      );
+
+      await withInjectedToolExecutor(executor, async (sessionId) => {
+        const result = await wrappedTool({}, "/tmp", { sessionId }) as {
+          success: boolean;
+          failure?: { code?: string };
+        };
+        assertEquals(result.success, false);
+        assertEquals(result.failure?.code, "cu_no_target_app");
+      });
+
+      assertEquals(fnCallCount, 0);
+      assertEquals(counters.prepareCalls, 0);
+      assertEquals(counters.observeCalls, 0);
+      assertEquals(counters.openAppCalls, 0);
+    }),
+  sanitizeOps: false,
+  sanitizeResources: false,
+});
+
+Deno.test({
+  name: "cuTool wrapper: verification failure does not rerun fn",
+  fn: () =>
+    withIsolatedLock(async () => {
+      const { counters, executor } = makeRecoveryExecutorHarness({
+        observedFrontmostApp: () => ({
+          bundleId: "com.apple.calculator",
+          displayName: "Calculator",
+        }),
+      });
+      let fnCallCount = 0;
+      const wrappedTool = toolsTestOnly.cuTool(
+        "test_verify_failed",
+        async () => {
+          fnCallCount++;
+          return { ok: true };
+        },
+        {
+          actionKind: "test_verify",
+          requireTargetApp: false,
+          postActionVerify: "generic",
+        },
+      );
+
+      await withInjectedToolExecutor(executor, async (sessionId) => {
+        const result = await wrappedTool({}, "/tmp", { sessionId }) as {
+          success: boolean;
+          failure?: { code?: string };
+        };
+        assertEquals(result.success, false);
+        assertEquals(result.failure?.code, "cu_post_action_target_mismatch");
+      });
+
+      assertEquals(fnCallCount, 1);
+      assertEquals(counters.prepareCalls, 1);
+      assertEquals(counters.observeCalls, 1);
+      assertEquals(counters.openAppCalls, 0);
+    }),
+  sanitizeOps: false,
+  sanitizeResources: false,
+});
+
+Deno.test("tools: normalizePlanSteps inserts wait_for_ready after open_app", () => {
+  const steps = toolsTestOnly.normalizePlanSteps([
+    { op: "open_app", bundle_id: "com.apple.TextEdit" },
+    {
+      op: "find_target",
+      id: "editor",
+      selector: { bundle_id: "com.apple.TextEdit", role_in: ["textArea"] },
+    },
+  ]);
+  // Should have 3 steps: open_app, auto-inserted wait_for_ready, find_target
+  assertEquals(steps.length, 3);
+  assertEquals(steps[0].op, "open_app");
+  assertEquals(steps[1].op, "wait_for_ready");
+  if (steps[1].op === "wait_for_ready") {
+    assertEquals(steps[1].bundle_id, "com.apple.TextEdit");
+  }
+  assertEquals(steps[2].op, "find_target");
+});
+
+Deno.test("tools: normalizePlanSteps normalizes role aliases", () => {
+  const steps = toolsTestOnly.normalizePlanSteps([
+    {
+      op: "find_target",
+      id: "field",
+      selector: {
+        bundle_id: "com.apple.TextEdit",
+        role_in: ["text", "textarea", "textfield"],
+      },
+    },
+  ]);
+  assertEquals(steps.length, 1);
+  if (steps[0].op === "find_target") {
+    // "text" → "textField", "textarea" → "textArea", "textfield" → "textField"
+    // After deduplication: ["textField", "textArea"]
+    assertEquals(steps[0].selector.role_in.includes("textField"), true);
+    assertEquals(steps[0].selector.role_in.includes("textArea"), true);
+    assertEquals(steps[0].selector.role_in.length, 2);
+  }
+});
+
+Deno.test("tools: normalizePlanSteps does not insert wait_for_ready when already present", () => {
+  const steps = toolsTestOnly.normalizePlanSteps([
+    { op: "open_app", bundle_id: "com.apple.TextEdit" },
+    { op: "wait_for_ready", bundle_id: "com.apple.TextEdit", timeout_ms: 5000 },
+    {
+      op: "find_target",
+      id: "editor",
+      selector: { bundle_id: "com.apple.TextEdit", role_in: ["textArea"] },
+    },
+  ]);
+  // Should NOT double-insert wait_for_ready
+  assertEquals(steps.length, 3);
+  assertEquals(steps[0].op, "open_app");
+  assertEquals(steps[1].op, "wait_for_ready");
+  assertEquals(steps[2].op, "find_target");
 });

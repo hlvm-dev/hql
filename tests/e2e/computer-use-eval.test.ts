@@ -556,17 +556,17 @@ const CASES: ComputerUseCase[] = [
     id: "cross_app_grounded_workflow",
     query: "Perform a cross-app workflow using native grounding:\n" +
       "1. Open TextEdit (com.apple.TextEdit)\n" +
-      "2. Use cu_observe to get targets, then cu_type_into_target to type 'Task: check system' into the text area\n" +
+      "2. Use the returned observation targets to cu_type_into_target to type 'Task: check system' into the text area\n" +
       "3. Open Calculator (com.apple.calculator)\n" +
-      "4. Use cu_observe to get Calculator targets, then type 42*2 and press Return\n" +
+      "4. Use observation targets to type 42*2 and press Return\n" +
       "5. Switch back to TextEdit by opening it again\n" +
       "6. Take a screenshot and confirm TextEdit is in foreground with the original text visible\n" +
       "Prefer cu_click_target and cu_type_into_target over raw coordinate clicks when targets are available.",
-    requiredTools: ["cu_open_application", "cu_observe"],
+    requiredTools: ["cu_open_application"],
     validate: (result) => {
       const errors = [
         ...validateCuOnlyUsage(result),
-        ...validateRequiredTools(result, ["cu_open_application", "cu_observe"]),
+        ...validateRequiredTools(result, ["cu_open_application"]),
       ];
       // Should have used grounded tools
       const usedGrounded =
@@ -998,12 +998,18 @@ Deno.test({
               ].join("\n"),
             );
           } else {
+            // Metrics: cu_observe count and failed-tool count for before/after comparison
+            const observeCount = events.filter(
+              (e): e is Extract<AgentUIEvent, { type: "tool_start" }> =>
+                e.type === "tool_start" && e.name === "cu_observe",
+            ).length;
+            const failedCount = failedToolNames.length;
             console.log(
               `PASS ${testCase.id} | Model: ${caseModel} | Successful: ${
                 successfulToolNames.join(", ") || "(none)"
               } | Attempted: ${attemptedToolNames.join(", ") || "(none)"} | Failed: ${
                 failedToolNames.join(", ") || "(none)"
-              }`,
+              } | observe:${observeCount} failed:${failedCount}`,
             );
           }
         } catch (error) {

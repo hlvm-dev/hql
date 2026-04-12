@@ -76,53 +76,73 @@ Conclusion:
 
 ### Phase 8 — Broad Product Validation (2026-04-12)
 
-The project has moved past "does the architecture work?" and into a narrower
-reliability loop:
+#### Architecture rule established
+
+The CU system has a clear responsibility split:
+
+- **Native (Swift)** preserves state, classifies elements, correlates data,
+  executes actions. Does not guess user intent.
+- **LLM (cloud model)** resolves user intent, disambiguates targets when
+  native returns multiple candidates, decides next action.
+- **TS runtime** orchestrates tools, manages sessions, passes context between
+  native and LLM.
+
+Problem taxonomy identified (5 bug classes, 4 types):
+
+- **State preservation** — focused element, target pinning → native's job
+- **Correlation** — AX-to-CG window matching → native's job
+- **Classification** — is-editable, role normalization → native's job
+- **Intent guessing** — which target did the user mean → LLM's job
+
+#### Observation return (Steps 0+1) — DONE
+
+All interactive tools now return post-action observations via the `cuTool`
+wrapper. The model gets updated targets, windows, and screenshot immediately
+after each action without calling `cu_observe` again.
+
+Measured: `chained_grounded_actions` 50s → 29s (42% faster).
+Zero `cu_observe` calls needed in grounded workflows.
+
+#### Execute-plan reliability (Step 2) — MATERIALLY IMPROVED
+
+- `observationId` passes from TS to Swift `/cu/execute-plan`
+- Native `resolvePlanTarget` uses observation-backed target cache
+- Target pinning: resolved targets reused across plan steps
+- Blind `index:0` auto-retry removed — ambiguity returns to LLM
+- Size-based disambiguation threshold raised from 2x to 10x
+
+Measured (5x repeated runs):
 
 ```text
-pick one real scenario
-run it live
-capture one concrete failure
-fix the generic cause
-rerun the same scenario
-only then broaden coverage
+execute_plan_open_wait_type_verify:   5/5 first-attempt success (was ~0%)
+execute_plan_cross_app_short_flow:    1/5 first-attempt, 5/5 semantic pass
 ```
 
-Newly established status in this chapter:
+Single-app execute-plan is now 100% reliable. Cross-app still has first-attempt
+failures but always recovers.
 
-- `cu_execute_plan` v1 is shipped as an additive Level 3-only bounded DSL
-  (`open_app`, `wait_for_ready`, `find_target`, `click`, `type_into`,
-  `press_keys`, `verify`)
-- keyboard/text actions now fail closed when the remembered target app or
-  window disappears unexpectedly
-- passive observation no longer silently overwrites explicit target context
-- harness grading now distinguishes attempted, successful, and failed tool
-  executions so blocked plans do not look like invisible no-ops
-- modifier shortcuts now clear inherited typing context so global shortcuts do
-  not leave stale target context behind
-- `cu_key` / `cu_hold_key` verification is now conditional for
-  context-shifting shortcuts, which avoids safe-but-slow false failures
-- execute-plan timeout is now derived from the declared plan instead of a tiny
-  fixed transport timeout
-- execute-plan target matching now has case-insensitive bundle-id matching,
-  stronger editable-target disambiguation, and active-window scoping
+#### Recovery safety (Step 4) — DONE
 
-The current generic issue is not app-specific:
+- `cuTool` wrapper retries preparation only, never the side-effecting action
+- `cu_key` relaxed from window-level to app-level continuity
+- Unit tests verify: fn called exactly once, verification failure doesn't
+  replay, non-retryable errors pass through
 
-- the native execute-plan path and the ordinary observation target surface were
-  not equally strong
-- `resolvePlanTarget(...)` could sometimes reason about a focused text target
-  that `getAXTargets(...)` still failed to expose
-- the current fix direction is to share one target descriptor / candidate model
-  between observation and execute-plan rather than adding per-app branches
+#### Deferred work
 
-The broader architectural reading from this chapter is also generic:
+- **Step 3 (read-first AX APIs)**: code removed during cleanup, will be
+  reintroduced as one generic `/cu/read-target` endpoint after Step 2 is stable
+- **Step 5 (semantic transitions)**: not started, depends on Steps 2-4 stable
 
-- the system is now losing more user-visible time to cloud-turn orchestration
-  than to native execution
-- the next generic upgrade is to move context shifts, waits, settling, and
-  verification below the LLM instead of asking the model to mediate each
-  micro-step
+#### Previous Phase 8 progress (earlier in 2026-04-12)
+
+- `cu_execute_plan` v1 shipped as additive Level 3-only bounded DSL
+- keyboard/text actions fail closed on target loss
+- passive observation no longer overwrites explicit target context
+- harness grading distinguishes attempted/successful/failed
+- modifier shortcuts clear inherited typing context
+- plan normalizer: auto wait_for_ready, role normalization, bundle propagation
+- E2E pack expanded from 21 to 27 cases with metric logging
 
 ### Phase 7 — Native Grounding Pipeline (2026-04-11)
 

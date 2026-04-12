@@ -1137,6 +1137,192 @@ The potion ecosystem then lets users share their best prompts and workflows:
 
 Install from Launchpad. Pin to Hotbar. Use in any app. One keypress.
 
+## System-Wide REPL — nREPL for the Desktop
+
+The potion system has a deeper foundation that makes it uniquely powerful:
+HLVM runs as a **persistent background daemon** with a live REPL engine.
+
+### What This Means
+
+```text
+Traditional REPL:     open terminal → start repl → type code → see result
+                      works in ONE window, dies when you close it
+
+nREPL (Clojure):      editor connects to running JVM → eval in context
+                      works in ONE editor, tied to one project
+
+HLVM REPL:            daemon always running → eval from ANYWHERE on desktop
+                      keyboard cursor in any app = REPL input
+                      result pastes back to that same cursor
+```
+
+The `hlvm serve` process (localhost:11435) is always alive in the background.
+It holds persistent state: REPL bindings, module cache, memory, AI runtime,
+globalThis. That state never dies (until app restart). Any surface — Spotlight,
+Hotbar, Chat, or a potion — can evaluate code against that shared runtime.
+
+### How It Connects to Potions
+
+Potions are ESM modules that run inside this daemon. When a potion calls
+`ctx.ai.ask()` or `ctx.shell()`, it's executing against the live runtime.
+When it calls `ctx.cu.pressKeys(["cmd+v"])`, it's pasting into whatever
+app has keyboard focus.
+
+The combination:
+
+```text
+Live daemon runtime     +  keyboard focus anywhere  =  nREPL for the OS
+(persistent state,         (paste result to cursor)
+ AI, shell, CU, memory)
+```
+
+### Pipeline
+
+```text
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   SYSTEM-WIDE REPL — Evaluate Anywhere                                  ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  User is in ANY app. Xcode. Slack. Browser. Terminal. Doesn't matter.
+
+  ┌─ Path A: Spotlight Eval ───────────────────────────────────────────┐
+  │                                                                     │
+  │  User presses global hotkey (Ctrl+Z)                               │
+  │  Spotlight panel appears floating above all windows                │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  User types HQL expression:                                        │
+  │    (-> (clipboard) json-parse (get "users") (map :name))           │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  POST :11435/api/chat { mode: "eval" }                             │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Server: HQL transpiler → JS eval → REPL context (persistent)     │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Result shown inline: ["Alice", "Charlie", "Eve"]                  │
+  │  User copies result or pipes into next expression                  │
+  │  Spotlight dismisses. User is back in their original app.          │
+  │                                                                     │
+  │  The REPL state persists. Next eval can reference previous results.│
+  │  (defn my-filter ...) survives across sessions.                    │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─ Path B: Hotbar Eval (potion as inline REPL) ─────────────────────┐
+  │                                                                     │
+  │  User is in Slack. Wants to evaluate code and paste the result.    │
+  │                                                                     │
+  │  User presses Ctrl+5 (Hotbar = "eval-clipboard" potion)            │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.clipboard.read() → selected code or expression           │
+  │    2. ctx.eval(clipboard_content)                                  │
+  │       → evaluates HQL/JS in the persistent REPL context            │
+  │       → has access to globalThis.ai, all defn's, module cache     │
+  │    3. ctx.clipboard.write(result)                                  │
+  │    4. ctx.cu.pressKeys(["cmd+v"])                                  │
+  │       → result pastes at keyboard cursor in Slack                  │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  The evaluated result appears in Slack (or Xcode, or browser,     │
+  │  or any app). The REPL ran in the background daemon.              │
+  │  The user never left their app.                                    │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─ Path C: AI Functions Anywhere ────────────────────────────────────┐
+  │                                                                     │
+  │  User selects messy JSON in VS Code. Presses Ctrl+6.              │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.clipboard.read() → messy JSON string                     │
+  │    2. ctx.eval('(-> (clipboard) json-parse json-pretty)')          │
+  │       → HQL: read clipboard → parse → pretty-print                │
+  │    3. ctx.clipboard.write(pretty_json)                             │
+  │    4. ctx.cu.pressKeys(["cmd+v"]) → replaces selection             │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Messy JSON is now pretty-printed in VS Code.                     │
+  │  HQL pipeline ran in the daemon. Result pasted in place.          │
+  │                                                                     │
+  │  Or with AI:                                                       │
+  │                                                                     │
+  │  User selects English text in Mail. Presses Ctrl+7.               │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.clipboard.read() → English text                          │
+  │    2. ctx.eval('(ask "translate to Korean:\n" (clipboard))')       │
+  │       → HQL ask function → calls AI → Korean translation          │
+  │    3. ctx.clipboard.write(korean_text)                             │
+  │    4. ctx.cu.pressKeys(["cmd+v"]) → replaces selection             │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  English text is now Korean. In Mail. AI ran in the daemon.       │
+  │  User never opened a chat window or AI tool.                      │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+### What Makes This Different
+
+```text
+Jupyter:         REPL in a browser tab, tied to one kernel/project
+nREPL:           REPL in an editor, tied to one JVM/project
+Terminal REPL:   REPL in one window, dies when closed
+VS Code console: REPL in one editor, limited to that editor
+
+HLVM daemon:     REPL that is ALWAYS alive, accessible from ANY app,
+                 with persistent state, AI functions, shell access,
+                 CU desktop control, and the ability to paste results
+                 into whatever has keyboard focus
+```
+
+The daemon + potions + keyboard focus = every app on the desktop gains
+a programmable, AI-powered REPL backend. The user doesn't need to
+switch to a REPL. The REPL comes to them.
+
+### The Compound Effect
+
+This is where workspace potions, text expansion potions, and the system-wide
+REPL combine into something greater than the parts:
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│                                                                  │
+│  HLVM.app (menu bar, always running)                            │
+│    │                                                            │
+│    ├── hlvm serve daemon (localhost:11435, always alive)         │
+│    │     │                                                      │
+│    │     ├── Persistent REPL state (defn's, bindings, history)  │
+│    │     ├── AI runtime (local Gemma + cloud providers)         │
+│    │     ├── Memory (SQLite FTS5, facts, entities)              │
+│    │     ├── Module cache (imported potions)                    │
+│    │     ├── CU bridge (Level 3 native AX grounding)           │
+│    │     └── MCP servers (external tool integrations)           │
+│    │                                                            │
+│    ├── Spotlight (Ctrl+Z) → eval HQL/JS, see result inline     │
+│    ├── Hotbar (Ctrl+1..0) → fire potions, paste into any app   │
+│    ├── Chat (window) → full agent ReAct loop                   │
+│    └── Launchpad → browse/install/share potions                │
+│                                                                  │
+│  The daemon is the brain. The surfaces are the hands.           │
+│  Potions are the muscle memory.                                 │
+│  The keyboard cursor is the universal output target.            │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Every app on the desktop becomes AI-augmented. Not because every app
+has AI built in, but because the daemon is always there, one keypress
+away, ready to evaluate, generate, transform, and paste.
+
 ## Risks
 
 1. **Cross-machine replay reliability** — potions must encode semantic intent,
