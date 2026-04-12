@@ -11,24 +11,7 @@ const HOOKS_CONFIG_PATH = ".hlvm/hooks.json";
 const DEFAULT_HOOK_TIMEOUT_MS = 1000;
 const MAX_HOOK_OUTPUT_PREVIEW = 300;
 
-export type AgentHookName =
-  | "pre_llm"
-  | "post_llm"
-  | "pre_tool"
-  | "post_tool"
-  | "plan_created"
-  | "write_verified"
-  | "delegate_start"
-  | "delegate_end"
-  | "final_response"
-  | "teammate_idle"
-  | "task_completed"
-  | "session_start"
-  | "session_end"
-  | "pre_compact"
-  | "user_prompt_submit";
-
-const HOOK_NAMES: ReadonlySet<AgentHookName> = new Set([
+const HOOK_NAME_LIST = [
   "pre_llm",
   "post_llm",
   "pre_tool",
@@ -44,7 +27,11 @@ const HOOK_NAMES: ReadonlySet<AgentHookName> = new Set([
   "session_end",
   "pre_compact",
   "user_prompt_submit",
-]);
+] as const;
+
+export type AgentHookName = typeof HOOK_NAME_LIST[number];
+
+const HOOK_NAMES: ReadonlySet<string> = new Set(HOOK_NAME_LIST);
 
 export interface CommandHookHandler {
   type?: "command"; // optional — backward compat with existing hooks.json
@@ -90,12 +77,12 @@ export interface AgentHookRuntime {
   waitForIdle(): Promise<void>;
 }
 
-function getHooksConfigPath(workspace: string): string {
+export function getHooksConfigPath(workspace: string): string {
   return getPlatform().path.join(workspace, HOOKS_CONFIG_PATH);
 }
 
 function isHookName(value: string): value is AgentHookName {
-  return HOOK_NAMES.has(value as AgentHookName);
+  return HOOK_NAMES.has(value);
 }
 
 function normalizeTimeoutMs(input: unknown): number | undefined {
@@ -219,14 +206,7 @@ class Runtime implements AgentHookRuntime {
   ): Promise<HookFeedback> {
     const handlers = this.hooks.get(name);
     if (!handlers?.length) return { blocked: false };
-    const envelope = {
-      version: 1,
-      hook: name,
-      workspace: this.workspace,
-      timestamp: new Date().toISOString(),
-      payload,
-    };
-    // Run handlers and check for exit code 2 (feedback/block)
+    const envelope = this.buildEnvelope(name, payload);
     for (const handler of handlers) {
       const result = await this.routeHandlerWithResult(name, handler, envelope);
       if (result.exitCode === 2) {
@@ -244,19 +224,22 @@ class Runtime implements AgentHookRuntime {
     await this.#queue;
   }
 
-  private async runHandlers(
-    name: AgentHookName,
-    handlers: AgentHookHandler[],
-    payload: unknown,
-  ): Promise<void> {
-    const envelope = {
+  private buildEnvelope(name: AgentHookName, payload: unknown) {
+    return {
       version: 1,
       hook: name,
       workspace: this.workspace,
       timestamp: new Date().toISOString(),
       payload,
     };
+  }
 
+  private async runHandlers(
+    name: AgentHookName,
+    handlers: AgentHookHandler[],
+    payload: unknown,
+  ): Promise<void> {
+    const envelope = this.buildEnvelope(name, payload);
     for (const handler of handlers) {
       await this.routeHandlerWithResult(name, handler, envelope);
     }
@@ -286,7 +269,7 @@ class Runtime implements AgentHookRuntime {
   ): Promise<{ exitCode: number; stdout: string }> {
     try {
       const payloadJson = safeStringify(payload, 0);
-      const prompt = handler.prompt.replace("${PAYLOAD}", payloadJson);
+      const prompt = handler.prompt.replaceAll("${PAYLOAD}", payloadJson);
       const { collectChat } = await import(
         "../runtime/local-llm.ts"
       ) as { collectChat: (p: string, o: { temperature?: number; maxTokens?: number }) => Promise<string> };
@@ -328,7 +311,7 @@ class Runtime implements AgentHookRuntime {
           label: `agent http hook ${name}`,
         },
       );
-      const text = await (response as Response).text();
+      const text = await response.text();
       return this.parseDecisionResponse(text);
     } catch (error) {
       this.logFailure(name, handler.url, getErrorMessage(error));

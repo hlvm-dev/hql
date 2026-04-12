@@ -1,5 +1,8 @@
 # HLVM Harness Engineering — Full System Map
 
+> **Status**: Implementation complete. See [reference.md](./reference.md) for
+> the authoritative technical reference. This document shows pipeline diagrams.
+
 Complete before/after pipeline, HLVM vs CC deep comparison, and gap inventory.
 
 ---

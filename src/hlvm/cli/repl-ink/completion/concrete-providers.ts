@@ -641,24 +641,18 @@ function createCommandRenderSpec(
 /**
  * Provider for slash command completions.
  */
-// Module-level cache for the full command+skill catalog.
-// Populated on first completion trigger, reused until session end.
-let _fullCatalogCache: readonly { name: string; description: string }[] | null =
-  null;
-
+/** Load command catalog including skills. Skill catalog is session-cached in loader.ts. */
 async function getOrLoadFullCatalog(): Promise<
   readonly { name: string; description: string }[]
 > {
-  if (_fullCatalogCache) return _fullCatalogCache;
   try {
     const { getFullCommandCatalog } = await import(
       "../../../repl/commands.ts"
     );
-    _fullCatalogCache = await getFullCommandCatalog();
+    return await getFullCommandCatalog();
   } catch {
-    _fullCatalogCache = COMMAND_CATALOG;
+    return COMMAND_CATALOG;
   }
-  return _fullCatalogCache ?? COMMAND_CATALOG;
 }
 
 export const CommandProvider: CompletionProvider = {

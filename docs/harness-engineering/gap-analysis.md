@@ -1,5 +1,8 @@
 # Gap Analysis: What HLVM Must Add from Claude Code
 
+> **Status**: Most gaps CLOSED. See [reference.md](./reference.md) for what shipped.
+> This document preserved as historical record of the analysis that drove implementation.
+
 Objective: close harness engineering gaps AND intentionally mirror CC concepts
 so CC users feel at home. Knowledge transfer > originality.
 

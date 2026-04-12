@@ -199,6 +199,18 @@ function buildPlanModeAllowlist(options: {
   );
 }
 
+/** Load skill catalog via dynamic import. Returns undefined on failure (fail-open). */
+async function tryLoadSkillCatalog(
+  workspace?: string,
+): Promise<ReadonlyMap<string, import("../skills/types.ts").SkillDefinition> | undefined> {
+  try {
+    const { loadSkillCatalog } = await import("../skills/mod.ts");
+    return await loadSkillCatalog(workspace);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Create a reusable agent session without any global/workspace cache key. */
 export async function createReusableSession(
   workspace: string,
@@ -219,12 +231,7 @@ export async function createReusableSession(
     toolValidator: hasTool,
     trusted: instructions.trusted,
   });
-  // Load skill catalog for prompt rendering (lazy import avoids startup cost)
-  let skills: ReadonlyMap<string, import("../skills/types.ts").SkillDefinition> | undefined;
-  try {
-    const { loadSkillCatalog } = await import("../skills/mod.ts");
-    skills = await loadSkillCatalog(workspace);
-  } catch { /* skills module not available — skip */ }
+  const skills = await tryLoadSkillCatalog(workspace);
   const toolDenylist = opts?.toolDenylist
     ? [...opts.toolDenylist]
     : [...DEFAULT_TOOL_DENYLIST];
@@ -880,14 +887,7 @@ export async function runAgentQuery(
       toolValidator: hasTool,
       trusted: instructions.trusted,
     });
-  // Load skills for prompt rendering (reusable sessions already have them)
-  let skills: ReadonlyMap<string, import("../skills/types.ts").SkillDefinition> | undefined;
-  if (!matchingReusableSession) {
-    try {
-      const { loadSkillCatalog } = await import("../skills/mod.ts");
-      skills = await loadSkillCatalog(workspace);
-    } catch { /* skills module not available — skip */ }
-  }
+  const skills = matchingReusableSession ? undefined : await tryLoadSkillCatalog(workspace);
   const isReusableSession = !!matchingReusableSession;
   const engine = isReusableSession ? undefined : getAgentEngine();
   let session: AgentSession;

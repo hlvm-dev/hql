@@ -51,7 +51,7 @@ async function resolveIncludes(
   const result: string[] = [];
 
   for (const line of lines) {
-    const match = line.match(/^@(\.\/.+)$/);
+    const match = line.trimEnd().match(/^@(\.\/.+)$/);
     if (!match) {
       result.push(line);
       continue;

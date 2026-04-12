@@ -569,12 +569,11 @@ function renderComputerUseGuidance(
 You have computer control tools (cu_* prefix) for GUI automation on macOS.
 
 ## Workflow
-1. Prefer cu_observe first to capture the latest desktop state, display metadata, frontmost app, visible windows, and actionable targets
-2. Prefer cu_click_target / cu_type_into_target when cu_observe returns reliable targets; use raw coordinates only as fallback
-3. Use cu_execute_plan only for short deterministic desktop subplans with clear success criteria (typically 3+ steps like open app -> wait -> find target -> type -> verify). Do not use it for exploratory UI discovery or ambiguous screens.
+1. Most interactive tools (cu_open_application, cu_click_target, cu_type_into_target, cu_type, cu_key, cu_scroll) return a fresh post-action observation with updated targets and screenshot — use that directly for your next action. Only call cu_observe when starting from scratch or after actions that do not return observations (coordinate clicks, drag).
+2. Prefer cu_click_target / cu_type_into_target when observation targets are available; use raw coordinates only as fallback
+3. Use cu_execute_plan for short deterministic desktop subplans with clear success criteria (typically 3+ steps like open app -> wait -> find target -> type -> verify). Do not use it for exploratory UI discovery or ambiguous screens.
 4. observation_id and target_id are single-use grounding tokens tied to the latest observation only; if the screen changes or an action runs, take a fresh observation before reusing targets
-5. Most interactive tools (cu_open_application, cu_click_target, cu_type_into_target, cu_type, cu_key, cu_scroll) return a fresh post-action observation with updated targets and screenshot — use that directly instead of calling cu_observe again. Only call cu_observe when you need a fresh grounding from scratch or after actions that do not return observations (coordinate clicks, drag)
-6. If you only need pixels or a visual attachment, cu_screenshot and cu_zoom are allowed, but still treat the latest observation as the SSOT for targeting
+5. If you only need pixels or a visual attachment, cu_screenshot and cu_zoom are allowed, but still treat the latest observation as the SSOT for targeting
 
 ## Best Practices
 - Click at the CENTER of UI elements, not at edges
@@ -590,12 +589,13 @@ You have computer control tools (cu_* prefix) for GUI automation on macOS.
   - press_keys: requires keys string plus optional bundle_id or target_ref
 - verify: use one of frontmost_app_is, window_visible, target_exists, target_enabled, target_value_contains; target_* predicates require target_ref, and target_value_contains also requires value_contains
 - When using cu_execute_plan, always create stable find_target ids and reference them later. Do not invent raw target ids.
-- If cu_execute_plan returns cu_execute_plan_ambiguous_selector with candidate indexes, retry once by adding selector.index to the matching find_target step before falling back to ordinary cu_* tools.
+- Write precise find_target selectors to avoid ambiguity: use a single role_in value (not both textArea and textField), add label_contains when the target has a known label, or add index: 0 when you specifically want the primary/largest match. Broad selectors cause ambiguity failures and cost an extra retry turn.
+- If cu_execute_plan returns cu_execute_plan_ambiguous_selector with candidate descriptions, use the descriptions to pick the right candidate and retry with selector.index before falling back to ordinary cu_* tools.
 - Prefer cu_execute_plan for deterministic shortcut-driven flows too: e.g. press_keys for a global shortcut, wait_for_ready, then find_target/type_into/verify. This avoids long cloud pauses between separate cu_key, cu_wait, cu_observe, and cu_type turns.
 - Minimal cu_execute_plan pattern:
   1. open_app { bundle_id }
   2. wait_for_ready { bundle_id }
-  3. find_target { id: "editor", selector: { bundle_id, role_in: ["textArea", "textField"] } }
+  3. find_target { id: "editor", selector: { bundle_id, role_in: ["textArea"] } }
   4. type_into { target_ref: "editor", text: "..." }
   5. verify { predicate: "target_value_contains", target_ref: "editor", value_contains: "..." }
 - Use cu_key for keyboard shortcuts (e.g. "command+c", "command+v", "command+l")

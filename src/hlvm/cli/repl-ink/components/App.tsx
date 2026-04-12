@@ -1030,8 +1030,9 @@ function AppContent(
         const output = await handleCommand(code, exit, replState);
         if (output !== null) {
           // Skill activation: re-submit as agent query with skill instructions
-          if (output.startsWith("\x00SKILL\x00")) {
-            const skillMessage = output.slice(7); // strip marker
+          const SKILL_MARKER = "\x00SKILL\x00";
+          if (output.startsWith(SKILL_MARKER)) {
+            const skillMessage = output.slice(SKILL_MARKER.length);
             conversationRef.current.addUserMessage(
               `${code}\n\n${skillMessage}`,
               { startTurn: true },

@@ -403,9 +403,10 @@ export const commands: Record<string, Command> = {
   "/hooks": {
     description: "List active hooks",
     handler: async (_state, _args, context) => {
+      const { getHooksConfigPath } = await import("../../agent/hooks.ts");
       const platform = getPlatform();
       const workspace = platform.process.cwd();
-      const hooksPath = platform.path.join(workspace, ".hlvm", "hooks.json");
+      const hooksPath = getHooksConfigPath(workspace);
 
       context.output(`${BOLD}HLVM Hooks${RESET}`);
       context.output("");
@@ -483,11 +484,13 @@ export const commands: Record<string, Command> = {
   "/init": {
     description: "Scaffold skill/rules directories and templates",
     handler: async (_state, _args, context) => {
+      const { getSkillsDir, getRulesDir, getCustomInstructionsPath } = await import(
+        "../../../common/paths.ts"
+      );
       const platform = getPlatform();
-      const home = platform.env.get("HOME") ?? "~";
-      const skillsDir = platform.path.join(home, ".hlvm", "skills");
-      const rulesDir = platform.path.join(home, ".hlvm", "rules");
-      const hlvmMd = platform.path.join(home, ".hlvm", "HLVM.md");
+      const skillsDir = getSkillsDir();
+      const rulesDir = getRulesDir();
+      const hlvmMd = getCustomInstructionsPath();
 
       context.output(`${BOLD}HLVM Init${RESET}`);
       context.output("");
@@ -635,6 +638,7 @@ export async function runCommand(
           skillActivation: {
             systemMessage:
               `[User invoked /${skillName}] ${skill.body}\n\nArgs: ${args.join(" ")}`,
+            allowedTools: skill.frontmatter.allowed_tools,
           },
         };
       }
