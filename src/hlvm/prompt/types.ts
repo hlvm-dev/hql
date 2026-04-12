@@ -7,6 +7,7 @@
 import type { ModelTier } from "../agent/constants.ts";
 import type { ToolMetadata } from "../agent/registry.ts";
 import type { AgentProfile } from "../agent/agent-registry.ts";
+import type { SkillDefinition } from "../skills/types.ts";
 
 /** Prompt assembly mode — determines which sections are included. */
 export type PromptMode = "chat" | "agent";
@@ -32,6 +33,10 @@ export interface InstructionHierarchy {
   projectPath?: string;
   /** Whether the workspace is trusted */
   trusted: boolean;
+  /** Concatenated content from ~/.hlvm/rules/*.md */
+  globalRules?: string;
+  /** Concatenated content from <workspace>/.hlvm/rules/*.md */
+  projectRules?: string;
 }
 
 /** Empty instruction hierarchy — use instead of manually constructing `{ global: "", ... }`. */
@@ -39,10 +44,12 @@ export const EMPTY_INSTRUCTIONS: InstructionHierarchy = Object.freeze({
   global: "",
   project: "",
   trusted: false,
+  globalRules: "",
+  projectRules: "",
 });
 
 /** Maximum combined character length for merged instructions. */
-export const MAX_INSTRUCTION_CHARS = 2000;
+export const MAX_INSTRUCTION_CHARS = 8000;
 
 /** Display path for the global instructions file (used in observability, not I/O). */
 export const GLOBAL_INSTRUCTIONS_DISPLAY_PATH = "~/.hlvm/HLVM.md";
@@ -54,6 +61,7 @@ export interface PromptCompilerInput {
   tools: Record<string, ToolMetadata>;
   instructions: InstructionHierarchy;
   agentProfiles?: readonly AgentProfile[];
+  skills?: ReadonlyMap<string, SkillDefinition>;
   querySource?: string;
   visionCapable?: boolean;
 }

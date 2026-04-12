@@ -1,7 +1,8 @@
 # Computer Use — Hybrid Playwright + CU Strategy
 
-> Last updated: 2026-04-09 Status: **Browser-safe activation, hybrid promotion,
-> and storage-first pw_promote shipped**
+> Last updated: 2026-04-12 Status: **Browser-safe activation, hybrid promotion,
+> and storage-first pw_promote shipped; current CU learning is that local tools
+> are usually fast and cloud-turn count is now the dominant latency cost**
 
 ## Core Principle
 
@@ -259,3 +260,31 @@ updateToolProfileLayer(config, "domain", { profileId: "browser_hybrid" });
    vs promoted hybrid
 2. **Further continuity only if proven necessary** — sessionStorage/form/scroll
    restoration remains explicitly out of scope for this round
+
+## Current CU-Side Learning That Affects Hybrid Design
+
+The recent CU hardening work changed one important assumption:
+
+```text
+local desktop tools are often not the main source of slowness anymore
+```
+
+Representative CU timings in recent live runs are roughly:
+
+- `cu_key`: ~0.3s
+- `cu_observe`: ~0.35s
+- `cu_screenshot`: ~0.36s
+- `cu_type`: ~0.6s
+
+The ugly pauses users notice are now mostly cloud/model turns between those
+tools.
+
+That means hybrid strategy should increasingly optimize for:
+
+- fewer cross-turn handoffs
+- more native/local batching after promotion
+- using `cu_execute_plan` or later semantic transitions when a browser task
+  escalates into a deterministic desktop flow
+
+The next ceiling is not "promote more often." It is "promote once, then do more
+of the promoted work locally."

@@ -51,6 +51,29 @@ Current validation style:                      one live scenario at a time
 Current broad gap:                             observation vs execute-plan target consistency
 ```
 
+Additional verified reading later on 2026-04-12:
+
+```text
+execute_plan_cross_app_short_flow:            PASS (~22s, one successful cu_execute_plan)
+execute_plan_open_wait_type_verify:           PASS (~18s, safe ambiguity retry then success)
+cross_app_grounded_workflow:                  PASS (~40s, no failed tools)
+hlvm_spotlight_search:                        PASS (~1m52s, safe but still too slow)
+```
+
+Measured latency split:
+
+```text
+Typical local tool durations:
+  cu_key         ~292ms
+  cu_wait(1.5s)  ~2.0s
+  cu_observe     ~348ms
+  cu_screenshot  ~360ms
+  cu_type        ~602ms
+
+Conclusion:
+  large visible pauses are mostly cloud/model turn time, not native input time
+```
+
 ### Phase 8 — Broad Product Validation (2026-04-12)
 
 The project has moved past "does the architecture work?" and into a narrower
@@ -75,6 +98,14 @@ Newly established status in this chapter:
 - passive observation no longer silently overwrites explicit target context
 - harness grading now distinguishes attempted, successful, and failed tool
   executions so blocked plans do not look like invisible no-ops
+- modifier shortcuts now clear inherited typing context so global shortcuts do
+  not leave stale target context behind
+- `cu_key` / `cu_hold_key` verification is now conditional for
+  context-shifting shortcuts, which avoids safe-but-slow false failures
+- execute-plan timeout is now derived from the declared plan instead of a tiny
+  fixed transport timeout
+- execute-plan target matching now has case-insensitive bundle-id matching,
+  stronger editable-target disambiguation, and active-window scoping
 
 The current generic issue is not app-specific:
 
@@ -84,6 +115,14 @@ The current generic issue is not app-specific:
   that `getAXTargets(...)` still failed to expose
 - the current fix direction is to share one target descriptor / candidate model
   between observation and execute-plan rather than adding per-app branches
+
+The broader architectural reading from this chapter is also generic:
+
+- the system is now losing more user-visible time to cloud-turn orchestration
+  than to native execution
+- the next generic upgrade is to move context shifts, waits, settling, and
+  verification below the LLM instead of asking the model to mediate each
+  micro-step
 
 ### Phase 7 — Native Grounding Pipeline (2026-04-11)
 
@@ -258,6 +297,9 @@ The open work is now narrower and more engineering-focused:
 - timing-sensitive failures
 - broader real-user scenario coverage beyond the historical 18-case pack
 - `cu_execute_plan` live product sign-off under broader scenario variety
+- reducing cloud-turn overhead on shortcut/palette/modal flows
+- evolving `cu_execute_plan` from a bounded step runner toward a more semantic
+  transition executor
 - generic Level 3 target-surface consistency across editors/forms with weak AX
   geometry
 

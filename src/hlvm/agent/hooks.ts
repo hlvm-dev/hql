@@ -1,3 +1,4 @@
+import { http } from "../../common/http-client.ts";
 import { closeProcessStdin, writeToProcessStdin } from "../../common/process-io.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
 import { createProcessAbortHandler, readProcessStream } from "../../common/stream-utils.ts";
@@ -21,7 +22,11 @@ export type AgentHookName =
   | "delegate_end"
   | "final_response"
   | "teammate_idle"
-  | "task_completed";
+  | "task_completed"
+  | "session_start"
+  | "session_end"
+  | "pre_compact"
+  | "user_prompt_submit";
 
 const HOOK_NAMES: ReadonlySet<AgentHookName> = new Set([
   "pre_llm",
@@ -35,14 +40,38 @@ const HOOK_NAMES: ReadonlySet<AgentHookName> = new Set([
   "final_response",
   "teammate_idle",
   "task_completed",
+  "session_start",
+  "session_end",
+  "pre_compact",
+  "user_prompt_submit",
 ]);
 
-export interface AgentHookHandler {
+export interface CommandHookHandler {
+  type?: "command"; // optional — backward compat with existing hooks.json
   command: string[];
   timeoutMs?: number;
   cwd?: string;
   env?: Record<string, string>;
 }
+
+export interface PromptHookHandler {
+  type: "prompt";
+  prompt: string; // template — ${PAYLOAD} replaced with JSON payload
+  model?: string; // default: local fallback
+  timeoutMs?: number;
+}
+
+export interface HttpHookHandler {
+  type: "http";
+  url: string;
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+}
+
+export type AgentHookHandler =
+  | CommandHookHandler
+  | PromptHookHandler
+  | HttpHookHandler;
 
 /** Result from a hook that supports feedback (exit code 2). */
 export interface HookFeedback {
@@ -69,8 +98,57 @@ function isHookName(value: string): value is AgentHookName {
   return HOOK_NAMES.has(value as AgentHookName);
 }
 
+function normalizeTimeoutMs(input: unknown): number | undefined {
+  if (!isObjectValue(input)) return undefined;
+  return typeof input.timeoutMs === "number" &&
+      Number.isFinite(input.timeoutMs) &&
+      input.timeoutMs > 0
+    ? Math.floor(input.timeoutMs)
+    : undefined;
+}
+
 function normalizeHookHandler(input: unknown): AgentHookHandler | null {
   if (!isObjectValue(input)) return null;
+
+  // Prompt hook
+  if (
+    input.type === "prompt" &&
+    typeof input.prompt === "string" &&
+    input.prompt.trim().length > 0
+  ) {
+    const handler: PromptHookHandler = {
+      type: "prompt",
+      prompt: input.prompt,
+    };
+    if (typeof input.model === "string" && input.model.trim().length > 0) {
+      handler.model = input.model.trim();
+    }
+    const timeoutMs = normalizeTimeoutMs(input);
+    if (timeoutMs !== undefined) handler.timeoutMs = timeoutMs;
+    return handler;
+  }
+
+  // HTTP hook
+  if (
+    input.type === "http" &&
+    typeof input.url === "string" &&
+    input.url.trim().length > 0
+  ) {
+    const handler: HttpHookHandler = { type: "http", url: input.url.trim() };
+    const timeoutMs = normalizeTimeoutMs(input);
+    if (timeoutMs !== undefined) handler.timeoutMs = timeoutMs;
+    if (isObjectValue(input.headers)) {
+      const headers = Object.fromEntries(
+        Object.entries(input.headers).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
+      );
+      if (Object.keys(headers).length > 0) handler.headers = headers;
+    }
+    return handler;
+  }
+
+  // Command hook (default — type is optional for backward compat)
   const command = Array.isArray(input.command)
     ? input.command.filter((value): value is string =>
       typeof value === "string" && value.trim().length > 0
@@ -78,11 +156,7 @@ function normalizeHookHandler(input: unknown): AgentHookHandler | null {
     : [];
   if (command.length === 0) return null;
 
-  const timeoutMs = typeof input.timeoutMs === "number" &&
-      Number.isFinite(input.timeoutMs) &&
-      input.timeoutMs > 0
-    ? Math.floor(input.timeoutMs)
-    : undefined;
+  const timeoutMs = normalizeTimeoutMs(input);
   const cwd = typeof input.cwd === "string" && input.cwd.trim().length > 0
     ? input.cwd.trim()
     : undefined;
@@ -145,9 +219,16 @@ class Runtime implements AgentHookRuntime {
   ): Promise<HookFeedback> {
     const handlers = this.hooks.get(name);
     if (!handlers?.length) return { blocked: false };
+    const envelope = {
+      version: 1,
+      hook: name,
+      workspace: this.workspace,
+      timestamp: new Date().toISOString(),
+      payload,
+    };
     // Run handlers and check for exit code 2 (feedback/block)
     for (const handler of handlers) {
-      const result = await this.runSingleHandlerWithResult(name, handler, payload);
+      const result = await this.routeHandlerWithResult(name, handler, envelope);
       if (result.exitCode === 2) {
         return { blocked: true, feedback: result.stdout };
       }
@@ -177,14 +258,108 @@ class Runtime implements AgentHookRuntime {
     };
 
     for (const handler of handlers) {
-      await this.runSingleHandler(name, handler, envelope);
+      await this.routeHandlerWithResult(name, handler, envelope);
     }
+  }
+
+  /** Parse a decision response from prompt/http hooks. */
+  private parseDecisionResponse(
+    body: string,
+  ): { exitCode: number; stdout: string } {
+    try {
+      const parsed = JSON.parse(body);
+      if (isObjectValue(parsed) && parsed.decision === "block") {
+        return {
+          exitCode: 2,
+          stdout: typeof parsed.reason === "string" ? parsed.reason : "",
+        };
+      }
+    } catch { /* non-JSON or malformed — treat as allow */ }
+    return { exitCode: 0, stdout: "" };
+  }
+
+  /** Execute a prompt hook via local LLM. */
+  private async runPromptHookWithResult(
+    name: AgentHookName,
+    handler: PromptHookHandler,
+    payload: unknown,
+  ): Promise<{ exitCode: number; stdout: string }> {
+    try {
+      const payloadJson = safeStringify(payload, 0);
+      const prompt = handler.prompt.replace("${PAYLOAD}", payloadJson);
+      const { collectChat } = await import(
+        "../runtime/local-llm.ts"
+      ) as { collectChat: (p: string, o: { temperature?: number; maxTokens?: number }) => Promise<string> };
+      const response: string = await withTimeout(
+        (_signal: AbortSignal) =>
+          collectChat(prompt, {
+            temperature: 0,
+            maxTokens: 256,
+          }),
+        {
+          timeoutMs: handler.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS,
+          label: `agent prompt hook ${name}`,
+        },
+      );
+      return this.parseDecisionResponse(response);
+    } catch (error) {
+      this.logFailure(name, "prompt", getErrorMessage(error));
+      return { exitCode: 0, stdout: "" }; // fail-open
+    }
+  }
+
+  /** Execute an HTTP hook via SSOT http client. */
+  private async runHttpHookWithResult(
+    name: AgentHookName,
+    handler: HttpHookHandler,
+    payload: unknown,
+  ): Promise<{ exitCode: number; stdout: string }> {
+    try {
+      const body = safeStringify(payload, 0);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...(handler.headers ?? {}),
+      };
+      const response = await withTimeout(
+        (_signal: AbortSignal) =>
+          http.fetchRaw(handler.url, { method: "POST", headers, body }),
+        {
+          timeoutMs: handler.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS,
+          label: `agent http hook ${name}`,
+        },
+      );
+      const text = await (response as Response).text();
+      return this.parseDecisionResponse(text);
+    } catch (error) {
+      this.logFailure(name, handler.url, getErrorMessage(error));
+      return { exitCode: 0, stdout: "" }; // fail-open
+    }
+  }
+
+  /** Route a handler to the correct execution path and return result. */
+  private async routeHandlerWithResult(
+    name: AgentHookName,
+    handler: AgentHookHandler,
+    envelope: unknown,
+  ): Promise<{ exitCode: number; stdout: string }> {
+    const payload = (envelope as { payload: unknown }).payload;
+    if ("type" in handler && handler.type === "prompt") {
+      return this.runPromptHookWithResult(name, handler, payload);
+    }
+    if ("type" in handler && handler.type === "http") {
+      return this.runHttpHookWithResult(name, handler, payload);
+    }
+    return this.runSingleCommandHandlerWithResult(
+      name,
+      handler as CommandHookHandler,
+      envelope,
+    );
   }
 
   /** DRY helper: resolve cwd, spawn process, write payload, and collect output. */
   private spawnHookProcess(
     name: AgentHookName,
-    handler: AgentHookHandler,
+    handler: CommandHookHandler,
     envelope: unknown,
   ): { process: ReturnType<ReturnType<typeof getPlatform>["command"]["run"]>; payloadBytes: Uint8Array } | null {
     const platform = getPlatform();
@@ -214,16 +389,16 @@ class Runtime implements AgentHookRuntime {
     } catch (error) {
       this.logFailure(
         name,
-        handler.command,
+        handler.command.join(" "),
         `spawn failed: ${getErrorMessage(error)}`,
       );
       return null;
     }
   }
 
-  private async runSingleHandler(
+  private async runSingleCommandHandler(
     name: AgentHookName,
-    handler: AgentHookHandler,
+    handler: CommandHookHandler,
     envelope: unknown,
   ): Promise<void> {
     const spawned = this.spawnHookProcess(name, handler, envelope);
@@ -249,7 +424,7 @@ class Runtime implements AgentHookRuntime {
             ).trim();
             this.logFailure(
               name,
-              handler.command,
+              handler.command.join(" "),
               `exit ${status.code}${
                 stderrText
                   ? `: ${truncate(stderrText, MAX_HOOK_OUTPUT_PREVIEW)}`
@@ -268,13 +443,13 @@ class Runtime implements AgentHookRuntime {
       if (error instanceof TimeoutError) {
         this.logFailure(
           name,
-          handler.command,
+          handler.command.join(" "),
           `timed out after ${handler.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS}ms`,
         );
       } else {
         this.logFailure(
           name,
-          handler.command,
+          handler.command.join(" "),
           getErrorMessage(error),
         );
       }
@@ -283,9 +458,9 @@ class Runtime implements AgentHookRuntime {
     }
   }
 
-  private async runSingleHandlerWithResult(
+  private async runSingleCommandHandlerWithResult(
     name: AgentHookName,
-    handler: AgentHookHandler,
+    handler: CommandHookHandler,
     envelope: unknown,
   ): Promise<{ exitCode: number; stdout: string }> {
     const spawned = this.spawnHookProcess(name, handler, envelope);
@@ -313,12 +488,10 @@ class Runtime implements AgentHookRuntime {
 
   private logFailure(
     name: AgentHookName,
-    command: string[],
+    source: string,
     detail: string,
   ): void {
-    getAgentLogger().warn(
-      `Agent hook ${name} failed (${command.join(" ")}): ${detail}`,
-    );
+    getAgentLogger().warn(`Agent hook ${name} failed (${source}): ${detail}`);
   }
 }
 

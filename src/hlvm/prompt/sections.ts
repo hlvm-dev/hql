@@ -7,6 +7,7 @@
 
 import type { ToolMetadata } from "../agent/registry.ts";
 import type { AgentProfile } from "../agent/agent-registry.ts";
+import type { SkillDefinition } from "../skills/types.ts";
 import { MEMORY_TOOLS } from "../memory/mod.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { type ModelTier, tierMeetsMinimum } from "../agent/constants.ts";
@@ -50,6 +51,7 @@ const SECTION_STABILITY: Record<string, PromptSectionStability> = {
   custom: "session",
   delegation: "session",
   team_coordination: "session",
+  skills: "session",
   computer_use: "session",
   browser_automation: "session",
 };
@@ -582,12 +584,14 @@ You have computer control tools (cu_* prefix) for GUI automation on macOS.
 - For short deterministic workflows, prefer cu_execute_plan over spending extra turns on wait/retry/re-verify loops
 - cu_execute_plan step rules are strict:
   - open_app: requires bundle_id
-  - wait_for_ready: requires bundle_id or target_ref
+  - wait_for_ready: requires bundle_id or target_ref; default waits are intentionally short, so only set a larger timeout_ms when you genuinely expect a slower app or view
   - find_target: requires id plus selector { bundle_id, role_in, optional window_title_contains, label_contains, value_contains, index }
   - click and type_into: require target_ref pointing to an earlier find_target id
   - press_keys: requires keys string plus optional bundle_id or target_ref
-  - verify: use one of frontmost_app_is, window_visible, target_exists, target_enabled, target_value_contains; target_* predicates require target_ref, and target_value_contains also requires value_contains
+- verify: use one of frontmost_app_is, window_visible, target_exists, target_enabled, target_value_contains; target_* predicates require target_ref, and target_value_contains also requires value_contains
 - When using cu_execute_plan, always create stable find_target ids and reference them later. Do not invent raw target ids.
+- If cu_execute_plan returns cu_execute_plan_ambiguous_selector with candidate indexes, retry once by adding selector.index to the matching find_target step before falling back to ordinary cu_* tools.
+- Prefer cu_execute_plan for deterministic shortcut-driven flows too: e.g. press_keys for a global shortcut, wait_for_ready, then find_target/type_into/verify. This avoids long cloud pauses between separate cu_key, cu_wait, cu_observe, and cu_type turns.
 - Minimal cu_execute_plan pattern:
   1. open_app { bundle_id }
   2. wait_for_ready { bundle_id }
@@ -672,6 +676,32 @@ Do not delegate routine browser navigation, release-page inspection, or download
   };
 }
 
+function renderSkillCatalog(
+  skills?: ReadonlyMap<string, SkillDefinition>,
+): RawPromptSection {
+  if (!skills || skills.size === 0) {
+    return { id: "skills", content: "", minTier: "constrained" };
+  }
+  const lines = [
+    "# Skills",
+    "Invoke a skill by calling the `skill` tool with its name. Skills are reusable workflows.",
+    "",
+  ];
+  for (const [name, skill] of skills) {
+    if (skill.frontmatter.user_invocable === false) continue;
+    const ctx = skill.frontmatter.context === "fork" ? " (runs in background)" : "";
+    lines.push(`- **${name}**: ${skill.frontmatter.description}${ctx}`);
+    if (skill.frontmatter.when_to_use) {
+      lines.push(`  When: ${skill.frontmatter.when_to_use}`);
+    }
+  }
+  return {
+    id: "skills",
+    content: lines.join("\n"),
+    minTier: "constrained",
+  };
+}
+
 // ============================================================
 // Section Collection
 // ============================================================
@@ -714,6 +744,12 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
   const customSection = renderCustomInstructions(instructions);
   if (customSection.content) {
     sections.push(customSection);
+  }
+
+  // Skill catalog — only if skills are present
+  const skillSection = renderSkillCatalog(input.skills);
+  if (skillSection.content) {
+    sections.push(skillSection);
   }
 
   sections.push(renderDelegation(tools, tier, agentProfiles));

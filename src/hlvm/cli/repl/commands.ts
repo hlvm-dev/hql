@@ -335,27 +335,80 @@ export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
     ...APP_HANDLED_COMMANDS,
   ];
 
+/** Extended catalog including dynamically loaded skills. */
+export async function getFullCommandCatalog(
+  workspace?: string,
+): Promise<readonly { name: string; description: string }[]> {
+  try {
+    const { loadSkillCatalog } = await import("../../skills/mod.ts");
+    const catalog = await loadSkillCatalog(workspace);
+    const skillEntries = [...catalog.values()]
+      .filter((s) => s.frontmatter.user_invocable !== false)
+      .map((s) => ({
+        name: `/${s.name}`,
+        description: s.frontmatter.description,
+      }));
+    return [...COMMAND_CATALOG, ...skillEntries];
+  } catch {
+    return COMMAND_CATALOG;
+  }
+}
+
 /** Check if input is a slash command */
 export function isCommand(input: string): boolean {
   const trimmed = input.trim();
   return trimmed.startsWith("/");
 }
 
-/** Run a command */
+/** Result from running a command — includes optional skill activation. */
+export interface RunCommandResult {
+  handled: boolean;
+  /** If set, the REPL should submit this as an agent query with the system message prepended. */
+  skillActivation?: { systemMessage: string; allowedTools?: string[] };
+}
+
+/** Run a command. Returns result indicating if a skill was activated. */
 export async function runCommand(
   input: string,
   state: ReplState,
   options?: RunCommandOptions,
-): Promise<void> {
+): Promise<RunCommandResult> {
   const output = createOutputWriter(options);
   const trimmed = input.trim();
   const [cmdName, ...args] = trimmed.split(WHITESPACE_SPLIT_REGEX);
 
+  // 1. Try static commands first
   const command = commands[cmdName];
   if (command) {
     await command.handler(state, args.join(" "), { output });
-  } else {
-    output(`${YELLOW}Unknown command: ${cmdName}${RESET}`);
-    output(`${DIM_GRAY}Type /help for available commands.${RESET}`);
+    return { handled: true };
   }
+
+  // 2. Try skill catalog
+  try {
+    const { loadSkillCatalog } = await import("../../skills/mod.ts");
+    const { executeInlineSkill } = await import("../../skills/executor.ts");
+    const workspace = getPlatform().process.cwd();
+    const catalog = await loadSkillCatalog(workspace);
+    const skillName = cmdName.slice(1); // strip leading "/"
+    const skill = catalog.get(skillName);
+    if (skill && skill.frontmatter.user_invocable !== false) {
+      if (skill.frontmatter.context === "fork") {
+        return {
+          handled: true,
+          skillActivation: {
+            systemMessage:
+              `[User invoked /${skillName}] ${skill.body}\n\nArgs: ${args.join(" ")}`,
+          },
+        };
+      }
+      const result = executeInlineSkill(skill, args.join(" "));
+      output(`Activating skill: ${skill.frontmatter.description}`);
+      return { handled: true, skillActivation: result };
+    }
+  } catch { /* skill loading failed — fall through to unknown */ }
+
+  output(`${YELLOW}Unknown command: ${cmdName}${RESET}`);
+  output(`${DIM_GRAY}Type /help for available commands.${RESET}`);
+  return { handled: false };
 }

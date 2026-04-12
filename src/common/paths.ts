@@ -516,3 +516,27 @@ export async function removeTeamDirs(teamName: string): Promise<void> {
     await fs.remove(getTeamTasksDir(teamName), { recursive: true });
   } catch { /* may not exist */ }
 }
+
+// ============================================================
+// Skills & Rules Paths
+// ============================================================
+
+/** User-global skills directory: ~/.hlvm/skills/ */
+export function getSkillsDir(): string {
+  return join(getHlvmDir(), "skills");
+}
+
+/** Project-local skills directory: <workspace>/.hlvm/skills/ */
+export function getProjectSkillsDir(workspace: string): string {
+  return join(workspace, ".hlvm", "skills");
+}
+
+/** User-global rules directory: ~/.hlvm/rules/ */
+export function getRulesDir(): string {
+  return join(getHlvmDir(), "rules");
+}
+
+/** Project-local rules directory: <workspace>/.hlvm/rules/ */
+export function getProjectRulesDir(workspace: string): string {
+  return join(workspace, ".hlvm", "rules");
+}

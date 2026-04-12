@@ -32,6 +32,8 @@ const CONSOLE_ALLOWLIST = [
   "src/common/runtime-helper-impl.ts",
   // Technical stack-mapping implementation
   "src/hql/transpiler/pipeline/source-map-support.ts",
+  // Chrome extension JS runs in Chrome, not HLVM — no platform abstraction available
+  "src/hlvm/agent/chrome-ext/extension/",
 ];
 
 // ============================================================================
@@ -92,6 +94,12 @@ const RULES: Rule[] = [
     pattern: /\bDeno\./g,
     allowedPaths: [
       "src/platform/deno-platform.ts",
+      // Standalone Deno binary spawned by Chrome — runs outside HLVM platform abstraction
+      "src/hlvm/agent/chrome-ext/native-host.ts",
+      // Setup needs Deno.execPath to build wrapper script
+      "src/hlvm/agent/chrome-ext/setup.ts",
+      // Bridge uses Deno.connect for Unix socket (getPlatform() has no socket API)
+      "src/hlvm/agent/chrome-ext/bridge.ts",
     ],
     excludePatterns: [
       /Symbol\.for\("Deno\./, // Symbol names

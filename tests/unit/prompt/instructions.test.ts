@@ -10,7 +10,10 @@ import {
   resetHlvmDirCacheForTests,
   setHlvmDirForTests,
 } from "../../../src/common/paths.ts";
-import type { InstructionHierarchy } from "../../../src/hlvm/prompt/types.ts";
+import {
+  type InstructionHierarchy,
+  MAX_INSTRUCTION_CHARS,
+} from "../../../src/hlvm/prompt/types.ts";
 
 /**
  * Helper to create a temporary HLVM_DIR and workspace for isolated testing.
@@ -104,26 +107,27 @@ Deno.test("instructions: mergeInstructions returns empty when both are empty", (
 });
 
 Deno.test("instructions: mergeInstructions trims project guidance before global instructions", () => {
+  const globalContent = "g".repeat(MAX_INSTRUCTION_CHARS - 500);
   const h: InstructionHierarchy = {
-    global: "g".repeat(1000),
-    project: "p".repeat(1500),
+    global: globalContent,
+    project: "p".repeat(MAX_INSTRUCTION_CHARS),
     trusted: true,
   };
   const result = mergeInstructions(h);
-  assertEquals(result.length, 2000);
+  assertEquals(result.length, MAX_INSTRUCTION_CHARS);
   assertStringIncludes(result, "## Global Instructions");
-  assertStringIncludes(result, "g".repeat(1000));
-  assertEquals(result.includes("p".repeat(1500)), false);
+  assertStringIncludes(result, "g".repeat(100));
+  assertEquals(result.includes("p".repeat(MAX_INSTRUCTION_CHARS)), false);
 });
 
 Deno.test("instructions: mergeInstructions falls back to global instructions when the global block fills the budget", () => {
   const h: InstructionHierarchy = {
-    global: "g".repeat(2500),
-    project: "p".repeat(1800),
+    global: "g".repeat(MAX_INSTRUCTION_CHARS + 500),
+    project: "p".repeat(MAX_INSTRUCTION_CHARS),
     trusted: true,
   };
   const result = mergeInstructions(h);
-  assertEquals(result.length, 2000);
+  assertEquals(result.length, MAX_INSTRUCTION_CHARS);
   assertStringIncludes(result, "## Global Instructions");
   assertEquals(result.includes("## Workspace-Scoped Project Guidance"), false);
 });

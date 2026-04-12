@@ -1,5 +1,7 @@
 # Computer Use — Overview
 
+Last updated: 2026-04-12
+
 HLVM computer use is the desktop-control subsystem that lets the agent see and
 act on a macOS desktop: screenshots, mouse, keyboard, app activation, window
 grounding, browser-to-desktop handoff, native AX-backed target actions, and a
@@ -9,8 +11,8 @@ The important reality now is:
 
 - the native Swift substrate exists
 - the `hql` bridge can use it
-- the current chapter is reliability validation and generic Level 3 consistency,
-  not another architecture rewrite
+- the current chapter is reliability validation, generic Level 3 consistency,
+  and reducing cloud-turn overhead, not another architecture rewrite
 
 ## Quick Links
 
@@ -44,7 +46,8 @@ operate at Level 1 or browser-only grounding. HLVM is the only system doing
 desktop-level native AX grounding (Level 3).
 
 The open work is not "invent Level 4." It is to make Level 3 consistently
-reliable in live product use.
+reliable in live product use and to move more interaction transitions below the
+LLM.
 
 ## The Phase Journey
 
@@ -173,6 +176,9 @@ What is still being closed out:
 - consistency between observation target extraction and execute-plan target
   resolution in edge-case AX trees
 - full live product sign-off for `cu_execute_plan`
+- reducing cloud-turn latency on shortcut/palette/modal workflows
+- moving from "LLM orchestrates every micro-step" toward a declarative native
+  interaction engine for context shifts, waits, settling, and verification
 
 Historical baseline snapshot on 2026-04-11:
 
@@ -196,6 +202,42 @@ native grounding: end-to-end working
 native subplan executor: implemented but still being live-hardened
 current work: one-at-a-time reliability loops and generic Level 3 consistency
 ```
+
+Latest one-at-a-time live probes on 2026-04-12:
+
+```text
+execute_plan_cross_app_short_flow   PASS  (~22s)  cu_execute_plan only
+execute_plan_open_wait_type_verify  PASS  (~18s)  safe ambiguity retry, then success
+cross_app_grounded_workflow         PASS  (~40s)  grounded non-plan path still healthy
+hlvm_spotlight_search               PASS  (~1m52s) safe after shortcut fixes, but too slow
+```
+
+Measured latency split:
+
+```text
+Representative local tool times:
+  cu_key         ~0.3s
+  cu_observe     ~0.35s
+  cu_screenshot  ~0.36s
+  cu_type        ~0.6s
+
+The ugly 10-20s pauses users notice mostly come from cloud/model turns between
+tools, not native input execution.
+```
+
+Current architectural reading:
+
+```text
+foundation: solid
+native path: real and operational
+main user-visible bottleneck: cloud-turn orchestration overhead
+next generic upgrade: declarative native interaction engine
+```
+
+In plain terms, the next smart upgrade is not more app-specific fixes. It is to
+move transitions such as "shortcut opens an input surface" and "type into the
+focused editable target and verify" into the native executor so the LLM
+specifies intent rather than every tiny step.
 
 Important non-goal for the current chapter:
 

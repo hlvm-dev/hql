@@ -40,6 +40,7 @@ export interface ComputerUseSessionState {
   selectedDisplayId?: number;
   displaySelectionReason?: DisplaySelectionReason;
   pendingPromotionObservationAt?: number;
+  requiresExplicitContextAfterShortcut?: boolean;
   targetApp?: {
     bundleId: string;
     displayName?: string;
@@ -89,6 +90,9 @@ export function setComputerUseTargetBundleId(
     source,
     updatedAt: Date.now(),
   };
+  if (isExplicitContextSource(source)) {
+    delete state.requiresExplicitContextAfterShortcut;
+  }
 }
 
 export function getComputerUseTargetWindowId(): number | undefined {
@@ -111,6 +115,9 @@ export function setComputerUseTargetWindow(
     source,
     updatedAt: Date.now(),
   };
+  if (isExplicitContextSource(source)) {
+    delete state.requiresExplicitContextAfterShortcut;
+  }
 }
 
 function isExplicitContextSource(
@@ -134,6 +141,13 @@ export function markComputerUsePromotionPending(
   delete state.lastObservation;
   delete state.targetApp;
   delete state.targetWindow;
+}
+
+export function markComputerUseExplicitContextRequired(
+  at = Date.now(),
+): void {
+  state.requiresExplicitContextAfterShortcut = true;
+  markComputerUsePromotionPending(at);
 }
 
 export function clearPendingComputerUsePromotion(): void {
@@ -175,6 +189,8 @@ export function rememberComputerUseObservation(
   }
 
   const resolvedTargetBundleId = observation.resolvedTargetBundleId;
+  const requiresExplicitContext = state.requiresExplicitContextAfterShortcut ===
+    true;
   const existingTargetBundleId = state.targetApp?.bundleId;
   const existingTargetAppSource = state.targetApp?.source;
   if (resolvedTargetBundleId) {
@@ -190,6 +206,7 @@ export function rememberComputerUseObservation(
       "resolved_observation",
     );
   } else if (
+    !requiresExplicitContext &&
     observation.frontmostApp?.bundleId &&
     (
       existingTargetBundleId == null ||
@@ -229,6 +246,7 @@ export function rememberComputerUseObservation(
     )
     : undefined;
   if (
+    !requiresExplicitContext &&
     frontmostWindow &&
     (
       existingTargetWindowId == null ||
@@ -317,6 +335,7 @@ export function resetComputerUseSessionState(): void {
   delete state.selectedDisplayId;
   delete state.displaySelectionReason;
   delete state.pendingPromotionObservationAt;
+  delete state.requiresExplicitContextAfterShortcut;
   delete state.targetApp;
   delete state.targetWindow;
   delete state.lastObservation;

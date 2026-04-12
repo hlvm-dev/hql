@@ -180,6 +180,8 @@ interface HostBackedChatOptions {
   permissionMode?: AgentExecutionMode;
   toolAllowlist?: string[];
   toolDenylist?: string[];
+  maxIterations?: number;
+  maxBudgetUsd?: number;
   responseSchema?: Record<string, unknown>;
   expectedVersion?: number;
   signal?: AbortSignal;
@@ -201,6 +203,8 @@ interface HostBackedAgentQueryOptions {
   permissionMode?: AgentExecutionMode;
   toolAllowlist?: string[];
   toolDenylist?: string[];
+  maxIterations?: number;
+  maxBudgetUsd?: number;
   responseSchema?: Record<string, unknown>;
   signal?: AbortSignal;
   callbacks?: HostBackedChatCallbacks;
@@ -1306,6 +1310,8 @@ async function runChatViaHostAttempt(
     disable_persistent_memory: options.disablePersistentMemory,
     tool_allowlist: options.toolAllowlist,
     tool_denylist: options.toolDenylist,
+    max_iterations: options.maxIterations,
+    max_budget_usd: options.maxBudgetUsd,
     response_schema: options.responseSchema,
     trace: !!callbacks.onTrace,
   };
@@ -1613,6 +1619,8 @@ export async function runAgentQueryViaHost(
     disablePersistentMemory: options.disablePersistentMemory,
     toolAllowlist: options.toolAllowlist,
     toolDenylist: options.toolDenylist,
+    maxIterations: options.maxIterations,
+    maxBudgetUsd: options.maxBudgetUsd,
     responseSchema: options.responseSchema,
     signal: options.signal,
     callbacks: options.callbacks,

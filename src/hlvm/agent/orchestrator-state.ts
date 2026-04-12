@@ -136,6 +136,7 @@ export interface LoopState {
  *  @internal Exported for unit testing of maybeInjectReminder */
 export interface LoopConfig {
   maxIterations: number;
+  maxBudgetUsd?: number;
   maxDenials: number;
   llmTimeout: number;
   groundingMode: GroundingMode;
@@ -221,6 +222,7 @@ export function resolveLoopConfig(config: OrchestratorConfig): LoopConfig {
   const totalTimeout = config.totalTimeout ?? DEFAULT_TIMEOUTS.total;
   return {
     maxIterations: config.maxIterations ?? MAX_ITERATIONS,
+    maxBudgetUsd: config.maxBudgetUsd,
     maxDenials: config.maxDenials ?? 3,
     llmTimeout: config.llmTimeout ?? DEFAULT_TIMEOUTS.llm,
     groundingMode,

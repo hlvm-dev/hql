@@ -487,18 +487,477 @@ Replay:   pure code (ESM → native executor)                  — zero cost for
 
 ## Killer Applications
 
-The capture-and-replay pattern is general purpose. Workspace setup is just
-the first and most obvious use:
+The potion system is the killer feature. Everything below is an application
+of it. Same ESM format, same Hotbar trigger, same sharing ecosystem.
 
 ```text
-Workspace setup       "save this as my morning-work potion"
-QA testing            "click through signup on 3 browsers, screenshot each"
-Onboarding            new hire clicks one button → entire dev env sets up
-Demo prep             presenter clicks one button → exact demo environment
-Accessibility audit   walk app UI → read every AX element → report gaps
-Desktop migration     capture old Mac → replay on new Mac
-Monitoring dashboard  open Grafana/Datadog/Slack in exact layout every morning
-Remote help           create potion for the thing someone always asks you to do
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 1: WORKSPACE SETUP                                        ║
+║   "save this as my morning-work potion"                                 ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  User's morning WITHOUT potion:
+    Open Safari. Type developer.apple.com. New tab. Type jira.company.com.
+    New tab. Type youtube.com/playlist. Drag Safari to monitor 1.
+    Open Xcode. Wait 20 seconds. Drag to monitor 2.
+    Open Terminal. Drag to monitor 3. Type "claude". New tab. Type "claude".
+    New tab. Type "claude". New tab. Type "claude".
+    Total: 3-5 minutes of mechanical clicking. Every. Single. Morning.
+
+  User's morning WITH potion:
+    Ctrl+1.
+    Done. 20 seconds.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  ONE-TIME SETUP:                                                   │
+  │                                                                     │
+  │  User (to HLVM): "save this as my morning-work potion"             │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Agent: cu_observe display 1, 2, 3                                 │
+  │       → Safari on display 1 with 3 tabs (reads URLs via AX)       │
+  │       → Xcode on display 2 fullscreen                              │
+  │       → Terminal on display 3 with 4 tabs                          │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Agent: write_file → ~/hlvm-modules/morning-work.mjs              │
+  │  Agent: "Done. Pinned to Hotbar slot 1."                           │
+  │                                                                     │
+  │  DAILY USE:                                                        │
+  │                                                                     │
+  │  User presses Ctrl+1                                               │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Hotbar → POST /module/run → ctx.cu.executePlan([...])             │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  HLVM.app native executor:                                         │
+  │    open Safari → AX wait ready → navigate 3 URLs                   │
+  │    → position display 1 fullscreen                                 │
+  │    open Xcode → AX wait ready (15-20s, zero LLM cost)             │
+  │    → position display 2 fullscreen                                 │
+  │    open Terminal → AX wait ready → launch 4 claude sessions        │
+  │    → position display 3 fullscreen                                 │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Notification: "morning-work ready"                                │
+  │  Zero LLM calls. ~20 seconds. One keypress.                        │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 2: PROJECT CONTEXT SWITCH                                 ║
+║   Ctrl+1 = project A, Ctrl+2 = project B                               ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Close 6 windows. Open different repo in Xcode. Open different JIRA
+    board. Open different Slack channel. Open different browser tabs.
+    Open different terminal sessions. Remember which windows go where.
+    Do this 5-10 times per day. Lose 30+ minutes daily.
+
+  WITH potion:
+    Ctrl+2. Everything switches. 10 seconds.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User is working on Project A. Gets pulled into Project B.         │
+  │                                                                     │
+  │  User presses Ctrl+2 (Hotbar slot 2 = "project-b" potion)         │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.cu.executePlan: hide/minimize all current windows         │
+  │    2. Open Safari → navigate to project-b JIRA board               │
+  │    3. Open Xcode → open ~/dev/project-b/project-b.xcodeproj       │
+  │    4. Open Terminal → cd ~/dev/project-b                            │
+  │    5. Open Slack → switch to #project-b channel                    │
+  │    6. Position all windows across displays                          │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Full project-b workspace in 10 seconds.                           │
+  │  Press Ctrl+1 to switch back to project A.                         │
+  │                                                                     │
+  │  Shareable: team shares project potions so everyone has the        │
+  │  same workspace layout for the same project.                        │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 3: SCREENSHOT → BUG REPORT                                ║
+║   Select area → Ctrl+3 → formatted bug report in JIRA                  ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Take screenshot. Open JIRA. Click "Create Issue." Type title.
+    Type description. Attach screenshot. Add system info manually.
+    Add reproduction steps from memory. Submit. 5-10 minutes.
+
+  WITH potion:
+    Cmd+Shift+4 (screenshot area). Ctrl+3. Done. 15 seconds.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User sees a bug on screen. Takes a screenshot (Cmd+Shift+4).     │
+  │  Screenshot is on clipboard.                                       │
+  │                                                                     │
+  │  User presses Ctrl+3 (Hotbar = "bug-report" potion)               │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.clipboard.read() → screenshot image                      │
+  │    2. ctx.ai.ask("Describe this bug from the screenshot")          │
+  │       → AI sees the image, generates title + description           │
+  │    3. ctx.shell("sw_vers") → macOS version                         │
+  │    4. ctx.shell("system_profiler SPHardwareDataType")              │
+  │       → hardware info                                              │
+  │    5. Read frontmost app info (what app had the bug)               │
+  │    6. Compose formatted bug report:                                │
+  │       │                                                            │
+  │       │  **Title:** Button alignment broken in dark mode           │
+  │       │  **App:** Safari 18.2                                      │
+  │       │  **OS:** macOS 15.4 (Apple M4 Max)                         │
+  │       │  **Steps:** Visible in screenshot — dark mode toggle       │
+  │       │  **Expected:** Buttons aligned with nav bar                │
+  │       │  **Actual:** Buttons overlap by 8px                        │
+  │       │  **Screenshot:** [attached]                                │
+  │       │                                                            │
+  │    7. ctx.clipboard.write(formatted_report)                        │
+  │    8. ctx.cu.executePlan:                                          │
+  │       → open browser to JIRA create-issue page                    │
+  │       → paste into description field                               │
+  │       → attach screenshot                                          │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Bug report created with screenshot, system info, AI description.  │
+  │  User just took a screenshot and pressed one key.                  │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 4: "EXPLAIN THIS" — Universal Understanding               ║
+║   Select anything → Ctrl+4 → explanation appears                        ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    See confusing error/code/legal text. Copy it. Open ChatGPT/Claude.
+    Paste it. Type "explain this." Read answer. Switch back. 2 minutes.
+
+  WITH potion:
+    Select text. Ctrl+4. Explanation pasted right below. 3 seconds.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User is reading code in Xcode and sees:                           │
+  │    "fatal error: unexpectedly found nil while unwrapping           │
+  │     an Optional value"                                              │
+  │                                                                     │
+  │  User selects the error text. Presses Ctrl+4.                      │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.clipboard.read() → the selected error text               │
+  │    2. ctx.ai.ask("Explain this clearly and suggest a fix:\n" +     │
+  │       selected_text)                                                │
+  │       → AI generates plain-language explanation + fix              │
+  │    3. ctx.clipboard.write(explanation)                              │
+  │    4. ctx.cu.pressKeys(["cmd+v"]) → pastes into focused app       │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Explanation appears right where the user is working.              │
+  │  No app switching. No context loss.                                │
+  │                                                                     │
+  │  Works on:                                                          │
+  │    • Error messages in terminal                                    │
+  │    • Code in any editor                                            │
+  │    • Legal text in a PDF                                           │
+  │    • Medical report in an email                                    │
+  │    • Foreign language text anywhere                                │
+  │    • Stack traces in browser console                               │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 5: END-OF-DAY STANDUP GENERATOR                           ║
+║   Ctrl+5 at 5pm → standup written and posted                           ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Open terminal. git log --since yesterday across 3 repos. Read through.
+    Open Slack. Try to remember what else you did. Type it up.
+    Forget half of it. Send anyway. Every day. 10 minutes.
+
+  WITH potion:
+    Ctrl+5. Standup posted to Slack. 5 seconds.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User presses Ctrl+5 (Hotbar = "standup" potion)                   │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.shell("git -C ~/dev/project-a log --since=yesterday      │
+  │       --oneline --author=$(git config user.email)")                 │
+  │    2. ctx.shell("git -C ~/dev/project-b log --since=yesterday      │
+  │       --oneline --author=$(git config user.email)")                 │
+  │    3. ctx.shell("git -C ~/dev/project-c log --since=yesterday      │
+  │       --oneline --author=$(git config user.email)")                 │
+  │    4. Read today's calendar events via ctx.shell("icalBuddy")      │
+  │    5. ctx.ai.ask("Write a concise daily standup from:\n" +         │
+  │       git_logs + calendar_events)                                   │
+  │       │                                                            │
+  │       │  **Yesterday:**                                            │
+  │       │  - Fixed auth token refresh bug (project-a, 3 commits)    │
+  │       │  - Added CU grounding pipeline (project-b, 5 commits)     │
+  │       │  - Reviewed PR #142 with design team                       │
+  │       │                                                            │
+  │       │  **Today:**                                                │
+  │       │  - Continue CU reliability testing                         │
+  │       │  - 2pm: Sprint planning meeting                            │
+  │       │                                                            │
+  │    6. ctx.cu.executePlan:                                          │
+  │       → open Slack → find #standup channel                        │
+  │       → paste formatted standup → send                             │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Standup posted. Accurate. Complete. Zero effort.                  │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 6: RECEIPT → EXPENSE REPORT                               ║
+║   Screenshot receipt → Ctrl+6 → expense spreadsheet updated            ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Photo receipt. Open expense tracker. Type vendor name. Type amount.
+    Type date. Select category. Attach image. Repeat for every receipt.
+    Accountants and freelancers spend hours on this monthly.
+
+  WITH potion:
+    Screenshot. Ctrl+6. Data extracted and appended.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User has a receipt (email, PDF, or physical → photo on screen).   │
+  │  Takes screenshot (Cmd+Shift+4).                                   │
+  │                                                                     │
+  │  User presses Ctrl+6 (Hotbar = "expense" potion)                   │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.clipboard.read() → receipt screenshot                    │
+  │    2. ctx.ai.ask("Extract from this receipt:                       │
+  │       vendor, amount, date, category. Return as JSON.")            │
+  │       → { vendor: "Starbucks", amount: 5.40,                      │
+  │           date: "2026-04-11", category: "meals" }                  │
+  │    3. ctx.shell: append row to ~/expenses/2026-04.csv              │
+  │       or: POST to expense API (Expensify, Xero, etc.)             │
+  │    4. ctx.notify("Added: Starbucks $5.40 → meals")                │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Expense logged. Receipt archived. User did nothing but            │
+  │  screenshot and press one key.                                     │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 7: TRANSLATE IN PLACE                                     ║
+║   Select text → Ctrl+7 → translated, replaced in place                 ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Copy text. Open Google Translate. Paste. Select target language.
+    Copy result. Switch back. Paste over original. 1-2 minutes.
+
+  WITH potion:
+    Select. Ctrl+7. Replaced. 2 seconds.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User is writing an email in Korean. Needs one paragraph           │
+  │  in English for a colleague.                                       │
+  │                                                                     │
+  │  User selects the Korean paragraph. Presses Ctrl+7.                │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.clipboard.read() → Korean text                           │
+  │    2. ctx.ai.ask("Translate to English, preserve tone:\n" + text)  │
+  │       → English translation                                       │
+  │    3. ctx.clipboard.write(translation)                             │
+  │    4. ctx.cu.pressKeys(["cmd+v"])                                  │
+  │       → replaces selected text with translation                   │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Korean paragraph is now English. In place. In the email app.      │
+  │  No app switching. No copy-paste dance.                            │
+  │                                                                     │
+  │  Works bidirectionally. Any language pair.                          │
+  │  Works in any app with a text field.                               │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 8: ERROR → FIX                                            ║
+║   Select error → Ctrl+8 → suggested fix pasted                         ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Copy error. Open browser. Search Stack Overflow. Read 5 answers.
+    Try one. Doesn't work. Try another. 15-30 minutes.
+
+  WITH potion:
+    Select error. Ctrl+8. Fix suggestion appears. 5 seconds.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User sees in terminal:                                            │
+  │    "error[E0502]: cannot borrow `x` as mutable because it is      │
+  │     also borrowed as immutable"                                    │
+  │                                                                     │
+  │  User selects the error. Presses Ctrl+8.                           │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.clipboard.read() → error message                         │
+  │    2. ctx.shell("cat " + detect_source_file_from_error)            │
+  │       → reads the relevant source code                             │
+  │    3. ctx.ai.ask("Given this error and code, suggest a fix:\n" +   │
+  │       error + "\n\nCode:\n" + source_code)                         │
+  │       → AI generates explanation + concrete fix                    │
+  │    4. ctx.clipboard.write(fix_suggestion)                          │
+  │    5. ctx.cu.pressKeys(["cmd+v"]) → pastes fix                    │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Fix suggestion with explanation pasted into terminal/editor.      │
+  │  User reads it, applies if correct. 5 seconds total.              │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 9: MEETING AUTO-PREP                                      ║
+║   Calendar-triggered → workspace ready when you sit down                ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Check calendar. Open Zoom link. Hunt for the meeting doc.
+    Open relevant PR or JIRA ticket. Arrange windows. Join late
+    because you were still setting up. Every meeting.
+
+  WITH potion:
+    Sit down. Everything's already open.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  Potion is scheduled (or triggered 2 min before meeting).          │
+  │                                                                     │
+  │  Potion runs automatically:                                        │
+  │    1. ctx.shell("icalBuddy -n eventsFrom:now to:'+5 min'")        │
+  │       → "Sprint Planning — zoom.us/j/123 — see PR #142"           │
+  │    2. Parse meeting description for links                          │
+  │    3. ctx.cu.executePlan:                                          │
+  │       → open Safari → navigate to PR #142                         │
+  │       → open Zoom → join meeting link                              │
+  │       → open JIRA sprint board                                    │
+  │       → arrange: Zoom left half, PR right half, JIRA display 2    │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  User walks to desk. Zoom is joined. PR is open.                  │
+  │  JIRA board is on the second monitor. Ready to talk.              │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 10: ONBOARDING — New Hire Setup                           ║
+║   Day 1: click one button → entire dev environment ready               ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Follow a 47-step wiki page. Install Homebrew. Install Node.
+    Install Xcode CLI tools. Clone 5 repos. Set up SSH keys.
+    Configure environment variables. Install VS Code extensions.
+    Set up Docker. Import database. Run migrations.
+    Takes half a day. Something always fails. Ask a teammate for help.
+
+  WITH potion:
+    Install HLVM. Open Launchpad. Click "company-dev-setup." Go get coffee.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  New hire on Day 1. Fresh Mac. Opens HLVM Launchpad.               │
+  │                                                                     │
+  │  Searches "company-dev-setup". Clicks Install. Clicks Run.         │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. Prerequisite check:                                          │
+  │       Homebrew? No → ctx.shell(install homebrew)                   │
+  │       Git? No → ctx.shell("brew install git")                      │
+  │       Node? No → ctx.shell("brew install node")                    │
+  │       Xcode CLI? No → ctx.shell("xcode-select --install")         │
+  │       Docker? No → ctx.cu: open Docker website → download → install│
+  │                                                                     │
+  │    2. Repo setup:                                                  │
+  │       ctx.shell("git clone git@github.com:company/frontend.git")   │
+  │       ctx.shell("git clone git@github.com:company/backend.git")    │
+  │       ctx.shell("git clone git@github.com:company/infra.git")      │
+  │       ctx.shell("cd frontend && npm install")                      │
+  │       ctx.shell("cd backend && pip install -r requirements.txt")   │
+  │                                                                     │
+  │    3. Environment:                                                 │
+  │       Copy .env.example → .env for each repo                      │
+  │       ctx.shell("docker compose up -d") → database                │
+  │       ctx.shell("cd backend && python manage.py migrate")         │
+  │                                                                     │
+  │    4. IDE setup:                                                   │
+  │       ctx.cu: open VS Code → install extensions from list          │
+  │       Configure settings.json with team defaults                   │
+  │                                                                     │
+  │    5. Workspace layout:                                            │
+  │       ctx.cu.executePlan: position VS Code, browser (localhost),   │
+  │       terminal across available displays                           │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  New hire comes back from coffee. Everything is running.           │
+  │  Browser shows the app at localhost:3000.                          │
+  │  VS Code has the repos open. Terminal has servers running.         │
+  │  Day 1 productivity: immediate.                                    │
+  │                                                                     │
+  │  The potion is maintained by the team. Updated when the stack      │
+  │  changes. Every new hire gets the same experience.                 │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Text Expansion Potions — Universal Prompt Snippets

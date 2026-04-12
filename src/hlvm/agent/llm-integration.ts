@@ -129,6 +129,8 @@ export interface SystemPromptOptions {
   instructions?: InstructionHierarchy;
   /** Whether the active model supports vision inputs. */
   visionCapable?: boolean;
+  /** Loaded skill catalog for prompt rendering. */
+  skills?: ReadonlyMap<string, import("../skills/types.ts").SkillDefinition>;
 }
 
 /**
@@ -154,6 +156,7 @@ export function compileSystemPrompt(
     tools,
     instructions,
     agentProfiles: options.agentProfiles,
+    skills: options.skills,
     querySource: options.querySource,
     visionCapable: options.visionCapable,
   });

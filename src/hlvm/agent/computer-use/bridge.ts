@@ -1176,6 +1176,7 @@ export function getResolvedBackend(): CUBackendResolution | undefined {
 async function cuNativeFetch<T>(
   path: string,
   body?: unknown,
+  timeoutMs = 15000,
 ): Promise<T> {
   if (_cuNativeFetchOverride) {
     return await _cuNativeFetchOverride(path, body) as T;
@@ -1188,7 +1189,7 @@ async function cuNativeFetch<T>(
   const response = await http.fetchRaw(
     `http://127.0.0.1:${resolution.port}${path}`,
     {
-      timeout: 15000,
+      timeout: timeoutMs,
       method: body !== undefined ? "POST" : "GET",
       headers: {
         ...(token.length > 0 ? { Authorization: `Bearer ${token}` } : {}),
@@ -1209,6 +1210,35 @@ async function cuNativeFetch<T>(
     );
   }
   return await response.json() as T;
+}
+
+function estimateExecutePlanTimeoutMs(
+  request: CUExecutePlanRequest,
+): number {
+  let timeoutMs = 5000;
+  for (const step of request.steps) {
+    switch (step.op) {
+      case "wait_for_ready":
+        timeoutMs += Math.min(
+          Math.max(step.timeout_ms ?? 30_000, 250),
+          30_000,
+        ) + 1000;
+        break;
+      case "open_app":
+        timeoutMs += 4000;
+        break;
+      case "type_into":
+      case "find_target":
+      case "click":
+      case "verify":
+        timeoutMs += 3000;
+        break;
+      case "press_keys":
+        timeoutMs += 1500 * Math.max(1, step.repeat ?? 1);
+        break;
+    }
+  }
+  return Math.min(Math.max(timeoutMs, 15_000), 120_000);
 }
 
 /** Public wrapper for esc-hotkey.ts and other bridge consumers. */
@@ -1305,6 +1335,7 @@ export async function performNativeExecutePlan(
     const response = await cuNativeFetch<CUExecutePlanResponse>(
       "/cu/execute-plan",
       request,
+      estimateExecutePlanTimeoutMs(request),
     );
     if (
       typeof response?.ok !== "boolean" ||

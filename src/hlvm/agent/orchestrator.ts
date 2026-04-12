@@ -563,6 +563,8 @@ export interface OrchestratorConfig {
   maxDenials?: number;
   /** Override max ReAct loop iterations (default: MAX_ITERATIONS). */
   maxIterations?: number;
+  /** Maximum API cost in USD — loop exits when exceeded (headless safety). */
+  maxBudgetUsd?: number;
   /** Override total loop timeout in ms (default: DEFAULT_TIMEOUTS.total). */
   totalTimeout?: number;
   onTrace?: (event: TraceEvent) => void;
@@ -1213,12 +1215,14 @@ function buildProgressSummary(state: LoopState): string {
 }
 
 function buildLimitStopMessage(
-  reason: "timeout" | "max_iterations",
+  reason: "timeout" | "max_iterations" | "max_budget",
   state: LoopState,
   lc: LoopConfig,
 ): string {
   const headline = reason === "timeout"
     ? `Total timeout (${lc.totalTimeout / 1000}s) exceeded. Task incomplete.`
+    : reason === "max_budget"
+    ? `Maximum budget ($${lc.maxBudgetUsd}) exceeded. Task incomplete.`
     : "Maximum iterations reached. Task incomplete.";
 
   return [
@@ -1607,6 +1611,14 @@ export async function runReActLoop(
     }
     if (Date.now() > lc.loopDeadline) {
       return buildLimitStopMessage("timeout", state, lc);
+    }
+    if (lc.maxBudgetUsd !== undefined) {
+      const snap = state.usageTracker.snapshot(config.modelId);
+      if (
+        snap.totalCostUsd !== undefined && snap.totalCostUsd > lc.maxBudgetUsd
+      ) {
+        return buildLimitStopMessage("max_budget", state, lc);
+      }
     }
     state.iterations++;
     const iterationStart = Date.now();

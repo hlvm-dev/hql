@@ -126,6 +126,10 @@ OPTIONS:
 
   --dangerously-skip-permissions  Alias for --permission-mode bypassPermissions
 
+  Headless Safety:
+  --max-turns <N>            Maximum agent loop iterations (headless safety)
+  --max-budget <N>           Maximum API cost in USD (headless safety)
+
 PERMISSION MODES:
   default:                     Prompt for L1/L2 tools, auto-approve L0 (read-only)
   acceptEdits:                 Auto-approve L0+L1, prompt for L2 (destructive)
@@ -508,6 +512,8 @@ export async function askCommand(args: string[]): Promise<void> {
       "model",
       "attach",
       "output-format",
+      "max-turns",
+      "max-budget",
     ],
     alias: {
       p: "print",
@@ -542,6 +548,26 @@ export async function askCommand(args: string[]): Promise<void> {
   const deniedTools = new Set<string>(
     (parsed.disallowedTools as string[]) ?? [],
   );
+
+  // Headless safety bounds
+  const maxTurns = parsed["max-turns"]
+    ? parseInt(parsed["max-turns"] as string, 10)
+    : undefined;
+  if (maxTurns !== undefined && (isNaN(maxTurns) || maxTurns < 1)) {
+    throw new ValidationError(
+      "--max-turns must be a positive integer",
+      "ask",
+    );
+  }
+  const maxBudget = parsed["max-budget"]
+    ? parseFloat(parsed["max-budget"] as string)
+    : undefined;
+  if (maxBudget !== undefined && (isNaN(maxBudget) || maxBudget <= 0)) {
+    throw new ValidationError(
+      "--max-budget must be a positive number",
+      "ask",
+    );
+  }
 
   // Resolve permission mode from flags
   let permissionModeOverride: PermissionMode | undefined;
@@ -1194,6 +1220,8 @@ export async function askCommand(args: string[]): Promise<void> {
         ? Array.from(allowedTools)
         : undefined,
       toolDenylist: deniedTools.size > 0 ? Array.from(deniedTools) : undefined,
+      maxIterations: maxTurns,
+      maxBudgetUsd: maxBudget,
       callbacks: {
         onToken,
         onAgentEvent,

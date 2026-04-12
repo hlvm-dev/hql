@@ -101,6 +101,8 @@ interface AgentSessionOptions {
   disablePersistentMemory?: boolean;
   /** Persistent deferred-tool discoveries carried across turns. */
   discoveredDeferredTools?: Iterable<string>;
+  /** Loaded skill catalog for prompt rendering. */
+  skills?: ReadonlyMap<string, import("../skills/types.ts").SkillDefinition>;
 }
 
 interface RefreshAgentSessionOptions {
@@ -221,6 +223,7 @@ function buildCompiledPromptArtifacts(options: {
   modelTier: ModelTier;
   agentProfiles?: readonly AgentProfile[];
   visionCapable?: boolean;
+  skills?: ReadonlyMap<string, import("../skills/types.ts").SkillDefinition>;
 }): {
   compiledPrompt: NonNullable<AgentLLMConfig["compiledPrompt"]>;
   compiledPromptMeta: AgentSession["compiledPromptMeta"];
@@ -235,6 +238,7 @@ function buildCompiledPromptArtifacts(options: {
     modelTier: options.modelTier,
     agentProfiles: options.agentProfiles,
     visionCapable: options.visionCapable,
+    skills: options.skills,
   });
 
   return {
@@ -568,6 +572,7 @@ export async function createAgentSession(
     instructions: options.instructions,
     agentProfiles: options.agentProfiles,
     visionCapable,
+    skills: options.skills,
   });
   context.addMessage({
     role: "system",

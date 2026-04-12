@@ -214,10 +214,17 @@ export async function createReusableSession(
   },
 ): Promise<AgentSession> {
   const engine = getAgentEngine();
-  const [agentProfiles, instructions] = await Promise.all([
-    loadAgentProfiles(workspace, { toolValidator: hasTool }),
-    loadInstructionHierarchy(workspace),
-  ]);
+  const instructions = await loadInstructionHierarchy(workspace);
+  const agentProfiles = await loadAgentProfiles(workspace, {
+    toolValidator: hasTool,
+    trusted: instructions.trusted,
+  });
+  // Load skill catalog for prompt rendering (lazy import avoids startup cost)
+  let skills: ReadonlyMap<string, import("../skills/types.ts").SkillDefinition> | undefined;
+  try {
+    const { loadSkillCatalog } = await import("../skills/mod.ts");
+    skills = await loadSkillCatalog(workspace);
+  } catch { /* skills module not available — skip */ }
   const toolDenylist = opts?.toolDenylist
     ? [...opts.toolDenylist]
     : [...DEFAULT_TOOL_DENYLIST];
@@ -236,6 +243,7 @@ export async function createReusableSession(
     engine,
     agentProfiles,
     instructions,
+    skills,
   });
   reusableSessions.add(session);
   return session;
@@ -502,6 +510,10 @@ interface AgentRunnerOptions {
   retainSessionForReuse?: boolean;
   /** Disable persistent memory reads/writes for this run. */
   disablePersistentMemory?: boolean;
+  /** Override max ReAct loop iterations (headless safety bound). */
+  maxIterations?: number;
+  /** Maximum API cost in USD (headless safety bound). */
+  maxBudgetUsd?: number;
 }
 
 function updateSessionBaselineAllowlist(
@@ -856,12 +868,21 @@ export async function runAgentQuery(
       })
       ? options.reusableSession
       : undefined;
+  const instructions = matchingReusableSession?.instructions ??
+    await loadInstructionHierarchy(workspace);
   const agentProfiles = matchingReusableSession?.agentProfiles ??
     await loadAgentProfiles(workspace, {
       toolValidator: hasTool,
+      trusted: instructions.trusted,
     });
-  const instructions = matchingReusableSession?.instructions ??
-    await loadInstructionHierarchy(workspace);
+  // Load skills for prompt rendering (reusable sessions already have them)
+  let skills: ReadonlyMap<string, import("../skills/types.ts").SkillDefinition> | undefined;
+  if (!matchingReusableSession) {
+    try {
+      const { loadSkillCatalog } = await import("../skills/mod.ts");
+      skills = await loadSkillCatalog(workspace);
+    } catch { /* skills module not available — skip */ }
+  }
   const isReusableSession = !!matchingReusableSession;
   const engine = isReusableSession ? undefined : getAgentEngine();
   let session: AgentSession;
@@ -901,6 +922,7 @@ export async function runAgentQuery(
       discoveredDeferredTools: restoredSessionMetadata.discoveredDeferredTools,
       engine,
       agentProfiles,
+      skills,
     });
     // Skip domain profile AND browser session reuse when caller provided
     // an explicit allowlist — the caller's tool set is authoritative.
@@ -1364,9 +1386,11 @@ export async function runAgentQuery(
         context: session.context,
         permissionMode,
         maxToolCalls: profile.maxToolCalls,
-        maxIterations: delegationSignal.taskDomain === "browser"
-          ? BROWSER_REACT_MAX_ITERATIONS
-          : undefined,
+        maxIterations: options.maxIterations ??
+          (delegationSignal.taskDomain === "browser"
+            ? BROWSER_REACT_MAX_ITERATIONS
+            : undefined),
+        maxBudgetUsd: options.maxBudgetUsd,
         groundingMode: profile.groundingMode,
         policy,
         onTrace: callbacks.onTrace,

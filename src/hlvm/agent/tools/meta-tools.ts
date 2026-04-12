@@ -460,4 +460,50 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L0" as const,
   },
+  skill: {
+    fn: async (
+      args: unknown,
+      workspace: string,
+    ): Promise<unknown> => {
+      const { loadSkillCatalog } = await import("../../skills/mod.ts");
+      const { executeInlineSkill } = await import("../../skills/executor.ts");
+      if (!isToolArgsObject(args)) {
+        return { error: "Missing arguments. Provide skill name." };
+      }
+      const record = args as Record<string, unknown>;
+      const skillName = typeof record.skill === "string" ? record.skill : "";
+      const catalog = await loadSkillCatalog(workspace);
+      const skill = catalog.get(skillName);
+      if (!skill) {
+        return {
+          error: `Unknown skill: ${skillName}. Available: ${
+            [...catalog.keys()].join(", ")
+          }`,
+        };
+      }
+      if (skill.frontmatter.context === "fork") {
+        return {
+          delegate: true,
+          agent: "general",
+          task: `${skill.body}\n\nArgs: ${record.args ?? ""}`,
+        };
+      }
+      return executeInlineSkill(
+        skill,
+        typeof record.args === "string" ? record.args : undefined,
+      );
+    },
+    description: "Execute a named skill (reusable workflow)",
+    category: "meta",
+    args: {
+      skill:
+        "string - Skill name (e.g. 'commit', 'test', 'review')",
+      args: "string (optional) - Arguments for the skill",
+    },
+    returns: {
+      systemMessage: "string - Skill instructions to follow",
+      allowedTools: "string[] (optional) - Tools the skill needs",
+    },
+    safetyLevel: "L0" as const,
+  },
 };

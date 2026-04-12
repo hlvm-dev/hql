@@ -1,9 +1,7 @@
 /**
  * HLVM Upgrade Command
  *
- * Updates HLVM to the latest version from GitHub releases.
- *
- * NOTE: HLVM upgrades require rebuilding from source.
+ * Checks for and shows instructions to update to the latest GitHub release.
  */
 
 import { VERSION } from "../../../common/version.ts";

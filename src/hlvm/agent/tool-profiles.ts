@@ -2,6 +2,7 @@ import { ValidationError } from "../../common/error.ts";
 import type { ToolFilterState } from "./engine.ts";
 import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
 import { PLAYWRIGHT_TOOLS } from "./playwright/mod.ts";
+import { CHROME_EXT_TOOLS } from "./chrome-ext/mod.ts";
 import { getAgentLogger } from "./logger.ts";
 
 export type ToolProfileId = string;
@@ -71,6 +72,7 @@ const PERSISTENT_TOOL_PROFILE_SLOTS: readonly ToolProfileSlot[] = [
 
 export const BROWSER_SAFE_PROFILE_ID = "browser_safe" as const;
 export const BROWSER_HYBRID_PROFILE_ID = "browser_hybrid" as const;
+export const BROWSER_CHROME_PROFILE_ID = "browser_chrome" as const;
 
 const BROWSER_SAFE_PLAYWRIGHT_TOOLS = Object.keys(PLAYWRIGHT_TOOLS).filter(
   (name) => name !== "pw_promote",
@@ -90,6 +92,12 @@ const DEFAULT_DECLARED_TOOL_PROFILES = declareToolProfiles([
       ...Object.keys(COMPUTER_USE_TOOLS),
     ]),
     reasonTemplate: "Hybrid browser profile with headed computer use",
+  },
+  {
+    id: BROWSER_CHROME_PROFILE_ID,
+    allowlist: uniqueToolList(Object.keys(CHROME_EXT_TOOLS)),
+    reasonTemplate:
+      "Chrome extension profile — user's authenticated browser sessions",
   },
 ]);
 

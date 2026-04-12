@@ -62,6 +62,7 @@ import {
   getComputerUseTargetWindowId,
   getLastComputerUseObservation,
   markComputerUseFailure,
+  markComputerUseExplicitContextRequired,
   markComputerUseSuccess,
   rememberComputerUseObservation,
   rememberHiddenComputerUseApps,
@@ -191,6 +192,23 @@ function parseCoordinate(
 function parseModifiers(text?: string): string[] | undefined {
   if (!text) return undefined;
   return text.split("+").map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+const CONTEXT_SHIFTING_SHORTCUT_MODIFIERS = new Set([
+  "command",
+  "cmd",
+  "control",
+  "ctrl",
+  "option",
+  "alt",
+  "meta",
+  "super",
+]);
+
+function requiresExplicitContextAfterShortcut(text?: string): boolean {
+  const parts = parseModifiers(text)?.map((part) => part.toLowerCase()) ?? [];
+  if (parts.length < 2) return false;
+  return parts.some((part) => CONTEXT_SHIFTING_SHORTCUT_MODIFIERS.has(part));
 }
 
 const VALID_SCROLL_DIRECTIONS = new Set(["up", "down", "left", "right"]);
@@ -480,6 +498,7 @@ function parseExecutePlanArgs(args: unknown): {
   steps: CUPlanStep[];
   displayId?: number;
 } {
+  const DEFAULT_PLAN_WAIT_TIMEOUT_MS = 10_000;
   const input = asRecordLoose(args);
   if (!input) {
     throw new Error("Arguments must be an object");
@@ -539,7 +558,7 @@ function parseExecutePlanArgs(args: unknown): {
         }
         const timeout = step.timeout_ms != null
           ? Number(step.timeout_ms)
-          : undefined;
+          : DEFAULT_PLAN_WAIT_TIMEOUT_MS;
         if (
           timeout != null &&
           (!Number.isFinite(timeout) || timeout <= 0)
@@ -744,6 +763,28 @@ function formatExecutePlanSteps(
     const suffix = record.stepId ? ` id:${record.stepId}` : "";
     const message = record.message ? ` ${record.message}` : "";
     lines.push(`  - [${index}] ${status} ${op}${suffix}${message}`);
+  }
+  return lines;
+}
+
+function formatExecutePlanFailureFacts(
+  failure: Record<string, unknown> | undefined,
+): string[] {
+  const facts = asRecord(failure?.facts);
+  if (!facts) return [];
+  const lines = ["failure_facts:"];
+  const candidates = Array.isArray(facts.candidates)
+    ? facts.candidates.filter((value): value is string => typeof value === "string")
+    : [];
+  for (const [key, value] of Object.entries(facts)) {
+    if (key === "candidates" || value == null) continue;
+    lines.push(`  - ${key}: ${String(value)}`);
+  }
+  if (candidates.length > 0) {
+    lines.push("candidate_indexes:");
+    for (const candidate of candidates) {
+      lines.push(`  - ${candidate}`);
+    }
   }
   return lines;
 }
@@ -1481,7 +1522,11 @@ function cuTool(
     interactive?: boolean;
     requireTargetApp?: boolean;
     actionKind?: string;
-    postActionVerify?: "generic" | "focus_sensitive" | false;
+    postActionVerify?:
+      | "generic"
+      | "focus_sensitive"
+      | false
+      | ((args: unknown) => "generic" | "focus_sensitive" | false);
     enforceTargetContextContinuity?: boolean;
     afterSuccess?: (
       args: unknown,
@@ -1511,8 +1556,12 @@ function cuTool(
         );
       }
       const result = await fn(args, exec, options);
+      const configuredVerificationMode = typeof opts?.postActionVerify ===
+          "function"
+        ? opts.postActionVerify(args)
+        : opts?.postActionVerify;
       const verificationMode = interactive
-        ? opts?.postActionVerify ?? "generic"
+        ? configuredVerificationMode ?? "generic"
         : false;
       const verifiedObservation = verificationMode
         ? await verifyPostActionObservation(
@@ -1693,11 +1742,17 @@ const cuKeyFn = cuTool("Key press failed", async (args, exec) => {
   const { text, repeat } = args as { text: string; repeat?: number };
   const rpt = repeat != null ? (Number(repeat) || 1) : undefined;
   await exec.key(text, rpt);
+  if (requiresExplicitContextAfterShortcut(text)) {
+    markComputerUseExplicitContextRequired();
+  }
   return okTool({ pressed: text, repeat: rpt ?? 1 });
 }, {
   actionKind: "cu_key",
   requireTargetApp: true,
-  postActionVerify: "focus_sensitive",
+  postActionVerify: (args) =>
+    requiresExplicitContextAfterShortcut((args as { text?: string }).text)
+      ? false
+      : "focus_sensitive",
   enforceTargetContextContinuity: true,
 });
 
@@ -1706,11 +1761,17 @@ const cuHoldKeyFn = cuTool("Hold key failed", async (args, exec) => {
   const raw = Number(duration);
   const dur = Number.isFinite(raw) ? Math.max(raw, 0) : 1;
   await exec.holdKey([text], dur * 1000);
+  if (requiresExplicitContextAfterShortcut(text)) {
+    markComputerUseExplicitContextRequired();
+  }
   return okTool({ held: text, duration_seconds: dur });
 }, {
   actionKind: "cu_hold_key",
   requireTargetApp: true,
-  postActionVerify: "focus_sensitive",
+  postActionVerify: (args) =>
+    requiresExplicitContextAfterShortcut((args as { text?: string }).text)
+      ? false
+      : "focus_sensitive",
   enforceTargetContextContinuity: true,
 });
 
@@ -2538,6 +2599,7 @@ export const COMPUTER_USE_TOOLS: Record<string, ToolMetadata> = {
           }),
         ),
         ...(typeof r.message === "string" ? [`message: ${r.message}`] : []),
+        ...formatExecutePlanFailureFacts(asRecord(r.failure)),
       ];
       const summary = typeof r.execution_status === "string" &&
           r.execution_status !== "completed"

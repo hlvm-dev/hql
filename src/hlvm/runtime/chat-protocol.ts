@@ -48,6 +48,8 @@ export interface ChatRequest {
   disable_persistent_memory?: boolean;
   tool_allowlist?: string[];
   tool_denylist?: string[];
+  max_iterations?: number;
+  max_budget_usd?: number;
   response_schema?: Record<string, unknown>;
   computer_use?: boolean;
   trace?: boolean;

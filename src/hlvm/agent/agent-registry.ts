@@ -3,6 +3,7 @@
  */
 
 import { ValidationError } from "../../common/error.ts";
+import { splitFrontmatter } from "../../common/frontmatter.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { parse as parseYaml } from "npm:yaml@2.0.0-1";
 
@@ -150,23 +151,6 @@ function normalizeAgentProfile(profile: AgentProfile): AgentProfile {
   };
 }
 
-function splitFrontmatter(
-  text: string,
-): { frontmatter?: string; body: string } {
-  const normalized = text.replace(/\r\n/g, "\n");
-  if (!normalized.startsWith("---\n")) {
-    return { body: normalized.trim() };
-  }
-  const end = normalized.indexOf("\n---\n", 4);
-  if (end < 0) {
-    return { body: normalized.trim() };
-  }
-  return {
-    frontmatter: normalized.slice(4, end),
-    body: normalized.slice(end + 5).trim(),
-  };
-}
-
 function validateProjectAgentProfile(
   profile: AgentProfile,
   sourcePath: string,
@@ -268,9 +252,12 @@ export async function loadAgentProfiles(
   workspace?: string,
   options?: {
     toolValidator?: (toolName: string) => boolean;
+    /** When false, project agent profiles (.hlvm/agents/) are skipped. */
+    trusted?: boolean;
   },
 ): Promise<readonly AgentProfile[]> {
   if (!workspace) return AGENT_PROFILES;
+  if (options?.trusted === false) return AGENT_PROFILES;
   const platform = getPlatform();
   const agentsDir = platform.path.join(workspace, PROJECT_AGENT_DIR);
   if (!(await platform.fs.exists(agentsDir))) {

@@ -289,18 +289,18 @@ Deno.test("compiler: project instructions appear only when trusted", () => {
   );
 });
 
-Deno.test("compiler: custom instructions capped at 2000 chars", () => {
+Deno.test("compiler: custom instructions capped at MAX_INSTRUCTION_CHARS", () => {
   const result = compilePrompt(
     agentInput({
-      instructions: { global: "x".repeat(3000), project: "", trusted: false },
+      instructions: { global: "x".repeat(10000), project: "", trusted: false },
     }),
   );
 
-  // The custom section content is capped to 2000 chars (plus the header)
+  // The custom section content is capped to MAX_INSTRUCTION_CHARS (8000) plus the header
   const customSection = result.sections.find((s) => s.id === "custom");
   assertEquals(customSection !== undefined, true);
-  // Full content = "# Custom Instructions\n## Global Instructions\n" + body (capped at 2000)
-  assertEquals(customSection!.charCount <= 2100, true); // header + 2000 body max
+  // Full content = "# Custom Instructions\n## Global Instructions\n" + body (capped at 8000)
+  assertEquals(customSection!.charCount <= 8200, true); // header + 8000 body max
 });
 
 // ============================================================

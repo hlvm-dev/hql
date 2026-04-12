@@ -32,6 +32,32 @@ The current architecture is:
 - the remaining work is product reliability and Level 3 consistency, not
   another substrate rewrite
 
+## Current Root Cause Reading
+
+The broad reliability and latency issues now point to one systemic cause:
+
+```text
+the model is still orchestrating too many micro-transitions
+```
+
+The expensive part of many live flows is no longer the local tool runtime. The
+expensive part is the repeated:
+
+```text
+LLM decides one action
+-> tool runs quickly
+-> tool returns
+-> cloud/model turn decides the next tiny transition
+```
+
+This especially hurts flows that involve context shifts:
+
+- global or app-local shortcuts
+- launch and wait
+- palettes / modal sheets / floating panels
+- finding the focused editable field
+- settle and verification after state change
+
 ## Current Live Validation State
 
 Historical baseline on 2026-04-11:
@@ -50,6 +76,14 @@ Native substrate:             working
 Native grounding:             working
 Native subplan executor:      implemented, additive, still being live-hardened
 Current bottleneck:           broader scenario reliability, not architecture
+```
+
+Refined reading later on 2026-04-12:
+
+```text
+native execution path:        relatively fast
+main user-visible bottleneck: cloud/model turn overhead between local actions
+main generic gap:             weak transition semantics between context shifts and subsequent actions
 ```
 
 ### Critical fix: cu_observe grounding data exposure (2026-04-11)
@@ -233,6 +267,7 @@ LLM (vision-capable)
 |  - permission gating                                             |
 |  - continuity checks for keyboard/text actions                   |
 |  - post-action verification hooks                                |
+|  - shortcut-context invalidation / explicit re-establish         |
 +------------------------------------------------------------------+
   |
   v
@@ -301,6 +336,61 @@ LLM (vision-capable)
   v
 macOS desktop
 ```
+
+## Where The Current Split Still Hurts
+
+Today, interaction policy is spread across three layers:
+
+- prompt guidance in `sections.ts`
+- turn-to-turn inferred context in `session-state.ts`
+- native execution in `CURouter.swift` and `CUWindowService.swift`
+
+That is acceptable for v1, but it creates a predictable cost:
+
+- more prompt dependence
+- more chances for a context handoff mismatch
+- more cloud turns for what should be one local interaction transition
+
+## The Next Architectural Upgrade
+
+The right generic v2 upgrade is not app-specific logic. It is a declarative
+native interaction engine above raw plan steps.
+
+Instead of the LLM mediating every micro-step:
+
+```text
+press shortcut
+-> think
+-> wait
+-> think
+-> observe
+-> think
+-> type
+-> think
+-> verify
+```
+
+the LLM should specify intent, while the native executor owns the full
+transition:
+
+```text
+activate input surface
+-> wait until ready / focused
+-> resolve editable target
+-> type
+-> verify
+-> return only when done or blocked
+```
+
+The generic pieces of that upgrade are:
+
+- transition types with preconditions and postconditions
+- local settle detection
+- actionability checks
+- shared target graph for observe + execute-plan
+- local retry / re-resolution before returning to the LLM
+
+This evolves `cu_execute_plan` forward without changing the foundation.
 
 ## The Current Observation Pipeline
 

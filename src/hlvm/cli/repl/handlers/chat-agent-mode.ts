@@ -227,6 +227,8 @@ export async function handleAgentMode(
       disablePersistentMemory: body.disable_persistent_memory === true,
       messageHistory,
       attachments: attachments.length > 0 ? attachments : undefined,
+      maxIterations: body.max_iterations,
+      maxBudgetUsd: body.max_budget_usd,
       responseSchema: body.response_schema,
       computerUse: body.computer_use === true,
       modelInfo,
