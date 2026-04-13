@@ -11,6 +11,7 @@
 import {
   getToolRegistryGeneration,
   resolveTools,
+  TOOL_REGISTRY,
 } from "./registry.ts";
 import type { AgentProfile } from "./agent-registry.ts";
 import { buildToolJsonSchema } from "./tool-schema.ts";
@@ -67,7 +68,12 @@ function createToolDefCache(): {
       }
 
       const tools = resolveTools(options);
-      const defs: ToolDefinition[] = Object.entries(tools).map(
+      // Partition-sort: built-ins as stable sorted prefix, dynamic tools as sorted suffix.
+      // Deterministic ordering prevents prompt cache invalidation across turns/restarts.
+      const entries = Object.entries(tools);
+      const builtIn = entries.filter(([n]) => n in TOOL_REGISTRY).sort(([a], [b]) => a.localeCompare(b));
+      const dynamic = entries.filter(([n]) => !(n in TOOL_REGISTRY)).sort(([a], [b]) => a.localeCompare(b));
+      const defs: ToolDefinition[] = [...builtIn, ...dynamic].map(
         ([name, meta]) => {
           const parameters = meta.skipValidation
             ? { type: "object", properties: {}, additionalProperties: true }

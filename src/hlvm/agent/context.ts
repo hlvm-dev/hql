@@ -18,6 +18,7 @@ import { DEFAULT_CONTEXT_CONFIG } from "./constants.ts";
 import { estimateTokensFromCharCount } from "../../common/token-utils.ts";
 import { truncate, truncateMiddle } from "../../common/utils.ts";
 import type { ConversationAttachmentPayload } from "../attachments/types.ts";
+import { collectFiles, collectSymbols } from "./compaction-template.ts";
 import type { FileRestorationHint } from "./file-state-cache.ts";
 // ============================================================
 // Types
@@ -86,6 +87,15 @@ function estimateToolCallChars(message: Message): number {
   return chars;
 }
 
+function estimateAttachmentChars(message: Message): number {
+  if (!message.attachments?.length) return 0;
+  let chars = 0;
+  for (const att of message.attachments) {
+    chars += att.mode === "text" ? att.text.length : att.size;
+  }
+  return chars;
+}
+
 function hasAssistantToolCalls(message: Message): boolean {
   return message.role === "assistant" && (message.toolCalls?.length ?? 0) > 0;
 }
@@ -135,7 +145,8 @@ function estimateMessageTokens(
   modelKey?: string,
 ): number {
   return estimateTokensFromCharCount(
-    message.content.length + estimateToolCallChars(message),
+    message.content.length + estimateToolCallChars(message) +
+      estimateAttachmentChars(message),
     modelKey,
   );
 }
@@ -257,6 +268,12 @@ interface ContextConfig {
   ) => FileRestorationHint[];
 }
 
+/** Result of a compactIfNeeded() call */
+export interface CompactionResult {
+  status: "skipped" | "success" | "failed";
+  error?: string;
+}
+
 /** Error thrown when context exceeds maxTokens in fail mode */
 export class ContextOverflowError extends Error {
   readonly maxTokens: number;
@@ -346,12 +363,13 @@ export class ContextManager {
       timestamp: message.timestamp ?? Date.now(),
     };
 
-    // Estimate chars for toolCalls metadata (if present)
-    const toolCallChars = estimateToolCallChars(messageWithTimestamp);
+    // Estimate chars for toolCalls metadata and attachments (if present)
+    const extraChars = estimateToolCallChars(messageWithTimestamp) +
+      estimateAttachmentChars(messageWithTimestamp);
 
     if (this.config.overflowStrategy === "fail") {
       const projectedTokens = estimateTokensFromCharCount(
-        this.totalChars + messageWithTimestamp.content.length + toolCallChars,
+        this.totalChars + messageWithTimestamp.content.length + extraChars,
         this.config.modelKey,
       );
       if (projectedTokens > this.config.maxTokens) {
@@ -363,7 +381,7 @@ export class ContextManager {
     }
 
     this.messages.push(messageWithTimestamp);
-    this.totalChars += messageWithTimestamp.content.length + toolCallChars;
+    this.totalChars += messageWithTimestamp.content.length + extraChars;
     this.incrementRoleCount(messageWithTimestamp.role);
     this.messageRevision++;
 
@@ -385,8 +403,10 @@ export class ContextManager {
    * Run pending LLM-powered compaction if needed.
    * Must be called from async context (e.g., before LLM call).
    */
-  async compactIfNeeded(): Promise<void> {
-    if (!this.pendingCompaction || !this.config.llmSummarize) return;
+  async compactIfNeeded(): Promise<CompactionResult> {
+    if (!this.pendingCompaction || !this.config.llmSummarize) {
+      return { status: "skipped" };
+    }
     this.pendingCompaction = false;
 
     const { system, nonSystem } = this.splitBySystem();
@@ -396,13 +416,13 @@ export class ContextManager {
       this.config.summaryKeepRecent,
     );
 
-    if (nonSystem.length <= keepRecent) return;
+    if (nonSystem.length <= keepRecent) return { status: "skipped" };
     const { toSummarize, recentMessages } = splitRecentMessageGroups(
       nonSystem,
       keepRecent,
       this.config.modelKey,
     );
-    if (toSummarize.length === 0) return;
+    if (toSummarize.length === 0) return { status: "skipped" };
     const compactedMessages = this.prepareMessagesForCompaction(toSummarize);
 
     try {
@@ -420,10 +440,37 @@ export class ContextManager {
           ? [...system, summaryMessage, ...restorationMessages, ...recentMessages]
           : [summaryMessage, ...restorationMessages, ...recentMessages],
       );
-    } catch {
+      // Postcondition: guarantee fit even if summary + recent still over budget
+      if (this.needsTrimming()) {
+        this.trimIfNeeded();
+      }
+      return { status: "success" };
+    } catch (err) {
       // LLM summarization failed — re-arm so next addMessage triggers retry
       this.pendingCompaction = true;
+      // Still guarantee fit on failure
+      if (this.needsTrimming()) {
+        this.trimIfNeeded();
+      }
+      return { status: "failed", error: String(err) };
     }
+  }
+
+  /**
+   * Append a runtime directive without triggering trim.
+   * Used only for pre-compaction nudges where compaction will run on the next iteration.
+   */
+  addDirectiveUntrimmed(message: Message): void {
+    const messageWithTimestamp: Message = {
+      ...message,
+      timestamp: message.timestamp ?? Date.now(),
+    };
+    const extraChars = estimateToolCallChars(messageWithTimestamp) +
+      estimateAttachmentChars(messageWithTimestamp);
+    this.messages.push(messageWithTimestamp);
+    this.totalChars += messageWithTimestamp.content.length + extraChars;
+    this.incrementRoleCount(messageWithTimestamp.role);
+    this.messageRevision++;
   }
 
   /**
@@ -596,7 +643,8 @@ export class ContextManager {
     let systemChars = 0;
     if (this.config.preserveSystem) {
       for (const m of systemMessages) {
-        systemChars += m.content.length + estimateToolCallChars(m);
+        systemChars += m.content.length + estimateToolCallChars(m) +
+          estimateAttachmentChars(m);
       }
     }
     const systemTokens = estimateTokensFromCharCount(
@@ -684,14 +732,50 @@ export class ContextManager {
   }
 
   private buildSummary(messages: Message[]): string {
-    const lines: string[] = [];
-    for (const msg of messages) {
-      const normalized = msg.content.replace(/\s+/g, " ").trim();
-      const snippet = truncate(normalized, 200);
-      lines.push(`- ${msg.role}: ${snippet}`);
+    const sections: string[] = ["Summary of earlier context:"];
+
+    // User asks (most recent, highest priority)
+    const userAsks = messages
+      .filter((m) => m.role === "user")
+      .slice(-5)
+      .map((m) =>
+        `- ${truncate(m.content.replace(/\s+/g, " ").trim(), 300)}`
+      );
+    if (userAsks.length) sections.push("User requests:\n" + userAsks.join("\n"));
+
+    // Files and symbols referenced
+    const files = collectFiles(messages);
+    const symbols = collectSymbols(messages);
+    if (files.length) {
+      sections.push("Files: " + files.slice(0, 10).join(", "));
+    }
+    if (symbols.length) {
+      sections.push("Symbols: " + symbols.slice(0, 10).join(", "));
     }
 
-    let summary = `Summary of earlier context:\n${lines.join("\n")}`;
+    // Errors
+    const errors = messages
+      .filter((m) =>
+        /\b(error|failed|exception|timeout)\b/i.test(m.content)
+      )
+      .slice(-3)
+      .map((m) =>
+        `- ${truncate(m.content.replace(/\s+/g, " ").trim(), 200)}`
+      );
+    if (errors.length) sections.push("Errors:\n" + errors.join("\n"));
+
+    // Last assistant state
+    const lastAssistant = messages
+      .filter((m) => m.role === "assistant")
+      .slice(-2)
+      .map((m) =>
+        `- ${truncate(m.content.replace(/\s+/g, " ").trim(), 200)}`
+      );
+    if (lastAssistant.length) {
+      sections.push("Last state:\n" + lastAssistant.join("\n"));
+    }
+
+    let summary = sections.join("\n\n");
     if (summary.length > this.config.summaryMaxChars) {
       summary = summary.slice(0, this.config.summaryMaxChars) + "...";
     }
@@ -741,7 +825,8 @@ export class ContextManager {
     this.messageRevision++;
     for (const m of newMessages) {
       this.incrementRoleCount(m.role);
-      this.totalChars += m.content.length + estimateToolCallChars(m);
+      this.totalChars += m.content.length + estimateToolCallChars(m) +
+        estimateAttachmentChars(m);
     }
   }
 

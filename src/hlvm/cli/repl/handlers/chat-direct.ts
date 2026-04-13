@@ -4,6 +4,7 @@
  */
 
 import { ai } from "../../../api/ai.ts";
+import { AUTO_MODEL_ID } from "../../../../common/config/types.ts";
 import { RuntimeError } from "../../../../common/error.ts";
 import {
   getMessage,
@@ -47,7 +48,7 @@ async function resolveAutoForChat(
   body: ChatRequest,
   emit: (obj: unknown) => void,
 ): Promise<{ effectiveModel: string | undefined; scoredFallbacks: string[] }> {
-  if (model !== "auto") return { effectiveModel: model, scoredFallbacks: [] };
+  if (model !== AUTO_MODEL_ID) return { effectiveModel: model, scoredFallbacks: [] };
 
   const { resolveAutoModel } = await import("../../../agent/auto-select.ts");
   const query = body.messages?.find((m) => m.role === "user")?.content ?? "";

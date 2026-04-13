@@ -30,6 +30,7 @@ import { bootstrapCommand, showBootstrapHelp } from "./commands/bootstrap.ts";
 import { run as runCommand } from "./run.ts";
 import { startInkRepl } from "./repl-ink/index.tsx";
 import { VERSION } from "../../common/version.ts";
+import { HLVM_RUNTIME_DEFAULT_PORT } from "../runtime/host-config.ts";
 
 /**
  * Handle `hlvm repl` command
@@ -171,6 +172,11 @@ async function main(): Promise<void> {
 
   const command = args[0];
   const commandArgs = args.slice(1);
+
+  if (command === "__runtime-default-port") {
+    log.raw.log(String(HLVM_RUNTIME_DEFAULT_PORT));
+    return;
+  }
 
   const entry = COMMANDS[command];
   if (!entry) {

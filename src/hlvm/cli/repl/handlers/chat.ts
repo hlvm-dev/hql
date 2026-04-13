@@ -27,7 +27,7 @@ import { pushSSEEvent } from "../../../store/sse-store.ts";
 import {
   ensureInitialModelConfigured,
 } from "../../../../common/ai-default-model.ts";
-import { DEFAULT_MODEL_ID } from "../../../../common/config/types.ts";
+import { AUTO_MODEL_ID, DEFAULT_MODEL_ID } from "../../../../common/config/types.ts";
 import { describeErrorForDisplay } from "../../../agent/error-taxonomy.ts";
 import {
   jsonError,
@@ -483,7 +483,7 @@ export async function handleChat(req: Request): Promise<Response> {
   let modelDiscoveryFailed = false;
   let modelDiscoveryError: string | null = null;
   const hasMediaAttachments = requestHasMediaAttachments(body.messages);
-  const isAutoSelect = resolvedModel === "auto";
+  const isAutoSelect = resolvedModel === AUTO_MODEL_ID;
   if (resolvedModel && !fixturePath && !isAutoSelect) {
     const [parsedProvider, parsedModelName] = parseModelString(resolvedModel);
     try {

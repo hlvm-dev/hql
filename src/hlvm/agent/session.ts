@@ -56,7 +56,6 @@ import {
 import { cloneToolList } from "./orchestrator-state.ts";
 import { releaseToolOwner } from "./registry.ts";
 import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
-import { PLAYWRIGHT_TOOLS } from "./playwright/mod.ts";
 import { FileStateCache } from "./file-state-cache.ts";
 import { clearToolResultSidecars } from "./tool-result-storage.ts";
 import {
@@ -407,19 +406,10 @@ export async function createAgentSession(
       }
     }
   }
-  // Deny PW tools when Chromium is not available
-  let chromiumAvailable = false;
-  try {
-    const { isChromiumReady } = await import("../runtime/chromium-runtime.ts");
-    chromiumAvailable = await isChromiumReady();
-  } catch { /* chromium-runtime not available */ }
-  if (!chromiumAvailable) {
-    for (const name of Object.keys(PLAYWRIGHT_TOOLS)) {
-      if (!effectiveToolDenylist.includes(name)) {
-        effectiveToolDenylist.push(name);
-      }
-    }
-  }
+  // PW tools are NOT denied at session creation — Chromium availability is
+  // checked lazily at first tool use. If missing, the orchestrator's
+  // structured-failure handler detects pw_browser_unavailable and triggers
+  // on-demand install via ensurePlaywrightChromium().
   const discoveredDeferredTools = new Set(
     options.discoveredDeferredTools ?? [],
   );

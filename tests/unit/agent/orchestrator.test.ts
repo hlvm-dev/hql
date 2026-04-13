@@ -2450,7 +2450,7 @@ Deno.test({
       },
     );
 
-    assertStringIncludes(result, "Tool call loop detected");
+    assertStringIncludes(result, "Tool-call JSON in text is not accepted");
     assertEquals(
       callOptionsSeen.some((entry) => entry.disableTools === true),
       false,

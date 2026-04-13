@@ -10,8 +10,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, type Key, Static, useApp, useInput, useStdout } from "ink";
-import { Banner } from "./Banner.tsx";
+import { Box, type Key, useApp, useInput, useStdout } from "ink";
+import { Banner, getBannerRowCount } from "./Banner.tsx";
 import { UpdateBanner } from "./UpdateBanner.tsx";
 import { LoadingScreen } from "./LoadingScreen.tsx";
 import { ConfigOverlay } from "./ConfigOverlay.tsx";
@@ -34,13 +34,12 @@ import {
   type ComposerSurfaceUiState,
 } from "./ComposerSurface.tsx";
 import { QueuePreview } from "./QueuePreview.tsx";
-import { TranscriptSurface } from "./TranscriptSurface.tsx";
+import { MIN_RESERVED_ROWS, VirtualTranscript, type ScrollReadyPayload } from "./VirtualTranscript.tsx";
+import { FullscreenViewport } from "./FullscreenViewport.tsx";
 import {
   getLatestCitation,
-  TimelineItemRenderer,
 } from "./TimelineItemRenderer.tsx";
 import { compactPlanTranscriptItems } from "./conversation/plan-flow.ts";
-import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
 import { DialogStack } from "./DialogStack.tsx";
 import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
 import {
@@ -66,7 +65,7 @@ import { type TeamMemberItem, useTeamState } from "../hooks/useTeamState.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
 import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
-import type { EvalResult, ShellHistoryEntry } from "../types.ts";
+import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
 import { getPersistentAgentExecutionModeLabel } from "../../../agent/execution-mode.ts";
 import { clearTerminal } from "../../ansi.ts";
@@ -119,7 +118,7 @@ import {
   shouldRenderMainBanner,
   shouldRenderShellLanes,
 } from "../utils/app-surface.ts";
-import { getShellContentWidth, shouldRenderTranscriptDividerBeforeIndex, SHELL_LAYOUT } from "../utils/layout-tokens.ts";
+import { getShellContentWidth, SHELL_LAYOUT } from "../utils/layout-tokens.ts";
 import {
   buildLocalAgentEntries,
   type LocalAgentEntry,
@@ -281,6 +280,7 @@ function AppContent(
     conversation.liveItems.length;
   const committedHistoryCount = conversation.historyItems.length;
   const [transcriptOverlaySearchActive, setTranscriptOverlaySearchActive] = useState(false);
+  const [scrollPayload, setScrollPayload] = useState<ScrollReadyPayload | null>(null);
   const [focusedTeammateIndex, setFocusedTeammateIndex] = useState(-1);
   const [localAgentsFocused, setLocalAgentsFocused] = useState(false);
   const [backgroundTasksOverlayState, setBackgroundTasksOverlayState] =
@@ -319,9 +319,10 @@ function AppContent(
     }
     return `${idleCount} idle`;
   }, [teamState.active, teamState.members]);
-  const committedDisplayItems = useMemo(
-    () => filterRenderableTimelineItems(compactPlanTranscriptItems(conversation.historyItems)),
-    [conversation.historyItems],
+  const allDisplayItems = useMemo(
+    () => compactPlanTranscriptItems(conversation.historyItems)
+      .concat(conversation.liveItems),
+    [conversation.historyItems, conversation.liveItems],
   );
   const baseLocalAgentEntries = useMemo<LocalAgentEntry[]>(
     () =>
@@ -1493,6 +1494,18 @@ function AppContent(
     if (activeOverlay !== "none") {
       return;
     }
+    // Viewport scroll keybindings (PageUp/PageDown)
+    if (scrollPayload && !pendingInteraction) {
+      const pageSize = Math.max(1, scrollPayload.visibleCount - 2);
+      if (key.pageUp) {
+        scrollPayload.actions.scrollUp(pageSize);
+        return;
+      }
+      if (key.pageDown) {
+        scrollPayload.actions.scrollDown(pageSize);
+        return;
+      }
+    }
     if (globalBinding.kind === "handler") {
       void executeHandler(globalBinding.id);
       return;
@@ -1687,37 +1700,33 @@ function AppContent(
   const queuedConversationDrafts = composerShellState.queuePreviewRows > 0
     ? composerRef.current?.getPendingQueue() ?? []
     : [];
+
+  // Compute reserved rows from actual chrome visibility for accurate viewport sizing.
+  // MIN_RESERVED_ROWS (5) is the baseline; banner adds its measured height when visible.
+  const bannerVisible = shouldRenderMainBanner({
+    showBanner,
+    hasBeenCleared,
+    isOverlayOpen,
+    hasStandaloneSurface,
+    hasActivePlanningState,
+    hasShellHistory: committedHistoryCount > 0,
+    hasLiveConversation: conversation.liveItems.length > 0,
+    hasQueuedInput: composerShellState.queuedDraftCount > 0,
+    hasPendingInteraction: Boolean(pendingInteraction),
+    hasLocalAgents: localAgentEntries.length > 0,
+  });
+  const transcriptReservedRows = MIN_RESERVED_ROWS + (bannerVisible
+    ? getBannerRowCount(init.errors.length, terminalWidth)
+    : 0);
+
   return (
-    <>
-    {/* Committed history rendered into terminal scrollback (never re-rendered) */}
-    <Static items={committedDisplayItems} children={(item: ShellHistoryEntry, index: number) => (
-        <Box key={item.id} paddingX={SHELL_LAYOUT.gutterX} flexDirection="column">
-          <TimelineItemRenderer
-            item={item}
-            width={shellContentWidth}
-            compactSpacing
-            showDividerBefore={shouldRenderTranscriptDividerBeforeIndex(
-              committedDisplayItems, index, false,
-            )}
-          />
-        </Box>
-    )} />
+    <FullscreenViewport>
     <Box
       flexDirection="column"
+      flexGrow={1}
       paddingX={SHELL_LAYOUT.gutterX}
     >
-      {shouldRenderMainBanner({
-        showBanner,
-        hasBeenCleared,
-        isOverlayOpen,
-        hasStandaloneSurface,
-        hasActivePlanningState,
-        hasShellHistory: committedHistoryCount > 0,
-        hasLiveConversation: conversation.liveItems.length > 0,
-        hasQueuedInput: composerShellState.queuedDraftCount > 0,
-        hasPendingInteraction: Boolean(pendingInteraction),
-        hasLocalAgents: localAgentEntries.length > 0,
-      }) && (
+      {bannerVisible && (
         <>
           <Banner errors={init.errors} />
           {init.updateInfo && <UpdateBanner update={init.updateInfo} />}
@@ -1833,16 +1842,15 @@ function AppContent(
       {!hasStandaloneSurface && renderShellLanes && (
         <Box
           flexDirection="column"
+          flexGrow={1}
           marginBottom={SHELL_LAYOUT.transcriptToComposerGap}
         >
           <RenderErrorBoundary>
-            <TranscriptSurface
-              liveItems={hasConversationContext ? conversation.liveItems : []}
+            <VirtualTranscript
+              items={hasConversationContext ? allDisplayItems : []}
               width={shellContentWidth}
               compactSpacing
-              interactive={!isOverlayOpen}
-              allowToggleHotkeys={surfacePanel === "conversation" &&
-                allowConversationToggleHotkeys}
+              reservedRows={transcriptReservedRows}
               streamingState={hasConversationContext
                 ? conversation.streamingState
                 : undefined}
@@ -1854,6 +1862,7 @@ function AppContent(
                 : undefined}
               showPlanChecklist={hasConversationContext}
               showLeadingDivider={composerShellState.queuedDraftCount > 0}
+              onScrollReady={setScrollPayload}
             />
           </RenderErrorBoundary>
         </Box>
@@ -1977,7 +1986,7 @@ function AppContent(
           />
         )}
     </Box>
-    </>
+    </FullscreenViewport>
   );
 }
 

@@ -1114,21 +1114,33 @@ export async function executeToolCall(
       }
     }
 
-    const structuredFailure = getStructuredFailure(result);
+    let structuredFailure = getStructuredFailure(result);
     if (structuredFailure) {
-      const failureResult = buildToolErrorResult(
-        toolCall.toolName,
-        structuredFailure.message,
-        startedAt,
-        config,
-        toolCall.id,
-        structuredFailure.failure,
-      );
-      return await maybeEnrichPlaywrightFailureResult(
-        toolCall,
-        failureResult,
-        config.sessionId,
-      );
+      // On-demand Chromium install: if a pw_* tool reports browser unavailable,
+      // attempt auto-install and retry once before returning the failure.
+      if (
+        toolCall.toolName.startsWith("pw_") &&
+        structuredFailure.failure.code === "pw_browser_unavailable" &&
+        await ensurePlaywrightChromium(config)
+      ) {
+        result = await runTool();
+        structuredFailure = getStructuredFailure(result);
+      }
+      if (structuredFailure) {
+        const failureResult = buildToolErrorResult(
+          toolCall.toolName,
+          structuredFailure.message,
+          startedAt,
+          config,
+          toolCall.id,
+          structuredFailure.failure,
+        );
+        return await maybeEnrichPlaywrightFailureResult(
+          toolCall,
+          failureResult,
+          config.sessionId,
+        );
+      }
     }
 
     const outputs = await buildToolResultOutputs(

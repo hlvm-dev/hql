@@ -2,7 +2,7 @@
  * useExpansionState - Shared expansion state for conversation panels.
  *
  * Consolidates the 5 Sets + isXExpanded callbacks + toggleTarget logic
- * duplicated across ConversationPanel, PendingTurnPanel, and TranscriptSurface.
+ * shared by ConversationPanel and VirtualTranscript.
  */
 
 import React, { useCallback, useEffect, useState } from "react";

@@ -25,7 +25,7 @@ import {
   getConfiguredModel,
   resolveCompatibleClaudeCodeModel,
 } from "../../common/ai-default-model.ts";
-import { DEFAULT_MODEL_ID } from "../../common/config/types.ts";
+import { AUTO_MODEL_ID, DEFAULT_MODEL_ID } from "../../common/config/types.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { loadInstructionHierarchy } from "../prompt/mod.ts";
 import { deriveDefaultSessionKey } from "../runtime/session-key.ts";
@@ -126,16 +126,18 @@ import {
   createTodoStateFromPlan,
   isTodoStateDerivedFromPlan,
 } from "./todo-state.ts";
-import {
-  type DelegationSignal,
-  evaluateDelegationSignal,
-} from "./delegation-heuristics.ts";
+import { type DelegationSignal } from "./delegation-heuristics.ts";
 import {
   formatPlanForContext,
   getPlanSignature,
   type PlanningPhase,
   restorePlanState,
 } from "./planning.ts";
+import {
+  computeRoutingResult,
+  delegationSignalFromRoutingResult,
+} from "./request-routing.ts";
+import type { AllClassification } from "../runtime/local-llm.ts";
 import {
   effectiveToolSurfaceIncludesMutation,
   isMutatingTool,
@@ -203,7 +205,9 @@ function buildPlanModeAllowlist(options: {
 /** Load skill catalog via dynamic import. Returns undefined on failure (fail-open). */
 async function tryLoadSkillCatalog(
   workspace?: string,
-): Promise<ReadonlyMap<string, import("../skills/types.ts").SkillDefinition> | undefined> {
+): Promise<
+  ReadonlyMap<string, import("../skills/types.ts").SkillDefinition> | undefined
+> {
   try {
     const { loadSkillCatalog } = await import("../skills/mod.ts");
     return await loadSkillCatalog(workspace);
@@ -768,14 +772,24 @@ export async function runAgentQuery(
 
   // Auto model resolution — dynamic import to avoid loading provider listing when not needed
   let autoDecision: import("./auto-select.ts").AutoDecision | null = null;
-  if (model === "auto") {
-    const { resolveAutoModel } = await import("./auto-select.ts");
+  let allClassification: AllClassification | undefined;
+  if (model === AUTO_MODEL_ID) {
+    const [{ classifyAll }, { resolveAutoModel }] = await Promise.all([
+      import("../runtime/local-llm.ts"),
+      import("./auto-select.ts"),
+    ]);
     const { loadConfig } = await import("../../common/config/storage.ts");
     const config = await loadConfig();
     const policy = config.autoSelect as
       | import("./auto-select.ts").AutoSelectPolicy
       | undefined;
-    autoDecision = await resolveAutoModel(query, options.attachments, policy);
+    allClassification = await classifyAll(query);
+    autoDecision = await resolveAutoModel(
+      query,
+      options.attachments,
+      policy,
+      allClassification.taskClassification,
+    );
     model = autoDecision.model;
     traceReplMainThreadForSource(options.querySource, "agent.auto_select", {
       model: autoDecision.model,
@@ -786,7 +800,9 @@ export async function runAgentQuery(
 
   if (!supportsAgentExecution(model, options.modelInfo)) {
     // Configured model is constrained — fall back to guaranteed local default
-    if (model !== DEFAULT_MODEL_ID && supportsAgentExecution(DEFAULT_MODEL_ID)) {
+    if (
+      model !== DEFAULT_MODEL_ID && supportsAgentExecution(DEFAULT_MODEL_ID)
+    ) {
       model = DEFAULT_MODEL_ID;
     } else {
       throw new ValidationError(
@@ -835,14 +851,34 @@ export async function runAgentQuery(
   const effectiveToolDenylist = !persistentMemoryEnabled
     ? [...new Set([...toolDenylist, ...Object.keys(MEMORY_TOOLS)])]
     : [...toolDenylist];
-  const delegationSignal = isMainThreadQuerySource(querySource)
-    ? {
-      shouldDelegate: false,
-      reason: "repl_main_thread",
-      suggestedPattern: "none" as const,
-      taskDomain: "general" as const,
-    }
-    : await evaluateDelegationSignal(query);
+  const routingResult = await computeRoutingResult({
+    query,
+    tier: classifyModelTier(options.modelInfo, model),
+    querySource,
+    preComputedClassification: allClassification,
+  });
+  const delegationSignal = delegationSignalFromRoutingResult(routingResult);
+  callbacks.onTrace?.({
+    type: "routing_decision",
+    tier: routingResult.tier,
+    behavior: routingResult.behavior,
+    provenance: routingResult.provenance,
+    taskDomain: routingResult.taskDomain,
+    shouldDelegate: routingResult.shouldDelegate,
+    delegatePattern: routingResult.delegatePattern,
+    needsPlan: routingResult.needsPlan,
+    reason: routingResult.reason,
+  });
+  traceReplMainThreadForSource(querySource, "agent.routing", {
+    tier: routingResult.tier,
+    behavior: routingResult.behavior,
+    provenance: routingResult.provenance,
+    taskDomain: routingResult.taskDomain,
+    shouldDelegate: routingResult.shouldDelegate,
+    delegatePattern: routingResult.delegatePattern,
+    needsPlan: routingResult.needsPlan,
+    reason: routingResult.reason,
+  });
   const requestedToolAllowlist = resolveQueryToolAllowlist(
     options.toolAllowlist,
   );
@@ -894,7 +930,9 @@ export async function runAgentQuery(
       toolValidator: hasTool,
       trusted: instructions.trusted,
     });
-  const skills = matchingReusableSession ? undefined : await tryLoadSkillCatalog(workspace);
+  const skills = matchingReusableSession
+    ? undefined
+    : await tryLoadSkillCatalog(workspace);
   const isReusableSession = !!matchingReusableSession;
   const engine = isReusableSession ? undefined : getAgentEngine();
   let session: AgentSession;
@@ -1028,8 +1066,6 @@ export async function runAgentQuery(
     } else {
       session.todoState.items = [];
     }
-
-    session.resetToolFilter?.();
 
     if (persistedTurnSessionId) {
       persistedTurn = startPersistedAgentTurn(persistedTurnSessionId, query);
@@ -1427,6 +1463,7 @@ export async function runAgentQuery(
         },
         skipModelCompensation: false,
         modelTier: session.modelTier,
+        routingResult,
         modelId: model,
         sessionId: runtimeSessionId,
         turnId,

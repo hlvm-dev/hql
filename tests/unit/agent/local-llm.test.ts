@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
+  classifyAll,
   classifyBrowserAutomation,
   classifyBrowserFinalAnswer,
   classifyDelegation,
@@ -13,6 +14,7 @@ import {
 } from "../../../src/hlvm/runtime/local-llm.ts";
 import { LOCAL_FALLBACK_MODEL_ID } from "../../../src/hlvm/runtime/local-fallback.ts";
 import { DEFAULT_MODEL_ID } from "../../../src/common/config/types.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 
 Deno.test("getLocalModelDisplayName: derives from LOCAL_FALLBACK_MODEL_ID", () => {
   const name = getLocalModelDisplayName();
@@ -110,6 +112,50 @@ Deno.test("classifyDelegation: whitespace-only returns defaults", async () => {
   const result = await classifyDelegation("   ");
   assertEquals(result.shouldDelegate, false);
   assertEquals(result.pattern, "none");
+});
+
+Deno.test("classifyAll: empty query returns defaults", async () => {
+  const result = await classifyAll("");
+  assertEquals(result.isBrowser, false);
+  assertEquals(result.shouldDelegate, false);
+  assertEquals(result.delegatePattern, "none");
+  assertEquals(result.needsPlan, false);
+  assertEquals(result.taskClassification.isCodeTask, false);
+  assertEquals(result.taskClassification.isReasoningTask, false);
+  assertEquals(result.taskClassification.needsStructuredOutput, false);
+});
+
+Deno.test("classifyAll: whitespace-only returns defaults", async () => {
+  const result = await classifyAll("   ");
+  assertEquals(result.isBrowser, false);
+  assertEquals(result.shouldDelegate, false);
+  assertEquals(result.delegatePattern, "none");
+  assertEquals(result.needsPlan, false);
+  assertEquals(result.taskClassification.isCodeTask, false);
+  assertEquals(result.taskClassification.isReasoningTask, false);
+  assertEquals(result.taskClassification.needsStructuredOutput, false);
+});
+
+Deno.test("classifyAll: disabled local AI falls back to defaults", async () => {
+  const platform = getPlatform();
+  const previous = platform.env.get("HLVM_DISABLE_AI_AUTOSTART");
+  platform.env.set("HLVM_DISABLE_AI_AUTOSTART", "1");
+  try {
+    const result = await classifyAll("open example.com and summarize it");
+    assertEquals(result.isBrowser, false);
+    assertEquals(result.shouldDelegate, false);
+    assertEquals(result.delegatePattern, "none");
+    assertEquals(result.needsPlan, false);
+    assertEquals(result.taskClassification.isCodeTask, false);
+    assertEquals(result.taskClassification.isReasoningTask, false);
+    assertEquals(result.taskClassification.needsStructuredOutput, false);
+  } finally {
+    if (previous === undefined) {
+      platform.env.delete("HLVM_DISABLE_AI_AUTOSTART");
+    } else {
+      platform.env.set("HLVM_DISABLE_AI_AUTOSTART", previous);
+    }
+  }
 });
 
 Deno.test("classifyFactConflicts: empty new fact returns defaults", async () => {

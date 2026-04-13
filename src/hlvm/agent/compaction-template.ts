@@ -12,7 +12,7 @@ function uniq(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-function collectFiles(messages: Message[]): string[] {
+export function collectFiles(messages: Message[]): string[] {
   const matches: string[] = [];
   for (const message of messages) {
     for (const match of message.content.match(PATH_REGEX) ?? []) {
@@ -22,7 +22,7 @@ function collectFiles(messages: Message[]): string[] {
   return uniq(matches).slice(0, 20);
 }
 
-function collectSymbols(messages: Message[]): string[] {
+export function collectSymbols(messages: Message[]): string[] {
   const matches: string[] = [];
   for (const message of messages) {
     if (message.role === "user") continue;
@@ -49,10 +49,32 @@ function formatSection(title: string, body: string[]): string {
   return `## ${title}\n${content}`;
 }
 
-export function buildCompactionPrompt(messages: Message[]): string {
-  const userMessages = messages
+const DEFAULT_MAX_PROMPT_CHARS = 100_000;
+
+export function buildCompactionPrompt(
+  messages: Message[],
+  maxPromptChars?: number,
+): string {
+  const cap = maxPromptChars ?? DEFAULT_MAX_PROMPT_CHARS;
+  let userMessages = messages
     .filter((message) => message.role === "user")
     .map((message) => `- ${message.content.trim()}`);
+
+  // Cap verbatim user messages section — keep most recent, drop oldest
+  const verbatimBudget = Math.floor(cap * 0.4);
+  let verbatimTotal = 0;
+  const capped: string[] = [];
+  // Walk from newest to oldest so we keep recent messages
+  for (let i = userMessages.length - 1; i >= 0; i--) {
+    verbatimTotal += userMessages[i].length;
+    if (verbatimTotal > verbatimBudget) {
+      capped.unshift("- [earlier user messages truncated for compaction budget]");
+      break;
+    }
+    capped.unshift(userMessages[i]);
+  }
+  userMessages = capped;
+
   const primaryRequestMessages = messages
     .filter((message) => message.role === "user")
     .map((message) => `- ${truncate(message.content.trim(), USER_EXCERPT_CHARS)}`);
@@ -97,11 +119,18 @@ export function buildCompactionPrompt(messages: Message[]): string {
     ]),
   ];
 
-  return [
+  let prompt = [
     "Summarize the conversation into the structured sections below.",
     "Preserve user intent, files, active tasks, debugging state, and next-step context.",
     "Do not invent facts. Keep it dense and implementation-focused.",
     "",
     ...sections,
   ].join("\n\n");
+
+  // Final safety: hard-truncate if still over budget
+  if (prompt.length > cap) {
+    prompt = prompt.slice(0, cap - 50) +
+      "\n\n[Prompt truncated to fit compaction budget]";
+  }
+  return prompt;
 }

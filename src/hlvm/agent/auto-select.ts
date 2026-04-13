@@ -14,10 +14,12 @@ import {
   withFallbackChain,
 } from "../runtime/local-fallback.ts";
 import { ValidationError } from "../../common/error.ts";
+import { AUTO_MODEL_ID } from "../../common/config/types.ts";
 import type { ModelInfo } from "../providers/types.ts";
 import type { LLMFunction } from "./orchestrator-llm.ts";
 import type { LLMResponse } from "./tool-call.ts";
 import type { TraceEvent } from "./orchestrator.ts";
+import type { TaskClassification } from "../runtime/local-llm.ts";
 
 // ============================================================
 // Types
@@ -78,7 +80,12 @@ export interface AutoSelectPolicy {
 
 interface ModelOverride {
   pattern: RegExp;
-  caps: Partial<Pick<ModelCaps, "codingStrength" | "costTier" | "structuredOutput" | "reasoning">>;
+  caps: Partial<
+    Pick<
+      ModelCaps,
+      "codingStrength" | "costTier" | "structuredOutput" | "reasoning"
+    >
+  >;
 }
 
 /**
@@ -88,41 +95,100 @@ interface ModelOverride {
  */
 const MODEL_OVERRIDES: readonly ModelOverride[] = [
   // Anthropic
-  { pattern: /claude-opus/i, caps: { codingStrength: "strong", costTier: "premium" } },
-  { pattern: /claude-sonnet/i, caps: { codingStrength: "strong", costTier: "mid" } },
-  { pattern: /claude-haiku/i, caps: { codingStrength: "mid", costTier: "cheap" } },
+  {
+    pattern: /claude-opus/i,
+    caps: { codingStrength: "strong", costTier: "premium" },
+  },
+  {
+    pattern: /claude-sonnet/i,
+    caps: { codingStrength: "strong", costTier: "mid" },
+  },
+  {
+    pattern: /claude-haiku/i,
+    caps: { codingStrength: "mid", costTier: "cheap" },
+  },
 
   // OpenAI
-  { pattern: /gpt-4o(?!-mini)/i, caps: { codingStrength: "strong", costTier: "mid", structuredOutput: true } },
-  { pattern: /gpt-4o-mini/i, caps: { codingStrength: "mid", costTier: "cheap", structuredOutput: true } },
-  { pattern: /o[134]-(?:mini|preview|pro)/i, caps: { codingStrength: "strong", costTier: "premium", reasoning: true } },
-  { pattern: /gpt-4-turbo/i, caps: { codingStrength: "strong", costTier: "mid" } },
+  {
+    pattern: /gpt-4o(?!-mini)/i,
+    caps: { codingStrength: "strong", costTier: "mid", structuredOutput: true },
+  },
+  {
+    pattern: /gpt-4o-mini/i,
+    caps: { codingStrength: "mid", costTier: "cheap", structuredOutput: true },
+  },
+  {
+    pattern: /o[134]-(?:mini|preview|pro)/i,
+    caps: { codingStrength: "strong", costTier: "premium", reasoning: true },
+  },
+  {
+    pattern: /gpt-4-turbo/i,
+    caps: { codingStrength: "strong", costTier: "mid" },
+  },
   { pattern: /gpt-3\.5/i, caps: { codingStrength: "weak", costTier: "cheap" } },
 
   // Google
-  { pattern: /gemini-2\.\d+-pro/i, caps: { codingStrength: "strong", costTier: "mid" } },
-  { pattern: /gemini-2\.\d+-flash(?!-lite)/i, caps: { codingStrength: "mid", costTier: "cheap" } },
-  { pattern: /gemini-2\.\d+-flash-lite/i, caps: { codingStrength: "weak", costTier: "cheap" } },
-  { pattern: /gemini-1\.5-pro/i, caps: { codingStrength: "strong", costTier: "mid" } },
-  { pattern: /gemini-1\.5-flash/i, caps: { codingStrength: "mid", costTier: "cheap" } },
+  {
+    pattern: /gemini-2\.\d+-pro/i,
+    caps: { codingStrength: "strong", costTier: "mid" },
+  },
+  {
+    pattern: /gemini-2\.\d+-flash(?!-lite)/i,
+    caps: { codingStrength: "mid", costTier: "cheap" },
+  },
+  {
+    pattern: /gemini-2\.\d+-flash-lite/i,
+    caps: { codingStrength: "weak", costTier: "cheap" },
+  },
+  {
+    pattern: /gemini-1\.5-pro/i,
+    caps: { codingStrength: "strong", costTier: "mid" },
+  },
+  {
+    pattern: /gemini-1\.5-flash/i,
+    caps: { codingStrength: "mid", costTier: "cheap" },
+  },
 
   // Ollama local models
-  { pattern: /codellama|code-?llama/i, caps: { codingStrength: "mid", costTier: "free" } },
-  { pattern: /deepseek-r1/i, caps: { codingStrength: "strong", costTier: "free", reasoning: true } },
-  { pattern: /deepseek-coder/i, caps: { codingStrength: "mid", costTier: "free" } },
-  { pattern: /qwen2\.5-coder/i, caps: { codingStrength: "mid", costTier: "free" } },
-  { pattern: /llama3\.[\d]/i, caps: { codingStrength: "mid", costTier: "free" } },
+  {
+    pattern: /codellama|code-?llama/i,
+    caps: { codingStrength: "mid", costTier: "free" },
+  },
+  {
+    pattern: /deepseek-r1/i,
+    caps: { codingStrength: "strong", costTier: "free", reasoning: true },
+  },
+  {
+    pattern: /deepseek-coder/i,
+    caps: { codingStrength: "mid", costTier: "free" },
+  },
+  {
+    pattern: /qwen2\.5-coder/i,
+    caps: { codingStrength: "mid", costTier: "free" },
+  },
+  {
+    pattern: /llama3\.[\d]/i,
+    caps: { codingStrength: "mid", costTier: "free" },
+  },
   { pattern: /gemma/i, caps: { codingStrength: "mid", costTier: "free" } },
   { pattern: /mistral/i, caps: { codingStrength: "mid", costTier: "free" } },
   { pattern: /phi-?[34]/i, caps: { codingStrength: "mid", costTier: "free" } },
 
   // Claude Code (passthrough)
-  { pattern: /claude-code/i, caps: { codingStrength: "strong", costTier: "premium" } },
+  {
+    pattern: /claude-code/i,
+    caps: { codingStrength: "strong", costTier: "premium" },
+  },
 ] as const;
 
 function lookupOverrides(
   modelId: string,
-): Partial<Pick<ModelCaps, "codingStrength" | "costTier" | "structuredOutput" | "reasoning">> {
+): Partial<
+  Pick<
+    ModelCaps,
+    "codingStrength" | "costTier" | "structuredOutput" | "reasoning"
+  >
+> {
   for (const entry of MODEL_OVERRIDES) {
     if (entry.pattern.test(modelId)) return entry.caps;
   }
@@ -135,7 +201,7 @@ function lookupOverrides(
 
 /** Check if the model string means "auto select" */
 export function isAutoModel(model: string): boolean {
-  return model === "auto";
+  return model === AUTO_MODEL_ID;
 }
 
 /** Extract task signals from prompt and attachments using LLM classification. */
@@ -146,9 +212,10 @@ export function buildBaseProfile(
   policy?: AutoSelectPolicy,
 ): TaskProfile {
   return {
-    hasImage: attachments?.some((a) =>
-      a.kind === "image" || a.mimeType?.startsWith("image/")
-    ) ?? false,
+    hasImage:
+      attachments?.some((a) =>
+        a.kind === "image" || a.mimeType?.startsWith("image/")
+      ) ?? false,
     promptIsLarge: query.length > 4000,
     preferCheap: policy?.preferCheap ?? false,
     preferQuality: policy?.preferQuality ?? false,
@@ -166,9 +233,20 @@ export async function buildTaskProfile(
   query: string,
   attachments?: Array<{ kind?: string; mimeType?: string }>,
   policy?: AutoSelectPolicy,
+  preComputedTaskClassification?: TaskClassification | null,
 ): Promise<TaskProfile> {
   const base = buildBaseProfile(query, attachments, policy);
   if (!query.trim()) return base;
+
+  if (preComputedTaskClassification) {
+    return {
+      ...base,
+      needsStructuredOutput:
+        preComputedTaskClassification.needsStructuredOutput,
+      isCodeTask: preComputedTaskClassification.isCodeTask,
+      isReasoningTask: preComputedTaskClassification.isReasoningTask,
+    };
+  }
 
   const { classifyTask } = await import("../runtime/local-llm.ts");
   const classification = await classifyTask(query);
@@ -195,7 +273,10 @@ function providerPreference(provider: string): number {
 }
 
 /** Convert ModelInfo from provider into normalized ModelCaps */
-export function modelInfoToModelCaps(modelId: string, info: ModelInfo): ModelCaps {
+export function modelInfoToModelCaps(
+  modelId: string,
+  info: ModelInfo,
+): ModelCaps {
   const provider = typeof info.metadata?.provider === "string"
     ? info.metadata.provider
     : "";
@@ -210,7 +291,9 @@ export function modelInfoToModelCaps(modelId: string, info: ModelInfo): ModelCap
     ? "weak"
     : "mid";
 
-  const costTierFromInfo: CostTier | undefined = info.costTier as CostTier | undefined;
+  const costTierFromInfo: CostTier | undefined = info.costTier as
+    | CostTier
+    | undefined;
   const apiKeyConfigured = isLocal || info.metadata?.apiKeyConfigured === true;
 
   return {
@@ -218,10 +301,12 @@ export function modelInfoToModelCaps(modelId: string, info: ModelInfo): ModelCap
     provider,
     vision: caps.includes("vision"),
     longContext: (info.contextWindow ?? 0) >= 128_000,
-    structuredOutput: overrides.structuredOutput ?? caps.includes("structured.output"),
+    structuredOutput: overrides.structuredOutput ??
+      caps.includes("structured.output"),
     toolCalling: caps.includes("tools"),
     local: isLocal,
-    costTier: overrides.costTier ?? costTierFromInfo ?? (isLocal ? "free" : "mid"),
+    costTier: overrides.costTier ?? costTierFromInfo ??
+      (isLocal ? "free" : "mid"),
     codingStrength: overrides.codingStrength ?? defaultCodingStrength,
     reasoning: overrides.reasoning ?? caps.includes("thinking"),
     apiKeyConfigured,
@@ -243,7 +328,9 @@ export function filterModels(
     return true;
   };
 
-  const strong = models.filter((m) => baseFilter(m) && m.codingStrength !== "weak");
+  const strong = models.filter((m) =>
+    baseFilter(m) && m.codingStrength !== "weak"
+  );
 
   // Fallback: if no mid/strong models, allow weak ones (better suboptimal than nothing)
   if (strong.length === 0) {
@@ -306,6 +393,7 @@ export async function chooseAutoModel(
   attachments: Array<{ kind?: string; mimeType?: string }> | undefined,
   policy: AutoSelectPolicy | undefined,
   models: ModelInfo[],
+  preComputedTaskClassification?: TaskClassification | null,
 ): Promise<AutoDecision> {
   // Phase 1: instant — filter by hard constraints (no LLM call)
   const baseProfile = buildBaseProfile(query, attachments, policy);
@@ -337,7 +425,12 @@ export async function chooseAutoModel(
   }
 
   // Phase 2: LLM classification (~500ms) — only when there's a real choice
-  const profile = await buildTaskProfile(query, attachments, policy);
+  const profile = await buildTaskProfile(
+    query,
+    attachments,
+    policy,
+    preComputedTaskClassification,
+  );
 
   // Score and sort (descending score, then tie-break by cost/provider)
   const scored = eligible
@@ -384,14 +477,23 @@ export async function resolveAutoModel(
   query: string,
   attachments?: Array<{ kind?: string; mimeType?: string }>,
   policy?: AutoSelectPolicy,
+  preComputedTaskClassification?: TaskClassification | null,
 ): Promise<AutoDecision> {
   const now = Date.now();
   if (!cachedModels || now - cachedAt > MODEL_CACHE_TTL_MS) {
-    const { listAllProviderModels } = await import("../providers/model-list.ts");
+    const { listAllProviderModels } = await import(
+      "../providers/model-list.ts"
+    );
     cachedModels = await listAllProviderModels();
     cachedAt = now;
   }
-  return await chooseAutoModel(query, attachments, policy, cachedModels);
+  return await chooseAutoModel(
+    query,
+    attachments,
+    policy,
+    cachedModels,
+    preComputedTaskClassification,
+  );
 }
 
 /** Clear the provider model cache (e.g. after provider config changes). */

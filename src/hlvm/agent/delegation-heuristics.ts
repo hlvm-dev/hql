@@ -8,19 +8,27 @@ export interface DelegationSignal {
   estimatedSubtasks?: number;
 }
 
-const PARALLEL_CUE_PATTERN =
+export const PARALLEL_CUE_PATTERN =
   /\b(?:in parallel|parallel(?:ly)?|concurrently|simultaneously)\b/i;
-const BATCH_CUE_PATTERN =
+export const BATCH_CUE_PATTERN =
   /\b(?:each of these files|process each|for each|across all files|across the .* directory|across .* directory|all files|all modules|every module|every file|each file|each module)\b/i;
+export const BROWSER_TOOL_CUE_PATTERN =
+  /\b(?:pw|cu)_(?:\*|[a-z0-9_]+)(?![a-z0-9_])/i;
+export const BROWSER_URL_CUE_PATTERN = /\bhttps?:\/\/|\bwww\./i;
+export const BROWSER_NAVIGATE_DOMAIN_PATTERN =
+  /\b(?:go to|open|navigate to|visit)\s+\S*\w+\.(?:com|org|net|dev|io|ai|gov|edu|co|me|app|page|site|wiki)\b/i;
+
+export function detectDeterministicBrowserAutomation(request: string): boolean {
+  return BROWSER_TOOL_CUE_PATTERN.test(request) ||
+    BROWSER_URL_CUE_PATTERN.test(request) ||
+    BROWSER_NAVIGATE_DOMAIN_PATTERN.test(request);
+}
 
 async function requestLooksLikeBrowserAutomation(
   request: string,
 ): Promise<boolean> {
   // Structural short-circuits: tool names and URLs are unambiguous signals
-  if (/\b(?:pw|cu)_(?:\*|[a-z0-9_]+)(?![a-z0-9_])/i.test(request)) return true;
-  if (/\bhttps?:\/\/|\bwww\./i.test(request)) return true;
-  // Browser-action verb + domain-like pattern (e.g., "go to python.org")
-  if (/\b(?:go to|open|navigate to|visit)\s+\S*\w+\.(?:com|org|net|dev|io|ai|gov|edu|co|me|app|page|site|wiki)\b/i.test(request)) return true;
+  if (detectDeterministicBrowserAutomation(request)) return true;
 
   const { classifyBrowserAutomation } = await import(
     "../runtime/local-llm.ts"
@@ -29,7 +37,7 @@ async function requestLooksLikeBrowserAutomation(
   return result.isBrowserTask;
 }
 
-function detectDeterministicDelegation(
+export function detectDeterministicDelegation(
   request: string,
   uniqueFileCount: number,
 ): DelegationSignal | null {

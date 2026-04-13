@@ -91,12 +91,7 @@ export async function createRuntimeConfigManager(): Promise<
     ensureInitialModelConfigured: async (options = {}) => {
       return await ensureInitialModelConfiguredCommon(options, {
         getSnapshot: () => runtimeConfig,
-        getStatus: getRuntimeProviderStatus,
         listModels: listRuntimeInstalledModels,
-        listCatalogModels: async () => {
-          const snapshot = await getRuntimeModelDiscovery();
-          return snapshot.remoteModels;
-        },
         patchConfig,
         syncSnapshot: syncRuntimeConfig,
       });

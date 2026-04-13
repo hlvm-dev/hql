@@ -64,3 +64,20 @@ export function enableKittyKeyboardProtocol(): void {
 export function disableKittyKeyboardProtocol(): void {
   writeTerminalSequence("\x1b[<u");
 }
+
+/**
+ * Enter the alternate screen buffer (DEC private mode 1049).
+ * Content written before this call is preserved in the primary buffer
+ * and restored when exitAlternateScreen() is called.
+ */
+export function enterAlternateScreen(): void {
+  writeTerminalSequence("\x1b[?1049h\x1b[2J\x1b[H");
+}
+
+/**
+ * Exit the alternate screen buffer and restore the primary buffer.
+ * Must be called on exit to avoid leaving the terminal in alt mode.
+ */
+export function exitAlternateScreen(): void {
+  writeTerminalSequence("\x1b[?1049l");
+}

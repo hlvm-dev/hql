@@ -24,6 +24,7 @@ import type { CitationSourceEntry } from "./tools/web/citation-spans.ts";
 import type { EditFileRecovery } from "./error-taxonomy.ts";
 import type { RuntimeToolPhase } from "./orchestrator.ts";
 import type { DelegationSignal } from "./delegation-heuristics.ts";
+import { delegationSignalFromRoutingResult } from "./request-routing.ts";
 import type { ToolPresentationKind } from "./registry.ts";
 import type { ToolFailureMetadata } from "./tool-results.ts";
 import {
@@ -197,6 +198,9 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     memoryRecallInjected: false,
     lastTeamSummarySignature: "",
     delegationHintInjected: false,
+    cachedDelegationSignal: config.routingResult
+      ? delegationSignalFromRoutingResult(config.routingResult)
+      : undefined,
     passageIndex: [],
     lastToolNames: [],
     loopRecoveryStep: 0,

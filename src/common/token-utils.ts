@@ -122,9 +122,25 @@ export function estimateTokensFromMessages(
   return estimateTokensFromCharCount(totalChars, modelKey);
 }
 
-/** Count total message content characters. */
+/** Count total message content characters (including attachment costs). */
 export function getMessageCharCount(
-  messages: Array<{ content: string }>,
+  messages: Array<{
+    content: string;
+    attachments?: Array<
+      { mode: "text"; text: string; size: number } | {
+        mode: "binary";
+        size: number;
+      }
+    >;
+  }>,
 ): number {
-  return messages.reduce((sum, msg) => sum + msg.content.length, 0);
+  return messages.reduce((sum, msg) => {
+    let chars = msg.content.length;
+    if (msg.attachments) {
+      for (const att of msg.attachments) {
+        chars += att.mode === "text" ? att.text.length : att.size;
+      }
+    }
+    return sum + chars;
+  }, 0);
 }

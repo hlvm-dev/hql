@@ -206,7 +206,8 @@ function renderToolRouting(
   tools: Record<string, ToolMetadata>,
 ): RawPromptSection {
   const groups = new Map<string, { tools: string[]; replaces: string[] }>();
-  for (const [name, meta] of Object.entries(tools)) {
+  const sortedEntries = Object.entries(tools).sort(([a], [b]) => a.localeCompare(b));
+  for (const [name, meta] of sortedEntries) {
     if (!meta.replaces) continue;
     const label = meta.category
       ? (CATEGORY_LABELS[meta.category] ?? meta.category)
@@ -248,6 +249,7 @@ function renderPermissionTiers(
     const level = meta.safetyLevel ?? "L0";
     tiers[level]?.push(name);
   }
+  for (const arr of Object.values(tiers)) arr.sort();
   const lines: string[] = [];
   if (tiers.L0.length) {
     lines.push(`Free (no approval): ${tiers.L0.join(", ")}`);

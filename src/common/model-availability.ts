@@ -1,7 +1,7 @@
 import { parseModelString } from "../hlvm/providers/index.ts";
 import { isOllamaCloudModel } from "../hlvm/providers/ollama/cloud.ts";
 import type { ModelInfo, PullProgress } from "../hlvm/providers/types.ts";
-import { DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER } from "./config/types.ts";
+import { AUTO_MODEL_ID, DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER } from "./config/types.ts";
 import { getErrorMessage } from "./utils.ts";
 
 export interface ModelAvailabilityTarget {
@@ -63,15 +63,18 @@ export interface EnsureModelAvailabilityResult
 export function resolveModelAvailabilityTarget(
   modelId: string,
 ): ModelAvailabilityTarget {
-  let [providerName, modelName] = parseModelString(modelId);
+  // "auto" is a routing directive, not an installable model — resolve to
+  // the concrete local fallback (gemma4) for availability checks.
+  const concreteId = modelId === AUTO_MODEL_ID ? DEFAULT_MODEL_ID : modelId;
+  let [providerName, modelName] = parseModelString(concreteId);
   if (!modelName) {
     [providerName, modelName] = parseModelString(DEFAULT_MODEL_ID);
   }
 
   const resolvedProvider = providerName ?? DEFAULT_MODEL_PROVIDER;
   return {
-    modelId: modelId.includes("/")
-      ? modelId
+    modelId: concreteId.includes("/")
+      ? concreteId
       : `${resolvedProvider}/${modelName}`,
     providerName: resolvedProvider,
     modelName,

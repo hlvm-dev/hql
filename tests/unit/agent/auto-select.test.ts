@@ -82,6 +82,22 @@ Deno.test("buildTaskProfile: policy passthrough", async () => {
   assertEquals(profile.localOnly, true);
 });
 
+Deno.test("buildTaskProfile: uses precomputed task classification when provided", async () => {
+  const profile = await buildTaskProfile(
+    "implement a JSON formatter",
+    undefined,
+    undefined,
+    {
+      isCodeTask: true,
+      isReasoningTask: false,
+      needsStructuredOutput: true,
+    },
+  );
+  assertEquals(profile.isCodeTask, true);
+  assertEquals(profile.isReasoningTask, false);
+  assertEquals(profile.needsStructuredOutput, true);
+});
+
 // ============================================================
 // modelInfoToModelCaps
 // ============================================================
@@ -96,45 +112,60 @@ function makeModelInfo(overrides: Partial<ModelInfo> = {}): ModelInfo {
 }
 
 Deno.test("modelInfoToModelCaps: ollama model is local", () => {
-  const caps = modelInfoToModelCaps("ollama/llama3.2", makeModelInfo({
-    name: "llama3.2",
-    metadata: { provider: "ollama" },
-  }));
+  const caps = modelInfoToModelCaps(
+    "ollama/llama3.2",
+    makeModelInfo({
+      name: "llama3.2",
+      metadata: { provider: "ollama" },
+    }),
+  );
   assertEquals(caps.local, true);
   assertEquals(caps.costTier, "free");
 });
 
 Deno.test("modelInfoToModelCaps: cloud frontier model", () => {
-  const caps = modelInfoToModelCaps("anthropic/claude-sonnet-4", makeModelInfo({
-    name: "claude-sonnet-4",
-    capabilities: ["chat", "tools", "vision"],
-    metadata: { provider: "anthropic", cloud: true },
-  }));
+  const caps = modelInfoToModelCaps(
+    "anthropic/claude-sonnet-4",
+    makeModelInfo({
+      name: "claude-sonnet-4",
+      capabilities: ["chat", "tools", "vision"],
+      metadata: { provider: "anthropic", cloud: true },
+    }),
+  );
   assertEquals(caps.local, false);
   assertEquals(caps.codingStrength, "strong");
   assertEquals(caps.vision, true);
 });
 
 Deno.test("modelInfoToModelCaps: unknown model gets safe defaults", () => {
-  const caps = modelInfoToModelCaps("openai/unknown-model-xyz", makeModelInfo({
-    name: "unknown-model-xyz",
-    metadata: { provider: "openai", cloud: true },
-  }));
+  const caps = modelInfoToModelCaps(
+    "openai/unknown-model-xyz",
+    makeModelInfo({
+      name: "unknown-model-xyz",
+      metadata: { provider: "openai", cloud: true },
+    }),
+  );
   assertEquals(caps.costTier, "mid");
   assertEquals(caps.codingStrength, "strong"); // frontier provider → strong
 });
 
 Deno.test("modelInfoToModelCaps: vision capability detected", () => {
-  const caps = modelInfoToModelCaps("test/model", makeModelInfo({
-    capabilities: ["chat", "tools", "vision"],
-  }));
+  const caps = modelInfoToModelCaps(
+    "test/model",
+    makeModelInfo({
+      capabilities: ["chat", "tools", "vision"],
+    }),
+  );
   assertEquals(caps.vision, true);
 });
 
 Deno.test("modelInfoToModelCaps: long context detected", () => {
-  const caps = modelInfoToModelCaps("test/model", makeModelInfo({
-    contextWindow: 200_000,
-  }));
+  const caps = modelInfoToModelCaps(
+    "test/model",
+    makeModelInfo({
+      contextWindow: 200_000,
+    }),
+  );
   assertEquals(caps.longContext, true);
 });
 
@@ -336,7 +367,10 @@ Deno.test("chooseAutoModel: tie-break prefers lower cost then anthropic", async 
 // ============================================================
 
 Deno.test("isLocalFallbackWorthy: rate_limit error is fallback-worthy", async () => {
-  assertEquals(await isLocalFallbackWorthy(new Error("rate limit exceeded (429)")), true);
+  assertEquals(
+    await isLocalFallbackWorthy(new Error("rate limit exceeded (429)")),
+    true,
+  );
 });
 
 Deno.test("isLocalFallbackWorthy: transient network error is fallback-worthy", async () => {
@@ -348,7 +382,10 @@ Deno.test("isLocalFallbackWorthy: timeout error is fallback-worthy", async () =>
 });
 
 Deno.test("isLocalFallbackWorthy: permanent error is not fallback-worthy", async () => {
-  assertEquals(await isLocalFallbackWorthy(new Error("HTTP 401 Unauthorized")), false);
+  assertEquals(
+    await isLocalFallbackWorthy(new Error("HTTP 401 Unauthorized")),
+    false,
+  );
 });
 
 Deno.test("isLocalFallbackWorthy: abort error is not fallback-worthy", async () => {
@@ -358,28 +395,52 @@ Deno.test("isLocalFallbackWorthy: abort error is not fallback-worthy", async () 
 
 Deno.test("isLocalFallbackWorthy: auth error WITH statusCode is fallback-worthy", async () => {
   // Message must match permanent pattern AND have statusCode for the auth-exception path
-  const authErr = Object.assign(new Error("HTTP 401 Unauthorized"), { statusCode: 401 });
+  const authErr = Object.assign(new Error("HTTP 401 Unauthorized"), {
+    statusCode: 401,
+  });
   assertEquals(await isLocalFallbackWorthy(authErr), true);
 });
 
 Deno.test("isLocalFallbackWorthy: 403 error WITH statusCode is fallback-worthy", async () => {
-  const authErr = Object.assign(new Error("HTTP 403 Forbidden"), { statusCode: 403 });
+  const authErr = Object.assign(new Error("HTTP 403 Forbidden"), {
+    statusCode: 403,
+  });
   assertEquals(await isLocalFallbackWorthy(authErr), true);
 });
 
 Deno.test("isLocalFallbackWorthy: context_overflow is not fallback-worthy", async () => {
-  assertEquals(await isLocalFallbackWorthy(new Error("maximum context length exceeded")), false);
+  assertEquals(
+    await isLocalFallbackWorthy(new Error("maximum context length exceeded")),
+    false,
+  );
 });
 
 Deno.test("classifyForLocalFallback: returns error class string when worthy", async () => {
-  assertEquals(await classifyForLocalFallback(new Error("rate limit exceeded (429)")), "rate_limit");
-  assertEquals(await classifyForLocalFallback(new Error("ECONNREFUSED")), "transient");
-  assertEquals(await classifyForLocalFallback(new Error("request timeout")), "timeout");
+  assertEquals(
+    await classifyForLocalFallback(new Error("rate limit exceeded (429)")),
+    "rate_limit",
+  );
+  assertEquals(
+    await classifyForLocalFallback(new Error("ECONNREFUSED")),
+    "transient",
+  );
+  assertEquals(
+    await classifyForLocalFallback(new Error("request timeout")),
+    "timeout",
+  );
 });
 
 Deno.test("classifyForLocalFallback: returns null when not worthy", async () => {
-  assertEquals(await classifyForLocalFallback(new Error("maximum context length exceeded")), null);
-  assertEquals(await classifyForLocalFallback(new DOMException("Aborted", "AbortError")), null);
+  assertEquals(
+    await classifyForLocalFallback(
+      new Error("maximum context length exceeded"),
+    ),
+    null,
+  );
+  assertEquals(
+    await classifyForLocalFallback(new DOMException("Aborted", "AbortError")),
+    null,
+  );
 });
 
 // ============================================================
@@ -467,7 +528,10 @@ Deno.test("callLLMWithModelFallback: last-resort used immediately when available
     },
     (fn) => fn([], undefined),
     undefined,
-    { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: () => Promise.resolve(true) },
+    {
+      model: LOCAL_FALLBACK_MODEL_ID,
+      isAvailable: () => Promise.resolve(true),
+    },
   );
   assertEquals(lastResortCalled, true);
   assertEquals(result.content, "from-gemma");
@@ -482,7 +546,10 @@ Deno.test("callLLMWithModelFallback: last-resort skipped when not available", as
       () => () => Promise.resolve(mockResponse("should not reach")),
       (fn) => fn([], undefined),
       undefined,
-      { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: () => Promise.resolve(false) },
+      {
+        model: LOCAL_FALLBACK_MODEL_ID,
+        isAvailable: () => Promise.resolve(false),
+      },
     );
     assertEquals(true, false); // should not reach
   } catch (err) {
@@ -504,7 +571,10 @@ Deno.test("callLLMWithModelFallback: manual mode (empty fallbacks) goes to last-
     },
     (fn) => fn([], undefined),
     undefined,
-    { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: () => Promise.resolve(true) },
+    {
+      model: LOCAL_FALLBACK_MODEL_ID,
+      isAvailable: () => Promise.resolve(true),
+    },
   );
   assertEquals(lastResortCalled, true);
   assertEquals(result.content, "from-gemma-manual");
@@ -519,7 +589,10 @@ Deno.test("callLLMWithModelFallback: permanent error skips lastResort even when 
       () => () => Promise.resolve(mockResponse("should not reach")),
       (fn) => fn([], undefined),
       undefined,
-      { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: () => Promise.resolve(true) },
+      {
+        model: LOCAL_FALLBACK_MODEL_ID,
+        isAvailable: () => Promise.resolve(true),
+      },
     );
     assertEquals(true, false); // should not reach
   } catch (err) {
@@ -532,11 +605,13 @@ Deno.test("callLLMWithModelFallback: permanent error skips lastResort even when 
 // ============================================================
 
 Deno.test("withFallbackChain: any error skips cloud fallbacks when last-resort ready", async () => {
-  for (const errorMsg of [
-    "rate limit exceeded (429)",
-    "Connection reset (ECONNRESET)",
-    "Request timed out after 30s",
-  ]) {
+  for (
+    const errorMsg of [
+      "rate limit exceeded (429)",
+      "Connection reset (ECONNRESET)",
+      "Request timed out after 30s",
+    ]
+  ) {
     let fallbackCallCount = 0;
     let lastResortCalled = false;
 
@@ -547,14 +622,21 @@ Deno.test("withFallbackChain: any error skips cloud fallbacks when last-resort r
         fallbackCallCount++;
         return Promise.reject(new Error("should not reach"));
       },
-      lastResort: { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: () => Promise.resolve(true) },
+      lastResort: {
+        model: LOCAL_FALLBACK_MODEL_ID,
+        isAvailable: () => Promise.resolve(true),
+      },
       tryLastResort: () => {
         lastResortCalled = true;
         return Promise.resolve("from-gemma");
       },
     });
 
-    assertEquals(fallbackCallCount, 0, `cloud fallbacks skipped for: ${errorMsg}`);
+    assertEquals(
+      fallbackCallCount,
+      0,
+      `cloud fallbacks skipped for: ${errorMsg}`,
+    );
     assertEquals(lastResortCalled, true);
     assertEquals(result, "from-gemma");
   }
@@ -564,16 +646,24 @@ Deno.test("withFallbackChain: tries cloud fallbacks when last-resort unavailable
   let fallbackCallCount = 0;
 
   const result = await withFallbackChain<string>({
-    tryPrimary: () => Promise.reject(new Error("Connection reset (ECONNRESET)")),
+    tryPrimary: () =>
+      Promise.reject(new Error("Connection reset (ECONNRESET)")),
     fallbacks: ["cloud-fb-1"],
     tryFallback: () => {
       fallbackCallCount++;
       return Promise.resolve("fallback-ok");
     },
-    lastResort: { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: () => Promise.resolve(false) },
+    lastResort: {
+      model: LOCAL_FALLBACK_MODEL_ID,
+      isAvailable: () => Promise.resolve(false),
+    },
   });
 
-  assertEquals(fallbackCallCount, 1, "cloud fallback tried when last-resort unavailable");
+  assertEquals(
+    fallbackCallCount,
+    1,
+    "cloud fallback tried when last-resort unavailable",
+  );
   assertEquals(result, "fallback-ok");
 });
 
@@ -583,7 +673,10 @@ Deno.test("withFallbackChain: onLastResortUnavailable called when chain exhauste
       tryPrimary: () => Promise.reject(new Error("rate limit exceeded (429)")),
       fallbacks: [],
       tryFallback: () => Promise.reject(new Error("unreachable")),
-      lastResort: { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: () => Promise.resolve(false) },
+      lastResort: {
+        model: LOCAL_FALLBACK_MODEL_ID,
+        isAvailable: () => Promise.resolve(false),
+      },
       onLastResortUnavailable: () => {
         throw new Error("gemma4 still preparing");
       },
@@ -604,7 +697,10 @@ Deno.test("withFallbackChain: permanent error throws immediately, no fallback", 
         fallbackCalled = true;
         return Promise.resolve("should not reach");
       },
-      lastResort: { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: () => Promise.resolve(true) },
+      lastResort: {
+        model: LOCAL_FALLBACK_MODEL_ID,
+        isAvailable: () => Promise.resolve(true),
+      },
     });
     assertEquals(true, false);
   } catch {
@@ -640,7 +736,8 @@ Deno.test("scoreModel: reasoning task gives reasoning model +3 bonus", () => {
   const profile = defaultProfile({ isReasoningTask: true });
   const reasoning = makeCaps({ codingStrength: "strong", reasoning: true });
   const noReasoning = makeCaps({ codingStrength: "strong", reasoning: false });
-  const diff = scoreModel(reasoning, profile) - scoreModel(noReasoning, profile);
+  const diff = scoreModel(reasoning, profile) -
+    scoreModel(noReasoning, profile);
   assertEquals(diff, 3);
 });
 
@@ -648,7 +745,10 @@ Deno.test("scoreModel: reasoning model without reasoning task gets no bonus", ()
   const profile = defaultProfile({ isReasoningTask: false });
   const reasoning = makeCaps({ codingStrength: "strong", reasoning: true });
   const noReasoning = makeCaps({ codingStrength: "strong", reasoning: false });
-  assertEquals(scoreModel(reasoning, profile), scoreModel(noReasoning, profile));
+  assertEquals(
+    scoreModel(reasoning, profile),
+    scoreModel(noReasoning, profile),
+  );
 });
 
 Deno.test("scoreModel: code task with mid coder gets no bonus", () => {
@@ -666,7 +766,10 @@ Deno.test("scoreModel: long context bonus uses estimatedTokens", () => {
   const profile = defaultProfile({ estimatedTokens: 5000 });
   const longCtx = makeCaps({ longContext: true });
   const shortCtx = makeCaps({ longContext: false });
-  assertEquals(scoreModel(longCtx, profile) > scoreModel(shortCtx, profile), true);
+  assertEquals(
+    scoreModel(longCtx, profile) > scoreModel(shortCtx, profile),
+    true,
+  );
 });
 
 // ============================================================
@@ -698,29 +801,38 @@ Deno.test("filterModels: includes weak when no strong alternatives (fallback pat
 // ============================================================
 
 Deno.test("modelInfoToModelCaps: reasoning detected from override (o1)", () => {
-  const caps = modelInfoToModelCaps("openai/o1-preview", makeModelInfo({
-    name: "o1-preview",
-    capabilities: ["chat", "tools"],
-    metadata: { provider: "openai", cloud: true, apiKeyConfigured: true },
-  }));
+  const caps = modelInfoToModelCaps(
+    "openai/o1-preview",
+    makeModelInfo({
+      name: "o1-preview",
+      capabilities: ["chat", "tools"],
+      metadata: { provider: "openai", cloud: true, apiKeyConfigured: true },
+    }),
+  );
   assertEquals(caps.reasoning, true);
 });
 
 Deno.test("modelInfoToModelCaps: reasoning detected from thinking capability", () => {
-  const caps = modelInfoToModelCaps("test/model", makeModelInfo({
-    name: "some-model",
-    capabilities: ["chat", "tools", "thinking"] as ModelInfo["capabilities"],
-    metadata: { provider: "test" },
-  }));
+  const caps = modelInfoToModelCaps(
+    "test/model",
+    makeModelInfo({
+      name: "some-model",
+      capabilities: ["chat", "tools", "thinking"] as ModelInfo["capabilities"],
+      metadata: { provider: "test" },
+    }),
+  );
   assertEquals(caps.reasoning, true);
 });
 
 Deno.test("modelInfoToModelCaps: non-reasoning model has reasoning=false", () => {
-  const caps = modelInfoToModelCaps("openai/gpt-4o", makeModelInfo({
-    name: "gpt-4o",
-    capabilities: ["chat", "tools", "vision"],
-    metadata: { provider: "openai", cloud: true, apiKeyConfigured: true },
-  }));
+  const caps = modelInfoToModelCaps(
+    "openai/gpt-4o",
+    makeModelInfo({
+      name: "gpt-4o",
+      capabilities: ["chat", "tools", "vision"],
+      metadata: { provider: "openai", cloud: true, apiKeyConfigured: true },
+    }),
+  );
   assertEquals(caps.reasoning, false);
 });
 
@@ -739,16 +851,30 @@ Deno.test("invalidateAutoModelCache: exported and callable", () => {
 
 Deno.test("scoreModel: code task profile prefers strong coder over mid", () => {
   const profile = defaultProfile({ isCodeTask: true });
-  const strong = makeCaps({ id: "anthropic/claude-sonnet-4", codingStrength: "strong" });
+  const strong = makeCaps({
+    id: "anthropic/claude-sonnet-4",
+    codingStrength: "strong",
+  });
   const mid = makeCaps({ id: "openai/gpt-4o-mini", codingStrength: "mid" });
   assertEquals(scoreModel(strong, profile) > scoreModel(mid, profile), true);
 });
 
 Deno.test("scoreModel: reasoning task profile prefers reasoning model", () => {
   const profile = defaultProfile({ isReasoningTask: true });
-  const reasoning = makeCaps({ id: "openai/o1-preview", codingStrength: "strong", reasoning: true });
-  const noReasoning = makeCaps({ id: "openai/gpt-4o", codingStrength: "strong", reasoning: false });
-  assertEquals(scoreModel(reasoning, profile) > scoreModel(noReasoning, profile), true);
+  const reasoning = makeCaps({
+    id: "openai/o1-preview",
+    codingStrength: "strong",
+    reasoning: true,
+  });
+  const noReasoning = makeCaps({
+    id: "openai/gpt-4o",
+    codingStrength: "strong",
+    reasoning: false,
+  });
+  assertEquals(
+    scoreModel(reasoning, profile) > scoreModel(noReasoning, profile),
+    true,
+  );
 });
 
 // ============================================================

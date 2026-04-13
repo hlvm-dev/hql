@@ -19,7 +19,7 @@ import { materializeBootstrap, type MaterializeProgress } from "../../runtime/bo
 import { recoverBootstrap } from "../../runtime/bootstrap-recovery.ts";
 import { aiEngine } from "../../runtime/ai-runtime.ts";
 import { waitForModelAccess } from "../../runtime/model-access.ts";
-import { autoConfigureInitialLocalFallbackModel } from "../../../common/ai-default-model.ts";
+import { upgradeDefaultToAutoRouting } from "../../../common/ai-default-model.ts";
 
 const BOOTSTRAP_MODEL_READY_TIMEOUT_MS = 600_000;
 const BOOTSTRAP_MODEL_READY_LOG_INTERVAL_MS = 30_000;
@@ -104,10 +104,9 @@ export async function bootstrapCommand(args: string[]): Promise<number> {
       log.error(`Bootstrap materialized assets but verification failed: ${verification.message}`);
       return 1;
     }
-    const configuredLocalFallback =
-      await autoConfigureInitialLocalFallbackModel();
-    if (configuredLocalFallback) {
-      log.info(`Configured initial model: ${configuredLocalFallback}`);
+    const upgradedToAuto = await upgradeDefaultToAutoRouting();
+    if (upgradedToAuto) {
+      log.info(`Configured initial model: ${upgradedToAuto}`);
     }
     log.info(`Warming local fallback: ${LOCAL_FALLBACK_MODEL_ID}`);
     const engineReady = await aiEngine.ensureRunning();

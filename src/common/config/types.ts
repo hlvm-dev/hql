@@ -10,6 +10,13 @@ import { LOCAL_FALLBACK_MODEL_ID } from "../../hlvm/runtime/local-fallback.ts";
 // Model Defaults
 // ============================================================
 
+/** Auto-routing model ID — auto-select resolves the best model per task at runtime. */
+export const AUTO_MODEL_ID = "auto";
+/**
+ * Concrete local fallback model — used when auto-routing cannot resolve a model
+ * and as the classifier model for auto-select decisions. Not the configured
+ * default (that is AUTO_MODEL_ID via DEFAULT_CONFIG.model).
+ */
 export const DEFAULT_MODEL_ID = LOCAL_FALLBACK_MODEL_ID;
 export const DEFAULT_MODEL_PROVIDER = DEFAULT_MODEL_ID.split("/")[0];
 export const DEFAULT_MODEL_NAME = DEFAULT_MODEL_ID.split("/")[1];
@@ -47,6 +54,7 @@ export function normalizeModelId(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   if (!trimmed) return undefined;
+  if (trimmed === AUTO_MODEL_ID) return AUTO_MODEL_ID;
   if (trimmed.includes("/")) return trimmed;
   return `${DEFAULT_MODEL_PROVIDER}/${trimmed}`;
 }
@@ -203,7 +211,7 @@ export function createDefaultToolsConfig(): ToolsConfig {
 
 export const DEFAULT_CONFIG: HlvmConfig = {
   version: 1,
-  model: DEFAULT_MODEL_ID,
+  model: AUTO_MODEL_ID,
   endpoint: DEFAULT_OLLAMA_ENDPOINT,
   temperature: 0.7,
   maxTokens: 4096,

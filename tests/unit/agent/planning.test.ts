@@ -370,6 +370,14 @@ Deno.test({
 });
 
 Deno.test({
+  name: "Planning: shouldPlanRequest honors precomputed needsPlan",
+  async fn() {
+    assertEquals(await shouldPlanRequest("short task", "auto", true), true);
+    assertEquals(await shouldPlanRequest("short task", "auto", false), false);
+  },
+});
+
+Deno.test({
   name: "Planning: getPlanResearchIterationBudget drafts quickly for plan mode",
   fn() {
     assertEquals(getPlanResearchIterationBudget(20), 3);

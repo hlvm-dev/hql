@@ -69,17 +69,19 @@ const EXPLICIT_PLAN_CUE_PATTERNS = [
   /\bphase\s*1\b[\s\S]{0,120}\bphase\s*2\b/i,
 ] as const;
 
-function hasDeterministicPlanningCue(request: string): boolean {
+export function hasDeterministicPlanningCue(request: string): boolean {
   return EXPLICIT_PLAN_CUE_PATTERNS.some((pattern) => pattern.test(request));
 }
 
 export async function shouldPlanRequest(
   request: string,
   mode: PlanningMode,
+  preComputedNeedsPlan?: boolean,
 ): Promise<boolean> {
   if (mode === "always") return true;
   if (mode === "off") return false;
   if (hasDeterministicPlanningCue(request)) return true;
+  if (preComputedNeedsPlan !== undefined) return preComputedNeedsPlan;
 
   const { classifyPlanNeed } = await import("../runtime/local-llm.ts");
   const result = await classifyPlanNeed(request);

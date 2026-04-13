@@ -14,6 +14,8 @@ import { setCustomKeybindingsSnapshot } from "./keybindings/custom-bindings.ts";
 import {
   disableKittyKeyboardProtocol,
   enableKittyKeyboardProtocol,
+  enterAlternateScreen,
+  exitAlternateScreen,
   resetTerminalViewport,
 } from "../ansi.ts";
 import { REPL_RENDER_OPTIONS } from "./render-options.ts";
@@ -37,6 +39,7 @@ export async function startInkRepl(
   setCustomKeybindingsSnapshot(runtimeSnapshot.keybindings);
   resetTerminalViewport();
   enableKittyKeyboardProtocol();
+  enterAlternateScreen();
   try {
     const { waitUntilExit } = render(
       <ThemeProvider initialTheme={initialTheme}>
@@ -50,7 +53,10 @@ export async function startInkRepl(
     await waitUntilExit();
     return 0;
   } finally {
-    disableKittyKeyboardProtocol();
+    // Each cleanup is independent — one failing must not block the other,
+    // or the terminal is left in a broken state (alt screen or kitty mode).
+    try { exitAlternateScreen(); } catch { /* best-effort */ }
+    try { disableKittyKeyboardProtocol(); } catch { /* best-effort */ }
   }
 }
 

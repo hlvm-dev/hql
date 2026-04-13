@@ -73,7 +73,10 @@ import { isPlanExecutionMode } from "./execution-mode.ts";
 import { getAgentLogger } from "./logger.ts";
 import { buildRelevantMemoryRecall } from "../memory/mod.ts";
 import { resetWebToolBudget } from "./tools/web-tools.ts";
-import { evaluateDelegationSignal } from "./delegation-heuristics.ts";
+import {
+  type DelegationSignal,
+  evaluateDelegationSignal,
+} from "./delegation-heuristics.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 import type { TodoState } from "./todo-state.ts";
 import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
@@ -92,6 +95,12 @@ import type { AgentHookRuntime } from "./hooks.ts";
 import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
 import type { LastResortFallback } from "./auto-select.ts";
+import {
+  delegationSignalFromRoutingResult,
+  type RoutingBehavior,
+  type RoutingProvenance,
+  type RoutingResult,
+} from "./request-routing.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -271,6 +280,11 @@ export type TraceEvent =
     maxTokens: number;
   }
   | {
+    type: "context_compaction_failed";
+    reason: string;
+    error: string;
+  }
+  | {
     type: "response_continuation";
     status: "starting" | "completed" | "skipped";
     continuationCount: number;
@@ -311,6 +325,17 @@ export type TraceEvent =
     stableCacheProfile: import("../prompt/types.ts").PromptStableCacheProfile;
     instructionSources: import("../prompt/types.ts").InstructionSource[];
     signatureHash: string;
+  }
+  | {
+    type: "routing_decision";
+    tier: import("./constants.ts").ModelTier;
+    behavior: RoutingBehavior;
+    provenance: RoutingProvenance;
+    taskDomain: "browser" | "general";
+    shouldDelegate: boolean;
+    delegatePattern: DelegationSignal["suggestedPattern"];
+    needsPlan: boolean;
+    reason: string;
   };
 
 /** Agent UI event for display in CLI/GUI */
@@ -636,6 +661,7 @@ export interface OrchestratorConfig {
   ) => Promise<InteractionResponse>;
   skipModelCompensation?: boolean;
   modelTier?: ModelTier;
+  routingResult?: RoutingResult;
   delegateInbox?: DelegateInbox;
   modelId?: string;
   sessionId?: string;
@@ -757,15 +783,30 @@ function requestImpliesEditing(query: string): boolean {
 async function requestImpliesDelegation(
   query: string,
   state: LoopState,
+  config: OrchestratorConfig,
 ): Promise<boolean> {
   if (
     /\b(delegate|delegation|multiple agents|spawn .*agent|parallel|concurrent|concurrently|team)\b/i
       .test(query)
   ) return true;
-  if (!state.cachedDelegationSignal) {
-    state.cachedDelegationSignal = await evaluateDelegationSignal(query);
+  const signal = await ensureDelegationSignal(query, state, config);
+  return signal.shouldDelegate;
+}
+
+async function ensureDelegationSignal(
+  query: string,
+  state: LoopState,
+  config: OrchestratorConfig,
+): Promise<DelegationSignal> {
+  if (state.cachedDelegationSignal) return state.cachedDelegationSignal;
+  if (config.routingResult) {
+    state.cachedDelegationSignal = delegationSignalFromRoutingResult(
+      config.routingResult,
+    );
+    return state.cachedDelegationSignal;
   }
-  return state.cachedDelegationSignal.shouldDelegate;
+  state.cachedDelegationSignal = await evaluateDelegationSignal(query);
+  return state.cachedDelegationSignal;
 }
 
 async function applyRequestDomainToolProfile(
@@ -798,9 +839,11 @@ async function applyRequestDomainToolProfile(
     clearToolProfileLayerFromTarget(config, "domain");
     return;
   }
-  if (!state.cachedDelegationSignal) {
-    state.cachedDelegationSignal = await evaluateDelegationSignal(userRequest);
-  }
+  const delegationSignal = await ensureDelegationSignal(
+    userRequest,
+    state,
+    config,
+  );
   const baselineLayer = ensureToolProfileState(config).layers.baseline;
   const canonicalBaselineAllowlist = resolveCanonicalBaselineAllowlist({
     querySource: config.querySource,
@@ -810,7 +853,7 @@ async function applyRequestDomainToolProfile(
   });
   const nextBaselineAllowlist = cloneToolList(canonicalBaselineAllowlist);
   if (
-    state.cachedDelegationSignal.taskDomain === "browser" &&
+    delegationSignal.taskDomain === "browser" &&
     nextBaselineAllowlist?.length
   ) {
     const browserSafeAllowlist =
@@ -831,7 +874,7 @@ async function applyRequestDomainToolProfile(
       reason: baselineLayer?.reason,
     });
   }
-  if (state.cachedDelegationSignal.taskDomain === "browser") {
+  if (delegationSignal.taskDomain === "browser") {
     updateToolProfileLayer(config, "domain", {
       profileId: BROWSER_SAFE_PROFILE_ID,
       reason: "browser_task_detected",
@@ -897,7 +940,9 @@ async function deriveRuntimePhase(
   // Deterministic regex check before LLM delegation classifier to avoid
   // misclassifying clear editing requests as delegation tasks.
   if (requestImpliesEditing(userRequest)) return "editing";
-  if (await requestImpliesDelegation(userRequest, state)) return "delegating";
+  if (await requestImpliesDelegation(userRequest, state, config)) {
+    return "delegating";
+  }
   if (requestImpliesVerification(userRequest)) return "verifying";
   return "researching";
 }
@@ -1063,10 +1108,7 @@ async function maybeInjectDelegationHint(
   }
   if (denied?.includes("delegate_agent")) return;
 
-  if (!state.cachedDelegationSignal) {
-    state.cachedDelegationSignal = await evaluateDelegationSignal(userRequest);
-  }
-  const signal = state.cachedDelegationSignal;
+  const signal = await ensureDelegationSignal(userRequest, state, config);
   if (!signal.shouldDelegate) return;
 
   addContextMessage(config, {
@@ -1404,7 +1446,12 @@ async function runLlmResponsePass(
         content: preLlmFeedback.feedback ?? "LLM call blocked by pre_llm hook.",
         toolCalls: [],
       },
-      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, source: "estimated" as const },
+      usage: {
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        source: "estimated" as const,
+      },
     };
   }
   onTrace?.({ type: "llm_call", messageCount: messages.length });
@@ -1590,7 +1637,11 @@ export async function runReActLoop(
     !config.planModeState?.active &&
     !state.planState &&
     lc.planningConfig.mode !== "off" &&
-    await shouldPlanRequest(userRequest, lc.planningConfig.mode!)
+    await shouldPlanRequest(
+      userRequest,
+      lc.planningConfig.mode!,
+      config.routingResult?.needsPlan,
+    )
   ) {
     try {
       const agentNames = (config.agentProfiles ?? []).map((agent) =>
@@ -1855,7 +1906,7 @@ export async function runReActLoop(
       ) {
         state.memoryFlushedThisCycle = true;
         skipCompaction = true;
-        context.addMessage({
+        context.addDirectiveUntrimmed({
           role: "user",
           content: runtimeDirective(
             "Context nearing limit. If there are important facts, decisions, or outcomes not yet saved to memory, call memory_write now before context is compacted.",
@@ -1871,9 +1922,9 @@ export async function runReActLoop(
           context.getMessageRevision()
       ) {
         const beforeTokens = preCompactionStats.estimatedTokens;
-        await context.compactIfNeeded();
+        const compactResult = await context.compactIfNeeded();
         const afterTokens = context.getStats().estimatedTokens;
-        if (afterTokens < beforeTokens) {
+        if (compactResult.status === "success" && afterTokens < beforeTokens) {
           state.memoryFlushedThisCycle = false;
           state.compactionReason = "proactive_pressure";
           state.lastProactiveCompactionMessageRevision = context
@@ -1886,6 +1937,12 @@ export async function runReActLoop(
             maxTokens: context.getMaxTokens(),
           });
           emitContextPressure(afterTokens);
+        } else if (compactResult.status === "failed") {
+          onTrace?.({
+            type: "context_compaction_failed",
+            reason: "proactive_pressure",
+            error: compactResult.error ?? "unknown",
+          });
         }
       }
 

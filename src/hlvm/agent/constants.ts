@@ -509,7 +509,7 @@ export const DEFAULT_CONTEXT_CONFIG = {
   preserveSystem: true,
   minMessages: 2,
   overflowStrategy: "summarize",
-  summaryMaxChars: 1200,
+  summaryMaxChars: 2400,
   summaryKeepRecent: 4,
   compactionThreshold: 0.9,
 } as const;
