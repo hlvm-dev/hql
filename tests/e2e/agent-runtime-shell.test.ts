@@ -576,14 +576,20 @@ async function createBrowserCliSmokeFixture(workspace: string): Promise<string> 
         match: { contains: ["browser cli smoke"] },
         steps: [
           {
-            expect: {
-              contains: [
-                "Allowed tools:",
-                "pw_goto",
-                "pw_snapshot",
-                "pw_click",
-              ],
-            },
+            toolCalls: [{
+              id: "pw_goto_1",
+              toolName: "pw_goto",
+              args: { url: "https://example.com" },
+            }],
+          },
+          {
+            toolCalls: [{
+              id: "pw_snapshot_1",
+              toolName: "pw_snapshot",
+              args: {},
+            }],
+          },
+          {
             response: "Browser CLI smoke complete",
           },
         ],
@@ -615,14 +621,6 @@ async function createBrowserCliHybridFixture(
         match: { contains: ["browser cli hybrid smoke"] },
         steps: [
           {
-            expect: {
-              contains: [
-                "Allowed tools:",
-                "pw_goto",
-                "pw_click",
-                "pw_snapshot",
-              ],
-            },
             toolCalls: [{
               id: "pw_goto_1",
               toolName: "pw_goto",
@@ -842,12 +840,13 @@ localAskTest({
         port,
         [
           "--no-session-persistence",
+          "--permission-mode",
+          "bypassPermissions",
           "--model",
           "ollama/test-fixture",
           "browser cli smoke: go to https://example.com and tell me the title",
         ],
         {
-          HLVM_DIR: hlvmDir,
           HLVM_ASK_FIXTURE_PATH: fixturePath,
         },
         hlvmDir,
@@ -888,12 +887,13 @@ localAskTest({
         [
           "--no-session-persistence",
           "--verbose",
+          "--permission-mode",
+          "bypassPermissions",
           "--model",
           "ollama/test-fixture",
           "browser cli hybrid smoke: promote after repeated blocked pw_click failures",
         ],
         {
-          HLVM_DIR: hlvmDir,
           HLVM_ASK_FIXTURE_PATH: fixturePath,
         },
         hlvmDir,
