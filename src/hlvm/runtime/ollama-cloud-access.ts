@@ -1,6 +1,7 @@
 import { parseModelString } from "../providers/registry.ts";
 import { isOllamaCloudModel } from "../providers/ollama/cloud.ts";
 import { getErrorMessage } from "../../common/utils.ts";
+import { sleep as defaultSleep } from "../../common/timeout-utils.ts";
 import {
   runRuntimeOllamaSignin,
   verifyRuntimeModelAccess,
@@ -75,8 +76,7 @@ export async function ensureOllamaCloudAccess(
     (() => runOllamaCloudSignin(options));
   const timeoutMs = options.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
   const intervalMs = options.intervalMs ?? DEFAULT_WAIT_INTERVAL_MS;
-  const sleep = options.sleep ??
-    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const sleep = options.sleep ?? defaultSleep;
 
   if (await verifyAccess(modelId)) {
     return { ok: true, status: "available" };

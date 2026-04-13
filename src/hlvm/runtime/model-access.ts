@@ -1,6 +1,7 @@
 import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../common/ai-messages.ts";
 import { isOllamaAuthErrorMessage } from "../../common/ollama-auth.ts";
 import { getErrorMessage } from "../../common/utils.ts";
+import { sleep } from "../../common/timeout-utils.ts";
 import { ai } from "../api/ai.ts";
 
 interface ModelAccessProbeResult {
@@ -17,10 +18,6 @@ export interface WaitForModelAccessOptions {
 
 const MODEL_ACCESS_TIMEOUT_MS = 60_000;
 const MODEL_ACCESS_POLL_INTERVAL_MS = 2_000;
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /** Probe model access with a tiny non-streaming chat request on the runtime side. */
 export async function probeModelAccess(
@@ -80,7 +77,7 @@ export async function waitForModelAccess(
     Date.now() < deadline
   ) {
     options.onRetry?.(result, Date.now() - startedAt);
-    await delay(pollIntervalMs);
+    await sleep(pollIntervalMs);
     result = await probeModelAccess(modelId);
   }
 

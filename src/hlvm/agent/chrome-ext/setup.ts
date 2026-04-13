@@ -56,7 +56,7 @@ async function createWrapperScript(): Promise<string> {
 
   // Find deno binary
   const denoPath = platform.env.get("DENO_EXEC_PATH") ??
-    Deno.execPath?.() ??
+    platform.process.execPath() ??
     "deno";
 
   const script = `#!/bin/sh

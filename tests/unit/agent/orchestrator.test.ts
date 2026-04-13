@@ -50,6 +50,7 @@ import {
   ensureWorkspaceDir,
 } from "./workspace-test-helpers.ts";
 import { STANDARD_EAGER_TOOLS } from "../../../src/hlvm/agent/constants.ts";
+import type { AgentHookRuntime } from "../../../src/hlvm/agent/hooks.ts";
 
 const TEST_WORKSPACE = "/tmp/hlvm-test-orchestrator";
 const platform = () => getPlatform();
@@ -1791,6 +1792,46 @@ Deno.test({
 
     assertEquals(result, "42");
     assertEquals(sawSignal, true);
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: runReActLoop respects blocking pre_llm hook and skips the LLM call",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    let llmCalls = 0;
+
+    const hookRuntime: AgentHookRuntime = {
+      hasHandlers: (name) => name === "pre_llm",
+      dispatch: () => Promise.resolve(),
+      dispatchWithFeedback: (name) =>
+        Promise.resolve(
+          name === "pre_llm"
+            ? { blocked: true, feedback: "policy: blocked" }
+            : { blocked: false },
+        ),
+      dispatchDetached: () => {},
+      waitForIdle: () => Promise.resolve(),
+    };
+
+    const result = await runReActLoop(
+      "What is the answer?",
+      {
+        workspace: TEST_WORKSPACE,
+        context,
+        permissionMode: "bypassPermissions",
+        hookRuntime,
+      },
+      async () => {
+        llmCalls += 1;
+        return makeResponse("42");
+      },
+    );
+
+    assertEquals(result, "policy: blocked");
+    assertEquals(llmCalls, 0);
   },
 });
 

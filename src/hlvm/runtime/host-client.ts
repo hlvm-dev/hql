@@ -9,7 +9,7 @@ import {
   type UnifiedErrorCode,
 } from "../../common/error-codes.ts";
 import { getPlatform } from "../../platform/platform.ts";
-import type { ConfigKey, HlvmConfig } from "../../common/config/types.ts";
+import { DEFAULT_LOCALHOST, type ConfigKey, type HlvmConfig } from "../../common/config/types.ts";
 import type {
   AgentUIEvent,
   FinalResponseMeta,
@@ -438,7 +438,7 @@ async function releaseRuntimeStartLock(): Promise<void> {
 }
 
 function makeBaseUrl(port: number): string {
-  return `http://127.0.0.1:${port}`;
+  return `http://${DEFAULT_LOCALHOST}:${port}`;
 }
 
 function cacheAndReturn(baseUrl: string, authToken: string): {

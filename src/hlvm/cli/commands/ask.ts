@@ -118,7 +118,7 @@ OPTIONS:
 
   Permission Mode:
   --permission-mode <mode>     Set permission mode (default, acceptEdits, plan,
-                               bypassPermissions, dontAsk)
+                               bypassPermissions, dontAsk, auto)
 
   Tool Permission Control:
   --allowedTools <name>        Allow specific tool (repeatable)
@@ -136,6 +136,7 @@ PERMISSION MODES:
   plan:                        Research/plan first, execute with approval
   bypassPermissions:           Auto-approve all tools (unsafe)
   dontAsk:                     Non-interactive (auto-deny L1/L2, allow L0)
+  auto:                        Local LLM classifies tool safety — safe=approve, unsafe=prompt
 
   Tool Safety Levels:
     L0: Safe read-only (read_file, list_files, search_code)

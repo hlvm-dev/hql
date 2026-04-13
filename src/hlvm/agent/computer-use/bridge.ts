@@ -14,6 +14,8 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
+import { DEFAULT_LOCALHOST } from "../../../common/config/types.ts";
+import { sleep as bridgeSleep } from "../../../common/timeout-utils.ts";
 import { http } from "../../../common/http-client.ts";
 import { getAgentLogger } from "../logger.ts";
 import {
@@ -43,6 +45,10 @@ import type {
   RunningApp,
   ScreenshotResult,
   WindowInfo,
+} from "./types.ts";
+import {
+  NATIVE_GUI_CAPABILITIES_VERSION,
+  NATIVE_GUI_FEATURES,
 } from "./types.ts";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -608,10 +614,6 @@ async function getPermissionStateInternal(): Promise<
   return _cachedPermissionState;
 }
 
-function bridgeSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function refreshBridgeCaches(): Promise<void> {
   await Promise.all([
     ensureDisplayCache(),
@@ -1001,6 +1003,18 @@ function nativeFeatureAvailable(
   );
 }
 
+function normalizeNativeCapabilities(raw: unknown): CUNativeCapabilities | null {
+  if (!raw || typeof raw !== "object") return null;
+  const candidate = raw as Record<string, unknown>;
+  const version = typeof candidate.version === "string" && candidate.version.length > 0
+    ? candidate.version
+    : NATIVE_GUI_CAPABILITIES_VERSION;
+  return {
+    version,
+    features: [...NATIVE_GUI_FEATURES],
+  };
+}
+
 function normalizeNativeTarget(
   raw: unknown,
   fallbackBundleId: string,
@@ -1130,7 +1144,7 @@ export async function resolveBackend(): Promise<CUBackendResolution> {
   const token = await resolveNativeCuAuthToken();
   try {
     const response = await http.fetchRaw(
-      `http://127.0.0.1:${port}/cu/capabilities`,
+      `http://${DEFAULT_LOCALHOST}:${port}/cu/capabilities`,
       {
         timeout: 2000,
         headers: token.length > 0
@@ -1143,8 +1157,8 @@ export async function resolveBackend(): Promise<CUBackendResolution> {
       _backendResolution = { backend: "jxa" };
       return _backendResolution;
     }
-    const caps = await response.json() as CUNativeCapabilities;
-    if (!caps.version || !Array.isArray(caps.features)) {
+    const caps = normalizeNativeCapabilities(await response.json());
+    if (!caps) {
       _backendResolution = { backend: "jxa" };
       return _backendResolution;
     }
@@ -1189,7 +1203,7 @@ async function cuNativeFetch<T>(
   }
   const token = await resolveNativeCuAuthToken();
   const response = await http.fetchRaw(
-    `http://127.0.0.1:${resolution.port}${path}`,
+    `http://${DEFAULT_LOCALHOST}:${resolution.port}${path}`,
     {
       timeout: timeoutMs,
       method: body !== undefined ? "POST" : "GET",

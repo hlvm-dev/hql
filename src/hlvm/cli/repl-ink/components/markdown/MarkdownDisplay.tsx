@@ -92,11 +92,23 @@ const TableBlock = memo(function TableBlock(
 
   const totalNatural = naturalWidths.reduce((a, b) => a + b, 0);
 
-  const colWidths = totalNatural <= availableForContent
-    ? naturalWidths
-    : naturalWidths.map((w) =>
-      Math.max(3, Math.floor((w / totalNatural) * availableForContent))
+  // Columns narrower than fair share keep natural width; wide ones split the rest.
+  let colWidths: number[];
+  if (totalNatural <= availableForContent) {
+    colWidths = naturalWidths;
+  } else {
+    const fair = Math.floor(availableForContent / colCount);
+    let smallTotal = 0;
+    let wideTotal = 0;
+    for (const w of naturalWidths) {
+      if (w <= fair) smallTotal += w;
+      else wideTotal += w;
+    }
+    const wideBudget = availableForContent - smallTotal;
+    colWidths = naturalWidths.map((w) =>
+      w <= fair ? w : Math.max(3, Math.floor((w / Math.max(1, wideTotal)) * wideBudget))
     );
+  }
 
   const separator = colWidths.map((w) => "─".repeat(w)).join("──");
 

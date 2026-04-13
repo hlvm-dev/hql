@@ -57,13 +57,9 @@ import {
 } from "./common.ts";
 import { drainRunLoop } from "./drain-run-loop.ts";
 import { notifyExpectedEscape } from "./esc-hotkey.ts";
+import { sleep } from "../../../common/timeout-utils.ts";
 
 // ── Helpers (CC originals) ───────────────────────────────────────────────
-
-/** Bridge: replaces CC's `import { sleep } from '../sleep.js'` */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /** Bridge: replaces CC's `import { errorMessage } from '../errors.js'` */
 function errorMessage(e: unknown): string {

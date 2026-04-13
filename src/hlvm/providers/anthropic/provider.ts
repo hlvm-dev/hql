@@ -3,12 +3,13 @@
  */
 
 import { createCloudProvider } from "../cloud-provider.ts";
+import { DEFAULT_ANTHROPIC_ENDPOINT } from "../../../common/config/types.ts";
 import * as api from "./api.ts";
 
 export const createAnthropicProvider = createCloudProvider({
   name: "anthropic",
   displayName: "Anthropic",
-  defaultEndpoint: "https://api.anthropic.com",
+  defaultEndpoint: DEFAULT_ANTHROPIC_ENDPOINT,
   envVarName: "ANTHROPIC_API_KEY",
   noModelsError: "No Anthropic models available. Check your API key or network.",
   publicCatalogProvider: "anthropic",

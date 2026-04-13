@@ -13,6 +13,7 @@ const EXECUTION_MODE_LABELS: Record<AgentExecutionMode, string> = {
   "plan": "Plan mode",
   "bypassPermissions": "Full auto",
   "dontAsk": "Non-interactive",
+  "auto": "Auto mode",
 };
 
 export function toAgentExecutionMode(

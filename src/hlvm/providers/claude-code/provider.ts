@@ -7,6 +7,7 @@
 
 import type { ModelInfo } from "../types.ts";
 import { createCloudProvider } from "../cloud-provider.ts";
+import { DEFAULT_ANTHROPIC_ENDPOINT } from "../../../common/config/types.ts";
 import * as api from "./api.ts";
 
 /** Suffix appended to model IDs to indicate Claude Code full agent passthrough mode */
@@ -23,7 +24,7 @@ function expandWithAgentVariants(models: ModelInfo[]): ModelInfo[] {
 export const createClaudeCodeProvider = createCloudProvider({
   name: "claude-code",
   displayName: "Claude Code (Max Subscription)",
-  defaultEndpoint: "https://api.anthropic.com",
+  defaultEndpoint: DEFAULT_ANTHROPIC_ENDPOINT,
   // No envVarName — auth is via OAuth, always "configured"
   noModelsError: "No Claude Code models available. Run `claude login` to authenticate.",
   publicCatalogProvider: "anthropic",

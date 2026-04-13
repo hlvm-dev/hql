@@ -100,3 +100,30 @@ Deno.test("resolveToolPermission: edge cases with empty sets", () => {
   assertEquals(resolveToolPermission("any_tool", "L1", permissions), "prompt");
   assertEquals(resolveToolPermission("any_tool", "L2", permissions), "prompt");
 });
+
+// ── Auto mode tests ──
+
+Deno.test("resolveToolPermission: auto mode auto-approves L0", () => {
+  const p: ToolPermissions = { allowedTools: new Set(), deniedTools: new Set(), mode: "auto" };
+  assertEquals(resolveToolPermission("read_file", "L0", p), "allow");
+});
+
+Deno.test("resolveToolPermission: auto mode returns auto-classify for L1", () => {
+  const p: ToolPermissions = { allowedTools: new Set(), deniedTools: new Set(), mode: "auto" };
+  assertEquals(resolveToolPermission("write_file", "L1", p), "auto-classify");
+});
+
+Deno.test("resolveToolPermission: auto mode returns auto-classify for L2", () => {
+  const p: ToolPermissions = { allowedTools: new Set(), deniedTools: new Set(), mode: "auto" };
+  assertEquals(resolveToolPermission("shell_exec", "L2", p), "auto-classify");
+});
+
+Deno.test("resolveToolPermission: explicit deny overrides auto mode", () => {
+  const p: ToolPermissions = { allowedTools: new Set(), deniedTools: new Set(["shell_exec"]), mode: "auto" };
+  assertEquals(resolveToolPermission("shell_exec", "L2", p), "deny");
+});
+
+Deno.test("resolveToolPermission: explicit allow overrides auto mode", () => {
+  const p: ToolPermissions = { allowedTools: new Set(["shell_exec"]), deniedTools: new Set(), mode: "auto" };
+  assertEquals(resolveToolPermission("shell_exec", "L2", p), "allow");
+});

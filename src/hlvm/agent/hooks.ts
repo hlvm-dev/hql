@@ -44,7 +44,6 @@ export interface CommandHookHandler {
 export interface PromptHookHandler {
   type: "prompt";
   prompt: string; // template — ${PAYLOAD} replaced with JSON payload
-  model?: string; // default: local fallback
   timeoutMs?: number;
 }
 
@@ -107,9 +106,6 @@ function normalizeHookHandler(input: unknown): AgentHookHandler | null {
       type: "prompt",
       prompt: input.prompt,
     };
-    if (typeof input.model === "string" && input.model.trim().length > 0) {
-      handler.model = input.model.trim();
-    }
     const timeoutMs = normalizeTimeoutMs(input);
     if (timeoutMs !== undefined) handler.timeoutMs = timeoutMs;
     return handler;

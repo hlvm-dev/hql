@@ -365,6 +365,127 @@ Deno.test("harness: hook runtime loads all 3 types + new events", async () => {
   }
 });
 
+Deno.test("harness: dispatchWithFeedback blocks on exit code 2", async () => {
+  const platform = getPlatform();
+  const dir = await platform.fs.makeTempDir({ prefix: "hlvm-hook-block-" });
+  await platform.fs.mkdir(platform.path.join(dir, ".hlvm"), { recursive: true });
+  // Runtime-level hook behavior: exit code 2 blocks and stdout becomes feedback.
+  await platform.fs.writeTextFile(
+    platform.path.join(dir, ".hlvm", "hooks.json"),
+    JSON.stringify({
+      version: 1,
+      hooks: {
+        pre_tool: [{ command: ["sh", "-c", "echo 'blocked by policy' && exit 2"] }],
+      },
+    }),
+  );
+
+  try {
+    const { loadAgentHookRuntime } = await import(
+      "../../src/hlvm/agent/hooks.ts"
+    );
+    const rt = await loadAgentHookRuntime(dir);
+    assertEquals(!!rt, true);
+    const fb = await rt!.dispatchWithFeedback("pre_tool", { tool: "shell_exec" });
+    assertEquals(fb.blocked, true, "exit code 2 must block");
+    assertEquals(
+      fb.feedback?.includes("blocked by policy"),
+      true,
+      "stdout is feedback message",
+    );
+  } finally {
+    await platform.fs.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test({
+  name: "harness: executeToolCall respects blocking pre_tool hook",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    // Orchestrator caller behavior: executeToolCall must honor blocking pre_tool feedback.
+    const mockHookRuntime = {
+      hasHandlers: () => true,
+      dispatch: () => Promise.resolve(),
+      dispatchWithFeedback: (_name: string, _payload: unknown) =>
+        Promise.resolve({ blocked: true, feedback: "policy: blocked" }),
+      dispatchDetached: () => {},
+      waitForIdle: () => Promise.resolve(),
+    };
+
+    const { executeToolCall } = await import(
+      "../../src/hlvm/agent/orchestrator-tool-execution.ts"
+    );
+
+    // Minimal OrchestratorConfig with blocking hookRuntime
+    const config = {
+      workspace: "/tmp",
+      hookRuntime: mockHookRuntime,
+      modelId: "test",
+      sessionId: "test",
+      turnId: "test",
+      l1Confirmations: new Map(),
+      toolOwnerId: "test",
+      ensureMcpLoaded: () => Promise.resolve(),
+    };
+
+    const toolCall = {
+      toolName: "shell_exec",
+      id: "call-1",
+      args: { command: "rm -rf /" },
+    };
+
+    // deno-lint-ignore no-explicit-any
+    const result = await executeToolCall(toolCall as any, config as any);
+    assertEquals(result.success, false, "blocked tool must fail");
+    assertEquals(
+      result.error?.includes("policy: blocked") ||
+        result.returnDisplay?.includes("policy: blocked") ||
+        result.llmContent?.includes("policy: blocked") ||
+        false,
+      true,
+      "feedback message propagated to result",
+    );
+  },
+});
+
+Deno.test("harness: skill cache is workspace-keyed", async () => {
+  await withTestEnv(async ({ hlvmDir, workspace, fs, path }) => {
+    await fs.writeTextFile(
+      path.join(hlvmDir, "skills", "global-only.md"),
+      "---\ndescription: Global skill\ncontext: inline\n---\nGlobal body.",
+    );
+    await fs.writeTextFile(
+      path.join(workspace, ".hlvm", "skills", "project-only.md"),
+      "---\ndescription: Project skill\ncontext: inline\n---\nProject body.",
+    );
+    const { trustWorkspace } = await import(
+      "../../src/hlvm/prompt/instructions.ts"
+    );
+    await trustWorkspace(workspace);
+
+    const { loadSkillCatalog } = await import("../../src/hlvm/skills/mod.ts");
+
+    // Reset once at start, then NO resets between loads.
+    // This is the actual regression test: load A, then B, verify B != A.
+    resetSkillCatalogCache();
+
+    // Load 1: no workspace — bundled + user only
+    const cat1 = await loadSkillCatalog();
+    assertEquals(cat1.has("global-only"), true, "load 1: global skill present");
+    assertEquals(cat1.has("project-only"), false, "load 1: no project skill");
+
+    // Load 2: with workspace — should NOT return stale cache from load 1
+    const cat2 = await loadSkillCatalog(workspace);
+    assertEquals(cat2.has("global-only"), true, "load 2: global skill present");
+    assertEquals(cat2.has("project-only"), true, "load 2: project skill present (not stale)");
+
+    // Load 3: no workspace again — should NOT return stale cache from load 2
+    const cat3 = await loadSkillCatalog();
+    assertEquals(cat3.has("project-only"), false, "load 3: project skill gone (not leaked from load 2)");
+  });
+});
+
 Deno.test("harness: old-format hooks (no type field) still work", async () => {
   const platform = getPlatform();
   const dir = await platform.fs.makeTempDir({ prefix: "hlvm-hook-compat-" });

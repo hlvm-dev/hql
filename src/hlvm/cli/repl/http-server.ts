@@ -16,6 +16,7 @@ import { type BindingFunctionItem, listBindingFunctions } from "./bindings.ts";
 import { escapeString } from "./string-utils.ts";
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { DEFAULT_LOCALHOST } from "../../../common/config/types.ts";
 import type { PlatformHttpServerHandle } from "../../../platform/types.ts";
 import { RuntimeError } from "../../../common/error.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
@@ -919,7 +920,7 @@ export async function startHttpServer(
     if (platform.http.serveWithHandle) {
       serverHandle = platform.http.serveWithHandle(handleRequest, {
         port,
-        hostname: "127.0.0.1",
+        hostname: DEFAULT_LOCALHOST,
         onListen: ({ hostname, port }) => {
           log.info(`REPL HTTP server listening on http://${hostname}:${port}`);
         },
@@ -928,7 +929,7 @@ export async function startHttpServer(
     } else {
       await platform.http.serve(handleRequest, {
         port,
-        hostname: "127.0.0.1",
+        hostname: DEFAULT_LOCALHOST,
         onListen: ({ hostname, port }) => {
           log.info(`REPL HTTP server listening on http://${hostname}:${port}`);
         },

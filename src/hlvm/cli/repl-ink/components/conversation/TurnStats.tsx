@@ -102,6 +102,7 @@ export const TurnStats = React.memo(function TurnStats(
       marginTop={0}
       marginBottom={0}
       paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
+      width={width}
     >
       <Box width={contentWidth} justifyContent="space-between">
         <Text color={primaryColor}>{primaryLabel}</Text>

@@ -22,3 +22,4 @@ export const platformExit = (code: number) => getPlatform().process.exit(code);
 export const platformGetArgs = () => getPlatform().process.args();
 export const platformGetEnv = (key: string) => getPlatform().env.get(key);
 export const runCmd = (options: PlatformCommandOptions) => getPlatform().command.run(options);
+export const platformOs = () => getPlatform().build.os;

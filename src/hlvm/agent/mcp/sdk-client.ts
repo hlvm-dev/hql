@@ -32,6 +32,7 @@ import {
 import { getAgentLogger } from "../logger.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { http } from "../../../common/http-client.ts";
+import { sleep } from "../../../common/timeout-utils.ts";
 import {
   createMcpOAuthTransportAuthProvider,
   type McpOAuthTransportAuthProvider,
@@ -427,7 +428,7 @@ export class SdkMcpClient {
   }
 
   private async delayReconnect(ms: number): Promise<void> {
-    await new Promise<void>((resolve) => setTimeout(resolve, ms));
+    await sleep(ms);
   }
 
   private async reconnectWithBackoff(): Promise<void> {

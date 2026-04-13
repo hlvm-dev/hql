@@ -30,7 +30,7 @@ export interface ChatRequestCapturedContext {
 }
 
 export interface ChatRequest {
-  mode: ChatMode;
+  mode?: ChatMode;
   query_source?: string;
   stateless?: boolean;
   messages: ChatRequestMessage[];

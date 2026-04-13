@@ -260,11 +260,16 @@
  *         mode:
  *           type: string
  *           enum: [chat, eval, agent, claude-code-agent]
+ *           description: |
+ *             Optional execution override. When omitted, the binary chooses the
+ *             execution mode from the request shape and core configuration.
  *         stateless:
  *           type: boolean
  *           description: |
  *             When true, run this request in a fresh hidden session without
  *             rebinding the daemon's active visible conversation.
+ *         query_source:
+ *           type: string
  *         messages:
  *           type: array
  *           description: |
@@ -290,6 +295,8 @@
  *             required: [role, content]
  *         model:
  *           type: string
+ *         fixture_path:
+ *           type: string
  *         temperature:
  *           type: number
  *         max_tokens:
@@ -298,10 +305,52 @@
  *           type: string
  *         assistant_client_turn_id:
  *           type: string
+ *         captured_contexts:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               source:
+ *                 type: string
+ *               name:
+ *                 type: string
+ *               detail:
+ *                 type: string
+ *               metadata:
+ *                 type: object
+ *                 additionalProperties:
+ *                   type: string
+ *             required: [source, name]
  *         expected_version:
  *           type: integer
  *           description: Optimistic concurrency — reject if session has been modified.
- *       required: [mode, messages]
+ *         context_window:
+ *           type: integer
+ *         permission_mode:
+ *           type: string
+ *         skip_session_history:
+ *           type: boolean
+ *         disable_persistent_memory:
+ *           type: boolean
+ *         tool_allowlist:
+ *           type: array
+ *           items:
+ *             type: string
+ *         tool_denylist:
+ *           type: array
+ *           items:
+ *             type: string
+ *         max_iterations:
+ *           type: integer
+ *         max_budget_usd:
+ *           type: number
+ *         response_schema:
+ *           type: object
+ *         computer_use:
+ *           type: boolean
+ *         trace:
+ *           type: boolean
+ *       required: [messages]
  *     Error:
  *       type: object
  *       properties:
@@ -326,7 +375,15 @@
  *     HlvmConfig:
  *       type: object
  *       properties:
+ *         version:
+ *           type: integer
  *         model:
+ *           type: string
+ *           nullable: true
+ *         selectedModelIdentifier:
+ *           type: string
+ *           nullable: true
+ *         endpoint:
  *           type: string
  *           nullable: true
  *         temperature:
@@ -335,12 +392,52 @@
  *         maxTokens:
  *           type: integer
  *           nullable: true
+ *         theme:
+ *           type: string
+ *           nullable: true
+ *         keybindings:
+ *           type: object
+ *           nullable: true
+ *           additionalProperties: true
+ *         tools:
+ *           type: object
+ *           nullable: true
+ *           additionalProperties: true
+ *         approvedProviders:
+ *           type: array
+ *           items:
+ *             type: string
  *         agentMode:
  *           type: string
  *           nullable: true
  *         sessionMemory:
  *           type: boolean
  *           nullable: true
+ *         permissionMode:
+ *           type: string
+ *           nullable: true
+ *         supportsAgent:
+ *           type: boolean
+ *           nullable: true
+ *         agentMaxThreads:
+ *           type: integer
+ *           nullable: true
+ *         agentMaxDepth:
+ *           type: integer
+ *           nullable: true
+ *         chatMaxPromptChars:
+ *           type: integer
+ *           nullable: true
+ *         chatMaxReferencesLocal:
+ *           type: integer
+ *           nullable: true
+ *         chatMaxReferencesCloud:
+ *           type: integer
+ *           nullable: true
+ *         autoSelect:
+ *           type: object
+ *           nullable: true
+ *           additionalProperties: true
  *     BindingFunction:
  *       type: object
  *       properties:

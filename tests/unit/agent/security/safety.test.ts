@@ -399,3 +399,83 @@ Deno.test("Safety: checkToolSafety with different safety levels", async () => {
     false,
   );
 });
+
+// ── Auto mode integration tests ──
+
+Deno.test("Safety: auto mode approves safe L1 without prompting user", async () => {
+  const l1Store = new Map<string, boolean>();
+  let interactionCalled = false;
+  const onInteraction = async () => {
+    interactionCalled = true;
+    return { approved: false };
+  };
+  // Stub classifier returns safe
+  const classifyStub = () => Promise.resolve({ safe: true, reason: "read-only equivalent" });
+
+  const result = await checkToolSafety(
+    "write_file",
+    { path: "src/test.ts", content: "x" },
+    "auto",
+    null,
+    l1Store,
+    undefined,
+    onInteraction,
+    undefined,
+    undefined,
+    { classifyToolSafety: classifyStub },
+  );
+  assertEquals(result, true, "auto-approved safe L1");
+  assertEquals(interactionCalled, false, "user not prompted");
+  // L1 confirmation cached
+  assertEquals(l1Store.size > 0, true, "L1 confirmation cached");
+});
+
+Deno.test("Safety: auto mode falls back to prompt on unsafe classification", async () => {
+  const l1Store = new Map<string, boolean>();
+  let interactionCalled = false;
+  const onInteraction = async () => {
+    interactionCalled = true;
+    return { approved: true };
+  };
+  // Stub classifier returns unsafe
+  const classifyStub = () => Promise.resolve({ safe: false, reason: "destructive" });
+
+  const result = await checkToolSafety(
+    "shell_exec",
+    { command: "rm -rf /" },
+    "auto",
+    null,
+    l1Store,
+    undefined,
+    onInteraction,
+    undefined,
+    undefined,
+    { classifyToolSafety: classifyStub },
+  );
+  assertEquals(interactionCalled, true, "user prompted after unsafe classification");
+});
+
+Deno.test("Safety: auto mode falls back to prompt on classifier failure", async () => {
+  const l1Store = new Map<string, boolean>();
+  let interactionCalled = false;
+  const onInteraction = async () => {
+    interactionCalled = true;
+    return { approved: true };
+  };
+  // Stub classifier throws
+  const classifyStub = () => Promise.reject(new Error("LLM unavailable"));
+
+  const result = await checkToolSafety(
+    "write_file",
+    { path: "src/test.ts", content: "x" },
+    "auto",
+    null,
+    l1Store,
+    undefined,
+    onInteraction,
+    undefined,
+    undefined,
+    { classifyToolSafety: classifyStub },
+  );
+  assertEquals(interactionCalled, true, "user prompted after classifier failure");
+});

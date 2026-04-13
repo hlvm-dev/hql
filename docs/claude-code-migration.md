@@ -145,7 +145,7 @@ Claude Code has similar modes:
 
 ### HLVM
 
-HLVM provides five permission modes via `--permission-mode` plus fine-grained control:
+HLVM provides six permission modes via `--permission-mode` plus fine-grained control:
 
 | Mode | L0 (read) | L1 (mutations) | L2 (destructive) | CLI |
 |------|-----------|----------------|------------------|-----|
@@ -154,6 +154,7 @@ HLVM provides five permission modes via `--permission-mode` plus fine-grained co
 | `acceptEdits` | Auto | Auto | Prompt | `--permission-mode acceptEdits` |
 | `bypassPermissions` | Auto | Auto | Auto | `--permission-mode bypassPermissions` |
 | `dontAsk` | Auto | Deny | Deny | `--permission-mode dontAsk` |
+| `auto` | Auto | LLM classify | LLM classify | `--permission-mode auto` |
 
 **Plus** explicit `--allowedTools` / `--disallowedTools` flags (repeatable).
 

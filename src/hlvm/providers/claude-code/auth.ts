@@ -14,9 +14,10 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { RuntimeError } from "../../../common/error.ts";
 import { http } from "../../../common/http-client.ts";
+import { DEFAULT_CLAUDE_CODE_OAUTH_TOKEN_ENDPOINT } from "../../../common/config/types.ts";
 
 // Claude Code OAuth constants (mirrors Claude Code CLI)
-const OAUTH_TOKEN_ENDPOINT = "https://platform.claude.com/v1/oauth/token";
+const OAUTH_TOKEN_ENDPOINT = DEFAULT_CLAUDE_CODE_OAUTH_TOKEN_ENDPOINT;
 const OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // refresh 5 min before actual expiry
 const TOKEN_CACHE_TTL_MS = 5 * 60 * 1000; // re-read from store every 5 min

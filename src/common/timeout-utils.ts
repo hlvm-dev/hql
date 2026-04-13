@@ -193,3 +193,15 @@ export function throwIfAborted(
 ): void {
   if (signal?.aborted) throw createAbortError(message);
 }
+
+// ============================================================
+// Sleep Utility
+// ============================================================
+
+/**
+ * SSOT sleep/delay — wraps setTimeout in a Promise.
+ * Use this instead of inline `new Promise(resolve => setTimeout(resolve, ms))`.
+ */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

@@ -1,8 +1,12 @@
 # HLVM Harness Engineering — Technical Reference
 
-HLVM is a global agent session (like Siri) — not a per-project CLI.
-All harness configuration lives under `~/.hlvm/`. Project-level overrides
-exist in the codebase for legacy reasons but are not the primary UX.
+HLVM has CC-inspired harness primitives: instructions, rules, skills,
+hooks, and headless safety limits. It is not interface-compatible with
+Claude Code. HLVM intentionally diverges by supporting many models/providers
+and running as a global agent session.
+
+HLVM is a global session (like Siri). Primary config is `~/.hlvm/`.
+Project-scoped overrides exist but are secondary.
 
 ---
 
@@ -81,7 +85,6 @@ Skills are markdown files with YAML frontmatter in `~/.hlvm/skills/`.
 description: "What this skill does"          # REQUIRED
 when_to_use: "When to trigger this skill"    # optional
 allowed_tools: [shell_exec, read_file]       # optional
-model: "ollama/gemma4"                       # optional (override model)
 user_invocable: true                         # optional (default: true)
 context: inline                              # optional: "inline" (default) or "fork"
 ---
@@ -101,12 +104,13 @@ Wrong types fall to safe defaults (no crash, no type leaks):
 
 ### 2.2 Skill Discovery
 
-Skills loaded from two sources. User skills override bundled by name.
+Skills loaded from three sources. Later sources override earlier by name.
 
-| Priority | Source | Path |
-|----------|--------|------|
-| 1 (lowest) | Bundled | Compiled into binary |
-| 2 (highest) | User | `~/.hlvm/skills/*.md` |
+| Priority | Source | Path | Trust |
+|----------|--------|------|-------|
+| 1 (lowest) | Bundled | Compiled into binary | N/A |
+| 2 | User | `~/.hlvm/skills/*.md` | No |
+| 3 (highest) | Project | `<workspace>/.hlvm/skills/*.md` | Yes (trust-gated) |
 
 **Bundled skills** (3):
 
@@ -131,7 +135,8 @@ Skills loaded from two sources. User skills override bundled by name.
 
 **Fork mode** (`context: "fork"`):
 - Returns instructions telling the model to use `delegate_agent`
-- Child agent runs the skill in isolated workspace
+- Background delegates get isolated workspace leases; foreground delegates
+  share the parent workspace (read-only by convention)
 
 **Implementation**: `src/hlvm/skills/executor.ts`
 - `executeInlineSkill(skill, args?)` — returns `{ systemMessage, allowedTools }`
@@ -184,7 +189,7 @@ Invoke a skill by calling the `skill` tool with its name.
 
 ### 3.1 Hook Configuration
 
-Hooks configured in `~/.hlvm/hooks.json`.
+Hooks configured in `<workspace>/.hlvm/hooks.json` (project-scoped, not global).
 
 ```json
 {
@@ -192,7 +197,7 @@ Hooks configured in `~/.hlvm/hooks.json`.
   "hooks": {
     "pre_tool": [
       { "command": ["lint.sh", "--fix"] },
-      { "type": "prompt", "prompt": "Is ${PAYLOAD} safe?", "model": "gemma4" },
+      { "type": "prompt", "prompt": "Is ${PAYLOAD} safe?" },
       { "type": "http", "url": "https://hooks.example.com/check" }
     ],
     "session_start": [
@@ -232,9 +237,9 @@ Exit 0: ok. Exit 2: blocked (stdout = feedback).
 
 **Prompt** (LLM judge):
 ```json
-{ "type": "prompt", "prompt": "Is this safe? ${PAYLOAD}", "model": "gemma4" }
+{ "type": "prompt", "prompt": "Is this safe? ${PAYLOAD}" }
 ```
-Local LLM evaluates. Response: `{ "decision": "block"|"allow" }`. Fail-open.
+Local fallback LLM evaluates. Response: `{ "decision": "block"|"allow" }`. Fail-open.
 
 **HTTP** (webhook):
 ```json
@@ -246,7 +251,42 @@ POST payload to webhook. Response: `{ "decision": "block"|"allow" }`. Fail-open.
 
 ---
 
-## 4. Headless Safety
+## 4. Permission Modes
+
+| Mode | Behavior |
+|------|----------|
+| `default` | L0 auto-approve, L1 confirm-once, L2 always-confirm |
+| `acceptEdits` | L0+L1 auto-approve, L2 always-confirm |
+| `plan` | Research and plan first, then execute with approval |
+| `bypassPermissions` | Auto-approve everything |
+| `dontAsk` | Non-interactive: L0 auto-approve, all else denied |
+| `auto` | L0 auto-approve, L1/L2 classified by local LLM — safe=approve, unsafe=prompt user |
+
+### Auto Mode
+
+Uses local LLM (`classifyToolSafety()` in `local-llm.ts`) to decide whether
+a tool call is safe enough to auto-approve. Runs ONLY when the existing
+pipeline would otherwise prompt the user. Precedence preserved:
+
+```
+explicit deny > explicit allow > policy > L0 allow > dontAsk deny >
+bypass allow > acceptEdits L1 allow > AUTO CLASSIFIER > user prompt
+```
+
+- Classifier failure → falls through to user prompt (never silently denies)
+- L1 auto-approvals reuse the L1 confirmation cache
+- HLVM differentiator: auto mode uses local LLM (free), CC uses Claude API (paid)
+
+```bash
+hlvm ask -p "fix the bug" --permission-mode auto
+```
+
+**Implementation**: `src/hlvm/agent/security/safety.ts` — `resolveToolPermission()` returns
+`"auto-classify"`, `checkToolSafety()` handles via injectable classifier.
+
+---
+
+## 5. Headless Safety Bounds
 
 ### --max-turns
 

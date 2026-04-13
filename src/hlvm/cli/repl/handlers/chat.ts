@@ -162,6 +162,27 @@ function validateCapturedContexts(
   return null;
 }
 
+function isChatMode(value: unknown): value is NonNullable<ChatRequest["mode"]> {
+  return value === "chat" || value === "eval" || value === "agent" ||
+    value === CLAUDE_CODE_AGENT_MODE;
+}
+
+function requestWantsBinaryAgentMode(body: ChatRequest): boolean {
+  return body.response_schema !== undefined ||
+    body.tool_allowlist !== undefined ||
+    body.tool_denylist !== undefined ||
+    body.max_iterations !== undefined ||
+    body.max_budget_usd !== undefined ||
+    body.computer_use === true;
+}
+
+function resolveRequestedMode(body: ChatRequest): NonNullable<ChatRequest["mode"]> {
+  if (body.mode && isChatMode(body.mode)) {
+    return body.mode;
+  }
+  return requestWantsBinaryAgentMode(body) ? "agent" : "chat";
+}
+
 export async function buildEvalAttachments(
   attachmentIds: readonly string[],
 ): Promise<AnyAttachment[] | undefined> {
@@ -339,7 +360,7 @@ export async function handleChat(req: Request): Promise<Response> {
   traceReplMainThreadForSource(body.query_source, "server.chat.request", {
     requestId,
     sessionId,
-    mode: body.mode,
+    mode: body.mode ?? "auto",
     stateless: body.stateless === true,
     messageCount: body.messages.length,
     queryPreview: buildTraceTextPreview(
@@ -362,17 +383,14 @@ export async function handleChat(req: Request): Promise<Response> {
   const currentTurnId = currentUserMessage.client_turn_id ??
     body.client_turn_id;
 
-  if (
-    body.mode !== "chat" && body.mode !== "eval" &&
-    body.mode !== "agent" &&
-    body.mode !== CLAUDE_CODE_AGENT_MODE
-  ) {
+  if (body.mode !== undefined && !isChatMode(body.mode)) {
     return jsonError(
-      `Invalid or missing mode: must be 'chat', 'eval', 'agent', or '${CLAUDE_CODE_AGENT_MODE}'`,
+      `Invalid mode: must be 'chat', 'eval', 'agent', or '${CLAUDE_CODE_AGENT_MODE}'`,
       400,
     );
   }
-  const isEvalMode = body.mode === "eval";
+  const requestedMode = resolveRequestedMode(body);
+  const isEvalMode = requestedMode === "eval";
   if (isEvalMode) {
     try {
       await getRequiredAttachmentRecords(
@@ -393,7 +411,7 @@ export async function handleChat(req: Request): Promise<Response> {
     ) {
       return jsonError("response_schema must be a JSON object", 400);
     }
-    if (body.mode !== "agent") {
+    if (requestedMode !== "agent") {
       return jsonError(
         "response_schema is supported only for mode:'agent' in this phase",
         400,
@@ -440,7 +458,7 @@ export async function handleChat(req: Request): Promise<Response> {
       attachmentCount: requestAttachmentIds.length,
       sessionId,
       clientTurnId: currentTurnId,
-      requestMode: body.mode,
+      requestMode: requestedMode,
       model: resolvedModel,
     });
   }
@@ -452,7 +470,7 @@ export async function handleChat(req: Request): Promise<Response> {
 
   if (
     !isEvalMode &&
-    (body.mode === "agent" || body.mode === CLAUDE_CODE_AGENT_MODE) &&
+    (requestedMode === "agent" || requestedMode === CLAUDE_CODE_AGENT_MODE) &&
     !resolvedModel
   ) {
     // Guaranteed local default is always available — use it as last resort
@@ -500,7 +518,7 @@ export async function handleChat(req: Request): Promise<Response> {
       }
     }
     if (
-      (body.mode === "agent" || body.mode === CLAUDE_CODE_AGENT_MODE) &&
+      (requestedMode === "agent" || requestedMode === CLAUDE_CODE_AGENT_MODE) &&
       resolvedModelInfo === null &&
       modelDiscoveryFailed
     ) {
@@ -549,7 +567,7 @@ export async function handleChat(req: Request): Promise<Response> {
         );
       }
     }
-    if (body.mode === "agent") {
+    if (requestedMode === "agent") {
       const toolCheck = await modelSupportsTools(
         resolvedModel,
         resolvedModelInfo,
@@ -629,11 +647,11 @@ export async function handleChat(req: Request): Promise<Response> {
     }
   }
 
-  const senderType = body.mode === "agent"
+  const senderType = requestedMode === "agent"
     ? "agent"
-    : body.mode === "eval"
+    : requestedMode === "eval"
     ? "eval"
-    : body.mode === CLAUDE_CODE_AGENT_MODE
+    : requestedMode === CLAUDE_CODE_AGENT_MODE
     ? "agent"
     : "llm";
   const assistantMsg = insertMessage({
@@ -785,16 +803,16 @@ export async function handleChat(req: Request): Promise<Response> {
         );
         const requestHasExplicitModel = typeof body.model === "string" &&
           body.model.length > 0;
-        const effectiveMode = body.mode === CLAUDE_CODE_AGENT_MODE
+        const effectiveMode = requestedMode === CLAUDE_CODE_AGENT_MODE
           ? CLAUDE_CODE_AGENT_MODE
-          : (body.mode === "agent" &&
+          : (requestedMode === "agent" &&
               (
                 isAgentModel ||
                 (!requestHasExplicitModel &&
                   configUsesAgentModel)
               ))
           ? CLAUDE_CODE_AGENT_MODE
-          : body.mode;
+          : requestedMode;
         const runnerHandlesMemoryCapture = !isEvalMode &&
           effectiveMode === "agent" &&
           supportsAgentExecution(resolvedModel, resolvedModelInfo);

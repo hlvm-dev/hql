@@ -380,3 +380,26 @@ export function extractJson(text: string): string {
   }
   return "{}";
 }
+
+/** Classify whether a tool call is safe to auto-approve via local LLM.
+ *  Returns { safe: false } on any failure — caller falls through to user prompt. */
+export async function classifyToolSafety(
+  toolName: string,
+  args: Record<string, unknown>,
+): Promise<{ safe: boolean; reason: string }> {
+  const argsPreview = JSON.stringify(args).slice(0, 500);
+  const response = await collectChat(
+    `Tool: ${toolName}\nArgs: ${argsPreview}\n` +
+      `Is this safe to auto-approve? Consider: file mutations, destructive shell commands, ` +
+      `network access to unknown hosts, credential exposure.\n` +
+      `JSON: { "safe": true/false, "reason": "brief" }`,
+    { temperature: 0, maxTokens: 128 },
+  );
+  try {
+    const raw = extractJson(response);
+    const parsed = JSON.parse(raw);
+    return { safe: !!parsed?.safe, reason: String(parsed?.reason ?? "") };
+  } catch {
+    return { safe: false, reason: "classification failed" };
+  }
+}

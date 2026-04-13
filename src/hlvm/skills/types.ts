@@ -13,7 +13,6 @@ export interface SkillFrontmatter {
   description: string;
   when_to_use?: string;
   allowed_tools?: string[];
-  model?: string;
   /** Whether the user can invoke this skill directly. Default true. */
   user_invocable?: boolean;
   /** Execution context. Default "inline". */

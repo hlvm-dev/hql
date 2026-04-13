@@ -1,9 +1,11 @@
 # HLVM Harness Engineering — Full System Map
 
-> **Status**: Implementation complete. See [reference.md](./reference.md) for
-> the authoritative technical reference. This document shows pipeline diagrams.
+> **HISTORICAL DOCUMENT** — written during initial implementation.
+> CC "parity" claims in this document are outdated and overstated.
+> See [reference.md](./reference.md) for the current authoritative reference.
+> HLVM has CC-inspired primitives, not CC interface compatibility.
 
-Complete before/after pipeline, HLVM vs CC deep comparison, and gap inventory.
+Pipeline diagrams from the initial implementation sprint.
 
 ---
 

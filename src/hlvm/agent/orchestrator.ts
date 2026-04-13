@@ -1383,18 +1383,30 @@ async function runLlmResponsePass(
   usage: TokenUsage;
 }> {
   const onTrace = config.onTrace;
-  await config.hookRuntime?.dispatch("pre_llm", {
-    workspace: config.workspace,
-    iteration: state.iterations,
-    modelId: config.modelId,
-    sessionId: config.sessionId,
-    turnId: config.turnId,
-    phase: runtimePhase,
-    messageCount: messages.length,
-    continuedThisTurn: state.continuedThisTurn,
-    continuationCount: state.continuationCount,
-    compactionReason: state.compactionReason,
-  });
+  const preLlmFeedback = await config.hookRuntime?.dispatchWithFeedback(
+    "pre_llm",
+    {
+      workspace: config.workspace,
+      iteration: state.iterations,
+      modelId: config.modelId,
+      sessionId: config.sessionId,
+      turnId: config.turnId,
+      phase: runtimePhase,
+      messageCount: messages.length,
+      continuedThisTurn: state.continuedThisTurn,
+      continuationCount: state.continuationCount,
+      compactionReason: state.compactionReason,
+    },
+  );
+  if (preLlmFeedback?.blocked) {
+    return {
+      agentResponse: {
+        content: preLlmFeedback.feedback ?? "LLM call blocked by pre_llm hook.",
+        toolCalls: [],
+      },
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, source: "estimated" as const },
+    };
+  }
   onTrace?.({ type: "llm_call", messageCount: messages.length });
 
   const llmCallConfig = {

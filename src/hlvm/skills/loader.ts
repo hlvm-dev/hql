@@ -19,12 +19,14 @@ import { isWorkspaceTrusted } from "../prompt/instructions.ts";
 import { getBundledSkills } from "./bundled/index.ts";
 import type { SkillDefinition } from "./types.ts";
 
-// ── Session Cache ────────────────────────────────────────────
+// ── Session Cache (keyed by workspace) ──────────────────────
 
+let _cacheKey: string | null = null;
 let _cachedCatalog: ReadonlyMap<string, SkillDefinition> | null = null;
 
-/** Reset the cached skill catalog (for tests). */
+/** Reset the cached skill catalog. */
 export function resetSkillCatalogCache(): void {
+  _cacheKey = null;
   _cachedCatalog = null;
 }
 
@@ -66,7 +68,6 @@ async function loadSkillsFromDir(
           description: meta.description,
           when_to_use: typeof meta.when_to_use === "string" ? meta.when_to_use : undefined,
           allowed_tools: Array.isArray(meta.allowed_tools) ? meta.allowed_tools.filter((t): t is string => typeof t === "string") : undefined,
-          model: typeof meta.model === "string" ? meta.model : undefined,
           user_invocable: typeof meta.user_invocable === "boolean" ? meta.user_invocable : undefined,
           context: meta.context === "inline" || meta.context === "fork" ? meta.context : undefined,
         },
@@ -96,7 +97,8 @@ async function loadSkillsFromDir(
 export async function loadSkillCatalog(
   workspace?: string,
 ): Promise<ReadonlyMap<string, SkillDefinition>> {
-  if (_cachedCatalog) return _cachedCatalog;
+  const key = workspace ?? "";
+  if (_cachedCatalog && _cacheKey === key) return _cachedCatalog;
 
   const catalog = new Map<string, SkillDefinition>();
 
@@ -125,6 +127,7 @@ export async function loadSkillCatalog(
     }
   }
 
+  _cacheKey = key;
   _cachedCatalog = catalog;
   return catalog;
 }

@@ -562,13 +562,13 @@ async function readLine(
  * @param toolName Tool name to check
  * @param safetyLevel Tool safety level (L0/L1/L2)
  * @param permissions Tool permissions (allow/deny lists + mode)
- * @returns "allow" | "deny" | "prompt"
+ * @returns "allow" | "deny" | "prompt" | "auto-classify"
  */
 export function resolveToolPermission(
   toolName: string,
   safetyLevel: SafetyLevel,
   permissions: ToolPermissions,
-): "allow" | "deny" | "prompt" {
+): "allow" | "deny" | "prompt" | "auto-classify" {
   // Priority 1: Explicit deny
   if (permissions.deniedTools.has(toolName)) return "deny";
 
@@ -589,6 +589,11 @@ export function resolveToolPermission(
   // Priority 6: Accept edits mode
   if (permissions.mode === "acceptEdits" && safetyLevel === "L1") {
     return "allow";
+  }
+
+  // Priority 7: Auto mode — classify via local LLM before prompting
+  if (permissions.mode === "auto") {
+    return "auto-classify";
   }
 
   // Default: prompt for confirmation
@@ -635,6 +640,13 @@ export async function checkToolSafety(
   onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>,
   warning?: string,
   toolPermissions?: { allowedTools?: Set<string>; deniedTools?: Set<string> },
+  options?: {
+    /** Injectable classifier for auto mode (tests inject a stub). */
+    classifyToolSafety?: (
+      toolName: string,
+      args: Record<string, unknown>,
+    ) => Promise<{ safe: boolean; reason: string }>;
+  },
 ): Promise<boolean> {
   // Classify tool
   const classification = classifyTool(toolName, args, ownerId);
@@ -670,7 +682,29 @@ export async function checkToolSafety(
     return true;
   }
 
-  // decision === "prompt": Check L1 cache, then prompt user
+  // decision === "auto-classify": run local LLM classifier, fall through to prompt on failure
+  if (decision === "auto-classify") {
+    if (classification.level === "L1" && hasL1Confirmation(toolName, args, l1Store)) {
+      return true;
+    }
+    try {
+      const classifyFn = options?.classifyToolSafety ??
+        (await import("../../runtime/local-llm.ts")).classifyToolSafety;
+      const result = await classifyFn(
+        toolName,
+        args as Record<string, unknown>,
+      );
+      if (result.safe) {
+        if (classification.level === "L1") {
+          setL1Confirmation(toolName, args, l1Store);
+        }
+        return true;
+      }
+    } catch { /* classifier failed — fall through to prompt */ }
+    // Unsafe or failed → fall through to existing prompt logic
+  }
+
+  // decision === "prompt" or "auto-classify" that was not safe: Check L1 cache, then prompt user
   if (classification.level === "L1") {
     if (hasL1Confirmation(toolName, args, l1Store)) {
       return true;

@@ -20,6 +20,25 @@ export const DEFAULT_OLLAMA_ENDPOINT = `http://${DEFAULT_OLLAMA_HOST}`;
 export const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
+// ============================================================
+// SSOT Endpoint & Network Constants
+// ============================================================
+
+/** SSOT endpoint for OpenAI API */
+export const DEFAULT_OPENAI_ENDPOINT = "https://api.openai.com";
+/** SSOT endpoint for Anthropic API */
+export const DEFAULT_ANTHROPIC_ENDPOINT = "https://api.anthropic.com";
+/** SSOT endpoint for OpenRouter public model catalog */
+export const DEFAULT_OPENROUTER_CATALOG_URL = "https://openrouter.ai/api/v1/models";
+/** SSOT endpoint for Claude Code OAuth token exchange */
+export const DEFAULT_CLAUDE_CODE_OAUTH_TOKEN_ENDPOINT = "https://platform.claude.com/v1/oauth/token";
+/** SSOT endpoint for GitHub releases API */
+export const DEFAULT_GITHUB_RELEASES_URL = "https://api.github.com/repos/hlvm-dev/hql/releases/latest";
+/** SSOT localhost address — all local URLs must use this */
+export const DEFAULT_LOCALHOST = "127.0.0.1";
+/** SSOT port for MCP OAuth callback server */
+export const DEFAULT_MCP_OAUTH_PORT = 35017;
+
 /**
  * Normalize a model ID to provider/model format.
  * Defaults to the provider from DEFAULT_MODEL_ID when missing.
@@ -59,13 +78,14 @@ export type AgentMode = "hlvm" | "claude-code-agent";
  * - "bypassPermissions": auto-approve everything (no prompts)
  * - "dontAsk": non-interactive mode (L0 auto-approve, all else denied)
  */
-export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "dontAsk";
+export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "dontAsk" | "auto";
 export const PERMISSION_MODES: PermissionMode[] = [
   "default",
   "acceptEdits",
   "plan",
   "bypassPermissions",
   "dontAsk",
+  "auto",
 ];
 
 /** O(1) membership check for permission mode validation */
@@ -126,7 +146,7 @@ export interface HlvmConfig {
   approvedProviders?: string[]; // Providers the user has consented to (e.g., ["openai", "anthropic"])
   agentMode?: AgentMode; // Agent mode for Claude models: "hlvm" (HLVM orchestrates) or "claude-code-agent" (full passthrough)
   sessionMemory?: boolean; // Claude Code session memory: remembers context across messages in same chat session (default: true)
-  permissionMode?: PermissionMode; // Agent tool permission mode: "default" | "acceptEdits" | "plan" | "bypassPermissions" | "dontAsk"
+  permissionMode?: PermissionMode; // Agent tool permission mode: "default" | "acceptEdits" | "plan" | "bypassPermissions" | "dontAsk" | "auto"
   agentMaxThreads?: number; // Max concurrent background delegate agents (default: 4)
   agentMaxDepth?: number; // Max delegation nesting depth (default: 1, range 1-3)
   chatMaxPromptChars?: number; // Max user prompt length in characters (default: 10000)

@@ -14,8 +14,9 @@ import { CATALOG_CACHE_TTL_MS } from "./common.ts";
 import { http } from "../../common/http-client.ts";
 import { getCloudModelCatalogCachePath } from "../../common/paths.ts";
 import { createCachedCatalog } from "./cached-catalog.ts";
+import { DEFAULT_OPENROUTER_CATALOG_URL } from "../../common/config/types.ts";
 
-const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+const OPENROUTER_MODELS_URL = DEFAULT_OPENROUTER_CATALOG_URL;
 
 /** Provider prefixes in OpenRouter model IDs */
 const PROVIDER_PREFIXES: Record<string, string> = {

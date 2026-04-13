@@ -1,4 +1,5 @@
 import { getPlatform } from "../../platform/platform.ts";
+import { DEFAULT_LOCALHOST } from "../../common/config/types.ts";
 
 export const HLVM_RUNTIME_DEFAULT_PORT = 11435;
 export const HLVM_RUNTIME_PORT_SCAN_RANGE = 10;
@@ -37,7 +38,7 @@ export function setCachedRuntimeBaseUrl(url: string): void {
 }
 
 export function getHlvmRuntimeBaseUrl(): string {
-  return cachedRuntimeBaseUrl ?? `http://127.0.0.1:${resolveHlvmRuntimePort()}`;
+  return cachedRuntimeBaseUrl ?? `http://${DEFAULT_LOCALHOST}:${resolveHlvmRuntimePort()}`;
 }
 
 export async function withRuntimePortOverrideForTests<T>(

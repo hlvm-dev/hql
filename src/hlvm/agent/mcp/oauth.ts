@@ -21,6 +21,7 @@ import { sha256HexSync } from "../../../common/sha256.ts";
 import { normalizeServerName } from "./config.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { DEFAULT_LOCALHOST, DEFAULT_MCP_OAUTH_PORT } from "../../../common/config/types.ts";
 import { getAgentLogger } from "../logger.ts";
 import type { McpServerConfig } from "./types.ts";
 
@@ -47,7 +48,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 const MCP_OAUTH_STORE_VERSION = 1;
-const MCP_OAUTH_REDIRECT_URI = "http://127.0.0.1:35017/hlvm/oauth/callback";
+const MCP_OAUTH_REDIRECT_URI = `http://${DEFAULT_LOCALHOST}:${DEFAULT_MCP_OAUTH_PORT}/hlvm/oauth/callback`;
 const ACCESS_TOKEN_SKEW_MS = 300_000;
 const OAUTH_CALLBACK_WAIT_TIMEOUT_MS = 120_000;
 const MCP_OAUTH_REFRESH_LOCK_STALE_MS = 30_000;

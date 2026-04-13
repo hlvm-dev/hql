@@ -465,18 +465,26 @@ export async function executeToolCall(
   }
   const toolExists = preparedArgs !== undefined;
   const coercedArgs = preparedArgs?.coercedArgs ?? normalizedArgs;
-  await config.hookRuntime?.dispatch("pre_tool", {
-    workspace: config.workspace,
-    toolName: toolCall.toolName,
-    toolCallId: toolCall.id,
-    modelId: config.modelId,
-    sessionId: config.sessionId,
-    turnId: config.turnId,
-    args: coercedArgs,
-    argsSummary: generateArgsSummary(toolCall.toolName, coercedArgs),
-    toolIndex,
-    toolTotal,
-  });
+  const preToolFeedback = await config.hookRuntime?.dispatchWithFeedback(
+    "pre_tool",
+    {
+      workspace: config.workspace,
+      toolName: toolCall.toolName,
+      toolCallId: toolCall.id,
+      modelId: config.modelId,
+      sessionId: config.sessionId,
+      turnId: config.turnId,
+      args: coercedArgs,
+      argsSummary: generateArgsSummary(toolCall.toolName, coercedArgs),
+      toolIndex,
+      toolTotal,
+    },
+  );
+  if (preToolFeedback?.blocked) {
+    const msg = preToolFeedback.feedback ??
+      `Tool ${toolCall.toolName} was blocked by a pre_tool hook.`;
+    return buildToolErrorResult(toolCall.toolName, msg, startedAt, config, toolCall.id);
+  }
   // Emit trace event: tool call
   config.onTrace?.({
     type: "tool_call",

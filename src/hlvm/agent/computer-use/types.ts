@@ -377,6 +377,25 @@ export interface ComputerUseSwiftAPI {
 
 export type CUBackendKind = "native_gui" | "jxa";
 
+export const NATIVE_GUI_CAPABILITIES_VERSION = "1" as const;
+
+export const NATIVE_GUI_FEATURES = [
+  "observe",
+  "windows",
+  "targets",
+  "permissions",
+  "frontmost",
+  "click-target",
+  "type-into-target",
+  "read-target",
+  "activate-app",
+  "prepare-display",
+  "element-at-point",
+  "input",
+  "execute-plan",
+  "esc_hotkey",
+] as const;
+
 export interface CUNativeCapabilities {
   version: string;
   features: string[];

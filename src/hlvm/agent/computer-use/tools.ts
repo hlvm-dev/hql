@@ -23,6 +23,7 @@
  *   region:           [x1, y1, x2, y2] pixel rect
  */
 
+import { sleep } from "../../../common/timeout-utils.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import {
   assertValidBundleId,
@@ -251,10 +252,6 @@ function scrollDirectionToDeltas(
     default:
       throw new Error(`Invalid scroll direction: ${dir}`);
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Build result with image attachment (used by screenshot, zoom, wait). */

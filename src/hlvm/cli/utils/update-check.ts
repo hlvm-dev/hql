@@ -14,10 +14,11 @@ import {
   readTextFile,
   writeTextFile,
   platformGetEnv,
+  platformOs,
 } from "./platform-helpers.ts";
+import { DEFAULT_GITHUB_RELEASES_URL } from "../../../common/config/types.ts";
 
-const GITHUB_RELEASES_API =
-  "https://api.github.com/repos/hlvm-dev/hql/releases/latest";
+const GITHUB_RELEASES_API = DEFAULT_GITHUB_RELEASES_URL;
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const CACHE_FILENAME = "update-check.json";
@@ -44,7 +45,7 @@ export function isNewer(latest: string, current: string): boolean {
 
 /** Platform-appropriate upgrade command. */
 export function getUpgradeCommand(): string {
-  const os = (typeof Deno !== "undefined" && Deno.build?.os) || "linux";
+  const os = platformOs();
   return os === "windows"
     ? "irm hlvm.dev/install.ps1 | iex"
     : "curl -fsSL hlvm.dev/install.sh | sh";
