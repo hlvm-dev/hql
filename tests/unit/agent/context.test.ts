@@ -178,6 +178,26 @@ Deno.test("context: tool exchanges stay intact during trim, summary grouping, an
   }
 });
 
+Deno.test("context: tool-call arg length caching does not mutate tool-call objects", () => {
+  const context = new ContextManager({ maxTokens: 10_000 });
+  const toolCall = {
+    id: "call-1",
+    function: { name: "search_web", arguments: { query: "taskgroup" } },
+  };
+
+  context.addMessage({
+    role: "assistant",
+    content: "",
+    toolCalls: [toolCall],
+  });
+  context.estimateTokens();
+
+  assertEquals(
+    Object.prototype.hasOwnProperty.call(toolCall, "_cachedArgLen"),
+    false,
+  );
+});
+
 Deno.test("context: takeLastMessageGroups preserves trailing tool exchange boundaries", () => {
   const messages: Message[] = [
     { role: "user", content: "older" },

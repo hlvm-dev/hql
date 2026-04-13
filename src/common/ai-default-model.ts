@@ -28,14 +28,45 @@ let defaultModelEnsured = false;
 const CLAUDE_CODE_PROVIDER = "claude-code";
 const CLAUDE_CODE_AGENT_SUFFIX = ":agent";
 const CLAUDE_DATE_SUFFIX_REGEX = /-20\d{6}$/;
-const CLAUDE_BOOTSTRAP_CACHE_MS = 30_000;
+const CLAUDE_BOOTSTRAP_SUCCESS_CACHE_MS = 30_000;
+const CLAUDE_BOOTSTRAP_FAILURE_CACHE_MS = 5_000;
 const LEGACY_DEFAULT_MODEL_IDS = new Set([
   "ollama/llama3.1:8b",
   "ollama/mistral-large-3:675b-cloud",
   LOCAL_FALLBACK_MODEL_ID,
 ]);
-let claudeBootstrapProbeAt = 0;
-let claudeBootstrapProbeResult: string | null = null;
+type ClaudeBootstrapProbeCache =
+  | { state: "empty" }
+  | { state: "success"; at: number; modelId: string }
+  | { state: "failure"; at: number };
+
+let claudeBootstrapProbeCache: ClaudeBootstrapProbeCache = { state: "empty" };
+
+function getCachedClaudeBootstrapProbe(now: number): string | null | undefined {
+  if (claudeBootstrapProbeCache.state === "success") {
+    return now - claudeBootstrapProbeCache.at < CLAUDE_BOOTSTRAP_SUCCESS_CACHE_MS
+      ? claudeBootstrapProbeCache.modelId
+      : undefined;
+  }
+  if (claudeBootstrapProbeCache.state === "failure") {
+    return now - claudeBootstrapProbeCache.at < CLAUDE_BOOTSTRAP_FAILURE_CACHE_MS
+      ? null
+      : undefined;
+  }
+  return undefined;
+}
+
+function setClaudeBootstrapProbeSuccess(now: number, modelId: string): void {
+  claudeBootstrapProbeCache = { state: "success", at: now, modelId };
+}
+
+function setClaudeBootstrapProbeFailure(now: number): void {
+  claudeBootstrapProbeCache = { state: "failure", at: now };
+}
+
+export function __resetClaudeBootstrapProbeCacheForTesting(): void {
+  claudeBootstrapProbeCache = { state: "empty" };
+}
 
 export {
   getProgressPercent,
@@ -235,30 +266,36 @@ export async function autoConfigureInitialClaudeCodeModel(
   if (!isAutomaticDefaultCandidate(snapshot)) return null;
 
   const now = deps.now();
-  if (now - claudeBootstrapProbeAt < CLAUDE_BOOTSTRAP_CACHE_MS) {
-    return claudeBootstrapProbeResult;
+  const cached = getCachedClaudeBootstrapProbe(now);
+  if (cached !== undefined) {
+    return cached;
   }
-
-  claudeBootstrapProbeAt = now;
-  claudeBootstrapProbeResult = null;
 
   let status: { available: boolean };
   try {
     status = await deps.getStatus(CLAUDE_CODE_PROVIDER);
   } catch {
+    setClaudeBootstrapProbeFailure(now);
     return null;
   }
-  if (!status.available) return null;
+  if (!status.available) {
+    setClaudeBootstrapProbeFailure(now);
+    return null;
+  }
 
   let models: ModelInfo[];
   try {
     models = await deps.listModels(CLAUDE_CODE_PROVIDER);
   } catch {
+    setClaudeBootstrapProbeFailure(now);
     return null;
   }
 
   const preferred = selectPreferredClaudeCodeModel(models);
-  if (!preferred) return null;
+  if (!preferred) {
+    setClaudeBootstrapProbeFailure(now);
+    return null;
+  }
 
   const selectedModelId = `${CLAUDE_CODE_PROVIDER}/${preferred}`;
   await deps.patchConfig(
@@ -266,7 +303,7 @@ export async function autoConfigureInitialClaudeCodeModel(
       ? buildSelectedModelConfigUpdatesPreservingAgentMode(selectedModelId)
       : buildSelectedModelConfigUpdates(selectedModelId),
   );
-  claudeBootstrapProbeResult = selectedModelId;
+  setClaudeBootstrapProbeSuccess(now, selectedModelId);
   return selectedModelId;
 }
 

@@ -18,6 +18,7 @@ import {
   getOrCreateSession,
   getSession,
   insertMessage,
+  setSessionTitleIfEmpty,
   updateMessage,
   updateSession,
   validateExpectedVersion,
@@ -992,8 +993,9 @@ export async function handleChat(req: Request): Promise<Response> {
                 /\n/g,
                 " ",
               ).trim();
-              updateSession(sessionId, { title: autoTitle });
-              pushConversationUpdatedEvent(sessionId, { title: autoTitle });
+              if (setSessionTitleIfEmpty(sessionId, autoTitle)) {
+                pushConversationUpdatedEvent(sessionId, { title: autoTitle });
+              }
             }
           }
 

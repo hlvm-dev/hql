@@ -34,6 +34,8 @@ interface WriteMemoryFactsResult {
   factIds: number[];
 }
 
+type ConflictCandidates = Awaited<ReturnType<typeof detectConflicts>>;
+
 function normalizeWriteOptions(
   opts: WriteMemoryFactOptions,
 ): WriteMemoryFactOptions {
@@ -65,6 +67,28 @@ function dedupeWriteOptions(
   return deduped;
 }
 
+let detectConflictsForWrite: typeof detectConflicts = detectConflicts;
+
+async function precomputeConflictCandidates(
+  normalized: WriteMemoryFactOptions,
+): Promise<ConflictCandidates> {
+  if (normalized.invalidateConflicts !== true) return [];
+  return await detectConflictsForWrite(
+    normalized.content,
+    normalized.category ?? "General",
+  );
+}
+
+export function __testOnlySetDetectConflictsForWrite(
+  fn: typeof detectConflicts,
+): void {
+  detectConflictsForWrite = fn;
+}
+
+export function __testOnlyResetWriteMemoryFactDependencies(): void {
+  detectConflictsForWrite = detectConflicts;
+}
+
 export async function writeMemoryFact(
   opts: WriteMemoryFactOptions,
 ): Promise<WriteMemoryFactResult> {
@@ -76,13 +100,14 @@ export async function writeMemoryFact(
   if (existing) {
     return { factId: existing.id, linkedEntities: 0, invalidated: 0 };
   }
+  const conflictCandidates = await precomputeConflictCandidates(normalized);
   const factId = await insertFactRecord(normalized);
   const linkedEntities = normalized.linkEntities === false
     ? 0
     : linkFactEntities(factId, normalized.content);
   const invalidated = normalized.invalidateConflicts === true
     ? autoInvalidateConflicts(
-      await detectConflicts(normalized.content, normalized.category ?? "General"),
+      conflictCandidates,
       normalized.modelTier ?? "standard",
     ).length
     : 0;

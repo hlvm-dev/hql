@@ -5,7 +5,7 @@ hooks, and headless safety limits. It is not interface-compatible with
 Claude Code. HLVM intentionally diverges by supporting many models/providers
 and running as a global agent session.
 
-HLVM is a global session (like Siri). Primary config is `~/.hlvm/`.
+HLVM is a global session (like Siri). Primary config is `~/.hlvm/settings.json`.
 Project-scoped overrides exist but are secondary.
 
 ---
@@ -187,9 +187,36 @@ Invoke a skill by calling the `skill` tool with its name.
 
 ## 3. Hook System
 
+### 3.0 Unified Settings
+
+As of config version 2, hooks and policy are unified into
+`~/.hlvm/settings.json` alongside the main config:
+
+```json
+{
+  "version": 2,
+  "model": "ollama/llama3.2:latest",
+  "hooks": {
+    "pre_tool": [{ "command": ["lint.sh", "--fix"] }]
+  },
+  "policy": {
+    "default": "ask",
+    "toolRules": { "read_file": "allow" }
+  }
+}
+```
+
+**Resolution order for hooks:**
+1. `~/.hlvm/settings.json` `hooks` field (global)
+2. `<workspace>/.hlvm/hooks.json` (workspace override, merged on top)
+
+Legacy standalone files (`config.json`, `agent-policy.json`) are still read
+as fallback when `settings.json` does not exist.
+
 ### 3.1 Hook Configuration
 
-Hooks configured in `<workspace>/.hlvm/hooks.json` (project-scoped, not global).
+Hooks can be configured globally in `~/.hlvm/settings.json` (under the
+`hooks` key) or per-workspace in `<workspace>/.hlvm/hooks.json`.
 
 ```json
 {

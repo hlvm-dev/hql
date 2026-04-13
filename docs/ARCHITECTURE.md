@@ -190,7 +190,7 @@ serve.ts → startServer()
    │
    ├── Read HLVM_REPL_PORT, HLVM_AUTH_TOKEN
    ├── Initialize AI runtime (runtimeReady promise)
-   │     ├── Load config from ~/.hlvm/config.json
+   │     ├── Load config from ~/.hlvm/settings.json
    │     ├── Detect available providers
    │     ├── Register tools (built-in + MCP)
    │     └── Register globalThis APIs (ai, config, memory)
@@ -652,18 +652,18 @@ GUI                          Server                    Ollama
 | Category   | Data                                                                                                               | Storage                                  |
 | ---------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
 | Ephemeral  | Active requests (AbortControllers), SSE connections, cached sessions, LLM instances, MCP connections, module cache | Memory                                   |
-| Persistent | Config                                                                                                             | `~/.hlvm/config.json`                    |
+| Persistent | Config (unified settings)                                                                                          | `~/.hlvm/settings.json`                  |
 | Persistent | Sessions, messages, SSE events                                                                                     | `~/.hlvm/hlvm.db` (SQLite)               |
 | Persistent | Memory, FTS5 index                                                                                                 | `~/.hlvm/memory/`                        |
 | Persistent | MCP server configs                                                                                                 | `~/.hlvm/mcp.json`                       |
-| Persistent | Security policy                                                                                                    | `~/.hlvm/policy.json`                    |
+| Persistent | Security policy                                                                                                    | `~/.hlvm/settings.json` (policy field)   |
 | Persistent | Project instructions                                                                                               | `.hlvm/prompt.md`                        |
 | REPL state | globalThis bindings (defn, def), module cache, code history                                                        | Memory (survives evals, lost on restart) |
 
 ### Shared via Filesystem
 
 ```
-~/.hlvm/config.json
+~/.hlvm/settings.json
   ├── Server reads on startup + watches for changes
   ├── Server writes on PATCH /api/config
   ├── GUI reads via GET /api/config
@@ -1499,7 +1499,7 @@ details as well - in ASCII visual
     │     ├── Read HLVM_REPL_PORT (default 11435)                   │
     │     ├── Read HLVM_AUTH_TOKEN                                  │
     │     ├── Initialize AI runtime (runtimeReady promise)          │
-    │     │     ├── Load config from ~/.hlvm/config.json            │
+    │     │     ├── Load config from ~/.hlvm/settings.json           │
     │     │     ├── Detect available providers                      │
     │     │     ├── Register tools (TOOL_REGISTRY + DYNAMIC)        │
     │     │     ├── Load MCP servers (from .hlvm/mcp.json)          │
@@ -2045,7 +2045,7 @@ details as well - in ASCII visual
     │  │  Server pushes:                                                    │    │
     │  │  └── config_updated → full config object                           │    │
     │  │                                                                    │    │
-    │  │  Server watches ~/.hlvm/config.json for external changes           │    │
+    │  │  Server watches ~/.hlvm/settings.json for external changes          │    │
     │  │  (e.g., CLI user runs "hlvm config set model gpt-4")              │    │
     │  │  30-second heartbeat to keep connection alive                      │    │
     │  │                                                                    │    │
@@ -2301,11 +2301,11 @@ State ║ ║ ║
     │  └── Module import cache (Deno's built-in ESM cache)                      │
     │                                                                            │
     │  Persistent (filesystem):                                                  │
-    │  ├── ~/.hlvm/config.json          → model, temperature, agent mode         │
+    │  ├── ~/.hlvm/settings.json         → model, temperature, agent mode, policy, hooks │
     │  ├── ~/.hlvm/hlvm.db (SQLite)     → sessions, messages, SSE events        │
     │  ├── ~/.hlvm/memory/              → MEMORY.md, memory.db (SQLite)        │
     │  ├── ~/.hlvm/mcp.json             → MCP server configurations             │
-    │  ├── ~/.hlvm/policy.json          → security policy overrides             │
+    │  ├── (policy inside settings.json) → security policy overrides             │
     │  └── .hlvm/prompt.md (per-project) → project-specific instructions        │
     │                                                                            │
     │  REPL state (in-memory, persistent across evals but not restarts):         │
@@ -2318,7 +2318,7 @@ State ║ ║ ║
 
     ┌─ Shared via filesystem ────────────────────────────────────────────────────┐
     │                                                                            │
-    │  ~/.hlvm/config.json                                                       │
+    │  ~/.hlvm/settings.json                                                      │
     │     ├── Server reads on startup + watches for changes                      │
     │     ├── Server writes on PATCH /api/config                                │
     │     ├── GUI reads via GET /api/config                                      │

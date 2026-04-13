@@ -14,10 +14,10 @@ import {
   DEFAULT_CONFIG,
   parseValue,
   validateValue,
-  getConfigPath,
   getConfigValue,
   isConfigKey,
 } from "../../../../common/config/index.ts";
+import { getSettingsPath } from "../../../../common/paths.ts";
 import {
   getRuntimeConfigApi,
   type RuntimeConfigApi,
@@ -60,7 +60,7 @@ export async function handleConfigCommand(args: string): Promise<void> {
 
   // /config path - show file location
   if (subcommand === "path") {
-    log.raw.log(`${CYAN}Config file:${RESET} ${getConfigPath()}`);
+    log.raw.log(`${CYAN}Settings file:${RESET} ${getSettingsPath()}`);
     return;
   }
 
@@ -131,7 +131,7 @@ async function showAllConfig(): Promise<void> {
     const suffix = isDefault ? ` ${DIM_GRAY}(default)${RESET}` : "";
     log.raw.log(`  ${CYAN}${key}${RESET}: ${formatValue(value)}${suffix}`);
   }
-  log.raw.log(`\n${DIM_GRAY}File: ${getConfigPath()}${RESET}`);
+  log.raw.log(`\n${DIM_GRAY}File: ${getSettingsPath()}${RESET}`);
 }
 
 async function showSingleConfig(key: ConfigKey): Promise<void> {

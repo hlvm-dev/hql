@@ -10,7 +10,112 @@
  * - Never throws — returns fallback on any error
  */
 
+import { getErrorMessage } from "../../common/utils.ts";
+import { log } from "../api/log.ts";
 import { LOCAL_FALLBACK_MODEL_ID } from "./local-fallback.ts";
+
+type LocalChatFailureKind =
+  | "disabled"
+  | "runtime_error"
+  | "empty_response"
+  | "parse_failure";
+
+interface LocalChatSuccess {
+  ok: true;
+  text: string;
+}
+
+interface LocalChatFailure {
+  ok: false;
+  failureKind: LocalChatFailureKind;
+  errorMessage: string | null;
+}
+
+type LocalChatResult = LocalChatSuccess | LocalChatFailure;
+
+function logLocalChatFailure(
+  context: string,
+  failure: LocalChatFailure,
+): void {
+  const suffix = failure.errorMessage ? `: ${failure.errorMessage}` : "";
+  const message =
+    `[local-llm] ${context} failed (${failure.failureKind})${suffix}`;
+  if (
+    failure.failureKind === "disabled" ||
+    failure.failureKind === "empty_response"
+  ) {
+    log.debug(message);
+    return;
+  }
+  log.warn(message);
+}
+
+async function collectChatResult(
+  prompt: string,
+  opts: { temperature?: number; maxTokens?: number },
+): Promise<LocalChatResult> {
+  try {
+    const { getPlatform } = await import("../../platform/platform.ts");
+    if (getPlatform().env.get("HLVM_DISABLE_AI_AUTOSTART")) {
+      return {
+        ok: false,
+        failureKind: "disabled",
+        errorMessage: "HLVM_DISABLE_AI_AUTOSTART is set",
+      };
+    }
+    const { ai } = await import("../api/ai.ts");
+    const messages = [{ role: "user" as const, content: prompt }];
+    let result = "";
+    for await (
+      const token of ai.chat(messages, {
+        model: LOCAL_FALLBACK_MODEL_ID,
+        temperature: opts.temperature ?? 0,
+        maxTokens: opts.maxTokens ?? 64,
+      })
+    ) {
+      result += token;
+    }
+    if (!result.trim()) {
+      return {
+        ok: false,
+        failureKind: "empty_response",
+        errorMessage: "Local model returned no text",
+      };
+    }
+    return { ok: true, text: result };
+  } catch (error) {
+    return {
+      ok: false,
+      failureKind: "runtime_error",
+      errorMessage: getErrorMessage(error),
+    };
+  }
+}
+
+async function collectClassificationJson(
+  context: string,
+  prompt: string,
+  opts: { temperature?: number; maxTokens?: number },
+): Promise<Record<string, unknown> | null> {
+  const response = await collectChatResult(prompt, opts);
+  if (!response.ok) {
+    logLocalChatFailure(context, response);
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(extractJson(response.text));
+    return typeof parsed === "object" && parsed !== null
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch (error) {
+    logLocalChatFailure(context, {
+      ok: false,
+      failureKind: "parse_failure",
+      errorMessage: getErrorMessage(error),
+    });
+    return null;
+  }
+}
 
 /** Display name for the local model (derived from SSOT, no hardcoded "Gemma 4"). */
 export function getLocalModelDisplayName(): string {
@@ -44,20 +149,17 @@ export async function classifyTask(query: string): Promise<TaskClassification> {
   };
   if (!query.trim()) return defaults;
 
-  try {
-    const response = await collectChat(
-      CLASSIFY_TASK_PROMPT + query.slice(0, 500),
-      { temperature: 0, maxTokens: 64 },
-    );
-    const parsed = JSON.parse(extractJson(response));
-    return {
-      isCodeTask: parsed.code === true,
-      isReasoningTask: parsed.reasoning === true,
-      needsStructuredOutput: parsed.structured === true,
-    };
-  } catch {
-    return defaults;
-  }
+  const parsed = await collectClassificationJson(
+    "classifyTask",
+    CLASSIFY_TASK_PROMPT + query.slice(0, 500),
+    { temperature: 0, maxTokens: 64 },
+  );
+  if (!parsed) return defaults;
+  return {
+    isCodeTask: parsed.code === true,
+    isReasoningTask: parsed.reasoning === true,
+    needsStructuredOutput: parsed.structured === true,
+  };
 }
 
 // ---- Step 1: Planning Detection ----
@@ -78,16 +180,13 @@ export async function classifyPlanNeed(
 ): Promise<PlanNeedClassification> {
   const defaults: PlanNeedClassification = { needsPlan: false };
   if (!query.trim()) return defaults;
-  try {
-    const response = await collectChat(
-      CLASSIFY_PLAN_NEED_PROMPT + query.slice(0, 500),
-      { temperature: 0, maxTokens: 64 },
-    );
-    const parsed = JSON.parse(extractJson(response));
-    return { needsPlan: parsed.plan === true };
-  } catch {
-    return defaults;
-  }
+  const parsed = await collectClassificationJson(
+    "classifyPlanNeed",
+    CLASSIFY_PLAN_NEED_PROMPT + query.slice(0, 500),
+    { temperature: 0, maxTokens: 64 },
+  );
+  if (!parsed) return defaults;
+  return { needsPlan: parsed.plan === true };
 }
 
 // ---- Step 2: Delegation Detection ----
@@ -112,20 +211,17 @@ export async function classifyDelegation(
     pattern: "none",
   };
   if (!query.trim()) return defaults;
-  try {
-    const response = await collectChat(
-      CLASSIFY_DELEGATION_PROMPT + query.slice(0, 500),
-      { temperature: 0, maxTokens: 64 },
-    );
-    const parsed = JSON.parse(extractJson(response));
-    const pattern =
-      ["fan-out", "batch", "sequential", "none"].includes(parsed.pattern)
-        ? parsed.pattern as DelegationClassification["pattern"]
-        : "none";
-    return { shouldDelegate: parsed.delegate === true, pattern };
-  } catch {
-    return defaults;
-  }
+  const parsed = await collectClassificationJson(
+    "classifyDelegation",
+    CLASSIFY_DELEGATION_PROMPT + query.slice(0, 500),
+    { temperature: 0, maxTokens: 64 },
+  );
+  if (!parsed) return defaults;
+  const pattern =
+    ["fan-out", "batch", "sequential", "none"].includes(String(parsed.pattern))
+      ? parsed.pattern as DelegationClassification["pattern"]
+      : "none";
+  return { shouldDelegate: parsed.delegate === true, pattern };
 }
 
 export interface AllClassification {
@@ -164,30 +260,27 @@ export async function classifyAll(query: string): Promise<AllClassification> {
   };
   if (!query.trim()) return defaults;
 
-  try {
-    const response = await collectChat(
-      CLASSIFY_ALL_PROMPT + query.slice(0, 500),
-      { temperature: 0, maxTokens: 128 },
-    );
-    const parsed = JSON.parse(extractJson(response));
-    const delegatePattern =
-      ["fan-out", "batch", "sequential", "none"].includes(parsed.pattern)
-        ? parsed.pattern as AllClassification["delegatePattern"]
-        : "none";
-    return {
-      isBrowser: parsed.browser === true,
-      shouldDelegate: parsed.delegate === true,
-      delegatePattern,
-      needsPlan: parsed.plan === true,
-      taskClassification: {
-        isCodeTask: parsed.code === true,
-        isReasoningTask: parsed.reasoning === true,
-        needsStructuredOutput: parsed.structured === true,
-      },
-    };
-  } catch {
-    return defaults;
-  }
+  const parsed = await collectClassificationJson(
+    "classifyAll",
+    CLASSIFY_ALL_PROMPT + query.slice(0, 500),
+    { temperature: 0, maxTokens: 128 },
+  );
+  if (!parsed) return defaults;
+  const delegatePattern =
+    ["fan-out", "batch", "sequential", "none"].includes(String(parsed.pattern))
+      ? parsed.pattern as AllClassification["delegatePattern"]
+      : "none";
+  return {
+    isBrowser: parsed.browser === true,
+    shouldDelegate: parsed.delegate === true,
+    delegatePattern,
+    needsPlan: parsed.plan === true,
+    taskClassification: {
+      isCodeTask: parsed.code === true,
+      isReasoningTask: parsed.reasoning === true,
+      needsStructuredOutput: parsed.structured === true,
+    },
+  };
 }
 
 // ---- Step 4: Memory Fact Conflict Scoring (Batch) ----
@@ -208,28 +301,25 @@ export async function classifyFactConflicts(
 ): Promise<FactConflictClassification> {
   const defaults: FactConflictClassification = { conflicts: [] };
   if (!newFact.trim() || existingFacts.length === 0) return defaults;
-  try {
-    const list = existingFacts.map((f, i) => `${i}. ${f.slice(0, 100)}`).join(
-      "\n",
-    );
-    const prompt = CLASSIFY_FACT_CONFLICTS_PROMPT + newFact.slice(0, 200) +
-      "\nExisting:\n" + list;
-    const response = await collectChat(prompt, {
-      temperature: 0,
-      maxTokens: 256,
-    });
-    const parsed = JSON.parse(extractJson(response));
-    const conflicts = Array.isArray(parsed.conflicts)
-      ? parsed.conflicts
-        .filter((c: { i?: number; s?: number }) =>
-          typeof c.i === "number" && typeof c.s === "number" && c.s > 0.3
-        )
-        .map((c: { i: number; s: number }) => ({ index: c.i, score: c.s }))
-      : [];
-    return { conflicts };
-  } catch {
-    return defaults;
-  }
+  const list = existingFacts.map((f, i) => `${i}. ${f.slice(0, 100)}`).join(
+    "\n",
+  );
+  const prompt = CLASSIFY_FACT_CONFLICTS_PROMPT + newFact.slice(0, 200) +
+    "\nExisting:\n" + list;
+  const parsed = await collectClassificationJson(
+    "classifyFactConflicts",
+    prompt,
+    { temperature: 0, maxTokens: 256 },
+  );
+  if (!parsed) return defaults;
+  const conflicts = Array.isArray(parsed.conflicts)
+    ? parsed.conflicts
+      .filter((c: { i?: number; s?: number }) =>
+        typeof c.i === "number" && typeof c.s === "number" && c.s > 0.3
+      )
+      .map((c: { i: number; s: number }) => ({ index: c.i, score: c.s }))
+    : [];
+  return { conflicts };
 }
 
 // ---- Step 5: Grounding Verification ----
@@ -251,18 +341,15 @@ export async function classifyGroundedness(
 ): Promise<GroundednessClassification> {
   const defaults: GroundednessClassification = { incorporatesData: false };
   if (!responseTail.trim()) return defaults;
-  try {
-    const prompt = CLASSIFY_GROUNDEDNESS_PROMPT + responseTail.slice(-400) +
-      "\nTool data (summary): " + toolSummaries.slice(0, 500);
-    const response = await collectChat(prompt, {
-      temperature: 0,
-      maxTokens: 64,
-    });
-    const parsed = JSON.parse(extractJson(response));
-    return { incorporatesData: parsed.grounded === true };
-  } catch {
-    return defaults;
-  }
+  const prompt = CLASSIFY_GROUNDEDNESS_PROMPT + responseTail.slice(-400) +
+    "\nTool data (summary): " + toolSummaries.slice(0, 500);
+  const parsed = await collectClassificationJson(
+    "classifyGroundedness",
+    prompt,
+    { temperature: 0, maxTokens: 64 },
+  );
+  if (!parsed) return defaults;
+  return { incorporatesData: parsed.grounded === true };
 }
 
 // ---- Step 10: Source Authority Classification (Batch) ----
@@ -283,37 +370,34 @@ export async function classifySourceAuthorities(
 ): Promise<BatchSourceClassification> {
   const defaults: BatchSourceClassification = { results: [] };
   if (results.length === 0) return defaults;
-  try {
-    const list = results.map((r, i) =>
-      `${i}. ${r.url} | ${r.title} | ${r.snippet?.slice(0, 80)}`
-    ).join("\n");
-    const response = await collectChat(
-      CLASSIFY_SOURCES_PROMPT + list,
-      { temperature: 0, maxTokens: 256 },
-    );
-    const parsed = JSON.parse(extractJson(response));
-    const validTypes = [
-      "official_docs",
-      "vendor_docs",
-      "repo_docs",
-      "technical_article",
-      "forum",
-      "other",
-    ];
-    const classified = Array.isArray(parsed.r)
-      ? parsed.r
-        .filter((r: { i?: number; s?: string }) =>
-          typeof r.i === "number" && typeof r.s === "string"
-        )
-        .map((r: { i: number; s: string }) => ({
-          index: r.i,
-          sourceClass: validTypes.includes(r.s) ? r.s : "other",
-        }))
-      : [];
-    return { results: classified };
-  } catch {
-    return defaults;
-  }
+  const list = results.map((r, i) =>
+    `${i}. ${r.url} | ${r.title} | ${r.snippet?.slice(0, 80)}`
+  ).join("\n");
+  const parsed = await collectClassificationJson(
+    "classifySourceAuthorities",
+    CLASSIFY_SOURCES_PROMPT + list,
+    { temperature: 0, maxTokens: 256 },
+  );
+  if (!parsed) return defaults;
+  const validTypes = [
+    "official_docs",
+    "vendor_docs",
+    "repo_docs",
+    "technical_article",
+    "forum",
+    "other",
+  ];
+  const classified = Array.isArray(parsed.r)
+    ? parsed.r
+      .filter((r: { i?: number; s?: string }) =>
+        typeof r.i === "number" && typeof r.s === "string"
+      )
+      .map((r: { i: number; s: string }) => ({
+        index: r.i,
+        sourceClass: validTypes.includes(r.s) ? r.s : "other",
+      }))
+    : [];
+  return { results: classified };
 }
 
 // ---- Step 17: Browser Automation Classification ----
@@ -336,16 +420,13 @@ export async function classifyBrowserAutomation(
 ): Promise<BrowserAutomationClassification> {
   const defaults: BrowserAutomationClassification = { isBrowserTask: false };
   if (!request.trim()) return defaults;
-  try {
-    const response = await collectChat(
-      CLASSIFY_BROWSER_AUTOMATION_PROMPT + request.slice(0, 500),
-      { temperature: 0, maxTokens: 64 },
-    );
-    const parsed = JSON.parse(extractJson(response));
-    return { isBrowserTask: parsed.browser === true };
-  } catch {
-    return defaults;
-  }
+  const parsed = await collectClassificationJson(
+    "classifyBrowserAutomation",
+    CLASSIFY_BROWSER_AUTOMATION_PROMPT + request.slice(0, 500),
+    { temperature: 0, maxTokens: 64 },
+  );
+  if (!parsed) return defaults;
+  return { isBrowserTask: parsed.browser === true };
 }
 
 // ---- Step 18: Browser Final Answer Adequacy ----
@@ -376,27 +457,24 @@ export async function classifyBrowserFinalAnswer(
     isComplete: false,
     missing: null,
   };
-  try {
-    const prompt = `${CLASSIFY_BROWSER_FINAL_ANSWER_PROMPT}${
-      userRequest.slice(0, 500)
-    }
+  const prompt = `${CLASSIFY_BROWSER_FINAL_ANSWER_PROMPT}${
+    userRequest.slice(0, 500)
+  }
 
 Assistant response:
 ${response.slice(0, 1_200)}`;
-    const raw = await collectChat(prompt, {
-      temperature: 0,
-      maxTokens: 96,
-    });
-    const parsed = JSON.parse(extractJson(raw));
-    return {
-      isComplete: parsed.complete !== false,
-      missing: typeof parsed.missing === "string" && parsed.missing.trim()
-        ? parsed.missing.trim()
-        : null,
-    };
-  } catch {
-    return defaults;
-  }
+  const parsed = await collectClassificationJson(
+    "classifyBrowserFinalAnswer",
+    prompt,
+    { temperature: 0, maxTokens: 96 },
+  );
+  if (!parsed) return defaults;
+  return {
+    isComplete: parsed.complete !== false,
+    missing: typeof parsed.missing === "string" && parsed.missing.trim()
+      ? parsed.missing.trim()
+      : null,
+  };
 }
 
 // ---- Helpers ----
@@ -407,25 +485,12 @@ export async function collectChat(
   prompt: string,
   opts: { temperature?: number; maxTokens?: number },
 ): Promise<string> {
-  try {
-    const { getPlatform } = await import("../../platform/platform.ts");
-    if (getPlatform().env.get("HLVM_DISABLE_AI_AUTOSTART")) return "";
-    const { ai } = await import("../api/ai.ts");
-    const messages = [{ role: "user" as const, content: prompt }];
-    let result = "";
-    for await (
-      const token of ai.chat(messages, {
-        model: LOCAL_FALLBACK_MODEL_ID,
-        temperature: opts.temperature ?? 0,
-        maxTokens: opts.maxTokens ?? 64,
-      })
-    ) {
-      result += token;
-    }
-    return result;
-  } catch {
+  const result = await collectChatResult(prompt, opts);
+  if (!result.ok) {
+    logLocalChatFailure("collectChat", result);
     return "";
   }
+  return result.text;
 }
 
 /** Extract the first JSON object from a string (handles nested braces, markdown fences, preamble). */
@@ -449,19 +514,22 @@ export async function classifyToolSafety(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<{ safe: boolean; reason: string }> {
-  const argsPreview = JSON.stringify(args).slice(0, 500);
-  const response = await collectChat(
+  let argsPreview = "[unserializable args]";
+  try {
+    argsPreview = JSON.stringify(args).slice(0, 500);
+  } catch {
+    // Keep fail-closed behavior for non-serializable arguments.
+  }
+  const parsed = await collectClassificationJson(
+    "classifyToolSafety",
     `Tool: ${toolName}\nArgs: ${argsPreview}\n` +
       `Is this safe to auto-approve? Consider: file mutations, destructive shell commands, ` +
       `network access to unknown hosts, credential exposure.\n` +
       `JSON: { "safe": true/false, "reason": "brief" }`,
     { temperature: 0, maxTokens: 128 },
   );
-  try {
-    const raw = extractJson(response);
-    const parsed = JSON.parse(raw);
-    return { safe: !!parsed?.safe, reason: String(parsed?.reason ?? "") };
-  } catch {
+  if (!parsed) {
     return { safe: false, reason: "classification failed" };
   }
+  return { safe: !!parsed.safe, reason: String(parsed.reason ?? "") };
 }

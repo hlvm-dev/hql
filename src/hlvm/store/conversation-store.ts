@@ -105,6 +105,17 @@ export function updateSession(
   return getSession(id);
 }
 
+export function setSessionTitleIfEmpty(id: string, title: string): boolean {
+  if (title.trim().length === 0) return false;
+  const db = getDb();
+  const updated = db.prepare(
+    `UPDATE sessions
+     SET title = ?, updated_at = ?
+     WHERE id = ? AND COALESCE(title, '') = ''`,
+  ).run(title, new Date().toISOString(), id);
+  return updated > 0;
+}
+
 export function deleteSession(id: string): boolean {
   const db = getDb();
   const result = db.prepare("DELETE FROM sessions WHERE id = ?").run(id);

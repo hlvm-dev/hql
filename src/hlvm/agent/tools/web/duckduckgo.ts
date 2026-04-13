@@ -235,6 +235,7 @@ export function parseBingSearchResults(
 
 async function fetchDdgPage(
   query: string,
+  limit: number,
   timeRange: SearchTimeRange,
   locale: string | undefined,
   timeoutMs: number | undefined,
@@ -273,11 +274,12 @@ async function fetchDdgPage(
       "search_web",
     );
   }
-  return parseDuckDuckGoSearchResults(html, Math.max(30, 20));
+  return parseDuckDuckGoSearchResults(html, limit);
 }
 
 async function fetchBingPage(
   query: string,
+  limit: number,
   timeoutMs: number | undefined,
   options: ToolExecutionOptions | undefined,
 ): Promise<SearchResult[]> {
@@ -303,12 +305,13 @@ async function fetchBingPage(
   }
 
   const html = await response.text();
-  return parseBingSearchResults(html, Math.max(30, 20));
+  return parseBingSearchResults(html, limit);
 }
 
 async function fetchSearchPageForProvider(
   provider: string,
   query: string,
+  limit: number,
   timeRange: SearchTimeRange,
   locale: string | undefined,
   timeoutMs: number | undefined,
@@ -316,10 +319,18 @@ async function fetchSearchPageForProvider(
   offset?: number,
 ): Promise<SearchResult[]> {
   if (provider === "duckduckgo") {
-    return await fetchDdgPage(query, timeRange, locale, timeoutMs, options, offset);
+    return await fetchDdgPage(
+      query,
+      limit,
+      timeRange,
+      locale,
+      timeoutMs,
+      options,
+      offset,
+    );
   }
   if (provider === "bing-html") {
-    return await fetchBingPage(query, timeoutMs, options);
+    return await fetchBingPage(query, limit, timeoutMs, options);
   }
   throw new ValidationError(
     `Unsupported search provider for recovery: ${provider}`,
@@ -365,14 +376,21 @@ async function duckDuckGoSearch(
   let followupResultCount = 0;
   let followupFetched = false;
   try {
-    page1 = await fetchDdgPage(query, timeRange, locale, timeoutMs, options);
+    page1 = await fetchDdgPage(
+      query,
+      limit,
+      timeRange,
+      locale,
+      timeoutMs,
+      options,
+    );
   } catch (error) {
     if (
       error instanceof ValidationError &&
       error.message.includes("anti-bot challenge")
     ) {
       anomalyBlocked = true;
-      page1 = await fetchBingPage(query, timeoutMs, options);
+      page1 = await fetchBingPage(query, limit, timeoutMs, options);
       provider = "bing-html";
       fallbackProvider = "bing-html";
     } else {
@@ -396,6 +414,7 @@ async function duckDuckGoSearch(
     try {
       page2 = await fetchDdgPage(
         query,
+        limit,
         timeRange,
         locale,
         timeoutMs,
@@ -435,6 +454,7 @@ async function duckDuckGoSearch(
           const results = await fetchSearchPageForProvider(
             provider,
             fq,
+            limit,
             timeRange,
             locale,
             timeoutMs,

@@ -148,10 +148,10 @@ LAYER 4: SAFETY (guardrails agent can't bypass)
   │                          │           │   final_response — before reply    │
   │                          │           │   teammate_idle  — team member idle│
   │                          │           │   task_completed — team task done  │
-  │                          │           │   config: .hlvm/hooks.json (v1)    │
+  │                          │           │   config: settings.json (unified)  │
   │                          │           │   exit code 2 = BLOCK action       │
   │                          │           │   stdout = feedback to agent       │
-  │ Permission modes         │           │ Policy engine (agent-policy.json)   │
+  │ Permission modes         │           │ Policy engine (settings.json)       │
   │   (accept, plan, etc)    │           │   per-tool rules: allow/deny/ask   │
   │ Tool allowlists          │           │   per-safety-level rules           │
   │                          │           │   path glob rules (filesystem)     │
@@ -266,6 +266,13 @@ ARCHITECTURAL DIFFERENCE:
     CC   = "how to configure an agent well"
     HLVM = "how to run agents that coordinate and act on your Mac"
 ```
+
+## Config Note
+
+As of config version 2, HLVM unifies `config.json`, `agent-policy.json`,
+and `hooks.json` into a single `~/.hlvm/settings.json`. The diagram above
+references legacy filenames; the runtime reads `settings.json` first with
+transparent fallback to old files.
 
 ## Key Takeaway
 

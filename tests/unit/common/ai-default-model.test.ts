@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
+  __resetClaudeBootstrapProbeCacheForTesting,
   autoConfigureInitialClaudeCodeModel,
   ensureInitialModelConfigured,
   reconcileConfiguredClaudeCodeModel,
@@ -14,6 +15,11 @@ let fakeNow = 0;
 function nextNow(): number {
   fakeNow += 100_000;
   return fakeNow;
+}
+
+function resetBootstrapProbeState(): void {
+  fakeNow = 0;
+  __resetClaudeBootstrapProbeCacheForTesting();
 }
 
 Deno.test("ai default model: selection prefers newest supported Sonnet and skips unusable aliases", () => {
@@ -44,6 +50,7 @@ Deno.test("ai default model: selection prefers newest supported Sonnet and skips
 });
 
 Deno.test("ai default model: first-use auto-configuration sets a Claude default and preserves explicit agent mode", async () => {
+  resetBootstrapProbeState();
   const firstUseUpdates: Array<Record<string, unknown>> = [];
   const preservedModeUpdates: Array<Record<string, unknown>> = [];
 
@@ -94,6 +101,7 @@ Deno.test("ai default model: first-use auto-configuration sets a Claude default 
 });
 
 Deno.test("ai default model: auto-configuration no-ops when model is already configured or Claude Code is unavailable", async () => {
+  resetBootstrapProbeState();
   let configuredStatusCalls = 0;
   let configuredPatchCalls = 0;
   let unavailableListCalls = 0;
@@ -194,6 +202,7 @@ Deno.test("ai default model: reconcile and resolve normalize dotted Claude alias
 });
 
 Deno.test("ai default model: unified initial-model resolver runs first-time setup when Claude bootstrap is unavailable", async () => {
+  resetBootstrapProbeState();
   let snapshot = {
     model: DEFAULT_MODEL_ID,
     modelConfigured: false,
@@ -231,6 +240,7 @@ Deno.test("ai default model: unified initial-model resolver runs first-time setu
 });
 
 Deno.test("ai default model: unified initial-model resolver upgrades legacy defaults to auto routing", async () => {
+  resetBootstrapProbeState();
   let snapshot = {
     model: "ollama/llama3.1:8b",
     modelConfigured: false,
@@ -266,6 +276,7 @@ Deno.test("ai default model: unified initial-model resolver upgrades legacy defa
 });
 
 Deno.test("ai default model: unified initial-model resolver upgrades gemma4 legacy default to auto without cloud override", async () => {
+  resetBootstrapProbeState();
   let snapshot = {
     model: "ollama/gemma4:e4b",
     modelConfigured: false,
@@ -298,6 +309,7 @@ Deno.test("ai default model: unified initial-model resolver upgrades gemma4 lega
 });
 
 Deno.test("ai default model: unified initial-model resolver respects explicitly configured legacy model", async () => {
+  resetBootstrapProbeState();
   const snapshot = {
     model: "ollama/gemma4:e4b",
     modelConfigured: true,
@@ -320,6 +332,93 @@ Deno.test("ai default model: unified initial-model resolver respects explicitly 
   assertEquals(resolved.autoConfiguredLocalFallback, false);
   assertEquals(resolved.firstRunConfigured, false);
   assertEquals(resolved.reconciledClaudeModel, false);
+});
+
+Deno.test("ai default model: failed Claude bootstrap probe expires quickly and does not poison later success", async () => {
+  resetBootstrapProbeState();
+  let now = 0;
+  let statusCalls = 0;
+  let listCalls = 0;
+  let patchCalls = 0;
+  let available = false;
+
+  const deps = {
+    getSnapshot: () => ({
+      model: DEFAULT_MODEL_ID,
+      modelConfigured: false,
+      agentMode: undefined,
+    }),
+    getStatus: async () => {
+      statusCalls++;
+      return { available };
+    },
+    listModels: async () => {
+      listCalls++;
+      return [{ name: "claude-sonnet-4-5-20251015" }];
+    },
+    patchConfig: async () => {
+      patchCalls++;
+    },
+    now: () => now,
+  };
+
+  assertEquals(await autoConfigureInitialClaudeCodeModel(deps), null);
+  now = 4_000;
+  available = true;
+  assertEquals(await autoConfigureInitialClaudeCodeModel(deps), null);
+  assertEquals(statusCalls, 1);
+  assertEquals(listCalls, 0);
+  assertEquals(patchCalls, 0);
+
+  now = 6_000;
+  assertEquals(
+    await autoConfigureInitialClaudeCodeModel(deps),
+    "claude-code/claude-sonnet-4-5-20251015",
+  );
+  assertEquals(statusCalls, 2);
+  assertEquals(listCalls, 1);
+  assertEquals(patchCalls, 1);
+});
+
+Deno.test("ai default model: successful Claude bootstrap probe is reused within success TTL", async () => {
+  resetBootstrapProbeState();
+  let now = 0;
+  let statusCalls = 0;
+  let listCalls = 0;
+  let patchCalls = 0;
+
+  const deps = {
+    getSnapshot: () => ({
+      model: DEFAULT_MODEL_ID,
+      modelConfigured: false,
+      agentMode: undefined,
+    }),
+    getStatus: async () => {
+      statusCalls++;
+      return { available: true };
+    },
+    listModels: async () => {
+      listCalls++;
+      return [{ name: "claude-sonnet-4-5-20251015" }];
+    },
+    patchConfig: async () => {
+      patchCalls++;
+    },
+    now: () => now,
+  };
+
+  assertEquals(
+    await autoConfigureInitialClaudeCodeModel(deps),
+    "claude-code/claude-sonnet-4-5-20251015",
+  );
+  now = 10_000;
+  assertEquals(
+    await autoConfigureInitialClaudeCodeModel(deps),
+    "claude-code/claude-sonnet-4-5-20251015",
+  );
+  assertEquals(statusCalls, 1);
+  assertEquals(listCalls, 1);
+  assertEquals(patchCalls, 1);
 });
 
 Deno.test("ai default model: unified initial-model resolver repairs configured Claude aliases", async () => {

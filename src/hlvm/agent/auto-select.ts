@@ -470,7 +470,25 @@ export async function chooseAutoModel(
 // Provider discovery cache — avoids re-querying all providers on every call
 let cachedModels: ModelInfo[] | null = null;
 let cachedAt = 0;
+let cachedModelsPromise: Promise<ModelInfo[]> | null = null;
+let modelCacheGeneration = 0;
 const MODEL_CACHE_TTL_MS = 60_000; // 1 minute
+let listAllProviderModelsForTesting: (() => Promise<ModelInfo[]>) | null = null;
+
+async function listProviderModels(): Promise<ModelInfo[]> {
+  if (listAllProviderModelsForTesting) {
+    return await listAllProviderModelsForTesting();
+  }
+  const { listAllProviderModels } = await import("../providers/model-list.ts");
+  return await listAllProviderModels();
+}
+
+export function __setListAllProviderModelsForTesting(
+  loader: (() => Promise<ModelInfo[]>) | null,
+): void {
+  listAllProviderModelsForTesting = loader;
+  invalidateAutoModelCache();
+}
 
 /** Async wrapper that queries all providers (with caching) then calls chooseAutoModel */
 export async function resolveAutoModel(
@@ -480,18 +498,45 @@ export async function resolveAutoModel(
   preComputedTaskClassification?: TaskClassification | null,
 ): Promise<AutoDecision> {
   const now = Date.now();
-  if (!cachedModels || now - cachedAt > MODEL_CACHE_TTL_MS) {
-    const { listAllProviderModels } = await import(
-      "../providers/model-list.ts"
+  if (cachedModels && now - cachedAt <= MODEL_CACHE_TTL_MS) {
+    return await chooseAutoModel(
+      query,
+      attachments,
+      policy,
+      cachedModels,
+      preComputedTaskClassification,
     );
-    cachedModels = await listAllProviderModels();
-    cachedAt = now;
   }
+  if (!cachedModelsPromise) {
+    const generation = modelCacheGeneration;
+    const pending = (async () => {
+      const models = await listProviderModels();
+      if (generation === modelCacheGeneration) {
+        cachedModels = models;
+        cachedAt = Date.now();
+      }
+      return models;
+    })();
+    cachedModelsPromise = pending;
+    pending.finally(() => {
+      if (cachedModelsPromise === pending) {
+        cachedModelsPromise = null;
+      }
+    }).catch(() => {});
+  }
+  const pendingModels = cachedModelsPromise;
+  if (!pendingModels) {
+    throw new ValidationError(
+      "Auto model cache was cleared before provider discovery completed.",
+      "auto_select",
+    );
+  }
+  const models = await pendingModels;
   return await chooseAutoModel(
     query,
     attachments,
     policy,
-    cachedModels,
+    models,
     preComputedTaskClassification,
   );
 }
@@ -500,6 +545,8 @@ export async function resolveAutoModel(
 export function invalidateAutoModelCache(): void {
   cachedModels = null;
   cachedAt = 0;
+  cachedModelsPromise = null;
+  modelCacheGeneration++;
 }
 
 // ============================================================

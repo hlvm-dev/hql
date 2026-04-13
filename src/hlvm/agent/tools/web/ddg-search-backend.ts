@@ -317,6 +317,8 @@ function ensureDistinctTopHosts(
   ].slice(0, maxTargets);
 }
 
+export const __testOnlyEnsureDistinctTopHosts = ensureDistinctTopHosts;
+
 export class DdgSearchBackend implements WebSearchBackend {
   async search(request: WebSearchRequest): Promise<WebSearchResponse> {
     const {
@@ -410,6 +412,7 @@ export class DdgSearchBackend implements WebSearchBackend {
         selectionStrategy = selection.strategy;
         selectionReason = selection.reason;
         const picksWithUrl = selection.picks.filter((entry) => entry.url);
+        const topPrefetchTargets = picksWithUrl.slice(0, prefetchTargetCount);
         // Skip host diversity enforcement only when the query is clearly asking
         // for a single authoritative host or the caller already constrained it.
         prefetchTargets = prefersSingleHostSources(
@@ -417,8 +420,12 @@ export class DdgSearchBackend implements WebSearchBackend {
             intent,
             allowedDomains,
           )
-          ? picksWithUrl.slice(0, prefetchTargetCount)
-          : ensureDistinctTopHosts(picksWithUrl, prefetchCandidates, prefetchTargetCount);
+          ? topPrefetchTargets
+          : ensureDistinctTopHosts(
+            topPrefetchTargets,
+            prefetchCandidates,
+            prefetchTargetCount,
+          );
         if (prefetchTargets.length === 0) {
           prefetchTargets = prefetchCandidates.slice(0, prefetchTargetCount);
         }
@@ -631,14 +638,14 @@ export class DdgSearchBackend implements WebSearchBackend {
       result.results,
       allowedDomains,
     );
+    const topAnnotatedResults = annotatedResults.slice(0, limit);
     result.results = prefersSingleHostSources(
         query,
         intent,
         allowedDomains,
       )
-      ? annotatedResults.slice(0, limit)
-      : ensureDistinctTopHosts(annotatedResults, annotatedResults, limit)
-        .slice(0, limit);
+      ? topAnnotatedResults
+      : ensureDistinctTopHosts(topAnnotatedResults, annotatedResults, limit);
     result.count = result.results.length;
 
     const evidencePages = result.results.filter((entry) =>

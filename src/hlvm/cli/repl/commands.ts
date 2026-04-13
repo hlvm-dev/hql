@@ -403,80 +403,92 @@ export const commands: Record<string, Command> = {
   "/hooks": {
     description: "List active hooks",
     handler: async (_state, _args, context) => {
+      const { loadConfig } = await import("../../../common/config/storage.ts");
       const { getHooksConfigPath } = await import("../../agent/hooks.ts");
       const platform = getPlatform();
       const workspace = platform.process.cwd();
-      const hooksPath = getHooksConfigPath(workspace);
 
       context.output(`${BOLD}HLVM Hooks${RESET}`);
       context.output("");
 
-      let raw: string;
+      // Helper to display hooks from a parsed config
+      function displayHooks(
+        hooksObj: Record<string, unknown[]> | undefined,
+        sourceLabel: string,
+      ): boolean {
+        if (!hooksObj) return false;
+        let found = false;
+        for (const [event, handlers] of Object.entries(hooksObj)) {
+          if (!Array.isArray(handlers) || handlers.length === 0) continue;
+          found = true;
+          context.output(
+            `  ${CYAN}${event}${RESET}  ${GREEN}${handlers.length} handler${handlers.length > 1 ? "s" : ""}${RESET}  ${DIM_GRAY}(${sourceLabel})${RESET}`,
+          );
+          for (const h of handlers) {
+            if (typeof h !== "object" || h === null) continue;
+            const handler = h as Record<string, unknown>;
+            const type = typeof handler.type === "string" ? handler.type : "command";
+            if (type === "command" && Array.isArray(handler.command)) {
+              context.output(
+                `    ${DIM_GRAY}command${RESET}  ${handler.command.join(" ")}`,
+              );
+            } else if (type === "prompt" && typeof handler.prompt === "string") {
+              const preview = handler.prompt.length > 50
+                ? handler.prompt.slice(0, 50) + "..."
+                : handler.prompt;
+              context.output(`    ${DIM_GRAY}prompt${RESET}   "${preview}"`);
+            } else if (type === "http" && typeof handler.url === "string") {
+              context.output(`    ${DIM_GRAY}http${RESET}     ${handler.url}`);
+            }
+          }
+        }
+        return found;
+      }
+
+      // 1. Global hooks from settings.json (config.hooks is flat: { event: handlers[] })
+      let globalFound = false;
       try {
-        raw = await platform.fs.readTextFile(hooksPath);
+        const cfg = await loadConfig();
+        if (cfg.hooks && typeof cfg.hooks === "object") {
+          globalFound = displayHooks(
+            cfg.hooks as Record<string, unknown[]>,
+            "settings.json",
+          );
+        }
       } catch {
+        // settings.json not available or invalid — skip
+      }
+
+      // 2. Workspace hooks from .hlvm/hooks.json (overrides)
+      let workspaceFound = false;
+      const hooksPath = getHooksConfigPath(workspace);
+      try {
+        const raw = await platform.fs.readTextFile(hooksPath);
+        const parsed = JSON.parse(raw) as {
+          version?: number;
+          hooks?: Record<string, unknown[]>;
+        };
+        if (parsed.version === 1 && parsed.hooks) {
+          workspaceFound = displayHooks(parsed.hooks, ".hlvm/hooks.json");
+        }
+      } catch {
+        // No workspace hooks — skip
+      }
+
+      if (!globalFound && !workspaceFound) {
         context.output(`  ${DIM_GRAY}No hooks configured.${RESET}`);
         context.output(
-          `  Create ${CYAN}.hlvm/hooks.json${RESET} to add lifecycle hooks.`,
+          `  Add hooks to ${CYAN}~/.hlvm/settings.json${RESET} (global) or ${CYAN}.hlvm/hooks.json${RESET} (workspace).`,
         );
         context.output("");
-        context.output(`  ${DIM_GRAY}Example:${RESET}`);
+        context.output(`  ${DIM_GRAY}Example (settings.json):${RESET}`);
         context.output(`  ${DIM_GRAY}{${RESET}`);
-        context.output(`  ${DIM_GRAY}  "version": 1,${RESET}`);
         context.output(`  ${DIM_GRAY}  "hooks": {${RESET}`);
         context.output(
           `  ${DIM_GRAY}    "pre_tool": [{ "command": ["lint.sh"] }]${RESET}`,
         );
         context.output(`  ${DIM_GRAY}  }${RESET}`);
         context.output(`  ${DIM_GRAY}}${RESET}`);
-        return;
-      }
-
-      let config: { version?: number; hooks?: Record<string, unknown[]> };
-      try {
-        config = JSON.parse(raw);
-      } catch {
-        context.output(`  ${YELLOW}hooks.json is not valid JSON.${RESET}`);
-        return;
-      }
-
-      if (config.version !== 1 || !config.hooks) {
-        context.output(
-          `  ${YELLOW}hooks.json must have "version": 1 and a "hooks" object.${RESET}`,
-        );
-        return;
-      }
-
-      let found = false;
-      for (const [event, handlers] of Object.entries(config.hooks)) {
-        if (!Array.isArray(handlers) || handlers.length === 0) continue;
-        found = true;
-        context.output(
-          `  ${CYAN}${event}${RESET}  ${GREEN}${handlers.length} handler${handlers.length > 1 ? "s" : ""}${RESET}`,
-        );
-        for (const h of handlers) {
-          if (typeof h !== "object" || h === null) continue;
-          const handler = h as Record<string, unknown>;
-          const type = typeof handler.type === "string" ? handler.type : "command";
-          if (type === "command" && Array.isArray(handler.command)) {
-            context.output(
-              `    ${DIM_GRAY}command${RESET}  ${handler.command.join(" ")}`,
-            );
-          } else if (type === "prompt" && typeof handler.prompt === "string") {
-            const preview = handler.prompt.length > 50
-              ? handler.prompt.slice(0, 50) + "..."
-              : handler.prompt;
-            context.output(`    ${DIM_GRAY}prompt${RESET}   "${preview}"`);
-          } else if (type === "http" && typeof handler.url === "string") {
-            context.output(`    ${DIM_GRAY}http${RESET}     ${handler.url}`);
-          }
-        }
-      }
-
-      if (!found) {
-        context.output(
-          `  ${DIM_GRAY}hooks.json loaded but no valid handlers found.${RESET}`,
-        );
       }
     },
   },
@@ -555,7 +567,7 @@ export const commands: Record<string, Command> = {
         `  2. Add a rule: ${CYAN}~/.hlvm/rules/naming.md${RESET}`,
       );
       context.output(
-        `  3. Set up hooks: ${CYAN}.hlvm/hooks.json${RESET}`,
+        `  3. Set up hooks: ${CYAN}~/.hlvm/settings.json${RESET} (global) or ${CYAN}.hlvm/hooks.json${RESET} (workspace)`,
       );
       context.output(
         `  4. Type ${CYAN}/skills${RESET} to see available skills`,

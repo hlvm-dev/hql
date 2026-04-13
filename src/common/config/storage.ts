@@ -19,8 +19,7 @@ import {
   type WebFetchConfig,
   type WebSearchConfig,
 } from "./types.ts";
-import { getConfigPath, getHlvmDir } from "../paths.ts";
-import { getLegacyConfigPath } from "../legacy-migration.ts";
+import { getHlvmDir, getSettingsPath } from "../paths.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { atomicWriteTextFile } from "../atomic-file.ts";
 import { isFileNotFoundError } from "../utils.ts";
@@ -35,7 +34,7 @@ const fs = () => getPlatform().fs;
 import { log } from "../../hlvm/api/log.ts";
 
 // Re-export for backward compatibility
-export { getConfigPath, getHlvmDir };
+export { getConfigPath, getHlvmDir } from "../paths.ts";
 
 // ============================================================
 // File I/O
@@ -288,6 +287,14 @@ function normalizeConfigInput(
     }
   }
 
+  // Policy and hooks: pass through as-is (validated at use site, not here)
+  if (raw.policy && typeof raw.policy === "object" && !Array.isArray(raw.policy)) {
+    normalized.policy = raw.policy as HlvmConfig["policy"];
+  }
+  if (raw.hooks && typeof raw.hooks === "object" && !Array.isArray(raw.hooks)) {
+    normalized.hooks = raw.hooks as HlvmConfig["hooks"];
+  }
+
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
@@ -380,68 +387,25 @@ function mergeUnknownConfigFields(
 }
 
 /**
- * Load config from disk, merging with defaults.
- * Migrates legacy ~/.hql/config.json values when present.
+ * Load config from ~/.hlvm/settings.json (the sole SSOT).
+ * Returns defaults if file doesn't exist.
  */
 export async function loadConfig(): Promise<HlvmConfig> {
-  const path = getConfigPath();
-  const legacyPath = getLegacyConfigPath();
-
-  const currentResult = await readJsonConfig(path);
-  const legacyResult = await readJsonConfig(legacyPath);
-  const canUseLegacy = !currentResult.exists || !!currentResult.error;
-
-  if (currentResult.error) {
-    log.warn(
-      "Warning: config.json is corrupted, using defaults or legacy config",
-    );
+  const settingsResult = await readJsonConfig(getSettingsPath());
+  if (!settingsResult.exists || settingsResult.error || !settingsResult.data) {
+    return { ...DEFAULT_CONFIG };
   }
-  if (legacyResult.error) {
-    log.warn("Warning: legacy config.json is corrupted, ignoring");
-  }
-
-  const migratedCurrent = migrateConfig(currentResult.data);
-  const migratedLegacy = migrateConfig(legacyResult.data);
-
-  const currentConfig = normalizeConfigInput(migratedCurrent.config);
-  const legacyConfig = canUseLegacy
-    ? normalizeConfigInput(migratedLegacy.config)
-    : null;
-
-  const { config: mergedConfig, usedLegacy } = mergeConfigs(
-    currentConfig,
-    legacyConfig,
-  );
-  const config = mergeUnknownConfigFields(
-    mergedConfig,
-    migratedCurrent.config ?? (canUseLegacy ? migratedLegacy.config : null),
-  );
-
-  const shouldPersistLegacy = usedLegacy && canUseLegacy &&
-    isDefaultLikeConfig(currentConfig);
-  const shouldPersistMigratedCurrent = migratedCurrent.migrated &&
-    currentResult.exists &&
-    !currentResult.error;
-  if (shouldPersistLegacy || shouldPersistMigratedCurrent) {
-    try {
-      await saveConfig(config);
-    } catch (error) {
-      log.warn(
-        `Warning: failed to persist migrated config: ${
-          (error as Error).message
-        }`,
-      );
-    }
-  }
-
-  return config;
+  const migrated = migrateConfig(settingsResult.data);
+  const normalized = normalizeConfigInput(migrated.config);
+  const { config } = mergeConfigs(normalized, null);
+  return mergeUnknownConfigFields(config, migrated.config);
 }
 
 /**
- * Save config to disk using atomic write (temp file + rename)
+ * Save config to disk as ~/.hlvm/settings.json (unified SSOT).
  */
 export async function saveConfig(config: HlvmConfig): Promise<void> {
-  const path = getConfigPath();
+  const path = getSettingsPath();
   await fs().ensureDir(getHlvmDir());
   const content = JSON.stringify(stampCurrentConfigVersion(config), null, 2) +
     "\n";

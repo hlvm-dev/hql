@@ -521,6 +521,11 @@ export async function removeTeamDirs(teamName: string): Promise<void> {
 // Skills & Rules Paths
 // ============================================================
 
+/** Unified settings file: ~/.hlvm/settings.json */
+export function getSettingsPath(): string {
+  return join(getHlvmDir(), "settings.json");
+}
+
 /** User-global skills directory: ~/.hlvm/skills/ */
 export function getSkillsDir(): string {
   return join(getHlvmDir(), "skills");

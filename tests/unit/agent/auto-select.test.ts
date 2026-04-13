@@ -1,11 +1,13 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import {
+  __setListAllProviderModelsForTesting,
   buildTaskProfile,
   callLLMWithModelFallback,
   chooseAutoModel,
   filterModels,
   invalidateAutoModelCache,
   isAutoModel,
+  resolveAutoModel,
   type ModelCaps,
   modelInfoToModelCaps,
   scoreModel,
@@ -25,6 +27,20 @@ import {
 import { DEFAULT_MODEL_ID } from "../../../src/common/config/types.ts";
 import type { ModelInfo } from "../../../src/hlvm/providers/types.ts";
 import type { LLMResponse } from "../../../src/hlvm/agent/tool-call.ts";
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 // ============================================================
 // isAutoModel
@@ -843,6 +859,89 @@ Deno.test("modelInfoToModelCaps: non-reasoning model has reasoning=false", () =>
 Deno.test("invalidateAutoModelCache: exported and callable", () => {
   // Smoke test: invalidateAutoModelCache should not throw
   invalidateAutoModelCache();
+});
+
+Deno.test("resolveAutoModel: concurrent callers share a single provider-list fetch", async () => {
+  invalidateAutoModelCache();
+  const deferred = createDeferred<ModelInfo[]>();
+  let calls = 0;
+  __setListAllProviderModelsForTesting(async () => {
+    calls++;
+    return await deferred.promise;
+  });
+  try {
+    const first = resolveAutoModel("hello");
+    const second = resolveAutoModel("hello");
+    deferred.resolve([
+      makeProviderModelInfo("claude-sonnet-4", "anthropic"),
+    ]);
+    const [a, b] = await Promise.all([first, second]);
+    assertEquals(calls, 1);
+    assertEquals(a.model, "anthropic/claude-sonnet-4");
+    assertEquals(b.model, "anthropic/claude-sonnet-4");
+  } finally {
+    __setListAllProviderModelsForTesting(null);
+  }
+});
+
+Deno.test("resolveAutoModel: failed fetch clears pending state for retry", async () => {
+  invalidateAutoModelCache();
+  let calls = 0;
+  let failOnce = true;
+  __setListAllProviderModelsForTesting(async () => {
+    calls++;
+    if (failOnce) {
+      failOnce = false;
+      throw new Error("provider discovery failed");
+    }
+    return [makeProviderModelInfo("claude-sonnet-4", "anthropic")];
+  });
+  try {
+    await assertRejects(
+      () => resolveAutoModel("hello"),
+      Error,
+      "provider discovery failed",
+    );
+    const result = await resolveAutoModel("hello");
+    assertEquals(calls, 2);
+    assertEquals(result.model, "anthropic/claude-sonnet-4");
+  } finally {
+    __setListAllProviderModelsForTesting(null);
+  }
+});
+
+Deno.test("invalidateAutoModelCache: clears pending and resolved cache state", async () => {
+  invalidateAutoModelCache();
+  const firstDeferred = createDeferred<ModelInfo[]>();
+  let mode: "first" | "second" = "first";
+  let calls = 0;
+  __setListAllProviderModelsForTesting(async () => {
+    calls++;
+    if (mode === "first") {
+      return await firstDeferred.promise;
+    }
+    return [makeProviderModelInfo("gpt-4o", "openai")];
+  });
+  try {
+    const first = resolveAutoModel("hello");
+    await Promise.resolve();
+
+    invalidateAutoModelCache();
+    mode = "second";
+
+    const second = await resolveAutoModel("hello");
+    firstDeferred.resolve([
+      makeProviderModelInfo("claude-sonnet-4", "anthropic"),
+    ]);
+    await first;
+
+    const third = await resolveAutoModel("hello");
+    assertEquals(calls, 2);
+    assertEquals(second.model, "openai/gpt-4o");
+    assertEquals(third.model, "openai/gpt-4o");
+  } finally {
+    __setListAllProviderModelsForTesting(null);
+  }
 });
 
 // ============================================================

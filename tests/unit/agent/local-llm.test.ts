@@ -9,12 +9,73 @@ import {
   classifyPlanNeed,
   classifySourceAuthorities,
   classifyTask,
+  classifyToolSafety,
   extractJson,
   getLocalModelDisplayName,
 } from "../../../src/hlvm/runtime/local-llm.ts";
 import { LOCAL_FALLBACK_MODEL_ID } from "../../../src/hlvm/runtime/local-fallback.ts";
 import { DEFAULT_MODEL_ID } from "../../../src/common/config/types.ts";
+import { ai } from "../../../src/hlvm/api/ai.ts";
+import { log } from "../../../src/hlvm/api/log.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+
+function setAiChatStub(
+  stub: typeof ai.chat,
+): () => void {
+  const original = ai.chat;
+  (ai as { chat: typeof ai.chat }).chat = stub;
+  return () => {
+    (ai as { chat: typeof ai.chat }).chat = original;
+  };
+}
+
+function captureLogs(): {
+  debugs: string[];
+  warnings: string[];
+  restore: () => void;
+} {
+  const debugs: string[] = [];
+  const warnings: string[] = [];
+  const originalDebug = log.debug;
+  const originalWarn = log.warn;
+  (log as { debug: typeof log.debug }).debug = (
+    message: string,
+    ...args: unknown[]
+  ) => {
+    debugs.push([message, ...args].map(String).join(" "));
+  };
+  (log as { warn: typeof log.warn }).warn = (
+    message: string,
+    ...args: unknown[]
+  ) => {
+    warnings.push([message, ...args].map(String).join(" "));
+  };
+  return {
+    debugs,
+    warnings,
+    restore: () => {
+      (log as { debug: typeof log.debug }).debug = originalDebug;
+      (log as { warn: typeof log.warn }).warn = originalWarn;
+    },
+  };
+}
+
+async function withLocalAiEnabled(
+  fn: () => Promise<void>,
+): Promise<void> {
+  const platform = getPlatform();
+  const previous = platform.env.get("HLVM_DISABLE_AI_AUTOSTART");
+  platform.env.delete("HLVM_DISABLE_AI_AUTOSTART");
+  try {
+    await fn();
+  } finally {
+    if (previous === undefined) {
+      platform.env.delete("HLVM_DISABLE_AI_AUTOSTART");
+    } else {
+      platform.env.set("HLVM_DISABLE_AI_AUTOSTART", previous);
+    }
+  }
+}
 
 Deno.test("getLocalModelDisplayName: derives from LOCAL_FALLBACK_MODEL_ID", () => {
   const name = getLocalModelDisplayName();
@@ -139,6 +200,7 @@ Deno.test("classifyAll: whitespace-only returns defaults", async () => {
 Deno.test("classifyAll: disabled local AI falls back to defaults", async () => {
   const platform = getPlatform();
   const previous = platform.env.get("HLVM_DISABLE_AI_AUTOSTART");
+  const captured = captureLogs();
   platform.env.set("HLVM_DISABLE_AI_AUTOSTART", "1");
   try {
     const result = await classifyAll("open example.com and summarize it");
@@ -149,7 +211,12 @@ Deno.test("classifyAll: disabled local AI falls back to defaults", async () => {
     assertEquals(result.taskClassification.isCodeTask, false);
     assertEquals(result.taskClassification.isReasoningTask, false);
     assertEquals(result.taskClassification.needsStructuredOutput, false);
+    assertEquals(
+      captured.debugs.some((message) => message.includes("disabled")),
+      true,
+    );
   } finally {
+    captured.restore();
     if (previous === undefined) {
       platform.env.delete("HLVM_DISABLE_AI_AUTOSTART");
     } else {
@@ -194,4 +261,68 @@ Deno.test("classifyBrowserFinalAnswer: empty response returns incomplete", async
     "",
   );
   assertEquals(result.isComplete, false);
+});
+
+Deno.test("classifyTask: runtime failure returns defaults and records warning diagnostics", async () => {
+  await withLocalAiEnabled(async () => {
+    const restoreChat = setAiChatStub(async function* (_messages, _options) {
+      throw new Error("runtime exploded");
+    });
+    const captured = captureLogs();
+    try {
+      const result = await classifyTask("write a parser");
+      assertEquals(result.isCodeTask, false);
+      assertEquals(result.isReasoningTask, false);
+      assertEquals(result.needsStructuredOutput, false);
+      assertEquals(
+        captured.warnings.some((message) =>
+          message.includes("runtime_error") &&
+          message.includes("runtime exploded")
+        ),
+        true,
+      );
+    } finally {
+      captured.restore();
+      restoreChat();
+    }
+  });
+});
+
+Deno.test("classifyTask: parse failure returns defaults and records warning diagnostics", async () => {
+  await withLocalAiEnabled(async () => {
+    const restoreChat = setAiChatStub(async function* (_messages, _options) {
+      yield "{invalid}";
+    });
+    const captured = captureLogs();
+    try {
+      const result = await classifyTask("write a parser");
+      assertEquals(result.isCodeTask, false);
+      assertEquals(result.isReasoningTask, false);
+      assertEquals(result.needsStructuredOutput, false);
+      assertEquals(
+        captured.warnings.some((message) => message.includes("parse_failure")),
+        true,
+      );
+    } finally {
+      captured.restore();
+      restoreChat();
+    }
+  });
+});
+
+Deno.test("classifyToolSafety: runtime failure stays fail-closed", async () => {
+  await withLocalAiEnabled(async () => {
+    const restoreChat = setAiChatStub(async function* (_messages, _options) {
+      throw new Error("runtime exploded");
+    });
+    try {
+      const result = await classifyToolSafety("write_file", {
+        path: "src/main.ts",
+      });
+      assertEquals(result.safe, false);
+      assertEquals(result.reason, "classification failed");
+    } finally {
+      restoreChat();
+    }
+  });
 });

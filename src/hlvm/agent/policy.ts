@@ -24,7 +24,7 @@ import {
 } from "../../common/utils.ts";
 import type { SafetyLevel } from "./security/safety.ts";
 import { isPathWithinRoot, SecurityError } from "./security/path-sandbox.ts";
-import { getAgentPolicyPath } from "../../common/paths.ts";
+// getAgentPolicyPath removed — policy now read from unified settings.json
 
 // ============================================================
 // Types
@@ -73,47 +73,17 @@ const POLICY_V1_EXAMPLE = `{
 }`;
 
 /**
- * Load policy from global config (returns null if no policy file)
+ * Load policy from unified settings.json (config.policy section).
  */
 export async function loadAgentPolicy(): Promise<AgentPolicy | null> {
-  const platform = getPlatform();
-  const path = getAgentPolicyPath();
-
-  let content: string;
   try {
-    content = await platform.fs.readTextFile(path);
-  } catch (error) {
-    if (isFileNotFoundError(error)) {
-      return null;
+    const { loadConfig } = await import("../../common/config/storage.ts");
+    const config = await loadConfig();
+    if (config.policy) {
+      return normalizePolicy({ version: 1, ...config.policy });
     }
-    getAgentLogger().warn(
-      `Agent policy load failed (${path}): ${getErrorMessage(error)}`,
-    );
-    return null;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch (error) {
-    getAgentLogger().warn(
-      `Agent policy JSON invalid (${path}): ${getErrorMessage(error)}`,
-    );
-    return null;
-  }
-
-  const normalized = normalizePolicy(parsed);
-  if (!normalized) {
-    const reason = describePolicyInvalid(parsed);
-    getAgentLogger().warn(`Agent policy invalid (${path}): ${reason}`);
-    getAgentLogger().warn(
-      "Policy was ignored. Update to version 1 schema. Example:",
-    );
-    getAgentLogger().warn(POLICY_V1_EXAMPLE);
-    return null;
-  }
-
-  return normalized;
+  } catch { /* config unavailable */ }
+  return null;
 }
 
 /**

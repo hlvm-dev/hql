@@ -11,6 +11,7 @@ import {
   getSession,
   insertMessage,
   listSessions,
+  setSessionTitleIfEmpty,
   updateMessage,
   updateSession,
   validateExpectedVersion,
@@ -53,6 +54,20 @@ Deno.test("conversation store: session lifecycle covers create, get, list, updat
     assertEquals(getSession(custom.id), null);
     assertEquals(replayAfter(custom.id, null).events.length, 0);
     assertEquals(deleteSession("non-existent"), false);
+  });
+});
+
+Deno.test("conversation store: setSessionTitleIfEmpty only writes an empty title once", async () => {
+  await withDb(() => {
+    const empty = createSession();
+    const titled = createSession("Already set");
+
+    assertEquals(setSessionTitleIfEmpty(empty.id, "Derived title"), true);
+    assertEquals(setSessionTitleIfEmpty(empty.id, "Second title"), false);
+    assertEquals(setSessionTitleIfEmpty(titled.id, "Ignored"), false);
+
+    assertEquals(getSession(empty.id)?.title, "Derived title");
+    assertEquals(getSession(titled.id)?.title, "Already set");
   });
 });
 

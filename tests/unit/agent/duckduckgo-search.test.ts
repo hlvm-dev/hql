@@ -135,6 +135,91 @@ Deno.test("duckduckgo search: high-confidence first page stays single page", asy
   });
 });
 
+Deno.test("duckduckgo search: DuckDuckGo page parsing respects requested limit", async () => {
+  await withStubbedFetch(async (input) => {
+    const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const url = new URL(rawUrl);
+    if (url.hostname !== "html.duckduckgo.com") {
+      throw new Error(`Unexpected URL: ${rawUrl}`);
+    }
+    return new Response(ddgHtml([
+      {
+        title: "useEffect cleanup - React reference",
+        url: "https://react.dev/reference/react/useEffect",
+        snippet: "Official React reference for useEffect cleanup and cleanup timing details.",
+      },
+      {
+        title: "Synchronizing with Effects - React",
+        url: "https://react.dev/learn/synchronizing-with-effects",
+        snippet: "Learn when React effects run and how cleanup works in practice.",
+      },
+      {
+        title: "AbortController - MDN",
+        url: "https://developer.mozilla.org/docs/Web/API/AbortController",
+        snippet: "AbortController is commonly used to cancel fetches in React useEffect cleanup flows.",
+      },
+    ]), { status: 200, headers: { "content-type": "text/html" } });
+  }, async () => {
+    await withDuckDuckGoProvider(async (search) => {
+      const response = await search("react useeffect cleanup", {
+        limit: 1,
+        timeRange: "all",
+      }) as { count: number; diagnostics?: Record<string, unknown> };
+
+      assertEquals(response.count, 1);
+      assertEquals(response.diagnostics?.page1ParsedCount, 1);
+      assertEquals((response.diagnostics?.page2RetryTriggered as boolean) ?? true, false);
+    });
+  });
+});
+
+Deno.test("duckduckgo search: Bing fallback parsing respects requested limit", async () => {
+  await withStubbedFetch(async (input) => {
+    const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const url = new URL(rawUrl);
+    if (url.hostname === "html.duckduckgo.com") {
+      return new Response(
+        "<html><body><div class=\"anomaly-modal\">challenge</div></body></html>",
+        { status: 200, headers: { "content-type": "text/html" } },
+      );
+    }
+    if (url.hostname === "www.bing.com") {
+      return new Response(`
+        <html><body>
+          <li class="b_algo">
+            <h2><a href="https://react.dev/reference/react/useEffect">useEffect cleanup - React reference</a></h2>
+            <div class="b_caption"><p>Official React reference for useEffect cleanup and cleanup timing details.</p></div>
+          </li>
+          <li class="b_algo">
+            <h2><a href="https://react.dev/learn/synchronizing-with-effects">Synchronizing with Effects - React</a></h2>
+            <div class="b_caption"><p>Learn when React effects run and how cleanup works in practice.</p></div>
+          </li>
+          <li class="b_algo">
+            <h2><a href="https://developer.mozilla.org/docs/Web/API/AbortController">AbortController - MDN</a></h2>
+            <div class="b_caption"><p>AbortController is commonly used to cancel fetches in React useEffect cleanup flows.</p></div>
+          </li>
+        </body></html>
+      `, { status: 200, headers: { "content-type": "text/html" } });
+    }
+    throw new Error(`Unexpected URL: ${rawUrl}`);
+  }, async () => {
+    await withDuckDuckGoProvider(async (search) => {
+      const response = await search("react useeffect cleanup", {
+        limit: 1,
+        timeRange: "all",
+      }) as {
+        count: number;
+        provider: string;
+        diagnostics?: Record<string, unknown>;
+      };
+
+      assertEquals(response.provider, "bing-html");
+      assertEquals(response.count, 1);
+      assertEquals(response.diagnostics?.page1ParsedCount, 1);
+    });
+  });
+});
+
 // ============================================================
 // Follow-up Query Tests
 // ============================================================
@@ -173,6 +258,25 @@ Deno.test("duckduckgo search: follow-up queries trigger on merged low confidence
         followupQueriesDiag && followupQueriesDiag.length > 0,
         `Expected follow-up queries in diagnostics, got: ${JSON.stringify(followupQueriesDiag)}`,
       );
+      assertEquals(
+        new Set(followupQueriesDiag).size,
+        followupQueriesDiag.length,
+      );
+      for (const query of followupQueriesDiag) {
+        const normalized = query.trim().toLowerCase();
+        assert(normalized.length > 0, `Follow-up query should not be empty: ${query}`);
+        assert(
+          normalized !== "react useeffect cleanup best practices",
+          `Follow-up query should differ from the original query: ${query}`,
+        );
+        const anchorMatches = ["react", "useeffect", "cleanup"].filter((token) =>
+          normalized.includes(token)
+        );
+        assert(
+          anchorMatches.length >= 2,
+          `Follow-up query drifted away from the original topic: ${query}`,
+        );
+      }
       assertEquals(response.diagnostics?.followupFetched, true);
     });
   });

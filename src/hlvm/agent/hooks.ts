@@ -474,44 +474,56 @@ class Runtime implements AgentHookRuntime {
   }
 }
 
+/**
+ * Load hook runtime from unified settings.json (config.hooks) + workspace fallback.
+ *
+ * Merge order: global hooks from settings.json, then workspace .hlvm/hooks.json
+ * overrides per event name.
+ */
 export async function loadAgentHookRuntime(
   workspace: string,
+  globalHooks?: Record<string, unknown[]>,
 ): Promise<AgentHookRuntime | null> {
+  const merged = new Map<AgentHookName, AgentHookHandler[]>();
+
+  // 1. Global hooks from settings.json (passed by caller or loaded from config)
+  let effectiveGlobal = globalHooks;
+  if (!effectiveGlobal) {
+    try {
+      const { loadConfig } = await import("../../common/config/storage.ts");
+      const config = await loadConfig();
+      effectiveGlobal = config.hooks as Record<string, unknown[]> | undefined;
+    } catch { /* config unavailable */ }
+  }
+  if (effectiveGlobal) {
+    const normalized = normalizeHooksConfig({ version: 1, hooks: effectiveGlobal });
+    if (normalized) {
+      for (const [name, handlers] of normalized) {
+        merged.set(name, handlers);
+      }
+    }
+  }
+
+  // 2. Workspace hooks (override global per event name)
   const platform = getPlatform();
   const path = getHooksConfigPath(workspace);
-  if (!await platform.fs.exists(path)) return null;
-
-  let content = "";
-  try {
-    content = await platform.fs.readTextFile(path);
-  } catch (error) {
-    getAgentLogger().warn(
-      `Agent hooks load failed (${path}): ${
-        getErrorMessage(error)
-      }`,
-    );
-    return null;
+  if (await platform.fs.exists(path)) {
+    try {
+      const content = await platform.fs.readTextFile(path);
+      const parsed = JSON.parse(content);
+      const wsHooks = normalizeHooksConfig(parsed);
+      if (wsHooks) {
+        for (const [name, handlers] of wsHooks) {
+          merged.set(name, handlers); // workspace overrides global
+        }
+      }
+    } catch (error) {
+      getAgentLogger().warn(
+        `Agent hooks load failed (${path}): ${getErrorMessage(error)}`,
+      );
+    }
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch (error) {
-    getAgentLogger().warn(
-      `Agent hooks JSON invalid (${path}): ${
-        getErrorMessage(error)
-      }`,
-    );
-    return null;
-  }
-
-  const hooks = normalizeHooksConfig(parsed);
-  if (!hooks || hooks.size === 0) {
-    getAgentLogger().warn(
-      `Agent hooks ignored (${path}): expected version 1 config with at least one valid handler.`,
-    );
-    return null;
-  }
-
-  return new Runtime(workspace, hooks);
+  if (merged.size === 0) return null;
+  return new Runtime(workspace, merged);
 }

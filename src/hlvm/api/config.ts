@@ -12,12 +12,12 @@
  */
 
 import {
-  getConfigPath,
   isConfigKey,
   loadConfig,
   resetConfig,
   saveConfig,
 } from "../../common/config/storage.ts";
+import { getSettingsPath } from "../../common/paths.ts";
 
 import {
   CONFIG_KEYS,
@@ -242,7 +242,7 @@ function createConfigApi() {
      * @example (config.path)
      */
     get path(): string {
-      return getConfigPath();
+      return getSettingsPath();
     },
 
     /**

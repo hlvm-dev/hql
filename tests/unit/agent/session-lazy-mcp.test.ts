@@ -274,3 +274,64 @@ Deno.test({
     });
   },
 });
+
+Deno.test({
+  name:
+    "createAgentSession: one aborted MCP waiter does not cancel a concurrent shared bootstrap",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTempHlvmDir(async () => {
+      const platform = getPlatform();
+      const workspace = await platform.fs.makeTempDir({
+        prefix: "hlvm-session-shared-mcp-",
+      });
+      const fixturePath = platform.path.join(
+        platform.process.cwd(),
+        "tests",
+        "fixtures",
+        "mcp-server.ts",
+      );
+      const delayedFixturePath = platform.path.join(
+        workspace,
+        "delayed-mcp-server.ts",
+      );
+      await platform.fs.writeTextFile(
+        delayedFixturePath,
+        `await new Promise((resolve) => setTimeout(resolve, 150));
+await import(${JSON.stringify(platform.path.toFileUrl(fixturePath).href)});`,
+      );
+      await platform.fs.mkdir(platform.path.dirname(getMcpConfigPath()), {
+        recursive: true,
+      });
+      await platform.fs.writeTextFile(
+        getMcpConfigPath(),
+        JSON.stringify({
+          version: 1,
+          servers: [{ name: "test", command: ["deno", "run", delayedFixturePath] }],
+        }),
+      );
+
+      const session = await createAgentSession({
+        workspace,
+        model: "ollama/llama3.2:3b",
+        modelInfo: { name: "llama3.2:3b", parameterSize: "13B" },
+      });
+      const controller = new AbortController();
+
+      try {
+        const primaryLoad = session.ensureMcpLoaded?.() ?? Promise.resolve();
+        const abortedWait = session.ensureMcpLoaded?.(controller.signal) ??
+          Promise.resolve();
+        controller.abort("test abort");
+
+        await assertRejects(() => abortedWait, Error);
+        await primaryLoad;
+        assertEquals(hasTool("mcp_test_echo", session.toolOwnerId), true);
+      } finally {
+        await session.dispose();
+        await platform.fs.remove(workspace, { recursive: true });
+      }
+    });
+  },
+});

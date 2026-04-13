@@ -11,6 +11,10 @@ const MIGRATIONS: Record<number, MigrationFn> = {
     ...config,
     version: 1,
   }),
+  1: (config) => ({
+    ...config,
+    version: 2,
+  }),
 };
 
 function normalizeVersion(raw: unknown): number {

@@ -490,7 +490,7 @@ export async function createAgentSession(
         options.workspace,
         undefined,
         toolOwnerId,
-        signal,
+        undefined,
       ).then((mcp) => {
         loadedMcp = mcp;
         applyMcpBindings(mcp);

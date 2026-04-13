@@ -171,6 +171,91 @@ class CdpClient {
   }
 }
 
+interface CdpEventSource {
+  on(event: string, handler: (params: unknown) => void): void;
+  off(event: string, handler: (params: unknown) => void): void;
+}
+
+interface CdpNavigationClient extends CdpEventSource {
+  send<T = unknown>(
+    method: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<T>;
+}
+
+interface ChromePageSettleWaiter {
+  promise: Promise<void>;
+  cleanup: () => void;
+}
+
+function createChromePageSettleWaiter(
+  cdp: CdpEventSource,
+  timeoutMs: number,
+  loadGraceMs = 2_000,
+): ChromePageSettleWaiter {
+  let cleanup = () => {};
+  const promise = withTimeout(
+    () =>
+      new Promise<void>((resolve) => {
+        let settled = false;
+        let graceTimer: number | undefined;
+
+        const finish = (): void => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve();
+        };
+
+        const onLifecycle = (params: unknown): void => {
+          const p = params as { name?: string };
+          if (p.name === "networkIdle") {
+            finish();
+          }
+        };
+
+        const onLoad = (): void => {
+          if (graceTimer !== undefined) clearTimeout(graceTimer);
+          graceTimer = setTimeout(() => {
+            finish();
+          }, loadGraceMs);
+        };
+
+        cleanup = (): void => {
+          cdp.off("Page.lifecycleEvent", onLifecycle);
+          cdp.off("Page.loadEventFired", onLoad);
+          if (graceTimer !== undefined) clearTimeout(graceTimer);
+          graceTimer = undefined;
+        };
+
+        cdp.on("Page.lifecycleEvent", onLifecycle);
+        cdp.on("Page.loadEventFired", onLoad);
+      }),
+    { timeoutMs, label: "Chrome page render" },
+  );
+  return { promise, cleanup };
+}
+
+async function navigateAndWaitForChromePageSettle(
+  cdp: CdpNavigationClient,
+  sessionId: string,
+  url: string,
+  timeoutMs: number,
+  loadGraceMs = 2_000,
+): Promise<void> {
+  const waiter = createChromePageSettleWaiter(cdp, timeoutMs, loadGraceMs);
+  try {
+    await cdp.send("Page.navigate", { url }, sessionId);
+    await waiter.promise;
+  } finally {
+    waiter.cleanup();
+  }
+}
+
+export const __testOnlyNavigateAndWaitForChromePageSettle =
+  navigateAndWaitForChromePageSettle;
+
 // ============================================================
 // Singleton Browser Manager
 // ============================================================
@@ -299,50 +384,11 @@ export async function renderWithChrome(
         sessionId,
       );
 
-      // Navigate
-      await cdp.send("Page.navigate", { url }, sessionId);
-
-      // Wait for network idle or load + grace period
-      await withTimeout(
-        () =>
-          new Promise<void>((resolve) => {
-            let loadFired = false;
-            let graceTimer: number | undefined;
-
-            const onLifecycle = (params: unknown): void => {
-              const p = params as { name?: string };
-              if (p.name === "networkIdle") {
-                cleanup();
-                resolve();
-              }
-            };
-
-            const onLoad = (): void => {
-              loadFired = true;
-              graceTimer = setTimeout(() => {
-                cleanup();
-                resolve();
-              }, 2000);
-            };
-
-            const cleanup = (): void => {
-              cdp!.off("Page.lifecycleEvent", onLifecycle);
-              cdp!.off("Page.loadEventFired", onLoad);
-              if (graceTimer !== undefined) clearTimeout(graceTimer);
-            };
-
-            cdp!.on("Page.lifecycleEvent", onLifecycle);
-            cdp!.on("Page.loadEventFired", onLoad);
-
-            // If load already fired before we started listening, set grace
-            if (loadFired && !graceTimer) {
-              graceTimer = setTimeout(() => {
-                cleanup();
-                resolve();
-              }, 2000);
-            }
-          }),
-        { timeoutMs, label: "Chrome page render" },
+      await navigateAndWaitForChromePageSettle(
+        cdp,
+        sessionId,
+        url,
+        timeoutMs,
       );
 
       // Extract rendered HTML
@@ -378,4 +424,3 @@ export async function renderWithChrome(
     return null;
   }
 }
-

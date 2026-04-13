@@ -263,48 +263,53 @@ async function executeToolWithTimeout(
     async (signal) => {
       // Wrap signal in a controller so CU escape can abort the current tool
       const toolAbortController = new AbortController();
-      signal.addEventListener("abort", () => toolAbortController.abort(signal.reason), { once: true });
-      const toolOptions: ToolExecutionOptions = {
-        signal: toolAbortController.signal,
-        abortController: toolAbortController,
-        toolName: toolCall.toolName,
-        toolCallId: toolCall.id,
-        argsSummary: generateArgsSummary(toolCall.toolName, args),
-        modelId: config.modelId,
-        modelTier: config.modelTier,
-        policy: config.policy ?? null,
-        onInteraction: config.onInteraction,
-        toolOwnerId: config.toolOwnerId,
-        delegateOwnerId: config.delegateOwnerId,
-        ensureMcpLoaded: config.ensureMcpLoaded,
-        todoState: config.todoState,
-        fileStateCache: config.fileStateCache,
-        searchTools: (query, options) =>
-          searchTools(query, {
-            ...options,
-            allowlist: options?.allowlist ?? config.toolSearchUniverseAllowlist,
-            denylist: options?.denylist ?? config.toolSearchUniverseDenylist ??
-              toolDenylist,
-            ownerId: options?.ownerId ?? config.toolOwnerId,
-          }),
-        teamRuntime: config.teamRuntime,
-        teamMemberId: config.teamMemberId,
-        teamLeadMemberId: config.teamLeadMemberId,
-        sessionId: config.sessionId,
-        currentUserRequest: config.currentUserRequest,
-        hookRuntime: config.hookRuntime,
-        onAgentEvent: config.onAgentEvent,
-        agentProfiles: config.agentProfiles,
-        instructions: config.instructions,
-        permissionMode: config.permissionMode,
-        toolAllowlist,
-        toolDenylist,
-      };
-      const result = await toolFn(args, config.workspace, toolOptions);
-      if (signal.aborted) {
-        throw new RuntimeError("Tool execution aborted");
+      const onAbort = () => toolAbortController.abort(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+      try {
+        const toolOptions: ToolExecutionOptions = {
+          signal: toolAbortController.signal,
+          abortController: toolAbortController,
+          toolName: toolCall.toolName,
+          toolCallId: toolCall.id,
+          argsSummary: generateArgsSummary(toolCall.toolName, args),
+          modelId: config.modelId,
+          modelTier: config.modelTier,
+          policy: config.policy ?? null,
+          onInteraction: config.onInteraction,
+          toolOwnerId: config.toolOwnerId,
+          delegateOwnerId: config.delegateOwnerId,
+          ensureMcpLoaded: config.ensureMcpLoaded,
+          todoState: config.todoState,
+          fileStateCache: config.fileStateCache,
+          searchTools: (query, options) =>
+            searchTools(query, {
+              ...options,
+              allowlist: options?.allowlist ?? config.toolSearchUniverseAllowlist,
+              denylist: options?.denylist ?? config.toolSearchUniverseDenylist ??
+                toolDenylist,
+              ownerId: options?.ownerId ?? config.toolOwnerId,
+            }),
+          teamRuntime: config.teamRuntime,
+          teamMemberId: config.teamMemberId,
+          teamLeadMemberId: config.teamLeadMemberId,
+          sessionId: config.sessionId,
+          currentUserRequest: config.currentUserRequest,
+          hookRuntime: config.hookRuntime,
+          onAgentEvent: config.onAgentEvent,
+          agentProfiles: config.agentProfiles,
+          instructions: config.instructions,
+          permissionMode: config.permissionMode,
+          toolAllowlist,
+          toolDenylist,
+        };
+        const result = await toolFn(args, config.workspace, toolOptions);
+        if (signal.aborted) {
+          throw new RuntimeError("Tool execution aborted");
+        }
+        return result;
+      } finally {
+        signal.removeEventListener("abort", onAbort);
       }
-      return result;
     },
     { timeoutMs: timeout, label: "Tool execution", signal: config.signal },
   );

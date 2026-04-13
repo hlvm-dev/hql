@@ -220,7 +220,7 @@ hlvm model [command]
 | ------------- | ------------------------------------------------------ |
 | _(none)_      | Show current default model and availability            |
 | `list`        | List all available models (grouped by provider)        |
-| `set <name>`  | Set default model (persisted to `~/.hlvm/config.json`) |
+| `set <name>`  | Set default model (persisted to `~/.hlvm/settings.json`) |
 | `show <name>` | Show model details (params, capabilities, size)        |
 | `pull <name>` | Download a model (Ollama only)                         |
 | `rm <name>`   | Remove a model (Ollama only)                           |
@@ -560,11 +560,13 @@ google/gemini-2.0-flash    # Google
 
 ## Configuration Files
 
-| File              | Description                                   |
-| ----------------- | --------------------------------------------- |
-| `hql.json`        | HQL package metadata (name, version, exports) |
-| `~/.hlvm/`        | Global config and cache directory             |
-| `.hlvm/prompt.md` | Per-project agent instructions                |
+| File                    | Description                                                      |
+| ----------------------- | ---------------------------------------------------------------- |
+| `~/.hlvm/settings.json` | Unified config: model, policy, hooks (replaces config.json)      |
+| `~/.hlvm/`              | Global config and cache directory                                |
+| `.hlvm/prompt.md`       | Per-project agent instructions                                   |
+| `.hlvm/hooks.json`      | Per-workspace hook overrides (merged under settings.json hooks)  |
+| `hql.json`              | HQL package metadata (name, version, exports)                    |
 
 ---
 

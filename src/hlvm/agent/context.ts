@@ -20,6 +20,8 @@ import { truncate, truncateMiddle } from "../../common/utils.ts";
 import type { ConversationAttachmentPayload } from "../attachments/types.ts";
 import { collectFiles, collectSymbols } from "./compaction-template.ts";
 import type { FileRestorationHint } from "./file-state-cache.ts";
+
+const toolCallArgLenCache = new WeakMap<object, number>();
 // ============================================================
 // Types
 // ============================================================
@@ -70,14 +72,15 @@ function estimateToolCallChars(message: Message): number {
       if (typeof tc.function.arguments === "string") {
         argsLen = tc.function.arguments.length;
       } else {
-        // Cache stringified length to avoid repeated JSON.stringify on same object
-        const cached = (tc as Record<string, unknown>)._cachedArgLen;
+        // Cache stringified length to avoid repeated JSON.stringify on same object.
+        const argObject = tc.function.arguments as object;
+        const cached = toolCallArgLenCache.get(argObject);
         if (typeof cached === "number") {
           argsLen = cached;
         } else {
           try {
             argsLen = JSON.stringify(tc.function.arguments).length;
-            (tc as Record<string, unknown>)._cachedArgLen = argsLen;
+            toolCallArgLenCache.set(argObject, argsLen);
           } catch { /* circular ref — skip */ }
         }
       }
