@@ -1,12 +1,6 @@
 import type { ModelTier } from "./constants.ts";
-import {
-  type DelegationSignal,
-  detectDeterministicBrowserAutomation,
-  detectDeterministicDelegation,
-} from "./delegation-heuristics.ts";
 import { hasDeterministicPlanningCue } from "./planning.ts";
 import { isMainThreadQuerySource } from "./query-tool-routing.ts";
-import { extractMentionedFilePaths } from "./request-paths.ts";
 import {
   type AllClassification,
   classifyAll,
@@ -19,14 +13,13 @@ export type RoutingProvenance =
   | "self_directed_structural"
   | "assisted_classify_all";
 
+export type TaskDomain = "general" | "code" | "browser" | "data";
+
 export interface RoutingResult {
   tier: ModelTier;
   behavior: RoutingBehavior;
   provenance: RoutingProvenance;
-  taskDomain: DelegationSignal["taskDomain"];
-  shouldDelegate: boolean;
-  delegatePattern: DelegationSignal["suggestedPattern"];
-  estimatedSubtasks?: number;
+  taskDomain: TaskDomain;
   needsPlan: boolean;
   taskClassification: TaskClassification | null;
   reason: string;
@@ -34,18 +27,6 @@ export interface RoutingResult {
 
 export function routingBehaviorForTier(tier: ModelTier): RoutingBehavior {
   return tier === "enhanced" ? "self_directed" : "assisted";
-}
-
-export function delegationSignalFromRoutingResult(
-  routing: RoutingResult,
-): DelegationSignal {
-  return {
-    shouldDelegate: routing.shouldDelegate,
-    reason: routing.reason,
-    suggestedPattern: routing.delegatePattern,
-    taskDomain: routing.taskDomain,
-    estimatedSubtasks: routing.estimatedSubtasks,
-  };
 }
 
 function buildBaseRoutingResult(
@@ -60,16 +41,10 @@ function buildBaseRoutingResult(
     behavior,
     provenance,
     taskDomain: "general",
-    shouldDelegate: false,
-    delegatePattern: "none",
     needsPlan,
     taskClassification,
     reason: "No strong routing signal detected",
   };
-}
-
-function uniqueMentionedFileCount(query: string): number {
-  return new Set(extractMentionedFilePaths(query)).size;
 }
 
 export async function computeRoutingResult(options: {
@@ -114,41 +89,7 @@ export async function computeRoutingResult(options: {
     return {
       ...base,
       provenance: "main_thread",
-      reason: "Main-thread query source disables request-time delegation",
-    };
-  }
-
-  const uniqueFileCount = uniqueMentionedFileCount(trimmed);
-  if (uniqueFileCount >= 3) {
-    return {
-      ...base,
-      shouldDelegate: true,
-      delegatePattern: "fan-out",
-      estimatedSubtasks: uniqueFileCount,
-      reason: `${uniqueFileCount} distinct file paths detected`,
-    };
-  }
-
-  if (detectDeterministicBrowserAutomation(trimmed)) {
-    return {
-      ...base,
-      taskDomain: "browser",
-      reason: "Deterministic browser cue detected",
-    };
-  }
-
-  const structuralDelegation = detectDeterministicDelegation(
-    trimmed,
-    uniqueFileCount,
-  );
-  if (structuralDelegation) {
-    return {
-      ...base,
-      shouldDelegate: structuralDelegation.shouldDelegate,
-      delegatePattern: structuralDelegation.suggestedPattern,
-      taskDomain: structuralDelegation.taskDomain,
-      estimatedSubtasks: structuralDelegation.estimatedSubtasks,
-      reason: structuralDelegation.reason,
+      reason: "Main-thread query source",
     };
   }
 
@@ -168,19 +109,8 @@ export async function computeRoutingResult(options: {
     };
   }
 
-  if (!classification.shouldDelegate) {
-    return {
-      ...base,
-      reason: "classifyAll found no strong delegation signal",
-    };
-  }
-
   return {
     ...base,
-    shouldDelegate: true,
-    delegatePattern: classification.delegatePattern,
-    estimatedSubtasks: uniqueFileCount || 2,
-    reason:
-      `classifyAll classified as ${classification.delegatePattern} delegation`,
+    reason: "classifyAll routing",
   };
 }

@@ -2,7 +2,6 @@ import React from "react";
 import { Box, Text } from "ink";
 import { truncate } from "../../../../common/utils.ts";
 import { useSemanticColors } from "../../theme/index.ts";
-import type { TeamDashboardState } from "../hooks/useTeamState.ts";
 
 const MAX_RAIL_ROWS = 3;
 
@@ -20,36 +19,14 @@ interface CurrentTurnRailItem {
 
 export function buildActivityRailRows(input: {
   currentTurn?: CurrentTurnRailItem;
-  teamState: TeamDashboardState;
   width: number;
 }): { rows: RailRow[]; overflow?: string } | null {
   const rows: RailRow[] = [];
 
   if (input.currentTurn?.text.trim()) {
     rows.push({
-      text: `turn · ${input.currentTurn.text.trim()}`,
+      text: `turn \u00B7 ${input.currentTurn.text.trim()}`,
       tone: input.currentTurn.tone,
-    });
-  }
-
-  if (input.teamState.pendingApprovals.length > 0) {
-    rows.push({
-      text: input.teamState.pendingApprovals.length === 1
-        ? "team · 1 plan review waiting"
-        : `team · ${input.teamState.pendingApprovals.length} plan reviews waiting`,
-      tone: "warning",
-    });
-  }
-  if (input.teamState.shutdowns.some((item) => item.status === "requested")) {
-    rows.push({
-      text: "team · shutdown request needs attention",
-      tone: "warning",
-    });
-  }
-  if (input.teamState.attentionItems.length > 0) {
-    rows.push({
-      text: input.teamState.attentionItems[0]?.label ?? "team · attention needed",
-      tone: "warning",
     });
   }
 
@@ -67,7 +44,6 @@ export function buildActivityRailRows(input: {
 
 interface ActivityRailProps {
   currentTurn?: CurrentTurnRailItem;
-  teamState: TeamDashboardState;
   width: number;
 }
 

@@ -10,8 +10,14 @@ import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { formatDurationMs } from "../../utils/formatting.ts";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
-import { formatTokens } from "../../../delegate-group-format.ts";
 import type { TurnCompletionStatus } from "../../types.ts";
+
+/** Format a token count as a compact human-readable string (e.g. 1.2k, 3.4M). */
+function formatTokens(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
+  return String(count);
+}
 
 interface TurnStatsProps {
   toolCount: number;

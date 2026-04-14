@@ -17,7 +17,6 @@ import {
   parsePersistedAgentSessionMetadata,
   persistAgentPlanState,
   persistPendingPlanReview,
-  persistAgentTeamRuntime,
   persistAgentTodos,
   startPersistedAgentTurn,
 } from "../../../src/hlvm/agent/persisted-transcript.ts";
@@ -35,7 +34,6 @@ import { loadAllMessages } from "../../../src/hlvm/store/message-utils.ts";
 import { setupStoreTestDb } from "../_shared/store-test-db.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { createTodoStateFromPlan } from "../../../src/hlvm/agent/todo-state.ts";
-import { createTeamRuntime } from "../../../src/hlvm/agent/team-runtime.ts";
 import {
   getMemoryMdPath,
   resetHlvmDirCacheForTests,
@@ -241,31 +239,6 @@ Deno.test("persisted transcript: pending plan review persists in session metadat
   }
 });
 
-Deno.test({ name: "persisted transcript: team runtime snapshot persists in session metadata", sanitizeOps: false, sanitizeResources: false, fn() {
-  const db = setupStoreTestDb();
-  try {
-    const sessionId = getPersistedAgentSessionId();
-    startPersistedAgentTurn(sessionId, "coordinate team");
-    const teamRuntime = createTeamRuntime("lead", "lead");
-    teamRuntime.registerMember({ id: "worker-1", agent: "code" });
-    teamRuntime.ensureTask({
-      id: "task-1",
-      goal: "Review patch",
-      status: "blocked",
-      assigneeMemberId: "worker-1",
-      dependencies: ["task-0"],
-    });
-
-    persistAgentTeamRuntime(sessionId, teamRuntime.snapshot());
-
-    const metadata = loadPersistedAgentSessionMetadata(sessionId);
-    assertEquals(metadata.teamRuntime?.members.length, 2);
-    assertEquals(metadata.teamRuntime?.tasks[0]?.dependencies, ["task-0"]);
-  } finally {
-    db.close();
-  }
-} });
-
 Deno.test({
   name: "persisted transcript: clearPersistedAgentPlanningState removes plan-owned planning metadata",
   sanitizeOps: false,
@@ -328,7 +301,7 @@ Deno.test({
           model,
           workspace,
           reusableSession,
-          toolDenylist: ["delegate_agent"],
+          toolDenylist: ["complete_task"],
           callbacks: {},
         });
         const second = await runAgentQuery({
@@ -336,7 +309,7 @@ Deno.test({
           model,
           workspace,
           reusableSession,
-          toolDenylist: ["delegate_agent"],
+          toolDenylist: ["complete_task"],
           callbacks: {},
         });
 
@@ -385,7 +358,7 @@ Deno.test({
               model,
               workspace,
               reusableSession,
-              toolDenylist: ["delegate_agent"],
+              toolDenylist: ["complete_task"],
               callbacks: {},
             }),
           Error,
@@ -438,7 +411,7 @@ Deno.test({
           sessionId,
           skipSessionHistory: true,
           reusableSession,
-          toolDenylist: ["delegate_agent"],
+          toolDenylist: ["complete_task"],
           callbacks: {},
         });
 
@@ -475,7 +448,7 @@ Deno.test({
             role: "assistant",
             content: "external-history",
           }],
-          toolDenylist: ["delegate_agent"],
+          toolDenylist: ["complete_task"],
           callbacks: {},
         });
 
@@ -533,7 +506,7 @@ Deno.test({
           sessionId,
           reusableSession,
           transcriptPersistenceMode: "caller",
-          toolDenylist: ["delegate_agent"],
+          toolDenylist: ["complete_task"],
           callbacks: {},
         });
 
@@ -583,7 +556,7 @@ Deno.test({
           sessionId,
           skipSessionHistory: true,
           reusableSession,
-          toolDenylist: ["delegate_agent"],
+          toolDenylist: ["complete_task"],
           callbacks: {},
         });
 
@@ -633,7 +606,7 @@ Deno.test({
             sessionId: "agent-fresh-memory",
             skipSessionHistory: true,
             reusableSession,
-            toolDenylist: ["delegate_agent"],
+            toolDenylist: ["complete_task"],
             callbacks: {},
           });
 

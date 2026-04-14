@@ -46,14 +46,6 @@ export const globalKeybindings: Keybinding[] = [
     action: { type: "HANDLER", id: HandlerIds.APP_TASK_OVERLAY },
   },
   {
-    id: "shift+down",
-    display: "Shift+Down",
-    label: "Cycle teammate",
-    description: "Cycle through active teammates in in-process mode",
-    category: "Global",
-    action: { type: "HANDLER", id: HandlerIds.APP_CYCLE_TEAMMATE },
-  },
-  {
     id: "ctrl+f",
     display: "Ctrl+F",
     label: "Cancel all tasks",

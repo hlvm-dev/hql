@@ -142,7 +142,7 @@ Invocation — slash commands:
   Router: findSkill(name) → SkillDefinition
   Execute:
     inline → inject content as system message + set allowed tools
-    fork   → delegate_agent with skill content as instructions
+    fork   → spawn child agent with skill content as instructions
 
 Invocation — Skill Tool (model-side):
   Agent calls: skill({ skill: "commit", args: "fix login" })
@@ -349,7 +349,7 @@ hooks.ts changes:
      → return allow/block/context
 
   3. Add executeAgentHook(hook, input)
-     → delegate_agent with hook.prompt + JSON input
+     → spawn child agent with hook.prompt + JSON input
      → agent runs verification
      → return structured result
 
@@ -388,18 +388,16 @@ hooks.ts changes:
 ### CC Events HLVM Is Missing
 
 ```
-HLVM has (11):                CC has but HLVM lacks (14+):
+HLVM has (7):                 CC has but HLVM lacks (12+):
   pre_llm                       PermissionRequest
   post_llm                      PermissionDenied
   pre_tool                      PostToolUseFailure
   post_tool                     SessionStart
   plan_created                  SessionEnd
   write_verified                Setup
-  delegate_start                SubagentStart
-  delegate_end                  SubagentStop
   final_response                UserPromptSubmit
-  teammate_idle                 PreCompact
-  task_completed                PostCompact
+                                PreCompact
+                                PostCompact
                                 Elicitation
                                 FileChanged
                                 CwdChanged
@@ -420,8 +418,6 @@ P0 (add now):
 P1 (add soon):
   UserPromptSubmit  — input validation, content filtering
   PreCompact        — save important context before compression
-  SubagentStart     — log/audit agent spawning
-  SubagentStop      — collect agent results
 ```
 
 ---

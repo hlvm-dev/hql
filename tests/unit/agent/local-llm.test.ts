@@ -3,7 +3,6 @@ import {
   classifyAll,
   classifyBrowserAutomation,
   classifyBrowserFinalAnswer,
-  classifyDelegation,
   classifyFactConflicts,
   classifyGroundedness,
   classifyPlanNeed,
@@ -163,23 +162,10 @@ Deno.test("classifyPlanNeed: whitespace-only returns defaults", async () => {
   assertEquals(result.needsPlan, false);
 });
 
-Deno.test("classifyDelegation: empty query returns defaults", async () => {
-  const result = await classifyDelegation("");
-  assertEquals(result.shouldDelegate, false);
-  assertEquals(result.pattern, "none");
-});
-
-Deno.test("classifyDelegation: whitespace-only returns defaults", async () => {
-  const result = await classifyDelegation("   ");
-  assertEquals(result.shouldDelegate, false);
-  assertEquals(result.pattern, "none");
-});
-
 Deno.test("classifyAll: empty query returns defaults", async () => {
   const result = await classifyAll("");
   assertEquals(result.isBrowser, false);
-  assertEquals(result.shouldDelegate, false);
-  assertEquals(result.delegatePattern, "none");
+
   assertEquals(result.needsPlan, false);
   assertEquals(result.taskClassification.isCodeTask, false);
   assertEquals(result.taskClassification.isReasoningTask, false);
@@ -189,8 +175,7 @@ Deno.test("classifyAll: empty query returns defaults", async () => {
 Deno.test("classifyAll: whitespace-only returns defaults", async () => {
   const result = await classifyAll("   ");
   assertEquals(result.isBrowser, false);
-  assertEquals(result.shouldDelegate, false);
-  assertEquals(result.delegatePattern, "none");
+
   assertEquals(result.needsPlan, false);
   assertEquals(result.taskClassification.isCodeTask, false);
   assertEquals(result.taskClassification.isReasoningTask, false);
@@ -205,8 +190,7 @@ Deno.test("classifyAll: disabled local AI falls back to defaults", async () => {
   try {
     const result = await classifyAll("open example.com and summarize it");
     assertEquals(result.isBrowser, false);
-    assertEquals(result.shouldDelegate, false);
-    assertEquals(result.delegatePattern, "none");
+  
     assertEquals(result.needsPlan, false);
     assertEquals(result.taskClassification.isCodeTask, false);
     assertEquals(result.taskClassification.isReasoningTask, false);

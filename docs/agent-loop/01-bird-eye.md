@@ -38,7 +38,6 @@
 ┃                     │    └─ engine.createLLM(config)     → callable fn    ┃
 ┃                     │                                                     ┃
 ┃                     ├─ load history, restore todos, build plan mode       ┃
-┃                     ├─ create team runtime (if delegation tools present)  ┃
 ┃                     ├─ build OrchestratorConfig (1358-1473)               ┃
 ┃                     │                                                     ┃
 ┃                     ▼                                                     ┃
@@ -68,7 +67,7 @@
 ┃  │  └───────────────────────────────────────────────────────────┘       │ ┃
 ┃  │                        │                                              │ ┃
 ┃  │  ┌─ PRE-LLM ──────────▼─────────────────────────────────────┐       │ ┃
-┃  │  │  rate limit → reminders → memory → delegation hint        │       │ ┃
+┃  │  │  rate limit → reminders → memory                          │       │ ┃
 ┃  │  │  → context pressure → compaction → tool phase → thinking  │       │ ┃
 ┃  │  └───────────────────────────────────────────────────────────┘       │ ┃
 ┃  │                        │                                              │ ┃
@@ -111,7 +110,7 @@
 ┃  LAYER 3: POST-LOOP                      agent-runner.ts:1480             ┃
 ┃  ──────────────────                                                       ┃
 ┃                                                                           ┃
-┃  cancel delegates → wait hooks → emit traces                              ┃
+┃  wait hooks → emit traces                                                 ┃
 ┃  → structured result synthesis → memory persistence                       ┃
 ┃  → build AgentRunnerResult → dispose session (if not reusing)             ┃
 ┃                                                                           ┃
@@ -163,14 +162,14 @@
 │  │                                                                   │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
 │                                                                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │
-│  │  delegate     │  │  team        │  │  hook        │  │  MCP         │ │
-│  │  Inbox        │  │  Runtime     │  │  Runtime     │  │  (lazy)      │ │
-│  │              │  │              │  │              │  │              │ │
-│  │  background  │  │  members     │  │  pre/post    │  │  ensureMcp   │ │
-│  │  results     │  │  tasks       │  │  tool/llm    │  │  Loaded()    │ │
-│  │  drain()     │  │  messages    │  │  stop hooks  │  │  deferred    │ │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘ │
+│  ┌──────────────┐  ┌──────────────┐                                      │
+│  │  hook        │  │  MCP         │                                      │
+│  │  Runtime     │  │  (lazy)      │                                      │
+│  │              │  │              │                                      │
+│  │  pre/post    │  │  ensureMcp   │                                      │
+│  │  tool/llm    │  │  Loaded()    │                                      │
+│  │  stop hooks  │  │  deferred    │                                      │
+│  └──────────────┘  └──────────────┘                                      │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -185,7 +184,7 @@
 │  ┌─── LoopState (orchestrator-state.ts) ─────────────────────────────────┐ │
 │  │                                                                        │ │
 │  │  iterations              ─── incremented each turn                     │ │
-│  │  cachedDelegationSignal  ─── set once, cached for loop lifetime        │ │
+│  │  browserDomainSignal    ─── set once, cached for loop lifetime         │ │
 │  │  runtimePhase            ─── recomputed each turn                      │ │
 │  │  lastToolNames           ─── updated after tool execution              │ │
 │  │  toolUses                ─── accumulated across all turns              │ │
@@ -272,12 +271,7 @@
     │     │     ├── playwright/failure-enrichment.ts
     │     │     ├── grounding.ts
     │     │     └── planning.ts
-    │     ├── delegation-heuristics.ts
-    │     │     └── local-llm.ts (classifyDelegation)
     │     └── tool-profiles.ts
-    │
-    ├── team-executor.ts (teammate background loop)
-    │     └── orchestrator.ts (reuses runReActLoop)
     │
     └── memory/*.ts (recall, write, search)
 ```

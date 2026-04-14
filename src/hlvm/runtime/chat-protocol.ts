@@ -2,8 +2,6 @@ import type { AgentExecutionMode } from "../agent/execution-mode.ts";
 import type { FinalResponseMeta, TraceEvent } from "../agent/orchestrator.ts";
 import type { Plan, PlanningPhase } from "../agent/planning.ts";
 import type { InteractionOption } from "../agent/registry.ts";
-import type { DelegateTranscriptSnapshot } from "../agent/delegate-transcript.ts";
-import type { DelegateBatchSnapshot } from "../agent/delegate-batches.ts";
 import type { TodoState } from "../agent/todo-state.ts";
 
 export const CLAUDE_CODE_AGENT_MODE = "claude-code-agent" as const;
@@ -133,99 +131,34 @@ export type ChatStreamEvent =
     request_id?: string;
   }
   | {
-    event: "delegate_start";
-    agent: string;
-    task: string;
-    thread_id?: string;
-    nickname?: string;
-    child_session_id?: string;
-    batch_id?: string;
+    event: "agent_spawn";
+    agent_id: string;
+    agent_type: string;
+    description: string;
+    is_async: boolean;
   }
   | {
-    event: "delegate_running";
-    thread_id: string;
+    event: "agent_progress";
+    agent_id: string;
+    agent_type: string;
+    tool_use_count: number;
+    duration_ms: number;
   }
   | {
-    event: "delegate_end";
-    agent: string;
-    task: string;
+    event: "agent_complete";
+    agent_id: string;
+    agent_type: string;
     success: boolean;
-    summary?: string;
-    duration_ms?: number;
-    error?: string;
-    snapshot?: DelegateTranscriptSnapshot;
-    child_session_id?: string;
-    thread_id?: string;
-    batch_id?: string;
+    duration_ms: number;
+    tool_use_count: number;
+    total_tokens?: number;
+    result_preview?: string;
+    transcript?: string;
   }
   | {
     event: "todo_updated";
     todo_state: TodoState;
-    source: "tool" | "plan" | "team";
-  }
-  | {
-    event: "team_task_updated";
-    task_id: string;
-    goal: string;
-    status: string;
-    assignee_member_id?: string;
-  }
-  | {
-    event: "team_message";
-    kind: string;
-    from_member_id: string;
-    to_member_id?: string;
-    related_task_id?: string;
-    content_preview: string;
-  }
-  | {
-    event: "team_member_activity";
-    member_id: string;
-    member_label: string;
-    thread_id?: string;
-    activity_kind:
-      | "reasoning"
-      | "planning"
-      | "plan_created"
-      | "plan_step"
-      | "tool_start"
-      | "tool_progress"
-      | "tool_end"
-      | "turn_stats";
-    summary: string;
-    status: "active" | "success" | "error";
-  }
-  | {
-    event: "team_plan_review_required";
-    approval_id: string;
-    task_id: string;
-    submitted_by_member_id: string;
-  }
-  | {
-    event: "team_plan_review_resolved";
-    approval_id: string;
-    task_id: string;
-    submitted_by_member_id: string;
-    approved: boolean;
-    reviewed_by_member_id?: string;
-  }
-  | {
-    event: "team_shutdown_requested";
-    request_id: string;
-    member_id: string;
-    requested_by_member_id: string;
-    reason?: string;
-  }
-  | {
-    event: "team_shutdown_resolved";
-    request_id: string;
-    member_id: string;
-    requested_by_member_id: string;
-    status: "acknowledged" | "forced";
-  }
-  | {
-    event: "batch_progress_updated";
-    snapshot: DelegateBatchSnapshot;
+    source: "tool" | "plan";
   }
   | { event: "plan_phase_changed"; phase: PlanningPhase }
   | { event: "plan_created"; plan: Plan }
@@ -246,9 +179,7 @@ export type ChatStreamEvent =
     question?: string;
     options?: InteractionOption[];
     source_label?: string;
-    source_member_id?: string;
     source_thread_id?: string;
-    source_team_name?: string;
   }
   | {
     event: "turn_stats";

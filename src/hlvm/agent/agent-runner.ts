@@ -35,19 +35,8 @@ import {
   refreshReusableAgentSession,
 } from "./session.ts";
 import { getAgentEngine } from "./engine.ts";
-import { createDelegateHandler } from "./delegation.ts";
-import {
-  cancelAllThreads,
-  cancelThreadsForOwner,
-  getActiveThreadsForOwner,
-} from "./delegate-threads.ts";
-import { setDelegateLimiterMax } from "./concurrency.ts";
-import { createDelegateInbox } from "./delegate-inbox.ts";
-import { createDelegateCoordinationBoard } from "./delegate-coordination.ts";
-import { restoreBatchSnapshots } from "./delegate-batches.ts";
-import { createTeamRuntime } from "./team-runtime.ts";
 import { loadAgentProfiles } from "./agent-registry.ts";
-import { runtimeDirective, runtimeNotice } from "./runtime-messages.ts";
+import { runtimeDirective } from "./runtime-messages.ts";
 import { resolveExistingMentionedFiles } from "./request-paths.ts";
 import { hasTool, resolveTools } from "./registry.ts";
 import {
@@ -69,7 +58,6 @@ import {
   MAX_ITERATIONS,
   MAX_SESSION_HISTORY,
   supportsAgentExecution,
-  TEAM_RUNTIME_TOOL_NAMES,
 } from "./constants.ts";
 import { compileSystemPrompt } from "./llm-integration.ts";
 import {
@@ -113,7 +101,6 @@ import {
   loadPersistedAgentSessionMetadata,
   loadPersistedAgentTodos,
   persistAgentPlanState,
-  persistAgentTeamRuntime,
   persistAgentTodos,
   persistDiscoveredDeferredTools,
   type PersistedAgentTurn,
@@ -126,7 +113,6 @@ import {
   createTodoStateFromPlan,
   isTodoStateDerivedFromPlan,
 } from "./todo-state.ts";
-import { type DelegationSignal } from "./delegation-heuristics.ts";
 import {
   formatPlanForContext,
   getPlanSignature,
@@ -135,7 +121,7 @@ import {
 } from "./planning.ts";
 import {
   computeRoutingResult,
-  delegationSignalFromRoutingResult,
+  type TaskDomain,
 } from "./request-routing.ts";
 import type { AllClassification } from "../runtime/local-llm.ts";
 import {
@@ -175,14 +161,6 @@ function resolveDefaultAgentRoots(): string[] {
   return DEFAULT_AGENT_PATH_ROOTS.map((root) =>
     `file://${root.startsWith("~") ? home + root.slice(1) : root}`
   );
-}
-
-function hasTeamRuntimeTools(options: {
-  allowlist?: string[];
-  denylist?: string[];
-}): boolean {
-  const tools = resolveTools(options);
-  return TEAM_RUNTIME_TOOL_NAMES.some((name) => name in tools);
 }
 
 function buildPlanModeAllowlist(options: {
@@ -259,7 +237,6 @@ export async function createReusableSession(
 
 /** Dispose all reusable sessions created via createReusableSession(). */
 export async function disposeAllSessions(): Promise<void> {
-  cancelAllThreads();
   const sessions = [...reusableSessions.values()];
   reusableSessions.clear();
   await Promise.allSettled(sessions.map((s) => s.dispose()));
@@ -424,31 +401,6 @@ function dispatchLifecycleHookForEvent(
         plan: event.plan,
       });
       return;
-    case "delegate_start":
-      hookRuntime.dispatchDetached("delegate_start", {
-        modelId: context.modelId,
-        sessionId: context.sessionId,
-        agent: event.agent,
-        task: event.task,
-        childSessionId: event.childSessionId,
-        threadId: event.threadId,
-        nickname: event.nickname,
-      });
-      return;
-    case "delegate_end":
-      hookRuntime.dispatchDetached("delegate_end", {
-        modelId: context.modelId,
-        sessionId: context.sessionId,
-        agent: event.agent,
-        task: event.task,
-        success: event.success,
-        summary: event.summary,
-        error: event.error,
-        durationMs: event.durationMs,
-        childSessionId: event.childSessionId,
-        threadId: event.threadId,
-      });
-      return;
     default:
       return;
   }
@@ -557,7 +509,7 @@ function updateSessionBaselineAllowlist(
 
 function applySessionDomainToolProfile(
   session: AgentSession,
-  taskDomain: DelegationSignal["taskDomain"],
+  taskDomain: TaskDomain,
 ): void {
   const profileState = ensureToolProfileState(session);
   const baselineLayer = profileState.layers.baseline;
@@ -853,15 +805,13 @@ export async function runAgentQuery(
     querySource,
     preComputedClassification: allClassification,
   });
-  const delegationSignal = delegationSignalFromRoutingResult(routingResult);
+  const taskDomain = routingResult.taskDomain;
   callbacks.onTrace?.({
     type: "routing_decision",
     tier: routingResult.tier,
     behavior: routingResult.behavior,
     provenance: routingResult.provenance,
     taskDomain: routingResult.taskDomain,
-    shouldDelegate: routingResult.shouldDelegate,
-    delegatePattern: routingResult.delegatePattern,
     needsPlan: routingResult.needsPlan,
     reason: routingResult.reason,
   });
@@ -870,8 +820,6 @@ export async function runAgentQuery(
     behavior: routingResult.behavior,
     provenance: routingResult.provenance,
     taskDomain: routingResult.taskDomain,
-    shouldDelegate: routingResult.shouldDelegate,
-    delegatePattern: routingResult.delegatePattern,
     needsPlan: routingResult.needsPlan,
     reason: routingResult.reason,
   });
@@ -886,10 +834,6 @@ export async function runAgentQuery(
     querySource,
     toolAllowlist: requestedToolAllowlist,
     discoveredDeferredTools: restoredSessionMetadata.discoveredDeferredTools,
-  });
-  const teamRuntimeEnabled = hasTeamRuntimeTools({
-    allowlist: toolAllowlist,
-    denylist: effectiveToolDenylist,
   });
   const structuredOutputActive = !!options.responseSchema;
   const effectiveOnToken = structuredOutputActive
@@ -936,7 +880,7 @@ export async function runAgentQuery(
     if (!requestedToolAllowlist?.length) {
       applySessionDomainToolProfile(
         matchingReusableSession,
-        delegationSignal.taskDomain,
+        taskDomain,
       );
     }
     session = await reuseSession(matchingReusableSession, effectiveOnToken, {
@@ -977,8 +921,8 @@ export async function runAgentQuery(
     if (requestedToolAllowlist?.length) {
       // Caller controls the tool set — no domain profiling.
     } else {
-      applySessionDomainToolProfile(session, delegationSignal.taskDomain);
-      if (delegationSignal.taskDomain === "browser") {
+      applySessionDomainToolProfile(session, taskDomain);
+      if (taskDomain === "browser") {
         session = await reuseSession(session, effectiveOnToken, {
           disablePersistentMemory,
           querySource,
@@ -1021,7 +965,6 @@ export async function runAgentQuery(
     });
   }
 
-  const delegateOwnerId = crypto.randomUUID();
   let persistedTurn: PersistedAgentTurn | null = null;
   let keepSessionAlive = false;
 
@@ -1054,9 +997,6 @@ export async function runAgentQuery(
     }
 
     const sessionMetadata = restoredSessionMetadata;
-    if (sessionMetadata.delegateBatches?.length) {
-      restoreBatchSnapshots(sessionMetadata.delegateBatches);
-    }
     if (shouldRestorePersistedTodos && sessionKey) {
       session.todoState.items = loadPersistedAgentTodos(sessionKey);
     } else {
@@ -1069,31 +1009,6 @@ export async function runAgentQuery(
 
     let policy = session.policy;
     policy = mergePolicyPathRoots(policy, DEFAULT_AGENT_PATH_ROOTS);
-    // Apply config-driven concurrency and depth limits for background delegates
-    const configApi = (globalThis as Record<string, unknown>).config as
-      | { snapshot?: Record<string, unknown> }
-      | undefined;
-    let agentMaxDepth = 1;
-    if (configApi?.snapshot) {
-      const { getAgentMaxThreads, getAgentMaxDepth } = await import(
-        "../../common/config/selectors.ts"
-      );
-      setDelegateLimiterMax(getAgentMaxThreads(configApi.snapshot));
-      agentMaxDepth = getAgentMaxDepth(configApi.snapshot);
-    }
-
-    const delegate = createDelegateHandler(session.llm, {
-      ownerId: delegateOwnerId,
-      policy,
-      sessionId: sessionKey,
-      modelId: model,
-      fixturePath: options.fixturePath,
-      currentDepth: 0,
-      maxDepth: agentMaxDepth,
-      agentProfiles,
-      discoveredDeferredTools: session.discoveredDeferredTools,
-    });
-
     // Wire MCP server-initiated request handlers (sampling, elicitation, roots)
     if (session.mcpSetHandlers) {
       session.mcpSetHandlers({
@@ -1294,7 +1209,6 @@ export async function runAgentQuery(
     } satisfies NonNullable<
       NonNullable<Parameters<typeof runReActLoop>[1]>["planReview"]
     >;
-    let teamRuntime: ReturnType<typeof createTeamRuntime> | undefined;
     if (session.llmConfig) {
       session.llmConfig.onToken = effectiveOnToken;
       session.llm = (session.engine ?? getAgentEngine()).createLLM(
@@ -1306,24 +1220,6 @@ export async function runAgentQuery(
         return callbacks.onAgentEvent;
       }
       const activePersistedTurn = persistedTurn;
-      const syncTeamTodoState = (): void => {
-        if (!teamRuntime) return;
-        session.todoState.items = teamRuntime.deriveTodoState().items.map((
-          item,
-        ) => ({
-          ...item,
-        }));
-        if (sessionKey) {
-          persistAgentTodos(sessionKey, session.todoState.items, "team");
-        }
-        callbacks.onAgentEvent?.({
-          type: "todo_updated",
-          todoState: {
-            items: session.todoState.items.map((item) => ({ ...item })),
-          },
-          source: "team",
-        });
-      };
       return (event: AgentUIEvent) => {
         dispatchLifecycleHookForEvent(hookRuntime, event, {
           modelId: model,
@@ -1371,9 +1267,6 @@ export async function runAgentQuery(
             persistAgentTodos(sessionKey, event.todoState.items, event.source);
           }
         }
-        if (event.type === "team_task_updated") {
-          syncTeamTodoState();
-        }
         if (event.type === "plan_review_resolved" && sessionKey) {
           approvedPlanSignature = event.approved
             ? getPlanSignature(event.plan)
@@ -1392,46 +1285,13 @@ export async function runAgentQuery(
     let structuredResult: unknown;
     const compactionRevisionBefore = session.context.getCompactionRevision();
     try {
-      const delegateInbox = createDelegateInbox();
-      const coordinationBoard = createDelegateCoordinationBoard();
-      if (teamRuntimeEnabled) {
-        teamRuntime = createTeamRuntime("lead", "lead", {
-          snapshot: sessionMetadata.teamRuntime,
-          reconcileStaleWorkers: true,
-          onChange: (snapshot) => {
-            if (sessionKey) {
-              persistAgentTeamRuntime(sessionKey, snapshot);
-            }
-          },
-        });
-        if (sessionMetadata.teamRuntime) {
-          session.todoState.items = teamRuntime.deriveTodoState().items.map((
-            item,
-          ) => ({
-            ...item,
-          }));
-          // If stale workers were cleaned up, inject a notice so the model
-          // doesn't trust stale team state from conversation history.
-          const hasStaleWorkers = teamRuntime.listMembers().some(
-            (m) => m.role !== "lead" && m.status === "terminated",
-          );
-          if (hasStaleWorkers) {
-            session.context.addMessage({
-              role: "user",
-              content: runtimeNotice(
-                "Previous team session has been reset. All prior delegate workers and their tasks have been terminated/cancelled. Start fresh — create new tasks and spawn new delegates as needed. Ignore any team state from earlier messages.",
-              ),
-            });
-          }
-        }
-      }
       const reactLoopConfig = {
         workspace,
         context: session.context,
         permissionMode,
         maxToolCalls: profile.maxToolCalls,
         maxIterations: options.maxIterations ??
-          (delegationSignal.taskDomain === "browser"
+          (taskDomain === "browser"
             ? BROWSER_REACT_MAX_ITERATIONS
             : undefined),
         maxBudgetUsd: options.maxBudgetUsd,
@@ -1445,12 +1305,6 @@ export async function runAgentQuery(
         },
         onInteraction: callbacks.onInteraction,
         noInput,
-        delegate,
-        delegateInbox,
-        coordinationBoard,
-        teamRuntime,
-        teamMemberId: teamRuntime?.leadMemberId,
-        teamLeadMemberId: teamRuntime?.leadMemberId,
         agentProfiles,
         instructions: session.instructions,
         planning: {
@@ -1503,12 +1357,11 @@ export async function runAgentQuery(
         visionCapable: session.visionCapable,
         planModeState,
         toolOwnerId: session.toolOwnerId,
-        delegateOwnerId,
         ensureMcpLoaded: session.ensureMcpLoaded,
         autoFallbacks: autoDecision?.fallbacks,
         createFallbackLLM: (fallbackModel: string) => {
           // Recalculate tier + system prompt for the fallback model.
-          // The primary may be enhanced (bounded eager core + delegation) while
+          // The primary may be enhanced (bounded eager core) while
           // the fallback may be standard (leaner eager core).
           const fbTier = classifyModelTier(undefined, fallbackModel);
           const fbToolFilter = computeTierToolFilter(
@@ -1585,15 +1438,6 @@ export async function runAgentQuery(
       if (planModeState) {
         clearToolProfileLayer(ensureToolProfileState(session), "plan");
         syncSessionToolProfileState(session);
-      }
-      // Cancel any still-active background delegates and wait for their promises
-      // to settle so they don't emit on a closed stream controller. Scope this
-      // to the current top-level run so concurrent requests do not cancel each
-      // other's delegates.
-      const active = getActiveThreadsForOwner(delegateOwnerId);
-      if (active.length > 0) {
-        cancelThreadsForOwner(delegateOwnerId);
-        await Promise.allSettled(active.map((t) => t.promise));
       }
       await hookRuntime?.waitForIdle();
       // Release CU lock if this turn acquired it. Zero-syscall no-op on non-CU turns.

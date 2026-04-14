@@ -21,19 +21,16 @@ import { WEB_TOOLS } from "./tools/web-tools.ts";
 import { MEMORY_TOOLS } from "../memory/mod.ts";
 import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { GIT_TOOLS } from "./tools/git-tools.ts";
-import { DELEGATE_TOOLS } from "./tools/delegate-tools.ts";
 import { ACTIVITY_TOOLS } from "./tools/activity-tools.ts";
-import { AGENT_TEAM_TOOLS } from "./tools/agent-team-tools.ts";
+import { AGENT_TOOL_METADATA } from "./tools/agent-tool-metadata.ts";
 import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
 import { PLAYWRIGHT_TOOLS } from "./playwright/mod.ts";
 import { CHROME_EXT_TOOLS } from "./chrome-ext/mod.ts";
-import { RuntimeError, ValidationError } from "../../common/error.ts";
-import { safeStringify } from "../../common/safe-stringify.ts";
+import { ValidationError } from "../../common/error.ts";
 import type { AgentPolicy } from "./policy.ts";
 import { isToolArgsObject } from "./validation.ts";
 import type { TodoState } from "./todo-state.ts";
 import type { ModelTier } from "./constants.ts";
-import type { TeamRuntime } from "./team-runtime.ts";
 import type { AgentHookRuntime } from "./hooks.ts";
 import type { AgentProfile } from "./agent-registry.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
@@ -82,12 +79,8 @@ export interface InteractionRequestEvent {
   options?: InteractionOption[];
   /** Optional label for the originating worker/session shown in UI. */
   sourceLabel?: string;
-  /** Optional originating team member ID for team-sourced interactions. */
-  sourceMemberId?: string;
   /** Optional originating thread ID for background worker interactions. */
   sourceThreadId?: string;
-  /** Optional team name for team-sourced interactions. */
-  sourceTeamName?: string;
   /** Optional JSON Schema for MCP elicitation form inputs */
   schema?: Record<string, unknown>;
 }
@@ -107,14 +100,14 @@ export interface ToolExecutionOptions {
   modelId?: string;
   /** Active session model tier for tool-internal routing. */
   modelTier?: ModelTier;
+  /** Active context budget for child-agent inheritance. */
+  contextBudget?: number;
   policy?: AgentPolicy | null;
   onInteraction?: (
     event: InteractionRequestEvent,
   ) => Promise<InteractionResponse>;
   /** Session-scoped tool owner (used by dynamic tool families like MCP). */
   toolOwnerId?: string;
-  /** Top-level delegate owner used to scope background agent control tools. */
-  delegateOwnerId?: string;
   /** Optional lazy MCP loader hook used by tool_search. */
   ensureMcpLoaded?: (signal?: AbortSignal) => Promise<void>;
   /** Session-scoped todo state used by todo_read/todo_write. */
@@ -131,37 +124,41 @@ export interface ToolExecutionOptions {
       limit?: number;
     },
   ) => ToolSearchResult[];
-  /** Shared team runtime for system-managed collaboration. */
-  teamRuntime?: TeamRuntime;
-  /** Current team member ID for the active agent turn. */
-  teamMemberId?: string;
-  /** Lead member ID for the current team runtime. */
-  teamLeadMemberId?: string;
   /** Active session ID for tools that need conversation history access. */
   sessionId?: string;
   /** Current user request for tools that need to ignore the triggering prompt. */
   currentUserRequest?: string;
   /** Preferred display id for computer-use capture/action targeting. */
   displayId?: number;
-  /** Optional lifecycle hook runtime for teammate event hooks. */
+  /** Optional lifecycle hook runtime. */
   hookRuntime?: AgentHookRuntime;
-  /** Agent event callback for teammate loop integration. */
+  /** Agent event callback for background worker integration. */
   // deno-lint-ignore no-explicit-any
   onAgentEvent?: (event: any) => void;
-  /** Available agent profiles for teammate type resolution. */
+  /** Available agent profiles for child agent resolution. */
   agentProfiles?: readonly AgentProfile[];
   /** Resolved instruction hierarchy for child agent prompt compilation. */
   instructions?: import("../prompt/types.ts").InstructionHierarchy;
-  /** Override teammate idle poll interval in ms (for testing). */
-  idlePollIntervalMs?: number;
-  /** Override teammate max idle polls before exit (for testing). */
-  maxIdlePolls?: number;
-  /** Parent permission mode inherited by spawned teammates. */
+  /** Active query source for child-agent inheritance. */
+  querySource?: string;
+  /** Whether the active model supports thinking/reasoning. */
+  thinkingCapable?: boolean;
+  /** Permission mode for the current session. */
   permissionMode?: import("../../common/config/types.ts").PermissionMode;
+  /** Parent orchestrator trace callback for child-agent inheritance. */
+  onTrace?: (event: import("./orchestrator.ts").TraceEvent) => void;
+  /** Parent LLM timeout for child-agent inheritance. */
+  llmTimeout?: number;
+  /** Parent tool timeout for child-agent inheritance. */
+  toolTimeout?: number;
+  /** Parent total timeout for child-agent inheritance. */
+  totalTimeout?: number;
   /** Explicit tool allow list for permission system. */
   toolAllowlist?: string[];
   /** Explicit tool deny list for permission system. */
   toolDenylist?: string[];
+  /** LLM function for sub-agent execution (injected by orchestrator). */
+  llmFunction?: import("./orchestrator-llm.ts").LLMFunction;
 }
 
 /** Generic tool function signature */
@@ -240,6 +237,9 @@ export type ToolPresentationKind =
 export interface ToolMetadata {
   fn: ToolFunction;
   description: string;
+  resolveDescription?: (
+    options?: { workspace?: string; ownerId?: string },
+  ) => string | Promise<string>;
   args: Record<string, string>;
   /** Tool exposure defaults for source-specific lazy-loading policies. */
   loading?: {
@@ -295,28 +295,6 @@ interface ToolSearchResult {
   loadingExposure?: NonNullable<ToolMetadata["loading"]>["exposure"];
 }
 
-function formatDelegateAgentResult(
-  result: unknown,
-): FormattedToolResult | null {
-  if (!result || typeof result !== "object") return null;
-  const record = result as Record<string, unknown>;
-  const delegatedResult = record.result;
-  const summaryDisplay = typeof delegatedResult === "string" &&
-      delegatedResult.trim()
-    ? delegatedResult.trim().split("\n").map((line) => line.trim()).find(
-      Boolean,
-    ) ??
-      "Delegation complete."
-    : "Delegation complete.";
-  return {
-    summaryDisplay,
-    returnDisplay: safeStringify(result, 2),
-    llmContent: typeof delegatedResult === "string" && delegatedResult.trim()
-      ? delegatedResult.trim()
-      : undefined,
-  };
-}
-
 /** Result of argument validation */
 interface ValidationResult {
   valid: boolean;
@@ -367,9 +345,6 @@ const CONCURRENCY_SAFE_BUILTIN_TOOLS = new Set<string>([
   "filter_entries",
   "transform_entries",
   "compute",
-  "TaskGet",
-  "TaskList",
-  "TeamStatus",
 ]);
 
 const BUILTIN_PRESENTATION_KIND = new Map<string, ToolPresentationKind>([
@@ -398,8 +373,6 @@ const BUILTIN_PRESENTATION_KIND = new Map<string, ToolPresentationKind>([
   ["git_diff", "diff"],
   ["git_status", "meta"],
   ["git_log", "meta"],
-  ["delegate_agent", "meta"],
-  ["batch_delegate", "meta"],
   ["tool_search", "meta"],
   ["todo_read", "meta"],
   ["todo_write", "meta"],
@@ -410,7 +383,6 @@ const MAIN_THREAD_EXPLICIT_DEFERRED_TOOL_NAMES = new Set<string>([
   "archive_files",
   "git_commit",
   "recent_activity",
-  "report_result",
 ]);
 
 const MAIN_THREAD_DEFERRED_CATEGORIES = new Set<
@@ -495,70 +467,9 @@ const BUILTIN_TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...META_TOOLS,
   ...WEB_TOOLS,
   ...MEMORY_TOOLS,
-  delegate_agent: {
-    fn: () =>
-      Promise.reject(
-        new ValidationError(
-          "delegate_agent is not configured. Ensure the session provides a delegate handler.",
-          "delegate_agent",
-        ),
-      ),
-    description: "Delegate a task to a specialist agent and return its result.",
-    category: "meta",
-    args: {
-      agent: "string - Agent name (general, code, file, shell, web, memory)",
-      task: "string - Task to delegate",
-      maxToolCalls: "number (optional) - Max tool calls for the delegate",
-      groundingMode: "string (optional) - off|warn|strict",
-      background:
-        "boolean (optional) - Run in background with isolated workspace and threadId. Foreground delegates stay read-only in the parent workspace.",
-      fork_with_history:
-        "boolean (optional) - Seed child with parent conversation context (default: false)",
-    },
-    returns: {
-      agent: "string",
-      result: "string",
-      stats: "object",
-    },
-    safetyLevel: "L0",
-    safety: "Internal delegation (auto-approved).",
-    formatResult: formatDelegateAgentResult,
-  },
-  batch_delegate: {
-    fn: () =>
-      Promise.reject(
-        new ValidationError(
-          "batch_delegate is not configured. Ensure the session provides a delegate handler.",
-          "batch_delegate",
-        ),
-      ),
-    description:
-      "Fan-out delegation: spawn multiple background agents from a data array with template substitution.",
-    category: "meta",
-    args: {
-      agent: "string - Agent profile name",
-      task_template: "string - Task template with {{column}} placeholders",
-      data:
-        "array|string - Array of row objects or CSV text for template substitution",
-      csv_path: "string (optional) - Workspace-relative CSV file path",
-      max_concurrency: "number (optional) - Max concurrent agents",
-    },
-    returns: {
-      batchId: "string",
-      totalRows: "number",
-      spawned: "number",
-      threadIds: "array",
-      status: "string",
-    },
-    skipValidation: true,
-    safetyLevel: "L0",
-    safety: "Internal delegation (auto-approved).",
-  },
   ...DATA_TOOLS,
   ...GIT_TOOLS,
-  ...DELEGATE_TOOLS,
   ...ACTIVITY_TOOLS,
-  ...AGENT_TEAM_TOOLS,
   ...COMPUTER_USE_TOOLS,
   ...PLAYWRIGHT_TOOLS,
   ...CHROME_EXT_TOOLS,
@@ -566,6 +477,9 @@ const BUILTIN_TOOL_REGISTRY: Record<string, ToolMetadata> = {
 
 export const TOOL_REGISTRY: Record<string, ToolMetadata> =
   applyBuiltInMetadataDefaults(BUILTIN_TOOL_REGISTRY);
+
+// Register Agent tool (from agent-tool-metadata.ts, no circular dep)
+Object.assign(TOOL_REGISTRY, AGENT_TOOL_METADATA);
 
 /**
  * Dynamic registry for external tools (e.g., MCP)
@@ -931,12 +845,7 @@ export function getToolsByCategory(): {
     meta: Object.keys(META_TOOLS),
     web: Object.keys(WEB_TOOLS),
     memory: Object.keys(MEMORY_TOOLS),
-    agent: [
-      "delegate_agent",
-      "batch_delegate",
-      ...Object.keys(DELEGATE_TOOLS),
-      ...Object.keys(AGENT_TEAM_TOOLS),
-    ],
+    agent: [],
     data: Object.keys(DATA_TOOLS),
     git: Object.keys(GIT_TOOLS),
     dynamic: getDynamicToolNames(),

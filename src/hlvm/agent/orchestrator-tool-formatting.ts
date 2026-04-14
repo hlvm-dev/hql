@@ -780,66 +780,6 @@ export function generateArgsSummary(
       const items = Array.isArray(a.items) ? a.items.length : 0;
       return `${items} todo${items === 1 ? "" : "s"}`;
     }
-    case "Teammate": {
-      const operation = readStringField(a, "operation");
-      const teamName = readStringField(a, "team_name", "teamName");
-      const name = readStringField(a, "name");
-      const agentType = readStringField(a, "agent_type", "agentType");
-      switch (operation) {
-        case "spawnTeam":
-          return teamName ? truncate(teamName, 48) : "new team";
-        case "spawnAgent":
-          return name
-            ? `${truncate(name, 40)}${
-              agentType ? ` (${truncate(agentType, 20)})` : ""
-            }`
-            : "new teammate";
-        case "cleanup":
-          return teamName ? truncate(teamName, 48) : "active team";
-        default:
-          return truncate(
-            [operation, name ?? teamName].filter(Boolean).join(" "),
-            80,
-          );
-      }
-    }
-    case "TaskCreate":
-      return truncate(readStringField(a, "subject") ?? "", 80);
-    case "TaskGet": {
-      const taskId = readStringField(a, "taskId", "task_id");
-      return taskId ? `#${truncate(taskId, 24)}` : "";
-    }
-    case "TaskUpdate": {
-      const taskId = readStringField(a, "taskId", "task_id");
-      const status = readStringField(a, "status");
-      const owner = readStringField(a, "owner");
-      const parts = [
-        taskId ? `#${truncate(taskId, 24)}` : undefined,
-        status,
-        owner ? `owner ${truncate(owner, 24)}` : undefined,
-      ].filter((part): part is string => Boolean(part));
-      return truncate(parts.join(" · "), 80);
-    }
-    case "TaskList":
-      return "";
-    case "SendMessage": {
-      const type = readStringField(a, "type");
-      const recipient = readStringField(a, "recipient");
-      const taskId = readStringField(a, "task_id", "taskId");
-      const content = readStringField(a, "summary", "content");
-      const label = type === "broadcast"
-        ? "broadcast"
-        : type === "submit_plan"
-        ? "submit plan"
-        : type?.replaceAll("_", " ");
-      const parts = [
-        label,
-        recipient ? `to ${truncate(recipient, 24)}` : undefined,
-        taskId ? `task ${truncate(taskId, 24)}` : undefined,
-        content ? truncate(content, 36) : undefined,
-      ].filter((part): part is string => Boolean(part));
-      return truncate(parts.join(" · "), 80);
-    }
     default: {
       try {
         return truncate(JSON.stringify(a), 80);

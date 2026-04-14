@@ -155,8 +155,6 @@ export interface HlvmConfig {
   agentMode?: AgentMode; // Agent mode for Claude models: "hlvm" (HLVM orchestrates) or "claude-code-agent" (full passthrough)
   sessionMemory?: boolean; // Claude Code session memory: remembers context across messages in same chat session (default: true)
   permissionMode?: PermissionMode; // Agent tool permission mode: "default" | "acceptEdits" | "plan" | "bypassPermissions" | "dontAsk" | "auto"
-  agentMaxThreads?: number; // Max concurrent background delegate agents (default: 4)
-  agentMaxDepth?: number; // Max delegation nesting depth (default: 1, range 1-3)
   chatMaxPromptChars?: number; // Max user prompt length in characters (default: 10000)
   chatMaxReferencesLocal?: number; // Max references allowed for local models (default: 5)
   chatMaxReferencesCloud?: number; // Max references allowed for cloud models (default: 20)
@@ -246,8 +244,6 @@ export const CONFIG_KEYS = [
   "agentMode",
   "sessionMemory",
   "permissionMode",
-  "agentMaxThreads",
-  "agentMaxDepth",
   "chatMaxPromptChars",
   "chatMaxReferencesLocal",
   "chatMaxReferencesCloud",
@@ -403,26 +399,6 @@ export function validateValue(
       }
       return { valid: true };
 
-    case "agentMaxThreads":
-      if (value === undefined) return { valid: true }; // optional field
-      if (typeof value !== "number" || !Number.isInteger(value)) {
-        return { valid: false, error: "agentMaxThreads must be an integer" };
-      }
-      if (value < 1 || value > 16) {
-        return { valid: false, error: "agentMaxThreads must be between 1 and 16" };
-      }
-      return { valid: true };
-
-    case "agentMaxDepth":
-      if (value === undefined) return { valid: true }; // optional field
-      if (typeof value !== "number" || !Number.isInteger(value)) {
-        return { valid: false, error: "agentMaxDepth must be an integer" };
-      }
-      if (value < 1 || value > 3) {
-        return { valid: false, error: "agentMaxDepth must be between 1 and 3" };
-      }
-      return { valid: true };
-
     case "chatMaxPromptChars":
       if (value === undefined) return { valid: true };
       if (typeof value !== "number" || !Number.isInteger(value)) {
@@ -487,8 +463,6 @@ export function parseValue(key: ConfigKey, valueStr: string): unknown {
     case "temperature":
       return parseFloat(valueStr);
     case "maxTokens":
-    case "agentMaxThreads":
-    case "agentMaxDepth":
     case "chatMaxPromptChars":
     case "chatMaxReferencesLocal":
     case "chatMaxReferencesCloud":

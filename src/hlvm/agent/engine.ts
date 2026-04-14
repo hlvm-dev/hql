@@ -29,6 +29,7 @@ export interface ThinkingState {
 /** Configuration passed to AgentEngine.createLLM */
 export interface AgentLLMConfig {
   model?: string;
+  workspace?: string;
   contextBudget?: number;
   options?: { temperature?: number; maxTokens?: number };
   toolAllowlist?: string[];

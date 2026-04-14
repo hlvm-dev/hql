@@ -166,8 +166,6 @@ export function VirtualTranscript(
               )}
               isToolExpanded={expansion.isToolExpanded}
               isThinkingExpanded={expansion.isThinkingExpanded}
-              isDelegateExpanded={expansion.isDelegateExpanded}
-              isDelegateGroupExpanded={expansion.isDelegateGroupExpanded}
               isMemoryExpanded={expansion.isMemoryExpanded}
             />
           </Box>

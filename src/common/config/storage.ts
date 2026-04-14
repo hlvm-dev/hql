@@ -274,8 +274,6 @@ function normalizeConfigInput(
   // Integer config fields with validateValue-based normalization
   for (
     const key of [
-      "agentMaxThreads",
-      "agentMaxDepth",
       "chatMaxPromptChars",
       "chatMaxReferencesLocal",
       "chatMaxReferencesCloud",

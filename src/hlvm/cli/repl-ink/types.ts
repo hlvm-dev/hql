@@ -10,12 +10,6 @@ export type { EvalResult } from "../repl/evaluator.ts";
 import type { EvalResult } from "../repl/evaluator.ts";
 import type { Citation } from "../../agent/tools/web/search-provider.ts";
 import type { ToolEventMeta } from "../../agent/orchestrator.ts";
-import type { DelegateTranscriptSnapshot } from "../../agent/delegate-transcript.ts";
-import type {
-  TeamApprovalStatus,
-  TeamRuntimeSnapshot,
-  TeamShutdownStatus,
-} from "../../agent/team-runtime.ts";
 
 // ============================================================
 // Tool Call Display
@@ -129,49 +123,6 @@ export interface TurnStatsItem {
   turnId?: string;
 }
 
-/** Delegated sub-agent activity */
-export interface DelegateItem {
-  type: "delegate";
-  id: string;
-  agent: string;
-  task: string;
-  childSessionId?: string;
-  status: "queued" | "running" | "success" | "error" | "cancelled";
-  summary?: string;
-  error?: string;
-  durationMs?: number;
-  snapshot?: DelegateTranscriptSnapshot;
-  threadId?: string;
-  nickname?: string;
-  ts: number;
-  turnId?: string;
-}
-
-/** Single entry within a parallel delegate group */
-export interface DelegateGroupEntry {
-  id: string;
-  agent: string;
-  task: string;
-  childSessionId?: string;
-  status: "queued" | "running" | "success" | "error" | "cancelled";
-  summary?: string;
-  error?: string;
-  durationMs?: number;
-  snapshot?: DelegateTranscriptSnapshot;
-  threadId?: string;
-  nickname?: string;
-}
-
-/** Grouped parallel delegate agents (batch_delegate) */
-export interface DelegateGroupItem {
-  type: "delegate_group";
-  id: string;
-  batchId: string;
-  entries: DelegateGroupEntry[];
-  ts: number;
-  turnId?: string;
-}
-
 /** Error message */
 export interface ErrorItem {
   type: "error";
@@ -189,77 +140,6 @@ export interface InfoItem {
   ts?: number;
   turnId?: string;
 }
-
-export interface TeamTaskInfoItem extends InfoItem {
-  teamEventType: "team_task_updated";
-  taskId: string;
-  goal: string;
-  status: string;
-  assigneeMemberId?: string;
-  artifacts?: Record<string, unknown>;
-}
-
-export interface TeamMessageInfoItem extends InfoItem {
-  teamEventType: "team_message";
-  kind: string;
-  fromMemberId: string;
-  toMemberId?: string;
-  relatedTaskId?: string;
-  contentPreview: string;
-}
-
-export interface TeamMemberActivityInfoItem extends InfoItem {
-  teamEventType: "team_member_activity";
-  memberId: string;
-  memberLabel: string;
-  threadId?: string;
-  activityKind:
-    | "reasoning"
-    | "planning"
-    | "plan_created"
-    | "plan_step"
-    | "tool_start"
-    | "tool_progress"
-    | "tool_end"
-      | "turn_stats";
-  status: "active" | "success" | "error";
-  summary: string;
-  durationMs?: number;
-  toolCount?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-}
-
-export interface TeamPlanReviewInfoItem extends InfoItem {
-  teamEventType: "team_plan_review";
-  approvalId: string;
-  taskId: string;
-  submittedByMemberId: string;
-  status: TeamApprovalStatus;
-  reviewedByMemberId?: string;
-}
-
-export interface TeamShutdownInfoItem extends InfoItem {
-  teamEventType: "team_shutdown";
-  requestId: string;
-  memberId: string;
-  requestedByMemberId: string;
-  status: TeamShutdownStatus;
-  reason?: string;
-}
-
-export interface TeamRuntimeSnapshotInfoItem extends InfoItem {
-  teamEventType: "team_runtime_snapshot";
-  snapshot: TeamRuntimeSnapshot;
-}
-
-export type StructuredTeamInfoItem =
-  | TeamTaskInfoItem
-  | TeamMessageInfoItem
-  | TeamMemberActivityInfoItem
-  | TeamPlanReviewInfoItem
-  | TeamShutdownInfoItem
-  | TeamRuntimeSnapshotInfoItem;
 
 export interface MemoryActivityDetail {
   action: "recalled" | "wrote" | "searched";
@@ -295,11 +175,8 @@ export type ConversationItem =
   | AssistantItem
   | ThinkingItem
   | ToolGroupItem
-  | DelegateItem
-  | DelegateGroupItem
   | TurnStatsItem
   | ErrorItem
-  | StructuredTeamInfoItem
   | InfoItem
   | MemoryActivityItem
   | HqlEvalItem;
@@ -321,12 +198,6 @@ export type DialogState =
     requestId: string;
     question?: string;
   };
-
-export function isStructuredTeamInfoItem(
-  item: ConversationItem,
-): item is StructuredTeamInfoItem {
-  return item.type === "info" && "teamEventType" in item;
-}
 
 // ============================================================
 // Conversation Streaming State

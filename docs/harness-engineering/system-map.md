@@ -78,11 +78,9 @@ Pipeline diagrams from the initial implementation sprint.
   │  │ 9. environment    (OS, HOME)         │    │
   │  │ 10. custom        (HLVM.md content)  │    │
   │  │ 11. (NO SKILLS SECTION) ❌            │    │
-  │  │ 12. delegation    (agent profiles)   │    │
-  │  │ 13. team_coord                       │    │
-  │  │ 14. examples                         │    │
-  │  │ 15. tips                             │    │
-  │  │ 16. footer                           │    │
+  │  │ 12. examples                         │    │
+  │  │ 13. tips                             │    │
+  │  │ 14. footer                           │    │
   │  └──────────────────────────────────────┘    │
   │                                              │
   │  Model has NO idea skills exist.             │
@@ -109,8 +107,6 @@ Pipeline diagrams from the initial implementation sprint.
   │   │   GIT: git_status, git_diff, git_log   │ │
   │   │   MEMORY: memory_write/search/edit     │ │
   │   │   META: tool_search, ask_user          │ │
-  │   │   DELEGATE: delegate_agent, batch...   │ │
-  │   │   TEAM: TaskCreate, SendMessage...     │ │
   │   │   CU: cu_keyboard, cu_mouse...         │ │
   │   │   PW: pw_click, pw_fill...             │ │
   │   │   (NO skill tool) ❌                    │ │
@@ -120,13 +116,11 @@ Pipeline diagrams from the initial implementation sprint.
   │   ┌────────────────────────────────────────┐ │
   │   │ .hlvm/hooks.json                       │ │
   │   │                                        │ │
-  │   │ Events (11):                           │ │
+  │   │ Events (7):                            │ │
   │   │   pre_llm, post_llm                    │ │
   │   │   pre_tool, post_tool                  │ │
   │   │   plan_created, write_verified         │ │
-  │   │   delegate_start, delegate_end         │ │
   │   │   final_response                       │ │
-  │   │   teammate_idle, task_completed        │ │
   │   │                                        │ │
   │   │ Handler types:                         │ │
   │   │   command ONLY (shell exec) ❌          │ │
@@ -287,11 +281,9 @@ Pipeline diagrams from the initial implementation sprint.
   │  │     │ - /review: Review code changes (background)     │     │   │
   │  │     │ - (any user/project skills also listed)         │     │   │
   │  │     └─────────────────────────────────────────────────┘     │   │
-  │  │ 12. delegation       (agent profiles)                       │   │
-  │  │ 13. team_coord                                              │   │
-  │  │ 14. examples                                                │   │
-  │  │ 15. tips                                                    │   │
-  │  │ 16. footer                                                  │   │
+  │  │ 12. examples                                                │   │
+  │  │ 13. tips                                                    │   │
+  │  │ 14. footer                                                  │   │
   │  └──────────────────────────────────────────────────────────────┘   │
   │                                                                     │
   │  Model SEES skills in its prompt.                                   │
@@ -338,9 +330,7 @@ Pipeline diagrams from the initial implementation sprint.
   │   │   │      │   → model follows instructions            │     │    │
   │   │   │      │                                           │     │    │
   │   │   │      └── fork?                                   │     │    │
-  │   │   │          → { delegate: true, agent, task }       │     │    │
-  │   │   │          → routes through delegate_agent         │     │    │
-  │   │   │          → child agent in isolated workspace     │     │    │
+  │   │   │          → spawns child agent with skill content │     │    │
   │   │   └──────────────────────────────────────────────────┘     │    │
   │   └────────────────────────────────────────────────────────────┘    │
   │                                                                     │
@@ -348,13 +338,11 @@ Pipeline diagrams from the initial implementation sprint.
   │   ┌────────────────────────────────────────────────────────────┐    │
   │   │ .hlvm/hooks.json                                           │    │
   │   │                                                            │    │
-  │   │ Events (15 — was 11):                                      │    │
+  │   │ Events (11 — was 7):                                       │    │
   │   │   pre_llm, post_llm                                        │    │
   │   │   pre_tool, post_tool                                      │    │
   │   │   plan_created, write_verified                              │    │
-  │   │   delegate_start, delegate_end                              │    │
   │   │   final_response                                            │    │
-  │   │   teammate_idle, task_completed                             │    │
   │   │   session_start     ✅ NEW                                   │    │
   │   │   session_end       ✅ NEW                                   │    │
   │   │   pre_compact       ✅ NEW                                   │    │
@@ -535,13 +523,11 @@ Pipeline diagrams from the initial implementation sprint.
 ║  Skill tool (model-invoked) YES               YES               PARITY ✅   ║
 ║  Slash commands (user)      /commit /test     /commit /test     PARITY ✅   ║
 ║  Inline execution           YES               YES               PARITY ✅   ║
-║  Fork execution (subagent)  YES               YES (delegation)  PARITY ✅   ║
+║  Fork execution (subagent)  YES               YES               PARITY ✅   ║
 ║  Plugin skills              YES               NO                CC WINS    ║
 ║  MCP skills                 YES               NO                CC WINS    ║
 ║  Agent profiles             basic             rich (9 built-in) HLVM WINS  ║
 ║  Planning system            basic             structured JSON   HLVM WINS  ║
-║  Delegation (fan-out/batch) basic             full (batch_del)  HLVM WINS  ║
-║  Agent teams                basic             full coordination HLVM WINS  ║
 ║                                                                            ║
 ║                                                                            ║
 ║  LAYER 4: SAFETY (guardrails)                                              ║
@@ -579,7 +565,6 @@ Pipeline diagrams from the initial implementation sprint.
 ║  Cron scheduling            YES (/schedule)   NO                CC WINS    ║
 ║  Daemon mode (HTTP server)  NO                hlvm serve        HLVM WINS  ║
 ║  Bootstrap auto-recovery    NO                YES               HLVM WINS  ║
-║  Batch delegation (20x)     NO                YES               HLVM WINS  ║
 ║  Session resume             basic             key derivation    HLVM WINS  ║
 ║                                                                            ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
@@ -590,12 +575,12 @@ Pipeline diagrams from the initial implementation sprint.
 ║                          CC            HLVM                                ║
 ║    Knowledge           ##########    ########--    NEAR-PARITY             ║
 ║    Reach               ##########    ##########    PARITY (HLVM has CU)    ║
-║    Workflows           ########--    ##########    HLVM WINS (teams)       ║
+║    Workflows           ########--    ##########    HLVM WINS               ║
 ║    Safety              ##########    ########--    NEAR-PARITY             ║
 ║    Endurance           ########--    ##########    HLVM WINS (daemon)      ║
 ║                                                                            ║
 ║  CC wins: settings hierarchy, plugin ecosystem, auto-classifier, cron      ║
-║  HLVM wins: teams, CU, Playwright, daemon, batch delegation, planning     ║
+║  HLVM wins: CU, Playwright, daemon, planning                              ║
 ║                                                                            ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
@@ -633,7 +618,7 @@ Pipeline diagrams from the initial implementation sprint.
     Not user-facing, low priority
 
   10+ more hook events        YES         NO          LOW         Add incrementally
-    PermissionRequest, SubagentStart/Stop, FileChanged,
+    PermissionRequest, FileChanged,
     CwdChanged, WorktreeCreate, InstructionsLoaded, etc.
     Add per event as use cases arise
 ```

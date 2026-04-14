@@ -11,7 +11,6 @@ import {
   type AgentConversationItem,
   type AssistantCitation,
   type ConversationItem,
-  isStructuredTeamInfoItem,
   type StreamingState,
   StreamingState as ConversationStreamingState,
 } from "../types.ts";
@@ -43,14 +42,11 @@ import {
 import {
   AssistantMessage,
   ConfirmationDialog,
-  DelegateGroup,
-  DelegateItem,
   ErrorMessage,
   HqlEvalDisplay,
   InfoMessage,
   MemoryActivityLine,
   QuestionDialog,
-  TeamEventItem,
   ThinkingIndicator,
   ToolGroup,
   TurnStats,
@@ -91,8 +87,6 @@ interface ConversationPanelProps {
 type ToggleTarget =
   | { kind: "tool"; id: string }
   | { kind: "thinking"; id: string }
-  | { kind: "delegate"; id: string }
-  | { kind: "delegate_group"; id: string }
   | { kind: "memory"; id: string };
 
 function estimateWrappedRows(text: string, width: number): number {
@@ -119,12 +113,6 @@ function getToggleTargets(items: ConversationItem[]): ToggleTarget[] {
           targets.push({ kind: "tool", id: tool.id });
         }
       }
-    }
-    if (item.type === "delegate" && item.snapshot?.events.length) {
-      targets.push({ kind: "delegate", id: item.id });
-    }
-    if (item.type === "delegate_group" && item.entries.length > 0) {
-      targets.push({ kind: "delegate_group", id: item.id });
     }
     if (item.type === "memory_activity" && item.details.length > 0) {
       targets.push({ kind: "memory", id: item.id });
@@ -246,8 +234,6 @@ function renderItem(
   activeThinkingId: string | undefined,
   isToolExpanded: (toolId: string) => boolean,
   isThinkingExpanded: (thinkingId: string) => boolean,
-  isDelegateExpanded: (delegateId: string) => boolean,
-  isDelegateGroupExpanded: (groupId: string) => boolean,
   isMemoryExpanded: (memoryId: string) => boolean,
 ): React.ReactElement | null {
   if (!shouldRenderTimelineItem(item)) {
@@ -290,22 +276,6 @@ function renderItem(
           isToolExpanded={isToolExpanded}
         />
       );
-    case "delegate":
-      return (
-        <DelegateItem
-          item={item}
-          width={width}
-          expanded={isDelegateExpanded(item.id)}
-        />
-      );
-    case "delegate_group":
-      return (
-        <DelegateGroup
-          item={item}
-          width={width}
-          expanded={isDelegateGroupExpanded(item.id)}
-        />
-      );
     case "turn_stats":
       return (
         <TurnStats
@@ -340,9 +310,6 @@ function renderItem(
     case "error":
       return <ErrorMessage text={item.text} />;
     case "info":
-      if (isStructuredTeamInfoItem(item)) {
-        return <TeamEventItem item={item} width={width} />;
-      }
       return <InfoMessage text={item.text} />;
     default:
       return null;
@@ -374,12 +341,6 @@ export const ConversationPanel = React.memo(function ConversationPanel({
   const [expandedThinkingIds, setExpandedThinkingIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [expandedDelegateIds, setExpandedDelegateIds] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [expandedDelegateGroupIds, setExpandedDelegateGroupIds] = useState<
-    Set<string>
-  >(() => new Set());
   const [expandedMemoryIds, setExpandedMemoryIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -429,8 +390,6 @@ export const ConversationPanel = React.memo(function ConversationPanel({
     if (displayItems.length === 0) {
       setExpandedToolIds(new Set());
       setExpandedThinkingIds(new Set());
-      setExpandedDelegateIds(new Set());
-      setExpandedDelegateGroupIds(new Set());
       setExpandedMemoryIds(new Set());
       setScrollOffsetFromBottom(0);
     }
@@ -512,14 +471,6 @@ export const ConversationPanel = React.memo(function ConversationPanel({
     (thinkingId: string): boolean => expandedThinkingIds.has(thinkingId),
     [expandedThinkingIds],
   );
-  const isDelegateExpanded = useCallback(
-    (delegateId: string): boolean => expandedDelegateIds.has(delegateId),
-    [expandedDelegateIds],
-  );
-  const isDelegateGroupExpanded = useCallback(
-    (groupId: string): boolean => expandedDelegateGroupIds.has(groupId),
-    [expandedDelegateGroupIds],
-  );
   const isMemoryExpanded = useCallback(
     (memoryId: string): boolean => expandedMemoryIds.has(memoryId),
     [expandedMemoryIds],
@@ -537,10 +488,6 @@ export const ConversationPanel = React.memo(function ConversationPanel({
       });
     };
     if (target.kind === "tool") return toggle(setExpandedToolIds);
-    if (target.kind === "delegate") return toggle(setExpandedDelegateIds);
-    if (target.kind === "delegate_group") {
-      return toggle(setExpandedDelegateGroupIds);
-    }
     if (target.kind === "memory") return toggle(setExpandedMemoryIds);
     toggle(setExpandedThinkingIds);
   }, []);
@@ -631,8 +578,6 @@ export const ConversationPanel = React.memo(function ConversationPanel({
               activeThinkingId,
               isToolExpanded,
               isThinkingExpanded,
-              isDelegateExpanded,
-              isDelegateGroupExpanded,
               isMemoryExpanded,
             )}
           </RenderErrorBoundary>
@@ -672,7 +617,6 @@ export const ConversationPanel = React.memo(function ConversationPanel({
               toolName={interactionRequest.toolName}
               toolArgs={interactionRequest.toolArgs}
               sourceLabel={interactionRequest.sourceLabel}
-              sourceTeamName={interactionRequest.sourceTeamName}
               onResolve={onInteractionResponse}
             />
           )}

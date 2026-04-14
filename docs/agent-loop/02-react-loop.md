@@ -13,7 +13,7 @@
     └─── WHILE (iterations < max && now < deadline)
            │
            ├── STAGE 1: Boundary ops       (abort, timeout, drain inboxes)
-           ├── STAGE 2: Plan delegation     (delegate step to agent, skip LLM)
+           ├── STAGE 2: (reserved)
            ├── STAGE 3: Pre-LLM            (memory, compaction, tool phase)
            ├── STAGE 4: LLM call           (build schema, call provider)
            ├── STAGE 5: Auto-continue      (rejoin truncated responses)
@@ -31,8 +31,7 @@
   orchestrator.ts:1507  runReActLoop(userRequest, attachments, config)
         │
         ├─:1523  initializeLoopState(config)              orch-state.ts:173
-        │          iterations=0, cachedDelegationSignal=undef,
-        │          runtimePhase=undef, lastToolNames=[],
+        │          iterations=0, runtimePhase=undef, lastToolNames=[],
         │          playwright={repeatFailureCount:0,
         │                      temporaryToolDenylist:Map{}}
         │
@@ -40,7 +39,7 @@
         │          maxIterations, maxDenials, timeout, llmLimiter
         │
         ├─:1527  applyRequestDomainToolProfile()          orch.ts:769
-        │          ├─ evaluateDelegationSignal()    → "browser"|"general"
+        │          ├─ classifyDomainSignal()        → "browser"|"general"
         │          ├─ resolveCanonicalBaselineAllowlist()
         │          ├─ if browser: widen baseline with pw_*
         │          ├─ if browser: set domain=browser_safe
@@ -65,27 +64,7 @@
   │  :1588  if (now > loopDeadline) return timeout msg                 │
   │  :1591  state.iterations++                                         │
   │                                                                    │
-  │  ┌── MULTI-AGENT DRAINS (no-op for solo agent) ────────────────┐  │
-  │  │                                                              │  │
-  │  │  :1594  delegateInbox.drain()                                │  │
-  │  │           → inject completed background delegate results     │  │
-  │  │                                                              │  │
-  │  │  :1602  teamRuntime.deriveSummary()                          │  │
-  │  │           → inject team status (members, tasks, blocked)     │  │
-  │  │           → only if signature changed (dedup)                │  │
-  │  │                                                              │  │
-  │  │  :1631  inputQueue.splice(0)                                 │  │
-  │  │           → inject parent→child steering messages            │  │
-  │  │                                                              │  │
-  │  │  :1640  teamRuntime.readMessages()                           │  │
-  │  │           → inject teammate→member messages                  │  │
-  │  │                                                              │  │
-  │  │  :1658  teamRuntime.getPendingShutdown()                     │  │
-  │  │           → graceful exit if shutdown requested               │  │
-  │  │                                                              │  │
-  │  │  :1675  teamRuntime.forceExpiredShutdowns()  (lead only)     │  │
-  │  │           → expire idle members, cancel their threads        │  │
-  │  └─────────────────────────────────────────────────────────────┘  │
+  │  (no multi-agent drains — delegation/teams removed)               │
   │                                                                    │
   └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -95,21 +74,9 @@
 
 ```
   ┌─────────────────────────────────────────────────────────────────────┐
-  │  IF plan exists and current step has agent=X       orch.ts:1700    │
+  │  (Plan delegation removed — agent system rewrite pending.)         │
   │                                                                    │
-  │  currentStep = planState.plan.steps[planState.currentIndex]        │
-  │                                                                    │
-  │  if (currentStep.agent && !delegatedIds.has(currentStep.id)):      │
-  │    │                                                               │
-  │    ├─ resolve agent profile                                        │
-  │    ├─ executeToolCall("delegate_agent", {                          │
-  │    │     agent: profile.name,                                      │
-  │    │     task: currentStep.goal                                    │
-  │    │  })                                                           │
-  │    ├─ delegatedIds.add(currentStep.id)                             │
-  │    └─ continue  ──────────────────────── SKIP LLM, LOOP BACK      │
-  │                                                                    │
-  │  (Most iterations skip this — only fires during plan execution)    │
+  │  Plan steps are now executed directly by the main agent.           │
   │                                                                    │
   └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -136,9 +103,6 @@
   │           └─ buildRelevantMemoryRecall() → context-relevant facts  │
   │              injected as [System Reminder] user message             │
   │                                                                    │
-  │  :1771  ── Delegation hint ─────────────────────────────────────   │
-  │         maybeInjectDelegationHint(state, config)                   │
-  │         if complex task should suggest delegation                   │
   │                                                                    │
   │  :1773  ── Context pressure ────────────────────────────────────   │
   │         pct = calculateContextPercent(context)                     │
@@ -166,7 +130,7 @@
   │           │                                                        │
   │           ├─ deriveRuntimePhase(state)                             │
   │           │    last tools → "researching"|"editing"|"verifying"    │
-  │           │                  "completing"|"delegating"              │
+  │           │                  "completing"                           │
   │           │                                                        │
   │           ├─ resolvePersistentToolFilter()                         │
   │           │    baseline ∩ domain ∩ plan → available tools          │
@@ -335,10 +299,6 @@
   │         │  │    ├─ emit { type: "tool_start" }                 │ │
   │         │  │    │                                                │ │
   │         │  │    ├─ DISPATCH ─────────────────────────────────┐  │ │
-  │         │  │    │                                            │  │ │
-  │         │  │    │  delegate_agent → config.delegate()        │  │ │
-  │         │  │    │  interrupt_agent → cancel + resume          │  │ │
-  │         │  │    │  batch_delegate → fan-out parallel          │  │ │
   │         │  │    │                                            │  │ │
   │         │  │    │  standard tool:                            │  │ │
   │         │  │    │    getTool(name, ownerId)                  │  │ │
@@ -539,7 +499,6 @@
   ┌────────────────────────────────────────────────────┬────────────────┐
   │ Site                                                │ Action         │
   ├────────────────────────────────────────────────────┼────────────────┤
-  │ Plan delegation (step has agent=X)                 │ continue       │
   │ Post-tool execution (more work to do)              │ continue       │
   │ Empty response retry (noInputRetries < 2)          │ continue       │
   │ JSON in text retry (toolCallRetries < max)         │ continue       │

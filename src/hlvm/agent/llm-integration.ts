@@ -43,8 +43,13 @@ export interface ToolDefinition {
  */
 function createToolDefCache(): {
   build: (
-    options?: { allowlist?: string[]; denylist?: string[]; ownerId?: string },
-  ) => ToolDefinition[];
+    options?: {
+      allowlist?: string[];
+      denylist?: string[];
+      ownerId?: string;
+      workspace?: string;
+    },
+  ) => Promise<ToolDefinition[]>;
   clear: () => void;
 } {
   let cached:
@@ -52,14 +57,20 @@ function createToolDefCache(): {
     | null = null;
 
   return {
-    build(
-      options?: { allowlist?: string[]; denylist?: string[]; ownerId?: string },
-    ): ToolDefinition[] {
+    async build(
+      options?: {
+        allowlist?: string[];
+        denylist?: string[];
+        ownerId?: string;
+        workspace?: string;
+      },
+    ): Promise<ToolDefinition[]> {
       const generation = getToolRegistryGeneration();
       const cacheKey = JSON.stringify([
         options?.allowlist ?? null,
         options?.denylist ?? null,
         options?.ownerId ?? null,
+        options?.workspace ?? null,
       ]);
       if (
         cached && cached.key === cacheKey && cached.generation === generation
@@ -73,21 +84,28 @@ function createToolDefCache(): {
       const entries = Object.entries(tools);
       const builtIn = entries.filter(([n]) => n in TOOL_REGISTRY).sort(([a], [b]) => a.localeCompare(b));
       const dynamic = entries.filter(([n]) => !(n in TOOL_REGISTRY)).sort(([a], [b]) => a.localeCompare(b));
-      const defs: ToolDefinition[] = [...builtIn, ...dynamic].map(
-        ([name, meta]) => {
+      const defs: ToolDefinition[] = await Promise.all(
+        [...builtIn, ...dynamic].map(async ([name, meta]) => {
           const parameters = meta.skipValidation
             ? { type: "object", properties: {}, additionalProperties: true }
             : buildToolJsonSchema(meta);
+
+          const description = meta.resolveDescription
+            ? await meta.resolveDescription({
+              workspace: options?.workspace,
+              ownerId: options?.ownerId,
+            })
+            : meta.description;
 
           return {
             type: "function" as const,
             function: {
               name,
-              description: meta.description,
+              description,
               parameters: parameters as Record<string, unknown>,
             },
           };
-        },
+        }),
       );
       cached = { key: cacheKey, defs, generation };
       return defs;
@@ -106,9 +124,14 @@ export function clearToolDefCache(): void {
 }
 
 /** Build tool definitions with caching */
-export function buildToolDefinitions(
-  options?: { allowlist?: string[]; denylist?: string[]; ownerId?: string },
-): ToolDefinition[] {
+export async function buildToolDefinitions(
+  options?: {
+    allowlist?: string[];
+    denylist?: string[];
+    ownerId?: string;
+    workspace?: string;
+  },
+): Promise<ToolDefinition[]> {
   return toolDefCache.build(options);
 }
 
@@ -120,7 +143,7 @@ export function buildToolDefinitions(
  * Generate system prompt from tool registry.
  *
  * Backward-compatible wrapper around `compilePrompt()`.
- * Callers (delegation, tests) see zero change.
+ * Callers (agent-runner, tests) see zero change.
  */
 export interface SystemPromptOptions {
   toolAllowlist?: string[];
@@ -129,7 +152,7 @@ export interface SystemPromptOptions {
   querySource?: string;
   /** Model tier — controls prompt depth */
   modelTier?: ModelTier;
-  /** Preloaded agent profiles for delegation guidance. */
+  /** Preloaded agent profiles for child agent guidance. */
   agentProfiles?: readonly AgentProfile[];
   /** Full instruction hierarchy (overrides customInstructions when provided). */
   instructions?: InstructionHierarchy;

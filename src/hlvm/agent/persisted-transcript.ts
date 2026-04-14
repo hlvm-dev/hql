@@ -15,11 +15,6 @@ import { loadAllMessages } from "../store/message-utils.ts";
 import { buildStoredAgentHistoryMessages } from "../cli/repl/handlers/chat-context.ts";
 import type { TodoItem } from "./todo-state.ts";
 import type { Plan } from "./planning.ts";
-import {
-  cloneTeamRuntimeSnapshot,
-  type TeamRuntimeSnapshot,
-} from "./team-runtime.ts";
-import type { DelegateBatchSnapshot } from "./delegate-batches.ts";
 
 const DEFAULT_TITLE_LENGTH = 60;
 const AGENT_SESSION_METADATA_KEY = "agentSession";
@@ -39,7 +34,7 @@ export interface PersistedAgentSessionMetadata {
   parentSessionId?: string;
   childSessionIds?: string[];
   todos?: TodoItem[];
-  todoSource?: "plan" | "tool" | "team";
+  todoSource?: "plan" | "tool";
   plan?: Plan;
   completedPlanStepIds?: string[];
   agent?: string;
@@ -50,8 +45,6 @@ export interface PersistedAgentSessionMetadata {
     requestedAt: number;
   };
   approvedPlanSignature?: string;
-  teamRuntime?: TeamRuntimeSnapshot;
-  delegateBatches?: DelegateBatchSnapshot[];
 }
 
 interface CreatePersistedAgentChildSessionOptions {
@@ -183,15 +176,6 @@ export function parsePersistedAgentSessionMetadata(
         requestedAt: agentRecord.pendingPlanReview.requestedAt,
       }
       : undefined;
-  const teamRuntime = isTeamRuntimeSnapshotRecord(agentRecord.teamRuntime)
-    ? cloneTeamRuntimeSnapshot(agentRecord.teamRuntime)
-    : undefined;
-  const delegateBatches = Array.isArray(agentRecord.delegateBatches)
-    ? agentRecord.delegateBatches.filter(isDelegateBatchSnapshotRecord).map(
-      cloneDelegateBatchSnapshot,
-    )
-    : undefined;
-
   return {
     discoveredDeferredTools: Array.isArray(agentRecord.discoveredDeferredTools)
       ? agentRecord.discoveredDeferredTools.filter((value): value is string =>
@@ -204,8 +188,7 @@ export function parsePersistedAgentSessionMetadata(
     childSessionIds,
     todos,
     todoSource: agentRecord.todoSource === "plan" ||
-        agentRecord.todoSource === "tool" ||
-        agentRecord.todoSource === "team"
+        agentRecord.todoSource === "tool"
       ? agentRecord.todoSource
       : undefined,
     plan: isPlanRecord(agentRecord.plan) ? agentRecord.plan : undefined,
@@ -222,17 +205,6 @@ export function parsePersistedAgentSessionMetadata(
     approvedPlanSignature: typeof agentRecord.approvedPlanSignature === "string"
       ? agentRecord.approvedPlanSignature
       : undefined,
-    teamRuntime,
-    delegateBatches,
-  };
-}
-
-function cloneDelegateBatchSnapshot(
-  snapshot: DelegateBatchSnapshot,
-): DelegateBatchSnapshot {
-  return {
-    ...snapshot,
-    threadIds: [...snapshot.threadIds],
   };
 }
 
@@ -275,43 +247,6 @@ function isPendingPlanReviewRecord(
     isPlanRecord(record.plan);
 }
 
-function isTeamRuntimeSnapshotRecord(
-  value: unknown,
-): value is TeamRuntimeSnapshot {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return typeof record.teamId === "string" &&
-    typeof record.leadMemberId === "string" &&
-    Array.isArray(record.members) &&
-    Array.isArray(record.tasks) &&
-    Array.isArray(record.messages) &&
-    Array.isArray(record.approvals) &&
-    Array.isArray(record.shutdowns);
-}
-
-function isDelegateBatchSnapshotRecord(
-  value: unknown,
-): value is DelegateBatchSnapshot {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return typeof record.batchId === "string" &&
-    typeof record.agent === "string" &&
-    typeof record.totalRows === "number" &&
-    Array.isArray(record.threadIds) &&
-    typeof record.spawnFailures === "number" &&
-    typeof record.createdAt === "number" &&
-    typeof record.queued === "number" &&
-    typeof record.running === "number" &&
-    typeof record.completed === "number" &&
-    typeof record.errored === "number" &&
-    typeof record.cancelled === "number" &&
-    typeof record.spawned === "number" &&
-    (
-      record.status === "running" || record.status === "completed" ||
-      record.status === "partial"
-    );
-}
-
 function updatePersistedAgentSessionMetadata(
   sessionId: string,
   mutate: (metadata: PersistedAgentSessionMetadata) => void,
@@ -326,7 +261,7 @@ function updatePersistedAgentSessionMetadata(
 export function persistAgentTodos(
   sessionId: string,
   items: TodoItem[],
-  source: "plan" | "tool" | "team",
+  source: "plan" | "tool",
 ): void {
   updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
     metadata.todos = items.map((item) => ({ ...item }));
@@ -400,24 +335,6 @@ export function clearPersistedAgentPlanningState(sessionId: string): void {
       metadata.todos = undefined;
       metadata.todoSource = undefined;
     }
-  });
-}
-
-export function persistAgentTeamRuntime(
-  sessionId: string,
-  snapshot: TeamRuntimeSnapshot,
-): void {
-  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
-    metadata.teamRuntime = cloneTeamRuntimeSnapshot(snapshot);
-  });
-}
-
-export function persistAgentDelegateBatches(
-  sessionId: string,
-  snapshots: readonly DelegateBatchSnapshot[],
-): void {
-  updatePersistedAgentSessionMetadata(sessionId, (metadata) => {
-    metadata.delegateBatches = snapshots.map(cloneDelegateBatchSnapshot);
   });
 }
 

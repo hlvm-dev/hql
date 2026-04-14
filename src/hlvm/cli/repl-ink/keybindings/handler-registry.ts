@@ -94,8 +94,6 @@ export const HandlerIds = {
   APP_CLEAR: "app.clear",
   APP_PALETTE: "app.palette",
   APP_BACKGROUND: "app.background",
-  APP_TEAM_DASHBOARD: "app.openTeamDashboard",
-  APP_CYCLE_TEAMMATE: "app.cycleTeammate",
   APP_KILL_ALL: "app.killAll",
   APP_TASK_OVERLAY: "app.taskOverlay",
   CONVERSATION_OPEN_HISTORY: "conversation.open-history",

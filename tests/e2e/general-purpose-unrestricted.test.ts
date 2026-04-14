@@ -393,12 +393,9 @@ const CASES: UnrestrictedCase[] = [
     },
     validate: (result) => {
       const errors: string[] = [];
-      // Accept archive_files directly OR via delegation (delegate_agent → archive_files)
-      const usedArchive = result.toolNames.includes("archive_files") ||
-        result.toolNames.includes("delegate_agent");
-      if (!usedArchive) {
+      if (!result.toolNames.includes("archive_files")) {
         errors.push(
-          `Expected archive_files or delegate_agent but got: ${result.toolNames.join(", ")}`,
+          `Expected archive_files but got: ${result.toolNames.join(", ")}`,
         );
       }
       if (

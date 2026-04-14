@@ -130,10 +130,10 @@ function buildLeaderText(
     : undefined;
   return {
     treePrefix: focused ? "╒═" : "┌─",
-    name: "team-lead",
+    name: "lead",
     bodyText: leader?.activityText?.trim() ||
       leader?.idleText?.trim() ||
-      "Coordinating teammates",
+      "Coordinating agents",
     metricsText: formatLeaderMetrics(leader),
     hintText,
     highlighted: focused,
@@ -201,7 +201,7 @@ export function buildLocalAgentsCompactFooterModel(
     ? entries.length === 1 ? " · Enter view · Esc back" : " · Enter manager · Esc back"
     : " · Ctrl+T manager";
   const text = truncate(
-    `team-lead · ${summarizeCompactFooterText(entries, options.leader)}`,
+    `lead · ${summarizeCompactFooterText(entries, options.leader)}`,
     Math.max(18, width),
   );
   return {

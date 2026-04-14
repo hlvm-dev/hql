@@ -61,7 +61,6 @@ import {
 import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
-import { type TeamMemberItem, useTeamState } from "../hooks/useTeamState.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
 import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
@@ -120,11 +119,8 @@ import {
 } from "../utils/app-surface.ts";
 import { getShellContentWidth, SHELL_LAYOUT } from "../utils/layout-tokens.ts";
 import {
-  buildLocalAgentEntries,
   type LocalAgentEntry,
 } from "../utils/local-agents.ts";
-import { getActiveTeamStore } from "../../../agent/team-store.ts";
-import { sendThreadInput } from "../../../agent/delegate-threads.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { TuiStatusLine } from "./TuiStatusLine.tsx";
 
@@ -275,79 +271,25 @@ function AppContent(
   const conversation = useConversation();
   const conversationRef = useRef(conversation);
   conversationRef.current = conversation;
-  const baseTeamState = useTeamState(conversation.items);
   const transcriptItemCount = conversation.historyItems.length +
     conversation.liveItems.length;
   const committedHistoryCount = conversation.historyItems.length;
   const [transcriptOverlaySearchActive, setTranscriptOverlaySearchActive] = useState(false);
   const [scrollPayload, setScrollPayload] = useState<ScrollReadyPayload | null>(null);
-  const [focusedTeammateIndex, setFocusedTeammateIndex] = useState(-1);
   const [localAgentsFocused, setLocalAgentsFocused] = useState(false);
   const [backgroundTasksOverlayState, setBackgroundTasksOverlayState] =
     useState<BackgroundTasksOverlayState>(
       DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE,
     );
-  const teamState = useMemo(
-    () => ({ ...baseTeamState, focusedWorkerIndex: focusedTeammateIndex }),
-    [baseTeamState, focusedTeammateIndex],
-  );
-  const activeTeammates = useMemo(
-    () =>
-      teamState.members.filter((member: TeamMemberItem) =>
-        member.role === "worker" && member.status !== "terminated"
-      ),
-    [teamState.members],
-  );
-  const focusedTeammate = focusedTeammateIndex >= 0
-    ? activeTeammates[focusedTeammateIndex]
-    : undefined;
-  const teamWorkerSummary = useMemo(() => {
-    if (!teamState.active) return undefined;
-    const workers = teamState.members.filter((m: TeamMemberItem) =>
-      m.role === "worker" && m.status !== "terminated"
-    );
-    if (workers.length === 0) return undefined;
-    const activeCount = workers.filter((m: TeamMemberItem) =>
-      Boolean(m.currentTaskId)
-    ).length;
-    const idleCount = workers.length - activeCount;
-    if (activeCount > 0 && idleCount > 0) {
-      return `${activeCount} working \u00B7 ${idleCount} idle`;
-    }
-    if (activeCount > 0) {
-      return `${activeCount} working`;
-    }
-    return `${idleCount} idle`;
-  }, [teamState.active, teamState.members]);
   const allDisplayItems = useMemo(
     () => compactPlanTranscriptItems(conversation.historyItems)
       .concat(conversation.liveItems),
     [conversation.historyItems, conversation.liveItems],
   );
   const baseLocalAgentEntries = useMemo<LocalAgentEntry[]>(
-    () =>
-      buildLocalAgentEntries(
-        teamState.members,
-        teamState.memberActivity,
-        tasks,
-        {
-          taskBoard: teamState.taskBoard,
-          pendingApprovals: teamState.pendingApprovals,
-        },
-      ),
-    [
-      tasks,
-      teamState.memberActivity,
-      teamState.members,
-      teamState.pendingApprovals,
-      teamState.taskBoard,
-    ],
+    () => [],
+    [],
   );
-  useEffect(() => {
-    setFocusedTeammateIndex((prev: number) =>
-      prev >= activeTeammates.length ? -1 : prev
-    );
-  }, [activeTeammates.length]);
   useEffect(() => {
     if (baseLocalAgentEntries.length === 0) {
       setLocalAgentsFocused(false);
@@ -454,32 +396,14 @@ function AppContent(
     setBackgroundTasksOverlayState({ initialSelectedItemId, initialViewMode });
     setActiveOverlay("background-tasks");
   }, [setActiveOverlay]);
-  const openFocusedTeammateSession = useCallback(() => {
-    if (!focusedTeammate) return;
-    openBackgroundTasksOverlay(`teammate:${focusedTeammate.id}`, "result");
-  }, [focusedTeammate, openBackgroundTasksOverlay]);
   const focusLocalAgents = useCallback(() => {
     if (baseLocalAgentEntries.length === 0) return false;
     setLocalAgentsFocused(true);
     return true;
   }, [baseLocalAgentEntries.length]);
-  const foregroundLocalAgent = useCallback((agent: LocalAgentEntry) => {
-    if (
-      agent.kind !== "teammate" ||
-      !agent.memberId ||
-      agent.foregroundable !== true
-    ) {
-      return false;
-    }
-    const teammateIndex = activeTeammates.findIndex((member: TeamMemberItem) =>
-      member.id === agent.memberId
-    );
-    if (teammateIndex < 0) return false;
-    setFocusedTeammateIndex(teammateIndex);
-    setLocalAgentsFocused(false);
-    setActiveOverlay("none");
-    return true;
-  }, [activeTeammates, setActiveOverlay]);
+  const foregroundLocalAgent = useCallback((_agent: LocalAgentEntry) => {
+    return false;
+  }, []);
   const openLocalAgentsSurface = useCallback(() => {
     if (baseLocalAgentEntries.length === 0) return false;
     const singleAgent = baseLocalAgentEntries.length === 1
@@ -489,18 +413,10 @@ function AppContent(
       openBackgroundTasksOverlay(undefined, "list");
       return true;
     }
-    if (
-      singleAgent.kind === "teammate" &&
-      singleAgent.foregroundable === true &&
-      foregroundLocalAgent(singleAgent)
-    ) {
-      return true;
-    }
     openBackgroundTasksOverlay(singleAgent.id, "result");
     return true;
   }, [
     baseLocalAgentEntries,
-    foregroundLocalAgent,
     openBackgroundTasksOverlay,
   ]);
   const handleLocalAgentsInput = useCallback((input: string, key: {
@@ -563,34 +479,7 @@ function AppContent(
     interruptConversationRun,
     handleForceInterrupt,
   } = agentRunner;
-  const localAgentEntries = useMemo<LocalAgentEntry[]>(
-    () =>
-      pendingInteraction
-        ? buildLocalAgentEntries(
-          teamState.members,
-          teamState.memberActivity,
-          tasks,
-          {
-            taskBoard: teamState.taskBoard,
-            pendingApprovals: teamState.pendingApprovals,
-            pendingInteraction: {
-              sourceMemberId: pendingInteraction.sourceMemberId,
-              mode: pendingInteraction.mode,
-            },
-          },
-        )
-        : baseLocalAgentEntries,
-    [
-      baseLocalAgentEntries,
-      pendingInteraction?.mode,
-      pendingInteraction?.sourceMemberId,
-      tasks,
-      teamState.memberActivity,
-      teamState.members,
-      teamState.pendingApprovals,
-      teamState.taskBoard,
-    ],
-  );
+  const localAgentEntries = baseLocalAgentEntries;
   const handleConversationInteractionResponse = useCallback((
     requestId: string,
     response: InteractionResponse,
@@ -879,25 +768,6 @@ function AppContent(
       "App",
     );
     registerHandler(
-      HandlerIds.APP_TEAM_DASHBOARD,
-      toggleBackgroundTasksOverlay,
-      "App",
-    );
-    registerHandler(
-      HandlerIds.APP_CYCLE_TEAMMATE,
-      () => {
-        const teammateCount = activeTeammatesRef.current.length;
-        if (teammateCount === 0) {
-          setFocusedTeammateIndex(-1);
-          return;
-        }
-        setFocusedTeammateIndex((prev: number) =>
-          prev + 1 >= teammateCount ? -1 : prev + 1
-        );
-      },
-      "App",
-    );
-    registerHandler(
       HandlerIds.APP_KILL_ALL,
       handleKillAll,
       "App",
@@ -936,8 +806,6 @@ function AppContent(
       unregisterHandler(HandlerIds.APP_PALETTE);
       unregisterHandler(HandlerIds.APP_BACKGROUND);
       unregisterHandler(HandlerIds.CONVERSATION_OPEN_HISTORY);
-      unregisterHandler(HandlerIds.APP_TEAM_DASHBOARD);
-      unregisterHandler(HandlerIds.APP_CYCLE_TEAMMATE);
       unregisterHandler(HandlerIds.APP_KILL_ALL);
       unregisterHandler(HandlerIds.APP_TASK_OVERLAY);
       unregisterHandler(HandlerIds.CONVERSATION_SEARCH);
@@ -957,10 +825,6 @@ function AppContent(
 
   // Refs for values only read inside handlers — avoids re-creating callbacks
   // every time streaming tokens cause conversation/interaction/queue state to change.
-  const teamStateRef = useRef(teamState);
-  teamStateRef.current = teamState;
-  const activeTeammatesRef = useRef(activeTeammates);
-  activeTeammatesRef.current = activeTeammates;
   const pendingInteractionRef = useRef(pendingInteraction);
   pendingInteractionRef.current = pendingInteraction;
   const handleInteractionResponseRef = useRef(handleInteractionResponse);
@@ -1066,52 +930,6 @@ function AppContent(
               userInput: trimmedInput,
             },
           );
-          return;
-        }
-
-        const targetTeammate = focusedTeammateIndex >= 0
-          ? activeTeammatesRef.current[focusedTeammateIndex]
-          : undefined;
-        if (hasConversationContext && targetTeammate) {
-          const preview = truncate(trimmedInput.replace(/\s+/g, " "), 120);
-          let delivered = false;
-
-          if (targetTeammate.threadId) {
-            delivered = sendThreadInput(targetTeammate.threadId, trimmedInput);
-          }
-
-          if (!delivered) {
-            const store = getActiveTeamStore();
-            if (store) {
-              await store.sendMessage({
-                id: crypto.randomUUID(),
-                type: "message",
-                from: "lead",
-                content: trimmedInput,
-                summary: truncate(trimmedInput.replace(/\s+/g, " "), 80),
-                timestamp: Date.now(),
-                recipient: targetTeammate.id,
-              });
-              delivered = true;
-            }
-          }
-
-          if (!delivered) {
-            conversationRef.current.addError(
-              `Could not send message to teammate '${targetTeammate.id}'.`,
-            );
-            return;
-          }
-
-          recordPromptHistory(replState, code, "conversation");
-          conversationRef.current.addEvent({
-            type: "team_message",
-            kind: "message",
-            fromMemberId: "lead",
-            toMemberId: targetTeammate.id,
-            contentPreview: preview,
-          });
-          clearComposerDraft();
           return;
         }
 
@@ -1483,14 +1301,6 @@ function AppContent(
       }
       return;
     }
-    if (
-      globalBinding.kind === "handler" &&
-      globalBinding.id === HandlerIds.APP_CYCLE_TEAMMATE
-    ) {
-      if (activeOverlay !== "none") return;
-      void executeHandler(globalBinding.id);
-      return;
-    }
     if (activeOverlay !== "none") {
       return;
     }
@@ -1679,9 +1489,7 @@ function AppContent(
         focused: localAgentsFocused,
         leader: {
           activityText: currentTurnSummary,
-          idleText: teamWorkerSummary
-            ? `Idle · ${teamWorkerSummary}`
-            : "Idle",
+          idleText: "Idle",
         },
         activeTaskCount: localAgentEntries.length === 0 ? activeCount : 0,
         recentActiveTaskLabel: localAgentEntries.length === 0
@@ -1827,10 +1635,6 @@ function AppContent(
         <BackgroundTasksOverlay
           onClose={closeBackgroundTasksOverlay}
           localAgents={localAgentEntries}
-          teamTasks={teamState.taskBoard}
-          teamState={teamState}
-          interactionMode={pendingInteraction?.mode}
-          interactionSourceMemberId={pendingInteraction?.sourceMemberId}
           initialSelectedItemId={backgroundTasksOverlayState
             .initialSelectedItemId}
           initialViewMode={backgroundTasksOverlayState.initialViewMode}
@@ -1896,10 +1700,7 @@ function AppContent(
               replState={replState}
               onUiStateChange={handleComposerUiStateChange}
               onSubmit={handleSubmit}
-              onEmptySubmit={hasConversationContext && focusedTeammate &&
-                  !localAgentsFocused
-                ? openFocusedTeammateSession
-                : undefined}
+              onEmptySubmit={undefined}
               onFocusLocalAgents={localAgentEntries.length > 0 &&
                   !composerShellState.hasDraftInput
                 ? focusLocalAgents
@@ -1923,7 +1724,7 @@ function AppContent(
               disabled={isInputDisabled}
               isConversationContext={hasConversationContext}
               composerLanguage={hasConversationContext ? "chat" : "hql"}
-              promptLabel={focusedTeammate ? `${focusedTeammate.id}>` : ">"}
+              promptLabel=">"
               interactionMode={pickerInteractionActive
                 ? pendingInteraction?.mode
                 : undefined}

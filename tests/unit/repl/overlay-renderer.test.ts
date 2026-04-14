@@ -6,7 +6,6 @@ import {
   CONFIG_OVERLAY_SPEC,
   resolveOverlayChromeLayout,
   SHORTCUTS_OVERLAY_SPEC,
-  TEAM_DASHBOARD_OVERLAY_SPEC,
 } from "../../../src/hlvm/cli/repl-ink/overlay/layout.ts";
 
 Deno.test("buildOverlayFrameText returns full-width borders", () => {
@@ -45,11 +44,6 @@ Deno.test("resolveOverlayChromeLayout reclaims one visible row when the title mo
       name: "background tasks",
       height: BACKGROUND_TASKS_OVERLAY_SPEC.height,
       spec: BACKGROUND_TASKS_OVERLAY_SPEC,
-    },
-    {
-      name: "team dashboard",
-      height: TEAM_DASHBOARD_OVERLAY_SPEC.height,
-      spec: TEAM_DASHBOARD_OVERLAY_SPEC,
     },
     {
       name: "shortcuts",

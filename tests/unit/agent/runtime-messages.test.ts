@@ -28,7 +28,7 @@ Deno.test("runtime-messages: formats runtime directives, notices, and updates ex
     "[Runtime Notice]\nwatch for reset",
   );
   assertEquals(
-    runtimeUpdate("delegate completed"),
-    "[Runtime Update]\ndelegate completed",
+    runtimeUpdate("task completed"),
+    "[Runtime Update]\ntask completed",
   );
 });

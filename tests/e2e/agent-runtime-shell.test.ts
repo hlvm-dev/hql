@@ -16,9 +16,6 @@ import {
 import { startBrowserFixtureServer } from "../shared/browser-fixture-server.ts";
 
 const platform = getPlatform();
-const FIXTURE_PATH = platform.path.fromFileUrl(
-  new URL("../fixtures/ask/agent-transcript-fixture.json", import.meta.url),
-);
 const CLI_PATH = platform.path.fromFileUrl(
   new URL("../../src/hlvm/cli/cli.ts", import.meta.url),
 );
@@ -776,55 +773,6 @@ async function withAiLoopEnhancementWorkspace(
 
 localAskTest({
   name:
-    "local ask command self-starts the runtime host and renders system-managed delegation",
-  fn: async () => {
-    const port = await allocateRuntimeShellPort();
-    const hlvmDir = await platform.fs.makeTempDir({
-      prefix: "hlvm-shell-e2e-",
-    });
-    const baseUrl = `http://127.0.0.1:${port}`;
-    const runtimeProbe = createRuntimeHostLifecycleProbe(baseUrl, port);
-
-    try {
-      const result = await runLocalAsk(
-        port,
-        [
-          "--no-session-persistence",
-          "--verbose",
-          "--model",
-          "claude-code/test-fixture",
-          "spawn multiple agents and get this parser job done",
-        ],
-        {
-          HLVM_DIR: hlvmDir,
-          HLVM_ASK_FIXTURE_PATH: FIXTURE_PATH,
-        },
-        undefined,
-        runtimeProbe,
-      );
-
-      const output = describeLocalAskResult(result);
-      assertEquals(result.success, true, output);
-      assertStringIncludes(output, "[Delegate] code");
-      assertStringIncludes(output, "[Team Task] pending Review parser patch");
-      assertStringIncludes(
-        output,
-        "[Team Plan Review] requested for task task-review",
-      );
-      assertStringIncludes(
-        output,
-        "Result:\nMulti-agent parser coordination complete",
-      );
-    } finally {
-      await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
-      await runtimeProbe.stop();
-      await platform.fs.remove(hlvmDir, { recursive: true });
-    }
-  },
-});
-
-localAskTest({
-  name:
     "local ask command exposes browser_safe Playwright tools through the real browser entry path",
   fn: async () => {
     const port = await allocateRuntimeShellPort();
@@ -954,57 +902,6 @@ localAskTest({
       assertStringIncludes(
         output,
         "Result:\nMultimodal attachment receipt confirmed",
-      );
-    } finally {
-      await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
-      await runtimeProbe.stop();
-      await platform.fs.remove(hlvmDir, { recursive: true });
-    }
-  },
-});
-
-localAskTest({
-  name:
-    "delegation heuristic injects system hint for multi-file concurrent request",
-  fn: async () => {
-    const port = await allocateRuntimeShellPort();
-    const hlvmDir = await platform.fs.makeTempDir({
-      prefix: "hlvm-heuristic-e2e-",
-    });
-    const baseUrl = `http://127.0.0.1:${port}`;
-    const runtimeProbe = createRuntimeHostLifecycleProbe(baseUrl, port);
-
-    try {
-      const result = await runLocalAsk(
-        port,
-        [
-          "--no-session-persistence",
-          "--verbose",
-          "--model",
-          "claude-code/test-fixture",
-          "refactor auth.ts login.ts session.ts config.ts concurrently",
-        ],
-        {
-          HLVM_DIR: hlvmDir,
-          HLVM_ASK_FIXTURE_PATH: FIXTURE_PATH,
-        },
-        undefined,
-        runtimeProbe,
-      );
-
-      const output = describeLocalAskResult(result);
-      // If the fixture expect passes (it checks for [System hint] and fan-out
-      // in the messages fed to the LLM), the process exits successfully.
-      // A fixture expect mismatch would cause a non-zero exit code.
-      assertEquals(
-        result.success,
-        true,
-        `Delegation heuristic e2e failed:\n${output}`,
-      );
-      assertStringIncludes(output, "[Delegate] code");
-      assertStringIncludes(
-        output,
-        "Result:\nDelegation heuristic test complete",
       );
     } finally {
       await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
@@ -1667,52 +1564,3 @@ localAskTest({
   },
 });
 
-localAskTest({
-  name:
-    "live local ask smoke test uses natural language to trigger delegation and team coordination",
-  ignore: LIVE_MODEL.length === 0,
-  fn: async () => {
-    const port = await allocateRuntimeShellPort();
-    const hlvmDir = await platform.fs.makeTempDir({
-      prefix: "hlvm-live-agent-",
-    });
-    const baseUrl = `http://127.0.0.1:${port}`;
-    const runtimeProbe = createRuntimeHostLifecycleProbe(baseUrl, port);
-
-    try {
-      const result = await runLocalAsk(
-        port,
-        [
-          "--no-session-persistence",
-          "--verbose",
-          "--model",
-          LIVE_MODEL,
-          "Analyze the parser and agent runtime in this repo. Spawn multiple agents, use team coordination and a plan review before the final answer, do not edit files, and return a synthesis.",
-        ],
-        {
-          HLVM_DIR: hlvmDir,
-        },
-        undefined,
-        runtimeProbe,
-      );
-
-      const output = describeLocalAskResult(result);
-      assertEquals(result.success, true, output);
-      assertEquals(
-        output.includes("[Delegate]") || output.includes("delegate "),
-        true,
-        output,
-      );
-      assertEquals(
-        output.includes("[Team]") || output.includes("[Team Task]"),
-        true,
-        output,
-      );
-      assertEquals(output.includes("Result:\n"), true, output);
-    } finally {
-      await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
-      await runtimeProbe.stop();
-      await platform.fs.remove(hlvmDir, { recursive: true });
-    }
-  },
-});

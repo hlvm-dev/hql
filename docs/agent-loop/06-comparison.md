@@ -70,10 +70,8 @@ Honest analysis of what's justified and what's over-engineered.
       ├─ LoopState + ToolProfileState + ContextManager
       │    (THREE mutable state objects, spread across files)
       │
-      ├─ 6 drain operations (multi-agent inboxes)
-      ├─ plan delegation dispatch
       ├─ rate limit
-      ├─ inject reminders, memory, delegation hints
+      ├─ inject reminders, memory
       ├─ context pressure + pre-compaction flush
       ├─ proactive compaction
       ├─ adaptive tool phase (5-layer profile, phase machine)
@@ -127,7 +125,7 @@ Honest analysis of what's justified and what's over-engineered.
   │                                │         │ conversations.           │
   ├────────────────────────────────┼─────────┼──────────────────────────┤
   │ Plan execution w/ step markers │ YES     │ Structured multi-step    │
-  │                                │         │ with delegation. CC has  │
+  │                                │         │ execution. CC has        │
   │                                │         │ simpler plan mode.       │
   ├────────────────────────────────┼─────────┼──────────────────────────┤
   │ Pre-compaction memory flush    │ YES     │ Clever: let model save   │
@@ -221,16 +219,15 @@ Honest analysis of what's justified and what's over-engineered.
   │ Browser automation             │ Playwright + computer-use tools.  │
   │                                │ CC has no browser capabilities.   │
   ├────────────────────────────────┼────────────────────────────────────┤
-  │ Multi-agent teams              │ Team lead + N teammates with      │
-  │                                │ task board, messaging, shutdown.  │
-  │                                │ CC has AgentTool (simpler).       │
+  │ Multi-agent (pending rewrite)  │ Agent system being ported from    │
+  │                                │ CC's AgentTool pattern.           │
   ├────────────────────────────────┼────────────────────────────────────┤
   │ Persistent memory              │ SQLite+FTS5, entity graph,        │
   │                                │ temporal decay. Survives across   │
   │                                │ sessions. CC has no memory.       │
   ├────────────────────────────────┼────────────────────────────────────┤
-  │ Structured planning            │ Multi-step plans with agent       │
-  │                                │ delegation, step markers, review. │
+  │ Structured planning            │ Multi-step plans with step        │
+  │                                │ markers and review gates.         │
   │                                │ CC has simpler plan mode.         │
   ├────────────────────────────────┼────────────────────────────────────┤
   │ Pre-compaction memory flush    │ Model gets a chance to save       │
@@ -253,7 +250,7 @@ Honest analysis of what's justified and what's over-engineered.
     - Multi-agent with lazy initialization (skip drains if solo)
     - Memory system
     - Pre-compaction flush
-    - Plan execution with delegation
+    - Plan execution with step markers
 
   SIMPLIFY:
     - 5 layers → 2 (baseline + domain) + simple overlays

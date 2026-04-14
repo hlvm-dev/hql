@@ -414,12 +414,6 @@ export const DEFAULT_TIMEOUTS = {
  */
 export const MAX_ITERATIONS = 20;
 
-/** Max ReAct loop iterations for delegate child agents (tighter than parent) */
-export const DELEGATE_MAX_ITERATIONS = 10;
-
-/** Total timeout for delegate child agents (120s = 2 minutes) */
-export const DELEGATE_TOTAL_TIMEOUT = 120_000;
-
 /**
  * Default maximum tool calls per turn
  *
@@ -709,9 +703,6 @@ export const TOOL_RESULT_LIMITS = {
   maxToolUsesForGrounding: 50,
 } as const;
 
-/** Prefix for isolated child workspace directories */
-export const CHILD_WORKSPACE_PREFIX = ".hlvm-child-" as const;
-
 /** Default tool denylist for interactive ask mode */
 export const DEFAULT_TOOL_DENYLIST = [
   "complete_task",
@@ -777,34 +768,20 @@ export const STANDARD_EAGER_TOOLS: readonly string[] = [
   "open_path",
 ] as const;
 
-/** Team runtime control tools needed for system-managed collaboration flows. */
-export const TEAM_RUNTIME_TOOL_NAMES: readonly string[] = [
-  "Teammate",
-  "SendMessage",
-  "TaskCreate",
-  "TaskGet",
-  "TaskUpdate",
-  "TaskList",
-  "TeamStatus",
-] as const;
-
 /**
  * Eager tools for enhanced-tier models.
  * Enhanced-tier keeps the same bounded discovery model as standard tier, while
- * preserving collaboration entrypoints as always-available meta tools.
+ * preserving agent entrypoints as always-available meta tools.
  */
 export const ENHANCED_EAGER_TOOLS: readonly string[] = [
   ...STANDARD_EAGER_TOOLS,
-  "delegate_agent",
-  "batch_delegate",
-  ...TEAM_RUNTIME_TOOL_NAMES,
 ] as const;
 
 /**
  * Compute tier-aware tool filter.
  * - constrained: restricts to CONSTRAINED_CORE_TOOLS (hard cap, no tool_search)
  * - standard: restricts to STANDARD_EAGER_TOOLS (progressive discovery via tool_search)
- * - enhanced: restricts to ENHANCED_EAGER_TOOLS (bounded eager core + delegation)
+ * - enhanced: restricts to ENHANCED_EAGER_TOOLS (bounded eager core)
  */
 export function computeTierToolFilter(
   tier: ModelTier,

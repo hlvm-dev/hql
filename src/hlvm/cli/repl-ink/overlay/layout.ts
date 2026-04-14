@@ -54,16 +54,6 @@ export const BACKGROUND_TASKS_OVERLAY_SPEC: FixedOverlayChromeSpec = {
   footerRows: 1,
 };
 
-export const TEAM_DASHBOARD_OVERLAY_SPEC: FixedOverlayChromeSpec = {
-  width: 76,
-  height: 26,
-  minWidth: 48,
-  minHeight: 14,
-  padding: { top: 1, bottom: 1, left: 2, right: 2 },
-  bodyHeaderRows: 3,
-  footerRows: 1,
-};
-
 export const SHORTCUTS_OVERLAY_SPEC: OverlayChromeSpec & { width: number } = {
   width: 58,
   padding: { top: 1, bottom: 1, left: 2, right: 2 },

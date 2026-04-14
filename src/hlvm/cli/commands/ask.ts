@@ -50,12 +50,6 @@ import {
   checkModelAttachmentIds,
   describeAttachmentFailure,
 } from "../attachment-policy.ts";
-import {
-  type DelegateTranscriptSnapshot,
-  listDelegateTranscriptLines,
-} from "../../agent/delegate-transcript.ts";
-import { formatDelegateGroupForCli } from "../delegate-group-format.ts";
-import type { DelegateGroupEntry } from "../repl-ink/types.ts";
 import { formatPlanForContext } from "../../agent/planning.ts";
 import {
   createTranscriptState,
@@ -69,6 +63,7 @@ import {
   resolveToolTranscriptProgress,
   resolveToolTranscriptResult,
 } from "../repl-ink/components/conversation/tool-transcript.ts";
+import { AGENT_TOOL_NAME } from "../../agent/tools/agent-constants.ts";
 
 const { DIM, RESET, GREEN, RED } = ANSI_COLORS;
 const CLEAR_LINE = "\r\x1b[K";
@@ -314,6 +309,40 @@ function createTraceCallback(
         break;
     }
   };
+}
+
+function formatAgentHeader(agentType: string, description: string): string {
+  return `⏺ Agent(${agentType}) "${description}"`;
+}
+
+function formatAgentProgress(
+  toolUseCount: number,
+  durationMs?: number,
+): string {
+  const tools = `${toolUseCount} tool use${toolUseCount === 1 ? "" : "s"}`;
+  const dur = durationMs && durationMs > 0
+    ? ` · ${(durationMs / 1000).toFixed(1)}s`
+    : "";
+  return `⎿ In progress… · ${tools}${dur}`;
+}
+
+function formatAgentCompletion(options: {
+  success: boolean;
+  toolUseCount: number;
+  totalTokens?: number;
+  durationMs?: number;
+}): string {
+  const status = options.success ? "Done" : "Failed";
+  const tools = `${options.toolUseCount} tool use${
+    options.toolUseCount === 1 ? "" : "s"
+  }`;
+  const tokens = options.totalTokens != null
+    ? ` · ${options.totalTokens.toLocaleString()} tokens`
+    : "";
+  const dur = options.durationMs && options.durationMs > 0
+    ? ` · ${(options.durationMs / 1000).toFixed(1)}s`
+    : "";
+  return `⎿ ${status} (${tools}${tokens}${dur})`;
 }
 
 const DEFAULT_TOOL_OUTPUT_MAX_LINES = 18;
@@ -688,8 +717,6 @@ export async function askCommand(args: string[]): Promise<void> {
   let transcriptState = createTranscriptState();
   let finalMeta: FinalResponseMeta | undefined;
   const responseSanitizer = createStreamingResponseSanitizer();
-  const activeDelegateGroups = new Map<string, DelegateGroupEntry[]>();
-  let groupEntryCounter = 0;
 
   const flushStream = (): void => {
     if (streamedTokens) {
@@ -734,8 +761,43 @@ export async function askCommand(args: string[]): Promise<void> {
     if (outputFormat === "json") return;
     if (verbose) {
       switch (event.type) {
+        case "agent_spawn":
+          flushStream();
+          log.raw.log(`\n${formatAgentHeader(event.agentType, event.description)}`);
+          log.raw.log(
+            `  ${
+              event.isAsync
+                ? "⎿ Backgrounded"
+                : "⎿ In progress…"
+            }\n`,
+          );
+          break;
+        case "agent_progress":
+          flushStream();
+          log.raw.log(
+            `\n  ${
+              formatAgentProgress(event.toolUseCount, event.durationMs)
+            }\n`,
+          );
+          break;
+        case "agent_complete":
+          flushStream();
+          log.raw.log(
+            `\n  ${
+              formatAgentCompletion({
+                success: event.success,
+                toolUseCount: event.toolUseCount,
+                totalTokens: event.totalTokens,
+                durationMs: event.durationMs,
+              })
+            }\n`,
+          );
+          break;
         case "tool_start":
-          if (event.name === "ask_user" || event.name === "delegate_agent") {
+          if (event.name === "ask_user") {
+            return;
+          }
+          if (event.name === AGENT_TOOL_NAME) {
             return;
           }
           flushStream();
@@ -750,7 +812,10 @@ export async function askCommand(args: string[]): Promise<void> {
           );
           break;
         case "tool_progress": {
-          if (event.name === "ask_user" || event.name === "delegate_agent") {
+          if (event.name === "ask_user") {
+            return;
+          }
+          if (event.name === AGENT_TOOL_NAME) {
             return;
           }
           const progress = resolveToolTranscriptProgress(event.name, event);
@@ -764,7 +829,10 @@ export async function askCommand(args: string[]): Promise<void> {
           break;
         }
         case "tool_end":
-          if (event.name === "ask_user" || event.name === "delegate_agent") {
+          if (event.name === "ask_user") {
+            return;
+          }
+          if (event.name === AGENT_TOOL_NAME && event.success) {
             return;
           }
           flushStream();
@@ -799,143 +867,11 @@ export async function askCommand(args: string[]): Promise<void> {
             log.raw.log(`\n[Planning] ${event.summary}\n`);
           }
           break;
-        case "delegate_start":
-          flushStream();
-          if (event.batchId) {
-            const entries = activeDelegateGroups.get(event.batchId) ?? [];
-            entries.push({
-              id: `dge-${++groupEntryCounter}`,
-              agent: event.agent,
-              task: event.task,
-              status: "queued",
-              threadId: event.threadId,
-              nickname: event.nickname,
-              childSessionId: event.childSessionId,
-            });
-            activeDelegateGroups.set(event.batchId, entries);
-            log.raw.log(
-              `\n${formatDelegateGroupForCli(entries, true)}\n`,
-            );
-          } else {
-            log.raw.log(`\n[Delegate] ${event.agent}\n${event.task}\n`);
-          }
-          break;
-        case "delegate_running": {
-          flushStream();
-          for (const [, entries] of activeDelegateGroups) {
-            const match = entries.find(
-              (e) => e.threadId === event.threadId && e.status === "queued",
-            );
-            if (match) {
-              match.status = "running";
-              log.raw.log(`\n${formatDelegateGroupForCli(entries, true)}\n`);
-              break;
-            }
-          }
-          break;
-        }
-        case "delegate_end": {
-          flushStream();
-          if (event.batchId && activeDelegateGroups.has(event.batchId)) {
-            const entries = activeDelegateGroups.get(event.batchId)!;
-            const isCancelled = !event.success &&
-              event.error?.toLowerCase().includes("abort");
-            const match = entries.find((e) =>
-              (event.threadId && e.threadId === event.threadId) ||
-              (e.agent === event.agent && e.task === event.task &&
-                (e.status === "running" || e.status === "queued"))
-            );
-            if (match) {
-              match.status = isCancelled
-                ? "cancelled"
-                : event.success
-                ? "success"
-                : "error";
-              match.summary = event.summary;
-              match.error = event.error;
-              match.durationMs = event.durationMs;
-              match.snapshot = event.snapshot;
-            }
-            log.raw.log(
-              `\n${formatDelegateGroupForCli(entries, true)}\n`,
-            );
-          } else {
-            const label = event.success ? "Delegate Result" : "Delegate Error";
-            const body = event.success
-              ? event.summary ?? "Delegation complete."
-              : event.error ?? "Delegation failed.";
-            log.raw.log(`\n[${label}] ${event.agent}\n${body}\n`);
-            const snapshotText = formatDelegateSnapshotForVerboseMode(
-              event.snapshot,
-            );
-            if (snapshotText) {
-              log.raw.log(`${snapshotText}\n`);
-            }
-          }
-          break;
-        }
         case "todo_updated":
           flushStream();
           log.raw.log(
             `\n[Todo] ${getVisibleTodoSummary(transcriptState) ?? "updated"}\n`,
           );
-          break;
-        case "team_task_updated":
-          flushStream();
-          log.raw.log(
-            `\n[Team Task] ${event.status} ${event.goal}${
-              event.assigneeMemberId ? ` (${event.assigneeMemberId})` : ""
-            }\n`,
-          );
-          break;
-        case "team_message":
-          flushStream();
-          log.raw.log(
-            `\n[Team Message] ${event.fromMemberId}${
-              event.toMemberId ? ` -> ${event.toMemberId}` : ""
-            } ${event.contentPreview}\n`,
-          );
-          break;
-        case "team_member_activity":
-          flushStream();
-          log.raw.log(
-            `\n[Team Worker] ${event.memberLabel} ${event.summary}\n`,
-          );
-          break;
-        case "team_plan_review_required":
-          flushStream();
-          log.raw.log(
-            `\n[Team Plan Review] requested for task ${event.taskId}\n`,
-          );
-          break;
-        case "team_plan_review_resolved":
-          flushStream();
-          log.raw.log(
-            `\n[Team Plan Review] ${
-              event.approved ? "approved" : "rejected"
-            } for task ${event.taskId}\n`,
-          );
-          break;
-        case "team_shutdown_requested":
-          flushStream();
-          log.raw.log(
-            `\n[Team Shutdown] requested for ${event.memberId}\n`,
-          );
-          break;
-        case "team_shutdown_resolved":
-          flushStream();
-          log.raw.log(
-            `\n[Team Shutdown] ${event.status} for ${event.memberId}\n`,
-          );
-          break;
-        case "batch_progress_updated":
-          // Suppress when delegate group already shows richer data
-          if (!activeDelegateGroups.has(event.snapshot.batchId)) {
-            flushStream();
-            log.raw.log(
-              `\n[Batch ${event.snapshot.batchId}] ${event.snapshot.running} running \u00b7 ${event.snapshot.completed} completed \u00b7 ${event.snapshot.errored} errored \u00b7 ${event.snapshot.cancelled} cancelled\n`,
-            );
-          }
           break;
         case "plan_review_required":
           flushStream();
@@ -968,8 +904,41 @@ export async function askCommand(args: string[]): Promise<void> {
           thinkingShown = true;
         }
         break;
+      case "agent_spawn":
+        clearThinking();
+        flushStream();
+        log.raw.log(formatAgentHeader(event.agentType, event.description));
+        log.raw.log(
+          `  ${
+            event.isAsync
+              ? "⎿ Backgrounded"
+              : "⎿ In progress…"
+          }`,
+        );
+        break;
+      case "agent_progress":
+        clearThinking();
+        flushStream();
+        log.raw.log(`  ${formatAgentProgress(event.toolUseCount, event.durationMs)}`);
+        break;
+      case "agent_complete":
+        clearThinking();
+        flushStream();
+        log.raw.log(
+          `  ${
+            formatAgentCompletion({
+              success: event.success,
+              toolUseCount: event.toolUseCount,
+              totalTokens: event.totalTokens,
+              durationMs: event.durationMs,
+            })
+          }`,
+        );
+        break;
       case "tool_start":
-        if (event.name === "delegate_agent") return;
+        if (event.name === AGENT_TOOL_NAME) {
+          return;
+        }
         clearThinking();
         flushStream();
         log.raw.write(
@@ -986,7 +955,10 @@ export async function askCommand(args: string[]): Promise<void> {
       case "tool_progress":
         break;
       case "tool_end": {
-        if (event.name === "ask_user" || event.name === "delegate_agent") {
+        if (event.name === "ask_user") {
+          return;
+        }
+        if (event.name === AGENT_TOOL_NAME && event.success) {
           return;
         }
         const transcriptResult = resolveToolTranscriptResult(event.name, {
@@ -1040,127 +1012,7 @@ export async function askCommand(args: string[]): Promise<void> {
         }
         break;
       }
-      case "delegate_start":
-        clearThinking();
-        flushStream();
-        if (event.batchId) {
-          const entries = activeDelegateGroups.get(event.batchId) ?? [];
-          entries.push({
-            id: `dge-${++groupEntryCounter}`,
-            agent: event.agent,
-            task: event.task,
-            status: "queued",
-            threadId: event.threadId,
-            nickname: event.nickname,
-            childSessionId: event.childSessionId,
-          });
-          activeDelegateGroups.set(event.batchId, entries);
-          log.raw.write(
-            `${CLEAR_LINE}  ${DIM}${
-              formatDelegateGroupForCli(entries, false)
-            }${RESET}`,
-          );
-          toolInProgress = true;
-        } else {
-          log.raw.write(
-            `  ${DIM}\u2847 delegate ${event.agent} ${
-              truncate(event.task, 60)
-            }${RESET}`,
-          );
-          toolInProgress = true;
-        }
-        break;
-      case "delegate_running": {
-        for (const [, entries] of activeDelegateGroups) {
-          const match = entries.find(
-            (e) => e.threadId === event.threadId && e.status === "queued",
-          );
-          if (match) {
-            match.status = "running";
-            log.raw.write(
-              `${CLEAR_LINE}  ${DIM}${
-                formatDelegateGroupForCli(entries, false)
-              }${RESET}`,
-            );
-            break;
-          }
-        }
-        break;
-      }
-      case "delegate_end": {
-        if (event.batchId && activeDelegateGroups.has(event.batchId)) {
-          const entries = activeDelegateGroups.get(event.batchId)!;
-          const isCancelled = !event.success &&
-            event.error?.toLowerCase().includes("abort");
-          const match = entries.find((e) =>
-            (event.threadId && e.threadId === event.threadId) ||
-            (e.agent === event.agent && e.task === event.task &&
-              (e.status === "running" || e.status === "queued"))
-          );
-          if (match) {
-            match.status = isCancelled
-              ? "cancelled"
-              : event.success
-              ? "success"
-              : "error";
-            match.summary = event.summary;
-            match.error = event.error;
-            match.durationMs = event.durationMs;
-            match.snapshot = event.snapshot;
-          }
-          const allDone = entries.every((e) =>
-            e.status === "success" || e.status === "error" ||
-            e.status === "cancelled"
-          );
-          log.raw.write(
-            `${CLEAR_LINE}  ${
-              allDone
-                ? entries.some((e) =>
-                    e.status === "error" || e.status === "cancelled"
-                  )
-                  ? `${RED}\u2717${RESET}`
-                  : `${GREEN}\u2713${RESET}`
-                : DIM
-            } ${formatDelegateGroupForCli(entries, false)}${
-              allDone ? "" : RESET
-            }\n`,
-          );
-          if (allDone) {
-            toolInProgress = false;
-          }
-        } else if (toolInProgress) {
-          const icon = event.success
-            ? `${GREEN}\u2713${RESET}`
-            : `${RED}\u2717${RESET}`;
-          const dur = event.durationMs
-            ? ` ${DIM}(${(event.durationMs / 1000).toFixed(1)}s)${RESET}`
-            : "";
-          const summary = event.success
-            ? event.summary ?? "Delegation complete."
-            : `Error: ${event.error ?? "Delegation failed."}`;
-          log.raw.write(
-            `${CLEAR_LINE}  ${icon} delegate ${event.agent} ${DIM}\u2192${RESET} ${summary}${dur}\n`,
-          );
-          toolInProgress = false;
-        } else {
-          flushStream();
-          const summary = event.success
-            ? event.summary ?? "Delegation complete."
-            : `Error: ${event.error ?? "Delegation failed."}`;
-          log.raw.log(
-            `delegate ${event.agent} ${DIM}\u2192${RESET} ${summary}\n`,
-          );
-        }
-        break;
-      }
       case "todo_updated":
-      case "team_task_updated":
-      case "team_message":
-      case "team_plan_review_required":
-      case "team_plan_review_resolved":
-      case "team_shutdown_requested":
-      case "team_shutdown_resolved":
-      case "batch_progress_updated":
       case "plan_created":
       case "plan_step":
       case "plan_review_required":
@@ -1345,17 +1197,6 @@ export async function askCommand(args: string[]): Promise<void> {
     throw executionError;
   }
   throw executionError;
-}
-
-function formatDelegateSnapshotForVerboseMode(
-  snapshot?: DelegateTranscriptSnapshot,
-): string {
-  if (!snapshot) return "";
-  const lines: string[] = ["  Child transcript:"];
-  for (const line of listDelegateTranscriptLines(snapshot)) {
-    if (line) lines.push(`    ${line}`);
-  }
-  return lines.join("\n");
 }
 
 async function resolveAskAttachmentIds(

@@ -2,7 +2,7 @@
  * Task Manager
  *
  * Manages background tasks with observable pattern for React integration.
- * Supports concurrent model downloads with progress tracking and cancellation.
+ * Supports model downloads and HQL evaluations with progress tracking and cancellation.
  *
  * Design principles:
  * 1. Single source of truth for task state
@@ -13,7 +13,6 @@
 
 import {
   canTransition,
-  type DelegateTask,
   type EvalProgress,
   type EvalTask,
   type ModelPullTask,
@@ -23,8 +22,6 @@ import {
   type TaskEventListener,
   type TaskStatus,
 } from "./types.ts";
-import type { DelegateTranscriptSnapshot } from "../../../agent/delegate-transcript.ts";
-import { cancelThread } from "../../../agent/delegate-threads.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { log } from "../../../api/log.ts";
 import { RuntimeError, ValidationError } from "../../../../common/error.ts";
@@ -130,18 +127,6 @@ export class TaskManager {
   private tasks = new Map<string, Task>();
   private resources = new ResourceRegistry();
   private inFlightPulls = new Set<Promise<void>>();
-  private pendingDelegateLifecycle = new Map<
-    string,
-    {
-      started?: boolean;
-      terminal?: {
-        status: "completed" | "failed" | "cancelled";
-        summary?: string;
-        error?: Error;
-        snapshot?: DelegateTranscriptSnapshot;
-      };
-    }
-  >();
 
   // Observable pattern (same as ReplState)
   private listeners = new Set<() => void>();
@@ -738,243 +723,6 @@ export class TaskManager {
   }
 
   // ============================================================
-  // Delegate Task Operations (Background Agent Delegation)
-  // ============================================================
-
-  /**
-   * Create a delegate task for tracking a background agent.
-   * Returns task ID.
-   */
-  createDelegateTask(
-    threadId: string,
-    agent: string,
-    nickname: string,
-    task: string,
-  ): string {
-    if (this.resources.shuttingDown) {
-      throw new RuntimeError("TaskManager is shutting down");
-    }
-
-    const existing = this.findDelegateTaskByThreadId(threadId);
-    if (existing) {
-      return existing.id;
-    }
-
-    const pendingLifecycle = this.pendingDelegateLifecycle.get(threadId);
-    const terminalStatus = pendingLifecycle?.terminal?.status;
-    const initialStatus = terminalStatus ??
-      (pendingLifecycle?.started ? "running" : "pending");
-    const completedAt = terminalStatus ? Date.now() : undefined;
-    const startedAt = initialStatus === "running" || terminalStatus
-      ? Date.now()
-      : undefined;
-
-    const id = crypto.randomUUID();
-    const delegateTask: DelegateTask = Object.freeze({
-      id,
-      type: "delegate" as const,
-      label: `${nickname} [${agent}]: ${truncate(task, 40)}`,
-      status: initialStatus,
-      createdAt: Date.now(),
-      startedAt,
-      completedAt,
-      agent,
-      task,
-      nickname,
-      threadId,
-      progress: undefined,
-      summary: pendingLifecycle?.terminal?.summary,
-      error: pendingLifecycle?.terminal?.error,
-      snapshot: pendingLifecycle?.terminal?.snapshot,
-      childSessionId: pendingLifecycle?.terminal?.snapshot?.childSessionId,
-    });
-
-    this.tasks.set(id, delegateTask);
-    this.pendingDelegateLifecycle.delete(threadId);
-    this.notify();
-    this.emit({ type: "task:created", task: delegateTask });
-    if (initialStatus === "running") {
-      this.emit({ type: "task:started", taskId: id });
-    } else if (terminalStatus === "completed") {
-      this.emit({
-        type: "task:completed",
-        taskId: id,
-        result: delegateTask.summary,
-      });
-    } else if (terminalStatus === "failed" && delegateTask.error) {
-      this.emit({ type: "task:failed", taskId: id, error: delegateTask.error });
-    } else if (terminalStatus === "cancelled") {
-      this.emit({ type: "task:cancelled", taskId: id });
-    }
-    if (terminalStatus) {
-      this.pruneTerminalTasks();
-    }
-    return id;
-  }
-
-  /**
-   * Transition a delegate task from pending (queued) to running (slot acquired).
-   */
-  startDelegateTask(taskId: string): void {
-    const task = this.tasks.get(taskId);
-    if (!task || task.type !== "delegate") return;
-    if (this.transition(taskId, "running", { silent: true })) {
-      this.emit({ type: "task:started", taskId });
-    }
-  }
-
-  /**
-   * Mark a delegate thread as running, buffering the transition if the UI task
-   * has not been created yet.
-   */
-  markDelegateThreadRunning(threadId: string): void {
-    const task = this.findDelegateTaskByThreadId(threadId);
-    if (task) {
-      this.startDelegateTask(task.id);
-      return;
-    }
-    const pending = this.pendingDelegateLifecycle.get(threadId) ?? {};
-    pending.started = true;
-    this.pendingDelegateLifecycle.set(threadId, pending);
-  }
-
-  private finalizeDelegateTask(
-    taskId: string,
-    outcome: {
-      status: "completed" | "failed" | "cancelled";
-      summary?: string;
-      error?: Error;
-      snapshot?: DelegateTranscriptSnapshot;
-    },
-  ): boolean {
-    const task = this.tasks.get(taskId);
-    if (!task || task.type !== "delegate") return false;
-
-    const delegateTask = task as DelegateTask;
-    const next: DelegateTask = Object.freeze({
-      ...delegateTask,
-      status: outcome.status === "completed"
-        ? "completed"
-        : outcome.status === "failed"
-        ? "failed"
-        : "cancelled",
-      completedAt: delegateTask.completedAt ?? Date.now(),
-      summary: outcome.status === "completed"
-        ? outcome.summary
-        : delegateTask.summary,
-      error: outcome.status === "completed" ? undefined : outcome.error,
-      snapshot: outcome.snapshot ?? delegateTask.snapshot,
-      childSessionId: outcome.snapshot?.childSessionId ??
-        delegateTask.childSessionId,
-    });
-
-    this.tasks.set(taskId, next);
-    this.notify();
-
-    if (delegateTask.status !== next.status) {
-      if (next.status === "completed") {
-        this.emit({ type: "task:completed", taskId, result: next.summary });
-      } else if (next.status === "failed" && next.error) {
-        this.emit({ type: "task:failed", taskId, error: next.error });
-      } else if (next.status === "cancelled") {
-        this.emit({ type: "task:cancelled", taskId });
-      }
-    }
-
-    this.pruneTerminalTasks();
-
-    return true;
-  }
-
-  /**
-   * Complete a delegate task with optional summary and snapshot.
-   */
-  completeDelegateTask(
-    taskId: string,
-    summary?: string,
-    snapshot?: DelegateTranscriptSnapshot,
-  ): void {
-    this.finalizeDelegateTask(taskId, {
-      status: "completed",
-      summary,
-      snapshot,
-    });
-  }
-
-  /**
-   * Fail a delegate task with error.
-   */
-  failDelegateTask(taskId: string, error: Error): void {
-    this.finalizeDelegateTask(taskId, {
-      status: "failed",
-      error,
-    });
-  }
-
-  /**
-   * Cancel a delegate task.
-   */
-  cancelDelegateTask(taskId: string): void {
-    this.finalizeDelegateTask(taskId, { status: "cancelled" });
-  }
-
-  /**
-   * Find a delegate task by its thread ID.
-   */
-  findDelegateTaskByThreadId(threadId: string): DelegateTask | undefined {
-    for (const task of this.tasks.values()) {
-      if (
-        task.type === "delegate" && (task as DelegateTask).threadId === threadId
-      ) {
-        return task as DelegateTask;
-      }
-    }
-    return undefined;
-  }
-
-  /**
-   * Resolve a delegate thread by thread ID, buffering the terminal state if the
-   * task has not been created yet.
-   */
-  resolveDelegateThread(
-    threadId: string,
-    result: {
-      success: boolean;
-      summary?: string;
-      error?: string;
-      snapshot?: DelegateTranscriptSnapshot;
-    },
-  ): void {
-    const status = result.success
-      ? "completed"
-      : result.error?.toLowerCase().includes("abort")
-      ? "cancelled"
-      : "failed";
-    const pendingError = !result.success && result.error
-      ? new Error(result.error)
-      : undefined;
-    const task = this.findDelegateTaskByThreadId(threadId);
-    if (task) {
-      this.finalizeDelegateTask(task.id, {
-        status,
-        summary: result.summary,
-        error: pendingError,
-        snapshot: result.snapshot,
-      });
-      return;
-    }
-
-    const pending = this.pendingDelegateLifecycle.get(threadId) ?? {};
-    pending.terminal = {
-      status,
-      summary: result.summary,
-      error: pendingError,
-      snapshot: result.snapshot,
-    };
-    this.pendingDelegateLifecycle.set(threadId, pending);
-  }
-
-  // ============================================================
   // Cancellation Operations
   // ============================================================
 
@@ -995,13 +743,6 @@ export class TaskManager {
         return true;
       }
       return false;
-    }
-
-    // Handle delegate tasks - transition state and abort the thread
-    if (task.type === "delegate") {
-      cancelThread((task as DelegateTask).threadId);
-      this.cancelDelegateTask(taskId);
-      return true;
     }
 
     // Handle model pull tasks - abort the controller and transition state
@@ -1073,7 +814,6 @@ export class TaskManager {
         await Promise.allSettled(pendingPulls);
       }
       this.tasks.clear();
-      this.pendingDelegateLifecycle.clear();
       this.listeners.clear();
       this.eventListeners.clear();
       this.inFlightPulls.clear();

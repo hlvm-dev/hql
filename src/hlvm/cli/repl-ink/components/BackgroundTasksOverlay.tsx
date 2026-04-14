@@ -1,13 +1,9 @@
 /**
  * Tasks Overlay — Claude Code-Style Task Management
  *
- * True floating overlay showing both agent team tasks (TaskCreate/TaskUpdate)
- * and background eval/delegate tasks. Matches Claude Code's task management TUI:
+ * True floating overlay showing background eval tasks and local agents.
  *
- * - Shared tasks shown with ○ pending / ● in_progress / ✓ completed status
- * - Task IDs (#1, #2) and owner/assignee
- * - activeForm text shown for in_progress tasks
- * - Background eval/delegate tasks in a separate section
+ * - Tasks shown with ○ pending / ● in_progress / ✓ completed status
  * - ↑↓ navigation, Enter to view, x to dismiss, c to clear
  */
 
@@ -22,18 +18,11 @@ import { useInput, useStdout } from "ink";
 import { useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import {
-  type DelegateTask,
   type EvalTask,
-  isDelegateTask,
   isEvalTask,
   isTaskActive,
   type Task,
 } from "../../repl/task-manager/types.ts";
-import type {
-  TaskBoardItem,
-  TeamDashboardState,
-  TeamMemberItem,
-} from "../hooks/useTeamState.ts";
 import { calculateScrollWindow } from "../completion/navigation.ts";
 import { formatEvalTaskResultLines } from "../utils/eval-task-results.ts";
 import {
@@ -56,14 +45,8 @@ import {
   buildBalancedTextRow,
   buildSectionLabelText,
 } from "../utils/display-chrome.ts";
-import { cancelThread } from "../../../agent/delegate-threads.ts";
-import { loadRecentMessages } from "../../../store/message-utils.ts";
 import type { LocalAgentEntry } from "../utils/local-agents.ts";
 import { summarizeLocalAgentFleet } from "../utils/local-agents.ts";
-import {
-  buildTeamDashboardDetailLines,
-  type DashboardItem,
-} from "./TeamDashboardOverlay.tsx";
 
 // ============================================================
 // Types
@@ -71,12 +54,7 @@ import {
 
 interface BackgroundTasksOverlayProps {
   onClose: () => void;
-  /** Shared task board from teamState.taskBoard (Claude Code TaskCreate/TaskUpdate). */
-  teamTasks?: TaskBoardItem[];
   localAgents?: LocalAgentEntry[];
-  teamState?: TeamDashboardState;
-  interactionMode?: "permission" | "question";
-  interactionSourceMemberId?: string;
   initialSelectedItemId?: string;
   initialViewMode?: ViewMode;
   onForegroundLocalAgent?: (agent: LocalAgentEntry) => boolean;
@@ -86,11 +64,11 @@ type ViewMode = "list" | "result";
 
 /**
  * Unified task item displayed in the overlay.
- * Wraps both team tasks (TaskBoardItem) and eval/delegate tasks (Task).
+ * Wraps both eval tasks (Task) and local agents.
  */
 export interface UnifiedTaskItem {
   id: string;
-  kind: "team" | "eval" | "delegate" | "local_agent" | "section";
+  kind: "eval" | "local_agent" | "section";
   label: string;
   status: string;
   statusText: string;
@@ -101,7 +79,6 @@ export interface UnifiedTaskItem {
   activeForm?: string;
   /** Original task reference for actions. */
   bgTask?: Task;
-  teamTask?: TaskBoardItem;
   localAgent?: LocalAgentEntry;
 }
 
@@ -118,7 +95,6 @@ interface TaskSummary {
   failed: number;
   totalReal: number;
   localAgentCount: number;
-  teamCount: number;
   evalCount: number;
   localAgents: LocalAgentEntry[];
 }
@@ -126,7 +102,7 @@ interface TaskSummary {
 function summarizeTaskItems(items: UnifiedTaskItem[]): TaskSummary {
   const summary: TaskSummary = {
     pending: 0, inProgress: 0, completed: 0, failed: 0,
-    totalReal: 0, localAgentCount: 0, teamCount: 0, evalCount: 0,
+    totalReal: 0, localAgentCount: 0, evalCount: 0,
     localAgents: [],
   };
   for (const item of items) {
@@ -136,7 +112,7 @@ function summarizeTaskItems(items: UnifiedTaskItem[]): TaskSummary {
       summary.localAgentCount++;
       summary.localAgents.push(item.localAgent ?? {
         id: item.id,
-        kind: "delegate" as const,
+        kind: "agent" as const,
         name: item.label,
         label: item.label,
         status: item.status as LocalAgentEntry["status"],
@@ -145,8 +121,6 @@ function summarizeTaskItems(items: UnifiedTaskItem[]): TaskSummary {
         overlayTarget: "background-tasks" as const,
         overlayItemId: item.id,
       });
-    } else if (item.kind === "team") {
-      summary.teamCount++;
     } else if (item.kind === "eval") {
       summary.evalCount++;
     }
@@ -182,9 +156,7 @@ export function buildBackgroundTasksSummaryRows(
     const secondary = buildBalancedTextRow(
       contentWidth,
       viewingItem.label,
-      viewingItem.kind === "team"
-        ? "shared task"
-        : viewingItem.kind === "local_agent"
+      viewingItem.kind === "local_agent"
         ? "local agent"
         : "background",
     );
@@ -203,10 +175,8 @@ export function buildBackgroundTasksSummaryRows(
     );
     const secondary = buildBalancedTextRow(
       contentWidth,
-      s.teamCount > 0
-        ? "Agents above · shared tasks below"
-        : s.evalCount > 0
-        ? "Agents above · evals below"
+      s.evalCount > 0
+        ? "Agents above \u00B7 evals below"
         : "Task manager",
       s.totalReal > 0 ? `${selectedIndex + 1}/${s.totalReal}` : "empty",
     );
@@ -275,12 +245,10 @@ function resolveStatusDisplay(
 
 function buildUnifiedItems(
   localAgents: LocalAgentEntry[],
-  teamTasks: TaskBoardItem[],
   bgTasks: Task[],
   colors: { warning: RGB; success: RGB; error: RGB; muted: RGB; accent: RGB },
 ): UnifiedTaskItem[] {
   const items: UnifiedTaskItem[] = [];
-  const delegateTasks = localAgents.length > 0 ? [] : bgTasks.filter(isDelegateTask);
   const evalTasks = bgTasks.filter(isEvalTask);
 
   const sectionColor: RGB = [0, 0, 0]; // placeholder for non-rendered sections
@@ -306,7 +274,7 @@ function buildUnifiedItems(
       items.push({
         id: agent.id,
         kind: "local_agent",
-        label: `${agent.name} · ${agent.label}`,
+        label: `${agent.name} \u00B7 ${agent.label}`,
         status: agent.status,
         statusText: agent.statusLabel || statusText,
         icon,
@@ -317,95 +285,7 @@ function buildUnifiedItems(
     }
   }
 
-  // Shared task board next (Claude Code TaskCreate/TaskUpdate)
-  if (teamTasks.length > 0) {
-    items.push({
-      id: "__section_team__",
-      kind: "section",
-      label: "Shared tasks",
-      status: "",
-      statusText: "",
-      icon: "",
-      iconColor: sectionColor,
-      blocked: false,
-    });
-
-    for (const tt of teamTasks) {
-      const blocked = tt.blockedBy.length > 0;
-      const isActive = tt.status === "in_progress" || tt.status === "claimed";
-      const { icon, iconColor, statusText } = resolveStatusDisplay(
-        tt.status,
-        blocked,
-        colors,
-      );
-      // When in_progress with activeForm, show activeForm as label (Claude Code parity)
-      const displayLabel = isActive && tt.activeForm
-        ? `#${tt.id} ${tt.activeForm}`
-        : `#${tt.id} ${tt.goal}`;
-      items.push({
-        id: `team:${tt.id}`,
-        kind: "team",
-        label: displayLabel,
-        status: tt.status,
-        statusText: tt.assignee ? `@${tt.assignee}` : statusText,
-        icon,
-        iconColor,
-        owner: tt.assignee,
-        blocked,
-        activeForm: tt.activeForm,
-        teamTask: tt,
-      });
-    }
-  }
-
-  if (delegateTasks.length > 0) {
-    if (teamTasks.length > 0) {
-      items.push({
-        id: "__section_agents__",
-        kind: "section",
-        label: "Local agents",
-        status: "",
-        statusText: "",
-        icon: "",
-        iconColor: sectionColor,
-        blocked: false,
-      });
-    }
-
-    for (const task of delegateTasks) {
-      const { icon, iconColor, statusText } = resolveStatusDisplay(
-        task.status,
-        false,
-        colors,
-      );
-      items.push({
-        id: `bg:${task.id}`,
-        kind: "delegate",
-        label: task.task,
-        status: task.status,
-        statusText,
-        icon,
-        iconColor,
-        blocked: false,
-        bgTask: task,
-      });
-    }
-  }
-
   if (evalTasks.length > 0) {
-    if (teamTasks.length > 0 || delegateTasks.length > 0) {
-      items.push({
-        id: "__section_eval__",
-        kind: "section",
-        label: "Background evals",
-        status: "",
-        statusText: "",
-        icon: "",
-        iconColor: sectionColor,
-        blocked: false,
-      });
-    }
-
     for (const task of evalTasks) {
       const { icon, iconColor, statusText } = resolveStatusDisplay(
         task.status,
@@ -429,144 +309,16 @@ function buildUnifiedItems(
   return items;
 }
 
-interface DelegateSessionMessageLike {
-  role: string;
-  content: string;
-  tool_name?: string | null;
-}
-
-function summarizeDelegateMessage(content: string): string {
-  return content.split("\n").map((line) => line.trim()).find(Boolean) ??
-    content.trim();
-}
-
-export function buildDelegateTaskDetailLines(
-  task: DelegateTask,
-  sessionMessages: DelegateSessionMessageLike[] = [],
-): string[] {
-  const lines: string[] = [];
-  lines.push(`Agent: ${task.nickname} [${task.agent}]`);
-  lines.push(`Task: ${task.task}`);
-  lines.push(`Status: ${task.status}`);
-
-  const prompt = sessionMessages.find((message) =>
-    message.role === "user" && message.content.trim().length > 0
-  )?.content.trim();
-  if (prompt) {
-    lines.push("", "--- Prompt ---", ...prompt.split("\n"));
-  }
-
-  const toolMessages = sessionMessages.filter((message) =>
-    message.role === "tool" && message.content.trim().length > 0
-  );
-  if (toolMessages.length > 0) {
-    lines.push("", "--- Progress ---");
-    for (const message of toolMessages.slice(-8)) {
-      lines.push(
-        `- ${message.tool_name ?? "tool"}: ${
-          summarizeDelegateMessage(message.content)
-        }`,
-      );
-    }
-  } else if (task.snapshot?.events.length) {
-    lines.push("", "--- Progress ---");
-    for (const event of task.snapshot.events) {
-      if (event.type === "tool_end") {
-        lines.push(
-          `- ${event.name}: ${
-            event.summary ?? event.content ?? `${event.name} completed`
-          }`,
-        );
-      }
-    }
-  }
-
-  const finalAssistant = [...sessionMessages].reverse().find((message) =>
-    message.role === "assistant" && message.content.trim().length > 0
-  )?.content.trim();
-  if (finalAssistant) {
-    lines.push("", "--- Result ---", ...finalAssistant.split("\n"));
-  } else if (task.summary?.trim()) {
-    lines.push("", "--- Result ---", ...task.summary.trim().split("\n"));
-  }
-
-  if (task.error) {
-    lines.push("", "--- Error ---", ...String(task.error).split("\n"));
-  }
-
-  return lines;
-}
-
 function buildLocalAgentDetailLines(
   agent: LocalAgentEntry,
-  teamState: TeamDashboardState | undefined,
-  bgTasks: Task[],
-  interactionMode?: "permission" | "question",
-  interactionSourceMemberId?: string,
 ): string[] {
-  if (agent.kind === "delegate") {
-    const delegateTask = bgTasks.find((task) =>
-      isDelegateTask(task) && (task.id === agent.taskId || task.threadId === agent.threadId)
-    );
-    if (delegateTask && isDelegateTask(delegateTask)) {
-      const sessionMessages = delegateTask.childSessionId
-        ? loadRecentMessages(delegateTask.childSessionId, 32)
-        : [];
-      return buildDelegateTaskDetailLines(delegateTask, sessionMessages);
-    }
-    return [
-      `Agent: ${agent.name}`,
-      `Task: ${agent.label}`,
-      `Status: ${agent.statusLabel}`,
-    ];
-  }
-
-  const member = teamState?.members.find((entry: TeamMemberItem) =>
-    entry.id === agent.memberId
-  );
-  if (!member || !teamState) {
-    return [
-      `Agent: ${agent.name}`,
-      `Task: ${agent.label}`,
-      `Status: ${agent.statusLabel}`,
-    ];
-  }
-
-  const dashboardItem: DashboardItem = {
-    id: `member-${member.id}`,
-    kind: "member",
-    data: member,
-  };
-  return buildTeamDashboardDetailLines(
-    dashboardItem,
-    teamState,
-    interactionMode,
-    interactionSourceMemberId,
-  );
+  return [
+    `Agent: ${agent.name}`,
+    `Task: ${agent.label}`,
+    `Status: ${agent.statusLabel}`,
+  ];
 }
 
-function resolveInterruptibleThreadId(
-  item: UnifiedTaskItem | null | undefined,
-): string | undefined {
-  if (
-    item?.localAgent?.kind !== "teammate" ||
-    !item.localAgent.threadId ||
-    !item.localAgent.interruptible
-  ) {
-    return undefined;
-  }
-  return item.localAgent.threadId;
-}
-
-function isForegroundableLocalAgent(
-  agent: LocalAgentEntry | undefined,
-): agent is LocalAgentEntry {
-  return Boolean(
-    agent &&
-      agent.kind === "teammate" &&
-      agent.foregroundable === true,
-  );
-}
 
 // ============================================================
 // Component
@@ -574,11 +326,7 @@ function isForegroundableLocalAgent(
 
 export function BackgroundTasksOverlay({
   onClose,
-  teamTasks = [],
   localAgents = [],
-  teamState,
-  interactionMode,
-  interactionSourceMemberId,
   initialSelectedItemId,
   initialViewMode = "list",
   onForegroundLocalAgent,
@@ -593,7 +341,6 @@ export function BackgroundTasksOverlay({
     initialViewMode === "result" ? initialSelectedItemId ?? null : null,
   );
   const [resultScrollOffset, setResultScrollOffset] = useState(0);
-  const [liveTick, setLiveTick] = useState(0);
   const terminalColumns = stdout?.columns ?? 0;
   const terminalRows = stdout?.rows ?? 0;
   const overlayFrame = useMemo(
@@ -629,11 +376,9 @@ export function BackgroundTasksOverlay({
   // Theme colors
   const colors = useMemo(() => themeToOverlayColors(theme), [theme]);
 
-  // Filter and sort background tasks (eval + delegate)
+  // Filter and sort background eval tasks
   const bgTasks = useMemo(() => {
-    const filtered = tasks.filter((t: Task) =>
-      isEvalTask(t) || isDelegateTask(t)
-    );
+    const filtered = tasks.filter((t: Task) => isEvalTask(t));
     return filtered.sort((a: Task, b: Task) => {
       const aActive = isTaskActive(a) ? 0 : 1;
       const bActive = isTaskActive(b) ? 0 : 1;
@@ -644,8 +389,8 @@ export function BackgroundTasksOverlay({
 
   // Build unified item list
   const unifiedItems = useMemo(
-    () => buildUnifiedItems(localAgents, teamTasks, bgTasks, colors),
-    [localAgents, teamTasks, bgTasks, colors],
+    () => buildUnifiedItems(localAgents, bgTasks, colors),
+    [localAgents, bgTasks, colors],
   );
 
   // Get the selected unified item (skip sections)
@@ -671,84 +416,25 @@ export function BackgroundTasksOverlay({
   const resolveManagedTask = useCallback((item: UnifiedTaskItem | null | undefined) => {
     if (!item) return undefined;
     if (item.bgTask) return item.bgTask;
-    if (item.localAgent?.kind === "delegate") {
-      return bgTasks.find((task: Task) =>
-        isDelegateTask(task) &&
-        (task.id === item.localAgent?.taskId || task.threadId === item.localAgent?.threadId)
-      );
-    }
     return undefined;
-  }, [bgTasks]);
+  }, []);
 
   // Format result for display
   const resultLines = useMemo(() => {
     if (!viewingItem) return [];
     if (viewingItem.localAgent) {
-      return buildLocalAgentDetailLines(
-        viewingItem.localAgent,
-        teamState,
-        bgTasks,
-        interactionMode,
-        interactionSourceMemberId,
-      );
+      return buildLocalAgentDetailLines(viewingItem.localAgent);
     }
     if (viewingItem.bgTask) {
       if (isEvalTask(viewingItem.bgTask)) {
         return formatEvalTaskResultLines(viewingItem.bgTask);
       }
-      if (isDelegateTask(viewingItem.bgTask)) {
-        const dt = viewingItem.bgTask as DelegateTask;
-        const sessionMessages = dt.childSessionId
-          ? loadRecentMessages(dt.childSessionId, 32)
-          : [];
-        return buildDelegateTaskDetailLines(dt, sessionMessages);
-      }
-    }
-    if (viewingItem.teamTask) {
-      const tt = viewingItem.teamTask;
-      const lines: string[] = [];
-      lines.push(`Shared task #${tt.id}: ${tt.goal}`);
-      lines.push(`Status: ${tt.status}`);
-      if (tt.assignee) lines.push(`Assignee: @${tt.assignee}`);
-      if (tt.blockedBy.length > 0) {
-        lines.push(`Blocked by: ${tt.blockedBy.map((id: string) => `#${id}`).join(", ")}`);
-      }
-      if (tt.mergeState) lines.push(`Merge: ${tt.mergeState}`);
-      if (tt.reviewStatus) lines.push(`Review: ${tt.reviewStatus}`);
-      return lines;
     }
     return [];
   }, [
     bgTasks,
-    interactionMode,
-    interactionSourceMemberId,
-    liveTick,
-    teamState,
     viewingItem,
   ]);
-
-  useEffect(() => {
-    const activeDelegateSessionId = viewingItem?.localAgent?.kind === "delegate" &&
-        viewingItem.localAgent.childSessionId
-      ? viewingItem.localAgent.childSessionId
-      : viewingItem?.bgTask &&
-          isDelegateTask(viewingItem.bgTask) &&
-          viewingItem.bgTask.status === "running" &&
-          viewingItem.bgTask.childSessionId
-      ? viewingItem.bgTask.childSessionId
-      : undefined;
-    const activeTeammateThreadId = resolveInterruptibleThreadId(viewingItem);
-    if (
-      viewMode !== "result" ||
-      (!activeDelegateSessionId && !activeTeammateThreadId)
-    ) {
-      return;
-    }
-    const timer = setInterval(() => {
-      setLiveTick((current: number) => current + 1);
-    }, 400);
-    return () => clearInterval(timer);
-  }, [viewMode, viewingItem]);
 
   // Reset selection if out of bounds
   useEffect(() => {
@@ -931,14 +617,11 @@ export function BackgroundTasksOverlay({
     const footerY = overlayFrame.y + chromeLayout.footerY;
     const selectedItem = selectableItems[selectedIndex];
     const managedTask = resolveManagedTask(selectedItem);
-    const interruptibleThreadId = resolveInterruptibleThreadId(selectedItem);
-    const canInterrupt = (managedTask != null &&
-        isTaskActive(managedTask)) ||
-      Boolean(interruptibleThreadId);
+    const canInterrupt = managedTask != null && isTaskActive(managedTask);
     const canDismiss = managedTask != null && !canInterrupt;
     const canForeground = Boolean(
       onForegroundLocalAgent &&
-        isForegroundableLocalAgent(selectedItem?.localAgent),
+        false,
     );
     const listHints = canInterrupt && canForeground
       ? "\u2191/\u2193 select  Enter/Space view  f foreground  k interrupt  Esc close"
@@ -952,15 +635,11 @@ export function BackgroundTasksOverlay({
       ? "\u2191/\u2193 select  Enter/Space view  f foreground  Esc close"
       : "\u2191/\u2193 select  Enter/Space view  Esc close";
     const detailManagedTask = resolveManagedTask(viewingItem);
-    const detailInterruptibleThreadId = resolveInterruptibleThreadId(
-      viewingItem,
-    );
     const detailCanForeground = Boolean(
       onForegroundLocalAgent &&
-        isForegroundableLocalAgent(viewingItem?.localAgent),
+        false,
     );
-    const detailHints = ((detailManagedTask && isTaskActive(detailManagedTask)) ||
-        detailInterruptibleThreadId)
+    const detailHints = (detailManagedTask && isTaskActive(detailManagedTask))
       ? detailCanForeground
         ? "\u2191/\u2193 scroll  f foreground  k interrupt  Enter/Space/Esc close"
         : "\u2191/\u2193 scroll  k interrupt  Enter/Space/Esc close"
@@ -1040,7 +719,6 @@ export function BackgroundTasksOverlay({
   useInput((input, key) => {
     if (viewMode === "result") {
       const managedTask = resolveManagedTask(viewingItem);
-      const interruptibleThreadId = resolveInterruptibleThreadId(viewingItem);
       if (
         input === "k" &&
         managedTask &&
@@ -1049,13 +727,9 @@ export function BackgroundTasksOverlay({
         cancel(managedTask.id);
         return;
       }
-      if (input === "k" && interruptibleThreadId) {
-        cancelThread(interruptibleThreadId);
-        return;
-      }
       if (
         input === "f" &&
-        isForegroundableLocalAgent(viewingItem?.localAgent) &&
+        false &&
         onForegroundLocalAgent?.(viewingItem.localAgent)
       ) {
         return;
@@ -1102,7 +776,7 @@ export function BackgroundTasksOverlay({
 
     if (
       input === "f" &&
-      isForegroundableLocalAgent(selectableItems[selectedIndex]?.localAgent) &&
+      false &&
       onForegroundLocalAgent?.(selectableItems[selectedIndex].localAgent)
     ) {
       return;
@@ -1128,11 +802,10 @@ export function BackgroundTasksOverlay({
       return;
     }
 
-    // Cancel/dismiss (only for eval/delegate tasks)
+    // Cancel/dismiss (only for eval tasks)
     if ((input === "x" || input === "k") && selectableItems[selectedIndex]) {
       const item = selectableItems[selectedIndex];
       const managedTask = resolveManagedTask(item);
-      const interruptibleThreadId = resolveInterruptibleThreadId(item);
       if (managedTask) {
         if (isTaskActive(managedTask)) {
           if (input === "k") {
@@ -1141,8 +814,6 @@ export function BackgroundTasksOverlay({
         } else if (input === "x") {
           removeTask(managedTask.id);
         }
-      } else if (input === "k" && interruptibleThreadId) {
-        cancelThread(interruptibleThreadId);
       }
       return;
     }

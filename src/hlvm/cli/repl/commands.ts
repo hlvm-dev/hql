@@ -16,7 +16,6 @@ import {
 } from "../../runtime/host-client.ts";
 import {
   getTaskManager,
-  isDelegateTask,
   isEvalTask,
   isModelPullTask,
   isTaskActive,
@@ -293,15 +292,6 @@ export const commands: Record<string, Command> = {
             : task.progress.status;
           context.output(
             `  ${icon}  ${preview} ${detail.padEnd(20)} ${timeSuffix}`,
-          );
-        } else if (isDelegateTask(task)) {
-          const label = `${task.nickname} (${task.agent}): ${
-            task.task.slice(0, 20)
-          }`;
-          context.output(
-            `  ${icon}  ${label.padEnd(36)} ${
-              task.status.padEnd(12)
-            } ${timeSuffix}`,
           );
         } else {
           context.output(`  ${icon}  ${task.label}  (${task.status})`);

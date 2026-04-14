@@ -15,8 +15,6 @@ import type { ToggleTarget } from "../components/TimelineItemRenderer.tsx";
 export interface ExpansionCallbacks {
   isToolExpanded: (id: string) => boolean;
   isThinkingExpanded: (id: string) => boolean;
-  isDelegateExpanded: (id: string) => boolean;
-  isDelegateGroupExpanded: (id: string) => boolean;
   isMemoryExpanded: (id: string) => boolean;
   toggleTarget: (target: ToggleTarget) => void;
 }
@@ -34,7 +32,7 @@ interface UseExpansionStateOptions {
 // ============================================================================
 
 /**
- * Manages expansion state for tool, thinking, delegate, delegateGroup,
+ * Manages expansion state for tool, thinking,
  * and memory timeline items.
  *
  * @param resetSignal - When this value changes to 0 (empty items),
@@ -53,12 +51,6 @@ export function useExpansionState(
   const [expandedThinkingIds, setExpandedThinkingIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [expandedDelegateIds, setExpandedDelegateIds] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [expandedDelegateGroupIds, setExpandedDelegateGroupIds] = useState<
-    Set<string>
-  >(() => new Set());
   const [expandedMemoryIds, setExpandedMemoryIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -68,8 +60,6 @@ export function useExpansionState(
     if (resetSignal === 0) {
       setExpandedToolIds(new Set());
       setExpandedThinkingIds(new Set());
-      setExpandedDelegateIds(new Set());
-      setExpandedDelegateGroupIds(new Set());
       setExpandedMemoryIds(new Set());
     }
   }, [resetSignal]);
@@ -81,14 +71,6 @@ export function useExpansionState(
   const isThinkingExpanded = useCallback(
     (id: string): boolean => expandAll || expandedThinkingIds.has(id),
     [expandAll, expandedThinkingIds],
-  );
-  const isDelegateExpanded = useCallback(
-    (id: string): boolean => expandAll || expandedDelegateIds.has(id),
-    [expandAll, expandedDelegateIds],
-  );
-  const isDelegateGroupExpanded = useCallback(
-    (id: string): boolean => expandAll || expandedDelegateGroupIds.has(id),
-    [expandAll, expandedDelegateGroupIds],
   );
   const isMemoryExpanded = useCallback(
     (id: string): boolean => expandAll || expandedMemoryIds.has(id),
@@ -107,10 +89,6 @@ export function useExpansionState(
       });
     };
     if (target.kind === "tool") return toggle(setExpandedToolIds);
-    if (target.kind === "delegate") return toggle(setExpandedDelegateIds);
-    if (target.kind === "delegate_group") {
-      return toggle(setExpandedDelegateGroupIds);
-    }
     if (target.kind === "memory") return toggle(setExpandedMemoryIds);
     toggle(setExpandedThinkingIds);
   }, []);
@@ -118,8 +96,6 @@ export function useExpansionState(
   return {
     isToolExpanded,
     isThinkingExpanded,
-    isDelegateExpanded,
-    isDelegateGroupExpanded,
     isMemoryExpanded,
     toggleTarget,
   };

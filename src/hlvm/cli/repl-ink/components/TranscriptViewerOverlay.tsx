@@ -18,7 +18,6 @@ import {
   writeToTerminal,
 } from "../overlay/index.ts";
 import type { HqlEvalItem, ShellHistoryEntry } from "../types.ts";
-import { isStructuredTeamInfoItem } from "../types.ts";
 import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
 
 interface TranscriptViewerOverlayProps {
@@ -214,29 +213,6 @@ function buildTranscriptItemLines(
       }
       return result;
     }
-    case "delegate": {
-      const agentLabel = item.nickname ?? item.agent;
-      const lines: TranscriptOverlayLine[] = [{
-        text: `Delegate ${agentLabel} · ${
-          capitalizeStatus(item.status)
-        } · ${item.task}`,
-        color: item.status === "error"
-          ? colors.error
-          : item.status === "success"
-          ? colors.success
-          : item.status === "running"
-          ? colors.warning
-          : colors.meta,
-        bold: true,
-      }];
-      if (expanded && item.summary) {
-        lines.push({ text: `  ${item.summary}`, color: colors.meta });
-      }
-      if (expanded && item.error) {
-        lines.push({ text: `  Error · ${item.error}`, color: colors.error });
-      }
-      return lines;
-    }
     case "turn_stats": {
       const details = [
         `${item.toolCount} tools`,
@@ -296,18 +272,12 @@ function buildTranscriptItemLines(
         color: colors.error,
         bold: true,
       }];
-    case "info": {
-      const prefix = isStructuredTeamInfoItem(item)
-        ? `Team ${
-          item.teamEventType.replace(/^team_/, "").replaceAll("_", " ")
-        }`
-        : "Info";
+    case "info":
       return [{
-        text: `${prefix} · ${firstNonEmptyLine(item.text) || "(empty)"}`,
+        text: `Info · ${firstNonEmptyLine(item.text) || "(empty)"}`,
         color: colors.meta,
         bold: true,
       }];
-    }
     case "hql_eval": {
       const lines: TranscriptOverlayLine[] = [{
         text: `HQL · ${firstNonEmptyLine(item.input) || "(empty)"}`,

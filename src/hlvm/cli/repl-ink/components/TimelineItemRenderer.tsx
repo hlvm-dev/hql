@@ -8,18 +8,14 @@ import type {
   StreamingState,
 } from "../types.ts";
 import {
-  isStructuredTeamInfoItem,
   StreamingState as ConversationStreamingState,
 } from "../types.ts";
 import {
   AssistantMessage,
-  DelegateGroup,
-  DelegateItem,
   ErrorMessage,
   HqlEvalDisplay,
   InfoMessage,
   MemoryActivityLine,
-  TeamEventItem,
   ThinkingIndicator,
   ToolGroup,
   TurnStats,
@@ -30,8 +26,6 @@ import { TranscriptDivider } from "./conversation/TranscriptDivider.tsx";
 export type ToggleTarget =
   | { kind: "tool"; id: string }
   | { kind: "thinking"; id: string }
-  | { kind: "delegate"; id: string }
-  | { kind: "delegate_group"; id: string }
   | { kind: "memory"; id: string };
 
 interface TimelineItemRendererProps {
@@ -42,8 +36,6 @@ interface TimelineItemRendererProps {
   showDividerBefore?: boolean;
   isToolExpanded?: (toolId: string) => boolean;
   isThinkingExpanded?: (thinkingId: string) => boolean;
-  isDelegateExpanded?: (delegateId: string) => boolean;
-  isDelegateGroupExpanded?: (groupId: string) => boolean;
   isMemoryExpanded?: (memoryId: string) => boolean;
 }
 
@@ -65,14 +57,6 @@ export function getToggleTargets(
           targets.push({ kind: "tool", id: tool.id });
         }
       }
-      continue;
-    }
-    if (item.type === "delegate" && item.snapshot?.events.length) {
-      targets.push({ kind: "delegate", id: item.id });
-      continue;
-    }
-    if (item.type === "delegate_group" && item.entries.length > 0) {
-      targets.push({ kind: "delegate_group", id: item.id });
       continue;
     }
     if (item.type === "memory_activity" && item.details.length > 0) {
@@ -144,8 +128,6 @@ export function TimelineItemRenderer(
     showDividerBefore = false,
     isToolExpanded,
     isThinkingExpanded,
-    isDelegateExpanded,
-    isDelegateGroupExpanded,
     isMemoryExpanded,
   }: TimelineItemRendererProps,
 ): React.ReactElement {
@@ -191,24 +173,6 @@ export function TimelineItemRenderer(
       />
     );
   }
-  if (item.type === "delegate") {
-    return (
-      <DelegateItem
-        item={item}
-        width={width}
-        expanded={Boolean(isDelegateExpanded?.(item.id))}
-      />
-    );
-  }
-  if (item.type === "delegate_group") {
-    return (
-      <DelegateGroup
-        item={item}
-        width={width}
-        expanded={Boolean(isDelegateGroupExpanded?.(item.id))}
-      />
-    );
-  }
   if (item.type === "turn_stats") {
     return (
       <TurnStats
@@ -242,9 +206,6 @@ export function TimelineItemRenderer(
   }
   if (item.type === "error") {
     return <ErrorMessage text={item.text} />;
-  }
-  if (item.type === "info" && isStructuredTeamInfoItem(item)) {
-    return <TeamEventItem item={item} width={width} />;
   }
   if (item.type === "info") {
     return <InfoMessage text={item.text} />;

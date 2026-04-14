@@ -118,7 +118,6 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
             phase: "scan",
             tone: "running",
           });
-          emit({ event: "delegate_start", agent: "web", task: "Inspect docs" });
           emit({
             event: "interaction_request",
             request_id: "interaction-1",
@@ -147,30 +146,6 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
             summary: "Read file",
             duration_ms: 25,
             args_summary: "src/main.ts",
-          });
-          emit({
-            event: "delegate_end",
-            agent: "web",
-            task: "Inspect docs",
-            success: true,
-            summary: "Found relevant docs",
-            duration_ms: 18,
-            snapshot: {
-              agent: "web",
-              task: "Inspect docs",
-              success: true,
-              durationMs: 18,
-              toolCount: 1,
-              finalResponse: "Done",
-              events: [{
-                type: "tool_end",
-                name: "search_web",
-                success: true,
-                summary: "Found docs",
-                durationMs: 10,
-                argsSummary: "docs",
-              }],
-            },
           });
           emit({
             event: "plan_phase_changed",
@@ -275,8 +250,6 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       assert(eventTypes.includes("tool_start"));
       assert(eventTypes.includes("tool_progress"));
       assert(eventTypes.includes("tool_end"));
-      assert(eventTypes.includes("delegate_start"));
-      assert(eventTypes.includes("delegate_end"));
       assert(eventTypes.includes("plan_phase_changed"));
       assert(eventTypes.includes("plan_created"));
       assert(eventTypes.includes("plan_step"));
@@ -565,172 +538,6 @@ Deno.test("runAgentQueryViaHost retries an early transient plan-mode stream drop
       assertEquals(result.text, "Plan recovered.");
       assertEquals(chatRequestCount, 2);
       assertEquals(uiEvents.includes("plan_phase_changed"), true);
-    });
-  } finally {
-    await handle.shutdown();
-    await handle.finished;
-  }
-});
-
-Deno.test("runAgentQueryViaHost maps team and batch events through the host stream", async () => {
-  const port = await findFreePort();
-  const authToken = "test-auth-token";
-  const uiEvents: Array<Record<string, unknown>> = [];
-
-  const handle = getPlatform().http.serveWithHandle!(async (req) => {
-    const url = new URL(req.url);
-    if (url.pathname === "/health") {
-      return Response.json(await createRuntimeHostHealthResponse(authToken));
-    }
-
-    if (url.pathname === "/api/chat") {
-      const stream = new ReadableStream({
-        start(controller) {
-          const emit = (obj: unknown) =>
-            controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
-          emit({
-            event: "delegate_start",
-            agent: "code",
-            task: "Review patch",
-            thread_id: "thread-1",
-            nickname: "Alpha",
-            child_session_id: "child-1",
-          });
-          emit({
-            event: "delegate_running",
-            thread_id: "thread-1",
-          });
-          emit({
-            event: "delegate_end",
-            agent: "code",
-            task: "Review patch",
-            success: true,
-            summary: "Review complete",
-            duration_ms: 12,
-            child_session_id: "child-1",
-            thread_id: "thread-1",
-          });
-          emit({
-            event: "team_task_updated",
-            task_id: "task-1",
-            goal: "Implement parser change",
-            status: "in_progress",
-            assignee_member_id: "worker-1",
-          });
-          emit({
-            event: "team_message",
-            kind: "direct",
-            from_member_id: "worker-1",
-            to_member_id: "lead",
-            related_task_id: "task-1",
-            content_preview: "Need clarification on scope",
-          });
-          emit({
-            event: "team_plan_review_required",
-            approval_id: "approval-1",
-            task_id: "task-1",
-            submitted_by_member_id: "worker-1",
-          });
-          emit({
-            event: "team_plan_review_resolved",
-            approval_id: "approval-1",
-            task_id: "task-1",
-            submitted_by_member_id: "worker-1",
-            approved: true,
-            reviewed_by_member_id: "lead",
-          });
-          emit({
-            event: "team_shutdown_requested",
-            request_id: "shutdown-1",
-            member_id: "worker-1",
-            requested_by_member_id: "lead",
-            reason: "Task complete",
-          });
-          emit({
-            event: "team_shutdown_resolved",
-            request_id: "shutdown-1",
-            member_id: "worker-1",
-            requested_by_member_id: "lead",
-            status: "acknowledged",
-          });
-          emit({
-            event: "batch_progress_updated",
-            snapshot: {
-              batchId: "batch-1",
-              agent: "code",
-              totalRows: 3,
-              spawned: 3,
-              queued: 1,
-              running: 1,
-              completed: 1,
-              errored: 0,
-              cancelled: 0,
-              spawnFailures: 0,
-              createdAt: 1,
-              status: "running",
-              threadIds: ["t1", "t2", "t3"],
-            },
-          });
-          emit({ event: "token", text: "done" });
-          emit({
-            event: "complete",
-            request_id: "req-team-1",
-            session_version: 1,
-          });
-          controller.close();
-        },
-      });
-
-      return new Response(stream, {
-        status: 200,
-        headers: {
-          "Content-Type": "application/x-ndjson",
-          "X-Request-ID": "req-team-1",
-        },
-      });
-    }
-
-    return new Response("Not found", { status: 404 });
-  }, {
-    hostname: "127.0.0.1",
-    port,
-    onListen: () => {},
-  });
-
-  try {
-    await withEnv("HLVM_REPL_PORT", String(port), async () => {
-      const result = await runAgentQueryViaHost({
-        query: "Coordinate the current team work",
-        model: "ollama/llama3.1:8b",
-        callbacks: {
-          onAgentEvent: (event) =>
-            uiEvents.push(event as Record<string, unknown>),
-        },
-      });
-
-      assertEquals(result.text, "done");
-      assertEquals(uiEvents.map((event) => event.type), [
-        "delegate_start",
-        "delegate_running",
-        "delegate_end",
-        "team_task_updated",
-        "team_message",
-        "team_plan_review_required",
-        "team_plan_review_resolved",
-        "team_shutdown_requested",
-        "team_shutdown_resolved",
-        "batch_progress_updated",
-      ]);
-      assertEquals(uiEvents[0]?.threadId, "thread-1");
-      assertEquals(uiEvents[0]?.nickname, "Alpha");
-      assertEquals(uiEvents[1]?.threadId, "thread-1");
-      assertEquals(uiEvents[2]?.threadId, "thread-1");
-      assertEquals(uiEvents[3]?.taskId, "task-1");
-      assertEquals(uiEvents[4]?.contentPreview, "Need clarification on scope");
-      assertEquals(
-        uiEvents[9]?.snapshot && typeof uiEvents[9].snapshot,
-        "object",
-      );
     });
   } finally {
     await handle.shutdown();

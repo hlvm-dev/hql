@@ -1,13 +1,7 @@
-import { isStructuredTeamInfoItem, type ShellHistoryEntry } from "../types.ts";
+import type { ShellHistoryEntry } from "../types.ts";
 
-export function shouldRenderTimelineItem(item: ShellHistoryEntry): boolean {
-  return !(
-    isStructuredTeamInfoItem(item) &&
-    (
-      item.teamEventType === "team_member_activity" ||
-      item.teamEventType === "team_runtime_snapshot"
-    )
-  );
+export function shouldRenderTimelineItem(_item: ShellHistoryEntry): boolean {
+  return true;
 }
 
 export function filterRenderableTimelineItems<T extends ShellHistoryEntry>(

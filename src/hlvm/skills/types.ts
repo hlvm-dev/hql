@@ -5,7 +5,7 @@
  * has been validated and translated into HLVM's runtime model.
  */
 
-/** How the skill executes: inline (same session) or fork (delegated agent). */
+/** How the skill executes: inline (same session) or fork (child agent). */
 export type SkillContext = "inline" | "fork";
 
 /** High-level origin of a normalized skill entry. */
