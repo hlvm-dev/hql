@@ -536,6 +536,16 @@ export function getProjectSkillsDir(workspace: string): string {
   return join(workspace, ".hlvm", "skills");
 }
 
+/** User-global legacy commands directory: ~/.hlvm/commands/ */
+export function getCommandsDir(): string {
+  return join(getHlvmDir(), "commands");
+}
+
+/** Project-local legacy commands directory: <workspace>/.hlvm/commands/ */
+export function getProjectCommandsDir(workspace: string): string {
+  return join(workspace, ".hlvm", "commands");
+}
+
 /** User-global rules directory: ~/.hlvm/rules/ */
 export function getRulesDir(): string {
   return join(getHlvmDir(), "rules");

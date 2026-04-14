@@ -9,6 +9,8 @@ tiers. The tier controls how much the system gives the model (prompt
 depth, tool count, MCP) and whether LLM-powered quality features are
 enabled (semantic search ranking, memory auto-invalidation).
 
+For request-time routing behavior, see [routing.md](./routing.md).
+
 ```
 ModelTier = "constrained" | "standard" | "enhanced"
 ```
@@ -30,8 +32,8 @@ Resource-limited models that need protection from token overflow.
 
 Full-capability models with progressive tool discovery.
 
-- **Full system prompt** (~3K tokens with 17 tools, vs ~8K with all tools)
-- **17 eager tools** + `tool_search` for progressive discovery
+- **Full system prompt** (~3K tokens with 23 tools, vs ~8K with all tools)
+- **23 eager tools** + `tool_search` for progressive discovery
 - **Deferred tools** (web, memory, CU, etc.) discoverable via `tool_search`
 - **MCP** servers loaded lazily on first use
 - **Full context budget**
@@ -157,15 +159,20 @@ constrained: 16 core tools, hard cap, NO tool_search (CONSTRAINED_CORE_TOOLS)
   search_web, web_fetch, fetch_url,
   memory_write, memory_search, memory_edit
 
-standard: 17 eager tools + progressive discovery (STANDARD_EAGER_TOOLS)
+standard: 23 eager tools + progressive discovery (STANDARD_EAGER_TOOLS)
   ask_user, tool_search, todo_read, todo_write,
-  list_files, read_file, search_code, find_symbol,
-  get_structure, edit_file, write_file,
+  list_files, read_file, move_to_trash, reveal_path,
+  file_metadata, make_directory, move_path, copy_path,
+  search_code, find_symbol, get_structure, edit_file, write_file,
   git_status, git_diff, git_log,
   shell_exec, shell_script, open_path
   (deferred: web, memory, CU, archive — discovered via tool_search)
 
-enhanced: ALL registered tools, no cap
+enhanced: 32 eager tools (ENHANCED_EAGER_TOOLS)
+  standard eager core
+  + delegate_agent, batch_delegate
+  + team runtime collaboration entrypoints
+  (still bounded; still uses progressive discovery)
 ```
 
 Why constrained has web+memory but standard doesn't: constrained has no
@@ -177,9 +184,9 @@ for standard-tier models (8K vs 29K).
 
 ```
 Session start
-  → computeTierToolFilter("standard") → 17 eager tools
-  → System prompt describes only 17 tools
-  → LLM sees 17 tool schemas (~3K tokens)
+  → computeTierToolFilter("standard") → 23 eager tools
+  → System prompt describes only 23 tools
+  → LLM sees 23 tool schemas (~3K tokens)
 
 Model needs deferred tool (e.g. search_web)
   → Calls tool directly → BLOCKED with hint:
@@ -190,12 +197,12 @@ Model needs deferred tool (e.g. search_web)
 
 Discovery callback fires
   → session.discoveredDeferredTools.add("search_web")
-  → baseline allowlist grows: 17 + 1 = 18 tools
-  → Current turn narrowed to: 9 core + discovered = 10 tools
+  → baseline allowlist grows by one discovered tool
+  → Current turn narrows to the core set plus discovered tools
   → Persisted to disk for session reuse
 
 Next turn
-  → toolFilterState resets to baseline (18 tools)
+  → toolFilterState resets to the updated baseline
   → Model can call search_web directly without tool_search
 ```
 

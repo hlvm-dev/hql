@@ -5,7 +5,7 @@
  * slash commands, trust gating, prompt rendering, completion catalog.
  */
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals, assertRejects } from "jsr:@std/assert";
 import { getPlatform } from "../../src/platform/platform.ts";
 import {
   resetHlvmDirCacheForTests,
@@ -26,8 +26,10 @@ async function withTestEnv(
   const hlvmDir = platform.path.join(testRoot, ".hlvm");
   const workspace = platform.path.join(testRoot, "project");
   await platform.fs.mkdir(platform.path.join(hlvmDir, "skills"), { recursive: true });
+  await platform.fs.mkdir(platform.path.join(hlvmDir, "commands"), { recursive: true });
   await platform.fs.mkdir(platform.path.join(hlvmDir, "rules"), { recursive: true });
   await platform.fs.mkdir(platform.path.join(workspace, ".hlvm", "skills"), { recursive: true });
+  await platform.fs.mkdir(platform.path.join(workspace, ".hlvm", "commands"), { recursive: true });
   await platform.fs.mkdir(platform.path.join(workspace, ".hlvm", "rules"), { recursive: true });
   setHlvmDirForTests(hlvmDir);
   resetSkillCatalogCache();
@@ -38,6 +40,28 @@ async function withTestEnv(
     resetSkillCatalogCache();
     await platform.fs.remove(testRoot, { recursive: true });
   }
+}
+
+async function writeSkillFile(
+  root: string,
+  name: string,
+  content: string,
+): Promise<void> {
+  const platform = getPlatform();
+  const skillDir = platform.path.join(root, "skills", name);
+  await platform.fs.mkdir(skillDir, { recursive: true });
+  await platform.fs.writeTextFile(platform.path.join(skillDir, "SKILL.md"), content);
+}
+
+async function writeLegacyCommandFile(
+  root: string,
+  name: string,
+  content: string,
+): Promise<void> {
+  const platform = getPlatform();
+  const commandsDir = platform.path.join(root, "commands");
+  await platform.fs.mkdir(commandsDir, { recursive: true });
+  await platform.fs.writeTextFile(platform.path.join(commandsDir, `${name}.md`), content);
 }
 
 // ═══════════════════════════════════════════════
@@ -161,9 +185,12 @@ Deno.test("harness: bundled skills load by default", async () => {
 });
 
 Deno.test("harness: user skill loaded and invoked with args", async () => {
-  await withTestEnv(async ({ hlvmDir, fs, path }) => {
-    await fs.writeTextFile(path.join(hlvmDir, "skills", "deploy.md"),
-      "---\ndescription: Deploy\nallowed_tools: [shell_exec]\ncontext: inline\n---\nDeploy to ${ARGS}.");
+  await withTestEnv(async ({ hlvmDir }) => {
+    await writeSkillFile(
+      hlvmDir,
+      "deploy",
+      "---\ndescription: Deploy\nargument-hint: \"[environment]\"\nallowed-tools: Bash Read\ncontext: inline\n---\nDeploy to $ARGUMENTS.",
+    );
 
     const { loadSkillCatalog, executeInlineSkill } = await import(
       "../../src/hlvm/skills/mod.ts"
@@ -172,18 +199,200 @@ Deno.test("harness: user skill loaded and invoked with args", async () => {
     const cat = await loadSkillCatalog();
     assertEquals(cat.has("deploy"), true);
     assertEquals(cat.get("deploy")!.source, "user");
+    assertEquals(cat.get("deploy")!.sourceKind, "skill");
+    assertEquals(cat.get("deploy")!.frontmatter.argument_hint, "[environment]");
 
     const r = executeInlineSkill(cat.get("deploy")!, "production");
     assertEquals(r.systemMessage.includes("Deploy to production"), true);
-    assertEquals(r.systemMessage.includes("${ARGS}"), false);
+    assertEquals(r.systemMessage.includes("$ARGUMENTS"), false);
     assertEquals(r.allowedTools?.includes("shell_exec"), true);
+    assertEquals(r.allowedTools?.includes("read_file"), true);
+  });
+});
+
+Deno.test("harness: legacy command is loaded as a skill", async () => {
+  await withTestEnv(async ({ hlvmDir }) => {
+    await writeLegacyCommandFile(
+      hlvmDir,
+      "deploy",
+      "---\ndescription: Deploy command\nuser-invocable: true\ndisable-model-invocation: true\n---\nRun deploy for $0.",
+    );
+
+    const { loadSkillCatalog, executeInlineSkill } = await import(
+      "../../src/hlvm/skills/mod.ts"
+    );
+    resetSkillCatalogCache();
+    const cat = await loadSkillCatalog();
+    const skill = cat.get("deploy")!;
+    assertEquals(skill.sourceKind, "legacy-command");
+    assertEquals(skill.frontmatter.manual_only, true);
+    assertEquals(skill.frontmatter.model_invocable, false);
+
+    const rendered = executeInlineSkill(skill, "staging");
+    assertEquals(rendered.systemMessage.includes("Run deploy for staging."), true);
+  });
+});
+
+Deno.test("harness: project skill overrides project legacy command by name", async () => {
+  await withTestEnv(async ({ workspace, path }) => {
+    const projectHlvm = path.join(workspace, ".hlvm");
+    await writeLegacyCommandFile(
+      projectHlvm,
+      "deploy",
+      "---\ndescription: Legacy deploy\n---\nLegacy path.",
+    );
+    await writeSkillFile(
+      projectHlvm,
+      "deploy",
+      "---\ndescription: Canonical deploy\n---\nCanonical path.",
+    );
+
+    const { trustWorkspace } = await import(
+      "../../src/hlvm/prompt/instructions.ts"
+    );
+    await trustWorkspace(workspace);
+
+    const { loadSkillCatalog } = await import("../../src/hlvm/skills/mod.ts");
+    resetSkillCatalogCache();
+    const cat = await loadSkillCatalog(workspace);
+    const skill = cat.get("deploy")!;
+    assertEquals(skill.source, "project");
+    assertEquals(skill.sourceKind, "skill");
+    assertEquals(skill.body.includes("Canonical path."), true);
+  });
+});
+
+Deno.test("harness: description falls back to first paragraph", async () => {
+  await withTestEnv(async ({ hlvmDir }) => {
+    await writeSkillFile(
+      hlvmDir,
+      "summarize",
+      "Summarize the selected files.\n\nThen report the key risks.",
+    );
+
+    const { loadSkillCatalog } = await import("../../src/hlvm/skills/mod.ts");
+    resetSkillCatalogCache();
+    const cat = await loadSkillCatalog();
+    assertEquals(
+      cat.get("summarize")!.frontmatter.description,
+      "Summarize the selected files.",
+    );
+  });
+});
+
+Deno.test("harness: argument rendering matches CC-style placeholders", async () => {
+  await withTestEnv(async ({ hlvmDir }) => {
+    await writeSkillFile(
+      hlvmDir,
+      "deploy",
+      "---\ndescription: Deploy\n---\nRaw=$ARGUMENTS first=$0 second=$1 bracket=$ARGUMENTS[1]",
+    );
+
+    const { loadSkillCatalog, executeInlineSkill } = await import(
+      "../../src/hlvm/skills/mod.ts"
+    );
+    resetSkillCatalogCache();
+    const cat = await loadSkillCatalog();
+    const rendered = executeInlineSkill(cat.get("deploy")!, "staging west");
+    assertEquals(
+      rendered.systemMessage.includes(
+        "Raw=staging west first=staging second=west bracket=west",
+      ),
+      true,
+    );
+  });
+});
+
+Deno.test("harness: arguments append when no placeholder exists", async () => {
+  await withTestEnv(async ({ hlvmDir }) => {
+    await writeSkillFile(
+      hlvmDir,
+      "note",
+      "---\ndescription: Note\n---\nWrite a short release note.",
+    );
+
+    const { loadSkillCatalog, executeInlineSkill } = await import(
+      "../../src/hlvm/skills/mod.ts"
+    );
+    resetSkillCatalogCache();
+    const cat = await loadSkillCatalog();
+    const rendered = executeInlineSkill(cat.get("note")!, "v1.2.3");
+    assertEquals(rendered.systemMessage.includes("ARGUMENTS: v1.2.3"), true);
+  });
+});
+
+Deno.test("harness: unsupported allowed-tools entries fail fast", async () => {
+  await withTestEnv(async ({ hlvmDir }) => {
+    await writeSkillFile(
+      hlvmDir,
+      "bad-tools",
+      "---\ndescription: Bad tools\nallowed-tools: Bash LSP\n---\nNope.",
+    );
+
+    const { loadSkillCatalog } = await import("../../src/hlvm/skills/mod.ts");
+    resetSkillCatalogCache();
+    await assertRejects(
+      () => loadSkillCatalog(),
+      Error,
+      "Unsupported allowed-tools entry",
+    );
+  });
+});
+
+Deno.test("harness: model-only skills stay out of slash catalog but remain in prompt", async () => {
+  await withTestEnv(async ({ hlvmDir }) => {
+    await writeSkillFile(
+      hlvmDir,
+      "auto-fix",
+      "---\ndescription: Auto fix\nuser-invocable: false\n---\nRepair the issue.",
+    );
+
+    const { compileSystemPrompt } = await import(
+      "../../src/hlvm/agent/llm-integration.ts"
+    );
+    const { getFullCommandCatalog } = await import(
+      "../../src/hlvm/cli/repl/commands.ts"
+    );
+    const { loadSkillCatalog } = await import("../../src/hlvm/skills/mod.ts");
+
+    resetSkillCatalogCache();
+    const skills = await loadSkillCatalog();
+    const prompt = compileSystemPrompt({ skills }).text;
+    const commands = await getFullCommandCatalog();
+
+    assertEquals(prompt.includes("**auto-fix**"), true);
+    assertEquals(prompt.includes("model-only"), true);
+    assertEquals(commands.some((entry) => entry.name === "/auto-fix"), false);
+  });
+});
+
+Deno.test("harness: manual-only skills reject model invocation", async () => {
+  await withTestEnv(async ({ hlvmDir }) => {
+    await writeSkillFile(
+      hlvmDir,
+      "deploy",
+      "---\ndescription: Deploy\ndisable-model-invocation: true\n---\nDeploy to $ARGUMENTS.",
+    );
+
+    const { getTool } = await import("../../src/hlvm/agent/registry.ts");
+    const tool = getTool("Skill");
+    const result = await tool.fn({ skill: "deploy", args: "staging" }, "/tmp");
+    assertEquals(
+      typeof result === "object" && result !== null &&
+        "error" in result &&
+        String(result.error).includes("manual-only"),
+      true,
+    );
   });
 });
 
 Deno.test("harness: user skill overrides bundled by name", async () => {
-  await withTestEnv(async ({ hlvmDir, fs, path }) => {
-    await fs.writeTextFile(path.join(hlvmDir, "skills", "commit.md"),
-      "---\ndescription: Custom\ncontext: inline\n---\nCustom flow.");
+  await withTestEnv(async ({ hlvmDir }) => {
+    await writeSkillFile(
+      hlvmDir,
+      "commit",
+      "---\ndescription: Custom\ncontext: inline\n---\nCustom flow.",
+    );
 
     const { loadSkillCatalog } = await import("../../src/hlvm/skills/mod.ts");
     resetSkillCatalogCache();
@@ -194,9 +403,12 @@ Deno.test("harness: user skill overrides bundled by name", async () => {
 });
 
 Deno.test("harness: untrusted project skill blocked", async () => {
-  await withTestEnv(async ({ workspace, fs, path }) => {
-    await fs.writeTextFile(path.join(workspace, ".hlvm", "skills", "evil.md"),
-      "---\ndescription: Evil\ncontext: inline\n---\nBad.");
+  await withTestEnv(async ({ workspace, path }) => {
+    await writeSkillFile(
+      path.join(workspace, ".hlvm"),
+      "evil",
+      "---\ndescription: Evil\ncontext: inline\n---\nBad.",
+    );
 
     const { loadSkillCatalog } = await import("../../src/hlvm/skills/mod.ts");
     resetSkillCatalogCache();
@@ -206,9 +418,12 @@ Deno.test("harness: untrusted project skill blocked", async () => {
 });
 
 Deno.test("harness: trusted project skill loaded", async () => {
-  await withTestEnv(async ({ workspace, fs, path }) => {
-    await fs.writeTextFile(path.join(workspace, ".hlvm", "skills", "lint.md"),
-      "---\ndescription: Lint\ncontext: inline\n---\nLint body.");
+  await withTestEnv(async ({ workspace, path }) => {
+    await writeSkillFile(
+      path.join(workspace, ".hlvm"),
+      "lint",
+      "---\ndescription: Lint\ncontext: inline\n---\nLint body.",
+    );
 
     const { trustWorkspace } = await import(
       "../../src/hlvm/prompt/instructions.ts"
@@ -223,18 +438,38 @@ Deno.test("harness: trusted project skill loaded", async () => {
   });
 });
 
-Deno.test("harness: malformed skills silently skipped", async () => {
+Deno.test("harness: unsupported flat skill files fail fast", async () => {
   await withTestEnv(async ({ hlvmDir, fs, path }) => {
-    await fs.writeTextFile(path.join(hlvmDir, "skills", "bad1.md"), "no frontmatter");
-    await fs.writeTextFile(path.join(hlvmDir, "skills", "bad2.md"), "---\n{{invalid\n---\nbody");
-    await fs.writeTextFile(path.join(hlvmDir, "skills", "bad3.md"), "---\nfoo: bar\n---\nno description");
+    await fs.writeTextFile(
+      path.join(hlvmDir, "skills", "bad.md"),
+      "---\ndescription: Bad\n---\nNope.",
+    );
 
     const { loadSkillCatalog } = await import("../../src/hlvm/skills/mod.ts");
     resetSkillCatalogCache();
-    const cat = await loadSkillCatalog();
-    assertEquals(cat.has("bad1"), false);
-    assertEquals(cat.has("bad2"), false);
-    assertEquals(cat.has("bad3"), false);
+    await assertRejects(
+      () => loadSkillCatalog(),
+      Error,
+      "Flat skill file",
+    );
+  });
+});
+
+Deno.test("harness: unsupported skill metadata fails fast", async () => {
+  await withTestEnv(async ({ hlvmDir }) => {
+    await writeSkillFile(
+      hlvmDir,
+      "bad",
+      "---\ndescription: Bad\nallowed_tools: [shell_exec]\n---\nNope.",
+    );
+
+    const { loadSkillCatalog } = await import("../../src/hlvm/skills/mod.ts");
+    resetSkillCatalogCache();
+    await assertRejects(
+      () => loadSkillCatalog(),
+      Error,
+      "Unsupported legacy skill field",
+    );
   });
 });
 
@@ -300,7 +535,7 @@ Deno.test("harness: skills section renders in system prompt", async () => {
     const skills = await loadSkillCatalog();
     const with_ = compileSystemPrompt({ skills });
     assertEquals(with_.text.includes("# Skills"), true);
-    assertEquals(with_.text.includes("/commit"), true);
+    assertEquals(with_.text.includes("commit"), true);
     const without_ = compileSystemPrompt({});
     assertEquals(without_.text.includes("# Skills"), false);
   });
@@ -310,13 +545,10 @@ Deno.test("harness: skills section renders in system prompt", async () => {
 // E2E 5: Skill tool
 // ═══════════════════════════════════════════════
 
-Deno.test("harness: skill tool registered in registry", () => {
-  const { hasTool } = Deno as unknown as { hasTool?: never };
-  void hasTool; // suppress unused
-  // Use the real import
-  import("../../src/hlvm/agent/registry.ts").then(({ hasTool: ht }) => {
-    assertEquals(ht("skill"), true);
-  });
+Deno.test("harness: skill tool aliases registered in registry", async () => {
+  const { hasTool } = await import("../../src/hlvm/agent/registry.ts");
+  assertEquals(hasTool("skill"), true);
+  assertEquals(hasTool("Skill"), true);
 });
 
 // ═══════════════════════════════════════════════
@@ -450,13 +682,15 @@ Deno.test({
 });
 
 Deno.test("harness: skill cache is workspace-keyed", async () => {
-  await withTestEnv(async ({ hlvmDir, workspace, fs, path }) => {
-    await fs.writeTextFile(
-      path.join(hlvmDir, "skills", "global-only.md"),
+  await withTestEnv(async ({ hlvmDir, workspace, path }) => {
+    await writeSkillFile(
+      hlvmDir,
+      "global-only",
       "---\ndescription: Global skill\ncontext: inline\n---\nGlobal body.",
     );
-    await fs.writeTextFile(
-      path.join(workspace, ".hlvm", "skills", "project-only.md"),
+    await writeSkillFile(
+      path.join(workspace, ".hlvm"),
+      "project-only",
       "---\ndescription: Project skill\ncontext: inline\n---\nProject body.",
     );
     const { trustWorkspace } = await import(
@@ -511,14 +745,17 @@ Deno.test("harness: old-format hooks (no type field) still work", async () => {
 // ═══════════════════════════════════════════════
 
 Deno.test("harness: trust gates agents, skills, and rules consistently", async () => {
-  await withTestEnv(async ({ hlvmDir, workspace, fs, path }) => {
+  await withTestEnv(async ({ workspace, fs, path }) => {
     // Setup project files
     await fs.mkdir(path.join(workspace, ".hlvm", "agents"), { recursive: true });
     await fs.writeTextFile(path.join(workspace, ".hlvm", "agents", "evil.md"),
       "---\nname: evil\ndescription: Bad\ntools:\n  - shell_exec\n---\nEvil.");
     await fs.writeTextFile(path.join(workspace, ".hlvm", "rules", "proj.md"), "Project rule.");
-    await fs.writeTextFile(path.join(workspace, ".hlvm", "skills", "pskill.md"),
-      "---\ndescription: Project skill\ncontext: inline\n---\nBody.");
+    await writeSkillFile(
+      path.join(workspace, ".hlvm"),
+      "pskill",
+      "---\ndescription: Project skill\ncontext: inline\n---\nBody.",
+    );
 
     const { loadAgentProfiles } = await import(
       "../../src/hlvm/agent/agent-registry.ts"

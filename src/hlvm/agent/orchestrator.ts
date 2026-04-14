@@ -785,10 +785,6 @@ async function requestImpliesDelegation(
   state: LoopState,
   config: OrchestratorConfig,
 ): Promise<boolean> {
-  if (
-    /\b(delegate|delegation|multiple agents|spawn .*agent|parallel|concurrent|concurrently|team)\b/i
-      .test(query)
-  ) return true;
   const signal = await ensureDelegationSignal(query, state, config);
   return signal.shouldDelegate;
 }

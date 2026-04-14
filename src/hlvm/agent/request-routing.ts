@@ -80,15 +80,19 @@ export async function computeRoutingResult(options: {
 }): Promise<RoutingResult> {
   const trimmed = options.query.trim();
   const behavior = routingBehaviorForTier(options.tier);
-  const classification = options.preComputedClassification ??
+  const classification = behavior === "assisted"
+    ? (options.preComputedClassification ??
     (
-      behavior === "assisted" && trimmed
+      trimmed
         ? await classifyAll(trimmed)
         : undefined
-    );
-  const taskClassification = classification?.taskClassification ?? null;
+    ))
+    : undefined;
+  const taskClassification = behavior === "assisted"
+    ? (classification?.taskClassification ?? null)
+    : null;
   const needsPlan = hasDeterministicPlanningCue(trimmed) ||
-    classification?.needsPlan === true;
+    (behavior === "assisted" && classification?.needsPlan === true);
   const base = buildBaseRoutingResult(
     options.tier,
     behavior,

@@ -9,6 +9,7 @@ import type { SkillDefinition } from "../types.ts";
 export const COMMIT_SKILL: SkillDefinition = {
   name: "commit",
   source: "bundled",
+  sourceKind: "bundled",
   frontmatter: {
     description: "Review changes and create a descriptive git commit",
     when_to_use:
@@ -22,7 +23,10 @@ export const COMMIT_SKILL: SkillDefinition = {
       "git_log",
     ],
     user_invocable: true,
+    model_invocable: true,
+    manual_only: false,
     context: "inline",
+    diagnostics: [],
   },
   body: `Review the current repository state and create a commit.
 
@@ -40,5 +44,5 @@ export const COMMIT_SKILL: SkillDefinition = {
 - Optional body: separated by blank line, explains motivation and context
 - Follow the repository's existing commit message conventions if visible from git log
 
-\${ARGS}`,
+$ARGUMENTS`,
 };

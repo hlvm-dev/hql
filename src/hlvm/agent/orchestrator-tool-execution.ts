@@ -530,7 +530,7 @@ export async function executeToolCall(
       // Hint model to use tool_search when the tool exists but isn't in the active set.
       const toolSearchAvailable = isToolAllowed("tool_search");
       const hint = toolSearchAvailable
-        ? ` Use tool_search to discover and enable "${toolCall.toolName}".`
+        ? ` Call tool_search({query:"select:${toolCall.toolName}"}) to discover and enable it.`
         : "";
       return buildToolErrorResult(
         toolCall.toolName,

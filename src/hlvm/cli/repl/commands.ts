@@ -26,6 +26,7 @@ import {
   formatProgressBar,
 } from "../repl-ink/utils/formatting.ts";
 import { STATUS_GLYPHS } from "../repl-ink/ui-constants.ts";
+import type { SkillDefinition } from "../../skills/types.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -132,6 +133,35 @@ ${BOLD}Examples:${RESET}
   ${GREEN}what does this function do?${RESET}
   ${GREEN}explain the error in my code${RESET}
 `;
+}
+
+function collectSkillBadges(skill: SkillDefinition): string[] {
+  const badges: string[] = [];
+  if (skill.frontmatter.manual_only) badges.push("manual only");
+  if (skill.frontmatter.context === "fork") badges.push("background");
+  if (skill.sourceKind === "legacy-command") badges.push("legacy command");
+  return badges;
+}
+
+function formatSkillDescription(skill: SkillDefinition): string {
+  const hint = skill.frontmatter.argument_hint
+    ? `[${skill.frontmatter.argument_hint}] `
+    : "";
+  const badges = collectSkillBadges(skill);
+  return `${hint}${skill.frontmatter.description}${
+    badges.length > 0 ? ` (${badges.join(", ")})` : ""
+  }`;
+}
+
+function buildDelegatedSkillMessage(
+  skill: SkillDefinition,
+  renderedBody: string,
+  origin: "user" | "model",
+): string {
+  const header = origin === "user"
+    ? `# Skill: ${skill.name}\n(User invoked /${skill.name})`
+    : `# Skill: ${skill.name}`;
+  return `${header}\nUse delegate_agent to run this in a background agent.\n\n${renderedBody}`;
 }
 
 export const commands: Record<string, Command> = {
@@ -352,28 +382,36 @@ export const commands: Record<string, Command> = {
             `  ${DIM_GRAY}No skills found.${RESET}`,
           );
           context.output(
-            `  Create skills at ${CYAN}~/.hlvm/skills/name.md${RESET}`,
+            `  Create skills at ${CYAN}~/.hlvm/skills/<name>/SKILL.md${RESET}`,
           );
           return;
         }
 
-        const groups: Record<string, { name: string; desc: string; ctx: string }[]> = {
+        const groups: Record<string, { name: string; desc: string }[]> = {
           bundled: [],
           user: [],
           project: [],
         };
         for (const [name, skill] of catalog) {
+          if (!skill.frontmatter.user_invocable) continue;
           groups[skill.source].push({
             name,
-            desc: skill.frontmatter.description,
-            ctx: skill.frontmatter.context === "fork" ? " (fork)" : "",
+            desc: formatSkillDescription(skill),
           });
         }
 
         const sections: [string, string, string][] = [
           ["bundled", "Bundled", ""],
-          ["user", "User", ` ${DIM_GRAY}(~/.hlvm/skills/)${RESET}`],
-          ["project", "Project", ` ${DIM_GRAY}(.hlvm/skills/)${RESET}`],
+          [
+            "user",
+            "User",
+            ` ${DIM_GRAY}(~/.hlvm/skills/, ~/.hlvm/commands/)${RESET}`,
+          ],
+          [
+            "project",
+            "Project",
+            ` ${DIM_GRAY}(.hlvm/skills/, .hlvm/commands/)${RESET}`,
+          ],
         ];
         for (const [key, label, hint] of sections) {
           const entries = groups[key];
@@ -381,14 +419,14 @@ export const commands: Record<string, Command> = {
           context.output(`  ${BOLD}${label}${RESET}${hint}`);
           for (const e of entries) {
             context.output(
-              `    ${CYAN}/${e.name}${RESET}  ${e.desc}${DIM_GRAY}${e.ctx}${RESET}`,
+              `    ${CYAN}/${e.name}${RESET}  ${e.desc}`,
             );
           }
           context.output("");
         }
 
         context.output(
-          `  ${DIM_GRAY}Type /<name> to invoke. Create at ~/.hlvm/skills/<name>.md${RESET}`,
+          `  ${DIM_GRAY}Type /<name> to invoke. Create at ~/.hlvm/skills/<name>/SKILL.md${RESET}`,
         );
       } catch (err: unknown) {
         context.output(
@@ -542,12 +580,17 @@ export const commands: Record<string, Command> = {
       context.output("");
       context.output(`${BOLD}Skill Template:${RESET}`);
       context.output("");
+      context.output(`  ${DIM_GRAY}Path: ~/.hlvm/skills/my-skill/SKILL.md${RESET}`);
+      context.output("");
       context.output(`  ${DIM_GRAY}---${RESET}`);
       context.output(
         `  ${DIM_GRAY}description: "What this skill does"${RESET}`,
       );
       context.output(
-        `  ${DIM_GRAY}allowed_tools: [shell_exec, read_file]${RESET}`,
+        `  ${DIM_GRAY}argument-hint: "[target]"${RESET}`,
+      );
+      context.output(
+        `  ${DIM_GRAY}allowed-tools: Bash Read${RESET}`,
       );
       context.output(`  ${DIM_GRAY}context: inline${RESET}`);
       context.output(`  ${DIM_GRAY}---${RESET}`);
@@ -555,13 +598,13 @@ export const commands: Record<string, Command> = {
         `  ${DIM_GRAY}Your skill instructions here.${RESET}`,
       );
       context.output(
-        `  ${DIM_GRAY}Use \${ARGS} for user arguments.${RESET}`,
+        `  ${DIM_GRAY}Use $ARGUMENTS, $0, $1, etc. for arguments.${RESET}`,
       );
 
       context.output("");
       context.output(`${BOLD}Next Steps:${RESET}`);
       context.output(
-        `  1. Create a skill: ${CYAN}~/.hlvm/skills/my-skill.md${RESET}`,
+        `  1. Create a skill: ${CYAN}~/.hlvm/skills/my-skill/SKILL.md${RESET}`,
       );
       context.output(
         `  2. Add a rule: ${CYAN}~/.hlvm/rules/naming.md${RESET}`,
@@ -594,10 +637,10 @@ export async function getFullCommandCatalog(
     const { loadSkillCatalog } = await import("../../skills/mod.ts");
     const catalog = await loadSkillCatalog(workspace);
     const skillEntries = [...catalog.values()]
-      .filter((s) => s.frontmatter.user_invocable !== false)
+      .filter((s) => s.frontmatter.user_invocable)
       .map((s) => ({
         name: `/${s.name}`,
-        description: s.frontmatter.description,
+        description: formatSkillDescription(s),
       }));
     return [...COMMAND_CATALOG, ...skillEntries];
   } catch {
@@ -638,18 +681,23 @@ export async function runCommand(
   // 2. Try skill catalog
   try {
     const { loadSkillCatalog } = await import("../../skills/mod.ts");
-    const { executeInlineSkill } = await import("../../skills/executor.ts");
+    const { executeInlineSkill, renderSkillBody } = await import(
+      "../../skills/executor.ts"
+    );
     const workspace = getPlatform().process.cwd();
     const catalog = await loadSkillCatalog(workspace);
     const skillName = cmdName.slice(1); // strip leading "/"
     const skill = catalog.get(skillName);
-    if (skill && skill.frontmatter.user_invocable !== false) {
+    if (skill && skill.frontmatter.user_invocable) {
       if (skill.frontmatter.context === "fork") {
         return {
           handled: true,
           skillActivation: {
-            systemMessage:
-              `[User invoked /${skillName}] ${skill.body}\n\nArgs: ${args.join(" ")}`,
+            systemMessage: buildDelegatedSkillMessage(
+              skill,
+              renderSkillBody(skill, args.join(" ")),
+              "user",
+            ),
             allowedTools: skill.frontmatter.allowed_tools,
           },
         };
@@ -658,7 +706,14 @@ export async function runCommand(
       output(`Activating skill: ${skill.frontmatter.description}`);
       return { handled: true, skillActivation: result };
     }
-  } catch { /* skill loading failed — fall through to unknown */ }
+  } catch (err: unknown) {
+    output(
+      `${YELLOW}Skill loading failed: ${
+        err instanceof Error ? err.message : String(err)
+      }${RESET}`,
+    );
+    return { handled: true };
+  }
 
   output(`${YELLOW}Unknown command: ${cmdName}${RESET}`);
   output(`${DIM_GRAY}Type /help for available commands.${RESET}`);

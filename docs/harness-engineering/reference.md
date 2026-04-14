@@ -78,39 +78,47 @@ All `.md` files in the rules directory auto-loaded, sorted alphabetically.
 
 ### 2.1 Skill Definition Format
 
-Skills are markdown files with YAML frontmatter in `~/.hlvm/skills/`.
+Canonical skills live at `~/.hlvm/skills/<name>/SKILL.md` and
+`<workspace>/.hlvm/skills/<name>/SKILL.md`.
+
+Legacy migration commands can also live at `~/.hlvm/commands/<name>.md` and
+`<workspace>/.hlvm/commands/<name>.md`.
 
 ```markdown
 ---
-description: "What this skill does"          # REQUIRED
-when_to_use: "When to trigger this skill"    # optional
-allowed_tools: [shell_exec, read_file]       # optional
-user_invocable: true                         # optional (default: true)
+name: "deploy"                               # optional; defaults from path
+description: "What this skill does"          # optional if body starts with text
+argument-hint: "[target]"                    # optional
+allowed-tools: Bash Read                     # optional; string or YAML list
+user-invocable: true                         # optional (default: true)
+disable-model-invocation: false              # optional (default: false)
 context: inline                              # optional: "inline" (default) or "fork"
 ---
 
 Skill body — instructions the agent follows.
-Use ${ARGS} for user-provided arguments.
+Use $ARGUMENTS, $ARGUMENTS[0], $0, $1, etc. for user-provided arguments.
 ```
 
-**Type validation**: All frontmatter fields runtime-validated during loading.
-Wrong types fall to safe defaults (no crash, no type leaks):
-- `description` must be string (required — skill skipped without it)
-- `allowed_tools` must be string array (scalar string dropped)
-- `context` must be `"inline"` or `"fork"` (other values → defaults to inline)
-- `user_invocable` must be boolean (string `"false"` dropped → defaults to true)
+**Validation**:
+- Unsupported legacy frontmatter like `allowed_tools`, `argument_hint`, `user_invocable`, and `when_to_use` fails fast.
+- Unsupported CC fields and unsupported `allowed-tools` entries fail fast.
+- Flat `.hlvm/skills/*.md` files fail fast and must be moved to `skills/<name>/SKILL.md` or `.hlvm/commands/*.md`.
+- `description` falls back to the first non-empty markdown paragraph when omitted.
+- Skill names must be lowercase letters, numbers, and hyphens only.
 
 **Types**: `src/hlvm/skills/types.ts`
 
 ### 2.2 Skill Discovery
 
-Skills loaded from three sources. Later sources override earlier by name.
+Skills loaded from five sources. Later sources override earlier by name.
 
 | Priority | Source | Path | Trust |
 |----------|--------|------|-------|
 | 1 (lowest) | Bundled | Compiled into binary | N/A |
-| 2 | User | `~/.hlvm/skills/*.md` | No |
-| 3 (highest) | Project | `<workspace>/.hlvm/skills/*.md` | Yes (trust-gated) |
+| 2 | User legacy commands | `~/.hlvm/commands/*.md` | No |
+| 3 | User skills | `~/.hlvm/skills/<name>/SKILL.md` | No |
+| 4 | Project legacy commands | `<workspace>/.hlvm/commands/*.md` | Yes (trust-gated) |
+| 5 (highest) | Project skills | `<workspace>/.hlvm/skills/<name>/SKILL.md` | Yes (trust-gated) |
 
 **Bundled skills** (3):
 
@@ -124,13 +132,14 @@ Skills loaded from three sources. Later sources override earlier by name.
 - `loadSkillCatalog()` — discovery with session caching
 - `resetSkillCatalogCache()` — clear cache
 
-**Verified**: E2E tests for bundled loading, user loading, override, malformed skipping
+**Verified**: E2E tests for bundled loading, user loading, legacy-command loading, overrides, fail-fast validation, and trust gating
 
 ### 2.3 Skill Execution
 
 **Inline mode** (`context: "inline"`):
 - Skill body injected as system message
-- `${ARGS}` placeholder replaced with user arguments
+- `$ARGUMENTS`, `$ARGUMENTS[N]`, and `$N` placeholders rendered with user arguments
+- If arguments are provided and no placeholder exists, `ARGUMENTS: <raw input>` is appended
 - Agent follows the instructions in its next turn
 
 **Fork mode** (`context: "fork"`):
@@ -139,6 +148,7 @@ Skills loaded from three sources. Later sources override earlier by name.
   share the parent workspace (read-only by convention)
 
 **Implementation**: `src/hlvm/skills/executor.ts`
+- `renderSkillBody(skill, args?)` — renders CC-style argument placeholders
 - `executeInlineSkill(skill, args?)` — returns `{ systemMessage, allowedTools }`
 
 ### 2.4 Skill Invocation — Two Paths
@@ -154,10 +164,10 @@ Skills loaded from three sources. Later sources override earlier by name.
   → agent follows the workflow
 ```
 
-**Path 2: Model tool call** — model calls `skill({skill:"commit"})`
+**Path 2: Model tool call** — model calls `Skill({skill:"commit"})`
 
 ```
-skill({ skill: "commit", args: "fix bug" })
+Skill({ skill: "commit", args: "fix bug" })
   → meta-tools.ts: skill handler
   → inline: executeInlineSkill() → model follows instructions
   → fork: returns delegation instruction → model calls delegate_agent
@@ -174,11 +184,11 @@ The model sees available skills listed in its system prompt:
 
 ```
 # Skills
-Invoke a skill by calling the `skill` tool with its name.
+Invoke a skill by calling the `Skill` tool with its name.
 
-- /commit: Review changes and create a descriptive git commit
-- /test: Find and run project tests, report results
-- /review: Review code changes (runs in background)
+- **commit**: Review changes and create a descriptive git commit
+- **test**: Find and run project tests, report results
+- **review**: Review code changes (runs in background)
 ```
 
 **Wiring**: `agent-runner.ts` → `session.ts` → `llm-integration.ts` → `sections.ts`
@@ -367,14 +377,18 @@ import { splitFrontmatter, parseFrontmatter } from "src/common/frontmatter.ts";
 const { meta, body } = parseFrontmatter<MyType>(markdownText);
 ```
 
-Used by agent profiles (`.hlvm/agents/*.md`) and skills (`.hlvm/skills/*.md`).
+Used by agent profiles (`.hlvm/agents/*.md`), canonical skills
+(`.hlvm/skills/<name>/SKILL.md`), and legacy commands (`.hlvm/commands/*.md`).
 
 ### Path Helpers (`src/common/paths.ts`)
 
 | Function | Returns |
 |----------|---------|
 | `getSkillsDir()` | `~/.hlvm/skills/` |
+| `getCommandsDir()` | `~/.hlvm/commands/` |
 | `getRulesDir()` | `~/.hlvm/rules/` |
+| `getProjectSkillsDir(ws)` | `<ws>/.hlvm/skills/` |
+| `getProjectCommandsDir(ws)` | `<ws>/.hlvm/commands/` |
 | `getHooksConfigPath(ws)` | `<ws>/.hlvm/hooks.json` |
 
 ---

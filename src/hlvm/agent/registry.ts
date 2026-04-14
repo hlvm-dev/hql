@@ -884,6 +884,30 @@ export function searchTools(
 }
 
 /**
+ * Return the names of all tools whose loading exposure is "deferred".
+ * Used by the system prompt to list discoverable tools so the model knows
+ * what to search for via tool_search.  Mirrors CC's
+ * `<available-deferred-tools>` block.
+ */
+export function getDeferredToolNames(
+  ownerId?: string,
+): string[] {
+  const tools = getAllTools(ownerId);
+  const names: string[] = [];
+  for (const [name, meta] of Object.entries(tools)) {
+    const exposure = inferToolLoadingExposure(
+      name,
+      meta,
+      !(name in TOOL_REGISTRY),
+    );
+    if (exposure === "deferred") {
+      names.push(name);
+    }
+  }
+  return names.sort();
+}
+
+/**
  * Get tool names by category
  *
  * @returns Categorized tool names

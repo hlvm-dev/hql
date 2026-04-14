@@ -1,7 +1,7 @@
 /**
  * Skills Module — Barrel Export
  *
- * Reusable workflow skills that can be invoked by name via the `skill` tool.
+ * Reusable workflow skills that can be invoked by name via the `Skill` tool.
  */
 
 export type {
@@ -9,4 +9,4 @@ export type {
   SkillFrontmatter,
 } from "./types.ts";
 export { loadSkillCatalog, resetSkillCatalogCache } from "./loader.ts";
-export { executeInlineSkill } from "./executor.ts";
+export { executeInlineSkill, renderSkillBody } from "./executor.ts";

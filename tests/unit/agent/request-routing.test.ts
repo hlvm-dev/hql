@@ -42,6 +42,31 @@ Deno.test("computeRoutingResult: enhanced multi-file request uses structural fan
   assertEquals(result.estimatedSubtasks, 3);
 });
 
+Deno.test("computeRoutingResult: enhanced ignores precomputed semantic routing fields", async () => {
+  const result = await computeRoutingResult({
+    query: "fix auth.ts",
+    tier: "enhanced",
+    preComputedClassification: {
+      isBrowser: true,
+      shouldDelegate: true,
+      delegatePattern: "batch",
+      needsPlan: true,
+      taskClassification: {
+        isCodeTask: true,
+        isReasoningTask: true,
+        needsStructuredOutput: true,
+      },
+    },
+  });
+
+  assertEquals(result.behavior, "self_directed");
+  assertEquals(result.taskDomain, "general");
+  assertEquals(result.shouldDelegate, false);
+  assertEquals(result.delegatePattern, "none");
+  assertEquals(result.needsPlan, false);
+  assertEquals(result.taskClassification, null);
+});
+
 Deno.test("computeRoutingResult: standard reuses precomputed assisted classification", async () => {
   const result = await computeRoutingResult({
     query: "review the code and return JSON",

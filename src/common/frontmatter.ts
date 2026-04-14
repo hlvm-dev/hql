@@ -2,7 +2,8 @@
  * Shared YAML Frontmatter Parser
  *
  * Extracts YAML frontmatter from markdown files. Used by agent profiles
- * (.hlvm/agents/*.md) and skills (.hlvm/skills/*.md).
+ * (.hlvm/agents/*.md), skills (.hlvm/skills/<name>/SKILL.md), and legacy
+ * commands (.hlvm/commands/*.md).
  *
  * Format:
  * ---

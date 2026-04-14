@@ -202,18 +202,14 @@ function buildPlanModeAllowlist(options: {
   );
 }
 
-/** Load skill catalog via dynamic import. Returns undefined on failure (fail-open). */
+/** Load the skill catalog via dynamic import. */
 async function tryLoadSkillCatalog(
   workspace?: string,
 ): Promise<
   ReadonlyMap<string, import("../skills/types.ts").SkillDefinition> | undefined
 > {
-  try {
-    const { loadSkillCatalog } = await import("../skills/mod.ts");
-    return await loadSkillCatalog(workspace);
-  } catch {
-    return undefined;
-  }
+  const { loadSkillCatalog } = await import("../skills/mod.ts");
+  return await loadSkillCatalog(workspace);
 }
 
 /** Create a reusable agent session without any global/workspace cache key. */

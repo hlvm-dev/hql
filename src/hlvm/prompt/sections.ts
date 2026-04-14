@@ -5,7 +5,7 @@
  * with an id, content string, and minimum tier.
  */
 
-import type { ToolMetadata } from "../agent/registry.ts";
+import { type ToolMetadata, getDeferredToolNames } from "../agent/registry.ts";
 import type { AgentProfile } from "../agent/agent-registry.ts";
 import type { SkillDefinition } from "../skills/types.ts";
 import { MEMORY_TOOLS } from "../memory/mod.ts";
@@ -105,8 +105,12 @@ function renderCriticalRules(
     k in tools
   );
   const hasToolSearch = "tool_search" in tools;
+  const deferredNames = hasToolSearch ? getDeferredToolNames() : [];
+  const deferredToolList = deferredNames.length > 0
+    ? `\nAdditional tools available via tool_search: ${deferredNames.join(", ")}`
+    : "";
   const toolDiscoveryRule = hasToolSearch
-    ? "\nOnly the core local and project tools are preloaded. Before web, memory, remote execution, data shaping, archive/commit, or MCP-backed work, call tool_search to discover and enable the tool you need. Tools discovered that way remain available for the rest of the conversation."
+    ? `\nOnly the core local and project tools are preloaded. Use tool_search to discover and enable additional tools. Use "select:" prefix for exact match (e.g. tool_search({query:"select:search_web"})).${deferredToolList}`
     : "";
   return {
     id: "critical_rules",
@@ -689,13 +693,21 @@ function renderSkillCatalog(
   }
   const lines = [
     "# Skills",
-    "Invoke a skill by calling the `skill` tool with its name. Skills are reusable workflows.",
+    "Invoke a skill by calling the `Skill` tool with its name. Skills are reusable workflows.",
     "",
   ];
   for (const [name, skill] of skills) {
-    if (skill.frontmatter.user_invocable === false) continue;
-    const ctx = skill.frontmatter.context === "fork" ? " (runs in background)" : "";
-    lines.push(`- **${name}**: ${skill.frontmatter.description}${ctx}`);
+    if (!skill.frontmatter.model_invocable) continue;
+    const badges: string[] = [];
+    if (!skill.frontmatter.user_invocable) badges.push("model-only");
+    if (skill.frontmatter.context === "fork") badges.push("runs in background");
+    if (skill.sourceKind === "legacy-command") badges.push("legacy command");
+    const hint = skill.frontmatter.argument_hint ? ` [${skill.frontmatter.argument_hint}]` : "";
+    lines.push(
+      `- **${name}**${hint}: ${skill.frontmatter.description}${
+        badges.length > 0 ? ` (${badges.join(", ")})` : ""
+      }`,
+    );
     if (skill.frontmatter.when_to_use) {
       lines.push(`  When: ${skill.frontmatter.when_to_use}`);
     }
