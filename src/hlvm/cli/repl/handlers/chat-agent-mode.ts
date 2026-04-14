@@ -1,5 +1,5 @@
 /**
- * Agent mode handlers: HLVM agent and Claude Code subprocess delegation.
+ * Agent mode handlers: HLVM agent and Claude Code subprocess mode.
  * Extracted from chat.ts for modularity.
  */
 
@@ -267,27 +267,6 @@ export async function handleAgentMode(
               summary: event.summary,
             });
             break;
-          case "delegate_start":
-            traceReplMainThreadForSource(body.query_source, "server.agent.delegate_start", {
-              requestId,
-              sessionId,
-              agent: event.agent,
-              task: buildTraceTextPreview(event.task, 120),
-              threadId: event.threadId,
-            });
-            break;
-          case "delegate_end":
-            traceReplMainThreadForSource(body.query_source, "server.agent.delegate_end", {
-              requestId,
-              sessionId,
-              agent: event.agent,
-              success: event.success,
-              durationMs: event.durationMs,
-              threadId: event.threadId,
-              summary: buildTraceTextPreview(event.summary, 120),
-              error: event.error,
-            });
-            break;
           case "turn_stats":
             traceReplMainThreadForSource(body.query_source, "server.agent.turn_stats", {
               requestId,
@@ -374,115 +353,11 @@ export async function handleAgentMode(
               summary: event.summary,
             });
             break;
-          case "delegate_start":
-            emit({
-              event: "delegate_start",
-              agent: event.agent,
-              task: event.task,
-              thread_id: event.threadId,
-              nickname: event.nickname,
-              child_session_id: event.childSessionId,
-              batch_id: event.batchId,
-            });
-            break;
-          case "delegate_running":
-            emit({
-              event: "delegate_running",
-              thread_id: event.threadId,
-            });
-            break;
-          case "delegate_end":
-            emit({
-              event: "delegate_end",
-              agent: event.agent,
-              task: event.task,
-              success: event.success,
-              summary: event.summary,
-              duration_ms: event.durationMs,
-              error: event.error,
-              snapshot: event.snapshot,
-              child_session_id: event.childSessionId,
-              thread_id: event.threadId,
-              batch_id: event.batchId,
-            });
-            break;
           case "todo_updated":
             emit({
               event: "todo_updated",
               todo_state: event.todoState,
               source: event.source,
-            });
-            break;
-          case "team_task_updated":
-            emit({
-              event: "team_task_updated",
-              task_id: event.taskId,
-              goal: event.goal,
-              status: event.status,
-              assignee_member_id: event.assigneeMemberId,
-            });
-            break;
-          case "team_message":
-            emit({
-              event: "team_message",
-              kind: event.kind,
-              from_member_id: event.fromMemberId,
-              to_member_id: event.toMemberId,
-              related_task_id: event.relatedTaskId,
-              content_preview: event.contentPreview,
-            });
-            break;
-          case "team_member_activity":
-            emit({
-              event: "team_member_activity",
-              member_id: event.memberId,
-              member_label: event.memberLabel,
-              thread_id: event.threadId,
-              activity_kind: event.activityKind,
-              summary: event.summary,
-              status: event.status,
-            });
-            break;
-          case "team_plan_review_required":
-            emit({
-              event: "team_plan_review_required",
-              approval_id: event.approvalId,
-              task_id: event.taskId,
-              submitted_by_member_id: event.submittedByMemberId,
-            });
-            break;
-          case "team_plan_review_resolved":
-            emit({
-              event: "team_plan_review_resolved",
-              approval_id: event.approvalId,
-              task_id: event.taskId,
-              submitted_by_member_id: event.submittedByMemberId,
-              approved: event.approved,
-              reviewed_by_member_id: event.reviewedByMemberId,
-            });
-            break;
-          case "team_shutdown_requested":
-            emit({
-              event: "team_shutdown_requested",
-              request_id: event.requestId,
-              member_id: event.memberId,
-              requested_by_member_id: event.requestedByMemberId,
-              reason: event.reason,
-            });
-            break;
-          case "team_shutdown_resolved":
-            emit({
-              event: "team_shutdown_resolved",
-              request_id: event.requestId,
-              member_id: event.memberId,
-              requested_by_member_id: event.requestedByMemberId,
-              status: event.status,
-            });
-            break;
-          case "batch_progress_updated":
-            emit({
-              event: "batch_progress_updated",
-              snapshot: event.snapshot,
             });
             break;
           case "plan_phase_changed":

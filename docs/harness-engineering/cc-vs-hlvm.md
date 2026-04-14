@@ -65,8 +65,6 @@ LAYER 2: REACH (external tool access)
   │                         │           │   WEB_TOOLS      — fetch/search    │
   │                         │           │   GIT_TOOLS      — version control │
   │                         │           │   MEMORY_TOOLS   — fact store      │
-  │                         │           │   DELEGATE_TOOLS — child agents    │
-  │                         │           │   AGENT_TEAM_TOOLS — multi-agent   │
   │                         │           │   DATA_TOOLS     — structured data │
   │                         │           │   ACTIVITY_TOOLS — observability   │
   │                         │           │   COMPUTER_USE_TOOLS — macOS ctrl  │
@@ -104,31 +102,16 @@ LAYER 3: REUSABLE WORKFLOWS / SKILLS
   │                          │           │   structured JSON plans            │
   │                          │           │   step tracking + completion       │
   │                          │           │   PLAN_START/PLAN_END markers      │
-  │                          │           │ Delegation system                   │
-  │                          │           │   delegate_agent (single child)    │
-  │                          │           │   batch_delegate (fan-out/batch)   │
-  │                          │           │   isolated workspaces per child    │
-  │                          │           │   context budgets per delegate     │
-  │                          │           │ Agent Teams                         │
-  │                          │           │   TaskCreate/List/Get/Update       │
-  │                          │           │   SendMessage (DM + broadcast)     │
-  │                          │           │   task dependencies (blockedBy)    │
-  │                          │           │   file-based persistence           │
-  │                          │           │   ~/.hlvm/teams/{name}/config.json │
   └──────────────────────────┘           └─────────────────────────────────────┘
 
   CC:   ########--              HLVM:  ########--
         different shape — CC has user-authored skills (text recipes)
-        HLVM has runtime orchestration (delegation, teams, plans)
+        HLVM has runtime orchestration (plans)
         CC: "here's HOW to do X"    HLVM: "I'll COORDINATE doing X"
 
   Key files:
     agent/planning.ts         — PlanningMode, requestPlan(), shouldPlanRequest()
     agent/agent-registry.ts   — AgentProfile definitions (9 built-in profiles)
-    agent/delegation.ts       — delegate_agent, batch_delegate execution
-    agent/team-runtime.ts     — createTeamRuntime(), TeamMessageKind
-    agent/team-store.ts       — TeamStore, TaskIdCounter, file persistence
-    agent/tools/agent-team-tools.ts — spawnAgent, task CRUD, messaging
 
 
 LAYER 4: SAFETY (guardrails agent can't bypass)
@@ -143,11 +126,7 @@ LAYER 4: SAFETY (guardrails agent can't bypass)
   │   Stop                   │           │   post_tool      — after tool exec │
   │                          │           │   plan_created   — plan generated  │
   │                          │           │   write_verified — file written    │
-  │                          │           │   delegate_start — child spawned   │
-  │                          │           │   delegate_end   — child returned  │
   │                          │           │   final_response — before reply    │
-  │                          │           │   teammate_idle  — team member idle│
-  │                          │           │   task_completed — team task done  │
   │                          │           │   config: .hlvm/hooks.json (v1)    │
   │                          │           │   exit code 2 = BLOCK action       │
   │                          │           │   stdout = feedback to agent       │
@@ -169,8 +148,7 @@ LAYER 4: SAFETY (guardrails agent can't bypass)
   │                          │           │   first non-empty slot wins        │
   │                          │           │ File sandbox (path validation)     │
   │                          │           │   isPathWithinRoot() enforcement   │
-  │                          │           │ Child denylist propagation          │
-  │                          │           │   delegates can't re-delegate      │
+  │                          │           │                                     │
   └──────────────────────────┘           └─────────────────────────────────────┘
 
   CC:   ########--              HLVM:  ##########
@@ -203,9 +181,7 @@ LAYER 5: ENDURANCE (survive beyond 1 session)
   │                          │           │ session persistence (SQLite)        │
   │                          │           │   metadata store, session resume   │
   │                          │           │   deriveDefaultSessionKey()        │
-  │                          │           │ batch delegation (20 parallel)      │
-  │                          │           │   DelegateBatch with progress      │
-  │                          │           │   transcript snapshots             │
+  │                          │           │                                     │
   │                          │           │ bootstrap auto-recovery             │
   │                          │           │   verifyBootstrap(), recover...()  │
   │                          │           │ 25-iteration plan execution loop    │
@@ -216,14 +192,13 @@ LAYER 5: ENDURANCE (survive beyond 1 session)
 
   CC:   ########--              HLVM:  ########--
         different shape — CC has cron + ralph loop ecosystem
-        HLVM has daemon mode + batch delegation + session resume
+        HLVM has daemon mode + session resume
         CC: "restart me externally"   HLVM: "I stay running as a server"
 
   Key files:
     agent/agent-runner.ts     — core ReAct loop, session setup
     agent/context.ts          — message history, compaction, sliding window
     agent/context-resolver.ts — resolveContextBudget(), token allocation
-    agent/delegate-batches.ts — DelegateBatch, batch progress tracking
     cli/commands/ask.ts       — CLI agent mode (interactive/batch/permission)
     cli/commands/serve.ts     — HTTP daemon, SSE/NDJSON, bootstrap readiness
     store/session-metadata.ts — session persistence, resume key derivation
@@ -240,7 +215,7 @@ CORRECTED SCORECARD:
   Safety (L4)         ########--      ##########   HLVM WINS (11 hooks, policy engine)
   Endurance (L5)      ########--      ########--   DIFFERENT (cron vs daemon)
   ───────────────────────────────────────────────
-  Team orchestration  ####------      ##########   HLVM WINS
+  Team orchestration  ####------      ----------   REMOVED
   Computer Use        ----------      ##########   HLVM WINS
   Plugin ecosystem    ##########      ####------   CC WINS (marketplace)
   Community adoption  ##########      ----------   CC WINS
@@ -252,7 +227,7 @@ ARCHITECTURAL DIFFERENCE:
   ┌────────────────┐           ┌────────────────────────────┐
   │   text skills   │           │   runtime orchestration    │
   │   |             │           │   |                        │
-  │   one agent     │           │   N agents (teams)         │
+  │   one agent     │           │   single agent + plans     │
   │   |             │           │   |                        │
   │   file tools    │           │   file + screen + browser  │
   │   |             │           │   |                        │
@@ -260,20 +235,20 @@ ARCHITECTURAL DIFFERENCE:
   └────────────────┘           └────────────────────────────┘
 
   CC is a configurable single-agent with great plugin ecosystem.
-  HLVM is a multi-agent runtime with deeper safety and orchestration.
+  HLVM is an agent runtime with deeper safety and orchestration.
 
   They solve DIFFERENT problems:
     CC   = "how to configure an agent well"
-    HLVM = "how to run agents that coordinate and act on your Mac"
+    HLVM = "how to run an agent that plans and acts on your Mac"
 ```
 
 ## Key Takeaway
 
 CC and HLVM are **complementary, not competing**. CC excels at wrapping a
 single agent with community-sourced context and guardrails. HLVM excels at
-running multiple coordinated agents with native macOS control, structured
-planning, and deep safety policy.
+running an agent with native macOS control, structured planning, and deep
+safety policy.
 
-The real gaps in HLVM are plugin marketplace and community ecosystem — not
+The real gaps in HLVM are plugin marketplace and community ecosystem -- not
 core harness infrastructure. On raw runtime capabilities (hooks, policy,
-teams, computer use, daemon mode), HLVM is ahead.
+computer use, daemon mode), HLVM is ahead.

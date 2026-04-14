@@ -1105,11 +1105,14 @@ Deno.test("handleFinalResponse retries browser download answers that omit the ar
   };
   const lc = resolveLoopConfig(config);
   const state = initializeLoopState(config);
-  state.cachedDelegationSignal = {
-    shouldDelegate: false,
-    reason: "Browser interaction task detected",
-    suggestedPattern: "none",
+  config.routingResult = {
+    tier: "standard",
+    behavior: "assisted",
+    provenance: "assisted_classify_all",
     taskDomain: "browser",
+    needsPlan: false,
+    taskClassification: null,
+    reason: "Browser interaction task detected",
   };
   state.toolUses = [{
     toolName: "pw_download",
@@ -1153,11 +1156,14 @@ Deno.test("handleFinalResponse accepts browser download answers that include art
   };
   const lc = resolveLoopConfig(config);
   const state = initializeLoopState(config);
-  state.cachedDelegationSignal = {
-    shouldDelegate: false,
-    reason: "Browser interaction task detected",
-    suggestedPattern: "none",
+  config.routingResult = {
+    tier: "standard",
+    behavior: "assisted",
+    provenance: "assisted_classify_all",
     taskDomain: "browser",
+    needsPlan: false,
+    taskClassification: null,
+    reason: "Browser interaction task detected",
   };
   state.toolUses = [{
     toolName: "pw_download",
@@ -1191,11 +1197,14 @@ Deno.test("handleFinalResponse directs browser download tasks to pw_download whe
   };
   const lc = resolveLoopConfig(config);
   const state = initializeLoopState(config);
-  state.cachedDelegationSignal = {
-    shouldDelegate: false,
-    reason: "Browser interaction task detected",
-    suggestedPattern: "none",
+  config.routingResult = {
+    tier: "standard",
+    behavior: "assisted",
+    provenance: "assisted_classify_all",
     taskDomain: "browser",
+    needsPlan: false,
+    taskClassification: null,
+    reason: "Browser interaction task detected",
   };
   state.toolUses = [{
     toolName: "web_fetch",

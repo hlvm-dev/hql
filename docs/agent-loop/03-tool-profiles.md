@@ -16,7 +16,7 @@
   │  │          │  promotion. Never narrowed within a request.           │
   │  ├──────────┤                                                        │
   │  │  domain  │  "browser_safe" or "browser_hybrid" or EMPTY          │
-  │  │          │  Set once per request by evaluateDelegationSignal.     │
+  │  │          │  Set once per request at domain classification.       │
   │  ├──────────┤                                                        │
   │  │   plan   │  Narrowed during plan-mode execution.                  │
   │  │          │  Set when plan approved, cleared when done.            │

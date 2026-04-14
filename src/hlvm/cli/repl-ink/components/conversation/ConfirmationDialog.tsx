@@ -29,7 +29,6 @@ interface ConfirmationDialogProps {
   toolName?: string;
   toolArgs?: string;
   sourceLabel?: string;
-  sourceTeamName?: string;
   onResolve?: (requestId: string, response: InteractionResponse) => void;
 }
 
@@ -40,7 +39,6 @@ export const ConfirmationDialog = React.memo(
       toolName,
       toolArgs,
       sourceLabel,
-      sourceTeamName,
       onResolve,
     }: ConfirmationDialogProps,
   ): React.ReactElement {
@@ -151,15 +149,12 @@ export const ConfirmationDialog = React.memo(
           onCancel={() => onResolve(requestId, { approved: false })}
         >
           <Box flexDirection="column">
-            {(sourceLabel || sourceTeamName) && !isPlanReview && (
+            {sourceLabel && !isPlanReview && (
               <Box marginBottom={1}>
                 <Text color={sc.text.secondary}>From: </Text>
                 <Text color={sc.text.primary} bold>
-                  {sourceLabel ?? sourceTeamName}
+                  {sourceLabel}
                 </Text>
-                {sourceLabel && sourceTeamName && (
-                  <Text color={sc.text.muted}>{` · ${sourceTeamName}`}</Text>
-                )}
               </Box>
             )}
             <Text color={sc.text.secondary}>
@@ -254,15 +249,12 @@ export const ConfirmationDialog = React.memo(
         <Text color={isPlanReview ? sc.text.primary : sc.status.warning} bold>
           {isPlanReview ? "Ready to code?" : "Permission required"}
         </Text>
-        {(sourceLabel || sourceTeamName) && (
+        {sourceLabel && (
           <Box marginTop={0}>
             <Text color={sc.text.secondary}>From:</Text>
             <Text color={sc.text.primary} bold>
-              {sourceLabel ?? sourceTeamName}
+              {sourceLabel}
             </Text>
-            {sourceLabel && sourceTeamName && (
-              <Text color={sc.text.muted}>{" · "}{sourceTeamName}</Text>
-            )}
           </Box>
         )}
         {isPlanReview && (

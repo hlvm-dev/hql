@@ -8,7 +8,7 @@
  *
  * Split into modular files:
  * - chat-session.ts: request tracking, interaction handling, cancellation
- * - chat-agent-mode.ts: HLVM agent and Claude Code subprocess delegation
+ * - chat-agent-mode.ts: HLVM agent and Claude Code subprocess mode
  * - chat-direct.ts: direct chat mode streaming, model validation
  */
 

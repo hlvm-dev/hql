@@ -56,28 +56,6 @@ import {
   traceReplMainThread,
 } from "../../../repl-main-thread-trace.ts";
 
-const CONVERSATION_DELEGATE_TOOL_DENYLIST = [
-  "delegate_agent",
-  "batch_delegate",
-  "wait_agent",
-  "list_agents",
-  "close_agent",
-  "apply_agent_changes",
-  "discard_agent_changes",
-  "send_input",
-  "interrupt_agent",
-  "resume_agent",
-] as const;
-
-const CONVERSATION_TEAM_TOOL_DENYLIST = [
-  "Teammate",
-  "SendMessage",
-  "TaskCreate",
-  "TaskGet",
-  "TaskUpdate",
-  "TaskList",
-  "TeamStatus",
-] as const;
 
 type ContextPressureLevel =
   Extract<TraceEvent, { type: "context_pressure" }>["level"];
@@ -94,13 +72,7 @@ function formatContextPressureLabel(
 export function getConversationToolDenylist(
   agentExecutionMode: AgentExecutionMode,
 ): string[] {
-  return agentExecutionMode === "plan"
-    ? ["complete_task", ...CONVERSATION_TEAM_TOOL_DENYLIST]
-    : [
-      "complete_task",
-      ...CONVERSATION_DELEGATE_TOOL_DENYLIST,
-      ...CONVERSATION_TEAM_TOOL_DENYLIST,
-    ];
+  return ["complete_task"];
 }
 
 interface UseAgentRunnerInput {
@@ -431,24 +403,6 @@ export function useAgentRunner(
               lastStreamRender = 0;
             }
             conversationRef.current.addEvent(event);
-            // Wire background delegate lifecycle to TaskManager
-            if (event.type === "delegate_start" && event.threadId) {
-              getTaskManager().createDelegateTask(
-                event.threadId,
-                event.agent,
-                event.nickname ?? event.agent,
-                event.task,
-              );
-            } else if (event.type === "delegate_running" && event.threadId) {
-              getTaskManager().markDelegateThreadRunning(event.threadId);
-            } else if (event.type === "delegate_end" && event.threadId) {
-              getTaskManager().resolveDelegateThread(event.threadId, {
-                success: event.success,
-                summary: event.summary,
-                error: event.error,
-                snapshot: event.snapshot,
-              });
-            }
           },
           onFinalResponseMeta: (meta) => {
             if (!isActiveConversationRun()) return;
@@ -541,9 +495,7 @@ export function useAgentRunner(
             question: event.question,
             options: event.options,
             sourceLabel: event.sourceLabel,
-            sourceMemberId: event.sourceMemberId,
             sourceThreadId: event.sourceThreadId,
-            sourceTeamName: event.sourceTeamName,
           };
           setInteractionQueue((prev: InteractionRequestEvent[]) => {
             if (

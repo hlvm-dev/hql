@@ -118,7 +118,7 @@ Skills loaded from three sources. Later sources override earlier by name.
 |------|---------|-------------|
 | `/commit` | inline | Review changes and create a git commit |
 | `/test` | inline | Find and run project tests |
-| `/review` | fork | Review code changes (delegates to child agent) |
+| `/review` | fork | Review code changes (child agent — pending rewrite) |
 
 **Implementation**: `src/hlvm/skills/loader.ts`
 - `loadSkillCatalog()` — discovery with session caching
@@ -134,9 +134,7 @@ Skills loaded from three sources. Later sources override earlier by name.
 - Agent follows the instructions in its next turn
 
 **Fork mode** (`context: "fork"`):
-- Returns instructions telling the model to use `delegate_agent`
-- Background delegates get isolated workspace leases; foreground delegates
-  share the parent workspace (read-only by convention)
+- Returns instructions for spawning a child agent (agent system pending rewrite)
 
 **Implementation**: `src/hlvm/skills/executor.ts`
 - `executeInlineSkill(skill, args?)` — returns `{ systemMessage, allowedTools }`
@@ -160,7 +158,7 @@ Skills loaded from three sources. Later sources override earlier by name.
 skill({ skill: "commit", args: "fix bug" })
   → meta-tools.ts: skill handler
   → inline: executeInlineSkill() → model follows instructions
-  → fork: returns delegation instruction → model calls delegate_agent
+  → fork: returns child agent instruction (agent system pending rewrite)
 ```
 
 **Implementation**:
@@ -217,11 +215,7 @@ Hooks configured in `<workspace>/.hlvm/hooks.json` (project-scoped, not global).
 | `post_tool` | After tool execution | orchestrator-response.ts |
 | `plan_created` | When plan is generated | agent-runner.ts |
 | `write_verified` | After file write | orchestrator-tool-execution.ts |
-| `delegate_start` | Child agent spawned | agent-runner.ts |
-| `delegate_end` | Child agent returned | agent-runner.ts |
 | `final_response` | Before sending response | agent-runner.ts |
-| `teammate_idle` | Team member idle | team-executor.ts |
-| `task_completed` | Task marked complete | team-executor.ts |
 | `session_start` | After session setup | agent-runner.ts |
 | `session_end` | Before session cleanup | agent-runner.ts |
 | `pre_compact` | Before context compaction | orchestrator.ts |

@@ -1073,7 +1073,7 @@ function shouldRunBrowserFinalAnswerGate(
   config: OrchestratorConfig,
 ): boolean {
   return state.toolUses.some((toolUse) => toolUse.toolName.startsWith("pw_")) &&
-    state.cachedDelegationSignal?.taskDomain === "browser" &&
+    config.routingResult?.taskDomain === "browser" &&
     typeof config.currentUserRequest === "string" &&
     config.currentUserRequest.trim().length > 0;
 }

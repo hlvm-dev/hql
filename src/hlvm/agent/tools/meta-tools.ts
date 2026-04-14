@@ -484,7 +484,7 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
       if (skill.frontmatter.context === "fork") {
         return {
           systemMessage:
-            `# Skill: ${skill.name} (delegate this task)\nUse delegate_agent to run this in a background agent.\n\n${skill.body}\n\nArgs: ${record.args ?? ""}`,
+            `# Skill: ${skill.name} (run in background)\n\n${skill.body}\n\nArgs: ${record.args ?? ""}`,
           allowedTools: skill.frontmatter.allowed_tools,
         };
       }

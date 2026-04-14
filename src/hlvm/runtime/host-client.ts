@@ -122,9 +122,7 @@ interface RuntimeInteractionRequest {
   question?: string;
   options?: InteractionOption[];
   sourceLabel?: string;
-  sourceMemberId?: string;
   sourceThreadId?: string;
-  sourceTeamName?: string;
 }
 
 interface RuntimeInteractionResponse {
@@ -395,9 +393,9 @@ function spawnRuntimeHost(
     HLVM_AUTH_TOKEN: authToken,
     HLVM_RUNTIME_BUILD_ID: buildId,
     // Increase V8 heap limit for the runtime server.
-    // Background delegates run in-process and each holds LLM context + tool
+    // Background agents run in-process and each holds LLM context + tool
     // schemas, which can exceed the default ~1.7 GB heap with 2+ concurrent
-    // delegates.
+    // agents.
     DENO_V8_FLAGS: [
       platform.env.get("DENO_V8_FLAGS"),
       "--max-old-space-size=4096",
@@ -680,104 +678,11 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         argsSummary: event.args_summary,
         meta: event.meta,
       };
-    case "delegate_start":
-      return {
-        type: "delegate_start",
-        agent: event.agent,
-        task: event.task,
-        threadId: event.thread_id,
-        nickname: event.nickname,
-        childSessionId: event.child_session_id,
-        batchId: event.batch_id,
-      };
-    case "delegate_running":
-      return {
-        type: "delegate_running",
-        threadId: event.thread_id,
-      };
-    case "delegate_end":
-      return {
-        type: "delegate_end",
-        agent: event.agent,
-        task: event.task,
-        success: event.success,
-        summary: event.summary,
-        durationMs: event.duration_ms ?? 0,
-        error: event.error,
-        snapshot: event.snapshot,
-        childSessionId: event.child_session_id,
-        threadId: event.thread_id,
-        batchId: event.batch_id,
-      };
     case "todo_updated":
       return {
         type: "todo_updated",
         todoState: event.todo_state,
         source: event.source,
-      };
-    case "team_task_updated":
-      return {
-        type: "team_task_updated",
-        taskId: event.task_id,
-        goal: event.goal,
-        status: event.status,
-        assigneeMemberId: event.assignee_member_id,
-      };
-    case "team_message":
-      return {
-        type: "team_message",
-        kind: event.kind,
-        fromMemberId: event.from_member_id,
-        toMemberId: event.to_member_id,
-        relatedTaskId: event.related_task_id,
-        contentPreview: event.content_preview,
-      };
-    case "team_member_activity":
-      return {
-        type: "team_member_activity",
-        memberId: event.member_id,
-        memberLabel: event.member_label,
-        threadId: event.thread_id,
-        activityKind: event.activity_kind,
-        summary: event.summary,
-        status: event.status,
-      };
-    case "team_plan_review_required":
-      return {
-        type: "team_plan_review_required",
-        approvalId: event.approval_id,
-        taskId: event.task_id,
-        submittedByMemberId: event.submitted_by_member_id,
-      };
-    case "team_plan_review_resolved":
-      return {
-        type: "team_plan_review_resolved",
-        approvalId: event.approval_id,
-        taskId: event.task_id,
-        submittedByMemberId: event.submitted_by_member_id,
-        approved: event.approved,
-        reviewedByMemberId: event.reviewed_by_member_id,
-      };
-    case "team_shutdown_requested":
-      return {
-        type: "team_shutdown_requested",
-        requestId: event.request_id,
-        memberId: event.member_id,
-        requestedByMemberId: event.requested_by_member_id,
-        reason: event.reason,
-      };
-    case "team_shutdown_resolved":
-      return {
-        type: "team_shutdown_resolved",
-        requestId: event.request_id,
-        memberId: event.member_id,
-        requestedByMemberId: event.requested_by_member_id,
-        status: event.status,
-      };
-    case "batch_progress_updated":
-      return {
-        type: "batch_progress_updated",
-        snapshot: event.snapshot,
       };
     case "plan_phase_changed":
       return {
@@ -1451,9 +1356,7 @@ async function runChatViaHostAttempt(
               question: event.question,
               options: event.options,
               sourceLabel: event.source_label,
-              sourceMemberId: event.source_member_id,
               sourceThreadId: event.source_thread_id,
-              sourceTeamName: event.source_team_name,
             })
             : { approved: false };
           await respondToInteraction(baseUrl, authToken, {

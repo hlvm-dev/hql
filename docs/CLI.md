@@ -88,7 +88,7 @@ hlvm repl [options]
 ## hlvm ask
 
 Interactive AI agent for task execution. Runs the full agent orchestration loop
-with tool calling, planning, and delegation.
+with tool calling and planning.
 
 ```
 hlvm ask "<query>"

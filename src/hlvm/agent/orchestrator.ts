@@ -73,30 +73,15 @@ import { isPlanExecutionMode } from "./execution-mode.ts";
 import { getAgentLogger } from "./logger.ts";
 import { buildRelevantMemoryRecall } from "../memory/mod.ts";
 import { resetWebToolBudget } from "./tools/web-tools.ts";
-import {
-  type DelegationSignal,
-  evaluateDelegationSignal,
-} from "./delegation-heuristics.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 import type { TodoState } from "./todo-state.ts";
-import type { DelegateTranscriptSnapshot } from "./delegate-transcript.ts";
-import {
-  type DelegateInbox,
-  formatDelegateInboxUpdateMessage,
-} from "./delegate-inbox.ts";
 import { runtimeDirective, runtimeNotice } from "./runtime-messages.ts";
-import type { DelegateCoordinationBoard } from "./delegate-coordination.ts";
-import type { TeamRuntime, TeamSummary } from "./team-runtime.ts";
-import { cancelThread } from "./delegate-threads.ts";
-import type { DelegateTokenBudget } from "./delegate-token-budget.ts";
-import { recordBudgetUsage } from "./delegate-token-budget.ts";
 import { resolveThinkingProfile } from "./thinking-profile.ts";
 import type { AgentHookRuntime } from "./hooks.ts";
 import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
 import type { LastResortFallback } from "./auto-select.ts";
 import {
-  delegationSignalFromRoutingResult,
   type RoutingBehavior,
   type RoutingProvenance,
   type RoutingResult,
@@ -332,8 +317,6 @@ export type TraceEvent =
     behavior: RoutingBehavior;
     provenance: RoutingProvenance;
     taskDomain: "browser" | "general";
-    shouldDelegate: boolean;
-    delegatePattern: DelegationSignal["suggestedPattern"];
     needsPlan: boolean;
     reason: string;
   };
@@ -393,7 +376,6 @@ export type RuntimeToolPhase =
   | "researching"
   | "editing"
   | "verifying"
-  | "delegating"
   | "completing";
 
 export type ToolProgressTone = "running" | "success" | "warning";
@@ -469,110 +451,15 @@ export type AgentUIEvent =
     compactionReason?: "proactive_pressure" | "overflow_retry";
   }
   | {
-    type: "delegate_start";
-    agent: string;
-    task: string;
-    childSessionId?: string;
-    threadId?: string;
-    nickname?: string;
-    batchId?: string;
-  }
-  | {
-    type: "delegate_running";
-    threadId: string;
-  }
-  | {
-    type: "delegate_end";
-    agent: string;
-    task: string;
-    success: boolean;
-    summary?: string;
-    durationMs: number;
-    error?: string;
-    snapshot?: DelegateTranscriptSnapshot;
-    childSessionId?: string;
-    threadId?: string;
-    batchId?: string;
-  }
-  | {
     type: "todo_updated";
     todoState: TodoState;
-    source: "tool" | "plan" | "team";
-  }
-  | {
-    type: "team_task_updated";
-    taskId: string;
-    goal: string;
-    status: string;
-    assigneeMemberId?: string;
-    artifacts?: Record<string, unknown>;
-  }
-  | {
-    type: "team_message";
-    kind: string;
-    fromMemberId: string;
-    toMemberId?: string;
-    relatedTaskId?: string;
-    contentPreview: string;
-  }
-  | {
-    type: "team_member_activity";
-    memberId: string;
-    memberLabel: string;
-    threadId?: string;
-    activityKind:
-      | "reasoning"
-      | "planning"
-      | "plan_created"
-      | "plan_step"
-      | "tool_start"
-      | "tool_progress"
-      | "tool_end"
-      | "turn_stats";
-    summary: string;
-    status: "active" | "success" | "error";
-    durationMs?: number;
-    toolCount?: number;
-    inputTokens?: number;
-    outputTokens?: number;
+    source: "tool" | "plan";
   }
   | {
     type: "memory_activity";
     recalled: MemoryActivityEntry[];
     written: MemoryActivityEntry[];
     searched?: { query: string; count: number };
-  }
-  | {
-    type: "team_plan_review_required";
-    approvalId: string;
-    taskId: string;
-    submittedByMemberId: string;
-  }
-  | {
-    type: "team_plan_review_resolved";
-    approvalId: string;
-    taskId: string;
-    submittedByMemberId: string;
-    approved: boolean;
-    reviewedByMemberId?: string;
-  }
-  | {
-    type: "team_shutdown_requested";
-    requestId: string;
-    memberId: string;
-    requestedByMemberId: string;
-    reason?: string;
-  }
-  | {
-    type: "team_shutdown_resolved";
-    requestId: string;
-    memberId: string;
-    requestedByMemberId: string;
-    status: "acknowledged" | "forced";
-  }
-  | {
-    type: "batch_progress_updated";
-    snapshot: import("./delegate-batches.ts").DelegateBatchSnapshot;
   }
   | InteractionRequestEvent;
 
@@ -619,10 +506,6 @@ export interface OrchestratorConfig {
     planningAllowlist?: string[];
     directFileTargets?: string[];
   };
-  delegate?: (
-    args: unknown,
-    config: OrchestratorConfig,
-  ) => Promise<unknown>;
   /** Optional flat filter seed used when toolProfileState is omitted. */
   toolAllowlist?: string[];
   /** Optional flat deny seed used when toolProfileState is omitted. */
@@ -649,8 +532,6 @@ export interface OrchestratorConfig {
   visionCapable?: boolean;
   l1Confirmations?: Map<string, boolean>;
   toolOwnerId?: string;
-  /** Top-level delegate owner used to scope background agent control tools. */
-  delegateOwnerId?: string;
   /** Optional lazy MCP loader called on demand. */
   ensureMcpLoaded?: (signal?: AbortSignal) => Promise<void>;
   requireToolCalls?: boolean;
@@ -662,7 +543,6 @@ export interface OrchestratorConfig {
   skipModelCompensation?: boolean;
   modelTier?: ModelTier;
   routingResult?: RoutingResult;
-  delegateInbox?: DelegateInbox;
   modelId?: string;
   sessionId?: string;
   turnId?: string;
@@ -692,21 +572,9 @@ export interface OrchestratorConfig {
     shouldGateMutatingTools: () => boolean;
   };
   /** Input queue for parent→child mid-task steering messages. */
-  inputQueue?: string[];
-  /** Shared supervisor-managed coordination state for delegated work. */
-  coordinationBoard?: DelegateCoordinationBoard;
-  /** Internal coordination item ID for child report_result updates. */
-  delegateCoordinationId?: string;
-  /** Shared team runtime for system-managed collaboration. */
-  teamRuntime?: TeamRuntime;
   agentProfiles?: readonly AgentProfile[];
   /** Resolved instruction hierarchy for child agent prompt compilation. */
   instructions?: import("../prompt/types.ts").InstructionHierarchy;
-  /** Current member ID for this team-aware run. */
-  teamMemberId?: string;
-  /** Lead member ID for the current team runtime. */
-  teamLeadMemberId?: string;
-  delegateTokenBudget?: DelegateTokenBudget;
   /** Fallback model IDs for auto-select mode (tried on transient failures). */
   autoFallbacks?: string[];
   /** Factory to create an LLM function for a fallback model. */
@@ -754,11 +622,6 @@ export const EDIT_PHASE_CATEGORIES = new Set([
 /** @internal Exported for unit testing only. */
 export const VERIFY_PHASE_CATEGORIES = EDIT_PHASE_CATEGORIES;
 
-const DELEGATE_PHASE_CATEGORIES = new Set([
-  "read",
-  "search",
-  "meta",
-]);
 
 /** @internal Exported for unit testing only. */
 export const COMPLETE_PHASE_CATEGORIES = new Set([
@@ -780,38 +643,7 @@ function requestImpliesEditing(query: string): boolean {
     .test(query);
 }
 
-async function requestImpliesDelegation(
-  query: string,
-  state: LoopState,
-  config: OrchestratorConfig,
-): Promise<boolean> {
-  if (
-    /\b(delegate|delegation|multiple agents|spawn .*agent|parallel|concurrent|concurrently|team)\b/i
-      .test(query)
-  ) return true;
-  const signal = await ensureDelegationSignal(query, state, config);
-  return signal.shouldDelegate;
-}
-
-async function ensureDelegationSignal(
-  query: string,
-  state: LoopState,
-  config: OrchestratorConfig,
-): Promise<DelegationSignal> {
-  if (state.cachedDelegationSignal) return state.cachedDelegationSignal;
-  if (config.routingResult) {
-    state.cachedDelegationSignal = delegationSignalFromRoutingResult(
-      config.routingResult,
-    );
-    return state.cachedDelegationSignal;
-  }
-  state.cachedDelegationSignal = await evaluateDelegationSignal(query);
-  return state.cachedDelegationSignal;
-}
-
 async function applyRequestDomainToolProfile(
-  userRequest: string,
-  state: LoopState,
   config: OrchestratorConfig,
 ): Promise<void> {
   if (isMainThreadQuerySource(config.querySource)) {
@@ -839,11 +671,7 @@ async function applyRequestDomainToolProfile(
     clearToolProfileLayerFromTarget(config, "domain");
     return;
   }
-  const delegationSignal = await ensureDelegationSignal(
-    userRequest,
-    state,
-    config,
-  );
+  const taskDomain = config.routingResult?.taskDomain ?? "general";
   const baselineLayer = ensureToolProfileState(config).layers.baseline;
   const canonicalBaselineAllowlist = resolveCanonicalBaselineAllowlist({
     querySource: config.querySource,
@@ -853,7 +681,7 @@ async function applyRequestDomainToolProfile(
   });
   const nextBaselineAllowlist = cloneToolList(canonicalBaselineAllowlist);
   if (
-    delegationSignal.taskDomain === "browser" &&
+    taskDomain === "browser" &&
     nextBaselineAllowlist?.length
   ) {
     const browserSafeAllowlist =
@@ -874,7 +702,7 @@ async function applyRequestDomainToolProfile(
       reason: baselineLayer?.reason,
     });
   }
-  if (delegationSignal.taskDomain === "browser") {
+  if (taskDomain === "browser") {
     updateToolProfileLayer(config, "domain", {
       profileId: BROWSER_SAFE_PROFILE_ID,
       reason: "browser_task_detected",
@@ -892,18 +720,6 @@ const COMPLETE_TOOLS = new Set([
   "git_diff",
   "git_status",
 ]);
-const DELEGATE_TOOLS = new Set([
-  "delegate_agent",
-  "batch_delegate",
-  "team_create",
-  "team_task",
-  "team_inbox",
-  "Teammate",
-  "SendMessage",
-  "TaskCreate",
-  "TaskUpdate",
-  "TaskList",
-]);
 const READ_TOOLS = new Set([
   "read_file",
   "search_code",
@@ -919,14 +735,11 @@ async function deriveRuntimePhase(
   // Single pass: classify last tool names into categories
   let hasWrite = false;
   let hasComplete = false;
-  let hasDelegate = false;
   let hasRead = false;
   for (const name of state.lastToolNames) {
     if (WRITE_TOOLS.has(name)) hasWrite = true;
     else if (COMPLETE_TOOLS.has(name)) hasComplete = true;
-    else if (DELEGATE_TOOLS.has(name) || name.startsWith("team_")) {
-      hasDelegate = true;
-    } else if (READ_TOOLS.has(name)) hasRead = true;
+    else if (READ_TOOLS.has(name)) hasRead = true;
   }
 
   if (config.planModeState?.phase === "executing" || state.planState) {
@@ -935,14 +748,8 @@ async function deriveRuntimePhase(
 
   if (hasWrite) return "verifying";
   if (hasComplete) return "completing";
-  if (hasDelegate) return "delegating";
   if (hasRead && requestImpliesEditing(userRequest)) return "editing";
-  // Deterministic regex check before LLM delegation classifier to avoid
-  // misclassifying clear editing requests as delegation tasks.
   if (requestImpliesEditing(userRequest)) return "editing";
-  if (await requestImpliesDelegation(userRequest, state, config)) {
-    return "delegating";
-  }
   if (requestImpliesVerification(userRequest)) return "verifying";
   return "researching";
 }
@@ -953,8 +760,6 @@ function getPhaseCategories(phase: RuntimeToolPhase): Set<string> {
       return EDIT_PHASE_CATEGORIES;
     case "verifying":
       return VERIFY_PHASE_CATEGORIES;
-    case "delegating":
-      return DELEGATE_PHASE_CATEGORIES;
     case "completing":
       return COMPLETE_PHASE_CATEGORIES;
     case "researching":
@@ -1090,108 +895,6 @@ function maybeInjectMemoryRecall(
   } catch {
     // Best-effort only; memory recall should never block the main loop.
   }
-}
-
-async function maybeInjectDelegationHint(
-  state: LoopState,
-  userRequest: string,
-  config: OrchestratorConfig,
-): Promise<void> {
-  if (state.delegationHintInjected) return;
-  state.delegationHintInjected = true;
-
-  // Only inject when delegate_agent is actually available
-  const allowed = effectiveAllowlist(config);
-  const denied = effectiveDenylist(config);
-  if (allowed && !allowed.includes("delegate_agent")) {
-    return;
-  }
-  if (denied?.includes("delegate_agent")) return;
-
-  const signal = await ensureDelegationSignal(userRequest, state, config);
-  if (!signal.shouldDelegate) return;
-
-  addContextMessage(config, {
-    role: "user",
-    content: runtimeDirective(
-      `This task should use delegation (${signal.suggestedPattern}): ${signal.reason}. Use delegate_agent to fan out work NOW rather than exploring files yourself first.`,
-    ),
-  });
-}
-
-function formatTeamMessageForContext(
-  event: {
-    kind: string;
-    fromMemberId: string;
-    content: string;
-    toMemberId?: string;
-    relatedTaskId?: string;
-  },
-): string {
-  const target = event.toMemberId ? ` -> ${event.toMemberId}` : "";
-  const taskRef = event.relatedTaskId ? ` [task ${event.relatedTaskId}]` : "";
-  return `[Team ${event.kind}] ${event.fromMemberId}${target}${taskRef}: ${event.content}`;
-}
-
-function formatShutdownRequestForContext(
-  request: {
-    requestedByMemberId: string;
-    reason?: string;
-  },
-): string {
-  return request.reason
-    ? `[Team shutdown] ${request.requestedByMemberId} requested graceful shutdown: ${request.reason}`
-    : `[Team shutdown] ${request.requestedByMemberId} requested graceful shutdown.`;
-}
-
-function formatTeamSummaryForContext(
-  summary: TeamSummary,
-  pendingApprovals: Array<{
-    id: string;
-    taskId: string;
-    submittedByMemberId: string;
-  }>,
-): string {
-  const taskCounts = Object.entries(summary.taskCounts)
-    .map(([status, count]) => `${status}=${count}`)
-    .join(", ");
-  const blocked = summary.blockedTasks.length > 0
-    ? summary.blockedTasks.map((task) =>
-      `${task.id} <- ${task.dependencies.join(", ")}`
-    ).join("; ")
-    : "none";
-  const approvals = pendingApprovals.length > 0
-    ? pendingApprovals.map((approval) =>
-      `${approval.taskId} by ${approval.submittedByMemberId}`
-    ).join("; ")
-    : "none";
-
-  return [
-    `[Team Summary] Members: ${summary.activeMembers}/${summary.memberCount} active. Pending approvals: ${summary.pendingApprovals}. Unread messages: ${summary.unreadMessages}.`,
-    `Policy: implementation=${summary.policy.implementationProfile}, review=${summary.policy.reviewProfile}, research=${summary.policy.researchProfile}, synthesis=${summary.policy.synthesisProfile}, reviewRequired=${summary.policy.reviewRequired}, autoApplyCleanChanges=${summary.policy.autoApplyCleanChanges}.`,
-    `Task counts: ${taskCounts}.`,
-    `Blocked tasks: ${blocked}.`,
-    `Pending approvals: ${approvals}.`,
-  ].join("\n");
-}
-
-function hasMeaningfulTeamSummary(
-  summary: TeamSummary,
-  pendingApprovals: Array<{
-    id: string;
-    taskId: string;
-    submittedByMemberId: string;
-  }>,
-): boolean {
-  const totalTasks = Object.values(summary.taskCounts).reduce(
-    (sum, count) => sum + count,
-    0,
-  );
-  return summary.memberCount > 1 ||
-    pendingApprovals.length > 0 ||
-    summary.unreadMessages > 0 ||
-    summary.blockedTasks.length > 0 ||
-    totalTasks > 0;
 }
 
 /**
@@ -1523,19 +1226,6 @@ async function runLlmResponsePass(
     });
   }
 
-  if (config.delegateTokenBudget) {
-    const totalTokens = (usage.promptTokens ?? 0) +
-      (usage.completionTokens ?? 0);
-    if (recordBudgetUsage(config.delegateTokenBudget, totalTokens)) {
-      addContextMessage(config, {
-        role: "user",
-        content: runtimeDirective(
-          "Token budget exceeded. Wrap up your current work and provide a final summary.",
-        ),
-      });
-    }
-  }
-
   onTrace?.({
     type: "llm_response",
     length: responseText.length,
@@ -1612,7 +1302,7 @@ export async function runReActLoop(
   const lc = resolveLoopConfig(config);
   const autoMemoryRecall = config.autoMemoryRecall ?? false;
   resetWebToolBudget();
-  await applyRequestDomainToolProfile(userRequest, state, config);
+  await applyRequestDomainToolProfile(config);
 
   addContextMessage(config, {
     role: "user",
@@ -1691,105 +1381,6 @@ export async function runReActLoop(
     state.iterations++;
     const iterationStart = Date.now();
 
-    const delegateUpdates = config.delegateInbox?.drain() ?? [];
-    for (const update of delegateUpdates) {
-      addContextMessage(config, {
-        role: "user",
-        content: formatDelegateInboxUpdateMessage(update),
-      });
-    }
-
-    if (
-      config.teamRuntime &&
-      config.teamMemberId &&
-      config.teamMemberId === config.teamLeadMemberId
-    ) {
-      const summary = config.teamRuntime.deriveSummary(config.teamLeadMemberId);
-      const pendingApprovals = config.teamRuntime.listPendingApprovals().map((
-        approval,
-      ) => ({
-        id: approval.id,
-        taskId: approval.taskId,
-        submittedByMemberId: approval.submittedByMemberId,
-      }));
-      const signature = JSON.stringify({
-        summary,
-        pendingApprovals,
-      });
-      if (
-        hasMeaningfulTeamSummary(summary, pendingApprovals) &&
-        signature !== state.lastTeamSummarySignature
-      ) {
-        state.lastTeamSummarySignature = signature;
-        addContextMessage(config, {
-          role: "user",
-          content: formatTeamSummaryForContext(summary, pendingApprovals),
-        });
-      }
-    }
-
-    // Drain parent→child steering messages (delivered at iteration boundary)
-    const parentInputs = config.inputQueue?.splice(0) ?? [];
-    for (const msg of parentInputs) {
-      addContextMessage(config, {
-        role: "user",
-        content: `[Parent Message] ${msg}`,
-      });
-    }
-
-    const teamMessages = config.teamRuntime && config.teamMemberId
-      ? config.teamRuntime.readMessages(config.teamMemberId)
-      : [];
-    for (const message of teamMessages) {
-      addContextMessage(config, {
-        role: "user",
-        content: formatTeamMessageForContext(message),
-      });
-      config.onAgentEvent?.({
-        type: "team_message",
-        kind: message.kind,
-        fromMemberId: message.fromMemberId,
-        toMemberId: message.toMemberId,
-        relatedTaskId: message.relatedTaskId,
-        contentPreview: truncate(message.content, 120),
-      });
-    }
-
-    const shutdownRequest = config.teamRuntime && config.teamMemberId
-      ? config.teamRuntime.getPendingShutdown(config.teamMemberId)
-      : undefined;
-    if (shutdownRequest) {
-      addContextMessage(config, {
-        role: "user",
-        content: formatShutdownRequestForContext(shutdownRequest),
-      });
-      config.onAgentEvent?.({
-        type: "team_shutdown_requested",
-        requestId: shutdownRequest.id,
-        memberId: shutdownRequest.memberId,
-        requestedByMemberId: shutdownRequest.requestedByMemberId,
-        reason: shutdownRequest.reason,
-      });
-    }
-
-    const forcedShutdowns = config.teamRuntime &&
-        config.teamMemberId === config.teamLeadMemberId
-      ? config.teamRuntime.forceExpiredShutdowns(config.teamLeadMemberId)
-      : [];
-    for (const request of forcedShutdowns) {
-      const member = config.teamRuntime?.getMember(request.memberId);
-      if (member?.threadId) {
-        cancelThread(member.threadId);
-      }
-      config.onAgentEvent?.({
-        type: "team_shutdown_resolved",
-        requestId: request.id,
-        memberId: request.memberId,
-        requestedByMemberId: request.requestedByMemberId,
-        status: "forced",
-      });
-    }
-
     onTrace?.({
       type: "iteration",
       current: state.iterations,
@@ -1797,50 +1388,6 @@ export async function runReActLoop(
     });
 
     try {
-      // Plan delegation (inline — complex control flow with continue)
-      if (state.planState) {
-        const currentStep =
-          state.planState.plan.steps[state.planState.currentIndex];
-        if (
-          currentStep?.agent &&
-          !state.planState.delegatedIds.has(currentStep.id) &&
-          config.delegate
-        ) {
-          const profile = getAgentProfile(
-            currentStep.agent,
-            config.agentProfiles,
-          );
-          if (profile) {
-            const delegateArgs: Record<string, unknown> = {
-              agent: profile.name,
-              task: currentStep.goal ?? currentStep.title,
-            };
-            if (typeof config.maxToolCalls === "number") {
-              delegateArgs.maxToolCalls = config.maxToolCalls;
-            }
-            if (config.groundingMode) {
-              delegateArgs.groundingMode = config.groundingMode;
-            }
-            const delegateResult = await executeToolCall(
-              { toolName: "delegate_agent", args: delegateArgs },
-              config,
-            );
-            if (!delegateResult.success) {
-              addContextMessage(config, {
-                role: "user",
-                content: runtimeNotice(
-                  `Delegation failed: ${
-                    delegateResult.error ?? "unknown error"
-                  }`,
-                ),
-              });
-            }
-            state.planState.delegatedIds.add(currentStep.id);
-            continue;
-          }
-        }
-      }
-
       // LLM call: rate limit → compaction → call → usage/trace
       if (lc.llmLimiter) {
         const status = lc.llmLimiter.consume(1);
@@ -1868,8 +1415,6 @@ export async function runReActLoop(
       if (autoMemoryRecall) {
         maybeInjectMemoryRecall(state, userRequest, config);
       }
-      await maybeInjectDelegationHint(state, userRequest, config);
-
       const urgentThresholdPercent = Math.round(
         context.getConfig().compactionThreshold * 100,
       );
@@ -2141,8 +1686,8 @@ export async function runReActLoop(
         return state.lastResponse ||
           "Context limit reached. Please start a new conversation.";
       }
-      // Retry transient network errors (e.g., connection idle timeout during
-      // delegation) at the orchestrator loop level.  The LLM-level retry only
+      // Retry transient network errors (e.g., connection idle timeout) at the
+      // orchestrator loop level.  The LLM-level retry only
       // covers the chat call itself; errors thrown during response parsing or
       // tool execution are unretried without this guard.
       const classified = await classifyError(error);

@@ -10,7 +10,6 @@ Bird's-eye view of the ReAct agent loop, from CLI entry to final response.
 | [02-react-loop.md](02-react-loop.md) | The main `while` loop — every stage, every branch |
 | [03-tool-profiles.md](03-tool-profiles.md) | 5-layer tool filtering, resolution, caching, browser promotion |
 | [04-context-memory.md](04-context-memory.md) | Context management, compaction, memory injection |
-| [05-multi-agent.md](05-multi-agent.md) | Teams, delegation, planning, inbox draining |
 | [06-comparison.md](06-comparison.md) | HLVM vs Claude Code — structural complexity analysis |
 
 ## Quick orientation
@@ -52,8 +51,6 @@ BROWSER RECOVERY (201 LOC)
   playwright/recovery-policy.ts  144   headless → headed promotion decisions
   playwright/failure-enrichment.ts 57  actionability classification
 
-DELEGATION (125 LOC)
-  delegation-heuristics.ts       125   browser vs general, fan-out detection
                                ─────
-  TOTAL                        9,745 LOC
+  TOTAL                        9,620 LOC
 ```

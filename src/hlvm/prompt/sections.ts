@@ -49,8 +49,6 @@ const SECTION_STABILITY: Record<string, PromptSectionStability> = {
   permissions: "session",
   environment: "session",
   custom: "session",
-  delegation: "session",
-  team_coordination: "session",
   skills: "session",
   computer_use: "session",
   browser_automation: "session",
@@ -156,11 +154,6 @@ function renderInstructions(tier: ModelTier): RawPromptSection {
       tier: "constrained",
       text:
         "If the next step would naturally trigger a permission prompt, call the tool directly instead of asking in plain text whether the user wants to continue.",
-    },
-    {
-      tier: "constrained",
-      text:
-        "Do not delegate routine local tasks unless the user explicitly asks for multi-agent or parallel work.",
     },
     {
       tier: "standard",
@@ -334,159 +327,6 @@ function renderCustomInstructions(
   };
 }
 
-function renderDelegation(
-  tools: Record<string, ToolMetadata>,
-  tier: ModelTier,
-  agentProfiles?: readonly AgentProfile[],
-): RawPromptSection {
-  if (!("delegate_agent" in tools)) {
-    return { id: "delegation", content: "", minTier: "constrained" };
-  }
-  const agents = agentProfiles ?? [];
-  const agentList = agents.map((a) => `- **${a.name}**: ${a.description}`)
-    .join("\n");
-
-  // Weak tier: abbreviated (just agent list)
-  if (!tierMeetsMinimum(tier, "standard")) {
-    return {
-      id: "delegation",
-      content:
-        `# Delegation\nUse delegate_agent for subtasks. Available agents:\n${agentList}`,
-      minTier: "constrained",
-    };
-  }
-
-  // Mid/frontier: full guidance
-  const lines = [
-    "# Delegation",
-    "",
-    "## When to Delegate",
-    "- Large tasks with multiple well-defined, independent scopes",
-    "- Tasks requiring specialized tool access (web research, file ops, shell)",
-    "- Parallel independent subtasks that don't share files",
-    "- Peer review: have another agent evaluate your work",
-    "",
-    "## When NOT to Delegate",
-    "- Simple or straightforward tasks (overhead > benefit)",
-    "- Sequential tasks with tight data dependencies",
-    "- Tasks that need your current conversation context",
-    "",
-    "## Coordination Patterns",
-    "- **Fan-out**: Spawn background agents for independent subtasks, wait for all, synthesize",
-    "- **Batch**: Use batch_delegate for repeated row/file-oriented work when one template applies to many inputs",
-    "- **Specialist**: Route to the right profile (code for repo analysis, web for research, file for local organization, shell for execution)",
-    "- **Review**: After completing work, delegate review to a fresh agent with different perspective",
-    "- **Isolation**: Background delegates that can mutate files work in isolated leases (prefer worktree, fall back to temp workspace).",
-    "",
-    "## Rules",
-    "- Use background delegates for file changes or mutating shell work",
-    "- Foreground or resumed delegates share the parent workspace and must stay read-only",
-    "- Avoid conflicting file modifications even across isolated child workspaces",
-    "- Use wait_agent to observe completion and merge state; use apply_agent_changes or discard_agent_changes when work is not auto-applied",
-    "- Use interrupt_agent when a running agent needs a hard course correction",
-    "- Always close_agent when done to free resources",
-    "- Don't delegate when you can do it faster yourself",
-    "- Use send_input to steer a running agent mid-task",
-    "- Child delegates cannot write or edit persistent memory — only the parent agent manages memory",
-    "",
-    `## Available Agents\n${agentList}`,
-    "",
-    "## Examples",
-    '- "Refactor auth across 5 modules" -> fan-out: 5 code delegates, one per module',
-    '- "Review ~/Downloads and identify installers safe to trash" -> specialist: file delegate for inventory, general delegate for summary',
-    '- "Research competitors and write report" -> specialist: web delegate + code delegate',
-    '- "Research the best way to batch rename photos on mac and draft steps" -> specialist: web delegate for sources, general delegate for synthesis',
-    '- "Fix typo in README" -> just do it yourself, delegation overhead > benefit',
-    '- "Update config.ts then test it" -> sequential dependency, don\'t parallelize',
-    "",
-    "## Prompt Quality",
-    'Good: "Fix the null check in src/auth/validate.ts around session expiry. user can be undefined before user.id access. Add a guard, return 401, and update affected tests."',
-    'Good: "Review ~/Documents/todo.txt, group the items by project, and write back a cleaned-up checklist."',
-    'Bad: "Fix the auth bug we discussed" — missing file, symptom, and completion condition.',
-    'Bad: "Based on your findings, implement the fix" — delegates should not have to reconstruct context you already have.',
-    "",
-    "## Anti-patterns",
-    "- Do not spawn a delegate just to read one file or run one search.",
-    "- Do not parallelize tasks that have sequential dependencies.",
-    "- Do not delegate the immediate critical-path step when you need the result before you can continue.",
-  ];
-
-  return {
-    id: "delegation",
-    content: lines.join("\n"),
-    minTier: "constrained",
-  };
-}
-
-function renderTeamCoordination(
-  tools: Record<string, ToolMetadata>,
-  tier: ModelTier,
-): RawPromptSection {
-  const hasNewTools = "Teammate" in tools && "SendMessage" in tools;
-
-  if (!hasNewTools) {
-    return { id: "team_coordination", content: "", minTier: "constrained" };
-  }
-
-  if (!tierMeetsMinimum(tier, "standard")) {
-    return {
-      id: "team_coordination",
-      content:
-        "# Agent Teams\nUse Teammate, TaskCreate, TaskList, SendMessage to coordinate multi-agent work.",
-      minTier: "constrained",
-    };
-  }
-
-  const lines = [
-    "# Agent Teams",
-    "",
-    "## When to Use Agent Teams",
-    "Agent teams coordinate multiple agents working together. Use them when:",
-    "- The task benefits from parallel exploration (research, review, debugging)",
-    "- Multiple independent modules need implementation simultaneously",
-    "- Cross-layer work spans frontend, backend, and tests",
-    "",
-    "## Team Lifecycle",
-    "1. Create team: Teammate(operation='spawnTeam', team_name='my-team')",
-    "2. Add tasks: TaskCreate(subject, description) for each work item",
-    "3. Spawn teammates: Teammate(operation='spawnAgent', name='backend', agent_type='coder')",
-    "4. Monitor: TaskList to check progress, SendMessage for coordination",
-    "5. Shutdown: SendMessage(type='shutdown_request', recipient=name) for each teammate",
-    "6. Cleanup: Teammate(operation='cleanup') after all teammates shut down",
-    "",
-    "## Spawning Teammates",
-    "Use Teammate(spawnAgent) to create persistent in-process teammates that automatically:",
-    "- Pick up pending, unblocked, unowned tasks from the shared task list (lowest ID first)",
-    "- Execute each task using their designated agent profile and tools",
-    "- Mark tasks completed and send notifications to the lead",
-    "- Go idle between tasks and poll for new work",
-    "- Respond to shutdown requests gracefully",
-    "",
-    "## Team Lead Responsibilities",
-    "- Create team with Teammate(spawnTeam), spawn teammates with Teammate(spawnAgent)",
-    "- Use TaskCreate to break work into tasks, TaskList to monitor progress",
-    "- Use SendMessage(message) for DMs, SendMessage(broadcast) sparingly for team-wide announcements",
-    "- Use SendMessage(shutdown_request) to gracefully shut down teammates when done",
-    "- Use Teammate(cleanup) after all teammates are shut down",
-    "",
-    "## Idle Notifications",
-    "Teammates send idle_notification messages when waiting for tasks or between tasks.",
-    "This is normal behavior — idle teammates can receive messages and will pick up new tasks.",
-    "Do not treat idle as an error or shutdown signal.",
-    "",
-    "## Task Dependencies",
-    "- Use TaskUpdate(addBlockedBy) to set dependencies between tasks",
-    "- Blocked tasks auto-unblock when dependencies complete",
-    "- Teammates pick tasks in ID order (lowest first)",
-  ];
-
-  return {
-    id: "team_coordination",
-    content: lines.join("\n"),
-    minTier: "constrained",
-  };
-}
-
 function renderExamples(): RawPromptSection {
   return {
     id: "examples",
@@ -645,8 +485,7 @@ function renderBrowserAutomationGuidance(
     id: "browser_automation",
     content: `# Browser Automation (Playwright)
 pw_* tools control an invisible (headless) browser — fast, no screen interference.
-ALWAYS prefer pw_* over web_fetch or delegation for visiting web pages, reading content, filling forms, or interacting with websites.
-Do not delegate routine browser navigation, release-page inspection, or download flows while pw_* tools are available locally.
+ALWAYS prefer pw_* over web_fetch for visiting web pages, reading content, filling forms, or interacting with websites.
 
 ## Workflow
 1. pw_goto to navigate to a URL
@@ -730,7 +569,6 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
     tools,
     tier,
     instructions,
-    agentProfiles,
   } = input;
 
   const sections: RawPromptSection[] = [
@@ -757,8 +595,6 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
     sections.push(skillSection);
   }
 
-  sections.push(renderDelegation(tools, tier, agentProfiles));
-  sections.push(renderTeamCoordination(tools, tier));
   sections.push(renderExamples());
   sections.push(renderTips());
   sections.push(renderFooter());

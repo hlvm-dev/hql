@@ -11,9 +11,6 @@ export { ThinkingIndicator } from "./ThinkingIndicator.tsx";
 export { ErrorMessage } from "./ErrorMessage.tsx";
 export { InfoMessage } from "./InfoMessage.tsx";
 export { TurnStats } from "./TurnStats.tsx";
-export { DelegateItem } from "./DelegateItem.tsx";
-export { DelegateGroup } from "./DelegateGroup.tsx";
-
 // Tool display components
 export { ToolGroup } from "./ToolGroup.tsx";
 
@@ -22,9 +19,6 @@ export { HqlEvalDisplay } from "./HqlEvalDisplay.tsx";
 
 // Memory activity
 export { MemoryActivityLine } from "./MemoryActivityLine.tsx";
-
-// Team events
-export { TeamEventItem } from "./TeamEventItem.tsx";
 
 // Dialog components
 export { ConfirmationDialog } from "./ConfirmationDialog.tsx";

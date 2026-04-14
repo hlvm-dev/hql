@@ -105,16 +105,6 @@ Deno.test("LLM integration: prompt omits memory exceptions when memory tools are
   );
 });
 
-Deno.test("LLM integration: prompt includes team coordination guidance when team tools are available", () => {
-  const prompt = generateSystemPrompt({ modelTier: "standard" });
-
-  assertStringIncludes(prompt, "# Agent Teams");
-  assertStringIncludes(prompt, "Teammate");
-  assertStringIncludes(prompt, "TaskCreate");
-  assertStringIncludes(prompt, "SendMessage");
-  assertStringIncludes(prompt, "Team Lifecycle");
-});
-
 Deno.test("LLM integration: custom instructions are included and truncated", () => {
   const prompt = generateSystemPrompt({
     instructions: { global: "x".repeat(10000), project: "", trusted: false },
@@ -169,15 +159,10 @@ Deno.test("LLM integration: model tiers classify and compare correctly", () => {
 });
 
 Deno.test("LLM integration: computeTierToolFilter returns correct tools per tier", () => {
-  // Enhanced: bounded eager core + delegation
+  // Enhanced: bounded eager core
   const enhanced = computeTierToolFilter("enhanced");
   assertEquals(enhanced.allowlist?.length, ENHANCED_EAGER_TOOLS.length);
   assertEquals(enhanced.allowlist?.includes("tool_search"), true);
-  assertEquals(enhanced.allowlist?.includes("delegate_agent"), true);
-  assertEquals(enhanced.allowlist?.includes("batch_delegate"), true);
-  assertEquals(enhanced.allowlist?.includes("TaskCreate"), true);
-  assertEquals(enhanced.allowlist?.includes("SendMessage"), true);
-  assertEquals(enhanced.allowlist?.includes("TeamStatus"), true);
   assertEquals(enhanced.allowlist?.includes("search_web"), false);
 
   // Enhanced with user allowlist: user override

@@ -5,7 +5,7 @@
  * Skills are reusable workflows that can be invoked by name via the `skill` tool.
  */
 
-/** How the skill executes: inline (same session) or fork (delegated agent). */
+/** How the skill executes: inline (same session) or fork (child agent). */
 export type SkillContext = "inline" | "fork";
 
 /** YAML frontmatter fields for a skill .md file. */

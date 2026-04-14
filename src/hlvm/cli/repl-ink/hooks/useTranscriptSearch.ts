@@ -61,14 +61,6 @@ function extractTranscriptSearchText(item: ShellHistoryEntry): string {
           tool.resultText,
         ].filter(Boolean).join(" ")
       ).join("\n");
-    case "delegate":
-      return [item.agent, item.nickname, item.task, item.summary, item.error]
-        .filter(Boolean)
-        .join(" ");
-    case "delegate_group":
-      return item.entries.flatMap((entry) =>
-        [entry.agent, entry.nickname, entry.task, entry.summary, entry.error]
-      ).filter(Boolean).join(" ");
     case "turn_stats":
       return [
         item.summary,

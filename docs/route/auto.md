@@ -1,6 +1,6 @@
 # Auto Model Selection & Local Fallback — Architecture & Progress
 
-> Last updated: 2026-04-08 Status: **Phase 1 + Phase 2 complete — 16 LLM
+> Last updated: 2026-04-08 Status: **Phase 1 + Phase 2 complete — 15 LLM
 > classifiers, rate-limit smart skip**
 
 ## TL;DR for the Next Agent
@@ -9,7 +9,7 @@ The `--model auto` system picks the best available model using **LLM-based
 semantic classification** (via the guaranteed-local gemma4), falls back through
 ranked alternatives on failure, and uses gemma4 as last resort. Phase 1 (7
 heuristics: task/follow-up/response/question detection) and Phase 2 (10 more:
-planning/delegation/tool-instruction/conflict/grounding/search-intent/error/recovery/PII/source-authority)
+planning/tool-instruction/conflict/grounding/search-intent/error/recovery/PII/source-authority)
 are both complete. **Immediate local fallback**: when any cloud model fails and
 gemma4 is ready, jumps straight to local last-resort instead of wasting 60+
 seconds on cloud fallbacks. Cloud fallbacks only used as degraded path when
@@ -114,7 +114,7 @@ bootstrap-manifest.ts  ->  LOCAL_FALLBACK_MODEL = "gemma4:e4b"  (ONE definition)
         v
 local-fallback.ts      ->  LOCAL_FALLBACK_MODEL_ID = `ollama/${LOCAL_FALLBACK_MODEL}`
         |
-        +-------> local-llm.ts       ->  16 classifiers + extractJson(),
+        +-------> local-llm.ts       ->  15 classifiers + extractJson(),
         |                                 getLocalModelDisplayName(), collectChat()
         |                                   all use ai.chat(LOCAL_FALLBACK_MODEL_ID)
         |
@@ -134,13 +134,12 @@ Zero hardcoded "gemma4" or "Gemma 4" outside `bootstrap-manifest.ts`.
 | File                                           | Role                                                                                              | Lines |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----- |
 | `src/hlvm/agent/auto-select.ts`                | Model scoring, ranking, fallback wrapper (async)                                                  | ~395  |
-| `src/hlvm/runtime/local-llm.ts`                | LLM classification engine — 16 classifiers + extractJson + collectChat + getLocalModelDisplayName | ~455  |
+| `src/hlvm/runtime/local-llm.ts`                | LLM classification engine — 15 classifiers + extractJson + collectChat + getLocalModelDisplayName | ~455  |
 | `src/hlvm/runtime/local-fallback.ts`           | **SSOT** — fallback constant, error classification, readiness                                     | ~60   |
 | `src/hlvm/agent/model-compat.ts`               | Response suppression, looksLikeToolInstruction (LLM), responseAsksQuestion (LLM)                  | ~244  |
 | `src/hlvm/agent/orchestrator-response.ts`      | Follow-up/interaction handling (LLM-based)                                                        | ~900  |
 | `src/hlvm/agent/error-taxonomy.ts`             | Error classification (async, SDK+regex+LLM fallback), recovery hints (async, static+LLM)          | ~430  |
 | `src/hlvm/agent/planning.ts`                   | shouldPlanRequest (async, LLM-based)                                                              | ~120  |
-| `src/hlvm/agent/delegation-heuristics.ts`      | evaluateDelegationSignal (async, LLM-based)                                                       | ~80   |
 | `src/hlvm/agent/grounding.ts`                  | checkGrounding + responseIncorporatesToolData (async, LLM-based)                                  | ~210  |
 | `src/hlvm/agent/tools/web/query-strategy.ts`   | Search intent (sync+async companion), followup queries                                            | ~475  |
 | `src/hlvm/agent/tools/web/source-authority.ts` | Source classification (sync heuristic + async LLM refinement)                                     | ~275  |
@@ -189,7 +188,6 @@ Zero hardcoded "gemma4" or "Gemma 4" outside `bootstrap-manifest.ts`.
 | Before (regex/keyword/Jaccard)                                 | After (LLM)                                                | Location                 |
 | -------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------ |
 | 5 keyword `.includes()` + `length >= 160`                      | `classifyPlanNeed(query).needsPlan`                        | planning.ts              |
-| `FAN_OUT_PATTERNS`/`BATCH_PATTERNS` regex                      | `classifyDelegation(query).shouldDelegate`                 | delegation-heuristics.ts |
 | `RE_JSON_OBJECT_TOOL`/`RE_FUNCTION_TOOL_CALL`/`RE_INVOKE_TOOL` | `classifyToolInstruction(text).isInstruction`              | model-compat.ts          |
 | Jaccard token similarity (tokenize+jaccard)                    | `classifyFactConflicts(new, existing[]).conflicts` (batch) | invalidate.ts            |
 | Token-set intersection grounding                               | `classifyGroundedness(resp, tools).incorporatesData`       | grounding.ts             |
@@ -218,7 +216,7 @@ here:
 | Domain/path heuristics (sync)      | Fast-path source classification (LLM only for "other")        | source-authority.ts |
 | Sync `detectSearchQueryIntent()`   | Used in sync `formatResult` callback (async companion exists) | query-strategy.ts   |
 
-### All 16 Classifiers (local-llm.ts)
+### All 15 Classifiers (local-llm.ts)
 
 | #  | Classifier                               | Returns                                                                         | maxTokens | Strategy               |
 | -- | ---------------------------------------- | ------------------------------------------------------------------------------- | --------- | ---------------------- |
@@ -226,8 +224,7 @@ here:
 | 2  | `classifyFollowUp(resp)`                 | `{asksFollowUp, isBinaryQuestion, isGenericConversational}`                     | 64        | Direct                 |
 | 3  | `classifyResponseIntent(resp)`           | `{asksQuestion, needsConcreteTask}`                                             | 64        | Direct                 |
 | 4  | `classifyPlanNeed(query)`                | `{needsPlan}`                                                                   | 64        | Direct                 |
-| 5  | `classifyDelegation(query)`              | `{shouldDelegate, pattern}`                                                     | 64        | Direct                 |
-| 6  | `classifyToolInstruction(text)`          | `{isInstruction}`                                                               | 64        | Direct                 |
+| 5  | `classifyToolInstruction(text)`          | `{isInstruction}`                                                               | 64        | Direct                 |
 | 7  | `classifyFactConflicts(new, existing[])` | `{conflicts: [{index, score}]}`                                                 | 256       | Batch                  |
 | 8  | `classifyGroundedness(resp, tools)`      | `{incorporatesData}`                                                            | 64        | Direct                 |
 | 9  | `classifySearchIntent(query)`            | `{officialDocs, comparison, recency, versionSpecific, releaseNotes, reference}` | 64        | Direct                 |
@@ -241,7 +238,7 @@ here:
 
 ### Design Properties
 
-- **Never throws** — all 16 classifiers return safe defaults on error (Ollama
+- **Never throws** — all 15 classifiers return safe defaults on error (Ollama
   down, model loading, etc.)
 - **Temperature 0** — deterministic classification
 - **maxTokens 64** for single classifiers, **256** for batch (Steps 7, 13)
@@ -414,8 +411,6 @@ isRuntimeReadyForAiRequests() =
       nested JSON)
 - [x] `collectChat` exported (was private) for batch classifiers
 - [x] `shouldPlanRequest` → async with `classifyPlanNeed` (planning.ts)
-- [x] `evaluateDelegationSignal` → async with `classifyDelegation`; deleted
-      `FAN_OUT_PATTERNS`/`BATCH_PATTERNS` (delegation-heuristics.ts)
 - [x] `looksLikeToolInstruction` → async with `classifyToolInstruction`; deleted
       `RE_JSON_OBJECT_TOOL`/`RE_FUNCTION_TOOL_CALL`/`RE_INVOKE_TOOL`
       (model-compat.ts)
@@ -443,7 +438,6 @@ isRuntimeReadyForAiRequests() =
 | ------------------------------------------------ | ----------------------------------------------------------- |
 | `src/hlvm/runtime/local-llm.ts`                  | +10 classifiers, extractJson fix, collectChat export        |
 | `src/hlvm/agent/planning.ts`                     | `shouldPlanRequest` → async                                 |
-| `src/hlvm/agent/delegation-heuristics.ts`        | `evaluateDelegationSignal` → async, regex deleted           |
 | `src/hlvm/agent/model-compat.ts`                 | `looksLikeToolInstruction` → async, 3 regex deleted         |
 | `src/hlvm/memory/invalidate.ts`                  | `detectConflicts` → async, jaccard/tokenize deleted         |
 | `src/hlvm/memory/pipeline.ts`                    | `writeMemoryFact`/`writeMemoryFacts` → async                |
@@ -530,7 +524,7 @@ grep -rn '"Gemma 4"' src/
 
 # No deleted regex constants (Phase 1 + Phase 2)
 grep -rn 'CODE_SIGNALS\|REASONING_SIGNALS\|STRUCTURED_SIGNALS' src/
-grep -rn 'FAN_OUT_PATTERNS\|BATCH_PATTERNS' src/
+
 grep -rn 'RE_JSON_OBJECT_TOOL\|RE_FUNCTION_TOOL_CALL\|RE_INVOKE_TOOL\|RE_TOOL_WORD' src/
 grep -rn 'COMMON_WORDS' src/
 

@@ -19,8 +19,7 @@
 7. [TUI / React Ink Architecture](#7-tui--react-ink-architecture)
 8. [State Management](#8-state-management)
 9. [Memory System](#9-memory-system)
-10. [Multi-Agent / Teams](#10-multi-agent--teams)
-11. [Permission & Safety System](#11-permission--safety-system)
+10. [Permission & Safety System](#10-permission--safety-system)
 12. [Error Handling & Retry](#12-error-handling--retry)
 13. [Hooks & Extensibility](#13-hooks--extensibility)
 14. [Skills / Plugins](#14-skills--plugins)
@@ -152,7 +151,7 @@ GUI (Ink TUI)         ┘    runAgentQuery()        └──▶ runReActLoop()
 2. `agent-runner.ts::runAgentQuery()` — **Single entry point for ALL transports** (CLI, HTTP, GUI)
    - Creates or reuses session
    - Loads history if resuming
-   - Sets up delegation, plan mode, team runtime
+   - Sets up plan mode
    - Runs `runReActLoop()`
    - Post-loop: structured output, persistence, memory extraction
 3. `session.ts::createAgentSession()` — Parallel I/O initialization:
@@ -226,11 +225,10 @@ while (state.iterations < maxIterations) {
   1. maybeInjectReminder()         — web safety (all tiers), tool routing (weak, every 7 iter)
                                      injected as role:"user" + [System Reminder] prefix
   2. maybeInjectMemoryRecall()     — FTS5 + entity graph hybrid retrieval
-  3. maybeInjectDelegationHint()   — nudge about pending delegate results
-  4. Pre-compaction memory flush   — one turn to call memory_write before compaction
-  5. compactIfNeeded()             — triggers at 80% of budget, LLM summarization
-  6. applyAdaptiveToolPhase()      — weak models only: filter tools by inferred phase
-                                     (researching | editing | verifying | delegating | completing)
+  3. Pre-compaction memory flush   — one turn to call memory_write before compaction
+  4. compactIfNeeded()             — triggers at 80% of budget, LLM summarization
+  5. applyAdaptiveToolPhase()      — weak models only: filter tools by inferred phase
+                                     (researching | editing | verifying | completing)
 
   // LLM CALL:
   callLLM(llm, messages, ...)
@@ -260,7 +258,7 @@ while (state.iterations < maxIterations) {
 
 | Aspect | CC | HLVM | Impact |
 |--------|-----|------|--------|
-| **Pre-API pipeline** | 8 steps (budget, snip, micro, collapse, auto, limit, normalize, context) | 6 steps (remind, memory, delegate, flush, compact, phase) | CC has more compaction strategies |
+| **Pre-API pipeline** | 8 steps (budget, snip, micro, collapse, auto, limit, normalize, context) | 5 steps (remind, memory, flush, compact, phase) | CC has more compaction strategies |
 | **Tool execution during streaming** | Yes — `StreamingToolExecutor` starts tools while API is still streaming | No — tools only execute after full response | CC has lower latency |
 | **Tool batching** | `partitionToolCalls()` — safe tools parallel, unsafe serial, max 10 | `Promise.all()` — all parallel, no classification | CC is safer for concurrent file writes |
 | **Recovery paths** | 7 named transitions for 413, maxTokens, 429/529, overflow | `ContextOverflowError` graceful return, 3-stage loop detection | CC recovers instead of giving up |
@@ -345,7 +343,7 @@ interface ToolMetadata {
 **Tool execution** (`orchestrator-tool-execution.ts`):
 - `executeToolCalls()` — `Promise.all(toolCalls.map(executeToolCall))` — ALL parallel
 - Per-tool pipeline: lazy MCP → normalize name → sanitize args → check safety → execute → post-verify
-- Special handling: delegate_agent (foreground/background), edit_file (auto-retry), write verification (LSP → syntax check)
+- Special handling: edit_file (auto-retry), write verification (LSP → syntax check)
 
 ### What HLVM Should Adopt from CC
 
@@ -487,15 +485,12 @@ App.tsx (~1983 lines, full orchestrator — state, overlays, keyboard routing, l
   │         ├─ AssistantMessage (plain text, no markdown parsing)
   │         ├─ ThinkingIndicator (collapsible)
   │         ├─ ToolGroup (collapsible, generic rendering)
-  │         ├─ DelegateItem / DelegateGroup
   │         ├─ MemoryActivityLine (compact: "Recalled N, wrote N memory")
-  │         ├─ TeamEventItem
   │         ├─ PlanChecklistPanel
   │         ├─ ConfirmationDialog / QuestionDialog
   │         ├─ ErrorMessage
   │         ├─ HqlEvalDisplay
   │         └─ TurnStats (tokens, time, cost)
-  ├─ LocalAgentsBar (compact status when delegates running)
   ├─ Input.tsx (3767 lines)
   │   ├─ Paredit-aware editing:
   │   │   slurpForward/Backward, barfForward/Backward,
@@ -508,7 +503,7 @@ App.tsx (~1983 lines, full orchestrator — state, overlays, keyboard routing, l
   │   └─ Submit: Enter (when balanced)
   ├─ FooterHint (contextual keyboard shortcut hints)
   └─ Overlays (useOverlayPanel routing):
-      ConfigOverlay, CommandPaletteOverlay, TeamDashboardOverlay,
+      ConfigOverlay, CommandPaletteOverlay,
       ShortcutsOverlay, BackgroundTasksOverlay, ModelBrowser,
       ModelSetupOverlay, TranscriptViewerOverlay
 ```
@@ -576,14 +571,13 @@ function useAppState(selector) {
 }
 ```
 
-`AppState` is a **single massive type** (~450 lines) covering everything: settings, model, permissions, tasks, MCP, plugins, speculation, team context, inbox, bridge state, etc.
+`AppState` is a **single massive type** (~450 lines) covering everything: settings, model, permissions, tasks, MCP, plugins, speculation, inbox, bridge state, etc.
 
 ### HLVM: Hook-per-Domain Pattern
 
 HLVM splits state across multiple React hooks:
 - `useRepl()` — REPL lifecycle, eval
 - `useConversation()` — message state, agent events
-- `useTeamState()` — team dashboard state
 - `useModelConfig()` — model selection
 - `useOverlayPanel()` — overlay routing
 - `useAgentRunner()` — agent execution lifecycle
@@ -673,59 +667,6 @@ FTS5 virtual table: synced from facts, BM25 scoring + 30-day half-life temporal 
 | Cost | ~$0.003 per retrieval (Sonnet) | Free (local computation) |
 
 ---
-
-## 10. Multi-Agent / Teams
-
-### Claude Code: Cross-Process Coordination
-
-```
-Team Lead (main process)
-  ├─ spawnTeam() → ~/.claude/teams/<name>/config.json
-  ├─ TaskCreate → file per task in tasks/ directory
-  ├─ Teammate 1 (tmux pane or subprocess)
-  │   ├─ reads mailbox/ for assignments
-  │   ├─ claims tasks via TaskUpdate (auto-set owner on in_progress)
-  │   └─ writes results to mailbox
-  ├─ Teammate 2 (tmux pane or subprocess)
-  └─ SendMessage → writeToMailbox() or auto-resume stopped agents
-```
-
-**Communication**: File-backed mailboxes (survives crashes, cross-process)
-**Process model**: tmux panes, separate processes, or in-process
-**Task assignment**: Auto-ownership on claim, verification nudge when all 3+ tasks done
-**Structured messages**: `shutdown_request/response`, `plan_approval_response` (discriminated union via Zod)
-
-### HLVM: In-Process Async Loops
-
-```
-Team Lead (main thread)
-  ├─ spawnTeam() → ~/.hlvm/tasks/<team>/
-  ├─ TaskCreate → file per task + .highwatermark for ID persistence
-  ├─ spawnAgent() → runTeammateLoop() [async, in-process]
-  │   ├─ Check inbox (in-memory) for messages/shutdown
-  │   ├─ Check task list for unclaimed tasks
-  │   ├─ Claim → set owner + in_progress
-  │   ├─ Run agent query on task
-  │   ├─ Mark completed → send idle_notification
-  │   └─ Poll for next (idlePollIntervalMs: 3s, maxIdlePolls: 30)
-  └─ Shutdown: SendMessage type:"shutdown_request"
-```
-
-**Communication**: In-memory inbox (lost on crash)
-**Process model**: Async functions in same process
-**Task storage**: File-backed with `.highwatermark` counter
-**Config**: `TeamConfigMember { joinedAt, backendType, planModeRequired }`
-
-### Comparison
-
-| Aspect | CC | HLVM |
-|--------|-----|------|
-| Process model | Cross-process (tmux, subprocess) | In-process (async) |
-| Communication | File-backed mailbox | In-memory inbox |
-| Crash resilience | Yes (files survive) | No (in-memory lost) |
-| True parallelism | Yes (separate processes/CPU cores) | No (single-threaded, interleaved) |
-| Startup overhead | Higher (spawn process/pane) | Lower (start async fn) |
-| Complexity | Higher (file I/O, process mgmt) | Lower (just async/await) |
 
 ---
 
@@ -863,7 +804,6 @@ async function* withRetry<T>(getClient, operation, options): AsyncGenerator<Erro
 | `Stop` | Model stops (end turn) | Auto-commit, validation |
 | `StopFailure` | Stop hook failed | Error recovery |
 | `SubagentStart/Stop` | Sub-agent lifecycle | Coordination |
-| `TeammateIdle` | Teammate goes idle | Task assignment |
 | `TaskCreated/Completed` | Task lifecycle | Workflow automation |
 | `CwdChanged` | Working directory changed | Environment update |
 | `FileChanged` | File modified | Auto-lint, auto-test |
@@ -1265,7 +1205,7 @@ Both projects are at parity here.
 ║  ├─ compileSystemPrompt() — modular section renderers:                   ║
 ║  │   identity, rules, capabilities, tool routing table,                  ║
 ║  │   permission tiers, project instructions, git context,               ║
-║  │   delegation docs, team coordination, plan mode                       ║
+║  │   plan mode, project instructions                                     ║
 ║  │   (tier-filtered: weak → minimal, frontier → full)                    ║
 ║  ├─ Memory: separate system message ("# Your Memory\n...")               ║
 ║  │   └─ 10 pinned facts from SQLite + availability hint                  ║
@@ -1285,12 +1225,11 @@ Both projects are at parity here.
 ║  │    │    └─ as role:"user" + [System Reminder]                │ │        ║
 ║  │    │ 2. maybeInjectMemoryRecall()                            │ │        ║
 ║  │    │    └─ FTS5 + entity graph hybrid (no API call)          │ │        ║
-║  │    │ 3. maybeInjectDelegationHint()                          │ │        ║
-║  │    │ 4. Pre-compaction memory flush                          │ │        ║
+║  │    │ 3. Pre-compaction memory flush                          │ │        ║
 ║  │    │    └─ one turn to call memory_write before compaction   │ │        ║
 ║  │    │ 5. compactIfNeeded() (80% threshold, LLM summary)      │ │        ║
 ║  │    │ 6. applyAdaptiveToolPhase() [weak models only]          │ │        ║
-║  │    │    └─ phase: researching|editing|verifying|delegating   │ │        ║
+║  │    │    └─ phase: researching|editing|verifying|completing   │ │        ║
 ║  │    └────────────────────────────────────────────────────────┘ │        ║
 ║  │                         │                                     │        ║
 ║  │    ┌─── LLM CALL ──────▼──────────────────────────────────┐ │        ║
@@ -1324,8 +1263,7 @@ Both projects are at parity here.
 ║  │    │   lazyMCP → normalizeName → sanitizeArgs               │ │        ║
 ║  │    │   → checkSafety → execute → postVerify (LSP/syntax)   │ │        ║
 ║  │    │                                                        │ │        ║
-║  │    │ Special: delegate (fg/bg), edit_file (auto-retry),     │ │        ║
-║  │    │ write verify, batch_delegate (fan-out)                 │ │        ║
+║  │    │ Special: edit_file (auto-retry), write verify            │ │        ║
 ║  │    └────────────────────────────────────────────────────────┘ │        ║
 ║  │                         │                                     │        ║
 ║  │    ┌─── LOOP CONTROL ───▼──────────────────────────────────┐ │        ║
@@ -1353,10 +1291,10 @@ Both projects are at parity here.
 ║    → App.tsx (1983 lines, full orchestrator)                             ║
 ║       ├─ Banner                                                          ║
 ║       ├─ ConversationPanel (scrollable viewport)                         ║
-║       │   └─ 12 item types: User, Assistant, Thinking, ToolGroup,        ║
-║       │      Delegate, Memory, Team, Plan, Interaction, Error, Eval,     ║
+║       │   └─ 10 item types: User, Assistant, Thinking, ToolGroup,        ║
+║       │      Memory, Plan, Interaction, Error, Eval,                     ║
 ║       │      TurnStats                                                   ║
-║       ├─ LocalAgentsBar (delegate status)                                ║
+║                                                                           ║
 ║       ├─ Input.tsx (3767 lines, Paredit + syntax highlighting)           ║
 ║       ├─ FooterHint                                                      ║
 ║       └─ 8 Overlays: Config, Commands, Teams, Shortcuts, Tasks,         ║
@@ -1538,7 +1476,7 @@ MEDIUM VALUE (design needed):
 Tech Stack Overlap
 Both use:  TypeScript, React Ink, Anthropic SDK types, MCP protocol,
            file-backed task stores, slash commands, plan mode,
-           team coordination with structured shutdown protocol
+           plan mode
 
 CC only:   Rust NAPI (diffs), Zod (validation), feature gates (compile-time)
 HLVM only: Vercel AI SDK (multi-provider), SQLite/better-sqlite3 (memory),
@@ -1640,7 +1578,7 @@ query() / queryLoop()   ← THE WHILE(TRUE)
 │       b. Replace old messages with summary
 │       c. Attach post-compact metadata:
 │          - Re-read currently relevant files
-│          - Re-list active agent/team state
+│          - Re-list active state
 │          - Re-inject working directory context
 │     CIRCUIT BREAKER: After 3 consecutive compaction failures, stop trying
 │     HLVM EQUIVALENT: compactIfNeeded() at 80% budget — similar but no
@@ -1880,12 +1818,7 @@ runAgentQuery() → runReActLoop()
 │     CC EQUIVALENT: Sonnet side-query (extra API call, arguably
 │       higher quality selection but costs money/latency)
 │
-│  3. maybeInjectDelegationHint()
-│     - Nudges model about pending delegate results
-│     - Prevents model from forgetting about background agents
-│     CC EQUIVALENT: Team mailbox polling (file-based)
-│
-│  4. Pre-compaction memory flush
+│  3. Pre-compaction memory flush
 │     - UNIQUE TO HLVM: Before compaction destroys old context,
 │       give the model one turn to call memory_write to persist
 │       anything important
@@ -1902,7 +1835,7 @@ runAgentQuery() → runReActLoop()
 │
 │  6. applyAdaptiveToolPhase() [weak models only]
 │     - UNIQUE TO HLVM: Infers current work phase from recent tools:
-│       researching → editing → verifying → delegating → completing
+│       researching → editing → verifying → completing
 │     - Filters available tools to match phase
 │     - Prevents weak models from being overwhelmed by 40+ tools
 │     CC EQUIVALENT: None — CC gives all tools to all models
@@ -2234,7 +2167,7 @@ PROMPT:      UserPrompt, InstructionsLoaded
 TOOL:        PreToolUse, PostToolUse, Stop, StopFailure
 COMPACTION:  PreCompact, PostCompact
 AGENT:       SubagentStart, SubagentStop, Elicitation
-TEAM:        TaskCreated, TaskCompleted, TeammateIdle
+TASK:        TaskCreated, TaskCompleted
 FILE:        FileChanged
 PERMISSION:  PermissionRequest
 
@@ -2322,64 +2255,7 @@ Always loaded: 10 pinned facts + "[N more facts available — use memory_search]
 
 ---
 
-### 8. MULTI-AGENT TEAMS — Both Approaches
-
-**CC — cross-process, file-backed**:
-```
-~/.claude/teams/<team-name>/
-├─ config.json     { members: [...], lead: "agent-0", created_at }
-├─ tasks/
-│  ├─ task-001.json  { title, description, owner, status, result }
-│  ├─ task-002.json
-│  └─ task-003.json
-└─ mailbox/
-   ├─ agent-0/     (files: msg-001.json, msg-002.json, ...)
-   ├─ agent-1/
-   └─ agent-2/
-
-Process model:
-Team Lead (main process)
-├─ Teammate 1 (tmux pane OR separate Node.js process)
-├─ Teammate 2 (tmux pane)
-└─ Teammate 3 (subprocess)
-
-Communication: writeToMailbox(agentId, message)
-→ Writes JSON file to mailbox/<agentId>/msg-<timestamp>.json
-→ Agent polls its mailbox directory for new files
-→ Survives crashes (files persist)
-→ Can span multiple machines (shared filesystem)
-
-Shutdown: SendMessage with structured JSON:
-{ type: "shutdown_request" } → teammate responds → lead confirms
-```
-
-**HLVM — in-process, in-memory**:
-```
-~/.hlvm/tasks/<team-name>/
-├─ task-001.json
-├─ task-002.json
-└─ .highwatermark  (next task ID, avoids ID collisions)
-
-Process model:
-Team Lead (main async loop)
-├─ Teammate 1 (runTeammateLoop() — async function, same process)
-├─ Teammate 2 (async function)
-└─ Teammate 3 (async function)
-
-Communication: in-memory inbox (TeamMessageKind union type)
-→ Direct function calls between loops
-→ Lost on crash (no persistence)
-→ Single process only (no true parallelism on multi-core)
-
-Teammate loop:
-1. Check inbox for messages/shutdown requests
-2. Check task list for unclaimed tasks
-3. Claim task → set owner + status: "in_progress"
-4. Run agent query on task
-5. Mark task completed
-6. Send idle_notification to lead
-7. Poll for next task (idlePollIntervalMs: 3s, maxIdlePolls: 30)
-```
+*(Multi-agent teams section removed — delegation and team systems have been removed from HLVM.)*
 
 ---
 
@@ -2580,7 +2456,7 @@ Both do LLM-powered summarization. CC has a 5-level hierarchy; HLVM has 1 level 
 │  │                             │  │  │                               │  │
 │  │ Post-compact re-injection:  │  │  │ (no re-injection)            │  │
 │  │ ├─ re-read relevant files   │  │  │                               │  │
-│  │ ├─ re-list agent/team state │  │  │ HLVM does pre-compaction     │  │
+│  │ ├─ re-list active state     │  │  │ HLVM does pre-compaction     │  │
 │  │ └─ re-inject cwd context    │  │  │ memory flush instead (unique │  │
 │  │                             │  │  │ strength — save facts before  │  │
 │  │ Circuit breaker:            │  │  │ context is destroyed).        │  │
@@ -3318,80 +3194,7 @@ function truncateUserInput(input: string, limit = 10_000): string {
     `\n\n[... ${input.length - limit} chars truncated ...]\n\n` +
     input.slice(-half);
 }
-10. MULTI-AGENT COMMUNICATION
-Both coordinate multiple agents via file-backed tasks. CC uses file-backed mailboxes; HLVM uses in-memory.
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    MULTI-AGENT COORDINATION                             │
-├───────────────────────────────────┬─────────────────────────────────────┤
-│           CLAUDE CODE             │              HLVM                    │
-├───────────────────────────────────┼─────────────────────────────────────┤
-│                                   │                                     │
-│  Communication: FILE-BACKED       │  Communication: IN-MEMORY           │
-│                                   │                                     │
-│  writeToMailbox(agentId, msg)     │  inbox.push(message)                │
-│  → ~/.claude/teams/<name>/       │  → Array in memory                  │
-│    mailbox/<agentId>/             │                                     │
-│    msg-<timestamp>.json           │  On crash: ALL messages LOST.       │
-│                                   │  On process exit: gone.             │
-│  On crash: messages PERSIST.      │                                     │
-│  Agent restarts, reads mailbox.   │  Cannot span multiple processes.    │
-│                                   │  All agents share one Node.js       │
-│  Can span separate processes:     │  event loop (no true parallelism).  │
-│  ┌─────────────────────────────┐  │                                     │
-│  │ Lead (process A)            │  │  ┌───────────────────────────────┐  │
-│  │  ↕ file I/O                 │  │  │ Lead (main async loop)        │  │
-│  │ Mate 1 (tmux pane, proc B)  │  │  │  ↕ function call              │  │
-│  │  ↕ file I/O                 │  │  │ Mate 1 (async function)       │  │
-│  │ Mate 2 (subprocess, proc C) │  │  │  ↕ function call              │  │
-│  │                             │  │  │ Mate 2 (async function)       │  │
-│  │ TRUE parallelism:           │  │  │                               │  │
-│  │ Each process has own CPU    │  │  │ COOPERATIVE multitasking:     │  │
-│  │ core, own event loop.       │  │  │ All share one CPU core.       │  │
-│  │ Tool I/O is truly parallel. │  │  │ One agent blocks = all block. │  │
-│  └─────────────────────────────┘  │  └───────────────────────────────┘  │
-│                                   │                                     │
-│  Task storage: SAME (both file-   │  Task storage: SAME (both file-     │
-│  backed with JSON per task)       │  backed). HLVM adds .highwatermark  │
-│                                   │  for ID uniqueness.                 │
-│                                   │                                     │
-│  Shutdown protocol: SAME          │  Shutdown protocol: SAME            │
-│  { type: "shutdown_request" }     │  { type: "shutdown_request" }       │
-│  → teammate responds              │  → teammate responds                │
-│  → lead confirms                  │  → lead confirms                    │
-└───────────────────────────────────┴─────────────────────────────────────┘
-What HLVM should adopt:
-// Option A: File-backed mailbox (match CC)
-// Pros: crash-safe, can spawn separate processes later
-// Cons: filesystem I/O overhead for in-process communication
-
-// Option B: Hybrid (pragmatic)
-// Keep in-memory for in-process agents (fast)
-// Add optional file persistence for crash recovery:
-
-class AgentInbox {
-  private messages: TeamMessage[] = [];
-  private persistDir?: string;
-
-  async send(msg: TeamMessage) {
-    this.messages.push(msg);
-    if (this.persistDir) {
-      // Write-behind: persist async, don't block
-      fs.writeFile(
-        `${this.persistDir}/msg-${Date.now()}.json`,
-        JSON.stringify(msg)
-      ).catch(() => {}); // best-effort
-    }
-  }
-
-  async recover() {
-    if (!this.persistDir) return;
-    const files = await fs.readdir(this.persistDir);
-    for (const f of files) {
-      const msg = JSON.parse(await fs.readFile(`${this.persistDir}/${f}`));
-      this.messages.push(msg);
-    }
-  }
-}
+*(Multi-agent communication section removed — delegation and team systems have been removed from HLVM.)*
 11. APP SHELL / PROVIDER SPLIT
 Both use React/Ink with provider wrappers. CC separates providers from layout; HLVM combines them.
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -3451,8 +3254,7 @@ Both manage complex TUI state. CC uses external store with selective re-render; 
 │    model: 'opus',                 │                                     │
 │    overlays: new Set(),           │  // Plus per-domain hooks:          │
 │    ...450 lines of state          │  const conv = useConversation();    │
-│  });                              │  const team = useTeamState();       │
-│                                   │  const model = useModelConfig();    │
+│  });                              │  const model = useModelConfig();    │
 │  // Component reads ONE slice:    │  const overlay = useOverlayPanel(); │
 │  function MessageList() {         │  const runner = useAgentRunner();   │
 │    const messages = useStore(     │  const tasks = useTaskManager();    │
@@ -3724,7 +3526,6 @@ CC's library choices assume a proprietary context: dedicated servers, centralize
 | `zod` (explicit tool schemas) | Already transitive via AI SDK. OSS with community tool contributions needs stronger input validation than `Record<string, string>` | Tool args unvalidated | **MEDIUM** — leverage existing transitive dep |
 | `shell-quote` | Proper shell argument escaping for `shell_exec` tool. Security-relevant. MIT, tiny | No shell quoting | **MEDIUM** — security hardening |
 | `jsonc-parser` | Config files with comments (`.hlvm/config.jsonc`). Small quality-of-life for users | JSON-only config | **LOW** — nice-to-have |
-| `proper-lockfile` | File locking for concurrent agent teams writing to shared task store / `.highwatermark` | No file locking in team store | **LOW** — edge case for multi-agent |
 
 #### Already aligned (same or equivalent choice)
 
@@ -3825,13 +3626,7 @@ Where: common/text-width.ts + Input.tsx cursor positioning
 
 #### Tier 3: Consider Later (Nice-to-have)
 
-**6. `proper-lockfile` — File locking for team store**
-```
-Why: Multi-agent teams writing to shared files concurrently.
-     Edge case — only matters when multiple teammates write simultaneously.
-```
-
-**7. `jsonc-parser` — Config files with comments**
+**6. `jsonc-parser` — Config files with comments**
 ```
 Why: Quality-of-life. Users can comment their .hlvm/config.json.
 ```

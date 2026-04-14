@@ -768,7 +768,7 @@ createAgentSession(options)
 | Git      | `git_log`, `git_diff`, `git_commit`, `git_status`                                  |
 | Web      | `web_fetch`, `fetch_url`, `search_web`, `render_url`                               |
 | Data     | `filter`, `transform`, `aggregate`, `compute`                                      |
-| Meta     | `delegate_agent`, `ask_user`                                                       |
+| Meta     | `ask_user`                                                                         |
 
 **Dynamic (DYNAMIC_TOOL_REGISTRY)**:
 
@@ -1195,9 +1195,9 @@ shell_script│ │ git_diff │ │ │ │ │ │ │ │ edit_file │ │ g
 └─────────────┘ │ git_commit │ │ │ │ │ │ │ │ list_files │ └─────────────┘ │
 git_status │ │ │ │ │ │ │ │ open_path │ ┌─ Web ───────┐ ┌─ Data ──────┐
 └────────────────────┘ │ │ │ │ │ │ │ archive_files│ │ web_fetch │ │ filter │ ┌─
-Meta ─────────────┐ │ │ │ │ │ │ └──────────────┘ │ fetch_url │ │ transform │ │
-delegate_agent │ │ │ │ │ │ │ │ search_web │ │ aggregate │ │ ask_user │ │ │ │ │ │
-│ │ render_url │ │ compute │ └────────────────────┘ │ │ │ │ │ │ └─────────────┘
+Meta ──────┐ │ │ │ │ │ │ └──────────────┘ │ fetch_url │ │ transform │ │
+ask_user │ │ │ │ │ │ │ │ search_web │ │ aggregate │ │ │ │ │ │ │
+│ │ render_url │ │ compute │ └──────────────┘ │ │ │ │ │ │ └─────────────┘
 └─────────────┘ │ │ │ │ │ │ │ │ │ │ │ │ DYNAMIC TOOLS (DYNAMIC_TOOL_REGISTRY): │
 │ │ │ │ │ ├── MCP tools (loaded from mcp server configs) │ │ │ │ │ │ ├──
 memory_write, memory_search (from memory/tools.ts) │ │ │ │ │ │ └── (future:
@@ -1400,7 +1400,7 @@ the Chat agent. Everything is one connected system.
 
 That's the iPhone insight — not four features bolted together, but one unified
 runtime with three access patterns optimized for different moments: think
-(REPL), act (Launchpad/Hotbar), delegate (Agent).
+(REPL), act (Launchpad/Hotbar), ask (Agent).
 
 ✻ Cooked for 5m 33s
 

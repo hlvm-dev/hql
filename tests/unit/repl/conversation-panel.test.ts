@@ -198,37 +198,6 @@ Deno.test("getConversationDisplayItems keeps errored tool groups visible during 
   assertEquals(compactItems.map((item) => item.type), ["tool_group"]);
 });
 
-Deno.test("getConversationDisplayItems hides raw worker activity rows but keeps higher-level team updates", () => {
-  const displayItems = getConversationDisplayItems([
-    {
-      type: "info",
-      id: "team-activity-1",
-      text: "Team worker alice: Tool TaskList: 2 tasks",
-      teamEventType: "team_member_activity",
-      memberId: "alice",
-      memberLabel: "alice",
-      threadId: "thread-1",
-      activityKind: "tool_end",
-      status: "success",
-      summary: "Tool TaskList: 2 tasks",
-      ts: 1,
-    },
-    {
-      type: "info",
-      id: "team-task-1",
-      text: "Team task in_progress: Inspect overlay (alice)",
-      teamEventType: "team_task_updated",
-      taskId: "task-1",
-      goal: "Inspect overlay",
-      status: "in_progress",
-      assigneeMemberId: "alice",
-      ts: 2,
-    },
-  ]);
-
-  assertEquals(displayItems.map((item) => item.id), ["team-task-1"]);
-});
-
 Deno.test("getConversationDisplayItems hides the current-turn prompt and assistant text while a picker interaction is active but preserves prior history", () => {
   const compactItems = getConversationDisplayItems([
     {

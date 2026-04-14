@@ -48,7 +48,6 @@ export interface PlanState {
   plan: Plan;
   currentIndex: number;
   completedIds: Set<string>;
-  delegatedIds: Set<string>;
 }
 
 interface PlanParseResult {
@@ -158,7 +157,7 @@ function buildPlanningPrompt(
     "If the user already named the file, reference that file directly instead of adding repo-search steps.",
     "Include concrete tool names for each step whenever possible (e.g., search_code, read_file, list_files, edit_file).",
     "If a step requires directory creation, file moves, renames, or binary-safe file handling, include shell_exec in that step's tools.",
-    "Optional: add 'agent' for delegation (e.g., web, code, file, shell, memory).",
+    "Optional: add 'agent' to label a step with a specialist profile (e.g., web, code, file, shell, memory).",
     agentLine,
     directFileLine,
     "",
@@ -195,9 +194,6 @@ export function derivePlanExecutionAllowlist(
   const requestedTools = [
     ...PLAN_EXECUTION_BASELINE_TOOLS,
     ...planTools,
-    ...(plan.steps.some((step) => typeof step.agent === "string" && step.agent)
-      ? ["delegate_agent"]
-      : []),
   ];
   const dedupedTools = [...new Set(requestedTools)].filter((toolName) =>
     !(
@@ -337,14 +333,12 @@ export function createPlanState(plan: Plan): PlanState {
     plan,
     currentIndex: 0,
     completedIds: new Set(),
-    delegatedIds: new Set(),
   };
 }
 
 export function restorePlanState(
   plan: Plan,
   completedIds: Iterable<string> = [],
-  delegatedIds: Iterable<string> = [],
 ): PlanState {
   const completed = new Set(completedIds);
   let currentIndex = 0;
@@ -358,7 +352,6 @@ export function restorePlanState(
     plan,
     currentIndex,
     completedIds: completed,
-    delegatedIds: new Set(delegatedIds),
   };
 }
 
@@ -504,7 +497,6 @@ function normalizePlan(input: unknown): Plan | null {
 const RAW_PLAN_TOOL_TITLES = new Set([
   "ask_user",
   "complete_task",
-  "delegate_agent",
   "edit_file",
   "find_symbol",
   "list_files",
@@ -565,7 +557,7 @@ function normalizePlanStepTitle(title: string, fileTarget?: string): string {
     "",
   );
   cleaned = cleaned.replace(
-    /\s+(?:using|via|with)\s+(?:the\s+)?(?:ask_user|complete_task|delegate_agent|edit_file|find_symbol|list_files|read_file|search_code|shell_exec|todo_read|todo_write|undo_edit|verify|write_file)\b.*$/i,
+    /\s+(?:using|via|with)\s+(?:the\s+)?(?:ask_user|complete_task|edit_file|find_symbol|list_files|read_file|search_code|shell_exec|todo_read|todo_write|undo_edit|verify|write_file)\b.*$/i,
     "",
   );
   cleaned = cleaned.replace(/\s+on line \d+\b.*$/i, "");
@@ -608,8 +600,6 @@ function humanizePlanToolTitle(toolName: string, fileTarget?: string): string {
       return "Update the visible checklist";
     case "ask_user":
       return "Clarify the request";
-    case "delegate_agent":
-      return "Use a supporting specialist agent";
     case "complete_task":
       return "Summarize the completed work";
     case "undo_edit":

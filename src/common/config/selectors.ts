@@ -46,20 +46,6 @@ export function getTheme(config: unknown): string {
     : DEFAULT_CONFIG.theme;
 }
 
-export function getAgentMaxThreads(config: unknown): number {
-  const raw = isObjectValue(config) ? config.agentMaxThreads : undefined;
-  return typeof raw === "number" && Number.isInteger(raw) && raw >= 1 && raw <= 16
-    ? raw
-    : 4;
-}
-
-export function getAgentMaxDepth(config: unknown): number {
-  const raw = isObjectValue(config) ? config.agentMaxDepth : undefined;
-  return typeof raw === "number" && Number.isInteger(raw) && raw >= 1 && raw <= 3
-    ? raw
-    : 1;
-}
-
 export function getChatMaxPromptChars(config: unknown): number {
   const raw = isObjectValue(config) ? config.chatMaxPromptChars : undefined;
   return typeof raw === "number" && Number.isInteger(raw) && raw >= 100 && raw <= 1000000

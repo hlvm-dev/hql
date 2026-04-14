@@ -42,7 +42,6 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     iterationsSinceReminder: 3,
     memoryFlushedThisCycle: false,
     memoryRecallInjected: false,
-    lastTeamSummarySignature: "",
     lastToolNames: [],
     loopRecoveryStep: 0,
     playwright: {

@@ -90,59 +90,17 @@ export async function classifyPlanNeed(
   }
 }
 
-// ---- Step 2: Delegation Detection ----
-
-export interface DelegationClassification {
-  shouldDelegate: boolean;
-  pattern: "fan-out" | "batch" | "sequential" | "none";
-}
-
-const CLASSIFY_DELEGATION_PROMPT =
-  `Should this task be split into subtasks for parallel agents? Reply ONLY with JSON.
-{"delegate":true/false,"pattern":"fan-out"|"batch"|"sequential"|"none"}
-- "delegate": true if task involves parallel work, batch operations, or multiple independent subtasks
-- "pattern": "fan-out" parallel independent, "batch" same op across many targets, "sequential" ordered, "none" no delegation
-Request: `;
-
-export async function classifyDelegation(
-  query: string,
-): Promise<DelegationClassification> {
-  const defaults: DelegationClassification = {
-    shouldDelegate: false,
-    pattern: "none",
-  };
-  if (!query.trim()) return defaults;
-  try {
-    const response = await collectChat(
-      CLASSIFY_DELEGATION_PROMPT + query.slice(0, 500),
-      { temperature: 0, maxTokens: 64 },
-    );
-    const parsed = JSON.parse(extractJson(response));
-    const pattern =
-      ["fan-out", "batch", "sequential", "none"].includes(parsed.pattern)
-        ? parsed.pattern as DelegationClassification["pattern"]
-        : "none";
-    return { shouldDelegate: parsed.delegate === true, pattern };
-  } catch {
-    return defaults;
-  }
-}
-
 export interface AllClassification {
   isBrowser: boolean;
-  shouldDelegate: boolean;
-  delegatePattern: "fan-out" | "batch" | "sequential" | "none";
   needsPlan: boolean;
   taskClassification: TaskClassification;
 }
 
 const CLASSIFY_ALL_PROMPT =
   `Classify this user request. Reply ONLY with JSON, no other text.
-{"browser":true/false,"delegate":true/false,"pattern":"fan-out"|"batch"|"sequential"|"none","plan":true/false,"code":true/false,"reasoning":true/false,"structured":true/false}
+{"browser":true/false,"plan":true/false,"code":true/false,"reasoning":true/false,"structured":true/false}
 
 - "browser": request involves interacting with a web browser, website, or web page
-- "delegate": task should be split into parallel subtasks for multiple agents
-- "pattern": "fan-out" parallel independent, "batch" same op across targets, "sequential" ordered, "none"
 - "plan": request needs multi-step planning (sequential phases, complex enough for upfront plan)
 - "code": about writing, debugging, reviewing, or understanding code
 - "reasoning": requires math, logic, analysis, or step-by-step thinking
@@ -153,8 +111,6 @@ Request: `;
 export async function classifyAll(query: string): Promise<AllClassification> {
   const defaults: AllClassification = {
     isBrowser: false,
-    shouldDelegate: false,
-    delegatePattern: "none",
     needsPlan: false,
     taskClassification: {
       isCodeTask: false,
@@ -170,14 +126,8 @@ export async function classifyAll(query: string): Promise<AllClassification> {
       { temperature: 0, maxTokens: 128 },
     );
     const parsed = JSON.parse(extractJson(response));
-    const delegatePattern =
-      ["fan-out", "batch", "sequential", "none"].includes(parsed.pattern)
-        ? parsed.pattern as AllClassification["delegatePattern"]
-        : "none";
     return {
       isBrowser: parsed.browser === true,
-      shouldDelegate: parsed.delegate === true,
-      delegatePattern,
       needsPlan: parsed.plan === true,
       taskClassification: {
         isCodeTask: parsed.code === true,

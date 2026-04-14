@@ -2,7 +2,7 @@
  * Shared test helpers for agent tests.
  *
  * Provides scripted LLM, context factory, and tool registry helpers
- * used by engine-harness.test.ts, agent-team-e2e.test.ts, etc.
+ * used by engine-harness.test.ts, etc.
  */
 
 import { assertStringIncludes } from "jsr:@std/assert";

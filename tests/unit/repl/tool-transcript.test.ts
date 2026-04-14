@@ -1,7 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   buildToolTranscriptInvocationLabel,
-  resolveToolTranscriptDisplayName,
   resolveToolTranscriptGroupSummary,
   resolveToolTranscriptProgress,
   resolveToolTranscriptResult,
@@ -16,11 +15,6 @@ Deno.test("buildToolTranscriptInvocationLabel formats web tools with quoted args
     }),
     'Web Search("react \'19\' release notes")',
   );
-});
-
-Deno.test("resolveToolTranscriptDisplayName uses compact labels for team tools", () => {
-  assertEquals(resolveToolTranscriptDisplayName("TaskCreate"), "Create Task");
-  assertEquals(resolveToolTranscriptDisplayName("TeamStatus"), "Team Status");
 });
 
 Deno.test("resolveToolTranscriptProgress uses adapter defaults for web search start", () => {
@@ -94,76 +88,3 @@ Deno.test("resolveToolTranscriptGroupSummary uses web-search transcript prose", 
   );
 });
 
-Deno.test("resolveToolTranscriptResult formats task list summaries for the transcript", () => {
-  assertEquals(
-    resolveToolTranscriptResult("TaskList", {
-      name: "TaskList",
-      success: true,
-      content: JSON.stringify({
-        tasks: [
-          { id: "1", status: "pending" },
-          { id: "2", status: "in_progress" },
-          { id: "3", status: "blocked" },
-        ],
-      }),
-      durationMs: 120,
-      argsSummary: "team tasks",
-    }),
-    {
-      summaryText: "Listed 3 tasks · 1 active · 1 pending · 1 blocked",
-      detailText: JSON.stringify({
-        tasks: [
-          { id: "1", status: "pending" },
-          { id: "2", status: "in_progress" },
-          { id: "3", status: "blocked" },
-        ],
-      }),
-    },
-  );
-});
-
-Deno.test("resolveToolTranscriptResult formats team status summaries for the transcript", () => {
-  assertEquals(
-    resolveToolTranscriptResult("TeamStatus", {
-      name: "TeamStatus",
-      success: true,
-      content: JSON.stringify({
-        summary: {
-          activeMembers: 4,
-          pendingApprovals: 1,
-          unreadMessages: 2,
-          taskCounts: {
-            pending: 1,
-            claimed: 0,
-            in_progress: 2,
-            blocked: 0,
-            completed: 1,
-            cancelled: 0,
-            errored: 0,
-          },
-        },
-      }),
-      durationMs: 180,
-      argsSummary: "",
-    }),
-    {
-      summaryText: "4 active members · 4 tasks · 1 pending approval · 2 unread",
-      detailText: JSON.stringify({
-        summary: {
-          activeMembers: 4,
-          pendingApprovals: 1,
-          unreadMessages: 2,
-          taskCounts: {
-            pending: 1,
-            claimed: 0,
-            in_progress: 2,
-            blocked: 0,
-            completed: 1,
-            cancelled: 0,
-            errored: 0,
-          },
-        },
-      }),
-    },
-  );
-});

@@ -233,12 +233,19 @@ Deno.test("derivePlanSurfaceState centralizes the active checklist, current step
     },
     items: [
       {
-        type: "delegate",
-        id: "delegate-1",
-        agent: "worker-1",
-        task: "Verify narrow terminal layout",
-        status: "running",
+        type: "tool_group",
+        id: "tool-group-1",
         ts: 1,
+        tools: [{
+          id: "tool-2",
+          name: "list_files",
+          argsSummary: "~/Desktop",
+          status: "success",
+          resultSummaryText: "Listed 5 files",
+          resultText: "Listed 5 files",
+          toolIndex: 1,
+          toolTotal: 1,
+        }],
       },
       {
         type: "tool_group",
@@ -268,7 +275,7 @@ Deno.test("derivePlanSurfaceState centralizes the active checklist, current step
   );
   assertEquals(state.recentActivities, [
     "Reading App.tsx",
-    "Delegating to worker-1: Verify narrow terminal layout",
+    "Listing Desktop",
   ]);
 });
 
@@ -325,7 +332,7 @@ Deno.test("getPlanFlowActivitySummary skips checklist noise and surfaces the rea
   );
 });
 
-Deno.test("getRecentPlanFlowActivitySummaries preserves delegate and error activity while hiding orchestration noise", () => {
+Deno.test("getRecentPlanFlowActivitySummaries preserves error activity while hiding orchestration noise", () => {
   const items: AgentConversationItem[] = [
     {
       type: "tool_group",
@@ -343,14 +350,6 @@ Deno.test("getRecentPlanFlowActivitySummaries preserves delegate and error activ
       }],
     },
     {
-      type: "delegate",
-      id: "delegate-1",
-      agent: "worker-2",
-      task: "Check footer wording",
-      status: "running",
-      ts: 2,
-    },
-    {
       type: "error",
       id: "error-1",
       text: "Test run failed",
@@ -359,6 +358,5 @@ Deno.test("getRecentPlanFlowActivitySummaries preserves delegate and error activ
 
   assertEquals(getRecentPlanFlowActivitySummaries(items), [
     "Test run failed",
-    "Delegating to worker-2: Check footer wording",
   ]);
 });

@@ -33,5 +33,4 @@ export {
   type OverlayPadding,
   resolveOverlayChromeLayout,
   SHORTCUTS_OVERLAY_SPEC,
-  TEAM_DASHBOARD_OVERLAY_SPEC,
 } from "./layout.ts";

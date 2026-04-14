@@ -26,7 +26,7 @@ async function withWorkspace(
 // Core loading — happy path
 // ============================================================
 
-Deno.test("agent registry: loads project teammates from .hlvm/agents markdown", async () => {
+Deno.test("agent registry: loads project agent profiles from .hlvm/agents markdown", async () => {
   await withWorkspace(async (workspace) => {
     const platform = getPlatform();
     const agentsDir = platform.path.join(workspace, ".hlvm/agents");
@@ -107,7 +107,7 @@ Body instructions appended after frontmatter instructions.
 // Validation errors
 // ============================================================
 
-Deno.test("agent registry: rejects project teammates that duplicate built-in names", async () => {
+Deno.test("agent registry: rejects project agents that duplicate built-in names", async () => {
   await withWorkspace(async (workspace) => {
     const platform = getPlatform();
     const agentsDir = platform.path.join(workspace, ".hlvm/agents");
@@ -134,7 +134,7 @@ tools:
   });
 });
 
-Deno.test("agent registry: rejects project teammates with unknown tools", async () => {
+Deno.test("agent registry: rejects project agents with unknown tools", async () => {
   await withWorkspace(async (workspace) => {
     const platform = getPlatform();
     const agentsDir = platform.path.join(workspace, ".hlvm/agents");

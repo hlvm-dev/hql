@@ -268,9 +268,8 @@
   │    ├─ [System Reminder] memory recall                               │
   │    ├─ [Runtime Directive] nudges (continue, save context, etc.)     │
   │    ├─ [Runtime Notice] warnings                                     │
-  │    ├─ [Runtime Update] team/delegate status                         │
-  │    ├─ [Parent Message] parent→child steering                        │
-  │    └─ [Team ...] teammate messages                                  │
+  │    ├─ [Runtime Update] agent status                                 │
+  │    └─ [Parent Message] parent→child steering                        │
   │                                                                      │
   │  role: "assistant"                                                   │
   │    ├─ LLM text response                                             │

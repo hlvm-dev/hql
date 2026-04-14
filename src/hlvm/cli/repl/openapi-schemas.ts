@@ -419,12 +419,6 @@
  *         supportsAgent:
  *           type: boolean
  *           nullable: true
- *         agentMaxThreads:
- *           type: integer
- *           nullable: true
- *         agentMaxDepth:
- *           type: integer
- *           nullable: true
  *         chatMaxPromptChars:
  *           type: integer
  *           nullable: true

@@ -94,7 +94,7 @@ interface AgentSessionOptions {
   instructions?: InstructionHierarchy;
   /** Override the LLM engine (defaults to getAgentEngine()) */
   engine?: AgentEngine;
-  /** Preloaded agent profiles for delegation guidance. */
+  /** Preloaded agent profiles for child agent guidance. */
   agentProfiles?: readonly AgentProfile[];
   /** Disable persistent memory injection for this session. */
   disablePersistentMemory?: boolean;
@@ -115,7 +115,7 @@ interface RefreshAgentSessionOptions {
   disablePersistentMemory?: boolean;
   /** Loaded instruction hierarchy (global + project). */
   instructions?: InstructionHierarchy;
-  /** Preloaded agent profiles for delegation guidance. */
+  /** Preloaded agent profiles for child agent guidance. */
   agentProfiles?: readonly AgentProfile[];
 }
 
@@ -179,9 +179,9 @@ export interface AgentSession {
     | "tier"
     | "querySource"
   >;
-  /** Resolved instruction hierarchy — passed to child agents (delegation/team). */
+  /** Resolved instruction hierarchy — passed to child agents. */
   instructions?: InstructionHierarchy;
-  /** Preloaded agent profiles used for delegation/team prompt guidance. */
+  /** Preloaded agent profiles used for child agent prompt guidance. */
   agentProfiles?: readonly AgentProfile[];
 }
 

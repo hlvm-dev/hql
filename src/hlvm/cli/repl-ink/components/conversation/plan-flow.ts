@@ -4,7 +4,6 @@ import type { TodoState } from "../../../../agent/todo-state.ts";
 import type {
   AgentConversationItem,
   ConversationItem,
-  DelegateItem,
   ErrorItem,
   InfoItem,
   MemoryActivityItem,
@@ -48,7 +47,6 @@ export interface PlanFlowActivityOptions {
   includeInfo?: boolean;
   includeErrors?: boolean;
   includeMemory?: boolean;
-  includeDelegates?: boolean;
 }
 
 export function summarizePlanTodoState(
@@ -209,37 +207,6 @@ function isPlanNoiseTool(tool: ToolCallDisplay): boolean {
   return PLAN_SURFACE_HIDDEN_TOOL_NAMES.has(tool.name);
 }
 
-function capitalizeStatus(status: string): string {
-  if (!status) return "";
-  return `${status[0]!.toUpperCase()}${status.slice(1)}`;
-}
-
-function summarizeDelegateActivity(item: DelegateItem): string {
-  const agentLabel = item.nickname ?? item.agent;
-  const taskLabel = truncate(item.task.trim(), 56, "…");
-  if (item.summary?.trim()) {
-    return truncate(item.summary.trim(), 84, "…");
-  }
-  switch (item.status) {
-    case "running":
-      return taskLabel
-        ? `Delegating to ${agentLabel}: ${taskLabel}`
-        : `Delegating to ${agentLabel}`;
-    case "queued":
-      return taskLabel
-        ? `Queued ${agentLabel}: ${taskLabel}`
-        : `Queued ${agentLabel}`;
-    case "error":
-      return item.error?.trim()
-        ? `Delegate error: ${truncate(item.error.trim(), 60, "…")}`
-        : `Delegate error from ${agentLabel}`;
-    case "cancelled":
-      return `Delegate cancelled: ${agentLabel}`;
-    default:
-      return `${capitalizeStatus(item.status)} delegate ${agentLabel}`;
-  }
-}
-
 function summarizeInfoActivity(item: InfoItem): string | undefined {
   const text = normalizeActivityText(item.text);
   return text.length > 0 ? truncate(text, 84, "…") : undefined;
@@ -272,9 +239,6 @@ function summarizeConversationItemActivity(
     case "thinking":
       if (options.includeThinking === false) return undefined;
       return summarizeThinkingActivity(item);
-    case "delegate":
-      if (options.includeDelegates === false) return undefined;
-      return summarizeDelegateActivity(item);
     case "error":
       if (options.includeErrors === false) return undefined;
       return summarizeErrorActivity(item);

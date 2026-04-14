@@ -22,12 +22,12 @@ Deno.test("ToolProfile merges baseline-only filters", () => {
   const state = createToolProfileState();
   setToolProfileLayer(state, "baseline", {
     allowlist: ["read_file", "tool_search"],
-    denylist: ["delegate_agent"],
+    denylist: ["complete_task"],
   });
 
   assertEquals(resolveEffectiveToolFilter(state), {
     allowlist: ["read_file", "tool_search"],
-    denylist: ["delegate_agent"],
+    denylist: ["complete_task"],
   });
 });
 
@@ -35,7 +35,7 @@ Deno.test("ToolProfile intersects allowlists and unions denylists across layers"
   const state = createToolProfileState();
   setToolProfileLayer(state, "baseline", {
     allowlist: ["read_file", "write_file", "tool_search"],
-    denylist: ["delegate_agent"],
+    denylist: ["complete_task"],
   });
   setToolProfileLayer(state, "plan", {
     allowlist: ["read_file", "write_file"],
@@ -47,11 +47,11 @@ Deno.test("ToolProfile intersects allowlists and unions denylists across layers"
 
   assertEquals(resolveEffectiveToolFilter(state), {
     allowlist: ["read_file", "write_file"],
-    denylist: ["delegate_agent", "complete_task", "write_file"],
+    denylist: ["complete_task", "complete_task", "write_file"],
   });
   assertEquals(resolvePersistentToolFilter(state), {
     allowlist: ["read_file", "write_file"],
-    denylist: ["delegate_agent", "complete_task"],
+    denylist: ["complete_task", "complete_task"],
   });
 });
 
@@ -99,7 +99,7 @@ Deno.test("ToolProfile resolves declared profile inheritance", () => {
     {
       id: "base",
       allowlist: ["read_file", "tool_search"],
-      denylist: ["delegate_agent"],
+      denylist: ["complete_task"],
     },
     {
       id: "child",
@@ -113,7 +113,7 @@ Deno.test("ToolProfile resolves declared profile inheritance", () => {
 
   assertEquals(resolveEffectiveToolFilter(state, { registry }), {
     allowlist: ["read_file", "tool_search", "write_file"],
-    denylist: ["delegate_agent", "complete_task"],
+    denylist: ["complete_task", "complete_task"],
   });
 });
 
@@ -121,7 +121,7 @@ Deno.test("ToolProfile sync updates flat compatibility filters from profile stat
   const state = createToolProfileState();
   setToolProfileLayer(state, "baseline", {
     allowlist: ["read_file", "write_file", "tool_search"],
-    denylist: ["delegate_agent"],
+    denylist: ["complete_task"],
   });
   setToolProfileLayer(state, "discovery", {
     allowlist: ["read_file", "tool_search"],
@@ -143,7 +143,7 @@ Deno.test("ToolProfile sync updates flat compatibility filters from profile stat
     "tool_search",
   ]);
   assertEquals(target.toolAllowlist, ["read_file", "tool_search"]);
-  assertEquals(target.toolDenylist, ["delegate_agent"]);
+  assertEquals(target.toolDenylist, ["complete_task"]);
 });
 
 Deno.test("ToolProfile bootstraps profile state from flat compatibility filters only", () => {
@@ -152,7 +152,7 @@ Deno.test("ToolProfile bootstraps profile state from flat compatibility filters 
     toolDenylist?: string[];
   } = {
     toolAllowlist: ["read_file", "tool_search"],
-    toolDenylist: ["delegate_agent"],
+    toolDenylist: ["complete_task"],
   };
 
   const state = ensureToolProfileState(target);
@@ -164,7 +164,7 @@ Deno.test("ToolProfile bootstraps profile state from flat compatibility filters 
     allowlist: ["read_file"],
   });
   assertEquals(target.toolAllowlist, ["read_file"]);
-  assertEquals(target.toolDenylist, ["delegate_agent"]);
+  assertEquals(target.toolDenylist, ["complete_task"]);
   assertEquals(resolvePersistentToolFilter(target.toolProfileState!).allowlist, [
     "read_file",
     "tool_search",
@@ -267,7 +267,7 @@ Deno.test("resolveEffectiveToolFilterCached returns same result as uncached", ()
   const state = createToolProfileState();
   setToolProfileLayer(state, "baseline", {
     allowlist: ["read_file", "write_file", "tool_search"],
-    denylist: ["delegate_agent"],
+    denylist: ["complete_task"],
   });
   setToolProfileLayer(state, "runtime", { denylist: ["write_file"] });
 

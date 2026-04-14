@@ -120,7 +120,7 @@ export function buildToolDefinitions(
  * Generate system prompt from tool registry.
  *
  * Backward-compatible wrapper around `compilePrompt()`.
- * Callers (delegation, tests) see zero change.
+ * Callers (agent-runner, tests) see zero change.
  */
 export interface SystemPromptOptions {
   toolAllowlist?: string[];
@@ -129,7 +129,7 @@ export interface SystemPromptOptions {
   querySource?: string;
   /** Model tier — controls prompt depth */
   modelTier?: ModelTier;
-  /** Preloaded agent profiles for delegation guidance. */
+  /** Preloaded agent profiles for child agent guidance. */
   agentProfiles?: readonly AgentProfile[];
   /** Full instruction hierarchy (overrides customInstructions when provided). */
   instructions?: InstructionHierarchy;
