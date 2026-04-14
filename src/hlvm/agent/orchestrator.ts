@@ -316,7 +316,7 @@ export type TraceEvent =
     tier: import("./constants.ts").ModelTier;
     behavior: RoutingBehavior;
     provenance: RoutingProvenance;
-    taskDomain: "browser" | "general";
+    taskDomain: import("./request-routing.ts").TaskDomain;
     needsPlan: boolean;
     reason: string;
   };
