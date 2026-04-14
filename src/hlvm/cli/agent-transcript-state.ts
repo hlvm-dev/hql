@@ -623,6 +623,108 @@ export function reduceTranscriptState(
             activeTool: undefined,
             items: removeTransientInfoItems(state.items),
           };
+        case "agent_spawn": {
+          const tool: ToolCallDisplay = {
+            id: `ci-${state.nextId + 1}`,
+            toolCallId: event.agentId,
+            name: `Agent(${event.agentType})`,
+            displayName: `Agent(${event.agentType})`,
+            argsSummary: event.description,
+            status: "running",
+            progressText: event.isAsync ? "Backgrounded" : "In progress…",
+            progressTone: "running",
+            toolIndex: 0,
+            toolTotal: 1,
+          };
+          let nextState: TranscriptState = {
+            ...state,
+            streamingState: ConversationStreamingState.Responding,
+            activeTool: buildActiveToolDisplay(tool),
+            items: removeTransientInfoItems(state.items),
+          };
+          const [stateWithToolId, toolId] = nextItemId(nextState);
+          const nextTool = { ...tool, id: toolId };
+          nextState = stateWithToolId;
+          const [stateWithGroupId, groupId] = nextItemId(nextState);
+          const group: ToolGroupItem = {
+            type: "tool_group",
+            id: groupId,
+            tools: [nextTool],
+            ts: Date.now(),
+            turnId: nextState.currentTurnId,
+          };
+          return {
+            ...stateWithGroupId,
+            items: insertBeforePendingAssistant(stateWithGroupId.items, group),
+          };
+        }
+        case "agent_progress": {
+          const match = resolveToolInGroup(state.items, {
+            toolCallId: event.agentId,
+            name: `Agent(${event.agentType})`,
+            argsSummary: "",
+          });
+          if (!match) return state;
+          const { groupIdx, groupItem, resolvedIdx } = match;
+          const nextTools = [...groupItem.tools];
+          const durationSuffix = event.durationMs > 0
+            ? ` · ${(event.durationMs / 1000).toFixed(1)}s`
+            : "";
+          nextTools[resolvedIdx] = {
+            ...nextTools[resolvedIdx],
+            progressText: event.toolUseCount === 1
+              ? `In progress… · 1 tool use${durationSuffix}`
+              : `In progress… · ${event.toolUseCount} tool uses${durationSuffix}`,
+            progressTone: "running",
+          };
+          const nextItems = [...state.items];
+          nextItems[groupIdx] = { ...groupItem, tools: nextTools };
+          const runningTool = nextTools[resolvedIdx];
+          return {
+            ...state,
+            items: nextItems,
+            activeTool: buildActiveToolDisplay(runningTool),
+          };
+        }
+        case "agent_complete": {
+          const match = resolveToolInGroup(state.items, {
+            toolCallId: event.agentId,
+            name: `Agent(${event.agentType})`,
+            argsSummary: "",
+          });
+          if (!match) return state;
+          const { groupIdx, groupItem, resolvedIdx } = match;
+          const nextTools = [...groupItem.tools];
+          const toolSummary = `${event.toolUseCount} tool use${
+            event.toolUseCount === 1 ? "" : "s"
+          }${event.totalTokens != null ? ` · ${event.totalTokens.toLocaleString()} tokens` : ""}${
+            event.durationMs > 0 ? ` · ${(event.durationMs / 1000).toFixed(1)}s` : ""
+          }`;
+          const resultDetail = event.transcript
+            ? `${event.resultPreview ?? ""}\n\nAgent Transcript\n${event.transcript}`.trim()
+            : event.resultPreview;
+          nextTools[resolvedIdx] = {
+            ...nextTools[resolvedIdx],
+            status: event.success ? "success" : "error",
+            progressText: undefined,
+            progressTone: undefined,
+            resultSummaryText: toolSummary,
+            resultDetailText: resultDetail,
+            resultText: resultDetail,
+            durationMs: event.durationMs,
+          };
+          const nextItems = [...state.items];
+          nextItems[groupIdx] = { ...groupItem, tools: nextTools };
+          const latestRunningTool = findLatestRunningTool(nextItems);
+          return {
+            ...state,
+            items: nextItems,
+            streamingState: ConversationStreamingState.Responding,
+            activeTool: latestRunningTool
+              ? buildActiveToolDisplay(latestRunningTool)
+              : undefined,
+          };
+        }
         case "reasoning_update":
         case "planning_update": {
           if (

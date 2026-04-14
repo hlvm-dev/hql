@@ -131,6 +131,31 @@ export type ChatStreamEvent =
     request_id?: string;
   }
   | {
+    event: "agent_spawn";
+    agent_id: string;
+    agent_type: string;
+    description: string;
+    is_async: boolean;
+  }
+  | {
+    event: "agent_progress";
+    agent_id: string;
+    agent_type: string;
+    tool_use_count: number;
+    duration_ms: number;
+  }
+  | {
+    event: "agent_complete";
+    agent_id: string;
+    agent_type: string;
+    success: boolean;
+    duration_ms: number;
+    tool_use_count: number;
+    total_tokens?: number;
+    result_preview?: string;
+    transcript?: string;
+  }
+  | {
     event: "todo_updated";
     todo_state: TodoState;
     source: "tool" | "plan";

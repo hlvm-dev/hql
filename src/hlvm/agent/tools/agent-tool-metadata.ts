@@ -35,6 +35,9 @@ async function agentToolFn(
 export const AGENT_TOOL_METADATA: Record<string, {
   fn: typeof agentToolFn;
   description: string;
+  resolveDescription?: (
+    options?: { workspace?: string; ownerId?: string },
+  ) => string | Promise<string>;
   args: Record<string, string>;
   safetyLevel: string;
   category: string;
@@ -44,6 +47,8 @@ export const AGENT_TOOL_METADATA: Record<string, {
   [AGENT_TOOL_NAME]: {
     fn: agentToolFn,
     description: getAgentToolFallbackDescription(),
+    resolveDescription: ({ workspace } = {}) =>
+      resolveAgentToolDescription(workspace),
     args: AGENT_TOOL_ARGS,
     safetyLevel: "L0",
     category: "meta",

@@ -678,6 +678,34 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         argsSummary: event.args_summary,
         meta: event.meta,
       };
+    case "agent_spawn":
+      return {
+        type: "agent_spawn",
+        agentId: event.agent_id,
+        agentType: event.agent_type,
+        description: event.description,
+        isAsync: event.is_async,
+      };
+    case "agent_progress":
+      return {
+        type: "agent_progress",
+        agentId: event.agent_id,
+        agentType: event.agent_type,
+        toolUseCount: event.tool_use_count,
+        durationMs: event.duration_ms,
+      };
+    case "agent_complete":
+      return {
+        type: "agent_complete",
+        agentId: event.agent_id,
+        agentType: event.agent_type,
+        success: event.success,
+        durationMs: event.duration_ms,
+        toolUseCount: event.tool_use_count,
+        totalTokens: event.total_tokens,
+        resultPreview: event.result_preview,
+        transcript: event.transcript,
+      };
     case "todo_updated":
       return {
         type: "todo_updated",

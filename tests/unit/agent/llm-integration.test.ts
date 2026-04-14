@@ -24,6 +24,7 @@ import {
   registerTool,
   unregisterTool,
 } from "../../../src/hlvm/agent/registry.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 
 Deno.test("LLM integration: default prompt includes core role, tools, and concision guidance", () => {
   const prompt = generateSystemPrompt();
@@ -279,10 +280,10 @@ Deno.test("LLM integration: prompt content scales by tier", () => {
   assertEquals(enhanced.length >= standard.length, true);
 });
 
-Deno.test("LLM integration: buildToolDefinitions caches until the registry changes", () => {
+Deno.test("LLM integration: buildToolDefinitions caches until the registry changes", async () => {
   clearToolDefCache();
-  const first = buildToolDefinitions();
-  const second = buildToolDefinitions();
+  const first = await buildToolDefinitions();
+  const second = await buildToolDefinitions();
   assertEquals(first, second);
 
   registerTool("testGenTool", {
@@ -292,7 +293,7 @@ Deno.test("LLM integration: buildToolDefinitions caches until the registry chang
   });
 
   try {
-    const rebuilt = buildToolDefinitions();
+    const rebuilt = await buildToolDefinitions();
     assertNotStrictEquals(first, rebuilt);
     assertEquals(
       rebuilt.some((tool) => tool.function.name === "testGenTool"),
@@ -300,6 +301,34 @@ Deno.test("LLM integration: buildToolDefinitions caches until the registry chang
     );
   } finally {
     unregisterTool("testGenTool");
+    clearToolDefCache();
+  }
+});
+
+Deno.test("LLM integration: Agent tool description includes custom workspace agents by name", async () => {
+  clearToolDefCache();
+  const platform = getPlatform();
+  const tempDir = await platform.fs.makeTempDir({ prefix: "hlvm-agent-desc-" });
+  const agentsDir = platform.path.join(tempDir, ".hlvm", "agents");
+
+  try {
+    await platform.fs.mkdir(agentsDir, { recursive: true });
+    await platform.fs.writeTextFile(
+      platform.path.join(agentsDir, "probe-counter.md"),
+      `---
+name: probe-counter
+description: Count files for tests
+tools: [list_files]
+---
+You count files.`,
+    );
+
+    const defs = await buildToolDefinitions({ workspace: tempDir });
+    const agentTool = defs.find((tool) => tool.function.name === "Agent");
+    assertEquals(Boolean(agentTool), true);
+    assertStringIncludes(agentTool!.function.description ?? "", "probe-counter");
+  } finally {
+    await platform.fs.remove(tempDir, { recursive: true });
     clearToolDefCache();
   }
 });

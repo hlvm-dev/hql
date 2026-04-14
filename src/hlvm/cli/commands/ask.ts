@@ -63,6 +63,7 @@ import {
   resolveToolTranscriptProgress,
   resolveToolTranscriptResult,
 } from "../repl-ink/components/conversation/tool-transcript.ts";
+import { AGENT_TOOL_NAME } from "../../agent/tools/agent-constants.ts";
 
 const { DIM, RESET, GREEN, RED } = ANSI_COLORS;
 const CLEAR_LINE = "\r\x1b[K";
@@ -308,6 +309,40 @@ function createTraceCallback(
         break;
     }
   };
+}
+
+function formatAgentHeader(agentType: string, description: string): string {
+  return `⏺ Agent(${agentType}) "${description}"`;
+}
+
+function formatAgentProgress(
+  toolUseCount: number,
+  durationMs?: number,
+): string {
+  const tools = `${toolUseCount} tool use${toolUseCount === 1 ? "" : "s"}`;
+  const dur = durationMs && durationMs > 0
+    ? ` · ${(durationMs / 1000).toFixed(1)}s`
+    : "";
+  return `⎿ In progress… · ${tools}${dur}`;
+}
+
+function formatAgentCompletion(options: {
+  success: boolean;
+  toolUseCount: number;
+  totalTokens?: number;
+  durationMs?: number;
+}): string {
+  const status = options.success ? "Done" : "Failed";
+  const tools = `${options.toolUseCount} tool use${
+    options.toolUseCount === 1 ? "" : "s"
+  }`;
+  const tokens = options.totalTokens != null
+    ? ` · ${options.totalTokens.toLocaleString()} tokens`
+    : "";
+  const dur = options.durationMs && options.durationMs > 0
+    ? ` · ${(options.durationMs / 1000).toFixed(1)}s`
+    : "";
+  return `⎿ ${status} (${tools}${tokens}${dur})`;
 }
 
 const DEFAULT_TOOL_OUTPUT_MAX_LINES = 18;
@@ -726,8 +761,43 @@ export async function askCommand(args: string[]): Promise<void> {
     if (outputFormat === "json") return;
     if (verbose) {
       switch (event.type) {
+        case "agent_spawn":
+          flushStream();
+          log.raw.log(`\n${formatAgentHeader(event.agentType, event.description)}`);
+          log.raw.log(
+            `  ${
+              event.isAsync
+                ? "⎿ Backgrounded"
+                : "⎿ In progress…"
+            }\n`,
+          );
+          break;
+        case "agent_progress":
+          flushStream();
+          log.raw.log(
+            `\n  ${
+              formatAgentProgress(event.toolUseCount, event.durationMs)
+            }\n`,
+          );
+          break;
+        case "agent_complete":
+          flushStream();
+          log.raw.log(
+            `\n  ${
+              formatAgentCompletion({
+                success: event.success,
+                toolUseCount: event.toolUseCount,
+                totalTokens: event.totalTokens,
+                durationMs: event.durationMs,
+              })
+            }\n`,
+          );
+          break;
         case "tool_start":
           if (event.name === "ask_user") {
+            return;
+          }
+          if (event.name === AGENT_TOOL_NAME) {
             return;
           }
           flushStream();
@@ -745,6 +815,9 @@ export async function askCommand(args: string[]): Promise<void> {
           if (event.name === "ask_user") {
             return;
           }
+          if (event.name === AGENT_TOOL_NAME) {
+            return;
+          }
           const progress = resolveToolTranscriptProgress(event.name, event);
           if (!progress?.message) return;
           flushStream();
@@ -757,6 +830,9 @@ export async function askCommand(args: string[]): Promise<void> {
         }
         case "tool_end":
           if (event.name === "ask_user") {
+            return;
+          }
+          if (event.name === AGENT_TOOL_NAME && event.success) {
             return;
           }
           flushStream();
@@ -828,7 +904,41 @@ export async function askCommand(args: string[]): Promise<void> {
           thinkingShown = true;
         }
         break;
+      case "agent_spawn":
+        clearThinking();
+        flushStream();
+        log.raw.log(formatAgentHeader(event.agentType, event.description));
+        log.raw.log(
+          `  ${
+            event.isAsync
+              ? "⎿ Backgrounded"
+              : "⎿ In progress…"
+          }`,
+        );
+        break;
+      case "agent_progress":
+        clearThinking();
+        flushStream();
+        log.raw.log(`  ${formatAgentProgress(event.toolUseCount, event.durationMs)}`);
+        break;
+      case "agent_complete":
+        clearThinking();
+        flushStream();
+        log.raw.log(
+          `  ${
+            formatAgentCompletion({
+              success: event.success,
+              toolUseCount: event.toolUseCount,
+              totalTokens: event.totalTokens,
+              durationMs: event.durationMs,
+            })
+          }`,
+        );
+        break;
       case "tool_start":
+        if (event.name === AGENT_TOOL_NAME) {
+          return;
+        }
         clearThinking();
         flushStream();
         log.raw.write(
@@ -846,6 +956,9 @@ export async function askCommand(args: string[]): Promise<void> {
         break;
       case "tool_end": {
         if (event.name === "ask_user") {
+          return;
+        }
+        if (event.name === AGENT_TOOL_NAME && event.success) {
           return;
         }
         const transcriptResult = resolveToolTranscriptResult(event.name, {

@@ -591,6 +591,7 @@ export async function createAgentSession(
           "agent_session",
         );
       })(),
+      workspace: options.workspace,
       options: {
         ...(options.maxOutputTokens != null
           ? { maxTokens: options.maxOutputTokens }

@@ -859,10 +859,11 @@ export class SdkAgentEngine implements AgentEngine {
         generation !== lastToolGeneration ||
         toolFilterSignature !== lastToolFilterSignature
       ) {
-        const toolDefs = buildToolDefinitions({
+        const toolDefs = await buildToolDefinitions({
           allowlist: toolFilters.allowlist,
           denylist: toolFilters.denylist,
           ownerId: config.toolOwnerId,
+          workspace: config.workspace,
         });
         // Guard: warn when allowlist was provided but resolved tools are
         // significantly fewer — catches silent masking by profile layers.

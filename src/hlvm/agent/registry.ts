@@ -100,6 +100,8 @@ export interface ToolExecutionOptions {
   modelId?: string;
   /** Active session model tier for tool-internal routing. */
   modelTier?: ModelTier;
+  /** Active context budget for child-agent inheritance. */
+  contextBudget?: number;
   policy?: AgentPolicy | null;
   onInteraction?: (
     event: InteractionRequestEvent,
@@ -137,8 +139,20 @@ export interface ToolExecutionOptions {
   agentProfiles?: readonly AgentProfile[];
   /** Resolved instruction hierarchy for child agent prompt compilation. */
   instructions?: import("../prompt/types.ts").InstructionHierarchy;
+  /** Active query source for child-agent inheritance. */
+  querySource?: string;
+  /** Whether the active model supports thinking/reasoning. */
+  thinkingCapable?: boolean;
   /** Permission mode for the current session. */
   permissionMode?: import("../../common/config/types.ts").PermissionMode;
+  /** Parent orchestrator trace callback for child-agent inheritance. */
+  onTrace?: (event: import("./orchestrator.ts").TraceEvent) => void;
+  /** Parent LLM timeout for child-agent inheritance. */
+  llmTimeout?: number;
+  /** Parent tool timeout for child-agent inheritance. */
+  toolTimeout?: number;
+  /** Parent total timeout for child-agent inheritance. */
+  totalTimeout?: number;
   /** Explicit tool allow list for permission system. */
   toolAllowlist?: string[];
   /** Explicit tool deny list for permission system. */
@@ -223,6 +237,9 @@ export type ToolPresentationKind =
 export interface ToolMetadata {
   fn: ToolFunction;
   description: string;
+  resolveDescription?: (
+    options?: { workspace?: string; ownerId?: string },
+  ) => string | Promise<string>;
   args: Record<string, string>;
   /** Tool exposure defaults for source-specific lazy-loading policies. */
   loading?: {

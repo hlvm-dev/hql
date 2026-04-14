@@ -256,6 +256,37 @@ export async function handleAgentMode(
               argsSummary: event.argsSummary,
             });
             break;
+          case "agent_spawn":
+            traceReplMainThreadForSource(body.query_source, "server.agent.spawn", {
+              requestId,
+              sessionId,
+              agentId: event.agentId,
+              agentType: event.agentType,
+              description: event.description,
+              isAsync: event.isAsync,
+            });
+            break;
+          case "agent_progress":
+            traceReplMainThreadForSource(body.query_source, "server.agent.progress", {
+              requestId,
+              sessionId,
+              agentId: event.agentId,
+              agentType: event.agentType,
+              toolUseCount: event.toolUseCount,
+              durationMs: event.durationMs,
+            });
+            break;
+          case "agent_complete":
+            traceReplMainThreadForSource(body.query_source, "server.agent.complete", {
+              requestId,
+              sessionId,
+              agentId: event.agentId,
+              agentType: event.agentType,
+              success: event.success,
+              durationMs: event.durationMs,
+              toolUseCount: event.toolUseCount,
+            });
+            break;
           case "tool_end":
             traceReplMainThreadForSource(body.query_source, "server.agent.tool_end", {
               requestId,
@@ -306,6 +337,37 @@ export async function handleAgentMode(
               message: event.message,
               tone: event.tone,
               phase: event.phase,
+            });
+            break;
+          case "agent_spawn":
+            emit({
+              event: "agent_spawn",
+              agent_id: event.agentId,
+              agent_type: event.agentType,
+              description: event.description,
+              is_async: event.isAsync,
+            });
+            break;
+          case "agent_progress":
+            emit({
+              event: "agent_progress",
+              agent_id: event.agentId,
+              agent_type: event.agentType,
+              tool_use_count: event.toolUseCount,
+              duration_ms: event.durationMs,
+            });
+            break;
+          case "agent_complete":
+            emit({
+              event: "agent_complete",
+              agent_id: event.agentId,
+              agent_type: event.agentType,
+              success: event.success,
+              duration_ms: event.durationMs,
+              tool_use_count: event.toolUseCount,
+              total_tokens: event.totalTokens,
+              result_preview: event.resultPreview,
+              transcript: event.transcript,
             });
             break;
           case "tool_end": {
