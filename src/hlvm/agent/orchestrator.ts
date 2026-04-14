@@ -461,6 +461,9 @@ export type AgentUIEvent =
     written: MemoryActivityEntry[];
     searched?: { query: string; count: number };
   }
+  | { type: "agent_spawn"; agentId: string; agentType: string; description: string; isAsync: boolean }
+  | { type: "agent_progress"; agentId: string; agentType: string; toolUseCount: number; durationMs: number }
+  | { type: "agent_complete"; agentId: string; agentType: string; success: boolean; durationMs: number; toolUseCount: number; totalTokens?: number; resultPreview?: string; transcript?: string }
   | InteractionRequestEvent;
 
 // Re-export from registry (SSOT)
@@ -581,6 +584,8 @@ export interface OrchestratorConfig {
   createFallbackLLM?: (model: string) => LLMFunction;
   /** Last-resort local model when all scored fallbacks are exhausted. */
   localLastResort?: LastResortFallback;
+  /** LLM function reference for sub-agent spawning via Agent tool. */
+  llmFunction?: LLMFunction;
 }
 
 function memoryWriteAvailable(config: OrchestratorConfig): boolean {
@@ -1288,6 +1293,9 @@ export async function runReActLoop(
   llmFunction: LLMFunction,
   attachments?: ConversationAttachmentPayload[],
 ): Promise<string> {
+  if (!config.llmFunction) {
+    config = { ...config, llmFunction };
+  }
   if (!config.l1Confirmations) {
     config = { ...config, l1Confirmations: new Map<string, boolean>() };
   }

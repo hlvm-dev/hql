@@ -167,6 +167,7 @@ async function executeToolWithTimeout(
         permissionMode: config.permissionMode,
         toolAllowlist,
         toolDenylist,
+        llmFunction: config.llmFunction,
       };
       const result = await toolFn(args, config.workspace, toolOptions);
       if (signal.aborted) {

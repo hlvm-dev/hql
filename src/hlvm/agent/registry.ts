@@ -22,6 +22,7 @@ import { MEMORY_TOOLS } from "../memory/mod.ts";
 import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { GIT_TOOLS } from "./tools/git-tools.ts";
 import { ACTIVITY_TOOLS } from "./tools/activity-tools.ts";
+import { AGENT_TOOL_METADATA } from "./tools/agent-tool-metadata.ts";
 import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
 import { PLAYWRIGHT_TOOLS } from "./playwright/mod.ts";
 import { CHROME_EXT_TOOLS } from "./chrome-ext/mod.ts";
@@ -142,6 +143,8 @@ export interface ToolExecutionOptions {
   toolAllowlist?: string[];
   /** Explicit tool deny list for permission system. */
   toolDenylist?: string[];
+  /** LLM function for sub-agent execution (injected by orchestrator). */
+  llmFunction?: import("./orchestrator-llm.ts").LLMFunction;
 }
 
 /** Generic tool function signature */
@@ -457,6 +460,9 @@ const BUILTIN_TOOL_REGISTRY: Record<string, ToolMetadata> = {
 
 export const TOOL_REGISTRY: Record<string, ToolMetadata> =
   applyBuiltInMetadataDefaults(BUILTIN_TOOL_REGISTRY);
+
+// Register Agent tool (from agent-tool-metadata.ts, no circular dep)
+Object.assign(TOOL_REGISTRY, AGENT_TOOL_METADATA);
 
 /**
  * Dynamic registry for external tools (e.g., MCP)
