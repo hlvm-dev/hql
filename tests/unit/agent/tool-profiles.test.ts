@@ -39,7 +39,7 @@ Deno.test("ToolProfile intersects allowlists and unions denylists across layers"
   });
   setToolProfileLayer(state, "plan", {
     allowlist: ["read_file", "write_file"],
-    denylist: ["complete_task"],
+    denylist: ["shell_exec"],
   });
   setToolProfileLayer(state, "runtime", {
     denylist: ["write_file"],
@@ -47,11 +47,11 @@ Deno.test("ToolProfile intersects allowlists and unions denylists across layers"
 
   assertEquals(resolveEffectiveToolFilter(state), {
     allowlist: ["read_file", "write_file"],
-    denylist: ["complete_task", "complete_task", "write_file"],
+    denylist: ["complete_task", "shell_exec", "write_file"],
   });
   assertEquals(resolvePersistentToolFilter(state), {
     allowlist: ["read_file", "write_file"],
-    denylist: ["complete_task", "complete_task"],
+    denylist: ["complete_task", "shell_exec"],
   });
 });
 
@@ -105,7 +105,7 @@ Deno.test("ToolProfile resolves declared profile inheritance", () => {
       id: "child",
       extends: "base",
       allowlist: ["write_file"],
-      denylist: ["complete_task"],
+      denylist: ["shell_exec"],
     },
   ]);
   const state = createToolProfileState();
@@ -113,7 +113,7 @@ Deno.test("ToolProfile resolves declared profile inheritance", () => {
 
   assertEquals(resolveEffectiveToolFilter(state, { registry }), {
     allowlist: ["read_file", "tool_search", "write_file"],
-    denylist: ["complete_task", "complete_task"],
+    denylist: ["complete_task", "shell_exec"],
   });
 });
 

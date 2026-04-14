@@ -1155,6 +1155,15 @@ Deno.test({
       toolProfileState: createToolProfileState(),
       baselineToolAllowlistSeed: [...STANDARD_EAGER_TOOLS],
       discoveredDeferredTools: [],
+      routingResult: {
+        tier: "standard",
+        behavior: "assisted",
+        provenance: "assisted_classify_all",
+        taskDomain: "browser",
+        needsPlan: false,
+        taskClassification: null,
+        reason: "browser detected",
+      },
     };
 
     let browserTurnCalls = 0;
@@ -1183,6 +1192,16 @@ Deno.test({
       false,
     );
 
+    // Clear browser routing for non-browser reuse
+    config.routingResult = {
+      tier: "standard",
+      behavior: "assisted",
+      provenance: "assisted_classify_all",
+      taskDomain: "general",
+      needsPlan: false,
+      taskClassification: null,
+      reason: "non-browser request",
+    };
     const nonBrowserResult = await runReActLoop(
       "Read README.md and summarize it",
       config,
