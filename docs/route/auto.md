@@ -344,23 +344,22 @@ Primary Model Call
 
 ## 8. Bootstrap & Binary Architecture
 
-### Binary Contents (~587 MB)
+### Binary Contents (~120 MB)
 
 ```
 hlvm binary
 +-- HLVM Runtime (TypeScript -> JS, Deno-compiled)
 +-- HQL Standard Library (stdlib.hql -> self-hosted.js)
-+-- Embedded Ollama v0.20.1 (~500 MB)
-    +-- resources/ai-engine/
++-- Pinned Ollama version (embedded-ollama-version.txt, baked in)
 ```
 
 ### First-Run Bootstrap
 
 ```
 hlvm bootstrap
-  1. Extract Ollama -> ~/.hlvm/.runtime/engine/
+  1. Download pinned Ollama -> ~/.hlvm/.runtime/engine/
   2. Start Ollama on localhost:11439
-  3. Pull gemma4:e4b (~9.6 GB) -> ~/.hlvm/models/
+  3. Pull gemma4:e4b (~9.6 GB) -> ~/.hlvm/.runtime/models/
   4. Verify: digest prefix + size tolerance
   5. Write manifest.json { state: "verified" }
 ```

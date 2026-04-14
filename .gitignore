@@ -106,6 +106,9 @@ mod.js
 !website/**/*.mjs
 website/public/content/
 
+# Internal vision docs (not for public repo until ready)
+docs/vision/
+
 # Secrets / credentials (defensive — prevent accidental commits)
 .env*
 *.pem

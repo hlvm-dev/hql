@@ -135,8 +135,7 @@ make build-windows
 
 Output: `hlvm-windows.exe`
 
-Release packaging on Windows wraps that executable together with the embedded
-AI engine files as `hlvm-windows.zip`.
+Output: `hlvm-windows.exe`
 
 ### Build All Platforms
 
@@ -149,21 +148,17 @@ Creates all binaries:
 - `hlvm-mac-intel`
 - `hlvm-mac-arm`
 - `hlvm-linux`
-- `hlvm-windows.zip`
+- `hlvm-windows.exe`
 
 ## Manual Build (Without Make)
 
 If you don't have `make`:
 
-### Step 1: Prepare Embedded AI Runtime
+### Step 1: Build Stdlib
 
 ```bash
-make setup-ai
+deno run -A scripts/build-stdlib.ts
 ```
-
-This downloads the pinned embedded Ollama runtime into `resources/ai-engine/`.
-The download is idempotent: if the pinned runtime is already present, later runs
-reuse it instead of re-downloading.
 
 ### Step 2: Embed Packages
 
@@ -175,10 +170,12 @@ reuse it instead of re-downloading.
 
 ```bash
 deno compile --allow-all --no-check --config deno.json \
-  --include resources/ai-engine \
   --include src/hql/lib/stdlib/js/index.js \
   --output hlvm src/hlvm/cli/cli.ts
 ```
+
+No AI engine embedding. Ollama is downloaded at bootstrap time, not at build
+time. The binary is ~120 MB, not ~587 MB.
 
 ### Step 4: Test
 
@@ -195,7 +192,6 @@ Include source maps:
 
 ```bash
 deno compile --allow-all --config deno.json \
-  --include resources/ai-engine \
   --include src/hql/lib/stdlib/js/index.js \
   --output hlvm src/hlvm/cli/cli.ts
 ```
@@ -208,7 +204,6 @@ Fastest compilation (production):
 
 ```bash
 deno compile --allow-all --no-check --config deno.json \
-  --include resources/ai-engine \
   --include src/hql/lib/stdlib/js/index.js \
   --output hlvm src/hlvm/cli/cli.ts
 ```
@@ -234,12 +229,11 @@ deno compile --allow-all --target x86_64-apple-darwin --output hlvm src/hlvm/cli
 
 Typical sizes:
 
-- macOS: ~587MB with the embedded AI runtime payload
-- Linux: platform-dependent, but substantially larger than the old sub-100MB builds
-- Windows: platform-dependent; offline bundling is still out of scope for this pass
+- All platforms: ~120 MB
 
-Note: The binary now includes the Deno runtime, all dependencies, and the
-embedded Ollama runtime payload used by the one-shot local-AI install flow.
+The binary includes the Deno runtime, all dependencies, and the HQL stdlib.
+Ollama is NOT embedded — it is downloaded at bootstrap time. This keeps all
+platform binaries small and uniform.
 
 ## GUI Binary Sync
 

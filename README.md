@@ -22,12 +22,7 @@ Windows (PowerShell):
 irm https://hlvm.dev/install.ps1 | iex
 ```
 
-Downloads the binary (~587 MB) and pulls the local AI model (~9.6 GB) during install. After install finishes, `hlvm ask "hello"` works immediately.
-
-**Offline / air-gapped install** (includes model, no network pull needed):
-```bash
-curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled
-```
+Downloads the binary (~120 MB), sets up the local AI engine, and pulls the default model during install. After install finishes, `hlvm ask "hello"` works immediately.
 
 For building from source, see the [build guide](./docs/BUILD.md).
 

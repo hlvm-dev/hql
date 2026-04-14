@@ -579,7 +579,7 @@ GUI Process                           hlvm serve (:11435)
                        ... (any CRUD endpoint)
 
                            Server outbound:
-                           → Ollama :11439 (embedded local LLM)
+                           → Ollama :11439 (HLVM-managed local LLM)
                            → OpenAI / Anthropic / Google APIs
                            → MCP servers (stdio/http)
                            → Web fetch (agent tools)
@@ -835,7 +835,7 @@ transducers. AI functions (REPL only): `ask`, `generate`, `chat`, `summarize`,
 
 | Provider    | Endpoint                            | Models                                            | Local? |
 | ----------- | ----------------------------------- | ------------------------------------------------- | ------ |
-| Ollama      | `127.0.0.1:11439`                   | gemma4:e4b (default), other embedded-local models | Yes    |
+| Ollama      | `127.0.0.1:11439`                   | gemma4:e4b (default), other local models | Yes    |
 | OpenAI      | `api.openai.com`                    | GPT-4, GPT-3.5                                    | No     |
 | Anthropic   | `api.anthropic.com`                 | Claude family                                     | No     |
 | Google      | `generativelanguage.googleapis.com` | Gemini family                                     | No     |
@@ -887,7 +887,7 @@ The bootstrap system ensures `hlvm ask "hello"` works immediately after install.
   Ollama)
 - **Engine isolation**: `startAIEngine()` sets `OLLAMA_MODELS` env to redirect
   storage
-- **HLVM-owned endpoint**: `http://127.0.0.1:11439` for the embedded fallback
+- **HLVM-owned endpoint**: `http://127.0.0.1:11439` for the HLVM-managed
   runtime; `11434` is compatibility-only for explicit system-Ollama use
 - **Pinned fallback**: `gemma4:e4b` with a pinned Ollama manifest digest prefix
   and published size sanity bound
@@ -902,8 +902,8 @@ The bootstrap system ensures `hlvm ask "hello"` works immediately after install.
 - **Recovery**: `hlvm bootstrap --repair` re-materializes missing/corrupt assets
 - **Model resolution chain**: Claude Code → Ollama Cloud → **local fallback**
   (new)
-- **Install**: `curl -fsSL https://hlvm.dev/install.sh | sh` installs the binary
-  and completes local Gemma bootstrap before returning
+- **Install**: `curl -fsSL https://hlvm.dev/install.sh | sh` installs the binary,
+  downloads pinned Ollama, and completes local Gemma bootstrap before returning
 - **Full details**: See `docs/vision/single-binary-local-ai.md`
 
 ---
@@ -1288,7 +1288,7 @@ utils │ └──────────────────────�
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ │ │ EXTERNAL CONNECTIONS │ │ │ │ ┌─ LLM Providers
 ─────────────────────────────────────────────────────────────────────────┐ │ │ │
-│ │ │ │ 127.0.0.1:11439 ←── Ollama (HLVM embedded default local runtime) │ │ │ │
+│ │ │ │ 127.0.0.1:11439 ←── Ollama (HLVM-managed local runtime) │ │ │ │
 api.openai.com ←── OpenAI (GPT-4, GPT-3.5) │ │ │ │ api.anthropic.com ←──
 Anthropic (Claude) │ │ │ │ generativelanguage.googleapis.com ←── Google (Gemini)
 │ │ │ │ Claude Code SDK ←── Claude Code (via SDK) │ │ │ │ │ │ │
@@ -1799,7 +1799,7 @@ details as well - in ASCII visual
     │  │     │  │     tools: [search_code, read_file, edit_file, ...]    │     │   │
     │  │     │  │     │                                                  │     │   │
     │  │     │  │     ▼                                                  │     │   │
-    │  │     │  │  LLM Provider (e.g., embedded Ollama 127.0.0.1:11439)  │     │   │
+    │  │     │  │  LLM Provider (e.g., Ollama 127.0.0.1:11439)  │     │   │
     │  │     │  │     │                                                  │     │   │
     │  │     │  │     ▼ streaming tokens                                 │     │   │
     │  │     │  │  onToken callback → emit("token", { text }) ──────────│──▶ GUI│ │

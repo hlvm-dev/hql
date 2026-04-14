@@ -6,7 +6,7 @@ const FeatureDemoOverlay = lazy(() => import('./FeatureDemoOverlay'));
 
 const INSTALL_COMMANDS = {
   standard: 'curl -fsSL https://hlvm.dev/install.sh | sh',
-  bundled: 'curl -fsSL https://hlvm.dev/install.sh | sh -s -- --bundled',
+  windows: 'irm https://hlvm.dev/install.ps1 | iex',
 };
 
 function Hero() {
@@ -54,7 +54,7 @@ function Hero() {
               </button>
             </div>
             <p className="hero-availability">
-              Standard install downloads HLVM, boots the embedded local AI runtime, and prepares Gemma during install.
+              Downloads HLVM, sets up the local AI engine, and prepares the default model during install.
             </p>
           </div>
 
@@ -62,8 +62,8 @@ function Hero() {
             <div className="hero-install-card">
               <div className="hero-install-header">
                 <div>
-                  <p className="hero-install-title">Standard</p>
-                  <p className="hero-install-note">Recommended. Downloads HLVM and pulls the local Gemma model during install.</p>
+                  <p className="hero-install-title">macOS / Linux</p>
+                  <p className="hero-install-note">One command. Installs HLVM, AI engine, and default model. Works immediately after.</p>
                 </div>
                 <button
                   type="button"
@@ -78,18 +78,18 @@ function Hero() {
             <div className="hero-install-card">
               <div className="hero-install-header">
                 <div>
-                  <p className="hero-install-title">Offline / Air-gapped</p>
-                  <p className="hero-install-note">Includes pre-packaged model (~9.6 GB). No network pull during bootstrap.</p>
+                  <p className="hero-install-title">Windows (PowerShell)</p>
+                  <p className="hero-install-note">Same experience. Installs HLVM, AI engine, and default model.</p>
                 </div>
                 <button
                   type="button"
                   className="btn btn-secondary btn-compact hero-install-copy"
-                  onClick={() => handleCopyCommand('bundled')}
+                  onClick={() => handleCopyCommand('windows')}
                 >
-                  {copiedCommand === 'bundled' ? 'Copied' : 'Copy'}
+                  {copiedCommand === 'windows' ? 'Copied' : 'Copy'}
                 </button>
               </div>
-              <code className="hero-install-command">{INSTALL_COMMANDS.bundled}</code>
+              <code className="hero-install-command">{INSTALL_COMMANDS.windows}</code>
             </div>
           </div>
         </div>
