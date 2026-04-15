@@ -43,9 +43,9 @@ try {
             $env:HLVM_INSTALL_DIR = $InstallBin
             $env:HLVM_INSTALL_BINARY_BASE_URL = "http://127.0.0.1:$Port"
             $env:HLVM_INSTALL_CHECKSUM_URL = "http://127.0.0.1:$Port/checksums.sha256"
-            $resp = Invoke-WebRequest -Uri "https://hlvm.dev/install.ps1" -UseBasicParsing
-            $script = [System.Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray())
-            & ([scriptblock]::Create($script))
+            # Use install.ps1 from the release assets (not hlvm.dev which may be stale)
+            $installerPath = Join-Path $AssetDir "install.ps1"
+            & ([scriptblock]::Create((Get-Content -Raw $installerPath)))
         } finally {
             Stop-Process -Id $Server.Id -Force -ErrorAction SilentlyContinue
         }
@@ -58,9 +58,8 @@ try {
 
         Write-Host "==> Running public installer..."
         $env:HLVM_INSTALL_DIR = $InstallBin
-        $resp = Invoke-WebRequest -Uri "https://hlvm.dev/install.ps1" -UseBasicParsing
-            $script = [System.Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray())
-            & ([scriptblock]::Create($script))
+        # Use repo install.ps1 (hlvm.dev may be stale until branch merges to main)
+        & ([scriptblock]::Create((Get-Content -Raw "$PSScriptRoot\..\install.ps1")))
     }
 
     Write-Host "==> Verifying bootstrap..."

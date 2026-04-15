@@ -25,8 +25,8 @@ mkdir -p "$ASSET_DIR" "$INSTALL_BIN"
 echo "==> Downloading draft assets for ${TAG}..."
 gh release download "$TAG" --repo "$REPO" --dir "$ASSET_DIR"
 
-echo "==> Fetching installer..."
-curl -fsSL "https://hlvm.dev/install.sh" -o "${SMOKE_ROOT}/install.sh"
+echo "==> Using installer from release assets..."
+cp "${ASSET_DIR}/install.sh" "${SMOKE_ROOT}/install.sh"
 
 echo "==> Running installer (staged, local assets)..."
 HLVM_INSTALL_REPO="$REPO" \
