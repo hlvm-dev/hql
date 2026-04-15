@@ -347,7 +347,10 @@ function getOllamaArchiveUrl(
   }
   if (os === "linux") {
     // Ollama Linux releases use zstd-compressed tarballs
-    return { url: `${base}/ollama-linux-amd64.tar.zst`, archiveType: "tar.zst" };
+    return {
+      url: `${base}/ollama-linux-amd64.tar.zst`,
+      archiveType: "tar.zst",
+    };
   }
   if (os === "windows") {
     return { url: `${base}/ollama-windows-amd64.zip`, archiveType: "zip" };
@@ -410,7 +413,11 @@ async function downloadAndExtractOllama(
   // Fallback for tar.zst: if `tar --zstd` fails, try `zstd -dc | tar -xf -`
   if (!result.success && archiveType === "tar.zst") {
     log.debug?.("tar --zstd failed, trying zstd pipe fallback...");
-    const fallbackCmd = ["sh", "-c", `zstd -dc "${tmpArchive}" | tar -xf - -C "${engineDir}"`];
+    const fallbackCmd = [
+      "sh",
+      "-c",
+      `zstd -dc "${tmpArchive}" | tar -xf - -C "${engineDir}"`,
+    ];
     result = await platform.command.output({
       cmd: fallbackCmd,
       stdin: "null",
@@ -673,12 +680,25 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
 
   let aiProcess: PlatformCommandProcess | null = null;
   try {
-    aiProcess = platform.command.run({
-      cmd: [enginePath, "serve"],
-      stdout: "null",
-      stderr: "null",
-      env: buildAIEngineEnvironment(enginePath, platform),
-    });
+    const engineEnv = buildAIEngineEnvironment(enginePath, platform);
+    if (platform.build.os === "windows") {
+      // Windows: use 'cmd /c start /b' to create a fully detached process.
+      // Without this, the child Ollama process's network socket is closed
+      // when the parent Deno process exits (Windows handle inheritance).
+      aiProcess = platform.command.run({
+        cmd: ["cmd", "/c", "start", "/b", "", enginePath, "serve"],
+        stdout: "null",
+        stderr: "null",
+        env: engineEnv,
+      });
+    } else {
+      aiProcess = platform.command.run({
+        cmd: [enginePath, "serve"],
+        stdout: "null",
+        stderr: "null",
+        env: engineEnv,
+      });
+    }
     aiProcess.unref?.();
 
     if (await waitForAIEngineReady(expectedVersion ?? undefined)) {

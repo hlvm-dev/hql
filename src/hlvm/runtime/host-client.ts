@@ -8,8 +8,15 @@ import {
   parseErrorCodeFromMessage,
   type UnifiedErrorCode,
 } from "../../common/error-codes.ts";
-import { getPlatform } from "../../platform/platform.ts";
-import { DEFAULT_LOCALHOST, type ConfigKey, type HlvmConfig } from "../../common/config/types.ts";
+import {
+  getPlatform,
+  type PlatformCommandProcess,
+} from "../../platform/platform.ts";
+import {
+  type ConfigKey,
+  DEFAULT_LOCALHOST,
+  type HlvmConfig,
+} from "../../common/config/types.ts";
 import type {
   AgentUIEvent,
   FinalResponseMeta,
@@ -402,14 +409,29 @@ function spawnRuntimeHost(
     ].filter(Boolean).join(","),
     ...(port !== undefined ? { HLVM_REPL_PORT: String(port) } : {}),
   };
-  const process = platform.command.run({
-    cmd: buildRuntimeServeCommand(),
-    env,
-    stdin: "null",
-    stdout: "null",
-    stderr: "null",
-  });
-  process.unref?.();
+  let proc: PlatformCommandProcess;
+  if (platform.build.os === "windows") {
+    // Windows: use 'cmd /c start /b' to create a fully detached process.
+    // Without this, the child process's network sockets are closed when
+    // the parent Deno process exits (Windows handle inheritance).
+    const cmd = buildRuntimeServeCommand();
+    proc = platform.command.run({
+      cmd: ["cmd", "/c", "start", "/b", "", ...cmd],
+      env,
+      stdin: "null",
+      stdout: "null",
+      stderr: "null",
+    });
+  } else {
+    proc = platform.command.run({
+      cmd: buildRuntimeServeCommand(),
+      env,
+      stdin: "null",
+      stdout: "null",
+      stderr: "null",
+    });
+  }
+  proc.unref?.();
 }
 
 function getRuntimeStartLockPath(): string {
