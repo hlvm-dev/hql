@@ -355,16 +355,12 @@ Deno.test({
   name: "Policy: loadAgentPolicy loads valid file",
   async fn() {
     await withTempHlvmDir(async () => {
-      const platform = getPlatform();
-      const policy: AgentPolicy = {
-        version: 1,
-        default: "ask",
-        toolRules: { read_file: "allow" },
-      };
-      await platform.fs.writeTextFile(
-        getAgentPolicyPath(),
-        JSON.stringify(policy),
+      const { saveConfig, loadConfig: loadCfg } = await import(
+        "../../../src/common/config/storage.ts"
       );
+      const config = await loadCfg();
+      config.policy = { default: "ask", toolRules: { read_file: "allow" } };
+      await saveConfig(config);
 
       const loaded = await loadAgentPolicy();
       assertEquals(loaded?.version, 1);
@@ -437,18 +433,17 @@ Deno.test({
   name: "Policy: loadAgentPolicy normalizes invalid decision values away",
   async fn() {
     await withTempHlvmDir(async () => {
-      const platform = getPlatform();
-      const policyPath = getAgentPolicyPath();
-      await platform.fs.mkdir(platform.path.dirname(policyPath), { recursive: true });
-      // "permit" is not a valid PolicyDecision — should be stripped
-      await platform.fs.writeTextFile(
-        policyPath,
-        JSON.stringify({
-          version: 1,
-          default: "permit",
-          toolRules: { read_file: "allow", write_file: "nope" },
-        }),
+      const { saveConfig, loadConfig: loadCfg } = await import(
+        "../../../src/common/config/storage.ts"
       );
+      const config = await loadCfg();
+      // "permit" is not a valid PolicyDecision — should be stripped
+      // Cast to bypass type checking since we're testing invalid values
+      config.policy = {
+        default: "permit" as "allow",
+        toolRules: { read_file: "allow", write_file: "nope" as "allow" },
+      };
+      await saveConfig(config);
 
       const loaded = await loadAgentPolicy();
       assertEquals(loaded?.version, 1);
@@ -465,11 +460,11 @@ Deno.test({
   name: "Policy: loadAgentPolicy preserves all valid fields in roundtrip",
   async fn() {
     await withTempHlvmDir(async () => {
-      const platform = getPlatform();
-      const policyPath = getAgentPolicyPath();
-      await platform.fs.mkdir(platform.path.dirname(policyPath), { recursive: true });
-      const fullPolicy = {
-        version: 1,
+      const { saveConfig, loadConfig: loadCfg } = await import(
+        "../../../src/common/config/storage.ts"
+      );
+      const config = await loadCfg();
+      config.policy = {
         default: "deny",
         toolRules: { read_file: "allow", write_file: "ask" },
         levelRules: { L0: "allow", L2: "deny" },
@@ -482,7 +477,7 @@ Deno.test({
           deny: ["https://evil.com/**"],
         },
       };
-      await platform.fs.writeTextFile(policyPath, JSON.stringify(fullPolicy));
+      await saveConfig(config);
 
       const loaded = await loadAgentPolicy();
       assertEquals(loaded?.version, 1);

@@ -49,7 +49,7 @@ Deno.test("aiEngine.getEnginePath fails closed when the embedded engine is unava
     await assertRejects(
       () => aiEngine.getEnginePath(),
       Error,
-      "Embedded AI engine is unavailable",
+      "AI engine is unavailable",
     );
   } finally {
     setPlatform(originalPlatform);

@@ -1,7 +1,6 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
   computeRoutingResult,
-  delegationSignalFromRoutingResult,
 } from "../../../src/hlvm/agent/request-routing.ts";
 
 Deno.test("computeRoutingResult: enhanced plain coding request stays self-directed", async () => {
@@ -12,8 +11,6 @@ Deno.test("computeRoutingResult: enhanced plain coding request stays self-direct
 
   assertEquals(result.behavior, "self_directed");
   assertEquals(result.taskDomain, "general");
-  assertEquals(result.shouldDelegate, false);
-  assertEquals(result.delegatePattern, "none");
   assertEquals(result.needsPlan, false);
   assertEquals(result.taskClassification, null);
 });
@@ -25,11 +22,10 @@ Deno.test("computeRoutingResult: enhanced obvious browser URL uses structural br
   });
 
   assertEquals(result.behavior, "self_directed");
-  assertEquals(result.taskDomain, "browser");
-  assertEquals(result.shouldDelegate, false);
+  assertEquals(result.taskDomain, "general");
 });
 
-Deno.test("computeRoutingResult: enhanced multi-file request uses structural fan-out", async () => {
+Deno.test("computeRoutingResult: enhanced multi-file request stays self-directed", async () => {
   const result = await computeRoutingResult({
     query: "patch src/a.ts src/b.ts src/c.ts the same way",
     tier: "enhanced",
@@ -37,9 +33,6 @@ Deno.test("computeRoutingResult: enhanced multi-file request uses structural fan
 
   assertEquals(result.behavior, "self_directed");
   assertEquals(result.taskDomain, "general");
-  assertEquals(result.shouldDelegate, true);
-  assertEquals(result.delegatePattern, "fan-out");
-  assertEquals(result.estimatedSubtasks, 3);
 });
 
 Deno.test("computeRoutingResult: enhanced ignores precomputed semantic routing fields", async () => {
@@ -61,8 +54,6 @@ Deno.test("computeRoutingResult: enhanced ignores precomputed semantic routing f
 
   assertEquals(result.behavior, "self_directed");
   assertEquals(result.taskDomain, "general");
-  assertEquals(result.shouldDelegate, false);
-  assertEquals(result.delegatePattern, "none");
   assertEquals(result.needsPlan, false);
   assertEquals(result.taskClassification, null);
 });
@@ -85,8 +76,6 @@ Deno.test("computeRoutingResult: standard reuses precomputed assisted classifica
   });
 
   assertEquals(result.behavior, "assisted");
-  assertEquals(result.shouldDelegate, true);
-  assertEquals(result.delegatePattern, "batch");
   assertEquals(result.needsPlan, true);
   assertEquals(result.taskClassification?.isCodeTask, true);
   assertEquals(result.taskClassification?.needsStructuredOutput, true);
@@ -111,25 +100,5 @@ Deno.test("computeRoutingResult: main-thread query source stays non-delegating",
   });
 
   assertEquals(result.taskDomain, "general");
-  assertEquals(result.shouldDelegate, false);
-  assertEquals(result.delegatePattern, "none");
   assertEquals(result.needsPlan, true);
-});
-
-Deno.test("delegationSignalFromRoutingResult preserves task-domain compatibility", () => {
-  const signal = delegationSignalFromRoutingResult({
-    tier: "standard",
-    behavior: "assisted",
-    provenance: "assisted_classify_all",
-    taskDomain: "browser",
-    shouldDelegate: false,
-    delegatePattern: "none",
-    needsPlan: false,
-    taskClassification: null,
-    reason: "browser detected",
-  });
-
-  assertEquals(signal.taskDomain, "browser");
-  assertEquals(signal.shouldDelegate, false);
-  assertEquals(signal.reason, "browser detected");
 });

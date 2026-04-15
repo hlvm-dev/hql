@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert";
-import { getConfigPath } from "../../../src/common/config/storage.ts";
+import { getSettingsPath } from "../../../src/common/paths.ts";
 import {
   CURRENT_CONFIG_VERSION,
   migrateConfig,
@@ -62,7 +62,7 @@ Deno.test("config migrations: saveConfig always stamps the current version", asy
     await saveConfig(config);
 
     const stored = JSON.parse(
-      await getPlatform().fs.readTextFile(getConfigPath()),
+      await getPlatform().fs.readTextFile(getSettingsPath()),
     ) as Record<string, unknown>;
     assertEquals(stored.version, CURRENT_CONFIG_VERSION);
     assertEquals(stored.model, "anthropic/claude-haiku");
@@ -72,10 +72,10 @@ Deno.test("config migrations: saveConfig always stamps the current version", asy
 Deno.test("config migrations: loadConfig migrates persisted config once and preserves unknown fields", async () => {
   await withTempHlvmDir(async () => {
     const platform = getPlatform();
-    const configPath = getConfigPath();
-    await platform.fs.ensureDir(platform.path.dirname(configPath));
+    const settingsPath = getSettingsPath();
+    await platform.fs.ensureDir(platform.path.dirname(settingsPath));
     await platform.fs.writeTextFile(
-      configPath,
+      settingsPath,
       JSON.stringify({
         version: 0,
         model: "google/gemini-2.5-pro",
@@ -84,16 +84,21 @@ Deno.test("config migrations: loadConfig migrates persisted config once and pres
     );
 
     const loaded = await loadConfig();
-    const persisted = JSON.parse(
-      await platform.fs.readTextFile(configPath),
-    ) as Record<string, unknown>;
 
+    // loadConfig migrates in-memory but does NOT write back to disk.
+    // Verify the in-memory result is correct.
     assertEquals(loaded.version, CURRENT_CONFIG_VERSION);
     assertEquals(loaded.model, "google/gemini-2.5-pro");
     assertEquals((loaded as unknown as Record<string, unknown>).customField, { x: 1 });
-    assertEquals(persisted.version, CURRENT_CONFIG_VERSION);
+
+    // On-disk file remains at original version (loadConfig is read-only).
+    const persisted = JSON.parse(
+      await platform.fs.readTextFile(settingsPath),
+    ) as Record<string, unknown>;
+    assertEquals(persisted.version, 0);
     assertEquals(persisted.customField, { x: 1 });
 
+    // Second load also returns migrated version.
     const loadedAgain = await loadConfig();
     assertEquals(loadedAgain.version, CURRENT_CONFIG_VERSION);
     assertEquals(
