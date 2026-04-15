@@ -65,71 +65,28 @@ try {
     Write-Host "==> Verifying bootstrap..."
     & "$InstallBin\hlvm.exe" bootstrap --verify
 
-    # ── Windows hlvm serve debug session ──────────────────────────────
-    Write-Host ""
-    Write-Host "=== WINDOWS DEBUG: hlvm serve startup ==="
-    Write-Host ""
-
-    # 1. Verify Ollama is alive
-    Write-Host "==> Step 1: Check Ollama on 11439"
+    # On Windows, Ollama's socket dies when bootstrap exits. Restart it.
+    Write-Host "==> Ensuring Ollama is alive on 11439..."
     try {
-        $ov = Invoke-WebRequest -Uri "http://127.0.0.1:11439/api/version" -TimeoutSec 5 -UseBasicParsing
-        Write-Host "    Ollama OK: $($ov.Content)"
+        Invoke-WebRequest -Uri "http://127.0.0.1:11439/api/version" -TimeoutSec 5 -UseBasicParsing | Out-Null
+        Write-Host "    Ollama OK"
     } catch {
-        Write-Host "    Ollama DEAD. Restarting..."
+        Write-Host "    Ollama dead, restarting..."
         $ollamaPath = Join-Path $env:USERPROFILE ".hlvm\.runtime\engine\ollama.exe"
         Get-Process -Name "ollama" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep 2
         $env:OLLAMA_HOST = "127.0.0.1:11439"
         $env:OLLAMA_MODELS = Join-Path $env:USERPROFILE ".hlvm\.runtime\models"
         Start-Process -FilePath $ollamaPath -ArgumentList "serve" -NoNewWindow -PassThru | Out-Null
-        Start-Sleep 5
+        Start-Sleep 8
+        try {
+            $check = Invoke-WebRequest -Uri "http://127.0.0.1:11439/api/version" -TimeoutSec 10 -UseBasicParsing
+            Write-Host "    Ollama restarted: $($check.Content)"
+        } catch {
+            Write-Host "    WARNING: Ollama still not responding"
+        }
     }
 
-    # 2. Start hlvm serve in foreground, capture output
-    Write-Host "==> Step 2: Start hlvm serve (foreground, 15s capture)"
-    $serveErr = Join-Path $SmokeRoot "serve-stderr.log"
-    $serveOut = Join-Path $SmokeRoot "serve-stdout.log"
-    $serveProc = Start-Process -FilePath "$InstallBin\hlvm.exe" -ArgumentList "serve" `
-        -RedirectStandardError $serveErr -RedirectStandardOutput $serveOut `
-        -PassThru -NoNewWindow
-    Start-Sleep -Seconds 15
-    Write-Host "    Serve PID: $($serveProc.Id), HasExited: $($serveProc.HasExited)"
-    if ($serveProc.HasExited) {
-        Write-Host "    Serve EXIT CODE: $($serveProc.ExitCode)"
-    }
-    Write-Host "    --- serve stderr (first 20 lines) ---"
-    if (Test-Path $serveErr) { Get-Content $serveErr -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { Write-Host "    $_" } }
-    Write-Host "    --- serve stdout (first 20 lines) ---"
-    if (Test-Path $serveOut) { Get-Content $serveOut -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { Write-Host "    $_" } }
-
-    # 3. Check what ports are open
-    Write-Host "==> Step 3: Check ports 11435 and 11439"
-    netstat -ano | Select-String "11435|11439" | ForEach-Object { Write-Host "    $_" }
-
-    # 4. Try to hit serve health endpoint directly
-    Write-Host "==> Step 4: Curl serve health endpoint"
-    try {
-        $health = Invoke-WebRequest -Uri "http://127.0.0.1:11435/health" -TimeoutSec 5 -UseBasicParsing
-        Write-Host "    Health OK: $($health.Content)"
-    } catch {
-        Write-Host "    Health FAILED: $_"
-    }
-
-    # 5. Check Windows firewall
-    Write-Host "==> Step 5: Windows firewall check"
-    $fw = netsh advfirewall firewall show rule name=all dir=in 2>&1 | Select-String "11435|11439|hlvm|ollama" | Select-Object -First 5
-    if ($fw) { $fw | ForEach-Object { Write-Host "    $_" } } else { Write-Host "    No firewall rules found for our ports" }
-
-    # 6. Kill diagnostic serve before real test
-    Stop-Process -Id $serveProc.Id -Force -ErrorAction SilentlyContinue
-    Start-Sleep 2
-
-    Write-Host ""
-    Write-Host "=== END WINDOWS DEBUG ==="
-    Write-Host ""
-
-    # Now run the actual test
     Write-Host "==> Running: hlvm ask `"$Prompt`""
     $response = & "$InstallBin\hlvm.exe" ask $Prompt 2>&1
     Write-Host "Response: $response"
