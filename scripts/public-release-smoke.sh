@@ -12,7 +12,12 @@ INSTALL_BIN="${SMOKE_ROOT}/bin"
 mkdir -p "$INSTALL_BIN"
 
 echo "==> Running public installer..."
-curl -fsSL "https://hlvm.dev/install.sh" | HLVM_INSTALL_DIR="$INSTALL_BIN" sh
+# Pass HLVM_INSTALL_VERSION to avoid GitHub API rate limit in CI.
+# Real users won't hit this because they run from different IPs.
+curl -fsSL "https://hlvm.dev/install.sh" | \
+  HLVM_INSTALL_DIR="$INSTALL_BIN" \
+  HLVM_INSTALL_VERSION="${HLVM_SMOKE_TAG:-}" \
+  sh
 
 echo "==> Verifying bootstrap..."
 "${INSTALL_BIN}/hlvm" bootstrap --verify

@@ -256,6 +256,7 @@ jobs:
       - name: Public Unix smoke
         env:
           HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
+          HLVM_SMOKE_TAG: ${{ needs.resolve.outputs.tag }}
         run: sh scripts/public-release-smoke.sh
 
   public-windows:
