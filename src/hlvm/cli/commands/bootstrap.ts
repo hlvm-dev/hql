@@ -21,7 +21,7 @@ import { aiEngine } from "../../runtime/ai-runtime.ts";
 import { waitForModelAccess } from "../../runtime/model-access.ts";
 import { upgradeDefaultToAutoRouting } from "../../../common/ai-default-model.ts";
 
-const BOOTSTRAP_MODEL_READY_TIMEOUT_MS = 600_000;
+const BOOTSTRAP_MODEL_READY_TIMEOUT_MS = 900_000;
 const BOOTSTRAP_MODEL_READY_LOG_INTERVAL_MS = 30_000;
 
 function showBootstrapHelp(): void {
