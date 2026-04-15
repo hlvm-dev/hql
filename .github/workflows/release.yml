@@ -247,8 +247,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate published release
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         run: |
-          actual=$(curl -fsSL "https://api.github.com/repos/${{ env.PUBLIC_RELEASE_REPO }}/releases/latest" | jq -r '.tag_name')
+          actual=$(gh api "repos/${{ env.PUBLIC_RELEASE_REPO }}/releases/latest" --jq '.tag_name')
+          echo "Latest release: $actual (expected: ${{ needs.resolve.outputs.tag }})"
           [ "$actual" = "${{ needs.resolve.outputs.tag }}" ]
       - name: Public Unix smoke
         env:

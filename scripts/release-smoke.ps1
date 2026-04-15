@@ -43,7 +43,9 @@ try {
             $env:HLVM_INSTALL_DIR = $InstallBin
             $env:HLVM_INSTALL_BINARY_BASE_URL = "http://127.0.0.1:$Port"
             $env:HLVM_INSTALL_CHECKSUM_URL = "http://127.0.0.1:$Port/checksums.sha256"
-            & ([scriptblock]::Create((Invoke-WebRequest -Uri "https://hlvm.dev/install.ps1" -UseBasicParsing).Content))
+            $resp = Invoke-WebRequest -Uri "https://hlvm.dev/install.ps1" -UseBasicParsing
+            $script = [System.Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray())
+            & ([scriptblock]::Create($script))
         } finally {
             Stop-Process -Id $Server.Id -Force -ErrorAction SilentlyContinue
         }
@@ -56,7 +58,9 @@ try {
 
         Write-Host "==> Running public installer..."
         $env:HLVM_INSTALL_DIR = $InstallBin
-        & ([scriptblock]::Create((Invoke-WebRequest -Uri "https://hlvm.dev/install.ps1" -UseBasicParsing).Content))
+        $resp = Invoke-WebRequest -Uri "https://hlvm.dev/install.ps1" -UseBasicParsing
+            $script = [System.Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray())
+            & ([scriptblock]::Create($script))
     }
 
     Write-Host "==> Verifying bootstrap..."
