@@ -65,8 +65,22 @@ try {
     Write-Host "==> Verifying bootstrap..."
     & "$InstallBin\hlvm.exe" bootstrap --verify
 
-    Write-Host "==> Running: hlvm ask `"$Prompt`" (with verbose diagnostics)"
-    $response = & "$InstallBin\hlvm.exe" ask --verbose $Prompt 2>&1
+    # First, try starting hlvm serve manually to capture any startup errors
+    Write-Host "==> Diagnostic: starting hlvm serve manually..."
+    $serveLog = Join-Path $SmokeRoot "serve-diagnostic.log"
+    $serveProc = Start-Process -FilePath "$InstallBin\hlvm.exe" -ArgumentList "serve" -RedirectStandardError $serveLog -PassThru -NoNewWindow
+    Start-Sleep -Seconds 10
+    Write-Host "==> Serve process status: HasExited=$($serveProc.HasExited), ExitCode=$($serveProc.ExitCode)"
+    if (Test-Path $serveLog) {
+        Write-Host "==> Serve stderr:"
+        Get-Content $serveLog | Select-Object -First 30 | ForEach-Object { Write-Host "    $_" }
+    }
+    # Kill the diagnostic serve process
+    Stop-Process -Id $serveProc.Id -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+
+    Write-Host "==> Running: hlvm ask `"$Prompt`""
+    $response = & "$InstallBin\hlvm.exe" ask $Prompt 2>&1
     Write-Host "Response: $response"
 
     if (-not $response) {
