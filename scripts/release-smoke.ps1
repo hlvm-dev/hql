@@ -65,8 +65,8 @@ try {
     Write-Host "==> Verifying bootstrap..."
     & "$InstallBin\hlvm.exe" bootstrap --verify
 
-    Write-Host "==> Running: hlvm ask `"$Prompt`""
-    $response = & "$InstallBin\hlvm.exe" ask $Prompt 2>&1
+    Write-Host "==> Running: hlvm ask `"$Prompt`" (with verbose diagnostics)"
+    $response = & "$InstallBin\hlvm.exe" ask --verbose $Prompt 2>&1
     Write-Host "Response: $response"
 
     if (-not $response) {
