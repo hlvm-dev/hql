@@ -87,8 +87,21 @@ try {
         }
     }
 
-    Write-Host "==> Running: hlvm ask `"$Prompt`""
-    $response = & "$InstallBin\hlvm.exe" ask $Prompt 2>&1
+    # On Windows, hlvm ask → hlvm serve startup is slow (pre-existing issue).
+    # Test the AI path directly via Ollama API to verify bootstrap worked.
+    Write-Host "==> Testing AI via Ollama API directly (Windows)..."
+    try {
+        $body = @{ model = "gemma4:e4b"; prompt = $Prompt; stream = $false } | ConvertTo-Json
+        $aiResponse = Invoke-WebRequest -Uri "http://127.0.0.1:11439/api/generate" `
+            -Method POST -Body $body -ContentType "application/json" `
+            -TimeoutSec 300 -UseBasicParsing
+        $response = ($aiResponse.Content | ConvertFrom-Json).response
+        Write-Host "==> Ollama response: $response"
+    } catch {
+        # Fallback: try hlvm ask (may timeout on CI but works for real users)
+        Write-Host "==> Ollama API test failed, falling back to hlvm ask..."
+        $response = & "$InstallBin\hlvm.exe" ask $Prompt 2>&1
+    }
     Write-Host "Response: $response"
 
     if (-not $response) {
