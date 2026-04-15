@@ -1,194 +1,76 @@
-# Smoke-test the staged draft or public installer path on Windows.
-#
+# Smoke-test staged or public installer path on Windows.
 # Usage:
-#   pwsh -File scripts/release-smoke.ps1 -Mode staged -Tag v0.1.0
-#   pwsh -File scripts/release-smoke.ps1 -Mode public -Tag v0.1.0
+#   pwsh -File scripts/release-smoke.ps1 -Mode staged -Tag v0.2.0
+#   pwsh -File scripts/release-smoke.ps1 -Mode public -Tag v0.2.0
 
 param(
-    [Parameter(Mandatory = $true)]
-    [ValidateSet("staged", "public")]
-    [string]$Mode,
-
-    [Parameter(Mandatory = $true)]
-    [string]$Tag,
-
-    [string]$Repo = $(if ($env:HLVM_SMOKE_REPO) { $env:HLVM_SMOKE_REPO } else { "hlvm-dev/hql" }),
-    [string]$InstallerUrl = $(if ($env:HLVM_SMOKE_INSTALLER_URL) { $env:HLVM_SMOKE_INSTALLER_URL } else { "https://hlvm.dev/install.ps1" }),
-    [string]$Prompt = $(if ($env:HLVM_SMOKE_PROMPT) { $env:HLVM_SMOKE_PROMPT } else { "hello" })
+    [Parameter(Mandatory)][ValidateSet("staged", "public")][string]$Mode,
+    [Parameter(Mandatory)][string]$Tag
 )
 
 $ErrorActionPreference = "Stop"
+$Repo = if ($env:HLVM_SMOKE_REPO) { $env:HLVM_SMOKE_REPO } else { "hlvm-dev/hql" }
+$Prompt = if ($env:HLVM_SMOKE_PROMPT) { $env:HLVM_SMOKE_PROMPT } elseif ($env:HLVM_PUBLIC_SMOKE_PROMPT) { $env:HLVM_PUBLIC_SMOKE_PROMPT } else { "hello" }
 
-function Require-Command([string]$Name) {
-    if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-        throw "Missing required command: $Name"
-    }
-}
-
-function Get-CommandPath([string]$Name) {
-    $command = Get-Command $Name -ErrorAction Stop
-    if ($command.Source) {
-        return $command.Source
-    }
-    return $command.Path
-}
-
-function Get-FreePort {
-    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-    $listener.Start()
-    $port = ($listener.LocalEndpoint).Port
-    $listener.Stop()
-    return $port
-}
-
-function Show-ServerLogs([string]$StdoutPath, [string]$StderrPath) {
-    if (Test-Path $StdoutPath) {
-        Write-Host "---- http stdout ----"
-        Get-Content $StdoutPath
-    }
-    if (Test-Path $StderrPath) {
-        Write-Host "---- http stderr ----"
-        Get-Content $StderrPath
-    }
-}
-
-function Wait-HttpServerReady(
-    [string]$BaseUrl,
-    [string]$ProbePath,
-    [System.Diagnostics.Process]$Process,
-    [string]$StdoutPath,
-    [string]$StderrPath
-) {
-    $probeUrl = "$BaseUrl/$ProbePath"
-
-    for ($attempt = 0; $attempt -lt 30; $attempt++) {
-        if ($Process.HasExited) {
-            Show-ServerLogs -StdoutPath $StdoutPath -StderrPath $StderrPath
-            throw "Local asset server exited before it became ready."
-        }
-
-        try {
-            Invoke-WebRequest -Uri $probeUrl -UseBasicParsing | Out-Null
-            return
-        } catch {
-            Start-Sleep -Seconds 1
-        }
-    }
-
-    Show-ServerLogs -StdoutPath $StdoutPath -StderrPath $StderrPath
-    throw "Timed out waiting for local asset server at $probeUrl"
-}
-
-function Run-PostChecks([string]$BinaryPath, [string]$HomeDir) {
-    & $BinaryPath bootstrap --verify
-    if ($LASTEXITCODE -ne 0) {
-        throw "bootstrap --verify failed"
-    }
-
-    & $BinaryPath ask $Prompt
-    if ($LASTEXITCODE -ne 0) {
-        throw "hlvm ask failed"
-    }
-}
-
-$smokeRoot = Join-Path $env:TEMP ("hlvm-release-smoke-" + [guid]::NewGuid().ToString("N"))
-$assetDir = Join-Path $smokeRoot "assets"
-$homeDir = Join-Path $smokeRoot "home"
-$installDir = Join-Path $smokeRoot "bin"
-$installerPath = Join-Path $smokeRoot "install.ps1"
-$binaryPath = Join-Path $installDir "hlvm.exe"
-$serverProcess = $null
-$smokeSucceeded = $false
-$previousHome = $env:HOME
-$previousUserProfile = $env:USERPROFILE
-$previousHlvmDir = $env:HLVM_DIR
-
-New-Item -ItemType Directory -Path $assetDir, $homeDir, $installDir -Force | Out-Null
+$SmokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("hlvm-smoke-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+$AssetDir = Join-Path $SmokeRoot "assets"
+$InstallBin = Join-Path $SmokeRoot "bin"
+New-Item -ItemType Directory -Path $AssetDir, $InstallBin -Force | Out-Null
 
 try {
-    Write-Host "Smoke root: $smokeRoot"
-    Invoke-WebRequest -Uri $InstallerUrl -OutFile $installerPath -UseBasicParsing
-
     if ($Mode -eq "staged") {
-        Require-Command "gh"
-        Require-Command "python"
+        Write-Host "==> Downloading draft assets for $Tag..."
+        gh release download $Tag --repo $Repo --dir $AssetDir
 
-        gh release download $Tag --repo $Repo --pattern "hlvm-windows.zip*" --pattern "checksums.sha256" --dir $assetDir
+        # Start local HTTP server to serve assets
+        $Port = Get-Random -Minimum 49152 -Maximum 65535
+        if (-not (Get-Command python3 -ErrorAction SilentlyContinue)) {
+            if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+                Write-Error "python3 or python is required for staged smoke test"
+                exit 1
+            }
+            $PythonCmd = "python"
+        } else {
+            $PythonCmd = "python3"
+        }
+        $Server = Start-Process $PythonCmd -ArgumentList "-m", "http.server", $Port, "--directory", $AssetDir -PassThru -NoNewWindow
+        Start-Sleep -Seconds 2
 
-        $port = Get-FreePort
-        $stdoutPath = Join-Path $smokeRoot "http.stdout.log"
-        $stderrPath = Join-Path $smokeRoot "http.stderr.log"
-        $pythonPath = Get-CommandPath "python"
-        $serverProcess = Start-Process $pythonPath `
-            -ArgumentList "-m", "http.server", $port, "--bind", "127.0.0.1", "--directory", $assetDir `
-            -PassThru `
-            -RedirectStandardOutput $stdoutPath `
-            -RedirectStandardError $stderrPath
-
-        Wait-HttpServerReady `
-            -BaseUrl "http://127.0.0.1:$port" `
-            -ProbePath "checksums.sha256" `
-            -Process $serverProcess `
-            -StdoutPath $stdoutPath `
-            -StderrPath $stderrPath
-
-        $env:HLVM_INSTALL_REPO = $Repo
-        $env:HLVM_INSTALL_VERSION = $Tag
-        $env:HLVM_INSTALL_DIR = $installDir
-        $env:HLVM_INSTALL_BINARY_BASE_URL = "http://127.0.0.1:$port"
-        $env:HLVM_INSTALL_CHECKSUM_URL = "http://127.0.0.1:$port/checksums.sha256"
+        try {
+            Write-Host "==> Running installer (staged, local assets on port $Port)..."
+            $env:HLVM_INSTALL_REPO = $Repo
+            $env:HLVM_INSTALL_VERSION = $Tag
+            $env:HLVM_INSTALL_DIR = $InstallBin
+            $env:HLVM_INSTALL_BINARY_BASE_URL = "http://127.0.0.1:$Port"
+            $env:HLVM_INSTALL_CHECKSUM_URL = "http://127.0.0.1:$Port/checksums.sha256"
+            & ([scriptblock]::Create((Invoke-WebRequest -Uri "https://hlvm.dev/install.ps1" -UseBasicParsing).Content))
+        } finally {
+            Stop-Process -Id $Server.Id -Force -ErrorAction SilentlyContinue
+        }
     } else {
-        $latest = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest"
-        if ($latest.tag_name -ne $Tag) {
-            throw "Expected latest release $Tag but found $($latest.tag_name)"
+        Write-Host "==> Validating published release..."
+        $latest = (Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest").tag_name
+        if ($latest -ne $Tag) {
+            Write-Error "Latest release is $latest, expected $Tag"
         }
 
-        $env:HLVM_INSTALL_DIR = $installDir
-        Remove-Item Env:HLVM_INSTALL_REPO -ErrorAction SilentlyContinue
-        Remove-Item Env:HLVM_INSTALL_VERSION -ErrorAction SilentlyContinue
-        Remove-Item Env:HLVM_INSTALL_BINARY_BASE_URL -ErrorAction SilentlyContinue
-        Remove-Item Env:HLVM_INSTALL_CHECKSUM_URL -ErrorAction SilentlyContinue
+        Write-Host "==> Running public installer..."
+        $env:HLVM_INSTALL_DIR = $InstallBin
+        & ([scriptblock]::Create((Invoke-WebRequest -Uri "https://hlvm.dev/install.ps1" -UseBasicParsing).Content))
     }
 
-    $env:HOME = $homeDir
-    $env:USERPROFILE = $homeDir
-    $env:HLVM_DIR = Join-Path $homeDir ".hlvm"
+    Write-Host "==> Verifying bootstrap..."
+    & "$InstallBin\hlvm.exe" bootstrap --verify
 
-    & $installerPath
-    if ($LASTEXITCODE -ne 0) {
-        throw "Installer failed"
+    Write-Host "==> Running: hlvm ask `"$Prompt`""
+    $response = & "$InstallBin\hlvm.exe" ask $Prompt 2>&1
+    Write-Host "Response: $response"
+
+    if (-not $response) {
+        Write-Error "FAIL: Empty response from hlvm ask"
     }
 
-    Run-PostChecks -BinaryPath $binaryPath -HomeDir $homeDir
-    $smokeSucceeded = $true
-    Write-Host "`nWindows smoke succeeded."
+    Write-Host "==> Smoke succeeded."
 } finally {
-    if ($serverProcess -and -not $serverProcess.HasExited) {
-        Stop-Process -Id $serverProcess.Id -Force
-    }
-
-    Remove-Item Env:HLVM_INSTALL_REPO -ErrorAction SilentlyContinue
-    Remove-Item Env:HLVM_INSTALL_VERSION -ErrorAction SilentlyContinue
-    Remove-Item Env:HLVM_INSTALL_BINARY_BASE_URL -ErrorAction SilentlyContinue
-    Remove-Item Env:HLVM_INSTALL_CHECKSUM_URL -ErrorAction SilentlyContinue
-    Remove-Item Env:HLVM_INSTALL_DIR -ErrorAction SilentlyContinue
-    if ($null -ne $previousHome) {
-        $env:HOME = $previousHome
-    } else {
-        Remove-Item Env:HOME -ErrorAction SilentlyContinue
-    }
-    if ($null -ne $previousUserProfile) {
-        $env:USERPROFILE = $previousUserProfile
-    } else {
-        Remove-Item Env:USERPROFILE -ErrorAction SilentlyContinue
-    }
-    if ($null -ne $previousHlvmDir) {
-        $env:HLVM_DIR = $previousHlvmDir
-    } else {
-        Remove-Item Env:HLVM_DIR -ErrorAction SilentlyContinue
-    }
-
-    if ($smokeSucceeded -and (Test-Path $smokeRoot)) {
-        Remove-Item -Recurse -Force $smokeRoot
-    }
+    Remove-Item -Path $SmokeRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

@@ -1,7 +1,8 @@
 /**
  * AI Runtime Manager for HLVM
  *
- * Handles extraction and lifecycle of the embedded AI engine (Ollama).
+ * Handles download and lifecycle of the Ollama AI engine.
+ * At bootstrap time, downloads the pinned Ollama version from GitHub releases.
  * Exports an AIEngineLifecycle interface so consumers depend on abstraction,
  * not the concrete runtime bootstrap details.
  *
@@ -71,12 +72,6 @@ function parseOllamaVersion(output: string): string | null {
   return null;
 }
 
-function isMissingEmbeddedEngineError(error: unknown): boolean {
-  return error instanceof Error &&
-    (error.message.includes("No such file") ||
-      error.message.includes("path not found"));
-}
-
 function getEmbeddedEngineDir(platform = getPlatform()): string {
   return platform.path.join(getRuntimeDir(), "engine");
 }
@@ -91,11 +86,6 @@ function getEmbeddedEngineBinaryRelativePath(platform = getPlatform()): string {
   return "ollama";
 }
 
-function getEmbeddedEngineBinaryName(platform = getPlatform()): string {
-  return getEmbeddedEngineBinaryRelativePath(platform).split("/").at(-1) ??
-    "ollama";
-}
-
 function getEmbeddedEnginePath(platform = getPlatform()): string {
   const relativeBinaryPath = getEmbeddedEngineBinaryRelativePath(platform)
     .split("/");
@@ -103,59 +93,6 @@ function getEmbeddedEnginePath(platform = getPlatform()): string {
     getEmbeddedEngineDir(platform),
     ...relativeBinaryPath,
   );
-}
-
-function getBundledEngineResourcePath(platform = getPlatform()): string {
-  return platform.path.fromFileUrl(
-    new URL("../../../resources/ai-engine", import.meta.url),
-  );
-}
-
-function getBundledEngineFallbackResourceRoot(
-  platform = getPlatform(),
-): string {
-  return platform.path.fromFileUrl(new URL("../../../", import.meta.url));
-}
-
-async function resolveBundledEngineResourcePath(
-  fileName: string,
-  platform = getPlatform(),
-): Promise<string | null> {
-  const candidateRoots = [
-    getBundledEngineResourcePath(platform),
-    getBundledEngineFallbackResourceRoot(platform),
-  ];
-
-  for (const root of candidateRoots) {
-    const candidate = platform.path.join(root, fileName);
-    if (await platform.fs.exists(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
-async function readBundledEngineManifest(
-  platform = getPlatform(),
-): Promise<string[]> {
-  const manifestPath = await resolveBundledEngineResourcePath(
-    "manifest.json",
-    platform,
-  );
-  if (!manifestPath) {
-    throw new Error(
-      "Bundled AI engine manifest was not embedded in this build.",
-    );
-  }
-
-  const raw = await platform.fs.readTextFile(manifestPath);
-  const parsed = JSON.parse(raw);
-  return Array.isArray(parsed?.files)
-    ? parsed.files.filter((value: unknown): value is string =>
-      typeof value === "string"
-    )
-    : [];
 }
 
 function normalizeFsPath(path: string): string {
@@ -282,29 +219,6 @@ export async function resolveEmbeddedEnginePath(
   return embeddedEnginePath;
 }
 
-export async function hasEmbeddedAIEngineResource(
-  platform = getPlatform(),
-): Promise<boolean> {
-  try {
-    const files = await readBundledEngineManifest(platform);
-    const binaryRelativePath = getEmbeddedEngineBinaryRelativePath(platform);
-    if (!files.includes(binaryRelativePath)) {
-      return false;
-    }
-    const bundledBinaryPath = await resolveBundledEngineResourcePath(
-      binaryRelativePath,
-      platform,
-    );
-    if (!bundledBinaryPath) {
-      return false;
-    }
-    await platform.fs.readFile(bundledBinaryPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function buildAIEngineEnvironment(
   enginePath: string,
   platform = getPlatform(),
@@ -378,57 +292,176 @@ async function matchesSelfBinarySize(
   return !!(candidateInfo && selfInfo && candidateInfo.size === selfInfo.size);
 }
 
-export async function extractAIEngine(platform = getPlatform()): Promise<void> {
+// ============================================================================
+// Engine download — downloads pinned Ollama from GitHub releases at bootstrap
+// ============================================================================
+
+/**
+ * Read the pinned Ollama version from embedded-ollama-version.txt.
+ * This file is baked into the binary at compile time via --include.
+ */
+async function readPinnedOllamaVersion(
+  platform = getPlatform(),
+): Promise<string> {
+  const candidates = [
+    // Compiled binary: resource is beside the entry point
+    platform.path.fromFileUrl(
+      new URL("../../../embedded-ollama-version.txt", import.meta.url),
+    ),
+    // Development: repo root
+    platform.path.join(
+      platform.path.fromFileUrl(new URL("../../../", import.meta.url)),
+      "embedded-ollama-version.txt",
+    ),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const content = await platform.fs.readTextFile(candidate);
+      const version = content.trim();
+      if (version) return version;
+    } catch {
+      // Try next candidate
+    }
+  }
+
+  throw new RuntimeError(
+    "Could not read pinned Ollama version from embedded-ollama-version.txt. " +
+      "This file must be baked into the binary at compile time.",
+    { code: HLVMErrorCode.AI_ENGINE_STARTUP_FAILED },
+  );
+}
+
+/**
+ * Get the Ollama archive URL for the current platform.
+ */
+function getOllamaArchiveUrl(
+  version: string,
+  platform = getPlatform(),
+): { url: string; archiveType: "tgz" | "tar.zst" | "zip" } {
+  const base = `https://github.com/ollama/ollama/releases/download/${version}`;
+  const os = platform.build.os;
+
+  if (os === "darwin") {
+    return { url: `${base}/ollama-darwin.tgz`, archiveType: "tgz" };
+  }
+  if (os === "linux") {
+    // Ollama Linux releases use zstd-compressed tarballs
+    return { url: `${base}/ollama-linux-amd64.tar.zst`, archiveType: "tar.zst" };
+  }
+  if (os === "windows") {
+    return { url: `${base}/ollama-windows-amd64.zip`, archiveType: "zip" };
+  }
+
+  throw new RuntimeError(
+    `Unsupported platform for Ollama download: ${os}`,
+    { code: HLVMErrorCode.AI_ENGINE_STARTUP_FAILED },
+  );
+}
+
+/**
+ * Download and extract Ollama to ~/.hlvm/.runtime/engine/.
+ */
+async function downloadAndExtractOllama(
+  url: string,
+  archiveType: "tgz" | "tar.zst" | "zip",
+  platform = getPlatform(),
+): Promise<void> {
+  const engineDir = getEmbeddedEngineDir(platform);
+  const enginePath = getEmbeddedEnginePath(platform);
+  await ensureRuntimeDir();
+  await platform.fs.remove(engineDir, { recursive: true }).catch(() => {});
+  await platform.fs.mkdir(engineDir, { recursive: true });
+
+  const ext = archiveType === "tar.zst" ? "tar.zst" : archiveType;
+  const tmpArchive = platform.path.join(engineDir, `ollama-archive.${ext}`);
+
+  log.info?.(`Downloading Ollama from ${url}...`);
+  const response = await http.fetchRaw(url, { timeout: 300_000 });
+  if (!response.ok) {
+    throw new RuntimeError(
+      `Failed to download Ollama (${response.status}): ${url}`,
+      { code: HLVMErrorCode.AI_ENGINE_STARTUP_FAILED },
+    );
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  await platform.fs.writeFile(tmpArchive, bytes);
+
+  log.info?.("Extracting Ollama archive...");
+  let extractCmd: string[];
+  if (archiveType === "tgz") {
+    extractCmd = ["tar", "-xzf", tmpArchive, "-C", engineDir];
+  } else if (archiveType === "tar.zst") {
+    // zstd-compressed tarball (Linux). Try tar --zstd first (GNU tar),
+    // fall back to piping through zstd if available.
+    extractCmd = ["tar", "--zstd", "-xf", tmpArchive, "-C", engineDir];
+  } else {
+    extractCmd = ["unzip", "-qo", tmpArchive, "-d", engineDir];
+  }
+
+  let result = await platform.command.output({
+    cmd: extractCmd,
+    stdin: "null",
+    stdout: "piped",
+    stderr: "piped",
+  });
+
+  // Fallback for tar.zst: if `tar --zstd` fails, try `zstd -dc | tar -xf -`
+  if (!result.success && archiveType === "tar.zst") {
+    log.debug?.("tar --zstd failed, trying zstd pipe fallback...");
+    const fallbackCmd = ["sh", "-c", `zstd -dc "${tmpArchive}" | tar -xf - -C "${engineDir}"`];
+    result = await platform.command.output({
+      cmd: fallbackCmd,
+      stdin: "null",
+      stdout: "piped",
+      stderr: "piped",
+    });
+  }
+
+  if (!result.success) {
+    const stderr = new TextDecoder().decode(result.stderr).trim();
+    throw new RuntimeError(
+      `Failed to extract Ollama archive: ${stderr}`,
+      { code: HLVMErrorCode.AI_ENGINE_STARTUP_FAILED },
+    );
+  }
+
+  // Cleanup archive
+  await platform.fs.remove(tmpArchive).catch(() => {});
+
+  // Ensure executable
+  await platform.fs.chmod(enginePath, 0o755).catch(() => {});
+
+  if (!await resolveEmbeddedEnginePath(platform)) {
+    throw new RuntimeError(
+      "Downloaded Ollama binary failed validation after extraction.",
+      { code: HLVMErrorCode.AI_ENGINE_STARTUP_FAILED },
+    );
+  }
+
+  log.info?.(`Ollama installed to ${engineDir}`);
+}
+
+/**
+ * Ensure the Ollama engine is available on disk.
+ * If not already present, downloads the pinned version from GitHub releases.
+ * This replaces the old extractAIEngine() which extracted from the binary.
+ */
+export async function downloadAIEngineIfNeeded(
+  platform = getPlatform(),
+): Promise<void> {
   if (await resolveEmbeddedEnginePath(platform)) {
     return;
   }
 
-  try {
-    const bundledFiles = await readBundledEngineManifest(platform);
-    const embeddedEngineDir = getEmbeddedEngineDir(platform);
-    const embeddedEnginePath = getEmbeddedEnginePath(platform);
-    await ensureRuntimeDir();
-    await platform.fs.remove(embeddedEngineDir, { recursive: true }).catch(
-      () => {},
-    );
-    await platform.fs.mkdir(embeddedEngineDir, { recursive: true });
-    for (const fileName of bundledFiles) {
-      const sourcePath = await resolveBundledEngineResourcePath(
-        fileName,
-        platform,
-      );
-      if (!sourcePath) {
-        throw new Error(
-          `Bundled AI engine file missing from build: ${fileName}`,
-        );
-      }
-      const targetPath = platform.path.join(
-        embeddedEngineDir,
-        ...fileName.split("/"),
-      );
-      await platform.fs.mkdir(platform.path.dirname(targetPath), {
-        recursive: true,
-      });
-      const fileBytes = await platform.fs.readFile(sourcePath);
-      await platform.fs.writeFile(targetPath, fileBytes);
-    }
-    await platform.fs.chmod(embeddedEnginePath, 0o755);
-    if (await resolveEmbeddedEnginePath(platform)) {
-      return;
-    }
-    throw new RuntimeError(
-      "Embedded AI engine failed validation after extraction.",
-      { code: HLVMErrorCode.AI_ENGINE_STARTUP_FAILED },
-    );
-  } catch (error) {
-    // In development mode, AI engine might not be embedded in the source tree.
-    // Callers must decide whether source-mode bypass is acceptable.
-    if (isMissingEmbeddedEngineError(error)) {
-      return;
-    }
-    throw error;
-  }
+  const version = await readPinnedOllamaVersion(platform);
+  const { url, archiveType } = getOllamaArchiveUrl(version, platform);
+  await downloadAndExtractOllama(url, archiveType, platform);
 }
+
+// Keep backward-compatible alias for callers that import extractAIEngine
+export { downloadAIEngineIfNeeded as extractAIEngine };
 
 async function requireEmbeddedEnginePath(
   platform = getPlatform(),
@@ -438,123 +471,11 @@ async function requireEmbeddedEnginePath(
     return embeddedEnginePath;
   }
   throw new RuntimeError(
-    `Embedded AI engine is unavailable. Expected an HLVM-managed engine at ${
+    `AI engine is unavailable. Expected an HLVM-managed engine at ${
       getEmbeddedEnginePath(platform)
-    }. Run 'hlvm bootstrap' or reinstall the AI-enabled build.`,
+    }. Run 'hlvm bootstrap' to download it.`,
     { code: HLVMErrorCode.AI_ENGINE_STARTUP_FAILED },
   );
-}
-
-// ============================================================================
-// Sidecar model extraction — for bundled install mode
-// ============================================================================
-//
-// macOS Mach-O and Windows PE32+ have a hard 2 GB binary size limit, so we
-// cannot embed ~9.6 GB of model weights via `deno compile --include`.
-//
-// Instead, bundled install ships a standard binary + sidecar tarball:
-//   hlvm-model.tar  (~9.6 GB, placed beside the binary or in ~/.hlvm/)
-//
-// The runtime detects the sidecar, extracts it to ~/.hlvm/.runtime/models/,
-// and deletes the tarball after successful extraction.
-
-const SIDECAR_MODEL_FILENAME = "hlvm-model.tar";
-
-/**
- * Search for the sidecar model tarball in well-known locations:
- * 1. Beside the hlvm binary (e.g. /usr/local/bin/hlvm-model.tar)
- * 2. In ~/.hlvm/hlvm-model.tar
- * 3. In the current working directory
- */
-async function findSidecarModelTarball(
-  platform = getPlatform(),
-): Promise<string | null> {
-  const candidates: string[] = [];
-
-  // 1. Beside the hlvm binary
-  const execPath = platform.process.execPath?.();
-  if (execPath) {
-    candidates.push(
-      platform.path.join(
-        platform.path.dirname(execPath),
-        SIDECAR_MODEL_FILENAME,
-      ),
-    );
-  }
-
-  // 2. In ~/.hlvm/
-  const homeDir = platform.env.get("HOME") ??
-    platform.env.get("USERPROFILE") ?? "";
-  if (homeDir) {
-    candidates.push(
-      platform.path.join(homeDir, ".hlvm", SIDECAR_MODEL_FILENAME),
-    );
-  }
-
-  // 3. Current working directory
-  candidates.push(SIDECAR_MODEL_FILENAME);
-
-  for (const candidate of candidates) {
-    if (await platform.fs.exists(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Whether a sidecar model tarball is available for extraction.
- */
-export async function hasBundledModel(
-  platform = getPlatform(),
-): Promise<boolean> {
-  return (await findSidecarModelTarball(platform)) !== null;
-}
-
-/**
- * Extract sidecar model tarball to the HLVM-owned model store (~/.hlvm/.runtime/models/).
- *
- * Uses the system `tar` command for extraction (available on all supported platforms).
- * Deletes the tarball after successful extraction to reclaim disk space.
- */
-export async function extractBundledModel(
-  platform = getPlatform(),
-  onProgress?: (message: string) => void,
-): Promise<void> {
-  const tarballPath = await findSidecarModelTarball(platform);
-  if (!tarballPath) return;
-
-  const modelsDir = getModelsDir();
-  await platform.fs.mkdir(modelsDir, { recursive: true });
-
-  onProgress?.("Extracting sidecar model tarball...");
-  log.info?.(`Extracting sidecar model from ${tarballPath} to ${modelsDir}`);
-
-  const result = await platform.command.output({
-    cmd: ["tar", "-xf", tarballPath, "-C", modelsDir],
-    stdin: "null",
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  const stderr = new TextDecoder().decode(result.stderr).trim();
-  if (!result.success) {
-    throw new Error(`Failed to extract sidecar model tarball: ${stderr}`);
-  }
-
-  onProgress?.("Sidecar model extracted successfully.");
-  log.info?.(`Sidecar model extracted to ${modelsDir}`);
-
-  // Delete tarball to reclaim ~9.6 GB of disk space
-  try {
-    await platform.fs.remove(tarballPath);
-    log.info?.(`Deleted sidecar tarball: ${tarballPath}`);
-  } catch {
-    log.debug?.(
-      `Could not delete sidecar tarball (read-only?): ${tarballPath}`,
-    );
-  }
 }
 
 export async function waitForAIEngineReady(
@@ -788,7 +709,7 @@ async function resolveEnginePath(): Promise<string> {
 // ============================================================================
 
 /**
- * Concrete AI engine lifecycle — handles embedded extraction and startup.
+ * Concrete AI engine lifecycle — handles download and startup.
  * Import this when you need engine operations.
  */
 export const aiEngine: AIEngineLifecycle = {
@@ -796,7 +717,7 @@ export const aiEngine: AIEngineLifecycle = {
 
   async ensureRunning(): Promise<boolean> {
     const platform = getPlatform();
-    await extractAIEngine(platform);
+    await downloadAIEngineIfNeeded(platform);
     const enginePath = await requireEmbeddedEnginePath(platform);
     const expectedVersion = await getAIEngineBinaryVersion(
       enginePath,
@@ -836,7 +757,7 @@ async function doInitAIRuntime(): Promise<void> {
     return;
   }
 
-  await extractAIEngine(platform);
+  await downloadAIEngineIfNeeded(platform);
   const enginePath = await requireEmbeddedEnginePath(platform);
   const expectedVersion = await getAIEngineBinaryVersion(enginePath, platform);
   if (await isCompatibleAIRunning(expectedVersion ?? undefined)) {

@@ -60,18 +60,18 @@ async function hashFile(path: string): Promise<string> {
 async function ensureEngine(
   onProgress?: MaterializeOptions["onProgress"],
 ): Promise<string> {
-  onProgress?.({ phase: "extract", message: "Extracting AI engine..." });
+  onProgress?.({ phase: "extract", message: "Downloading AI engine..." });
 
   // Dynamic import to break circular dependency with ai-runtime.ts
-  const { extractAIEngine, resolveEmbeddedEnginePath } = await import(
+  const { downloadAIEngineIfNeeded, resolveEmbeddedEnginePath } = await import(
     "./ai-runtime.ts"
   );
-  await extractAIEngine();
+  await downloadAIEngineIfNeeded();
 
   const enginePath = await resolveEmbeddedEnginePath();
   if (!enginePath) {
     throw new Error(
-      "Failed to extract embedded AI engine — no valid binary found.",
+      "Failed to download AI engine — no valid binary found after download.",
     );
   }
   return enginePath;
@@ -224,8 +224,7 @@ async function ensurePinnedFallbackModel(
     return existingManifest.manifest;
   }
 
-  // Sidecar extraction (if any) already happened before the engine was
-  // started (see materializeBootstrap step 1.5).  If a sidecar was extracted,
+  // If the model is already present (e.g. from a previous bootstrap),
   // the existingManifest check above should have already returned.
   // Fall back to a network pull.
   await pullModel(LOCAL_FALLBACK_MODEL, options);
@@ -254,8 +253,8 @@ async function ensurePinnedFallbackModel(
 
 /**
  * Full bootstrap materialization:
- * 1.   Extract AI engine
- * 1.5. Extract sidecar model tarball (if present) — before engine start
+ * 1.   Download AI engine (if not already present)
+ * 1.5. Download Chromium (if not already present)
  * 2.   Start engine with HLVM-owned model dir
  * 3.   Adopt existing pinned fallback or pull it once
  * 4.   Hash engine + model blobs
@@ -269,51 +268,24 @@ export async function materializeBootstrap(
   // 1. Extract engine
   const enginePath = await ensureEngine(options?.onProgress);
 
-  // 1.5. Extract sidecar model BEFORE starting the engine.
-  //      Ollama discovers model files at startup — placing them on disk after
-  //      the engine is running would require a restart.
-  const { hasBundledModel, extractBundledModel } = await import(
-    "./ai-runtime.ts"
-  );
-  if (await hasBundledModel()) {
-    options?.onProgress?.({
-      phase: "pull_model",
-      message: `Extracting bundled ${LOCAL_FALLBACK_MODEL} (sidecar)...`,
-      percent: 0,
-    });
-    await extractBundledModel(undefined, (message) => {
-      options?.onProgress?.({ phase: "pull_model", message, percent: 50 });
-    });
-  }
-
-  // 1.75. Chromium: sidecar extraction OR download via playwright-core
+  // 1.5. Chromium: download via playwright-core
   let chromiumPath: string | null = null;
   let chromiumHash: string | null = null;
   try {
     const {
-      hasBundledChromium, extractBundledChromium, downloadChromium,
+      downloadChromium,
       resolveChromiumExecutablePath, hashChromiumBinary,
     } = await import("./chromium-runtime.ts");
 
     chromiumPath = await resolveChromiumExecutablePath();
     if (!chromiumPath) {
-      if (await hasBundledChromium()) {
-        options?.onProgress?.({
-          phase: "extract",
-          message: "Extracting bundled Chromium (sidecar)...",
-        });
-        await extractBundledChromium(undefined, (message) => {
-          options?.onProgress?.({ phase: "extract", message });
-        });
-      } else {
-        options?.onProgress?.({
-          phase: "extract",
-          message: "Downloading Chromium (~200 MB)...",
-        });
-        await downloadChromium((message) => {
-          options?.onProgress?.({ phase: "extract", message });
-        });
-      }
+      options?.onProgress?.({
+        phase: "extract",
+        message: "Downloading Chromium (~200 MB)...",
+      });
+      await downloadChromium((message) => {
+        options?.onProgress?.({ phase: "extract", message });
+      });
       chromiumPath = await resolveChromiumExecutablePath();
     }
     if (chromiumPath) {

@@ -1,13 +1,10 @@
 /**
  * Chromium Runtime Manager for HLVM
  *
- * Handles download, extraction, and verification of a bundled Chromium browser
- * for Playwright-based browser automation. Follows the same sidecar pattern as
- * the Ollama engine + Gemma model in ai-runtime.ts.
+ * Handles download, verification, and path resolution for the Chromium browser
+ * used by Playwright-based browser automation (pw_* tools).
  *
- * Two install paths:
- *   Standard:    hlvm bootstrap → download Chromium (~200 MB) from Playwright CDN
- *   Full bundle: sidecar tarball (hlvm-chromium.tar) → extract locally, no download
+ * At bootstrap time, downloads Chromium (~200 MB) from the Playwright CDN.
  *
  * Runtime directory: ~/.hlvm/.runtime/chromium/
  */
@@ -19,7 +16,6 @@ import { getPlatform } from "../../platform/platform.ts";
 // ── Paths ────────────────────────────────────────────────────────────────
 
 const CHROMIUM_DIR_NAME = "chromium";
-const SIDECAR_CHROMIUM_FILENAME = "hlvm-chromium.tar.gz";
 
 /** Root directory for HLVM-managed Chromium: ~/.hlvm/.runtime/chromium/ */
 export function getChromiumDir(): string {
@@ -106,110 +102,6 @@ export async function isChromiumReady(
   platform = getPlatform(),
 ): Promise<boolean> {
   return (await resolveChromiumExecutablePath(platform)) !== null;
-}
-
-// ── Sidecar detection (bundled install) ──────────────────────────────────
-
-/**
- * Search for the sidecar Chromium tarball in well-known locations:
- * 1. Beside the hlvm binary
- * 2. In ~/.hlvm/
- * 3. In the current working directory
- *
- * Same 3-location pattern as findSidecarModelTarball in ai-runtime.ts.
- */
-async function findSidecarChromiumTarball(
-  platform = getPlatform(),
-): Promise<string | null> {
-  const candidates: string[] = [];
-
-  // 1. Beside the hlvm binary
-  const execPath = platform.process.execPath?.();
-  if (execPath) {
-    candidates.push(
-      platform.path.join(
-        platform.path.dirname(execPath),
-        SIDECAR_CHROMIUM_FILENAME,
-      ),
-    );
-  }
-
-  // 2. In ~/.hlvm/
-  const homeDir = platform.env.get("HOME") ??
-    platform.env.get("USERPROFILE") ?? "";
-  if (homeDir) {
-    candidates.push(
-      platform.path.join(homeDir, ".hlvm", SIDECAR_CHROMIUM_FILENAME),
-    );
-  }
-
-  // 3. Current working directory
-  candidates.push(SIDECAR_CHROMIUM_FILENAME);
-
-  for (const candidate of candidates) {
-    if (await platform.fs.exists(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
-/** Whether a sidecar Chromium tarball is available for extraction. */
-export async function hasBundledChromium(
-  platform = getPlatform(),
-): Promise<boolean> {
-  return (await findSidecarChromiumTarball(platform)) !== null;
-}
-
-/**
- * Extract sidecar Chromium tarball to ~/.hlvm/.runtime/chromium/.
- * Deletes the tarball after successful extraction.
- * Same pattern as extractBundledModel in ai-runtime.ts.
- */
-export async function extractBundledChromium(
-  platform = getPlatform(),
-  onProgress?: (message: string) => void,
-): Promise<void> {
-  const tarballPath = await findSidecarChromiumTarball(platform);
-  if (!tarballPath) return;
-
-  const chromiumDir = getChromiumDir();
-  await platform.fs.mkdir(chromiumDir, { recursive: true });
-
-  onProgress?.("Extracting sidecar Chromium tarball...");
-  log.info?.(`Extracting sidecar Chromium from ${tarballPath} to ${chromiumDir}`);
-
-  const result = await platform.command.output({
-    cmd: ["tar", "-xzf", tarballPath, "-C", chromiumDir],
-    stdin: "null",
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  const stderr = new TextDecoder().decode(result.stderr).trim();
-  if (!result.success) {
-    throw new Error(`Failed to extract sidecar Chromium tarball: ${stderr}`);
-  }
-
-  onProgress?.("Sidecar Chromium extracted successfully.");
-  log.info?.(`Sidecar Chromium extracted to ${chromiumDir}`);
-
-  // Make executable
-  const execPath = await resolveChromiumExecutablePath(platform);
-  if (execPath) {
-    try {
-      await platform.fs.chmod(execPath, 0o755);
-    } catch { /* best-effort */ }
-  }
-
-  // Delete tarball to reclaim disk space
-  try {
-    await platform.fs.remove(tarballPath);
-    log.info?.(`Deleted sidecar Chromium tarball: ${tarballPath}`);
-  } catch {
-    log.debug?.(`Could not delete sidecar Chromium tarball: ${tarballPath}`);
-  }
 }
 
 // ── Download (standard install) ──────────────────────────────────────────

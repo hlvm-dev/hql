@@ -30,7 +30,7 @@ User runs:
 Installer then:
   1. Detects platform
   2. Resolves the latest published release on hlvm-dev/hql
-  3. Downloads the HLVM binary (~120 MB)
+  3. Downloads the HLVM binary (~363 MB)
   4. Verifies checksum
   5. Installs hlvm to /usr/local/bin/
   6. Runs hlvm bootstrap, which:
@@ -66,7 +66,7 @@ because:
 - Ollama for Linux with GPU libraries is 4+ GB — embedding would make the binary
   5+ GB
 - Windows PE32+ has a hard 2 GB executable size limit
-- A 120 MB binary downloads in 10 seconds; a 5 GB binary takes 5+ minutes
+- A 363 MB binary downloads quickly; a 5 GB binary takes much longer
 
 This is the same pattern used by Rustup, Go, and Homebrew: a small binary that
 sets itself up on first run.
@@ -96,7 +96,7 @@ curl -fsSL https://hlvm.dev/install.sh | sh
   ├── 2. get_latest_version()
   │      GET api.github.com/repos/hlvm-dev/hql/releases/latest
   │
-  ├── 3. download binary (~120 MB)
+  ├── 3. download binary (~363 MB)
   │      From GitHub Releases: hlvm-dev/hql/releases/download/vX.Y.Z/hlvm-<platform>
   │
   ├── 4. verify checksum
@@ -230,7 +230,7 @@ git tag vX.Y.Z && git push origin vX.Y.Z
   → staged smoke (4 platforms) → publish → public smoke
 ```
 
-All platforms build identically: `deno compile` → ~120 MB binary. No embedding,
+All platforms build identically: `deno compile` → ~363 MB binary. No embedding,
 no splitting, no Windows special cases.
 
 ## Platform Differences
@@ -243,10 +243,10 @@ is which Ollama archive is downloaded at bootstrap:
 
 | Platform    | Binary       | Size    | Ollama Archive at Bootstrap  |
 | ----------- | ------------ | ------- | ---------------------------- |
-| macOS ARM   | hlvm-mac-arm | ~120 MB | ollama-darwin.tgz            |
-| macOS Intel | hlvm-mac-intel | ~120 MB | ollama-darwin.tgz          |
-| Linux x64   | hlvm-linux   | ~120 MB | ollama-linux-amd64.tgz       |
-| Windows x64 | hlvm-windows.exe | ~120 MB | ollama-windows-amd64.zip |
+| macOS ARM   | hlvm-mac-arm | ~363 MB | ollama-darwin.tgz            |
+| macOS Intel | hlvm-mac-intel | ~363 MB | ollama-darwin.tgz          |
+| Linux x64   | hlvm-linux   | ~363 MB | ollama-linux-amd64.tgz       |
+| Windows x64 | hlvm-windows.exe | ~363 MB | ollama-windows-amd64.zip |
 
 ## Future: Model Auto-Select
 

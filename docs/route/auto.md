@@ -344,7 +344,7 @@ Primary Model Call
 
 ## 8. Bootstrap & Binary Architecture
 
-### Binary Contents (~120 MB)
+### Binary Contents (~363 MB)
 
 ```
 hlvm binary

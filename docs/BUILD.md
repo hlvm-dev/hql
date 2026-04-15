@@ -175,7 +175,7 @@ deno compile --allow-all --no-check --config deno.json \
 ```
 
 No AI engine embedding. Ollama is downloaded at bootstrap time, not at build
-time. The binary is ~120 MB, not ~587 MB.
+time. The binary is ~363 MB, not ~587 MB.
 
 ### Step 4: Test
 
@@ -229,7 +229,7 @@ deno compile --allow-all --target x86_64-apple-darwin --output hlvm src/hlvm/cli
 
 Typical sizes:
 
-- All platforms: ~120 MB
+- All platforms: ~363 MB
 
 The binary includes the Deno runtime, all dependencies, and the HQL stdlib.
 Ollama is NOT embedded — it is downloaded at bootstrap time. This keeps all

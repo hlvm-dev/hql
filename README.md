@@ -22,7 +22,7 @@ Windows (PowerShell):
 irm https://hlvm.dev/install.ps1 | iex
 ```
 
-Downloads the binary (~120 MB), sets up the local AI engine, and pulls the default model during install. After install finishes, `hlvm ask "hello"` works immediately.
+Downloads the binary (~363 MB), sets up the local AI engine, and pulls the default model during install. After install finishes, `hlvm ask "hello"` works immediately.
 
 For building from source, see the [build guide](./docs/BUILD.md).
 

@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing draft release tag (e.g. v0.1.0). Skips build, runs proof → publish → public proof.'
+        description: 'Existing draft release tag (e.g. v0.2.0). Skips build, runs proof → publish → public proof.'
         required: true
         type: string
 
@@ -16,8 +16,6 @@ permissions:
   contents: write
 
 env:
-  EMBEDDED_OLLAMA_VERSION_FILE: embedded-ollama-version.txt
-  MAX_RELEASE_ASSET_BYTES: 1900000000
   PUBLIC_RELEASE_REPO: hlvm-dev/hql
   SMOKE_PROMPT: hello
 
@@ -40,7 +38,7 @@ jobs:
   # ─── Phase 1: Build (tag push only) ─────────────────────────────────────
   build:
     if: github.event_name == 'push'
-    name: Build ${{ matrix.target }}
+    name: Build ${{ matrix.binary }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -49,104 +47,27 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             binary: hlvm-mac-arm
-            release_asset: hlvm-mac-arm
-            ollama_asset: ollama-darwin.tgz
-            ollama_binary: ollama
-            embed_ai_engine: true
-            package_kind: direct
 
           - os: macos-15-intel
             target: x86_64-apple-darwin
             binary: hlvm-mac-intel
-            release_asset: hlvm-mac-intel
-            ollama_asset: ollama-darwin.tgz
-            ollama_binary: ollama
-            embed_ai_engine: true
-            package_kind: direct
 
           - os: macos-latest
             target: x86_64-unknown-linux-gnu
             binary: hlvm-linux
-            release_asset: hlvm-linux
-            ollama_asset: ollama-linux-amd64.tar.zst
-            ollama_binary: bin/ollama
-            embed_ai_engine: true
-            package_kind: direct
 
           - os: macos-latest
             target: x86_64-pc-windows-msvc
             binary: hlvm-windows.exe
-            release_asset: hlvm-windows.zip
-            ollama_asset: ollama-windows-amd64.zip
-            ollama_binary: ollama.exe
-            embed_ai_engine: false
-            package_kind: windows-zip
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          lfs: true
 
       - name: Setup Deno
         uses: denoland/setup-deno@v1
         with:
           deno-version: v2.x
-
-      - name: Load embedded Ollama version
-        shell: bash
-        run: |
-          echo "OLLAMA_VERSION=$(tr -d '\n' < "${{ env.EMBEDDED_OLLAMA_VERSION_FILE }}")" >> "$GITHUB_ENV"
-
-      - name: Ensure zstd is available
-        if: endsWith(matrix.ollama_asset, '.tar.zst')
-        shell: bash
-        run: |
-          if command -v zstd >/dev/null 2>&1; then
-            zstd --version
-            exit 0
-          fi
-
-          if command -v brew >/dev/null 2>&1; then
-            brew install zstd
-            zstd --version
-            exit 0
-          fi
-
-          echo "zstd is required to extract ${{ matrix.ollama_asset }}"
-          exit 1
-
-      - name: Download Ollama runtime (pinned ${{ env.OLLAMA_VERSION }})
-        shell: bash
-        run: |
-          mkdir -p resources/ai-engine
-          ARCHIVE_PATH="resources/${{ matrix.ollama_asset }}"
-          bash scripts/with-retry.sh --attempts 5 --delay 3 -- \
-            curl --fail --silent --show-error --location \
-              --retry 5 --retry-delay 2 --retry-all-errors \
-              -o "$ARCHIVE_PATH" \
-              "https://github.com/ollama/ollama/releases/download/${{ env.OLLAMA_VERSION }}/${{ matrix.ollama_asset }}"
-
-          case "${{ matrix.ollama_asset }}" in
-            *.tgz)
-              tar -xzf "$ARCHIVE_PATH" -C resources/ai-engine
-              ;;
-            *.tar.zst)
-              zstd -dc "$ARCHIVE_PATH" | tar -xf - -C resources/ai-engine
-              ;;
-            *.zip)
-              unzip -q "$ARCHIVE_PATH" -d resources/ai-engine
-              ;;
-            *)
-              echo "Unsupported Ollama archive: ${{ matrix.ollama_asset }}"
-              exit 1
-              ;;
-          esac
-
-          rm -f "$ARCHIVE_PATH"
-          deno run -A scripts/write-ai-engine-manifest.ts resources/ai-engine
-          chmod +x "resources/ai-engine/${{ matrix.ollama_binary }}" 2>/dev/null || true
-          ls -lah resources/ai-engine
 
       - name: Build stdlib
         run: bash scripts/with-retry.sh --attempts 3 --delay 5 -- deno run -A scripts/build-stdlib.ts
@@ -155,59 +76,13 @@ jobs:
         run: bash scripts/with-retry.sh --attempts 3 --delay 5 -- deno run --allow-read --allow-write scripts/embed-packages.ts
 
       - name: Build binary
-        shell: bash
-        run: |
-          args=(
-            ./scripts/compile-hlvm.sh
-            --target "${{ matrix.target }}"
-            --output "${{ matrix.binary }}"
-          )
-
-          if [ "${{ matrix.embed_ai_engine }}" != "true" ]; then
-            args+=(--skip-ai-engine)
-          fi
-
-          "${args[@]}"
-
-      - name: Package release asset
-        shell: bash
-        run: |
-          mkdir -p release-asset
-          asset_path="${{ matrix.binary }}"
-
-          if [ "${{ matrix.package_kind }}" = "windows-zip" ]; then
-            package_dir="release-package"
-            rm -rf "$package_dir"
-            mkdir -p "$package_dir/ai-engine"
-            mv "${{ matrix.binary }}" "$package_dir/hlvm.exe"
-            cp -R resources/ai-engine/. "$package_dir/ai-engine/"
-            (
-              cd "$package_dir"
-              zip -qr "../${{ matrix.release_asset }}" .
-            )
-            asset_path="${{ matrix.release_asset }}"
-          fi
-
-          size=$(stat -f%z "$asset_path")
-
-          if [ "$size" -gt "${{ env.MAX_RELEASE_ASSET_BYTES }}" ]; then
-            echo "Splitting $asset_path (${size} bytes) into release parts..."
-            split -b "${{ env.MAX_RELEASE_ASSET_BYTES }}" -d -a 3 \
-              "$asset_path" \
-              "release-asset/${{ matrix.release_asset }}.part-"
-            rm -f "$asset_path"
-          else
-            echo "Staging $asset_path (${size} bytes) as a direct release asset..."
-            mv "$asset_path" "release-asset/${{ matrix.release_asset }}"
-          fi
-
-          ls -lah release-asset
+        run: ./scripts/compile-hlvm.sh --target "${{ matrix.target }}" --output "${{ matrix.binary }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.binary }}
-          path: release-asset/*
+          path: ${{ matrix.binary }}
 
   # ─── Phase 2: Create draft release (tag push only) ──────────────────────
   create-release:
@@ -218,8 +93,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          lfs: true
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -228,106 +101,23 @@ jobs:
           merge-multiple: true
 
       - name: Generate checksums
-        shell: bash
         run: |
-          checksum_binary() {
-            binary=$1
-            direct="release-assets/${binary}"
-
-            if [ -f "$direct" ]; then
-              checksum=$(sha256sum "$direct" | awk '{print $1}')
-              printf '%s  %s\n' "$checksum" "$binary" >> release-assets/checksums.sha256
-              return
-            fi
-
-            shopt -s nullglob
-            parts=( "release-assets/${binary}".part-* )
-            if [ "${#parts[@]}" -eq 0 ]; then
-              echo "Missing release asset for ${binary}" >&2
-              exit 1
-            fi
-
-            checksum=$(cat "${parts[@]}" | sha256sum | awk '{print $1}')
-            printf '%s  %s\n' "$checksum" "$binary" >> release-assets/checksums.sha256
-          }
-
-          : > release-assets/checksums.sha256
-          checksum_binary hlvm-mac-arm
-          checksum_binary hlvm-mac-intel
-          checksum_binary hlvm-linux
-          checksum_binary hlvm-windows.zip
-
+          cd release-assets
+          sha256sum hlvm-mac-arm hlvm-mac-intel hlvm-linux hlvm-windows.exe > checksums.sha256
           echo "Generated checksums:"
-          cat release-assets/checksums.sha256
+          cat checksums.sha256
 
       - name: Add installer scripts
-        run: |
-          cp install.sh install.ps1 release-assets/
+        run: cp install.sh install.ps1 release-assets/
 
       - name: Show release assets
-        run: |
-          echo "Release assets:"
-          ls -lah release-assets
+        run: ls -lah release-assets
 
       - name: Create draft release
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
-
-          cat > release-notes.md <<'EOF'
-          # HLVM ${{ github.ref_name }}
-
-          AI-native runtime infrastructure with embedded local AI.
-
-          ## Installation
-
-          **Standard (recommended):**
-          ```bash
-          curl -fsSL https://hlvm.dev/install.sh | sh
-          ```
-
-          Downloads the GitHub Release binary, bootstraps the embedded local AI runtime, and prepares the default Gemma fallback during install.
-
-          **Windows (PowerShell):**
-          ```powershell
-          irm https://hlvm.dev/install.ps1 | iex
-          ```
-
-          After install, `hlvm ask "hello"` works immediately.
-
-          ## What's Included
-
-          - HLVM runtime platform with embedded AI engine
-          - HQL and JavaScript REPL
-          - Complete standard library
-          - AI agent SDK with MCP tool servers
-          - Local fallback model prepared during install
-
-          ## Binaries
-
-          - `hlvm-mac-arm` - macOS Apple Silicon (M1/M2/M3)
-          - `hlvm-mac-intel` - macOS Intel
-          - `hlvm-linux` - Linux x86_64 (published as split GitHub assets when needed)
-          - `hlvm-windows.zip` - Windows x86_64 package (contains `hlvm.exe` plus embedded AI engine files)
-
-          ## Quick Start
-
-          ```bash
-          # AI assistant
-          hlvm ask "hello"
-
-          # Start REPL
-          hlvm repl
-
-          # Run a file
-          hlvm run hello.hql
-
-          # Show help
-          hlvm --help
-          ```
-          EOF
 
           if gh release view "$TAG" --repo "${{ env.PUBLIC_RELEASE_REPO }}" >/dev/null 2>&1; then
             gh release delete "$TAG" --repo "${{ env.PUBLIC_RELEASE_REPO }}" --yes
@@ -337,37 +127,16 @@ jobs:
             --repo "${{ env.PUBLIC_RELEASE_REPO }}" \
             --draft \
             --generate-notes \
-            --notes-file release-notes.md \
             --title "HLVM $TAG"
 
       - name: Upload release assets
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         run: |
-          upload_asset() {
-            asset=$1
-            attempt=1
-            while [ "$attempt" -le 3 ]; do
-              if gh release upload "${{ github.ref_name }}" "$asset" \
-                --repo "${{ env.PUBLIC_RELEASE_REPO }}" \
-                --clobber; then
-                return 0
-              fi
-
-              if [ "$attempt" -eq 3 ]; then
-                echo "Failed to upload ${asset} after ${attempt} attempts." >&2
-                return 1
-              fi
-
-              echo "Retrying ${asset} (attempt $((attempt + 1)) of 3)..."
-              sleep 5
-              attempt=$((attempt + 1))
-            done
-          }
-
           for asset in release-assets/*; do
-            upload_asset "$asset"
+            gh release upload "${{ github.ref_name }}" "$asset" \
+              --repo "${{ env.PUBLIC_RELEASE_REPO }}" \
+              --clobber
           done
 
   # ─── Phase 3: Staged smoke test ─────────────────────────────────────────
@@ -379,9 +148,6 @@ jobs:
       needs.resolve.result == 'success' &&
       (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     runs-on: ${{ matrix.os }}
-    # Model warmup on GitHub hosted runners exceeds patience (ARM >12 min,
-    # Linux >2 min for 9.6 GB model load).  Allow ARM and Linux to fail
-    # without blocking publish; Intel is the reliable gate.
     continue-on-error: ${{ matrix.allow_failure == true }}
     strategy:
       fail-fast: false
@@ -397,20 +163,16 @@ jobs:
             allow_failure: true
     steps:
       - uses: actions/checkout@v4
-
       - name: Staged Unix smoke
-        shell: bash
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           HLVM_SMOKE_REPO: hlvm-dev/hql
           HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
-        run: |
-          sh scripts/release-smoke.sh standard "${{ needs.resolve.outputs.tag }}"
+        run: sh scripts/release-smoke.sh "${{ needs.resolve.outputs.tag }}"
 
   staged-windows:
     name: Staged smoke windows
     needs: [resolve, create-release]
-    # Model load on Windows CI runners also exceeds hlvm ask patience.
     continue-on-error: true
     if: |
       !cancelled() &&
@@ -419,15 +181,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Windows staged smoke
-        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           HLVM_SMOKE_REPO: hlvm-dev/hql
           HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
-        run: |
-          ./scripts/release-smoke.ps1 -Mode "staged" -Tag "${{ needs.resolve.outputs.tag }}"
+        run: ./scripts/release-smoke.ps1 -Mode "staged" -Tag "${{ needs.resolve.outputs.tag }}"
 
   # ─── Phase 4: Publish draft → live ──────────────────────────────────────
   publish:
@@ -446,55 +205,24 @@ jobs:
           TAG="${{ needs.resolve.outputs.tag }}"
           gh release view "$TAG" \
             --repo "${{ env.PUBLIC_RELEASE_REPO }}" \
-            --json isDraft,assets \
-            > release.json
+            --json isDraft,assets > release.json
 
           jq -e '.isDraft == true' release.json >/dev/null
 
-          has_asset() {
-            jq -e --arg name "$1" '.assets[] | select(.name == $name)' release.json >/dev/null
-          }
-
-          has_direct_or_split_asset() {
-            name="$1"
-            if has_asset "$name"; then
-              return 0
-            fi
-
-            jq -e --arg prefix "${name}.part-" \
-              '[.assets[] | select(.name | startswith($prefix))] | length > 0' \
-              release.json \
-              >/dev/null
-          }
-
-          for asset in \
-            hlvm-mac-arm \
-            hlvm-mac-intel \
-            checksums.sha256 \
-            install.sh \
-            install.ps1
-          do
-            has_asset "$asset"
+          for asset in hlvm-mac-arm hlvm-mac-intel hlvm-linux hlvm-windows.exe checksums.sha256 install.sh install.ps1; do
+            jq -e --arg name "$asset" '.assets[] | select(.name == $name)' release.json >/dev/null
           done
-
-          has_direct_or_split_asset hlvm-linux
-          has_direct_or_split_asset hlvm-windows.zip
 
       - name: Validate installer URLs
         run: |
-          curl --fail --silent --show-error --location \
-            --retry 5 --retry-delay 2 --retry-all-errors \
-            --head https://hlvm.dev/install.sh >/dev/null
-          curl --fail --silent --show-error --location \
-            --retry 5 --retry-delay 2 --retry-all-errors \
-            --head https://hlvm.dev/install.ps1 >/dev/null
+          curl --fail --silent --head https://hlvm.dev/install.sh >/dev/null
+          curl --fail --silent --head https://hlvm.dev/install.ps1 >/dev/null
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
         run: |
-          TAG="${{ needs.resolve.outputs.tag }}"
-          gh release edit "$TAG" \
+          gh release edit "${{ needs.resolve.outputs.tag }}" \
             --repo "${{ env.PUBLIC_RELEASE_REPO }}" \
             --draft=false
 
@@ -518,17 +246,14 @@ jobs:
             allow_failure: true
     steps:
       - uses: actions/checkout@v4
-
-      - name: Validate published release is latest
-        shell: bash
+      - name: Validate published release
         run: |
           actual=$(curl -fsSL "https://api.github.com/repos/${{ env.PUBLIC_RELEASE_REPO }}/releases/latest" | jq -r '.tag_name')
           [ "$actual" = "${{ needs.resolve.outputs.tag }}" ]
-
       - name: Public Unix smoke
         env:
-          HLVM_PUBLIC_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
-        run: sh scripts/public-release-smoke.sh standard
+          HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
+        run: sh scripts/public-release-smoke.sh
 
   public-windows:
     name: Public smoke windows
@@ -537,12 +262,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Windows public smoke
-        shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
-          HLVM_SMOKE_REPO: hlvm-dev/hql
           HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
-        run: |
-          ./scripts/release-smoke.ps1 -Mode "public" -Tag "${{ needs.resolve.outputs.tag }}"
+        run: ./scripts/release-smoke.ps1 -Mode "public" -Tag "${{ needs.resolve.outputs.tag }}"

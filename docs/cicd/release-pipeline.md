@@ -14,7 +14,7 @@ THE USER EXPERIENCE
 
     > Platform: darwin/aarch64 → hlvm-mac-arm
     > Version:  v0.2.0
-    > Downloading hlvm-mac-arm... (120 MB)
+    > Downloading hlvm-mac-arm... (363 MB)
     ✓ Checksum verified.
     ✓ Installed to /usr/local/bin/hlvm
     > Bootstrapping...
@@ -55,14 +55,14 @@ One tag push triggers the entire pipeline. No manual steps.
  │                                                                 │
  │  ALL PLATFORMS BUILD IDENTICALLY:                               │
  │    checkout → setup Deno → build stdlib → embed packages        │
- │    → deno compile → upload ~120 MB artifact                     │
+ │    → deno compile → upload ~363 MB artifact                     │
  │                                                                 │
  │  ┌───────────────┐ ┌───────────────┐ ┌────────┐ ┌────────────┐ │
  │  │ macOS ARM     │ │ macOS Intel   │ │ Linux  │ │ Windows    │ │
- │  │ ~120 MB       │ │ ~120 MB       │ │ ~120 MB│ │ ~120 MB    │ │
+ │  │ ~363 MB       │ │ ~363 MB       │ │ ~363 MB│ │ ~363 MB    │ │
  │  └───────────────┘ └───────────────┘ └────────┘ └────────────┘ │
  └──────────────────────────────┬──────────────────────────────────┘
-                                │ artifacts uploaded (~480 MB total)
+                                │ artifacts uploaded (~1.5 GB total)
  ┌──────────────────────────────▼──────────────────────────────────┐
  │  PHASE 3: CREATE DRAFT RELEASE                                  │
  │  Download artifacts → generate SHA-256 checksums                │
@@ -98,10 +98,10 @@ All four platforms build identically. No special cases.
 
 | Platform    | Runner           | Binary Name      | Size    |
 | ----------- | ---------------- | ---------------- | ------- |
-| macOS ARM   | `macos-latest`   | `hlvm-mac-arm`   | ~120 MB |
-| macOS Intel | `macos-15-intel` | `hlvm-mac-intel` | ~120 MB |
-| Linux x64   | `macos-latest`   | `hlvm-linux`     | ~120 MB |
-| Windows x64 | `macos-latest`   | `hlvm-windows.exe` | ~120 MB |
+| macOS ARM   | `macos-latest`   | `hlvm-mac-arm`   | ~363 MB |
+| macOS Intel | `macos-15-intel` | `hlvm-mac-intel` | ~363 MB |
+| Linux x64   | `macos-latest`   | `hlvm-linux`     | ~363 MB |
+| Windows x64 | `macos-latest`   | `hlvm-windows.exe` | ~363 MB |
 
 Linux and Windows are cross-compiled on macOS via Deno's built-in cross-compile.
 
@@ -113,20 +113,20 @@ Linux and Windows are cross-compiled on macOS via Deno's built-in cross-compile.
 3. Build stdlib (scripts/build-stdlib.ts)
 4. Embed HLVM packages (scripts/embed-packages.ts)
 5. Compile: deno compile --target <target> --output <name>
-6. Upload as GitHub Actions artifact (~120 MB)
+6. Upload as GitHub Actions artifact (~363 MB)
 ```
 
 No Ollama download. No engine embedding. No file splitting. No zip packaging.
 
 ---
 
-## Release Assets (7 total, ~480 MB)
+## Release Assets (7 total, ~1.5 GB)
 
 ```
-hlvm-mac-arm         ~120 MB
-hlvm-mac-intel       ~120 MB
-hlvm-linux           ~120 MB
-hlvm-windows.exe     ~120 MB
+hlvm-mac-arm         ~363 MB
+hlvm-mac-intel       ~363 MB
+hlvm-linux           ~363 MB
+hlvm-windows.exe     ~363 MB
 checksums.sha256     ~1 KB
 install.sh           ~5 KB
 install.ps1          ~5 KB
@@ -196,10 +196,10 @@ file:// overrides. Real public URLs end to end.
 ```
 Firebase Hosting (hlvm.dev)           GitHub Releases (hlvm-dev/hql)
 ───────────────────────────           ────────────────────────────
-install.sh   (~5 KB)                  hlvm-mac-arm      ~120 MB
-install.ps1  (~5 KB)                  hlvm-mac-intel    ~120 MB
-                                      hlvm-linux        ~120 MB
-These scripts tell the user's         hlvm-windows.exe  ~120 MB
+install.sh   (~5 KB)                  hlvm-mac-arm      ~363 MB
+install.ps1  (~5 KB)                  hlvm-mac-intel    ~363 MB
+                                      hlvm-linux        ~363 MB
+These scripts tell the user's         hlvm-windows.exe  ~363 MB
 computer WHAT to download             checksums.sha256  ~1 KB
 and WHERE from.                       install.sh        ~5 KB (backup)
                                       install.ps1       ~5 KB (backup)
@@ -347,10 +347,10 @@ The new approach downloads Ollama at bootstrap instead of embedding it:
 
 | Dimension           | v0.1.0 (embedded)      | v0.2.0+ (lean binary)    |
 | ------------------- | ---------------------- | ------------------------ |
-| Binary size         | 587 MB - 5.2 GB        | ~120 MB (all platforms)  |
-| GitHub Release      | 8.5 GB, 10 files       | ~480 MB, 7 files         |
+| Binary size         | 587 MB - 5.2 GB        | ~363 MB (all platforms)  |
+| GitHub Release      | 8.5 GB, 10 files       | ~1.5 GB, 7 files         |
 | File splitting      | Required               | None                     |
 | Windows packaging   | Zip + sidecar          | Same as all platforms    |
 | CI build time       | ~20 min                | ~5 min                   |
 | User total download | 10-15 GB               | ~10 GB (same)            |
-| First download      | 587 MB - 5.2 GB        | ~120 MB                  |
+| First download      | 587 MB - 5.2 GB        | ~363 MB                  |
