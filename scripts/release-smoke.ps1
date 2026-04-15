@@ -65,22 +65,24 @@ try {
     Write-Host "==> Verifying bootstrap..."
     & "$InstallBin\hlvm.exe" bootstrap --verify
 
-    # First, try starting hlvm serve manually to capture any startup errors
-    Write-Host "==> Diagnostic: starting hlvm serve manually..."
-    $serveLog = Join-Path $SmokeRoot "serve-diagnostic.log"
-    $serveProc = Start-Process -FilePath "$InstallBin\hlvm.exe" -ArgumentList "serve" -RedirectStandardError $serveLog -PassThru -NoNewWindow
-    Start-Sleep -Seconds 10
-    Write-Host "==> Serve process status: HasExited=$($serveProc.HasExited), ExitCode=$($serveProc.ExitCode)"
-    if (Test-Path $serveLog) {
-        Write-Host "==> Serve stderr:"
-        Get-Content $serveLog | Select-Object -First 30 | ForEach-Object { Write-Host "    $_" }
+    # Check if Ollama is running before ask
+    Write-Host "==> Diagnostic: checking Ollama on port 11439..."
+    try {
+        $ollamaCheck = Invoke-WebRequest -Uri "http://127.0.0.1:11439/api/version" -TimeoutSec 5 -UseBasicParsing
+        Write-Host "==> Ollama running: $($ollamaCheck.Content)"
+    } catch {
+        Write-Host "==> Ollama NOT reachable on 11439: $_"
     }
-    # Kill the diagnostic serve process
-    Stop-Process -Id $serveProc.Id -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
+
+    # Check port 11435 (hlvm serve port)
+    Write-Host "==> Diagnostic: checking port 11435..."
+    $portCheck = netstat -ano | Select-String ":11435"
+    Write-Host "==> Port 11435 status: $portCheck"
 
     Write-Host "==> Running: hlvm ask `"$Prompt`""
+    $env:HLVM_LOG_LEVEL = "debug"
     $response = & "$InstallBin\hlvm.exe" ask $Prompt 2>&1
+    Remove-Item Env:\HLVM_LOG_LEVEL -ErrorAction SilentlyContinue
     Write-Host "Response: $response"
 
     if (-not $response) {
