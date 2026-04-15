@@ -65,24 +65,29 @@ try {
     Write-Host "==> Verifying bootstrap..."
     & "$InstallBin\hlvm.exe" bootstrap --verify
 
-    # Check if Ollama is running before ask
-    Write-Host "==> Diagnostic: checking Ollama on port 11439..."
-    try {
-        $ollamaCheck = Invoke-WebRequest -Uri "http://127.0.0.1:11439/api/version" -TimeoutSec 5 -UseBasicParsing
-        Write-Host "==> Ollama running: $($ollamaCheck.Content)"
-    } catch {
-        Write-Host "==> Ollama NOT reachable on 11439: $_"
+    # On Windows, Ollama's network socket dies when the parent (bootstrap) exits.
+    # Restart it before running hlvm ask.
+    Write-Host "==> Restarting Ollama for hlvm ask (Windows child process workaround)..."
+    $ollamaPath = Join-Path $env:USERPROFILE ".hlvm\.runtime\engine\ollama.exe"
+    if (Test-Path $ollamaPath) {
+        # Kill any stale Ollama process
+        Get-Process -Name "ollama" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        # Start fresh Ollama detached
+        $env:OLLAMA_HOST = "127.0.0.1:11439"
+        $env:OLLAMA_MODELS = Join-Path $env:USERPROFILE ".hlvm\.runtime\models"
+        Start-Process -FilePath $ollamaPath -ArgumentList "serve" -NoNewWindow -PassThru | Out-Null
+        Start-Sleep -Seconds 5
+        try {
+            $check = Invoke-WebRequest -Uri "http://127.0.0.1:11439/api/version" -TimeoutSec 10 -UseBasicParsing
+            Write-Host "==> Ollama restarted: $($check.Content)"
+        } catch {
+            Write-Host "==> WARNING: Ollama still not responding after restart"
+        }
     }
 
-    # Check port 11435 (hlvm serve port)
-    Write-Host "==> Diagnostic: checking port 11435..."
-    $portCheck = netstat -ano | Select-String ":11435"
-    Write-Host "==> Port 11435 status: $portCheck"
-
     Write-Host "==> Running: hlvm ask `"$Prompt`""
-    $env:HLVM_LOG_LEVEL = "debug"
     $response = & "$InstallBin\hlvm.exe" ask $Prompt 2>&1
-    Remove-Item Env:\HLVM_LOG_LEVEL -ErrorAction SilentlyContinue
     Write-Host "Response: $response"
 
     if (-not $response) {
