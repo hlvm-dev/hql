@@ -12,10 +12,6 @@ const state: ChromeExtSessionState = {
   monitoringEnabled: false,
 };
 
-export function getChromeExtSessionState(): ChromeExtSessionState {
-  return state;
-}
-
 export function resetChromeExtSessionState(): void {
   state.attachedDebuggerTabs.clear();
   state.monitoringEnabled = false;

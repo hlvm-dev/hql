@@ -975,7 +975,8 @@ Deno.test({
       },
     );
 
-    assertEquals(result, "42");
+    assertEquals(result.text, "42");
+    assertEquals(result.stopReason, "complete");
     assertEquals(sawSignal, true);
   },
 });
@@ -1015,7 +1016,7 @@ Deno.test({
       },
     );
 
-    assertEquals(result, "policy: blocked");
+    assertEquals(result.text, "policy: blocked");
     assertEquals(llmCalls, 0);
   },
 });
@@ -1038,7 +1039,8 @@ Deno.test({
         makeResponse('{"toolName":"search_code","args":{"pattern":"test"}}'),
     );
 
-    assertStringIncludes(result, "Native tool calling required");
+    assertStringIncludes(result.text, "Native tool calling required");
+    assertEquals(result.stopReason, "model_format_failure");
   },
 });
 
@@ -1135,7 +1137,7 @@ Deno.test({
       },
     );
 
-    assertEquals(result, "done");
+    assertEquals(result.text, "done");
     assertEquals(effectiveAllowlist(config)?.includes("tool_search"), true);
     assertEquals(effectiveAllowlist(config)?.includes("read_file"), true);
   },
@@ -1179,7 +1181,7 @@ Deno.test({
       },
     );
 
-    assertEquals(browserResult, "done");
+    assertEquals(browserResult.text, "done");
     assertEquals(
       config.toolProfileState?.layers.domain?.profileId,
       "browser_safe",
@@ -1208,7 +1210,7 @@ Deno.test({
       async () => makeResponse("done"),
     );
 
-    assertEquals(nonBrowserResult, "done");
+    assertEquals(nonBrowserResult.text, "done");
     assertEquals(config.toolProfileState?.layers.domain, undefined);
   },
 });
@@ -1242,7 +1244,7 @@ Deno.test({
       async () => makeResponse("done"),
     );
 
-    assertEquals(result, "done");
+    assertEquals(result.text, "done");
     assertEquals(config.toolProfileState?.layers.domain, undefined);
     const allowlist = effectiveAllowlist(config) ?? [];
     assertEquals(allowlist.includes("cu_observe"), true);
@@ -1270,8 +1272,12 @@ Deno.test({
     );
 
     assertEquals(
-      result.includes("Maximum iterations") ||
-        result.includes("Tool call loop detected"),
+      result.text.includes("Maximum iterations") ||
+        result.text.includes("Tool call loop detected"),
+      true,
+    );
+    assertEquals(
+      ["max_iterations", "tool_loop_detected"].includes(result.stopReason),
       true,
     );
   },
@@ -1309,7 +1315,9 @@ Deno.test({
         },
       );
 
-      assertEquals(result, "Final answer from gathered evidence.");
+      assertEquals(result.text, "Final answer from gathered evidence.");
+      assertEquals(result.stopReason, "max_iterations");
+      assertEquals(result.synthesizedFinal, true);
       assertEquals(llmCalls, 2);
       assertEquals(callOptionsSeen[0]?.disableTools, undefined);
       assertEquals(callOptionsSeen[1]?.disableTools, true);
@@ -1379,9 +1387,9 @@ Deno.test({
         },
       );
 
-      assertStringIncludes(result, "Plan ready: Add checklist header");
-      assertEquals(result.includes("Maximum iterations"), false);
-      assertEquals(result.includes("Tool call loop detected"), false);
+      assertStringIncludes(result.text, "Plan ready: Add checklist header");
+      assertEquals(result.text.includes("Maximum iterations"), false);
+      assertEquals(result.text.includes("Tool call loop detected"), false);
       assertEquals(phases, ["drafting", "reviewing"]);
       assertEquals(llmCalls >= 4, true);
     });
@@ -1443,7 +1451,7 @@ Deno.test({
       },
     );
 
-    assertEquals(result, "ok");
+    assertEquals(result.text, "ok");
     assertEquals(seenMessageCounts.length, 2);
     assertEquals(seenMessageCounts[0] > seenMessageCounts[1], true);
     assertEquals(seenMessageCounts[1] <= 4, true);
@@ -1485,7 +1493,9 @@ Deno.test({
       },
     );
 
-    assertEquals(result, `${first}and finishes cleanly.`);
+    assertEquals(result.text, `${first}and finishes cleanly.`);
+    assertEquals(result.continuedThisTurn, true);
+    assertEquals(result.continuationCount, 1);
     assertEquals(llmCalls, 2);
     assertEquals(callOptionsSeen[0]?.disableTools, undefined);
     assertEquals(callOptionsSeen[1]?.disableTools, true);
@@ -1526,7 +1536,7 @@ Deno.test({
       },
     );
 
-    assertEquals(result, `Alpha${overlapA}${overlapB}Omega`);
+    assertEquals(result.text, `Alpha${overlapA}${overlapB}Omega`);
     assertEquals(llmCalls, 3);
   },
 });
@@ -1558,7 +1568,8 @@ Deno.test({
       },
     );
 
-    assertStringIncludes(result, "Tool-call JSON in text is not accepted");
+    assertStringIncludes(result.text, "Tool-call JSON in text is not accepted");
+    assertEquals(result.stopReason, "model_format_failure");
     assertEquals(
       callOptionsSeen.some((entry) => entry.disableTools === true),
       false,
@@ -1612,7 +1623,7 @@ Deno.test({
       },
     );
 
-    assertEquals(result, "ok");
+    assertEquals(result.text, "ok");
     assertEquals(seenSummaryFlags[0], true);
     assertEquals(traces.includes("context_compaction"), true);
     assertEquals(turnStats.at(-1)?.compactionReason, "proactive_pressure");
@@ -1651,7 +1662,7 @@ Deno.test({
     );
 
     assertEquals(calls, 2);
-    assertEquals(result.length > 0, true);
+    assertEquals(result.text.length > 0, true);
     const deniedMessage = context.getMessages().find((message) =>
       message.content.includes("Tool execution denied")
     );
@@ -1777,7 +1788,7 @@ Deno.test({
           },
         );
 
-        assertEquals(result, "Here is the polished answer.");
+        assertEquals(result.text, "Here is the polished answer.");
       },
     );
 

@@ -26,6 +26,10 @@ import { serveCommand, showServeHelp } from "./commands/serve.ts";
 import { mcpCommand, showMcpHelp } from "./commands/mcp.ts";
 import { modelCommand, showModelHelp } from "./commands/model.ts";
 import { bootstrapCommand, showBootstrapHelp } from "./commands/bootstrap.ts";
+import {
+  chromeExtCommand,
+  showChromeExtHelp,
+} from "./commands/chrome-ext.ts";
 
 import { run as runCommand } from "./run.ts";
 import { startInkRepl } from "./repl-ink/index.tsx";
@@ -140,6 +144,7 @@ const COMMANDS: Record<string, CommandEntry> = {
   mcp: { run: mcpCommand, help: showMcpHelp },
   model: { run: modelCommand, help: showModelHelp },
   bootstrap: { run: bootstrapCommand, help: showBootstrapHelp },
+  "chrome-ext": { run: chromeExtCommand, help: showChromeExtHelp },
 };
 
 function exitIfNonZero(result: unknown): void {

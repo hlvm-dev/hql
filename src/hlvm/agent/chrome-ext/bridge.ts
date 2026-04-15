@@ -17,7 +17,7 @@ import type {
   ChromeExtRequest,
   ChromeExtResponse,
 } from "./types.ts";
-import { getAllSocketPaths } from "./common.ts";
+import { getAllSocketPaths, MAX_MESSAGE_SIZE } from "./common.ts";
 
 // ── Cached Resolution ───────────────────────────────────────────────
 
@@ -101,13 +101,13 @@ function nextRequestId(): string {
   return `req_${++_requestIdCounter}_${Date.now()}`;
 }
 
+/** Default timeout for chrome extension requests (30 seconds). */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 /**
  * Send a request to the Chrome extension via the native host socket.
  * Uses the same 4-byte LE length-prefix protocol as the native host.
  */
-/** Default timeout for chrome extension requests (30 seconds). */
-const REQUEST_TIMEOUT_MS = 30_000;
-
 export async function chromeExtRequest<T = unknown>(
   method: string,
   params: Record<string, unknown> = {},
@@ -135,19 +135,29 @@ export async function chromeExtRequest<T = unknown>(
     await conn.write(lengthBuffer);
     await conn.write(jsonBytes);
 
-    // Read response with length prefix (with timeout)
-    const responseLengthBuf = new Uint8Array(4);
+    // Read response (length prefix + body) with timeout
     const deadline = Date.now() + REQUEST_TIMEOUT_MS;
-    const bytesRead = await conn.read(responseLengthBuf);
-    if (bytesRead === null) {
-      throw new Error("Chrome extension bridge disconnected");
+
+    const responseLengthBuf = new Uint8Array(4);
+    let headerRead = 0;
+    while (headerRead < 4) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          `Chrome extension request timed out after ${REQUEST_TIMEOUT_MS}ms (method: ${method})`,
+        );
+      }
+      const n = await conn.read(responseLengthBuf.subarray(headerRead));
+      if (n === null) {
+        throw new Error("Chrome extension bridge disconnected");
+      }
+      headerRead += n;
     }
 
     const responseLength = new DataView(
       responseLengthBuf.buffer,
     ).getUint32(0, true);
 
-    if (responseLength === 0 || responseLength > 1024 * 1024) {
+    if (responseLength === 0 || responseLength > MAX_MESSAGE_SIZE) {
       throw new Error(
         `Invalid response length from Chrome extension: ${responseLength}`,
       );

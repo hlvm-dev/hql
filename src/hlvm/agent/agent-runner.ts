@@ -40,10 +40,13 @@ import { runtimeDirective } from "./runtime-messages.ts";
 import { resolveExistingMentionedFiles } from "./request-paths.ts";
 import { hasTool, resolveTools } from "./registry.ts";
 import {
+  type AgentLoopResult,
+  type AgentStopReason,
   type AgentUIEvent,
   type FinalResponseMeta,
   type InteractionRequestEvent,
   type InteractionResponse,
+  type OrchestratorConfig,
   runReActLoop,
   type TraceEvent,
 } from "./orchestrator.ts";
@@ -119,10 +122,7 @@ import {
   type PlanningPhase,
   restorePlanState,
 } from "./planning.ts";
-import {
-  computeRoutingResult,
-  type TaskDomain,
-} from "./request-routing.ts";
+import { computeRoutingResult, type TaskDomain } from "./request-routing.ts";
 import type { AllClassification } from "../runtime/local-llm.ts";
 import {
   effectiveToolSurfaceIncludesMutation,
@@ -647,6 +647,10 @@ function persistDeferredToolDiscoveriesForSession(options: {
 
 interface AgentRunnerResult {
   text: string;
+  stopReason: AgentStopReason;
+  iterations: number;
+  durationMs: number;
+  toolUseCount: number;
   structuredResult?: unknown;
   finalResponseMeta?: FinalResponseMeta;
   liveSession?: AgentSession;
@@ -1032,9 +1036,6 @@ export async function runAgentQuery(
     }
 
     let finalResponseMeta: FinalResponseMeta | undefined;
-    let latestTurnStats:
-      | Extract<AgentUIEvent, { type: "turn_stats" }>
-      | undefined;
     let activePlan:
       | Extract<AgentUIEvent, { type: "plan_created" }>["plan"]
       | undefined;
@@ -1207,7 +1208,7 @@ export async function runAgentQuery(
         }
       },
     } satisfies NonNullable<
-      NonNullable<Parameters<typeof runReActLoop>[1]>["planReview"]
+      NonNullable<OrchestratorConfig["planReview"]>
     >;
     if (session.llmConfig) {
       session.llmConfig.onToken = effectiveOnToken;
@@ -1237,9 +1238,6 @@ export async function runAgentQuery(
               },
             );
           }
-        }
-        if (event.type === "turn_stats") {
-          latestTurnStats = event;
         }
         if (event.type === "plan_created") {
           activePlan = event.plan;
@@ -1281,7 +1279,8 @@ export async function runAgentQuery(
         phase: planModeState.phase,
       });
     }
-    let text: string;
+    let text = "";
+    let loopResult: AgentLoopResult | undefined;
     let structuredResult: unknown;
     const compactionRevisionBefore = session.context.getCompactionRevision();
     try {
@@ -1291,9 +1290,7 @@ export async function runAgentQuery(
         permissionMode,
         maxToolCalls: profile.maxToolCalls,
         maxIterations: options.maxIterations ??
-          (taskDomain === "browser"
-            ? BROWSER_REACT_MAX_ITERATIONS
-            : undefined),
+          (taskDomain === "browser" ? BROWSER_REACT_MAX_ITERATIONS : undefined),
         maxBudgetUsd: options.maxBudgetUsd,
         groundingMode: profile.groundingMode,
         policy,
@@ -1401,18 +1398,19 @@ export async function runAgentQuery(
           model: LOCAL_FALLBACK_MODEL_ID,
           isAvailable: isLocalFallbackReady,
         },
-      } satisfies Parameters<typeof runReActLoop>[1];
+      } satisfies OrchestratorConfig;
       hookRuntime?.dispatchDetached("user_prompt_submit", {
         workspace,
         query,
         model,
       });
-      text = await runReActLoop(
+      loopResult = await runReActLoop(
         query,
         reactLoopConfig,
         session.llm,
         options.attachments,
       );
+      text = loopResult.text;
       traceReplMainThreadForSource(querySource, "agent.react.done", {
         requestId: options.requestId ?? null,
         sessionId: sessionKey,
@@ -1473,7 +1471,8 @@ export async function runAgentQuery(
     }
 
     const stats = session.context.getStats();
-    const usageSnapshot = usageTracker.snapshot(model);
+    const completedLoopResult = loopResult!;
+    const usageSnapshot = completedLoopResult.usage;
     const compactedThisTurn = session.context.getCompactionRevision() >
       compactionRevisionBefore;
 
@@ -1483,11 +1482,11 @@ export async function runAgentQuery(
       sessionId: sessionKey ?? undefined,
       turnId,
       text,
-      meta: finalResponseMeta,
+      meta: finalResponseMeta ?? completedLoopResult.finalResponseMeta,
       compactedThisTurn,
-      continuedThisTurn: latestTurnStats?.continuedThisTurn,
-      continuationCount: latestTurnStats?.continuationCount,
-      compactionReason: latestTurnStats?.compactionReason,
+      continuedThisTurn: completedLoopResult.continuedThisTurn,
+      continuationCount: completedLoopResult.continuationCount,
+      compactionReason: completedLoopResult.compactionReason,
       usage: usageSnapshot.calls > 0
         ? {
           inputTokens: usageSnapshot.totalPromptTokens,
@@ -1534,8 +1533,13 @@ export async function runAgentQuery(
     });
     return {
       text,
+      stopReason: completedLoopResult.stopReason,
+      iterations: completedLoopResult.iterations,
+      durationMs: completedLoopResult.durationMs,
+      toolUseCount: completedLoopResult.toolUseCount,
       structuredResult,
-      finalResponseMeta,
+      finalResponseMeta: finalResponseMeta ??
+        completedLoopResult.finalResponseMeta,
       liveSession: isReusableSession || options.retainSessionForReuse === true
         ? session
         : undefined,

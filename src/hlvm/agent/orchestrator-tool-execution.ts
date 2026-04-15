@@ -59,6 +59,10 @@ import {
   createProcessAbortHandler,
   readProcessStream,
 } from "../../common/stream-utils.ts";
+import {
+  composeAbortSignals,
+  createLinkedAbortController,
+} from "./concurrency.ts";
 import type { WriteVerificationResult } from "./lsp-diagnostics.ts";
 import {
   buildToolFailureMetadata,
@@ -133,9 +137,8 @@ async function executeToolWithTimeout(
   } = opts;
   return await withTimeout(
     async (signal) => {
-      // Wrap signal in a controller so CU escape can abort the current tool
-      const toolAbortController = new AbortController();
-      signal.addEventListener("abort", () => toolAbortController.abort(signal.reason), { once: true });
+      // Wrap signal in a linked controller so CU escape can abort the current tool.
+      const toolAbortController = createLinkedAbortController(signal);
       const toolOptions: ToolExecutionOptions = {
         signal: toolAbortController.signal,
         abortController: toolAbortController,
@@ -359,7 +362,13 @@ export async function executeToolCall(
   if (preToolFeedback?.blocked) {
     const msg = preToolFeedback.feedback ??
       `Tool ${toolCall.toolName} was blocked by a pre_tool hook.`;
-    return buildToolErrorResult(toolCall.toolName, msg, startedAt, config, toolCall.id);
+    return buildToolErrorResult(
+      toolCall.toolName,
+      msg,
+      startedAt,
+      config,
+      toolCall.id,
+    );
   }
   // Emit trace event: tool call
   config.onTrace?.({
@@ -850,9 +859,10 @@ export async function maybeVerifySyntax(
     });
 
     const abortController = new AbortController();
-    const streamSignal = config.signal
-      ? AbortSignal.any([config.signal, abortController.signal])
-      : abortController.signal;
+    const streamSignal = composeAbortSignals([
+      config.signal,
+      abortController.signal,
+    ]) ?? abortController.signal;
     const abortHandler = createProcessAbortHandler(process, platform.build.os);
     let timedOut = false;
 

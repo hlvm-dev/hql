@@ -8,8 +8,9 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
 import {
+  CHROME_BRIDGE_DIR_NAME,
+  CHROME_BRIDGE_WRAPPER_NAME,
   CHROMIUM_BROWSERS,
-  BROWSER_DETECTION_ORDER,
   EXTENSION_IDS,
   NATIVE_HOST_IDENTIFIER,
   NATIVE_HOST_MANIFEST_NAME,
@@ -46,8 +47,8 @@ function buildManifest(wrapperPath: string): string {
 async function createWrapperScript(): Promise<string> {
   const platform = getPlatform();
   const home = platform.env.get("HOME") ?? "/tmp";
-  const wrapperDir = platform.path.join(home, ".hlvm", "chrome-bridge");
-  const wrapperPath = platform.path.join(wrapperDir, "chrome-bridge-host.sh");
+  const wrapperDir = platform.path.join(home, ".hlvm", CHROME_BRIDGE_DIR_NAME);
+  const wrapperPath = platform.path.join(wrapperDir, CHROME_BRIDGE_WRAPPER_NAME);
 
   // Find the native-host.ts source
   const nativeHostPath = new URL("./native-host.ts", import.meta.url).pathname;
@@ -164,8 +165,8 @@ export async function uninstallNativeHost(): Promise<{
   const wrapperPath = platform.path.join(
     home,
     ".hlvm",
-    "chrome-bridge",
-    "chrome-bridge-host.sh",
+    CHROME_BRIDGE_DIR_NAME,
+    CHROME_BRIDGE_WRAPPER_NAME,
   );
   try {
     await platform.fs.remove(wrapperPath);

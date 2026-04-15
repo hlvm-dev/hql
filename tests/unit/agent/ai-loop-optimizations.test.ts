@@ -151,7 +151,7 @@ Deno.test({
         },
       );
 
-      assertEquals(result, "done");
+      assertEquals(result.text, "done");
       assertEquals(secondTurnAllowlist?.includes("edit_file"), true);
       assertEquals(secondTurnAllowlist?.includes("write_file"), true);
       assertEquals(secondTurnAllowlist?.includes("search_web"), false);
@@ -277,21 +277,27 @@ Deno.test("isMutatingTool treats L0 piped shell_exec as non-mutating", () => {
 
 Deno.test("isMutatingTool treats file-redirect shell_exec as mutating", () => {
   assertEquals(
-    isMutatingTool("shell_exec", undefined, { command: "ls /tmp > output.txt" }),
+    isMutatingTool("shell_exec", undefined, {
+      command: "ls /tmp > output.txt",
+    }),
     true,
   );
 });
 
 Deno.test("isMutatingTool treats read-only pipeline chain as non-mutating", () => {
   assertEquals(
-    isMutatingTool("shell_exec", undefined, { command: "cat file | grep pattern | wc -l" }),
+    isMutatingTool("shell_exec", undefined, {
+      command: "cat file | grep pattern | wc -l",
+    }),
     false,
   );
 });
 
 Deno.test("isMutatingTool treats pipeline containing destructive command as mutating", () => {
   assertEquals(
-    isMutatingTool("shell_exec", undefined, { command: "find . -name '*.ts' | xargs rm" }),
+    isMutatingTool("shell_exec", undefined, {
+      command: "find . -name '*.ts' | xargs rm",
+    }),
     true,
   );
 });

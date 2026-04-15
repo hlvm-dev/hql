@@ -72,7 +72,7 @@ async function runDemo(task: string) {
     console.log("\n" + "-".repeat(70));
     console.log("RESULT:");
     console.log("-".repeat(70));
-    console.log(result);
+    console.log(result.text);
     console.log("\n" + "-".repeat(70));
     console.log(`Completed in ${(duration / 1000).toFixed(2)}s`);
     console.log("-".repeat(70));
@@ -86,7 +86,10 @@ async function runDemo(task: string) {
 
     return true;
   } catch (error) {
-    console.error("\n❌ ERROR:", error instanceof Error ? error.message : error);
+    console.error(
+      "\n❌ ERROR:",
+      error instanceof Error ? error.message : error,
+    );
     return false;
   }
 }

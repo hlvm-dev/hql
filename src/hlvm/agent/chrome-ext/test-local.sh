@@ -1,6 +1,9 @@
 #!/bin/bash
-# Quick local test setup for HLVM Chrome Extension
-# Run this ONCE, then load the extension in Chrome.
+# HLVM Chrome Extension — Local Test Setup
+# Usage: ./test-local.sh [extension-id]
+#
+# If no extension-id is provided, installs the native host manifest
+# and prompts you to load the extension first.
 
 set -e
 
@@ -9,6 +12,7 @@ EXT_DIR="$SCRIPT_DIR/extension"
 NATIVE_HOST="$SCRIPT_DIR/native-host.ts"
 BRIDGE_DIR="$HOME/.hlvm/chrome-bridge"
 MANIFEST_NAME="com.hlvm.chrome_bridge.json"
+DENO_PATH="${DENO_EXEC_PATH:-$(which deno 2>/dev/null || echo "deno")}"
 
 echo "=== HLVM Chrome Extension — Local Test Setup ==="
 echo ""
@@ -16,56 +20,68 @@ echo ""
 # 1. Create wrapper script
 mkdir -p "$BRIDGE_DIR"
 WRAPPER="$BRIDGE_DIR/chrome-bridge-host.sh"
-
-DENO_PATH="${DENO_EXEC_PATH:-$(which deno)}"
 cat > "$WRAPPER" << EOF
 #!/bin/sh
 exec "$DENO_PATH" run --allow-all "$NATIVE_HOST" "\$@"
 EOF
 chmod +x "$WRAPPER"
-echo "✓ Wrapper script: $WRAPPER"
+echo "✓ Wrapper: $WRAPPER"
 
-# 2. Get extension ID (from loaded unpacked extension)
-# When you load unpacked, Chrome assigns an ID based on the path.
-# We use a wildcard allowed_origins for dev.
-EXT_ID="*"
+# 2. Get extension ID
+EXT_ID="$1"
 
-# 3. Install native messaging host manifest for Chrome
-CHROME_NMH="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
-mkdir -p "$CHROME_NMH"
+if [ -z "$EXT_ID" ]; then
+  echo ""
+  echo "No extension ID provided."
+  echo ""
+  echo "Step 1: Load the extension in Chrome:"
+  echo "  1. Open chrome://extensions"
+  echo "  2. Enable 'Developer mode' (top-right toggle)"
+  echo "  3. Click 'Load unpacked' → select:"
+  echo "     $EXT_DIR"
+  echo ""
+  echo "Step 2: Copy the extension ID from the card, then re-run:"
+  echo "  ./test-local.sh <extension-id>"
+  echo ""
+  exit 0
+fi
 
-cat > "$CHROME_NMH/$MANIFEST_NAME" << EOF
+# Validate extension ID format (32 lowercase hex chars)
+if ! echo "$EXT_ID" | grep -qE '^[a-p]{32}$'; then
+  echo "⚠ Extension ID '$EXT_ID' looks unusual (expected 32 chars a-p)."
+  echo "  Proceeding anyway..."
+fi
+
+# 3. Install native messaging host manifest
+install_manifest() {
+  local browser_name="$1"
+  local nmh_dir="$2"
+
+  if [ -d "$(dirname "$nmh_dir")" ]; then
+    mkdir -p "$nmh_dir"
+    cat > "$nmh_dir/$MANIFEST_NAME" << EOF
 {
   "name": "com.hlvm.chrome_bridge",
   "description": "HLVM Browser Bridge Native Host",
   "path": "$WRAPPER",
   "type": "stdio",
-  "allowed_origins": ["chrome-extension://$EXT_ID/"]
+  "allowed_origins": [
+    "chrome-extension://$EXT_ID/"
+  ]
 }
 EOF
-echo "✓ Native host manifest: $CHROME_NMH/$MANIFEST_NAME"
+    echo "✓ $browser_name: $nmh_dir/$MANIFEST_NAME"
+  fi
+}
 
-# 4. Also install for Brave if present
-BRAVE_NMH="$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts"
-if [ -d "$HOME/Library/Application Support/BraveSoftware/Brave-Browser" ]; then
-  mkdir -p "$BRAVE_NMH"
-  cp "$CHROME_NMH/$MANIFEST_NAME" "$BRAVE_NMH/$MANIFEST_NAME"
-  echo "✓ Native host manifest (Brave): $BRAVE_NMH/$MANIFEST_NAME"
-fi
+install_manifest "Chrome" "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+install_manifest "Brave"  "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+install_manifest "Arc"    "$HOME/Library/Application Support/Arc/User Data/NativeMessagingHosts"
+install_manifest "Edge"   "$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts"
 
 echo ""
-echo "=== Next Steps ==="
+echo "=== Done ==="
 echo ""
-echo "1. Open Chrome → chrome://extensions"
-echo "2. Enable 'Developer mode' (top-right toggle)"
-echo "3. Click 'Load unpacked' → select:"
-echo "   $EXT_DIR"
-echo ""
-echo "4. NOTE the extension ID Chrome assigns (shown on the card)"
-echo "5. Edit $CHROME_NMH/$MANIFEST_NAME"
-echo "   Replace the allowed_origins \"*\" with:"
-echo "   \"chrome-extension://YOUR_EXTENSION_ID/\""
-echo ""
-echo "6. Restart Chrome"
-echo "7. Click the HLVM extension icon — should show 'Connected'"
+echo "Now restart Chrome, then click the HLVM extension icon."
+echo "It should show 'Connected to HLVM CLI'."
 echo ""

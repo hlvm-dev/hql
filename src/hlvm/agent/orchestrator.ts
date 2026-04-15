@@ -53,6 +53,7 @@ import {
   observeTokenUsage,
   type TokenUsage,
   toTokenUsage,
+  type UsageSnapshot,
   UsageTracker,
 } from "./usage.ts";
 export type { LLMResponse, ToolCall } from "./tool-call.ts";
@@ -143,6 +144,10 @@ import {
   uniqueToolList,
   updateToolProfileLayer,
 } from "./tool-profiles.ts";
+import {
+  createCallbackEventSink,
+  createCompositeEventSink,
+} from "./agent-events.ts";
 
 // ============================================================
 // Types
@@ -372,6 +377,36 @@ export interface FinalResponseMeta {
   providerMetadata?: Record<string, unknown>;
 }
 
+export type MaybePromise<T> = T | Promise<T>;
+
+export type AgentStopReason =
+  | "complete"
+  | "cancelled"
+  | "timeout"
+  | "max_budget"
+  | "max_iterations"
+  | "context_overflow"
+  | "plan_review_cancelled"
+  | "tool_required"
+  | "model_format_failure"
+  | "tool_loop_detected"
+  | "tool_failures";
+
+export interface AgentLoopResult {
+  text: string;
+  stopReason: AgentStopReason;
+  iterations: number;
+  durationMs: number;
+  usage: UsageSnapshot;
+  toolUseCount: number;
+  finalResponseMeta?: FinalResponseMeta;
+  planState?: PlanState | null;
+  continuedThisTurn?: boolean;
+  continuationCount?: number;
+  compactionReason?: "proactive_pressure" | "overflow_retry";
+  synthesizedFinal?: boolean;
+}
+
 export type RuntimeToolPhase =
   | "researching"
   | "editing"
@@ -461,44 +496,100 @@ export type AgentUIEvent =
     written: MemoryActivityEntry[];
     searched?: { query: string; count: number };
   }
-  | { type: "agent_spawn"; agentId: string; agentType: string; description: string; isAsync: boolean }
-  | { type: "agent_progress"; agentId: string; agentType: string; toolUseCount: number; durationMs: number }
-  | { type: "agent_complete"; agentId: string; agentType: string; success: boolean; durationMs: number; toolUseCount: number; totalTokens?: number; resultPreview?: string; transcript?: string }
+  | {
+    type: "agent_spawn";
+    agentId: string;
+    agentType: string;
+    description: string;
+    isAsync: boolean;
+  }
+  | {
+    type: "agent_progress";
+    agentId: string;
+    agentType: string;
+    toolUseCount: number;
+    durationMs: number;
+  }
+  | {
+    type: "agent_complete";
+    agentId: string;
+    agentType: string;
+    success: boolean;
+    durationMs: number;
+    toolUseCount: number;
+    totalTokens?: number;
+    resultPreview?: string;
+    transcript?: string;
+  }
   | InteractionRequestEvent;
+
+export type AgentEvent =
+  | { type: "token"; text: string }
+  | { type: "ui"; event: AgentUIEvent }
+  | { type: "trace"; event: TraceEvent }
+  | { type: "final_response_meta"; meta: FinalResponseMeta }
+  | { type: "result"; result: AgentLoopResult };
+
+export interface AgentEventSink {
+  emit(event: AgentEvent): MaybePromise<void>;
+  close?(result: AgentLoopResult): MaybePromise<void>;
+  error?(error: unknown): MaybePromise<void>;
+}
+
+type AgentCallback<T> = (event: T) => MaybePromise<unknown>;
 
 // Re-export from registry (SSOT)
 export type { InteractionRequestEvent, InteractionResponse };
 
-/** Orchestrator configuration */
-export interface OrchestratorConfig {
+export interface OrchestratorWorkspaceConfig {
   workspace: string;
   context: ContextManager;
-  permissionMode?: AgentExecutionMode;
-  maxToolCalls?: number;
-  maxDenials?: number;
+  signal?: AbortSignal;
+}
+
+export interface OrchestratorLimitConfig {
   /** Override max ReAct loop iterations (default: MAX_ITERATIONS). */
   maxIterations?: number;
   /** Maximum API cost in USD — loop exits when exceeded (headless safety). */
   maxBudgetUsd?: number;
   /** Override total loop timeout in ms (default: DEFAULT_TIMEOUTS.total). */
   totalTimeout?: number;
-  onTrace?: (event: TraceEvent) => void;
-  onAgentEvent?: (event: AgentUIEvent) => void;
-  onFinalResponseMeta?: (meta: FinalResponseMeta) => void;
-  onToken?: (text: string) => void;
   llmTimeout?: number;
   toolTimeout?: number;
+  maxToolCalls?: number;
+  maxDenials?: number;
   maxToolCallRepeat?: number;
   continueOnError?: boolean;
-  groundingMode?: GroundingMode;
   llmRateLimit?: RateLimitConfig;
   toolRateLimit?: RateLimitConfig;
   maxTotalToolResultBytes?: number;
   llmRateLimiter?: SlidingWindowRateLimiter | null;
   toolRateLimiter?: SlidingWindowRateLimiter | null;
+  requireToolCalls?: boolean;
+  maxToolCallRetries?: number;
+  noInput?: boolean;
+}
+
+export interface OrchestratorEventConfig {
+  eventSink?: AgentEventSink;
+  onTrace?: AgentCallback<TraceEvent>;
+  onAgentEvent?: AgentCallback<AgentUIEvent>;
+  onFinalResponseMeta?: AgentCallback<FinalResponseMeta>;
+  onToken?: AgentCallback<string>;
+  onInteraction?: (
+    event: InteractionRequestEvent,
+  ) => Promise<InteractionResponse>;
+}
+
+export interface OrchestratorPermissionConfig {
+  permissionMode?: AgentExecutionMode;
   policy?: AgentPolicy | null;
-  playwrightInstallAttempted?: boolean;
-  usage?: UsageTracker;
+  l1Confirmations?: Map<string, boolean>;
+  permissionToolAllowlist?: string[];
+  permissionToolDenylist?: string[];
+}
+
+export interface OrchestratorPlanningConfig {
   planning?: PlanningConfig;
   planModeState?: {
     active: boolean;
@@ -509,13 +600,23 @@ export interface OrchestratorConfig {
     planningAllowlist?: string[];
     directFileTargets?: string[];
   };
+  /** Optional restored plan state for continued multi-step runs. */
+  initialPlanState?: PlanState | null;
+  /** Optional plan review gate before mutating actions. */
+  planReview?: {
+    getCurrentPlan: () => Plan | undefined;
+    ensureApproved: (
+      plan: Plan,
+    ) => Promise<"approved" | "cancelled" | "revise">;
+    shouldGateMutatingTools: () => boolean;
+  };
+}
+
+export interface OrchestratorToolConfig {
   /** Optional flat filter seed used when toolProfileState is omitted. */
   toolAllowlist?: string[];
   /** Optional flat deny seed used when toolProfileState is omitted. */
   toolDenylist?: string[];
-  /** Explicit permission overrides from the caller, distinct from tool visibility. */
-  permissionToolAllowlist?: string[];
-  permissionToolDenylist?: string[];
   /** Canonical persistent baseline before domain-specific widening. */
   baselineToolAllowlistSeed?: string[];
   /** Discovered deferred tools preserved across reused requests. */
@@ -527,57 +628,24 @@ export interface OrchestratorConfig {
   toolSearchUniverseDenylist?: string[];
   /** Persist main-thread deferred tool discoveries into the session baseline. */
   onToolSearchDiscovered?: (toolNames: string[]) => string[] | undefined;
+  toolOwnerId?: string;
+  /** Optional lazy MCP loader called on demand. */
+  ensureMcpLoaded?: (signal?: AbortSignal) => Promise<void>;
+}
+
+export interface OrchestratorModelConfig {
   /** Mutable reasoning state shared with the engine. */
   thinkingState?: ThinkingState;
   /** Whether the active model can use provider-native reasoning/thinking. */
   thinkingCapable?: boolean;
   /** Whether the active model supports vision (image) inputs. */
   visionCapable?: boolean;
-  l1Confirmations?: Map<string, boolean>;
-  toolOwnerId?: string;
-  /** Optional lazy MCP loader called on demand. */
-  ensureMcpLoaded?: (signal?: AbortSignal) => Promise<void>;
-  requireToolCalls?: boolean;
-  maxToolCallRetries?: number;
-  noInput?: boolean;
-  onInteraction?: (
-    event: InteractionRequestEvent,
-  ) => Promise<InteractionResponse>;
   skipModelCompensation?: boolean;
   modelTier?: ModelTier;
   routingResult?: RoutingResult;
   modelId?: string;
-  sessionId?: string;
-  turnId?: string;
-  querySource?: string;
   eagerToolCount?: number;
   discoveredDeferredToolCount?: number;
-  currentUserRequest?: string;
-  signal?: AbortSignal;
-  /** Enable one-time automatic memory recall for this user turn. */
-  autoMemoryRecall?: boolean;
-  /** Session-scoped todo state used by todo_read/todo_write. */
-  todoState?: TodoState;
-  /** Per-session file integrity cache (read tracking, stale-edit detection, restoration hints). */
-  fileStateCache?: FileStateCache;
-  /** Session-scoped LSP diagnostics runtime for post-write verification. */
-  lspDiagnostics?: LspDiagnosticsRuntime;
-  /** Optional lifecycle hook runtime loaded from .hlvm/hooks.json. */
-  hookRuntime?: AgentHookRuntime;
-  /** Optional restored plan state for continued multi-step runs. */
-  initialPlanState?: PlanState | null;
-  /** Optional plan review gate before mutating actions. */
-  planReview?: {
-    getCurrentPlan: () => Plan | undefined;
-    ensureApproved: (
-      plan: Plan,
-    ) => Promise<"approved" | "cancelled" | "revise">;
-    shouldGateMutatingTools: () => boolean;
-  };
-  /** Input queue for parent→child mid-task steering messages. */
-  agentProfiles?: readonly AgentProfile[];
-  /** Resolved instruction hierarchy for child agent prompt compilation. */
-  instructions?: import("../prompt/types.ts").InstructionHierarchy;
   /** Fallback model IDs for auto-select mode (tried on transient failures). */
   autoFallbacks?: string[];
   /** Factory to create an LLM function for a fallback model. */
@@ -587,6 +655,45 @@ export interface OrchestratorConfig {
   /** LLM function reference for sub-agent spawning via Agent tool. */
   llmFunction?: LLMFunction;
 }
+
+export interface OrchestratorSessionConfig {
+  sessionId?: string;
+  turnId?: string;
+  querySource?: string;
+  currentUserRequest?: string;
+  /** Enable one-time automatic memory recall for this user turn. */
+  autoMemoryRecall?: boolean;
+  /** Session-scoped todo state used by todo_read/todo_write. */
+  todoState?: TodoState;
+  /** Input queue for parent→child mid-task steering messages. */
+  agentProfiles?: readonly AgentProfile[];
+  /** Resolved instruction hierarchy for child agent prompt compilation. */
+  instructions?: import("../prompt/types.ts").InstructionHierarchy;
+  usage?: UsageTracker;
+}
+
+export interface OrchestratorDiagnosticsConfig {
+  playwrightInstallAttempted?: boolean;
+  groundingMode?: GroundingMode;
+  /** Per-session file integrity cache (read tracking, stale-edit detection, restoration hints). */
+  fileStateCache?: FileStateCache;
+  /** Session-scoped LSP diagnostics runtime for post-write verification. */
+  lspDiagnostics?: LspDiagnosticsRuntime;
+  /** Optional lifecycle hook runtime loaded from .hlvm/hooks.json. */
+  hookRuntime?: AgentHookRuntime;
+}
+
+/** Orchestrator configuration */
+export type OrchestratorConfig =
+  & OrchestratorWorkspaceConfig
+  & OrchestratorLimitConfig
+  & OrchestratorEventConfig
+  & OrchestratorPermissionConfig
+  & OrchestratorPlanningConfig
+  & OrchestratorToolConfig
+  & OrchestratorModelConfig
+  & OrchestratorSessionConfig
+  & OrchestratorDiagnosticsConfig;
 
 function memoryWriteAvailable(config: OrchestratorConfig): boolean {
   const allowlist = effectiveAllowlist(config);
@@ -626,7 +733,6 @@ export const EDIT_PHASE_CATEGORIES = new Set([
 
 /** @internal Exported for unit testing only. */
 export const VERIFY_PHASE_CATEGORIES = EDIT_PHASE_CATEGORIES;
-
 
 /** @internal Exported for unit testing only. */
 export const COMPLETE_PHASE_CATEGORIES = new Set([
@@ -982,6 +1088,80 @@ function buildLimitStopMessage(
   ].join("\n");
 }
 
+function normalizeLoopEventConfig(
+  config: OrchestratorConfig,
+  captureFinalResponseMeta: (meta: FinalResponseMeta) => void,
+): OrchestratorConfig {
+  const callbackSink = createCallbackEventSink({
+    onToken: config.onToken,
+    onAgentEvent: config.onAgentEvent,
+    onTrace: config.onTrace,
+    onFinalResponseMeta: config.onFinalResponseMeta,
+  });
+  const eventSink = config.eventSink
+    ? createCompositeEventSink([config.eventSink, callbackSink])
+    : callbackSink;
+  return {
+    ...config,
+    eventSink,
+    onToken: (text) => eventSink.emit({ type: "token", text }),
+    onAgentEvent: (event) => eventSink.emit({ type: "ui", event }),
+    onTrace: (event) => eventSink.emit({ type: "trace", event }),
+    onFinalResponseMeta: (meta) => {
+      captureFinalResponseMeta(meta);
+      return eventSink.emit({ type: "final_response_meta", meta });
+    },
+  };
+}
+
+function buildAgentLoopResult(options: {
+  text: string;
+  stopReason: AgentStopReason;
+  state: LoopState;
+  startedAt: number;
+  modelId?: string;
+  toolUseCount: number;
+  finalResponseMeta?: FinalResponseMeta;
+  synthesizedFinal?: boolean;
+}): AgentLoopResult {
+  const {
+    text,
+    stopReason,
+    state,
+    startedAt,
+    modelId,
+    toolUseCount,
+    finalResponseMeta,
+    synthesizedFinal,
+  } = options;
+  return {
+    text,
+    stopReason,
+    iterations: state.iterations,
+    durationMs: Date.now() - startedAt,
+    usage: state.usageTracker.snapshot(modelId),
+    toolUseCount,
+    finalResponseMeta,
+    planState: state.planState,
+    continuedThisTurn: state.continuedThisTurn || undefined,
+    continuationCount: state.continuationCount || undefined,
+    compactionReason: state.compactionReason,
+    synthesizedFinal: synthesizedFinal || undefined,
+  };
+}
+
+async function closeLoopResult(
+  config: OrchestratorConfig,
+  result: AgentLoopResult,
+): Promise<AgentLoopResult> {
+  if (config.eventSink?.close) {
+    await config.eventSink.close(result);
+  } else {
+    await config.eventSink?.emit({ type: "result", result });
+  }
+  return result;
+}
+
 const LOOP_EXHAUSTION_FINAL_ANSWER_PROMPT = runtimeDirective(
   "The tool/iteration budget is exhausted. Provide the best direct answer to the user now using only the evidence already gathered. Do not call tools. Do not narrate your next step. If the evidence is insufficient, state exactly what is missing.",
 );
@@ -1292,7 +1472,9 @@ export async function runReActLoop(
   config: OrchestratorConfig,
   llmFunction: LLMFunction,
   attachments?: ConversationAttachmentPayload[],
-): Promise<string> {
+): Promise<AgentLoopResult> {
+  const startedAt = Date.now();
+  let finalResponseMeta: FinalResponseMeta | undefined;
   if (!config.llmFunction) {
     config = { ...config, llmFunction };
   }
@@ -1304,10 +1486,32 @@ export async function runReActLoop(
   ) {
     ensureToolProfileState(config);
   }
+  config = normalizeLoopEventConfig(config, (meta) => {
+    finalResponseMeta = meta;
+  });
   const { context, onTrace } = config;
 
   const state = initializeLoopState(config);
   const lc = resolveLoopConfig(config);
+  let toolUseCount = 0;
+  const finish = (
+    text: string,
+    stopReason: AgentStopReason,
+    options: { synthesizedFinal?: boolean } = {},
+  ) =>
+    closeLoopResult(
+      config,
+      buildAgentLoopResult({
+        text,
+        stopReason,
+        state,
+        startedAt,
+        modelId: config.modelId,
+        toolUseCount,
+        finalResponseMeta,
+        synthesizedFinal: options.synthesizedFinal,
+      }),
+    );
   const autoMemoryRecall = config.autoMemoryRecall ?? false;
   resetWebToolBudget();
   await applyRequestDomainToolProfile(config);
@@ -1373,17 +1577,26 @@ export async function runReActLoop(
   // Main ReAct loop
   while (state.iterations < lc.maxIterations) {
     if (config.signal?.aborted) {
-      return state.lastResponse || "Request cancelled by client";
+      return await finish(
+        state.lastResponse || "Request cancelled by client",
+        "cancelled",
+      );
     }
     if (Date.now() > lc.loopDeadline) {
-      return buildLimitStopMessage("timeout", state, lc);
+      return await finish(
+        buildLimitStopMessage("timeout", state, lc),
+        "timeout",
+      );
     }
     if (lc.maxBudgetUsd !== undefined) {
       const snap = state.usageTracker.snapshot(config.modelId);
       if (
         snap.totalCostUsd !== undefined && snap.totalCostUsd > lc.maxBudgetUsd
       ) {
-        return buildLimitStopMessage("max_budget", state, lc);
+        return await finish(
+          buildLimitStopMessage("max_budget", state, lc),
+          "max_budget",
+        );
       }
     }
     state.iterations++;
@@ -1603,7 +1816,7 @@ export async function runReActLoop(
         );
         const suffix = mergedText.slice(previousText.length);
         if (suffix) {
-          config.onToken?.(suffix);
+          await config.onToken?.(suffix);
         }
         agentResponse = {
           ...continuationResult.agentResponse,
@@ -1642,13 +1855,19 @@ export async function runReActLoop(
         config,
       );
       if (textResult.action === "continue") continue;
-      if (textResult.action === "return") return textResult.value;
+      if (textResult.action === "return") {
+        return await finish(
+          textResult.value,
+          textResult.stopReason ?? "complete",
+        );
+      }
 
       const result = await processAgentResponse(
         agentResponse,
         config,
         lc.toolRateLimiter,
       );
+      toolUseCount += result.toolCallsMade;
       const usageSnapshot = state.usageTracker.snapshot(config.modelId);
 
       config.onAgentEvent?.({
@@ -1677,7 +1896,12 @@ export async function runReActLoop(
           config,
         );
         if (final.action === "continue") continue;
-        if (final.action === "return") return final.value;
+        if (final.action === "return") {
+          return await finish(
+            final.value,
+            final.stopReason ?? "complete",
+          );
+        }
       }
 
       const post = await handlePostToolExecution(
@@ -1688,11 +1912,19 @@ export async function runReActLoop(
         llmFunction,
       );
       if (post.action === "continue") continue;
-      if (post.action === "return") return post.value;
+      if (post.action === "return") {
+        return await finish(
+          post.value,
+          post.stopReason ?? "complete",
+        );
+      }
     } catch (error) {
       if (error instanceof ContextOverflowError) {
-        return state.lastResponse ||
-          "Context limit reached. Please start a new conversation.";
+        return await finish(
+          state.lastResponse ||
+            "Context limit reached. Please start a new conversation.",
+          "context_overflow",
+        );
       }
       // Retry transient network errors (e.g., connection idle timeout) at the
       // orchestrator loop level.  The LLM-level retry only
@@ -1702,8 +1934,11 @@ export async function runReActLoop(
       // Provider-side context overflow (after callLLM already tried
       // trimming once) — treat like ContextOverflowError: return gracefully.
       if (classified.class === "context_overflow") {
-        return state.lastResponse ||
-          "Context limit reached. Please start a new conversation.";
+        return await finish(
+          state.lastResponse ||
+            "Context limit reached. Please start a new conversation.",
+          "context_overflow",
+        );
       }
       if (classified.retryable && classified.class === "transient") {
         state.consecutiveTransientRetries =
@@ -1720,6 +1955,7 @@ export async function runReActLoop(
           continue;
         }
       }
+      await config.eventSink?.error?.(error);
       throw error;
     }
   }
@@ -1732,7 +1968,9 @@ export async function runReActLoop(
       llmFunction,
     );
     if (synthesizedAnswer) {
-      return synthesizedAnswer;
+      return await finish(synthesizedAnswer, "max_iterations", {
+        synthesizedFinal: true,
+      });
     }
   } catch (error) {
     getAgentLogger().debug(
@@ -1740,5 +1978,8 @@ export async function runReActLoop(
     );
   }
 
-  return buildLimitStopMessage("max_iterations", state, lc);
+  return await finish(
+    buildLimitStopMessage("max_iterations", state, lc),
+    "max_iterations",
+  );
 }

@@ -30,49 +30,6 @@ export interface ChromeExtResponse {
   readonly error?: string;
 }
 
-// ── Tool Methods ────────────────────────────────────────────────────
-
-export type ChromeExtMethod =
-  // Navigation
-  | "navigate"
-  | "back"
-  // Interaction
-  | "click"
-  | "fill"
-  | "type"
-  | "hover"
-  | "scroll"
-  | "select_option"
-  // Content
-  | "evaluate"
-  | "screenshot"
-  | "snapshot"
-  | "content"
-  | "links"
-  | "wait_for"
-  // Tabs
-  | "tabs"
-  | "tab_create"
-  | "tab_close"
-  | "tab_select"
-  // Monitoring
-  | "get_console_messages"
-  | "get_network_requests"
-  | "enable_monitoring"
-  // System
-  | "ping"
-  | "get_status";
-
-// ── Tab Info ────────────────────────────────────────────────────────
-
-export interface ChromeTabInfo {
-  readonly id: number;
-  readonly url: string;
-  readonly title: string;
-  readonly active: boolean;
-  readonly windowId: number;
-}
-
 // ── Session State ───────────────────────────────────────────────────
 
 export interface ChromeExtSessionState {

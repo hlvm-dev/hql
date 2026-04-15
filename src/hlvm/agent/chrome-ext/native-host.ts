@@ -12,8 +12,11 @@
  * Socket:    4-byte UInt32LE length prefix + UTF-8 JSON (Unix domain socket)
  */
 
-const VERSION = "1.0.0";
-const MAX_MESSAGE_SIZE = 1024 * 1024; // 1MB
+// These mirror common.ts constants. This file is a standalone binary
+// that can't import from the HLVM module graph.
+const VERSION = "1.0.0"; // mirrors manifest.json version
+const MAX_MESSAGE_SIZE = 1024 * 1024; // mirrors common.ts MAX_MESSAGE_SIZE
+const SOCKET_DIR_NAME = "chrome-bridge"; // mirrors common.ts CHROME_BRIDGE_DIR_NAME
 
 // ── Logging (stderr only — stdout is protocol) ──────────────────────
 
@@ -85,6 +88,24 @@ class ChromeMessageReader {
   }
 }
 
+// ── Process Probing ─────────────────────────────────────────────────
+
+/** Check if a process is alive via `kill -0` (same approach as shared/session-lock.ts). */
+async function isProcessAlive(pid: number): Promise<boolean> {
+  try {
+    const proc = new Deno.Command("kill", {
+      args: ["-0", String(pid)],
+      stdin: "null",
+      stdout: "null",
+      stderr: "null",
+    });
+    const result = await proc.output();
+    return result.success;
+  } catch {
+    return false;
+  }
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /** Build a length-prefixed frame for socket transmission. */
@@ -95,6 +116,15 @@ function frameMessage(json: string): Uint8Array {
   new DataView(frame.buffer).setUint32(0, payload.length, true);
   frame.set(payload, 4);
   return frame;
+}
+
+/** Write all bytes to a connection (handles partial writes). */
+async function writeAll(conn: Deno.Conn, data: Uint8Array): Promise<void> {
+  let written = 0;
+  while (written < data.length) {
+    const n = await conn.write(data.subarray(written));
+    written += n;
+  }
 }
 
 // ── Socket Client Management ────────────────────────────────────────
@@ -142,11 +172,8 @@ class NativeHost {
         if (!entry.name.endsWith(".sock")) continue;
         const pid = parseInt(entry.name.replace(".sock", ""), 10);
         if (isNaN(pid)) continue;
-        try {
-          Deno.kill(pid, 0); // Signal 0 = check if alive
-          // Process alive, leave it
-        } catch {
-          // Process dead, remove stale socket
+        const alive = await isProcessAlive(pid);
+        if (!alive) {
           try {
             await Deno.remove(`${dir}/${entry.name}`);
             log(`Removed stale socket for PID ${pid}`);
@@ -334,7 +361,7 @@ class NativeHost {
           const client = this.clients.get(targetClientId);
           if (client) {
             try {
-              await client.conn.write(frame);
+              await writeAll(client.conn, frame);
             } catch (e) {
               log(`Failed to send to client ${targetClientId}:`, e);
             }
@@ -343,7 +370,7 @@ class NativeHost {
           // No routing info — broadcast (fallback)
           for (const [id, client] of this.clients) {
             try {
-              await client.conn.write(frame);
+              await writeAll(client.conn, frame);
             } catch (e) {
               log(`Failed to send to client ${id}:`, e);
             }
@@ -357,7 +384,7 @@ class NativeHost {
         const notifFrame = frameMessage(JSON.stringify(data));
         for (const [id, client] of this.clients) {
           try {
-            await client.conn.write(notifFrame);
+            await writeAll(client.conn, notifFrame);
           } catch (e) {
             log(`Failed to send notification to client ${id}:`, e);
           }
@@ -409,7 +436,7 @@ async function main(): Promise<void> {
   log("Initializing...");
 
   const home = Deno.env.get("HOME") || "/tmp";
-  const socketDir = `${home}/.hlvm/chrome-bridge`;
+  const socketDir = `${home}/.hlvm/${SOCKET_DIR_NAME}`;
   const socketPath = `${socketDir}/${Deno.pid}.sock`;
 
   const host = new NativeHost(socketPath);

@@ -818,10 +818,12 @@ export class SdkAgentEngine implements AgentEngine {
         if (callerDeny.length > 0) {
           return {
             allowlist: profileFilter.allowlist,
-            denylist: [...new Set([
-              ...(profileFilter.denylist ?? []),
-              ...callerDeny,
-            ])],
+            denylist: [
+              ...new Set([
+                ...(profileFilter.denylist ?? []),
+                ...callerDeny,
+              ]),
+            ],
           };
         }
         return profileFilter;
@@ -867,13 +869,18 @@ export class SdkAgentEngine implements AgentEngine {
         });
         // Guard: warn when allowlist was provided but resolved tools are
         // significantly fewer — catches silent masking by profile layers.
-        if (toolFilters.allowlist?.length && toolDefs.length < toolFilters.allowlist.length) {
+        if (
+          toolFilters.allowlist?.length &&
+          toolDefs.length < toolFilters.allowlist.length
+        ) {
           const missing = toolFilters.allowlist.filter(
             (name) => !toolDefs.some((d) => d.function.name === name),
           );
           if (missing.length > 0) {
             getAgentLogger().warn(
-              `[engine-sdk] ${missing.length} tool(s) in allowlist not in resolved definitions: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "..." : ""}`,
+              `[engine-sdk] ${missing.length} tool(s) in allowlist not in resolved definitions: ${
+                missing.slice(0, 5).join(", ")
+              }${missing.length > 5 ? "..." : ""}`,
             );
           }
         }
@@ -977,7 +984,7 @@ export class SdkAgentEngine implements AgentEngine {
                 firstTokenLatencyMs = Date.now() - requestStartedAt;
               }
               chunks.push(chunk);
-              tokenSink(chunk);
+              await tokenSink(chunk);
             }
 
             // streamText properties are PromiseLike — await them
@@ -1114,7 +1121,7 @@ export class SdkAgentEngine implements AgentEngine {
             }
             const tokenSink = callOptions?.onToken ?? config.onToken;
             if (tokenSink && fallbackText.length > 0) {
-              tokenSink(fallbackText);
+              await tokenSink(fallbackText);
             }
 
             return {

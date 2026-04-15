@@ -10,12 +10,18 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import type { BrowserConfig, ChromiumBrowser } from "./types.ts";
 
-// ── Constants ────────────────────────────────────────────────────────
+// ── Constants (SSOT for all chrome-ext config) ──────────────────────
+//
+// native-host.ts mirrors these values but can't import them (standalone binary).
+// If you change these, update native-host.ts to match.
 
 export const NATIVE_HOST_IDENTIFIER = "com.hlvm.chrome_bridge";
 export const NATIVE_HOST_MANIFEST_NAME = `${NATIVE_HOST_IDENTIFIER}.json`;
+export const CHROME_BRIDGE_DIR_NAME = "chrome-bridge";
+export const CHROME_BRIDGE_WRAPPER_NAME = "chrome-bridge-host.sh";
+export const MAX_MESSAGE_SIZE = 1024 * 1024; // 1MB — Chrome NM protocol limit
 
-// TODO: Replace with actual extension IDs after Chrome Web Store publish
+// TODO: Replace with actual extension ID after Chrome Web Store publish
 export const EXTENSION_IDS = {
   prod: "PLACEHOLDER_PROD_EXTENSION_ID",
 } as const;
@@ -217,16 +223,8 @@ function getHome(): string {
 }
 
 /** Socket directory for native host connections. */
-export function getSocketDir(): string {
-  return getPlatform().path.join(getHome(), ".hlvm", "chrome-bridge");
-}
-
-/** Socket path for the current process (PID-scoped). */
-export function getSocketPath(): string {
-  return getPlatform().path.join(
-    getSocketDir(),
-    `${getPlatform().process.pid()}.sock`,
-  );
+function getSocketDir(): string {
+  return getPlatform().path.join(getHome(), ".hlvm", CHROME_BRIDGE_DIR_NAME);
 }
 
 /** Scan for all active socket files. */

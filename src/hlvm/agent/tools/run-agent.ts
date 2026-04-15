@@ -14,7 +14,10 @@
  */
 
 import { ContextManager } from "../context.ts";
-import { runReActLoop, type OrchestratorConfig } from "../orchestrator.ts";
+import {
+  type AgentLoopResult,
+  type OrchestratorConfig,
+} from "../orchestrator.ts";
 import type { LLMFunction } from "../orchestrator-llm.ts";
 import type { ToolMetadata } from "../registry.ts";
 import { getAgentEngine } from "../engine.ts";
@@ -23,6 +26,7 @@ import { AGENT_MAX_TURNS } from "./agent-constants.ts";
 import { resolveAgentTools } from "./agent-tool-utils.ts";
 import { UsageTracker } from "../usage.ts";
 import { getAgentLogger } from "../logger.ts";
+import { createAgent } from "../agent.ts";
 
 const log = getAgentLogger();
 
@@ -87,6 +91,10 @@ export interface RunAgentResult {
   toolUseCount: number;
   /** Total tokens used (input + output) */
   totalTokens: number;
+  /** Core loop stop reason */
+  stopReason?: AgentLoopResult["stopReason"];
+  /** Core loop iteration count */
+  iterations?: number;
   /** Collected transcript of child tool calls for expand/collapse display */
   transcript: string;
 }
@@ -99,7 +107,7 @@ export interface RunAgentResult {
  * Execute a sub-agent with isolated context and tools.
  *
  * CC pattern: runAgent() is an async generator that calls query() and yields messages.
- * HLVM adaptation: runReActLoop() returns Promise<string>, so we return the result directly.
+ * HLVM adaptation: runReActLoop() returns a structured AgentLoopResult.
  *
  * Flow (same as CC):
  * 1. Build system prompt from agent definition
@@ -185,8 +193,8 @@ export async function runAgent(
   });
 
   // Step 4: Build isolated OrchestratorConfig (CC: agentOptions + query params)
-  const effectiveMaxTurns =
-    maxTurns ?? agentDefinition.maxTurns ?? AGENT_MAX_TURNS;
+  const effectiveMaxTurns = maxTurns ?? agentDefinition.maxTurns ??
+    AGENT_MAX_TURNS;
 
   // CC: Track tool uses via onAgentEvent interception.
   // The child orchestrator emits tool_start/tool_end events — we count them
@@ -206,9 +214,7 @@ export async function runAgent(
     if (event.type === "tool_end") {
       toolUseCount++;
       const status = event.success ? "ok" : "ERROR";
-      const summary = event.summary
-        ? ` — ${event.summary.slice(0, 100)}`
-        : "";
+      const summary = event.summary ? ` — ${event.summary.slice(0, 100)}` : "";
       transcriptLines.push(`  ⎿ ${status} (${event.durationMs}ms)${summary}`);
       // Emit progress event to PARENT for TUI updates
       onAgentEvent?.({
@@ -261,16 +267,26 @@ export async function runAgent(
     `[Agent:${agentDefinition.agentType}] Starting with ${resolvedTools.size} tools, max ${effectiveMaxTurns} turns`,
   );
 
-  let resultText: string;
+  let loopResult: AgentLoopResult | undefined;
   try {
-    resultText = await runReActLoop(prompt, childConfig, childLlmFunction);
+    loopResult = await createAgent({
+      config: childConfig,
+      llmFunction: childLlmFunction,
+    }).run(prompt);
   } catch (err) {
     if (signal?.aborted) {
       throw err; // Propagate abort
     }
     const msg = err instanceof Error ? err.message : String(err);
     log.error(`[Agent:${agentDefinition.agentType}] Error: ${msg}`);
-    resultText = `Agent encountered an error: ${msg}`;
+    loopResult = {
+      text: `Agent encountered an error: ${msg}`,
+      stopReason: "tool_failures",
+      iterations: 0,
+      durationMs: Date.now() - startTime,
+      usage: usageTracker.snapshot(effectiveModel),
+      toolUseCount,
+    };
   }
 
   const durationMs = Date.now() - startTime;
@@ -279,13 +295,16 @@ export async function runAgent(
   );
 
   // Step 6: Return result (CC: finalizeAgentTool)
-  const usageSnapshot = usageTracker.snapshot();
+  const completedLoopResult = loopResult!;
+  const usageSnapshot = completedLoopResult.usage;
   return {
-    text: resultText,
+    text: completedLoopResult.text,
     agentType: agentDefinition.agentType,
     durationMs,
-    toolUseCount,
+    toolUseCount: completedLoopResult.toolUseCount || toolUseCount,
     totalTokens: usageSnapshot.totalTokens,
+    stopReason: completedLoopResult.stopReason,
+    iterations: completedLoopResult.iterations,
     transcript: transcriptLines.join("\n"),
   };
 }

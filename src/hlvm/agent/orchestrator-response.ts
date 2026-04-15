@@ -670,6 +670,7 @@ export function handleTextOnlyResponse(
     return {
       action: "return",
       value: AGENT_ORCHESTRATOR_FAILURE_MESSAGES.emptyResponse,
+      stopReason: "model_format_failure",
     };
   }
 
@@ -710,10 +711,12 @@ export function handleTextOnlyResponse(
       ? {
         action: "return",
         value: AGENT_ORCHESTRATOR_FAILURE_MESSAGES.nativeToolCallingRequired,
+        stopReason: "model_format_failure",
       }
       : {
         action: "return",
         value: AGENT_ORCHESTRATOR_FAILURE_MESSAGES.toolCallJsonRejected,
+        stopReason: "model_format_failure",
       };
   }
 
@@ -905,6 +908,7 @@ async function handleDraftedPlan(
   return {
     action: "return",
     value: "Plan review was cancelled. No changes were made.",
+    stopReason: "plan_review_cancelled",
   };
 }
 
@@ -1168,6 +1172,7 @@ export async function handleFinalResponse(
       return {
         action: "return",
         value: AGENT_ORCHESTRATOR_FAILURE_MESSAGES.toolCallRequired,
+        stopReason: "tool_required",
       };
     }
     addContextMessage(config, {
@@ -1264,6 +1269,7 @@ export async function handleFinalResponse(
       action: "return",
       value:
         "Plan mode could not produce a structured plan. Restate the task more concretely, or exit plan mode for general questions.",
+      stopReason: "model_format_failure",
     };
   }
 
@@ -1289,7 +1295,7 @@ export async function handleFinalResponse(
       config,
     )
   ) {
-      const question = extractClarifyingQuestion(finalResponse) ??
+    const question = extractClarifyingQuestion(finalResponse) ??
       "How would you like to proceed?";
     const interaction = await config.onInteraction!({
       type: "interaction_request",
@@ -1531,6 +1537,7 @@ export async function handlePostToolExecution(
     return {
       action: "return",
       value: "Plan review was cancelled. No changes were made.",
+      stopReason: "plan_review_cancelled",
     };
   }
 
@@ -1866,6 +1873,7 @@ export async function handlePostToolExecution(
         "The same tool calls were repeated multiple times without progress.",
         "Please clarify the request or provide additional guidance.",
       ].join("\n"),
+      stopReason: "tool_loop_detected",
     };
   }
 
@@ -1901,6 +1909,7 @@ export async function handlePostToolExecution(
         `Tool execution failed after ${state.consecutiveToolFailures} consecutive failures:\n${
           failedTools.join("\n")
         }`,
+      stopReason: "tool_failures",
     };
   }
 

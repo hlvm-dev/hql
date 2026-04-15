@@ -19,10 +19,13 @@ import { type PlanningConfig, type PlanState } from "./planning.ts";
 import type { ToolUse } from "./grounding.ts";
 import { UsageTracker } from "./usage.ts";
 import { assertMaxBytes } from "../../common/limits.ts";
-import type { OrchestratorConfig } from "./orchestrator.ts";
+import type {
+  AgentStopReason,
+  OrchestratorConfig,
+  RuntimeToolPhase,
+} from "./orchestrator.ts";
 import type { CitationSourceEntry } from "./tools/web/citation-spans.ts";
 import type { EditFileRecovery } from "./error-taxonomy.ts";
-import type { RuntimeToolPhase } from "./orchestrator.ts";
 import type { RoutingResult } from "./request-routing.ts";
 import type { ToolPresentationKind } from "./registry.ts";
 import type { ToolFailureMetadata } from "./tool-results.ts";
@@ -153,7 +156,7 @@ export interface LoopConfig {
 /** Control flow directive from extracted loop functions */
 export type LoopDirective =
   | { action: "continue" }
-  | { action: "return"; value: string }
+  | { action: "return"; value: string; stopReason?: AgentStopReason }
   | { action: "proceed" };
 
 export function createRateLimiter(

@@ -1525,7 +1525,7 @@ export async function chatStructuredWithSdk(
       )
     ) {
       content += chunk;
-      onToken?.(chunk);
+      await onToken?.(chunk);
     }
     return {
       content,
@@ -1557,7 +1557,7 @@ export async function chatStructuredWithSdk(
         const contentChunks: string[] = [];
         for await (const chunk of result.textStream) {
           contentChunks.push(chunk);
-          onToken(chunk);
+          await onToken(chunk);
         }
 
         const [text, toolCalls, usage, sources, providerMetadata] =

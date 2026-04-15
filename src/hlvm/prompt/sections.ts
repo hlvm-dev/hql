@@ -9,6 +9,7 @@ import { type ToolMetadata, getDeferredToolNames } from "../agent/registry.ts";
 import type { AgentProfile } from "../agent/agent-registry.ts";
 import type { SkillDefinition } from "../skills/types.ts";
 import { MEMORY_TOOLS } from "../memory/mod.ts";
+import { CHROME_EXT_SYSTEM_PROMPT } from "../agent/chrome-ext/prompt.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { type ModelTier, tierMeetsMinimum } from "../agent/constants.ts";
 import { mergeInstructions } from "./instructions.ts";
@@ -524,6 +525,20 @@ ALWAYS prefer pw_* over web_fetch for visiting web pages, reading content, filli
   };
 }
 
+function renderChromeExtGuidance(
+  tools: Record<string, ToolMetadata>,
+): RawPromptSection {
+  const hasChTools = Object.keys(tools).some((n) => n.startsWith("ch_"));
+  if (!hasChTools) {
+    return { id: "chrome_ext", content: "", minTier: "standard" };
+  }
+  return {
+    id: "chrome_ext",
+    content: CHROME_EXT_SYSTEM_PROMPT,
+    minTier: "standard",
+  };
+}
+
 function renderSkillCatalog(
   skills?: ReadonlyMap<string, SkillDefinition>,
 ): RawPromptSection {
@@ -591,6 +606,7 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
     renderWebToolGuidance(tools),
     renderComputerUseGuidance(tools, input.visionCapable),
     renderBrowserAutomationGuidance(tools),
+    renderChromeExtGuidance(tools),
     renderPermissionTiers(tools),
     renderEnvironment(),
   ];

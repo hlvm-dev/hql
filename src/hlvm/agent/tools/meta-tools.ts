@@ -262,11 +262,11 @@ async function toolSearch(
       .map((s) => s.trim())
       .filter(Boolean);
     // Search with each requested name as exact query for best scoring
-    const found: Array<{ name: string; description: string; category?: string; safetyLevel: string; source: string; loadingExposure: string }> = [];
     const allTools = options.searchTools("", {
       ownerId: options?.toolOwnerId,
       limit: 999,
     });
+    const found: typeof allTools = [];
     for (const name of requested) {
       const match = allTools.find((t) =>
         t.name.toLowerCase() === name.toLowerCase()
@@ -458,8 +458,7 @@ const SKILL_TOOL: ToolMetadata = {
   description: "Execute a named skill (reusable workflow)",
   category: "meta",
   args: {
-    skill:
-      "string - Skill name (e.g. 'commit', 'test', 'review')",
+    skill: "string - Skill name (e.g. 'commit', 'test', 'review')",
     args: "string (optional) - Arguments for the skill",
   },
   returns: {

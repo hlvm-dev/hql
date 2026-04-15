@@ -119,8 +119,7 @@ export function resolveAgentTools(
   }
 
   // Step 3: Handle wildcard
-  const hasWildcard =
-    agentTools === undefined ||
+  const hasWildcard = agentTools === undefined ||
     (agentTools.length === 1 && agentTools[0] === "*");
 
   if (hasWildcard) {
@@ -166,8 +165,7 @@ export function resolveAgentTools(
  * Used for metrics in AgentToolResult.
  */
 export function countToolUsesInResponse(response: string): number {
-  // In HLVM, runReActLoop returns a string, not structured messages.
-  // We count tool calls from the orchestrator's internal tracking instead.
-  // This is a simplified version — real count comes from the loop.
+  // Tool calls are tracked by the structured AgentLoopResult now; this helper
+  // remains for compatibility with older AgentTool plumbing.
   return 0; // Will be updated by the orchestrator integration
 }

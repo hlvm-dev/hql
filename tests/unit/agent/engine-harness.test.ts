@@ -45,14 +45,14 @@ Deno.test({
         workspace: "/tmp",
         context,
         permissionMode: "bypassPermissions",
-          toolDenylist: ["shell_exec"],
+        toolDenylist: ["shell_exec"],
         maxToolCalls: TEST_MAX_TOOL_CALLS,
         groundingMode: "strict",
       },
       llm,
     );
 
-    assertEquals(result, "Done.");
+    assertEquals(result.text, "Done.");
   },
 });
 
@@ -99,7 +99,7 @@ Deno.test({
         llm,
       );
 
-      assertStringIncludes(result, "clarify");
+      assertStringIncludes(result.text, "clarify");
     } finally {
       restore();
     }
@@ -136,8 +136,8 @@ Deno.test({
         llm,
       );
 
-      assertStringIncludes(result, "Based on");
-      assertStringIncludes(result, "2");
+      assertStringIncludes(result.text, "Based on");
+      assertStringIncludes(result.text, "2");
 
       const stats = context.getStats();
       assertEquals(stats.toolMessages >= 1, true);
@@ -186,8 +186,8 @@ Deno.test({
         llm,
       );
 
-      assertStringIncludes(result, "Based on");
-      assertStringIncludes(result, "2");
+      assertStringIncludes(result.text, "Based on");
+      assertStringIncludes(result.text, "2");
     } finally {
       removeTool(toolName);
     }
@@ -230,8 +230,8 @@ Deno.test({
       );
 
       // Strict mode now returns with warnings instead of throwing
-      assertStringIncludes(result, "Still ungrounded response.");
-      assertStringIncludes(result, "[Grounding warnings]");
+      assertStringIncludes(result.text, "Still ungrounded response.");
+      assertStringIncludes(result.text, "[Grounding warnings]");
     } finally {
       removeTool(toolName);
     }
@@ -298,7 +298,7 @@ Deno.test({
         llm,
       );
 
-      assertStringIncludes(result, "generateSystemPrompt");
+      assertStringIncludes(result.text, "generateSystemPrompt");
       const stats = context.getStats();
       assertEquals(stats.toolMessages >= 2, true);
     } finally {
@@ -346,8 +346,8 @@ Deno.test({
         llm,
       );
 
-      assertStringIncludes(result, "Based on");
-      assertStringIncludes(result, "ok");
+      assertStringIncludes(result.text, "Based on");
+      assertStringIncludes(result.text, "ok");
 
       // Transcript shape: assistant(tool_calls) precedes tool results
       const roles = context.getMessages().map((m) => m.role);
@@ -402,8 +402,8 @@ Deno.test({
         llm,
       );
 
-      assertStringIncludes(result, "ok");
-      assertStringIncludes(result, "failed");
+      assertStringIncludes(result.text, "ok");
+      assertStringIncludes(result.text, "failed");
 
       const toolMessages = context.getMessages().filter((m) =>
         m.role === "tool"
@@ -464,7 +464,7 @@ END_PLAN`,
         llm,
       );
 
-      assertStringIncludes(result, "All done.");
+      assertStringIncludes(result.text, "All done.");
       const stats = context.getStats();
       assertEquals(stats.toolMessages >= 2, true);
     } finally {

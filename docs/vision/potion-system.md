@@ -1323,6 +1323,652 @@ Every app on the desktop becomes AI-augmented. Not because every app
 has AI built in, but because the daemon is always there, one keypress
 away, ready to evaluate, generate, transform, and paste.
 
+## REPL + Potions: Compound Capabilities
+
+The persistent daemon REPL transforms potions from isolated scripts into a
+**living system** where actions build on each other over time.
+
+### 1. Accumulating Context Across Potions
+
+```text
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   SHARED STATE — Potions talk to each other through the daemon           ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  9:00 AM  User presses Ctrl+1 (workspace setup)
+           → Daemon records: project-a active, 3 repos, JIRA board open
+
+  10:30 AM User presses Ctrl+3 (bug report)
+           → Daemon already knows: project-a, current branch, recent commits
+           → Bug report auto-fills project context without user typing it
+
+  5:00 PM  User presses Ctrl+5 (standup)
+           → Daemon knows: worked on project-a all day, filed 2 bugs,
+             switched to project-b at 2pm, attended Sprint Planning
+           → Standup is complete and accurate — built from the day's state
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  Without shared state:  each potion starts from zero               │
+  │  With shared state:     each potion inherits the day's context     │
+  │                                                                     │
+  │  The daemon accumulates knowledge passively.                       │
+  │  Potions get smarter the more you use them.                        │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+### 2. User-Defined Functions Across All Potions
+
+```text
+  User types in Spotlight once:
+    (defn my-review [code]
+      (ask "Review this code. KISS/DRY only. No repetition:\n" code))
+
+  Now EVERY potion can call (my-review ...).
+  The review potion, the refactor potion, the commit potion — all use it.
+  Change the function once → all potions update. Live. No reinstall.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  Spotlight REPL     →  define functions                            │
+  │  Potion modules     →  use those functions                         │
+  │  Daemon runtime     →  holds them alive forever                    │
+  │                                                                     │
+  │  Users build personal libraries of AI functions                    │
+  │  that work across all potions and all apps.                        │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+### 3. Chained Potions as Pipelines
+
+```text
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   PIPELINE MODE — Each keypress advances a multi-step transformation    ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  User has messy code in VS Code.
+
+  Step 1: Select code → Ctrl+4 (explain)
+          → AI reads code, generates explanation
+          → Explanation pastes below the code
+          → Daemon stores: { lastInput: code, lastOutput: explanation }
+
+  Step 2: Ctrl+6 (improve)
+          → Potion reads daemon state: knows the code AND the explanation
+          → AI generates improved version, informed by the explanation
+          → Improved code pastes, replacing the original
+          → Daemon stores: { improved: true, diff: ... }
+
+  Step 3: Ctrl+9 (commit)
+          → Potion reads daemon state: knows what changed and why
+          → AI generates commit message from the improvement context
+          → Message pastes into terminal
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  Three keypresses. No copy-paste between them.                     │
+  │  Each potion reads the previous one's output from daemon state.    │
+  │  The user builds up complex transformations one shortcut at a time.│
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+### 4. Ambient Intelligence
+
+```text
+  The daemon remembers everything it processes. After a week of use:
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  From workspace potions:  knows which projects you work on         │
+  │  From bug report potions: knows your recurring bugs                │
+  │  From standup potions:    knows your work patterns                 │
+  │  From translate potions:  knows your language pairs                │
+  │  From clipboard:          knows what you copy frequently           │
+  │  From error→fix potions:  knows your common mistakes               │
+  │                                                                     │
+  │  A potion can ask:                                                 │
+  │    (memory-search "that auth bug from Tuesday")                    │
+  │    → returns real context from the daemon's accumulated knowledge  │
+  │                                                                     │
+  │  The system learns your work without explicit teaching.            │
+  │  Not a separate "training" step — just side effects of daily use. │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+
+## More Killer Applications
+
+These applications leverage the compound capabilities — shared daemon state,
+CU desktop control, AI, and the potion format working together.
+
+```text
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 11: "DO WHAT I JUST DID, FOR ALL OF THESE"                ║
+║   One manual demo → batch automation                                    ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Fill one form field on a website. Copy value from spreadsheet.
+    Paste into form. Click next field. Copy next value. Paste.
+    Repeat 50 times. 45 minutes of mechanical clicking.
+
+  WITH potion:
+    Fill ONE field manually. Say "do that for the other 50 rows."
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User has a spreadsheet with 50 vendor names + addresses.          │
+  │  Needs to enter each one into a web form.                          │
+  │                                                                     │
+  │  User fills the first one manually while CU observes:              │
+  │    1. CU watches: user clicked text field "Company Name"           │
+  │    2. CU watches: user typed "Acme Corp"                           │
+  │    3. CU watches: user tabbed to "Address" field                   │
+  │    4. CU watches: user typed "123 Main St"                         │
+  │    5. CU watches: user clicked "Submit"                            │
+  │                                                                     │
+  │  User (to HLVM): "do that for the other 49 from my spreadsheet"   │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Agent:                                                            │
+  │    1. Reads the spreadsheet (ctx.shell or CU → Numbers/Excel)      │
+  │    2. Generates a potion that replays the pattern with each row:   │
+  │       for each row:                                                │
+  │         → cu_execute_plan: click "Company Name" → type row.name   │
+  │         → tab → type row.address → click Submit                   │
+  │         → wait_for_ready (form resets)                             │
+  │    3. Executes — 50 submissions in 3 minutes                       │
+  │                                                                     │
+  │  The user demonstrated once. CU learned the pattern.              │
+  │  The agent generalized it. The native executor batched it.         │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 12: SMART CLIPBOARD HISTORY                                ║
+║   Everything you copy, AI-tagged, semantically searchable               ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    "I copied a URL from Slack yesterday... was it in #engineering?
+    Or was it an email? Let me search through 4 apps for 10 minutes."
+
+  WITH potion:
+    Ctrl+Z → "that API endpoint from yesterday" → found instantly.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  Background: daemon listens to clipboard changes (opt-in).         │
+  │                                                                     │
+  │  Every Cmd+C goes through the daemon:                              │
+  │    1. Content captured: text, image, or URL                        │
+  │    2. AI tags it: { type: "url", topic: "API", source: "Slack",   │
+  │       timestamp: "2026-04-13 14:32", preview: "https://api..." }  │
+  │    3. Stored in daemon memory (SQLite FTS5)                        │
+  │                                                                     │
+  │  Later, user needs that URL:                                       │
+  │                                                                     │
+  │  User presses Ctrl+Z (Spotlight):                                  │
+  │    "that API endpoint from yesterday"                              │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Daemon: semantic search over clipboard history                    │
+  │    → finds: "https://api.company.com/v2/users"                    │
+  │    → shows: source app, timestamp, surrounding context             │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  User clicks result → copied to clipboard → paste anywhere        │
+  │                                                                     │
+  │  Not string matching. Semantic search.                             │
+  │  "that thing I copied from the design doc" works.                  │
+  │  "the SQL query from Slack" works.                                 │
+  │  "credentials from the email" works (but marked sensitive).        │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 13: SCREENSHOT → WORKING CODE                             ║
+║   Screenshot any UI → SwiftUI/HTML/CSS pasted into editor               ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    See a beautiful UI on Dribbble. Try to recreate it manually.
+    Guess the colors, spacing, fonts. 2-4 hours of trial and error.
+
+  WITH potion:
+    Screenshot it. Ctrl+8. Code appears in your editor. 10 seconds.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User sees a login screen design on Dribbble they want to copy.    │
+  │  Takes screenshot (Cmd+Shift+4).                                   │
+  │                                                                     │
+  │  User switches to Xcode. Presses Ctrl+8 (Hotbar = "ui-to-code")   │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.clipboard.read() → screenshot image                      │
+  │    2. Detect target: user is in Xcode → generate SwiftUI           │
+  │       (if VS Code → generate React/HTML, if Figma → generate CSS) │
+  │    3. ctx.ai.ask("Generate SwiftUI that reproduces this UI:\n" +   │
+  │       screenshot, { vision: true })                                │
+  │       → AI sees the design, generates matching code                │
+  │    4. ctx.clipboard.write(swiftui_code)                            │
+  │    5. ctx.cu.pressKeys(["cmd+v"]) → pastes into Xcode             │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  SwiftUI code appears in Xcode. Preview shows a close match.      │
+  │  User tweaks colors/spacing. 10 minutes instead of 4 hours.       │
+  │                                                                     │
+  │  Works for:                                                        │
+  │    • Dribbble/Behance designs → production code                   │
+  │    • Competitor app screenshots → your implementation              │
+  │    • Whiteboard wireframes → working prototypes                   │
+  │    • Client mockups (PDF/image) → functional UI                   │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 14: DAILY BRIEFING                                        ║
+║   First keypress of the day → "here's what needs your attention"        ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Open Mail — scan 40 emails. Open Slack — scroll through 12 channels.
+    Open GitHub — check notifications. Open Calendar — see today's meetings.
+    Takes 20-30 minutes just to know what's happening. Every morning.
+
+  WITH potion:
+    Ctrl+Z → "briefing" or auto-triggered on first Hotbar press of the day.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User opens laptop. Presses Ctrl+Z. Types "briefing."             │
+  │  (Or: daemon detects first interaction of the day → auto-runs.)    │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.shell("icalBuddy -n eventsToday")                        │
+  │       → 3 meetings, Sprint Planning at 2pm                        │
+  │    2. ctx.cu.executePlan:                                          │
+  │       → open Mail → AX: read subject lines of unread (no clicks)  │
+  │       → 8 unread: 2 urgent, 4 FYI, 2 spam                         │
+  │    3. ctx.cu.executePlan:                                          │
+  │       → open Slack → AX: read unread badge counts per channel     │
+  │       → #incidents: 3 unread, #engineering: 12, #general: 5       │
+  │    4. ctx.shell("gh api notifications --jq '.[].subject.title'")  │
+  │       → 2 PR reviews requested, 1 issue assigned                  │
+  │    5. ctx.ai.ask("Summarize into 5-line morning briefing:\n" +     │
+  │       calendar + emails + slack + github)                          │
+  │       │                                                            │
+  │       │  TODAY:                                                    │
+  │       │  ⚠ #incidents has 3 unread — check first                  │
+  │       │  📬 2 urgent emails: deploy approval + client escalation  │
+  │       │  📋 2 PRs need your review (auth-refactor, api-v3)        │
+  │       │  📅 Sprint Planning at 2pm — prep: review sprint backlog  │
+  │       │  💬 12 unread in #engineering — mostly discussion          │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Shown in Spotlight inline. User reads 5 lines. Knows the day.    │
+  │  No app-hopping. No scrolling through noise. 15 seconds.          │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 15: FORM AUTO-FILL FROM MEMORY                            ║
+║   Daemon remembers your answers → fills forms for you                   ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Fill out job application #47. Type your name again. Your address again.
+    Your phone number. Your LinkedIn. Your portfolio. Paste resume.
+    The same 15 fields, the 47th time. 10 minutes of mechanical entry.
+
+  WITH potion:
+    Open the form. Ctrl+9. All known fields filled. Review and submit.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User opens a web form (job application, client intake, etc.).     │
+  │  Presses Ctrl+9 (Hotbar = "auto-fill" potion).                    │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.cu.observe() → reads all form fields via AX              │
+  │       → [{ role: "textField", label: "Full Name" },                │
+  │          { role: "textField", label: "Email" },                    │
+  │          { role: "textField", label: "Phone" },                    │
+  │          { role: "textArea", label: "Cover Letter" }, ...]         │
+  │                                                                     │
+  │    2. Match labels against daemon memory:                          │
+  │       "Full Name" → memory has "Seoksun Jang" (from last form)    │
+  │       "Email" → memory has "seoksun@..." (from last form)         │
+  │       "Phone" → memory has "+82..." (from last form)              │
+  │       "Cover Letter" → no exact match, but has previous version   │
+  │                                                                     │
+  │    3. ctx.cu.executePlan:                                          │
+  │       → click "Full Name" → type stored value                     │
+  │       → click "Email" → type stored value                         │
+  │       → click "Phone" → type stored value                         │
+  │       → click "Cover Letter" → paste previous version             │
+  │                                                                     │
+  │    4. Unknown fields left empty for user to fill manually          │
+  │       → daemon learns new answers for next time                   │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  12 of 15 fields auto-filled. User fills 3 unique ones.           │
+  │  Next time this form appears: 14 of 15 auto-filled.               │
+  │  The potion gets better with every use.                            │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 16: CROSS-APP DATA SYNC                                   ║
+║   "When I update this cell, update the same field in the CRM"           ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Update price in spreadsheet. Copy it. Open CRM. Find the record.
+    Edit field. Paste. Save. Copy next value from spreadsheet.
+    Open CRM. Find next record. Repeat 30 times. Build Zapier integration
+    that costs $50/month and breaks when the form changes.
+
+  WITH potion:
+    Update spreadsheet. Ctrl+0. CRM synced.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User updates prices in a Numbers spreadsheet.                     │
+  │  Presses Ctrl+0 (Hotbar = "sync-to-crm" potion).                  │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.cu.observe() → reads the spreadsheet via AX              │
+  │       → extracts visible rows: product names + new prices          │
+  │                                                                     │
+  │    2. For each changed row:                                        │
+  │       ctx.cu.executePlan:                                          │
+  │         → switch to browser (CRM tab)                              │
+  │         → search for product name                                  │
+  │         → click into price field                                   │
+  │         → clear + type new price                                   │
+  │         → click Save                                               │
+  │         → switch back to Numbers                                   │
+  │                                                                     │
+  │    3. ctx.notify("Synced 12 prices to CRM")                        │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Spreadsheet → CRM sync done. No API integration. No Zapier.      │
+  │  CU navigates the CRM the same way a human would.                 │
+  │  Works with ANY web app — no connectors needed.                    │
+  │                                                                     │
+  │  The poor man's Zapier that works with every desktop app.          │
+  │  No API required. No monthly fee. Just CU + a potion.             │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 17: FOCUS MODE                                            ║
+║   One keypress → distraction-free + auto-restore                        ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Manually close Slack. Close Mail. Close Messages. Turn on DND in
+    System Settings. Remember what was open. 2 hours later: manually
+    re-open everything, turn off DND. Forget which tabs were open.
+
+  WITH potion:
+    Ctrl+7. Everything disappears. Timer starts. When done: everything back.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User needs to focus for 2 hours. Presses Ctrl+7.                  │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.cu.observe() → snapshot all open windows + positions     │
+  │       → saved to daemon state (for later restore)                  │
+  │                                                                     │
+  │    2. ctx.cu.executePlan:                                          │
+  │       → hide Slack, Mail, Messages, Discord                        │
+  │       → keep only Xcode + Terminal visible                         │
+  │                                                                     │
+  │    3. ctx.shell("shortcuts run 'Focus'") → macOS Focus mode on    │
+  │                                                                     │
+  │    4. Start 2-hour timer in daemon state                           │
+  │                                                                     │
+  │    ... 2 hours pass ...                                            │
+  │                                                                     │
+  │    5. Timer fires → potion auto-runs restore:                      │
+  │       → unhide all previously hidden apps                          │
+  │       → restore window positions from snapshot                     │
+  │       → turn off Focus mode                                        │
+  │       → ctx.notify("Focus session done. 2h 0m. Restoring.")       │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Everything is exactly as it was before focus mode.                │
+  │  User didn't manually hide or restore anything.                    │
+  │  Daemon state held the snapshot across 2 hours.                    │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 18: CODE REVIEW PREP                                      ║
+║   One keypress → diff + JIRA + Slack context → review briefing          ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Click PR link. Read the diff. Open JIRA ticket mentioned in PR
+    description. Read ticket context. Open Slack — find discussion thread
+    about this feature. Tab-hop between 4 apps while trying to understand
+    the change. 15-20 minutes of context gathering before writing one
+    review comment.
+
+  WITH potion:
+    Copy PR URL. Ctrl+6. Briefing document with all context appears.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User copies a PR URL. Presses Ctrl+6 (Hotbar = "review-prep").    │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.clipboard.read() → PR URL                                │
+  │    2. ctx.shell("gh pr view 142 --json ...")                       │
+  │       → title, description, diff stats, linked issues              │
+  │    3. ctx.shell("gh pr diff 142")                                  │
+  │       → full diff                                                  │
+  │    4. Parse JIRA ticket from PR description                        │
+  │       → ctx.cu.executePlan: open JIRA ticket → AX read content    │
+  │    5. Parse Slack channel from PR description                      │
+  │       → ctx.cu.executePlan: open Slack → find thread → AX read    │
+  │    6. ctx.ai.ask("Generate a review briefing from:\n" +            │
+  │       diff + jira_context + slack_discussion)                      │
+  │       │                                                            │
+  │       │  REVIEW BRIEFING: PR #142 — Auth token refresh             │
+  │       │                                                            │
+  │       │  Context: JIRA-456 — users getting logged out randomly     │
+  │       │  Root cause: refresh token race condition (Slack thread:   │
+  │       │  Alice found it on 4/10, Bob confirmed with prod logs)     │
+  │       │                                                            │
+  │       │  Changes: 3 files, 47 additions                            │
+  │       │  - token-service.ts: added mutex around refresh            │
+  │       │  - auth-middleware.ts: retry on 401 before redirect        │
+  │       │  - token-service.test.ts: 4 new tests for race scenario   │
+  │       │                                                            │
+  │       │  Watch for: thread-safety of the mutex implementation     │
+  │       │  Missing: no test for concurrent refresh from 2 tabs      │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  User has full context before reading a single line of code.       │
+  │  Knows what to look for. Review quality goes up. Time goes down.   │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 19: CROSS-APP UNDO                                        ║
+║   "Undo what I just did" — across multiple apps                         ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Potion opened 5 apps, positioned windows, navigated tabs.
+    Something's wrong — you want to go back to how it was before.
+    Manually close each app. Try to remember original window positions.
+    Give up and just start over.
+
+  WITH potion:
+    Ctrl+Z → "undo last potion" → everything reverts.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  The daemon tracks every potion's actions as a reversible log:     │
+  │                                                                     │
+  │  Action log for "morning-work" (Ctrl+1, 9:00 AM):                 │
+  │    [1] opened Safari (was: not running)                            │
+  │    [2] navigated to developer.apple.com (was: no tabs)             │
+  │    [3] moved Safari to display 1 (was: not on screen)              │
+  │    [4] opened Xcode (was: not running)                             │
+  │    [5] moved Xcode to display 2 (was: not on screen)               │
+  │    [6] opened Terminal (was: not running)                           │
+  │                                                                     │
+  │  User: Ctrl+Z → "undo last potion"                                │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Daemon reverses the log:                                          │
+  │    [6] close Terminal                                               │
+  │    [5] (Xcode was not on screen — hide)                            │
+  │    [4] close Xcode                                                 │
+  │    [3] (Safari was not on screen — hide)                           │
+  │    [2] (no previous tabs — close tabs)                             │
+  │    [1] close Safari                                                │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Desktop is back to pre-potion state.                              │
+  │  Cross-app undo. Doesn't exist anywhere else.                     │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   APPLICATION 20: EMAIL TRIAGE                                          ║
+║   One keypress → 40 unread emails → 5-line prioritized summary         ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  WITHOUT potion:
+    Open Mail. Scroll through 40 unread emails. Read each subject.
+    Try to assess priority. Miss the urgent one buried at #23.
+    Spend 20 minutes just figuring out what needs attention.
+
+  WITH potion:
+    Ctrl+Z → "triage email" → prioritized summary in 10 seconds.
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                                                                     │
+  │  User presses Ctrl+Z. Types "triage email."                        │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Potion runs:                                                      │
+  │    1. ctx.cu.executePlan:                                          │
+  │       → open Mail → AX: read all unread message subjects + senders│
+  │       → read first 2 lines of each via AX (no clicking needed)    │
+  │       → 40 unread emails captured                                  │
+  │                                                                     │
+  │    2. ctx.ai.ask("Categorize and prioritize these emails:\n" +     │
+  │       email_subjects_and_previews)                                 │
+  │       │                                                            │
+  │       │  🔴 URGENT (2):                                            │
+  │       │    - Deploy approval needed (from: CTO, 8:02 AM)          │
+  │       │    - Client escalation: API 500s (from: support, 7:45 AM) │
+  │       │                                                            │
+  │       │  📋 ACTION NEEDED (3):                                     │
+  │       │    - PR review: auth-refactor (from: Alice)                │
+  │       │    - Invoice approval Q2 (from: finance)                   │
+  │       │    - Team offsite RSVP by Friday (from: HR)                │
+  │       │                                                            │
+  │       │  📨 FYI (8):                                               │
+  │       │    - Sprint retrospective notes, CI pipeline updates, ...  │
+  │       │                                                            │
+  │       │  🗑 SKIP (27):                                              │
+  │       │    - Newsletters, marketing, automated alerts              │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  User reads 10 lines. Knows exactly which 2 emails to open first. │
+  │  The other 38 can wait. 10 seconds instead of 20 minutes.         │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+```
+
+
+## The Complete Stack
+
+Everything in this document is built from the same small set of primitives:
+
+```text
+┌──────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│  PRIMITIVES (what exists or is planned):                             │
+│                                                                      │
+│    ctx.cu.executePlan()  — batch native desktop actions              │
+│    ctx.cu.observe()      — read desktop state via AX                 │
+│    ctx.cu.pressKeys()    — keyboard input to any app                 │
+│    ctx.clipboard         — read/write system clipboard               │
+│    ctx.shell()           — run any command                           │
+│    ctx.ai.ask()          — call AI (local or cloud)                  │
+│    ctx.eval()            — evaluate HQL/JS in daemon REPL            │
+│    ctx.notify()          — show notification                         │
+│    ctx.memory            — read/write daemon persistent memory       │
+│                                                                      │
+│  INFRASTRUCTURE:                                                     │
+│                                                                      │
+│    Daemon (hlvm serve)   — always alive, holds state                 │
+│    Hotbar (Ctrl+1..0)    — 10 instant-fire slots                     │
+│    Spotlight (Ctrl+Z)    — inline eval + search                      │
+│    Launchpad             — browse/install/share modules              │
+│    ESM format            — standard JS modules, npm-publishable      │
+│                                                                      │
+│  20 APPLICATIONS from 9 primitives + 5 infrastructure pieces.        │
+│  No new primitives needed per application.                           │
+│  The system is the killer feature. Applications are just code.       │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
 ## Risks
 
 1. **Cross-machine replay reliability** — potions must encode semantic intent,
@@ -1337,3 +1983,12 @@ away, ready to evaluate, generate, transform, and paste.
    potions should be built-in (@hlvm/* tier 1)
 5. **Layout adaptation UX** — mapping 3-monitor layouts to 1-monitor requires
    thoughtful defaults (stack? split? prioritize?)
+6. **Clipboard privacy** — smart clipboard history must handle credentials,
+   passwords, and sensitive data; opt-in only, with content classification
+   that never stores items tagged as sensitive
+7. **Cross-app undo reliability** — reversing desktop actions is best-effort;
+   some actions (sent messages, submitted forms) are irreversible by nature;
+   undo log must clearly mark which steps can be reversed
+8. **Form auto-fill security** — storing personal data in daemon memory
+   requires encryption at rest and clear user consent; must never auto-fill
+   password fields
