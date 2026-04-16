@@ -1,48 +1,51 @@
 /**
- * useConversation — React hook wrapping the existing transcript reducer.
+ * useConversation — Standalone conversation state manager for TUI v2.
  *
- * Delegates all state transitions to `reduceTranscriptState` from
- * `agent-transcript-state.ts` so the TUI v2 shares the exact same
- * conversation logic as the v1 Ink REPL.
+ * Manages a list of ConversationItem objects without importing from
+ * the old TUI (repl-ink/), avoiding transitive npm:ink@5 dependency.
+ *
+ * When the agent communication layer is wired, AgentUIEvents will be
+ * mapped to items here. For now, provides simple add/clear operations.
  */
 
 import { useCallback, useRef, useState } from "react";
-import {
-  createTranscriptState,
-  reduceTranscriptState,
-  type TranscriptInput,
-  type TranscriptState,
-} from "../../cli/agent-transcript-state.ts";
-import type { ConversationItem, StreamingState } from "../../cli/repl-ink/types.ts";
+
+// ---------------------------------------------------------------------------
+// Standalone types (no imports from old TUI)
+// ---------------------------------------------------------------------------
+
+export interface ConversationItem {
+  type: string;
+  id: string;
+  [key: string]: unknown;
+}
+
+export type StreamingState = "idle" | "responding" | "waiting_for_confirmation";
+
+interface ConversationState {
+  items: ConversationItem[];
+  streamingState: StreamingState;
+  nextId: number;
+}
+
+function createState(): ConversationState {
+  return { items: [], streamingState: "idle", nextId: 0 };
+}
 
 // ---------------------------------------------------------------------------
 // Public interface
 // ---------------------------------------------------------------------------
 
 export interface UseConversationResult {
-  /** Rendered conversation items (user, assistant, tool groups, etc.) */
   items: ConversationItem[];
-  /** Current streaming lifecycle state (idle / responding / waiting) */
   streamingState: StreamingState;
-  /** Full transcript state for advanced consumers */
-  transcript: TranscriptState;
-
-  // -- Actions --------------------------------------------------------------
-  /** Dispatch a raw AgentUIEvent through the reducer */
   addEvent: (event: unknown) => void;
-  /** Append a user message and start a new turn */
   addUserMessage: (text: string) => void;
-  /** Append or update assistant text (isPending=true while streaming) */
   addAssistantText: (text: string, isPending: boolean) => void;
-  /** Append an error item */
   addError: (text: string) => void;
-  /** Append an informational item (optionally transient) */
   addInfo: (text: string, isTransient?: boolean) => void;
-  /** Append an HQL eval result */
   addHqlEval: (input: string, result: unknown) => void;
-  /** Finalize the current turn with a completion status */
   finalize: (status: "completed" | "cancelled" | "failed") => void;
-  /** Reset conversation to initial empty state */
   clear: () => void;
 }
 
@@ -51,78 +54,182 @@ export interface UseConversationResult {
 // ---------------------------------------------------------------------------
 
 export function useConversation(): UseConversationResult {
-  const [state, setState] = useState<TranscriptState>(createTranscriptState);
-
-  // Keep a ref to the latest state so callbacks are always stable
-  // (no need to re-create them when state changes).
+  const [state, setState] = useState<ConversationState>(createState);
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const dispatch = useCallback((input: TranscriptInput) => {
-    setState((prev: TranscriptState) => reduceTranscriptState(prev, input));
+  const nextId = useCallback(() => {
+    const id = stateRef.current.nextId;
+    return `item-${id}`;
   }, []);
 
-  // -- Stable action helpers ------------------------------------------------
+  const addItem = useCallback((item: ConversationItem) => {
+    setState((prev) => ({
+      ...prev,
+      items: [...prev.items, item],
+      nextId: prev.nextId + 1,
+    }));
+  }, []);
+
+  const updateLastAssistant = useCallback((text: string, isPending: boolean) => {
+    setState((prev) => {
+      const items = [...prev.items];
+      // Find last assistant item and update it, or create new
+      const lastIdx = items.findLastIndex((i) => i.type === "assistant");
+      if (lastIdx >= 0 && items[lastIdx].isPending) {
+        items[lastIdx] = {
+          ...items[lastIdx],
+          text: (items[lastIdx].text as string) + text,
+          isPending,
+        };
+      } else {
+        items.push({
+          type: "assistant",
+          id: `item-${prev.nextId}`,
+          text,
+          isPending,
+          ts: Date.now(),
+        });
+      }
+      return {
+        ...prev,
+        items,
+        nextId: lastIdx >= 0 && items[lastIdx].isPending === false ? prev.nextId : prev.nextId + 1,
+        streamingState: isPending ? "responding" : "idle",
+      };
+    });
+  }, []);
+
+  // -- Actions ----------------------------------------------------------------
 
   const addEvent = useCallback(
     // deno-lint-ignore no-explicit-any
     (event: any) => {
-      dispatch({ type: "agent_event", event });
+      // Map AgentUIEvents to items
+      if (!event || !event.type) return;
+      switch (event.type) {
+        case "thinking":
+          addItem({
+            type: "thinking",
+            id: nextId(),
+            kind: event.kind ?? "reasoning",
+            summary: event.summary ?? "",
+            iteration: event.iteration ?? 0,
+          });
+          break;
+        case "tool_start":
+          addItem({
+            type: "tool_group",
+            id: nextId(),
+            tools: [{
+              id: event.tool_call_id ?? nextId(),
+              name: event.tool_name ?? "unknown",
+              displayName: event.display_name,
+              argsSummary: event.args_summary ?? "",
+              status: "running",
+            }],
+            ts: Date.now(),
+          });
+          break;
+        case "tool_end": {
+          setState((prev) => {
+            const items = [...prev.items];
+            const lastToolGroup = items.findLastIndex((i) => i.type === "tool_group");
+            if (lastToolGroup >= 0) {
+              const tools = [...(items[lastToolGroup].tools as Array<Record<string, unknown>>)];
+              const lastTool = tools[tools.length - 1];
+              if (lastTool) {
+                tools[tools.length - 1] = {
+                  ...lastTool,
+                  status: event.error ? "error" : "success",
+                  resultSummaryText: event.result_summary ?? event.error ?? "",
+                };
+              }
+              items[lastToolGroup] = { ...items[lastToolGroup], tools };
+            }
+            return { ...prev, items };
+          });
+          break;
+        }
+        default:
+          // Other events logged as info for now
+          break;
+      }
     },
-    [dispatch],
+    [addItem, nextId],
   );
 
   const addUserMessage = useCallback(
     (text: string) => {
-      dispatch({ type: "user_message", text, startTurn: true });
+      addItem({
+        type: "user",
+        id: nextId(),
+        text,
+        ts: Date.now(),
+      });
+      setState((prev) => ({ ...prev, streamingState: "responding" }));
     },
-    [dispatch],
+    [addItem, nextId],
   );
 
   const addAssistantText = useCallback(
     (text: string, isPending: boolean) => {
-      dispatch({ type: "assistant_text", text, isPending });
+      updateLastAssistant(text, isPending);
     },
-    [dispatch],
+    [updateLastAssistant],
   );
 
   const addError = useCallback(
     (text: string) => {
-      dispatch({ type: "error", text });
+      addItem({ type: "error", id: nextId(), text });
     },
-    [dispatch],
+    [addItem, nextId],
   );
 
   const addInfo = useCallback(
     (text: string, isTransient?: boolean) => {
-      dispatch({ type: "info", text, isTransient });
+      addItem({ type: "info", id: nextId(), text, isTransient: isTransient ?? false });
     },
-    [dispatch],
+    [addItem, nextId],
   );
 
   const addHqlEval = useCallback(
-    // deno-lint-ignore no-explicit-any
-    (input: string, result: any) => {
-      dispatch({ type: "hql_eval", input, result });
+    (input: string, result: unknown) => {
+      addItem({
+        type: "hql_eval",
+        id: nextId(),
+        input,
+        result,
+        ts: Date.now(),
+      });
     },
-    [dispatch],
+    [addItem, nextId],
   );
 
   const finalize = useCallback(
     (status: "completed" | "cancelled" | "failed") => {
-      dispatch({ type: "finalize", status });
+      setState((prev) => ({ ...prev, streamingState: "idle" }));
+      // Optionally add turn stats
+      if (status !== "cancelled") {
+        addItem({
+          type: "turn_stats",
+          id: nextId(),
+          status,
+          toolCount: 0,
+          durationMs: 0,
+        });
+      }
     },
-    [dispatch],
+    [addItem, nextId],
   );
 
   const clear = useCallback(() => {
-    dispatch({ type: "clear" });
-  }, [dispatch]);
+    setState(createState());
+  }, []);
 
   return {
     items: state.items,
     streamingState: state.streamingState,
-    transcript: state,
     addEvent,
     addUserMessage,
     addAssistantText,

@@ -32,8 +32,10 @@ import {
 } from "./commands/chrome-ext.ts";
 
 import { run as runCommand } from "./run.ts";
-import { startInkRepl } from "./repl-ink/index.tsx";
-import { startTuiV2 } from "../tui-v2/mod.tsx";
+// Dynamic imports to avoid loading both ink versions at startup
+// Old TUI uses npm:ink@5, new TUI uses the CC Ink fork — they conflict if both load
+const loadOldRepl = () => import("./repl-ink/index.tsx").then((m) => m.startInkRepl);
+const loadNewRepl = () => import("../tui-v2/mod.tsx").then((m) => m.startTuiV2);
 import { VERSION } from "../../common/version.ts";
 import { HLVM_RUNTIME_DEFAULT_PORT } from "../runtime/host-config.ts";
 
@@ -76,10 +78,12 @@ EXAMPLES:
 
   if (args.includes("--new")) {
     const showBanner = !args.includes("--no-banner");
+    const startTuiV2 = await loadNewRepl();
     return await startTuiV2({ showBanner });
   }
 
   const showBanner = !args.includes("--no-banner");
+  const startInkRepl = await loadOldRepl();
 
   return await startInkRepl({ showBanner });
 }
