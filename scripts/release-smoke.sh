@@ -38,18 +38,24 @@ HLVM_INSTALL_CHECKSUM_URL="file://${ASSET_DIR}/checksums.sha256" \
 
 if [ "${BOOTSTRAP_FAILED:-0}" = "1" ]; then
   echo "==> Bootstrap warmup timed out. Testing Ollama API directly..."
-  # Bootstrap may fail on slow CI runners (model warmup timeout), but the
-  # binary and Ollama are installed. Test the AI path directly.
-  RESPONSE=$(curl -fsSL --max-time 300 \
-    -H "Content-Type: application/json" \
-    -d "{\"model\":\"gemma4:e4b\",\"prompt\":\"${PROMPT}\",\"stream\":false}" \
-    "http://127.0.0.1:11439/api/generate" 2>&1) || true
-  echo "Ollama API response: ${RESPONSE}"
-  if echo "$RESPONSE" | grep -q "response"; then
-    echo "==> Smoke succeeded (via Ollama API fallback)."
-    exit 0
-  fi
-  echo "FAIL: Bootstrap failed and Ollama API not responding" >&2
+  echo "==> Polling Ollama API (model may still be loading, retrying up to 5 min)..."
+  ATTEMPTS=0
+  MAX_ATTEMPTS=60
+  while [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
+    RESPONSE=$(curl -sS --max-time 30 \
+      -H "Content-Type: application/json" \
+      -d "{\"model\":\"gemma4:e4b\",\"prompt\":\"${PROMPT}\",\"stream\":false}" \
+      "http://127.0.0.1:11439/api/generate" 2>&1) || true
+    if echo "$RESPONSE" | grep -q '"response"'; then
+      echo "Ollama response: ${RESPONSE}"
+      echo "==> Smoke succeeded (via Ollama API fallback after ${ATTEMPTS} retries)."
+      exit 0
+    fi
+    ATTEMPTS=$((ATTEMPTS + 1))
+    echo "    Attempt ${ATTEMPTS}/${MAX_ATTEMPTS}: model not ready yet ($(echo "$RESPONSE" | head -1))"
+    sleep 5
+  done
+  echo "FAIL: Ollama API not responding after ${MAX_ATTEMPTS} attempts" >&2
   exit 1
 fi
 
