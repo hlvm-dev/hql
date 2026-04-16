@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-all --unstable-sloppy-imports
+#!/usr/bin/env -S deno run --allow-all --unstable-sloppy-imports --config=src/hlvm/tui-v2/deno.json
 /**
  * Direct entry point for TUI v2.
  * Bypasses cli.ts to avoid loading npm:ink@5 (old TUI) which conflicts

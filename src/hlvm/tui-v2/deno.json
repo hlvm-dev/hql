@@ -1,0 +1,26 @@
+{
+  "imports": {
+    "react": "npm:react@19",
+    "react-reconciler": "npm:react-reconciler@0.31",
+    "react-reconciler/constants.js": "npm:react-reconciler@0.31/constants.js",
+    "signal-exit": "npm:signal-exit@4",
+    "auto-bind": "npm:auto-bind@5",
+    "chalk": "npm:chalk@5",
+    "cli-boxes": "npm:cli-boxes@3",
+    "strip-ansi": "npm:strip-ansi@7",
+    "indent-string": "npm:indent-string@5",
+    "wrap-ansi": "npm:wrap-ansi@9",
+    "code-excerpt": "npm:code-excerpt@4",
+    "stack-utils": "npm:stack-utils@2",
+    "emoji-regex": "npm:emoji-regex@10",
+    "get-east-asian-width": "npm:get-east-asian-width@1",
+    "supports-hyperlinks": "npm:supports-hyperlinks@3",
+    "bidi-js": "npm:bidi-js@1",
+    "semver": "npm:semver@7",
+    "@alcalzone/ansi-tokenize": "npm:@alcalzone/ansi-tokenize@0.1",
+    "lodash-es/noop.js": "npm:lodash-es@4/noop.js",
+    "lodash-es/throttle.js": "npm:lodash-es@4/throttle.js",
+    "usehooks-ts": "npm:usehooks-ts@3",
+    "type-fest": "npm:type-fest@4"
+  }
+}
