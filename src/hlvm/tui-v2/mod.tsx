@@ -9,33 +9,37 @@ import React from "react";
 import { renderSync } from "./ink/root.ts";
 import Box from "./ink/components/Box.tsx";
 import Text from "./ink/components/Text.tsx";
+import { AppStateProvider } from "./state/context.tsx";
+import { KeybindingProvider } from "./keybindings/context.tsx";
+import App from "./App.tsx";
 
 export interface TuiV2Options {
   showBanner: boolean;
 }
 
-function App({ showBanner }: { showBanner: boolean }) {
-  return (
-    <Box flexDirection="column" paddingX={1}>
-      {showBanner && (
-        <Text bold>HLVM — High Level Virtual Machine</Text>
-      )}
-      <Box borderStyle="round" paddingX={1}>
-        <Box marginRight={1}>
-          <Text color="green">❯</Text>
-        </Box>
-        <Text dimColor>Ready</Text>
-      </Box>
-    </Box>
-  );
-}
-
 export async function startTuiV2(options: TuiV2Options): Promise<number> {
-  const { waitUntilExit } = renderSync(
-    <App showBanner={options.showBanner} />,
-    { patchConsole: false, exitOnCtrlC: true },
-  );
+  function Root() {
+    return (
+      <KeybindingProvider>
+        <AppStateProvider>
+          <Box flexDirection="column">
+            {options.showBanner && (
+              <Box paddingX={1} marginBottom={1}>
+                <Text bold color="cyan">HLVM</Text>
+                <Text dimColor>{" — High Level Virtual Machine"}</Text>
+              </Box>
+            )}
+            <App />
+          </Box>
+        </AppStateProvider>
+      </KeybindingProvider>
+    );
+  }
 
+  const { waitUntilExit } = renderSync(<Root />, {
+    patchConsole: false,
+    exitOnCtrlC: true,
+  });
   await waitUntilExit();
   return 0;
 }
