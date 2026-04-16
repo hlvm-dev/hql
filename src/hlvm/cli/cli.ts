@@ -33,6 +33,7 @@ import {
 
 import { run as runCommand } from "./run.ts";
 import { startInkRepl } from "./repl-ink/index.tsx";
+import { startTuiV2 } from "../tui-v2/mod.ts";
 import { VERSION } from "../../common/version.ts";
 import { HLVM_RUNTIME_DEFAULT_PORT } from "../runtime/host-config.ts";
 
@@ -49,6 +50,7 @@ USAGE:
   hlvm repl [options]
 
 OPTIONS:
+  --new             Use TUI v2 (experimental)
   --ink             Force Ink REPL (interactive terminal only)
   --no-banner       Skip the startup banner
   --help, -h        Show this help
@@ -70,6 +72,11 @@ EXAMPLES:
   if (args.includes("--version")) {
     log.raw.log(`HLVM REPL v${VERSION}`);
     return 0;
+  }
+
+  if (args.includes("--new")) {
+    const showBanner = !args.includes("--no-banner");
+    return await startTuiV2({ showBanner });
   }
 
   const showBanner = !args.includes("--no-banner");
