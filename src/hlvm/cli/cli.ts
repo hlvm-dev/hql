@@ -33,7 +33,7 @@ import {
 
 import { run as runCommand } from "./run.ts";
 import { startInkRepl } from "./repl-ink/index.tsx";
-import { startTuiV2 } from "../tui-v2/mod.ts";
+import { startTuiV2 } from "../tui-v2/mod.tsx";
 import { VERSION } from "../../common/version.ts";
 import { HLVM_RUNTIME_DEFAULT_PORT } from "../runtime/host-config.ts";
 
