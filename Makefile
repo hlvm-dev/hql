@@ -8,6 +8,7 @@ VERSION := 0.2.0
 BINARY := hlvm
 CLI_ENTRY := src/hlvm/cli/cli.ts
 COMPILE_SCRIPT := ./scripts/compile-hlvm.sh
+REPL_ARGS ?=
 
 # Transpile stdlib.hql → self-hosted.js
 stdlib:
@@ -47,12 +48,20 @@ install: build
 # Build and launch REPL immediately
 repl: build
 	@echo "Launching REPL..."
-	@./$(BINARY) repl
+	@./$(BINARY) repl $(REPL_ARGS)
 
 # Fast REPL — cached build, no clean
 fast: build-fast
 	@echo "Launching REPL..."
-	@./$(BINARY) repl
+	@./$(BINARY) repl $(REPL_ARGS)
+
+# Build and launch REPL v2 immediately
+repl-new: REPL_ARGS += --new
+repl-new: repl
+
+# Fast REPL v2 — cached build, no clean
+fast-new: REPL_ARGS += --new
+fast-new: fast
 
 # Build and launch Ink REPL (experimental - better AI streaming)
 ink: build
@@ -120,6 +129,8 @@ help:
 	@echo "  make              - Build for current computer"
 	@echo "  make fast         - Build + REPL using cached deps"
 	@echo "  make repl         - Build + REPL from clean slate"
+	@echo "  make repl-new     - Build + REPL v2 (--new) from clean slate"
+	@echo "  make fast-new     - Build + REPL v2 (--new) using cached deps"
 	@echo "  make ink          - Build + Ink REPL (experimental)"
 	@echo "  make install      - Install system-wide"
 	@echo "  make test         - Build and test"
@@ -136,5 +147,5 @@ help:
 	@echo "Note: Ollama is downloaded at runtime (hlvm bootstrap),"
 	@echo "      not embedded in the binary at build time."
 
-.PHONY: stdlib embed-packages openapi build build-fast install repl fast ink test all clean help
+.PHONY: stdlib embed-packages openapi build build-fast install repl repl-new fast fast-new ink test all clean help
 .PHONY: build-mac-intel build-mac-arm build-linux build-windows test-ai

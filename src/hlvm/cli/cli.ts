@@ -32,12 +32,10 @@ import {
 } from "./commands/chrome-ext.ts";
 
 import { run as runCommand } from "./run.ts";
-// Dynamic imports to avoid loading both ink versions at startup
-// Old TUI uses npm:ink@5, new TUI uses the CC Ink fork — they conflict if both load
 const loadOldRepl = () => import("./repl-ink/index.tsx").then((m) => m.startInkRepl);
-const loadNewRepl = () => import("../tui-v2/mod.tsx").then((m) => m.startTuiV2);
 import { VERSION } from "../../common/version.ts";
 import { HLVM_RUNTIME_DEFAULT_PORT } from "../runtime/host-config.ts";
+import { ensureDenoAvailable } from "./utils/toolchain.ts";
 
 /**
  * Handle `hlvm repl` command
@@ -77,15 +75,66 @@ EXAMPLES:
   }
 
   if (args.includes("--new")) {
-    const showBanner = !args.includes("--no-banner");
-    const startTuiV2 = await loadNewRepl();
-    return await startTuiV2({ showBanner });
+    return await launchTuiV2Baseline(args);
   }
 
   const showBanner = !args.includes("--no-banner");
   const startInkRepl = await loadOldRepl();
 
   return await startInkRepl({ showBanner });
+}
+
+async function launchTuiV2Baseline(args: string[]): Promise<number> {
+  const platform = getPlatform();
+  const denoBinary = await ensureDenoAvailable();
+  const { configPath, mainPath } = await resolveTuiV2LaunchPaths();
+  const proc = platform.command.run({
+    cmd: [
+      denoBinary,
+      "run",
+      "--allow-all",
+      "--unstable-sloppy-imports",
+      "--config",
+      configPath,
+      mainPath,
+      ...args.filter((arg) => arg !== "--new"),
+    ],
+    env: platform.env.toObject(),
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const status = await proc.status;
+  return status.code;
+}
+
+async function resolveTuiV2LaunchPaths(): Promise<{
+  configPath: string;
+  mainPath: string;
+}> {
+  const platform = getPlatform();
+  const candidates = [
+    platform.path.resolve(platform.process.cwd(), "src/hlvm/tui-v2"),
+    platform.path.resolve(
+      platform.path.dirname(platform.process.execPath()),
+      "src/hlvm/tui-v2",
+    ),
+    platform.path.fromFileUrl(new URL("../tui-v2", import.meta.url)),
+  ];
+
+  for (const baseDir of candidates) {
+    const configPath = platform.path.join(baseDir, "deno.json");
+    const mainPath = platform.path.join(baseDir, "main.tsx");
+    if (
+      await platform.fs.exists(configPath) && await platform.fs.exists(mainPath)
+    ) {
+      return { configPath, mainPath };
+    }
+  }
+
+  throw new Error(
+    "TUI v2 entry files not found. Expected src/hlvm/tui-v2/{main.tsx,deno.json}.",
+  );
 }
 
 /**

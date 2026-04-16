@@ -28,6 +28,12 @@ import {
   DEFAULT_OLLAMA_HOST,
 } from "../../common/config/types.ts";
 import { http } from "../../common/http-client.ts";
+import {
+  findListeningPidForPort,
+  terminateProcess,
+} from "./port-process.ts";
+
+const textDecoder = new TextDecoder();
 
 // ============================================================================
 // Interface — consumers depend on this, not concrete internals
@@ -52,9 +58,16 @@ const AI_STARTUP_TIMEOUT_MS = 60_000;
 const AI_STARTUP_MAX_POLLS = Math.ceil(
   AI_STARTUP_TIMEOUT_MS / AI_STARTUP_POLL_INTERVAL_MS,
 );
-const textDecoder = new TextDecoder();
-
 let initPromise: Promise<void> | null = null;
+
+function normalizeCommandOutput(output: {
+  stdout: Uint8Array;
+  stderr: Uint8Array;
+}): string {
+  const stdout = textDecoder.decode(output.stdout).trim();
+  const stderr = textDecoder.decode(output.stderr).trim();
+  return [stdout, stderr].filter(Boolean).join("\n");
+}
 
 function parseOllamaVersion(output: string): string | null {
   const clientMatch = output.match(
@@ -137,15 +150,6 @@ function prependPathEntries(
   }
 
   return ordered.join(separator);
-}
-
-function normalizeCommandOutput(output: {
-  stdout: Uint8Array;
-  stderr: Uint8Array;
-}): string {
-  const stdout = textDecoder.decode(output.stdout).trim();
-  const stderr = textDecoder.decode(output.stderr).trim();
-  return [stdout, stderr].filter(Boolean).join("\n");
 }
 
 async function describeInvalidEngine(
@@ -550,43 +554,8 @@ export async function isCompatibleAIRunning(
 }
 
 async function findListeningPidForAIEndpoint(
-  platform = getPlatform(),
 ): Promise<string | null> {
-  try {
-    if (platform.build.os === "windows") {
-      const output = await platform.command.output({
-        cmd: [
-          "cmd",
-          "/c",
-          `netstat -ano -p tcp | findstr LISTENING | findstr :${getAIEndpointPort()}`,
-        ],
-        stdin: "null",
-        stdout: "piped",
-        stderr: "piped",
-      });
-      const text = normalizeCommandOutput(output);
-      const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-      const pid = lines.at(0)?.split(/\s+/).at(-1);
-      return pid && /^\d+$/.test(pid) ? pid : null;
-    }
-
-    const output = await platform.command.output({
-      cmd: [
-        "lsof",
-        "-nP",
-        `-iTCP:${getAIEndpointPort()}`,
-        "-sTCP:LISTEN",
-        "-t",
-      ],
-      stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
-    });
-    const pid = normalizeCommandOutput(output).split("\n")[0]?.trim();
-    return pid && /^\d+$/.test(pid) ? pid : null;
-  } catch {
-    return null;
-  }
+  return await findListeningPidForPort(Number(getAIEndpointPort()));
 }
 
 async function waitForAIEndpointRelease(): Promise<void> {
@@ -600,7 +569,6 @@ async function waitForAIEndpointRelease(): Promise<void> {
 
 export async function reclaimConflictingAIEndpoint(
   expectedVersion?: string,
-  platform = getPlatform(),
 ): Promise<boolean> {
   const endpointVersion = await getAIEndpointVersion();
   if (!endpointVersion) {
@@ -610,7 +578,7 @@ export async function reclaimConflictingAIEndpoint(
     return false;
   }
 
-  const pid = await findListeningPidForAIEndpoint(platform);
+  const pid = await findListeningPidForAIEndpoint();
   if (!pid) {
     return false;
   }
@@ -620,23 +588,8 @@ export async function reclaimConflictingAIEndpoint(
       `${endpointVersion} (expected ${expectedVersion}).`,
   );
 
-  try {
-    if (platform.build.os === "windows") {
-      await platform.command.output({
-        cmd: ["taskkill", "/PID", pid, "/T", "/F"],
-        stdin: "null",
-        stdout: "piped",
-        stderr: "piped",
-      });
-    } else {
-      await platform.command.output({
-        cmd: ["kill", "-TERM", pid],
-        stdin: "null",
-        stdout: "piped",
-        stderr: "piped",
-      });
-    }
-  } catch (error) {
+  if (!await terminateProcess(pid)) {
+    const error = new Error(`Failed to terminate process ${pid}.`);
     log.warn?.(
       `Failed to terminate incompatible Ollama on ${DEFAULT_OLLAMA_HOST}: ${
         error instanceof Error ? error.message : String(error)
@@ -670,7 +623,7 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
     return;
   }
 
-  await reclaimConflictingAIEndpoint(expectedVersion ?? undefined, platform);
+  await reclaimConflictingAIEndpoint(expectedVersion ?? undefined);
 
   const killProcess = (proc: PlatformCommandProcess | null) => {
     try {

@@ -58,6 +58,10 @@ import {
   getRuntimeHostIdentity,
 } from "./host-identity.ts";
 import {
+  findListeningPidForPort,
+  terminateProcess,
+} from "./port-process.ts";
+import {
   buildTraceTextPreview,
   summarizeTraceEvent,
   traceReplMainThreadForSource,
@@ -386,6 +390,54 @@ async function requestRuntimeShutdown(
   }
 }
 
+async function reclaimIncompatibleRuntimeHosts(
+  hosts: ReadonlyArray<{ baseUrl: string; authToken: string }>,
+): Promise<boolean> {
+  const seen = new Set<string>();
+  let reclaimedAny = false;
+
+  for (const host of hosts) {
+    if (seen.has(host.baseUrl)) continue;
+    seen.add(host.baseUrl);
+
+    const shutdownAccepted = await requestRuntimeShutdown(
+      host.baseUrl,
+      host.authToken,
+    );
+    if (!shutdownAccepted) {
+      continue;
+    }
+
+    if (await waitForRuntimeShutdown(host.baseUrl)) {
+      reclaimedAny = true;
+    }
+  }
+
+  return reclaimedAny;
+}
+
+async function reclaimUnresponsiveRuntimeHosts(
+  hosts: ReadonlyArray<{ baseUrl: string; pid: string }>,
+): Promise<boolean> {
+  const seen = new Set<string>();
+  let reclaimedAny = false;
+
+  for (const host of hosts) {
+    if (seen.has(host.baseUrl)) continue;
+    seen.add(host.baseUrl);
+
+    if (!await terminateProcess(host.pid)) {
+      continue;
+    }
+
+    if (await waitForRuntimeShutdown(host.baseUrl)) {
+      reclaimedAny = true;
+    }
+  }
+
+  return reclaimedAny;
+}
+
 function spawnRuntimeHost(
   authToken: string,
   buildId: string,
@@ -471,6 +523,73 @@ async function ensureRuntimeHost(): Promise<{
     return attached?.authToken ? cacheAndReturn(url, attached.authToken) : null;
   };
 
+  const scanFallbackPorts = async (
+    incompatibleHosts: Array<{ baseUrl: string; authToken: string }>,
+    unresponsiveHosts: Array<{ baseUrl: string; pid: string }>,
+  ) => {
+    for (
+      let offset = 1;
+      offset <= HLVM_RUNTIME_PORT_SCAN_RANGE;
+      offset++
+    ) {
+      const candidatePort = basePort + offset;
+      const candidateUrl = makeBaseUrl(candidatePort);
+      const candidateHealth = await readHealth(candidateUrl);
+
+      if (!candidateHealth) {
+        const candidatePid = await findListeningPidForPort(candidatePort);
+        if (candidatePid) {
+          unresponsiveHosts.push({
+            baseUrl: candidateUrl,
+            pid: candidatePid,
+          });
+          continue;
+        }
+
+        const authToken = crypto.randomUUID();
+        spawnRuntimeHost(authToken, identity.buildId, candidatePort);
+
+        const started = await waitForRuntimeHost(
+          candidateUrl,
+          (health) =>
+            health.authToken === authToken &&
+            matchesRuntimeHostIdentity(health, identity.buildId),
+          HEALTH_POLL_ATTEMPTS * 4,
+        );
+        if (started?.authToken) {
+          return cacheAndReturn(candidateUrl, started.authToken);
+        }
+        continue;
+      }
+
+      if (
+        candidateHealth.status === "ok" && candidateHealth.authToken &&
+        matchesRuntimeHostIdentity(candidateHealth, identity.buildId)
+      ) {
+        return cacheAndReturn(candidateUrl, candidateHealth.authToken);
+      }
+
+      if (candidateHealth.status === "ok" && candidateHealth.authToken) {
+        incompatibleHosts.push({
+          baseUrl: candidateUrl,
+          authToken: candidateHealth.authToken,
+        });
+      }
+    }
+
+    const reclaimedIncompatible = await reclaimIncompatibleRuntimeHosts(
+      incompatibleHosts,
+    );
+    const reclaimedUnresponsive = await reclaimUnresponsiveRuntimeHosts(
+      unresponsiveHosts,
+    );
+    if (reclaimedIncompatible || reclaimedUnresponsive) {
+      return await ensureRuntimeHost();
+    }
+
+    return null;
+  };
+
   // Check base port first
   const attached = await readHealth(baseUrl);
   if (
@@ -487,42 +606,18 @@ async function ensureRuntimeHost(): Promise<{
     !matchesRuntimeHostIdentity(attached, identity.buildId);
 
   if (incompatibleOnBasePort) {
-    // Scan ports base+1..base+N for a compatible host or free port
-    for (
-      let offset = 1;
-      offset <= HLVM_RUNTIME_PORT_SCAN_RANGE;
-      offset++
-    ) {
-      const candidatePort = basePort + offset;
-      const candidateUrl = makeBaseUrl(candidatePort);
-      const candidateHealth = await readHealth(candidateUrl);
-
-      if (!candidateHealth) {
-        // Free port — start our host here
-        const authToken = crypto.randomUUID();
-        spawnRuntimeHost(authToken, identity.buildId, candidatePort);
-
-        const started = await waitForRuntimeHost(
-          candidateUrl,
-          (health) =>
-            health.authToken === authToken &&
-            matchesRuntimeHostIdentity(health, identity.buildId),
-          HEALTH_POLL_ATTEMPTS * 4,
-        );
-        if (started?.authToken) {
-          return cacheAndReturn(candidateUrl, started.authToken);
-        }
-        // Spawning failed on this port, try next
-        continue;
-      }
-
-      if (
-        candidateHealth.status === "ok" && candidateHealth.authToken &&
-        matchesRuntimeHostIdentity(candidateHealth, identity.buildId)
-      ) {
-        return cacheAndReturn(candidateUrl, candidateHealth.authToken);
-      }
-      // Port occupied by another incompatible host, try next
+    const attachedAuthToken = attached.authToken!;
+    const scannedRuntime = await scanFallbackPorts(
+      [
+        {
+          baseUrl,
+          authToken: attachedAuthToken,
+        },
+      ],
+      [],
+    );
+    if (scannedRuntime) {
+      return scannedRuntime;
     }
 
     throw createRuntimeHostError(
@@ -531,6 +626,26 @@ async function ensureRuntimeHost(): Promise<{
           basePort + HLVM_RUNTIME_PORT_SCAN_RANGE
         } are all occupied.`,
     );
+  }
+
+  if (!attached) {
+    const occupiedBasePid = await findListeningPidForPort(basePort);
+    if (occupiedBasePid) {
+      const scannedRuntime = await scanFallbackPorts([], [{
+        baseUrl,
+        pid: occupiedBasePid,
+      }]);
+      if (scannedRuntime) {
+        return scannedRuntime;
+      }
+
+      throw createRuntimeHostError(
+        "Failed to find a free port for the local HLVM runtime host. " +
+          `Ports ${basePort}-${
+            basePort + HLVM_RUNTIME_PORT_SCAN_RANGE
+          } are all occupied.`,
+      );
+    }
   }
 
   // Base port is free or no response — proceed with the original startup logic
@@ -633,6 +748,10 @@ async function ensureRuntimeAiReady(): Promise<{
 
 export async function ensureRuntimeHostReady(): Promise<void> {
   await ensureRuntimeAiReady();
+}
+
+export async function ensureRuntimeHostAvailable(): Promise<void> {
+  await ensureRuntimeHost();
 }
 
 function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {

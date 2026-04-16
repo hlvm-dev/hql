@@ -146,6 +146,13 @@ export async function resolveSupportedAttachmentKindsForModel(
     ? PROVIDER_ATTACHMENT_KINDS[providerName] ?? DEFAULT_MODEL_ATTACHMENT_KINDS
     : DEFAULT_MODEL_ATTACHMENT_KINDS;
 
+  // Test-only or unknown provider prefixes should not trigger remote catalog
+  // discovery just to answer attachment-kind defaults.
+  if (providerName && !(providerName in PROVIDER_ATTACHMENT_KINDS) &&
+    !modelInfo?.capabilities) {
+    return providerKinds;
+  }
+
   if (!providerKinds.includes("image")) {
     return providerKinds;
   }
