@@ -34,7 +34,22 @@ try {
             $PythonCmd = "python3"
         }
         $Server = Start-Process $PythonCmd -ArgumentList "-m", "http.server", $Port, "--directory", $AssetDir -PassThru -NoNewWindow
-        Start-Sleep -Seconds 2
+
+        # Wait for HTTP server to be ready (up to 30s)
+        $ready = $false
+        for ($i = 0; $i -lt 30; $i++) {
+            try {
+                Invoke-WebRequest -Uri "http://127.0.0.1:$Port/" -TimeoutSec 2 -UseBasicParsing | Out-Null
+                $ready = $true
+                break
+            } catch {
+                Start-Sleep -Seconds 1
+            }
+        }
+        if (-not $ready) {
+            Write-Error "Local HTTP server failed to start on port $Port after 30s"
+        }
+        Write-Host "==> Local asset server ready on port $Port"
 
         try {
             Write-Host "==> Running installer (staged, local assets on port $Port)..."
