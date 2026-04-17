@@ -264,5 +264,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Windows public smoke
         env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
         run: ./scripts/release-smoke.ps1 -Mode "public" -Tag "${{ needs.resolve.outputs.tag }}"
