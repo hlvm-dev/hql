@@ -122,7 +122,7 @@ async function resolveGitPathspec(
   options?: ToolExecutionOptions,
 ): Promise<string> {
   const platform = getPlatform();
-  const resolved = await resolveToolPath(inputPath, workspace, options?.policy ?? null);
+  const resolved = await resolveToolPath(inputPath, workspace);
   if (!isPathWithinRoot(resolved, workspace)) {
     throw new ValidationError(`Path is outside workspace: ${inputPath}`, "git_tool");
   }
@@ -157,7 +157,7 @@ export async function gitStatus(
 ): Promise<unknown> {
   try {
     const cwd = args.path
-      ? await resolveToolPath(args.path, workspace, options?.policy ?? null)
+      ? await resolveToolPath(args.path, workspace)
       : workspace;
 
     const result = await runGit(

@@ -5,6 +5,7 @@ import {
   createReadableStreamEventSink,
 } from "../../../src/hlvm/agent/agent-events.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
+import { createToolProfileState } from "../../../src/hlvm/agent/tool-profiles.ts";
 import type {
   AgentEvent,
   AgentLoopResult,
@@ -23,7 +24,6 @@ function loopResult(text: string): AgentLoopResult {
       totalCompletionTokens: 0,
       totalTokens: 0,
       source: "estimated",
-      costSource: "unavailable",
     },
   };
 }
@@ -123,5 +123,41 @@ Deno.test({
 
     // Parent context should not have grown from the child's run
     assertEquals(parentContext.getMessages().length, parentMsgCount);
+  },
+});
+
+Deno.test({
+  name:
+    "createAgent does not mutate caller toolProfileState across runs or forks",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const toolProfileState = createToolProfileState({
+      baseline: {
+        slot: "baseline",
+        allowlist: ["read_file"],
+      },
+    });
+    const initialGeneration = toolProfileState._generation;
+    const context = new ContextManager();
+    const agent = createAgent({
+      config: {
+        workspace: "/tmp",
+        context,
+        permissionMode: "bypassPermissions",
+        maxIterations: 1,
+        toolProfileState,
+      },
+      llmFunction: async () => ({ content: "ok", toolCalls: [] }),
+    });
+
+    await agent.run("first");
+    const fork = agent.fork({ maxIterations: 1 });
+    await fork.run("second");
+
+    assertEquals(toolProfileState._generation, initialGeneration);
+    assertEquals(toolProfileState.layers.domain, undefined);
+    assertEquals(toolProfileState.layers.discovery, undefined);
+    assertEquals(toolProfileState.layers.runtime, undefined);
   },
 });

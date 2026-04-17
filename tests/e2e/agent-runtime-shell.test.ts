@@ -19,9 +19,6 @@ const platform = getPlatform();
 const CLI_PATH = platform.path.fromFileUrl(
   new URL("../../src/hlvm/cli/cli.ts", import.meta.url),
 );
-const HOOK_RECORDER_PATH = platform.path.fromFileUrl(
-  new URL("../fixtures/agent-hook-recorder.ts", import.meta.url),
-);
 const LIVE_MODEL = platform.env.get("HLVM_LIVE_AGENT_MODEL")?.trim() || "";
 const withSerializedLocalAsk = createSerializedQueue();
 const withSerializedLocalAskTest = createSerializedQueue();
@@ -158,21 +155,6 @@ function expectedJavaScriptVerificationPass(
   return externalLspLabel
     ? `LSP diagnostics passed via ${externalLspLabel}.`
     : "Syntax check passed via node --check.";
-}
-
-async function writeProjectHooksConfig(
-  workspace: string,
-  hooks: Record<string, unknown>,
-): Promise<void> {
-  const hooksDir = platform.path.join(workspace, ".hlvm");
-  await platform.fs.mkdir(hooksDir, { recursive: true });
-  await platform.fs.writeTextFile(
-    platform.path.join(hooksDir, "hooks.json"),
-    JSON.stringify({
-      version: 1,
-      hooks,
-    }, null, 2),
-  );
 }
 
 function parseJsonLines(text: string): unknown[] {
@@ -430,22 +412,6 @@ async function createAiLoopEnhancementFixture(
               ],
             },
             response: "External LSP verify fail enhancement complete",
-          },
-        ],
-      },
-      {
-        name: "hooks",
-        match: { contains: ["hooks enhancement smoke"] },
-        steps: [
-          {
-            toolCalls: [{
-              id: "hooks_read_1",
-              toolName: "read_file",
-              args: { path: "large.txt" },
-            }],
-          },
-          {
-            response: "Hooks enhancement complete",
           },
         ],
       },
@@ -1220,150 +1186,6 @@ localAskTest({
           failOutput.includes("[HLVM5009]"),
           false,
           failOutput,
-        );
-      },
-    );
-  },
-});
-
-localAskTest({
-  name:
-    "raw ./hlvm ask executes project lifecycle hooks and records tool/final events",
-  fn: async () => {
-    await withAiLoopEnhancementWorkspace(
-      "hlvm-ai-loop-hooks-",
-      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
-        const hookLogPath = platform.path.join(hlvmDir, "hook-log.jsonl");
-        await writeProjectHooksConfig(hlvmDir, {
-          pre_tool: [{
-            command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, hookLogPath],
-          }],
-          post_tool: [{
-            command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, hookLogPath],
-          }],
-          final_response: [{
-            command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, hookLogPath],
-          }],
-        });
-
-        const result = await runLocalAsk(
-          port,
-          [
-            "--no-session-persistence",
-            "--verbose",
-            "--model",
-            "ollama/test-fixture",
-            "hooks enhancement smoke",
-          ],
-          {
-            HLVM_DIR: hlvmDir,
-            HLVM_ASK_FIXTURE_PATH: fixturePath,
-          },
-          hlvmDir,
-          runtimeProbe,
-        );
-
-        const output = describeLocalAskResult(result);
-        assertEquals(result.success, true, output);
-        assertStringIncludes(output, "Result:\nHooks enhancement complete");
-
-        const hookLog = await platform.fs.readTextFile(hookLogPath);
-        const events = parseJsonLines(hookLog) as Array<{
-          hook: string;
-          payload?: Record<string, unknown>;
-        }>;
-        assertEquals(
-          events.map((event) => event.hook),
-          ["pre_tool", "post_tool", "final_response"],
-        );
-        assertEquals(events[0]?.payload?.toolName, "read_file");
-        assertEquals(typeof events[0]?.payload?.toolCallId, "string");
-        assertEquals(events[1]?.payload?.toolName, "read_file");
-        assertEquals(events[1]?.payload?.presentationKind, "read");
-        assertEquals(typeof events[2]?.payload?.turnId, "string");
-        assertEquals(events[2]?.payload?.text, "Hooks enhancement complete");
-      },
-    );
-  },
-});
-
-localAskTest({
-  name:
-    "raw ./hlvm ask stream-json reports continuation metadata through the local runtime host",
-  fn: async () => {
-    await withAiLoopEnhancementWorkspace(
-      "hlvm-ai-loop-runtime-metadata-",
-      async ({ hlvmDir, port, fixturePath, runtimeProbe }) => {
-        const hookLogPath = platform.path.join(
-          hlvmDir,
-          "runtime-metadata-hook-log.jsonl",
-        );
-        await writeProjectHooksConfig(hlvmDir, {
-          final_response: [{
-            command: [Deno.execPath(), "run", "-A", HOOK_RECORDER_PATH, hookLogPath],
-          }],
-        });
-
-        const continuationResult = await runLocalAsk(
-          port,
-          [
-            "--no-session-persistence",
-            "--output-format", "stream-json",
-            "--model",
-            "ollama/test-fixture",
-            "continuation metadata enhancement smoke",
-          ],
-          {
-            HLVM_DIR: hlvmDir,
-            HLVM_ASK_FIXTURE_PATH: fixturePath,
-          },
-          hlvmDir,
-          runtimeProbe,
-        );
-
-        const continuationOutput = normalizeCliOutput(
-          continuationResult.stdout + continuationResult.stderr,
-        ).trim();
-        assertEquals(continuationResult.success, true, continuationOutput);
-
-        const continuationLines = continuationOutput
-          .split("\n")
-          .filter(Boolean)
-          .map((line) =>
-            JSON.parse(line) as {
-              type: string;
-              event?: {
-                type?: string;
-                continuedThisTurn?: boolean;
-                continuationCount?: number;
-              };
-              text?: string;
-            }
-          );
-        const continuationFinal = continuationLines.find((line) =>
-          line.type === "final"
-        );
-        const continuationStats = continuationLines.find((line) =>
-          line.type === "agent_event" && line.event?.type === "turn_stats"
-        );
-        assertEquals(typeof continuationFinal?.text, "string");
-        assertEquals(continuationStats?.event?.continuedThisTurn, true);
-        assertEquals(continuationStats?.event?.continuationCount, 1);
-
-        const hookEvents = parseJsonLines(
-          await platform.fs.readTextFile(hookLogPath),
-        ) as Array<{
-          hook: string;
-          payload?: Record<string, unknown>;
-        }>;
-        const continuationFinalHook = hookEvents.find((event) =>
-          event.hook === "final_response"
-        );
-        const mergedText = String(continuationFinalHook?.payload?.text ?? "");
-        assertStringIncludes(mergedText, "RESILIENCE-CONTINUATION-HEADER");
-        assertEquals(
-          mergedText.split("RESILIENCE-CONTINUATION-HEADER").length - 1,
-          1,
         );
       },
     );

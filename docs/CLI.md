@@ -560,13 +560,11 @@ google/gemini-2.0-flash    # Google
 
 ## Configuration Files
 
-| File                    | Description                                                      |
-| ----------------------- | ---------------------------------------------------------------- |
-| `~/.hlvm/settings.json` | Unified config: model, policy, hooks (replaces config.json)      |
-| `~/.hlvm/`              | Global config and cache directory                                |
-| `.hlvm/prompt.md`       | Per-project agent instructions                                   |
-| `.hlvm/hooks.json`      | Per-workspace hook overrides (merged under settings.json hooks)  |
-| `hql.json`              | HQL package metadata (name, version, exports)                    |
+| File                    | Description                                           |
+| ----------------------- | ----------------------------------------------------- |
+| `~/.hlvm/settings.json` | Unified config: model, theme, permission mode, etc.   |
+| `~/.hlvm/`              | Global config and cache directory                     |
+| `hql.json`              | HQL package metadata (name, version, exports)         |
 
 ---
 

@@ -565,23 +565,6 @@ export async function processAgentResponse(
     }
 
     remainingObservationBytes -= observationBytes;
-    await config.hookRuntime?.dispatch("post_tool", {
-      workspace: config.workspace,
-      sessionId: config.sessionId,
-      turnId: config.turnId,
-      modelId: config.modelId,
-      toolName: call.toolName,
-      toolCallId: call.id,
-      success: result.success,
-      summary: result.summaryDisplay,
-      content: result.returnDisplay,
-      llmObservation: observation,
-      observationMode,
-      presentationKind: result.presentationKind,
-      truncatedForLlm: result.truncatedForLlm === true,
-      truncatedForTranscript: result.truncatedForTranscript === true,
-      argsSummary: generateArgsSummary(call.toolName, call.args),
-    });
     toolUses.push({
       toolName: call.toolName,
       result: resultText ?? "",

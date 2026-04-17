@@ -17,6 +17,7 @@ import {
   resolveReplLiveAgentSession,
   setReplLiveAgentSession,
 } from "../../../agent/repl-live-session-cache.ts";
+import { drainCompletionNotifications } from "../../../agent/tools/agent-tool.ts";
 import {
   getMessage,
   getSession,
@@ -133,6 +134,7 @@ export async function handleAgentMode(
     "default";
   const mainThreadQuery = isMainThreadQuerySource(body.query_source);
   const requestOverridesStoredHistory = shouldHonorRequestMessages(body.messages);
+  const pendingBackgroundNotifications = drainCompletionNotifications();
   const hotSessionReusableTurn = mainThreadQuery &&
     !fixturePath &&
     !requestOverridesStoredHistory &&
@@ -144,7 +146,10 @@ export async function handleAgentMode(
   let liveSessionEntry: ReturnType<typeof resolveReplLiveAgentSession>["entry"];
   let historyStrategy: "live_session" | "persisted_replay" = "persisted_replay";
 
-  if (mainThreadQuery && !hotSessionReusableTurn) {
+  if (pendingBackgroundNotifications.length > 0) {
+    hotSessionInvalidationReason = "background_task_notification";
+    invalidateReplLiveAgentSession(sessionId);
+  } else if (mainThreadQuery && !hotSessionReusableTurn) {
     hotSessionInvalidationReason = requestOverridesStoredHistory
       ? "request_messages_override"
       : body.skip_session_history === true
@@ -186,7 +191,19 @@ export async function handleAgentMode(
       modelKey: resolvedModel,
       modelInfo,
     });
-  const messageHistory = historyStrategy === "live_session" ? undefined : history;
+  const historyWithNotifications = pendingBackgroundNotifications.length === 0
+    ? history
+    : [
+      ...history,
+      ...pendingBackgroundNotifications.map((content) => ({
+        role: "user" as const,
+        content,
+      })),
+    ];
+  const messageHistory = historyStrategy === "live_session" &&
+      pendingBackgroundNotifications.length === 0
+    ? undefined
+    : historyWithNotifications;
 
   let streamedFinalText = false;
   let successfulToolCalls = 0;
@@ -228,7 +245,6 @@ export async function handleAgentMode(
       messageHistory,
       attachments: attachments.length > 0 ? attachments : undefined,
       maxIterations: body.max_iterations,
-      maxBudgetUsd: body.max_budget_usd,
       responseSchema: body.response_schema,
       computerUse: body.computer_use === true,
       modelInfo,
@@ -465,8 +481,6 @@ export async function handleAgentMode(
               input_tokens: event.inputTokens,
               output_tokens: event.outputTokens,
               model_id: event.modelId,
-              cost_usd: event.costUsd,
-              cost_estimated: event.costEstimated,
               continued_this_turn: event.continuedThisTurn,
               continuation_count: event.continuationCount,
               compaction_reason: event.compactionReason,

@@ -1819,15 +1819,9 @@ async function handleCommand(
   // Delegate to centralized command handler and capture user-facing command output
   const outputs: string[] = [];
 
-  const result = await runCommand(cmd, state, {
+  await runCommand(cmd, state, {
     onOutput: (line) => outputs.push(line),
   });
-
-  // Skill activation: return the system message prefixed with a marker
-  // so the caller can detect it and submit as an agent query.
-  if (result.skillActivation) {
-    return `\x00SKILL\x00${result.skillActivation.systemMessage}`;
-  }
 
   // deno-lint-ignore no-control-regex
   return outputs.join("\n").replace(/\x1b\[[0-9;]*m/g, "") || null; // Strip ANSI

@@ -14,7 +14,7 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { createPolicyPathChecker, resolveToolPath } from "../path-utils.ts";
+import { resolveToolPath } from "../path-utils.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import { escapeRegExp, isObjectValue } from "../../../common/utils.ts";
 import { failTool, formatToolError, okTool } from "../tool-results.ts";
@@ -132,14 +132,11 @@ export async function searchCode(
   try {
     throwIfAborted(options?.signal);
     const platform = getPlatform();
-    const isAllowedPath = createPolicyPathChecker(
-      options?.policy ?? null,
-      workspace,
-    );
+    const isAllowedPath = (_absolutePath: string): boolean => true;
 
     // Validate and resolve search path
     const searchPath = args.path
-      ? await resolveToolPath(args.path, workspace, options?.policy ?? null)
+      ? await resolveToolPath(args.path, workspace)
       : workspace;
 
     // Load gitignore patterns
@@ -298,14 +295,11 @@ export async function findSymbol(
   try {
     throwIfAborted(options?.signal);
     const platform = getPlatform();
-    const isAllowedPath = createPolicyPathChecker(
-      options?.policy ?? null,
-      workspace,
-    );
+    const isAllowedPath = (_absolutePath: string): boolean => true;
 
     // Validate and resolve search path
     const searchPath = args.path
-      ? await resolveToolPath(args.path, workspace, options?.policy ?? null)
+      ? await resolveToolPath(args.path, workspace)
       : workspace;
 
     // Check if search path is a file or directory
@@ -469,14 +463,11 @@ export async function getStructure(
   try {
     throwIfAborted(options?.signal);
     const platform = getPlatform();
-    const isAllowedPath = createPolicyPathChecker(
-      options?.policy ?? null,
-      workspace,
-    );
+    const isAllowedPath = (_absolutePath: string): boolean => true;
 
     // Validate and resolve path
     const targetPath = args.path
-      ? await resolveToolPath(args.path, workspace, options?.policy ?? null)
+      ? await resolveToolPath(args.path, workspace)
       : workspace;
 
     if (!isAllowedPath(targetPath)) {

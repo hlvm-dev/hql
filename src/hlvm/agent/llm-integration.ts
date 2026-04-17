@@ -19,8 +19,6 @@ import type { ModelTier } from "./constants.ts";
 import {
   type CompiledPrompt,
   compilePrompt,
-  EMPTY_INSTRUCTIONS,
-  type InstructionHierarchy,
 } from "../prompt/mod.ts";
 
 /** Tool definition for native function calling */
@@ -154,12 +152,8 @@ export interface SystemPromptOptions {
   modelTier?: ModelTier;
   /** Preloaded agent profiles for child agent guidance. */
   agentProfiles?: readonly AgentProfile[];
-  /** Full instruction hierarchy (overrides customInstructions when provided). */
-  instructions?: InstructionHierarchy;
   /** Whether the active model supports vision inputs. */
   visionCapable?: boolean;
-  /** Loaded skill catalog for prompt rendering. */
-  skills?: ReadonlyMap<string, import("../skills/types.ts").SkillDefinition>;
 }
 
 /**
@@ -176,16 +170,11 @@ export function compileSystemPrompt(
     ownerId: options.toolOwnerId,
   });
 
-  const instructions: InstructionHierarchy = options.instructions ??
-    EMPTY_INSTRUCTIONS;
-
   return compilePrompt({
     mode: "agent",
     tier,
     tools,
-    instructions,
     agentProfiles: options.agentProfiles,
-    skills: options.skills,
     querySource: options.querySource,
     visionCapable: options.visionCapable,
   });

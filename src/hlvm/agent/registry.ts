@@ -27,11 +27,9 @@ import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
 import { PLAYWRIGHT_TOOLS } from "./playwright/mod.ts";
 import { CHROME_EXT_TOOLS } from "./chrome-ext/mod.ts";
 import { ValidationError } from "../../common/error.ts";
-import type { AgentPolicy } from "./policy.ts";
 import { isToolArgsObject } from "./validation.ts";
 import type { TodoState } from "./todo-state.ts";
 import type { ModelTier } from "./constants.ts";
-import type { AgentHookRuntime } from "./hooks.ts";
 import type { AgentProfile } from "./agent-registry.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
 import {
@@ -102,7 +100,6 @@ export interface ToolExecutionOptions {
   modelTier?: ModelTier;
   /** Active context budget for child-agent inheritance. */
   contextBudget?: number;
-  policy?: AgentPolicy | null;
   onInteraction?: (
     event: InteractionRequestEvent,
   ) => Promise<InteractionResponse>;
@@ -130,15 +127,11 @@ export interface ToolExecutionOptions {
   currentUserRequest?: string;
   /** Preferred display id for computer-use capture/action targeting. */
   displayId?: number;
-  /** Optional lifecycle hook runtime. */
-  hookRuntime?: AgentHookRuntime;
   /** Agent event callback for background worker integration. */
   // deno-lint-ignore no-explicit-any
   onAgentEvent?: (event: any) => void;
   /** Available agent profiles for child agent resolution. */
   agentProfiles?: readonly AgentProfile[];
-  /** Resolved instruction hierarchy for child agent prompt compilation. */
-  instructions?: import("../prompt/types.ts").InstructionHierarchy;
   /** Active query source for child-agent inheritance. */
   querySource?: string;
   /** Whether the active model supports thinking/reasoning. */

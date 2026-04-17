@@ -14,7 +14,7 @@ import { verifyBootstrap } from "../../runtime/bootstrap-verify.ts";
 import {
   readBootstrapManifest,
 } from "../../runtime/bootstrap-manifest.ts";
-import { LOCAL_FALLBACK_MODEL_ID } from "../../runtime/local-fallback.ts";
+import { resolveLocalFallbackModelId } from "../../runtime/local-fallback.ts";
 import { materializeBootstrap, type MaterializeProgress } from "../../runtime/bootstrap-materialize.ts";
 import { recoverBootstrap } from "../../runtime/bootstrap-recovery.ts";
 import { aiEngine } from "../../runtime/ai-runtime.ts";
@@ -108,7 +108,8 @@ export async function bootstrapCommand(args: string[]): Promise<number> {
     if (upgradedToAuto) {
       log.info(`Configured initial model: ${upgradedToAuto}`);
     }
-    log.info(`Warming local fallback: ${LOCAL_FALLBACK_MODEL_ID}`);
+    const fallbackModelId = await resolveLocalFallbackModelId();
+    log.info(`Warming local fallback: ${fallbackModelId}`);
     const engineReady = await aiEngine.ensureRunning();
     if (!engineReady) {
       log.error(
@@ -117,7 +118,7 @@ export async function bootstrapCommand(args: string[]): Promise<number> {
       return 1;
     }
     let lastLoggedWaitBucket = -1;
-    const access = await waitForModelAccess(LOCAL_FALLBACK_MODEL_ID, {
+    const access = await waitForModelAccess(fallbackModelId, {
       timeoutMs: BOOTSTRAP_MODEL_READY_TIMEOUT_MS,
       onRetry: (_result, elapsedMs) => {
         const waitBucket = Math.floor(
@@ -126,7 +127,7 @@ export async function bootstrapCommand(args: string[]): Promise<number> {
         if (waitBucket <= lastLoggedWaitBucket) return;
         lastLoggedWaitBucket = waitBucket;
         log.info(
-          `Still warming ${LOCAL_FALLBACK_MODEL_ID}... (${Math.round(elapsedMs / 1000)}s elapsed)`,
+          `Still warming ${fallbackModelId}... (${Math.round(elapsedMs / 1000)}s elapsed)`,
         );
       },
     });
@@ -135,11 +136,11 @@ export async function bootstrapCommand(args: string[]): Promise<number> {
         ? "authentication is unexpectedly required"
         : access.error ?? "the model did not answer a readiness probe in time";
       log.error(
-        `Bootstrap completed, but ${LOCAL_FALLBACK_MODEL_ID} is not ready for requests: ${reason}`,
+        `Bootstrap completed, but ${fallbackModelId} is not ready for requests: ${reason}`,
       );
       return 1;
     }
-    log.info(`Ready: ${LOCAL_FALLBACK_MODEL_ID} answered a probe request.`);
+    log.info(`Ready: ${fallbackModelId} answered a probe request.`);
     log.info(`Bootstrap complete. State: ${manifest.state}`);
     log.info(`Engine:  ${manifest.engine.adapter} (${manifest.engine.path})`);
     for (const m of manifest.models) {

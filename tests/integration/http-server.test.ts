@@ -3,6 +3,7 @@ import {
   assertExists,
   assertStringIncludes,
 } from "jsr:@std/assert";
+import { delay } from "@std/async";
 import { Database } from "@db/sqlite";
 import type { Message as AgentMessage } from "../../src/hlvm/agent/context.ts";
 import { setAgentEngine } from "../../src/hlvm/agent/engine.ts";
@@ -15,6 +16,7 @@ import { startHttpServer } from "../../src/hlvm/cli/repl/http-server.ts";
 import { getConversationsDbPath } from "../../src/common/paths.ts";
 import { initializeRuntime } from "../../src/common/runtime-initializer.ts";
 import {
+  _resetActiveConversationForTesting,
   getActiveConversationSessionId,
 } from "../../src/hlvm/store/active-conversation.ts";
 import {
@@ -36,9 +38,52 @@ class IntegrationAgentEngine implements AgentEngine {
         message.role === "tool" ||
         message.content.includes("observed-from-tool")
       );
+      const sawAsyncLaunch = messages.some((message) =>
+        message.role === "tool" &&
+        message.content.includes("Async agent launched successfully.")
+      );
+      const sawTaskNotification = messages.some((message) =>
+        message.content.includes("<task-notification>")
+      );
+      const hasAsyncLaunchRequest = messages.some((message) =>
+        message.role === "user" &&
+        message.content.includes("integration async launch")
+      );
       const lastUserMessage = [...messages].reverse().find((message) =>
         message.role === "user"
       );
+      if (sawTaskNotification) {
+        const text = "integration-background-notified";
+        config.onToken?.(text);
+        return Promise.resolve({
+          content: text,
+          toolCalls: [],
+          usage: { inputTokens: 8, outputTokens: 4 },
+        });
+      }
+      if (sawAsyncLaunch) {
+        const text = "integration-background-launched";
+        config.onToken?.(text);
+        return Promise.resolve({
+          content: text,
+          toolCalls: [],
+          usage: { inputTokens: 8, outputTokens: 4 },
+        });
+      }
+      if (hasAsyncLaunchRequest) {
+        return Promise.resolve({
+          content: "",
+          toolCalls: [{
+            toolName: "Agent",
+            args: {
+              description: "Integration background child",
+              prompt: "integration async child",
+              run_in_background: true,
+            },
+          }],
+          usage: { inputTokens: 8, outputTokens: 4 },
+        });
+      }
       if (
         (lastUserMessage?.content ?? "").includes("integration compaction smoke")
       ) {
@@ -167,6 +212,7 @@ async function shutdownServer(): Promise<void> {
 async function withIsolatedServerTest(fn: () => Promise<void>): Promise<void> {
   await withTempHlvmDir(async () => {
     serverContext = null;
+    _resetActiveConversationForTesting();
     await config.reload();
     await config.patch({
       model: "test-chat/plain",
@@ -843,6 +889,72 @@ Deno.test({
 
       assertEquals(second.status, 200);
       assertStringIncludes(tokenText, "integration-agent-saw-tool");
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: background agent completion survives the request and notifies the next turn",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const first = await postChatNdjson({
+        mode: "agent",
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: "integration async launch" }],
+      });
+
+      assertEquals(first.status, 200);
+      const firstText = first.events
+        .filter((event) => event.event === "token")
+        .map((event) => String(event.text ?? ""))
+        .join("");
+      assertStringIncludes(firstText, "integration-background-launched");
+      assertExists(first.events.find((event) =>
+        event.event === "tool_start" && event.name === "Agent"
+      ));
+      assertExists(first.events.find((event) =>
+        event.event === "tool_end" && event.name === "Agent"
+      ));
+
+      const firstToolEnd = first.events.find((event) =>
+        event.event === "tool_end" && event.name === "Agent"
+      );
+      assertExists(firstToolEnd);
+      const toolContent = String(firstToolEnd.content ?? "");
+      const outputFileMatch = toolContent.match(/^output_file:\s*(.+)$/m);
+      if (!outputFileMatch) {
+        throw new Error(`Missing output_file in Agent tool content: ${toolContent}`);
+      }
+      const outputFile = outputFileMatch![1]!.trim();
+
+      let observedFinalOutput = false;
+      for (let attempt = 0; attempt < 40; attempt++) {
+        if (await getPlatform().fs.exists(outputFile)) {
+          const output = await getPlatform().fs.readTextFile(outputFile);
+          if (output.includes("Final response:")) {
+            observedFinalOutput = true;
+            break;
+          }
+        }
+        await delay(50);
+      }
+      assertEquals(observedFinalOutput, true);
+
+      const second = await postChatNdjson({
+        mode: "agent",
+        model: "test-chat/plain",
+        messages: [{ role: "user", content: "integration async launch" }],
+      });
+
+      assertEquals(second.status, 200);
+      const secondText = second.events
+        .filter((event) => event.event === "token")
+        .map((event) => String(event.text ?? ""))
+        .join("");
+      assertStringIncludes(secondText, "integration-background-notified");
     });
   },
 });

@@ -15,6 +15,7 @@
 
 import { getHlvmTasksDir } from "../../../common/paths.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { invalidateReplLiveAgentSession } from "../repl-live-session-cache.ts";
 import type {
   ToolExecutionOptions,
   ToolFunction,
@@ -35,6 +36,8 @@ import { loadAgentDefinitions } from "./agent-definitions.ts";
 import { loadMcpTools } from "../mcp/tools.ts";
 import type { McpLoadResult, McpServerConfig } from "../mcp/types.ts";
 import { type InheritedAgentConfig, runAgent } from "./run-agent.ts";
+import { insertMessage } from "../../store/conversation-store.ts";
+import { pushSSEEvent } from "../../store/sse-store.ts";
 import {
   cleanupWorktree,
   createAgentWorktree,
@@ -48,18 +51,30 @@ const log = getAgentLogger();
 // Background Agent Registry (CC: LocalAgentTask)
 // ============================================================
 
-const backgroundAgents = new Map<string, BackgroundAgent>();
-let agentCounter = 0;
+interface AgentToolRuntimeState {
+  backgroundAgents: Map<string, BackgroundAgent>;
+  agentCounter: number;
+  completionQueue: string[];
+}
 
-/**
- * Completion notification queue.
- * CC: enqueuePendingNotification → commandQueue → drained by query loop.
- * HLVM: simpler — queue of notification strings, drained by orchestrator.
- */
-const completionQueue: string[] = [];
+function getAgentToolRuntimeState(): AgentToolRuntimeState {
+  const globalState = globalThis as typeof globalThis & {
+    __hlvmAgentToolRuntimeState__?: AgentToolRuntimeState;
+  };
+  if (!globalState.__hlvmAgentToolRuntimeState__) {
+    globalState.__hlvmAgentToolRuntimeState__ = {
+      backgroundAgents: new Map<string, BackgroundAgent>(),
+      agentCounter: 0,
+      completionQueue: [],
+    };
+  }
+  return globalState.__hlvmAgentToolRuntimeState__;
+}
 
 function generateAgentId(): string {
-  return `agent-${++agentCounter}-${Date.now().toString(36)}`;
+  const state = getAgentToolRuntimeState();
+  state.agentCounter += 1;
+  return `agent-${state.agentCounter}-${Date.now().toString(36)}`;
 }
 
 function getInlineMcpServers(
@@ -140,17 +155,17 @@ async function prepareAgentMcpRuntime(opts: {
 export function getBackgroundAgent(
   agentId: string,
 ): BackgroundAgent | undefined {
-  return backgroundAgents.get(agentId);
+  return getAgentToolRuntimeState().backgroundAgents.get(agentId);
 }
 
 /** Get all background agents */
 export function getAllBackgroundAgents(): BackgroundAgent[] {
-  return Array.from(backgroundAgents.values());
+  return Array.from(getAgentToolRuntimeState().backgroundAgents.values());
 }
 
 /** Cancel a background agent */
 export function cancelBackgroundAgent(agentId: string): boolean {
-  const agent = backgroundAgents.get(agentId);
+  const agent = getAgentToolRuntimeState().backgroundAgents.get(agentId);
   if (!agent || agent.status !== "running") return false;
   agent.abortController.abort();
   agent.status = "errored";
@@ -167,6 +182,7 @@ export function cancelBackgroundAgent(agentId: string): boolean {
  * Each is a user-role message: "A background agent completed a task:\n<result>..."
  */
 export function drainCompletionNotifications(): string[] {
+  const { completionQueue } = getAgentToolRuntimeState();
   if (completionQueue.length === 0) return [];
   const drained = [...completionQueue];
   completionQueue.length = 0;
@@ -201,6 +217,34 @@ function buildCompletionNotification(
 <status>${status}</status>
 <summary>${summary}</summary>${resultSection}
 </task-notification>`;
+}
+
+async function enqueueCompletionNotification(
+  notification: string,
+  sessionId?: string,
+): Promise<void> {
+  if (!sessionId) {
+    getAgentToolRuntimeState().completionQueue.push(notification);
+    return;
+  }
+
+  try {
+    const message = insertMessage({
+      session_id: sessionId,
+      role: "user",
+      content: notification,
+      sender_type: "system",
+      sender_detail: "task-notification",
+    });
+    invalidateReplLiveAgentSession(sessionId);
+    pushSSEEvent(sessionId, "message_added", { message });
+    pushSSEEvent(sessionId, "conversation_updated", { session_id: sessionId });
+  } catch (error) {
+    log.warn(
+      `[Agent] Failed to persist background notification for session ${sessionId}: ${error}`,
+    );
+    getAgentToolRuntimeState().completionQueue.push(notification);
+  }
 }
 
 // ============================================================
@@ -277,15 +321,12 @@ const agentToolFn: ToolFunction = async (
   const agentId = generateAgentId();
   const baseInheritedConfig: InheritedAgentConfig = {
     contextBudget: options?.contextBudget,
-    policy: options?.policy ?? null,
     modelTier: options?.modelTier,
     onTrace: options?.onTrace,
     llmTimeout: options?.llmTimeout,
     toolTimeout: options?.toolTimeout,
     totalTimeout: options?.totalTimeout,
     permissionMode: selectedAgent.permissionMode ?? options?.permissionMode,
-    instructions: options?.instructions,
-    hookRuntime: options?.hookRuntime,
     agentProfiles: options?.agentProfiles,
     querySource: options?.querySource,
     thinkingCapable: options?.thinkingCapable,
@@ -557,47 +598,51 @@ async function runAsyncAgent(opts: {
       });
   };
 
-  // Fire-and-forget (CC: void runAsyncAgentLifecycle)
-  const promise = runAgent({
-    agentDefinition: selectedAgent,
-    prompt,
-    workspace,
-    llmFunction: llmFunction!,
-    allTools,
-    isAsync: true,
-    modelOverride,
-    agentId,
-    signal: abortController.signal,
-    onAgentEvent: options?.onAgentEvent,
-    inheritedConfig,
-    onTranscriptLine: (line) => {
-      appendOutput(`${line}\n`);
-    },
-  }).then(async (result) => {
-    options?.onAgentEvent?.({
-      type: "agent_complete",
-      agentId,
-      agentType: result.agentType,
-      success: true,
-      durationMs: result.durationMs,
-      toolUseCount: result.toolUseCount,
-      totalTokens: result.totalTokens,
-      resultPreview: result.text.slice(0, 200),
-      transcript: result.transcript,
-    });
-    appendOutput(
-      `\nFinal response:\n${result.text}\n\n<usage>total_tokens: ${result.totalTokens}\ntool_uses: ${result.toolUseCount}\nduration_ms: ${result.durationMs}</usage>\n`,
-    );
-    await outputWriteChain;
-    // Cleanup worktree / agent-scoped MCP on completion
-    await cleanupWorktree(worktreeInfo ?? null);
-    await agentMcpCleanup?.();
+  let resolvePromise!: (result: AgentToolResult) => void;
+  let rejectPromise!: (reason?: unknown) => void;
+  const promise = new Promise<AgentToolResult>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
 
-    // Update background agent status on completion
-    const bg = backgroundAgents.get(agentId);
-    if (bg) {
-      bg.status = "completed";
-      bg.result = {
+  const executeBackgroundAgent = async (): Promise<void> => {
+    try {
+      const result = await runAgent({
+        agentDefinition: selectedAgent,
+        prompt,
+        workspace,
+        llmFunction: llmFunction!,
+        allTools,
+        isAsync: true,
+        modelOverride,
+        agentId,
+        signal: abortController.signal,
+        onAgentEvent: options?.onAgentEvent,
+        inheritedConfig,
+        onTranscriptLine: (line) => {
+          appendOutput(`${line}\n`);
+        },
+      });
+
+      options?.onAgentEvent?.({
+        type: "agent_complete",
+        agentId,
+        agentType: result.agentType,
+        success: true,
+        durationMs: result.durationMs,
+        toolUseCount: result.toolUseCount,
+        totalTokens: result.totalTokens,
+        resultPreview: result.text.slice(0, 200),
+        transcript: result.transcript,
+      });
+      appendOutput(
+        `\nFinal response:\n${result.text}\n\n<usage>total_tokens: ${result.totalTokens}\ntool_uses: ${result.toolUseCount}\nduration_ms: ${result.durationMs}</usage>\n`,
+      );
+      await outputWriteChain;
+      await cleanupWorktree(worktreeInfo ?? null);
+      await agentMcpCleanup?.();
+
+      const completedResult: AgentToolResult = {
         status: "completed",
         agentId,
         agentType: result.agentType,
@@ -606,70 +651,66 @@ async function runAsyncAgent(opts: {
         totalToolUseCount: result.toolUseCount,
         totalTokens: result.totalTokens,
       };
-    }
+      const bg = getAgentToolRuntimeState().backgroundAgents.get(agentId);
+      if (bg) {
+        bg.status = "completed";
+        bg.result = completedResult;
+      }
 
-    // CC: enqueueAgentNotification → parent sees result on next turn
-    completionQueue.push(
-      buildCompletionNotification(
+      await enqueueCompletionNotification(
+        buildCompletionNotification(
+          agentId,
+          result.agentType,
+          description,
+          "completed",
+          result.text,
+        ),
+        options?.sessionId,
+      );
+
+      resolvePromise(completedResult);
+    } catch (err) {
+      options?.onAgentEvent?.({
+        type: "agent_complete",
         agentId,
-        result.agentType,
-        description,
-        "completed",
-        result.text,
-      ),
-    );
+        agentType: selectedAgent.agentType,
+        success: false,
+        durationMs: 0,
+        toolUseCount: 0,
+        resultPreview: err instanceof Error ? err.message : String(err),
+      });
+      appendOutput(
+        `\nAgent failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      await outputWriteChain;
+      await cleanupWorktree(worktreeInfo ?? null);
+      await agentMcpCleanup?.();
 
-    return bg?.result ?? {
-      status: "completed" as const,
-      agentId,
-      agentType: result.agentType,
-      content: result.text,
-      totalDurationMs: result.durationMs,
-      totalToolUseCount: result.toolUseCount,
-      totalTokens: result.totalTokens,
-    };
-  }).catch(async (err) => {
-    options?.onAgentEvent?.({
-      type: "agent_complete",
-      agentId,
-      agentType: selectedAgent.agentType,
-      success: false,
-      durationMs: 0,
-      toolUseCount: 0,
-      resultPreview: err instanceof Error ? err.message : String(err),
-    });
-    appendOutput(
-      `\nAgent failed: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
-    await outputWriteChain;
-    // Cleanup worktree / agent-scoped MCP on error too
-    await cleanupWorktree(worktreeInfo ?? null);
-    await agentMcpCleanup?.();
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const bg = getAgentToolRuntimeState().backgroundAgents.get(agentId);
+      if (bg) {
+        bg.status = "errored";
+        bg.error = errMsg;
+      }
 
-    const errMsg = err instanceof Error ? err.message : String(err);
-    const bg = backgroundAgents.get(agentId);
-    if (bg) {
-      bg.status = "errored";
-      bg.error = errMsg;
+      await enqueueCompletionNotification(
+        buildCompletionNotification(
+          agentId,
+          selectedAgent.agentType,
+          description,
+          "failed",
+          undefined,
+          errMsg,
+        ),
+        options?.sessionId,
+      );
+
+      rejectPromise(err);
     }
-
-    // CC: enqueueAgentNotification on error too
-    completionQueue.push(
-      buildCompletionNotification(
-        agentId,
-        selectedAgent.agentType,
-        description,
-        "failed",
-        undefined,
-        errMsg,
-      ),
-    );
-
-    throw err;
-  });
+  };
 
   // Register in background tracking (CC: registerAsyncAgent)
-  backgroundAgents.set(agentId, {
+  getAgentToolRuntimeState().backgroundAgents.set(agentId, {
     agentId,
     agentType: selectedAgent.agentType,
     description,
@@ -679,6 +720,14 @@ async function runAsyncAgent(opts: {
     promise,
     abortController,
   });
+  // Mark the promise as observed so failures don't become unhandled rejections
+  // when the caller launches and moves on.
+  void promise.catch(() => {});
+  // Run on the next task tick so the background child is detached from the
+  // parent request's tool call and any provider/runtime teardown tied to it.
+  setTimeout(() => {
+    void executeBackgroundAgent();
+  }, 0);
 
   // Return immediately (CC: async_launched)
   return {

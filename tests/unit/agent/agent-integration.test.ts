@@ -46,6 +46,10 @@ import {
   resetAgentEngine,
   setAgentEngine,
 } from "../../../src/hlvm/agent/engine.ts";
+import {
+  createSession,
+  getMessages,
+} from "../../../src/hlvm/store/conversation-store.ts";
 import { withTempHlvmDir } from "../helpers.ts";
 
 const platform = getPlatform();
@@ -1329,6 +1333,64 @@ Deno.test({
     } finally {
       await cleanDir(TEST_WORKSPACE);
     }
+  },
+  sanitizeOps: false,
+  sanitizeResources: false,
+});
+
+Deno.test({
+  name:
+    "agent-tool: background agent persists completion notification into the session transcript",
+  async fn() {
+    await withTempHlvmDir(async () => {
+      drainCompletionNotifications();
+      const agentToolMeta = AGENT_TOOL["Agent"];
+      const session = createSession("background notification test");
+
+      await ensureDir(TEST_WORKSPACE);
+      try {
+        const result = await agentToolMeta.fn(
+          {
+            prompt: "Analyze security in background",
+            description: "security-bg",
+            run_in_background: true,
+          },
+          TEST_WORKSPACE,
+          {
+            llmFunction: createMockLLM("Security analysis complete."),
+            sessionId: session.id,
+          },
+        ) as { status: string; agentId: string };
+
+        assertEquals(result.status, "async_launched");
+
+        const bg = getAllBackgroundAgents().find((a) =>
+          a.agentId === result.agentId
+        );
+        assertExists(bg);
+        try {
+          await bg!.promise;
+        } catch {
+          // Best-effort cleanup only.
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const messages = getMessages(session.id, { sort: "asc", limit: 50 })
+          .messages;
+        const notification = messages.find((message) =>
+          message.content.includes("<task-notification>")
+        );
+        assertExists(notification);
+        assertEquals(notification!.role, "user");
+        assertStringIncludes(
+          notification!.content,
+          "Security analysis complete.",
+        );
+        assertEquals(drainCompletionNotifications().length, 0);
+      } finally {
+        await cleanDir(TEST_WORKSPACE);
+      }
+    });
   },
   sanitizeOps: false,
   sanitizeResources: false,

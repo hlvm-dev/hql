@@ -36,15 +36,12 @@ const log = getAgentLogger();
 
 export interface InheritedAgentConfig {
   contextBudget?: number;
-  policy?: OrchestratorConfig["policy"];
   modelTier?: OrchestratorConfig["modelTier"];
   onTrace?: OrchestratorConfig["onTrace"];
   llmTimeout?: OrchestratorConfig["llmTimeout"];
   toolTimeout?: OrchestratorConfig["toolTimeout"];
   totalTimeout?: OrchestratorConfig["totalTimeout"];
   permissionMode?: OrchestratorConfig["permissionMode"];
-  instructions?: OrchestratorConfig["instructions"];
-  hookRuntime?: OrchestratorConfig["hookRuntime"];
   agentProfiles?: OrchestratorConfig["agentProfiles"];
   querySource?: OrchestratorConfig["querySource"];
   thinkingCapable?: OrchestratorConfig["thinkingCapable"];
@@ -246,13 +243,10 @@ export async function runAgent(
     onAgentEvent: childOnAgentEvent,
     usage: usageTracker,
     // Inherit from parent where appropriate
-    policy: inheritedConfig?.policy ?? null,
     modelTier: inheritedConfig?.modelTier,
     onTrace: inheritedConfig?.onTrace,
     permissionMode: agentDefinition.permissionMode ??
       inheritedConfig?.permissionMode,
-    instructions: inheritedConfig?.instructions,
-    hookRuntime: inheritedConfig?.hookRuntime,
     agentProfiles: inheritedConfig?.agentProfiles,
     querySource: inheritedConfig?.querySource,
     thinkingCapable: inheritedConfig?.thinkingCapable,
@@ -294,7 +288,7 @@ export async function runAgent(
       stopReason: "tool_failures",
       iterations: 0,
       durationMs: Date.now() - startTime,
-      usage: usageTracker.snapshot(effectiveModel),
+      usage: usageTracker.snapshot(),
       toolUseCount,
     };
   }

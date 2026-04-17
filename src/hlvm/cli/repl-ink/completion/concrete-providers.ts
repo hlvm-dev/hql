@@ -641,7 +641,6 @@ function createCommandRenderSpec(
 /**
  * Provider for slash command completions.
  */
-/** Load command catalog including skills. Skill catalog is session-cached in loader.ts. */
 async function getOrLoadFullCatalog(): Promise<
   readonly { name: string; description: string }[]
 > {
@@ -657,7 +656,7 @@ async function getOrLoadFullCatalog(): Promise<
 
 export const CommandProvider: CompletionProvider = {
   id: "command",
-  isAsync: true, // async to load skill catalog on first trigger
+  isAsync: true,
   debounceMs: 50, // fast — catalog is cached after first load
   helpText: PROVIDER_HELP_TEXT.COMMAND,
   appliesOnNavigate: false,

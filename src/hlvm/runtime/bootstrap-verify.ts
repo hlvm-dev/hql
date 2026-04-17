@@ -7,10 +7,13 @@ import { getPlatform } from "../../platform/platform.ts";
 import { getModelsDir } from "../../common/paths.ts";
 import { log } from "../api/log.ts";
 import {
+  findAvailableLocalFallbackModel,
   type BootstrapManifest,
   type BootstrapState,
   findOllamaModelManifest,
+  getKnownLocalFallbackIdentity,
   LOCAL_FALLBACK_MODEL,
+  matchesFallbackIdentity,
   matchesPinnedFallbackIdentity,
   readBootstrapManifest,
 } from "./bootstrap-manifest.ts";
@@ -121,7 +124,16 @@ export async function verifyBootstrap(): Promise<BootstrapVerificationResult> {
         break;
       }
       const ollamaManifest = resolvedManifest.manifest;
-      if (
+      const fallbackIdentity = getKnownLocalFallbackIdentity(m.modelId);
+      if (fallbackIdentity) {
+        if (!matchesFallbackIdentity(ollamaManifest, fallbackIdentity)) {
+          log.debug?.(
+            `Model ${m.modelId}: does not match a known fallback identity`,
+          );
+          modelOk = false;
+          break;
+        }
+      } else if (
         m.modelId === LOCAL_FALLBACK_MODEL &&
         !matchesPinnedFallbackIdentity(ollamaManifest)
       ) {
@@ -195,13 +207,19 @@ export async function verifyBootstrap(): Promise<BootstrapVerificationResult> {
  * Ollama's on-disk model manifest exists and has a valid digest.
  * More reliable than just checking if the models directory is non-empty.
  */
-export async function isFallbackModelAvailable(): Promise<boolean> {
+export async function isFallbackModelAvailable(
+  modelId = LOCAL_FALLBACK_MODEL,
+): Promise<boolean> {
   try {
     const modelsDir = getModelsDir();
-    const manifest = await findOllamaModelManifest(
-      modelsDir,
-      LOCAL_FALLBACK_MODEL,
-    );
+    const resolvedModelId = modelId === LOCAL_FALLBACK_MODEL
+      ? await findAvailableLocalFallbackModel(modelsDir) ?? modelId
+      : modelId;
+    const manifest = await findOllamaModelManifest(modelsDir, resolvedModelId);
+    const fallbackIdentity = getKnownLocalFallbackIdentity(resolvedModelId);
+    if (fallbackIdentity) {
+      return matchesFallbackIdentity(manifest?.manifest ?? null, fallbackIdentity);
+    }
     return matchesPinnedFallbackIdentity(manifest?.manifest ?? null);
   } catch {
     return false;

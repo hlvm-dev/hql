@@ -2,11 +2,7 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { compilePrompt } from "../../../src/hlvm/prompt/compiler.ts";
 import { collectSections } from "../../../src/hlvm/prompt/sections.ts";
 import { generateSystemPrompt } from "../../../src/hlvm/agent/llm-integration.ts";
-import { EMPTY_INSTRUCTIONS } from "../../../src/hlvm/prompt/types.ts";
-import type {
-  InstructionHierarchy,
-  PromptCompilerInput,
-} from "../../../src/hlvm/prompt/types.ts";
+import type { PromptCompilerInput } from "../../../src/hlvm/prompt/types.ts";
 
 /** Build a simple agent-mode input with no tools. */
 function agentInput(
@@ -16,7 +12,6 @@ function agentInput(
     mode: "agent",
     tier: "standard",
     tools: {},
-    instructions: EMPTY_INSTRUCTIONS,
     ...overrides,
   };
 }
@@ -47,20 +42,6 @@ Deno.test("compiler: backward compat — compilePrompt agent mode matches genera
   assertStringIncludes(legacy, "Platform:");
 });
 
-Deno.test("compiler: backward compat — custom instructions passed through hierarchy match legacy customInstructions", () => {
-  const instructions: InstructionHierarchy = {
-    global: "Always use TypeScript.",
-    project: "",
-    trusted: false,
-  };
-
-  const compiled = compilePrompt(agentInput({ instructions }));
-  const legacy = generateSystemPrompt({ instructions });
-
-  assertStringIncludes(compiled.text, "Always use TypeScript.");
-  assertStringIncludes(legacy, "Always use TypeScript.");
-});
-
 // ============================================================
 // Mode Tests
 // ============================================================
@@ -70,7 +51,6 @@ Deno.test("compiler: chat mode produces minimal 2-section prompt", () => {
     mode: "chat",
     tier: "standard",
     tools: {},
-    instructions: EMPTY_INSTRUCTIONS,
   });
 
   assertEquals(result.mode, "chat");
@@ -187,7 +167,6 @@ Deno.test("compiler: different mode produces different signatureHash", () => {
     mode: "chat",
     tier: "standard",
     tools: {},
-    instructions: EMPTY_INSTRUCTIONS,
   });
 
   assertEquals(agent.signatureHash === chat.signatureHash, false);
@@ -229,141 +208,6 @@ Deno.test("compiler: section manifest charCounts sum approximately to text lengt
   // Text = sections joined with "\n\n", so add separator chars
   const separators = (result.sections.length - 1) * 2; // "\n\n" per join
   assertEquals(sectionCharsSum + separators, result.text.length);
-});
-
-// ============================================================
-// Empty Instructions
-// ============================================================
-
-Deno.test("compiler: no custom instructions section when both global and project are empty", () => {
-  const result = compilePrompt(
-    agentInput({ instructions: EMPTY_INSTRUCTIONS }),
-  );
-  const sectionIds = result.sections.map((s) => s.id);
-
-  assertEquals(sectionIds.includes("custom"), false);
-});
-
-Deno.test("compiler: custom instructions section appears when global is non-empty", () => {
-  const result = compilePrompt(
-    agentInput({
-      instructions: { global: "Be concise.", project: "", trusted: false },
-    }),
-  );
-  const sectionIds = result.sections.map((s) => s.id);
-
-  assertEquals(sectionIds.includes("custom"), true);
-  assertStringIncludes(result.text, "Be concise.");
-});
-
-Deno.test("compiler: project instructions appear only when trusted", () => {
-  // Untrusted — project content should NOT appear
-  const untrusted = compilePrompt(
-    agentInput({
-      instructions: {
-        global: "",
-        project: "Secret project rules",
-        trusted: false,
-      },
-    }),
-  );
-  assertEquals(untrusted.text.includes("Secret project rules"), false);
-
-  // Trusted — project content should appear
-  const trusted = compilePrompt(
-    agentInput({
-      instructions: {
-        global: "Global behavior",
-        project: "Secret project rules",
-        trusted: true,
-      },
-    }),
-  );
-  assertStringIncludes(trusted.text, "Secret project rules");
-  assertStringIncludes(trusted.text, "Workspace-Scoped Project Guidance");
-  assertStringIncludes(trusted.text, "Global Instructions");
-  assertEquals(
-    trusted.text.indexOf("Secret project rules") <
-      trusted.text.indexOf("Global behavior"),
-    true,
-  );
-});
-
-Deno.test("compiler: custom instructions capped at MAX_INSTRUCTION_CHARS", () => {
-  const result = compilePrompt(
-    agentInput({
-      instructions: { global: "x".repeat(10000), project: "", trusted: false },
-    }),
-  );
-
-  // The custom section content is capped to MAX_INSTRUCTION_CHARS (8000) plus the header
-  const customSection = result.sections.find((s) => s.id === "custom");
-  assertEquals(customSection !== undefined, true);
-  // Full content = "# Custom Instructions\n## Global Instructions\n" + body (capped at 8000)
-  assertEquals(customSection!.charCount <= 8200, true); // header + 8000 body max
-});
-
-// ============================================================
-// Instruction Sources (Observability)
-// ============================================================
-
-Deno.test("compiler: instructionSources empty when no instructions provided", () => {
-  const result = compilePrompt(
-    agentInput({ instructions: EMPTY_INSTRUCTIONS }),
-  );
-  assertEquals(result.instructionSources.length, 0);
-});
-
-Deno.test("compiler: instructionSources includes global when global is non-empty", () => {
-  const result = compilePrompt(
-    agentInput({
-      instructions: { global: "hello", project: "", trusted: false },
-    }),
-  );
-
-  assertEquals(result.instructionSources.length, 1);
-  assertEquals(result.instructionSources[0].path, "~/.hlvm/HLVM.md");
-  assertEquals(result.instructionSources[0].trusted, true);
-  assertEquals(result.instructionSources[0].loaded, true);
-});
-
-Deno.test("compiler: instructionSources includes project when projectPath is set", () => {
-  const result = compilePrompt(
-    agentInput({
-      instructions: {
-        global: "global",
-        project: "proj",
-        projectPath: "/my/project/.hlvm/HLVM.md",
-        trusted: true,
-      },
-    }),
-  );
-
-  assertEquals(result.instructionSources.length, 2);
-  assertEquals(result.instructionSources[0].path, "~/.hlvm/HLVM.md");
-  assertEquals(result.instructionSources[1].path, "/my/project/.hlvm/HLVM.md");
-  assertEquals(result.instructionSources[1].trusted, true);
-  assertEquals(result.instructionSources[1].loaded, true);
-});
-
-Deno.test("compiler: instructionSources marks project as not loaded when untrusted", () => {
-  const result = compilePrompt(
-    agentInput({
-      instructions: {
-        global: "",
-        project: "",
-        projectPath: "/my/project/.hlvm/HLVM.md",
-        trusted: false,
-      },
-    }),
-  );
-
-  const projectSource = result.instructionSources.find((s) =>
-    s.path.includes("/my/project/")
-  );
-  assertEquals(projectSource !== undefined, true);
-  assertEquals(projectSource!.trusted, false);
-  assertEquals(projectSource!.loaded, false);
 });
 
 // ============================================================
@@ -422,26 +266,6 @@ Deno.test("compiler: cacheSegments collapse adjacent sections with the same stab
     result.stableCacheProfile.stableSegmentHashes,
     result.cacheSegments.filter((segment) => segment.stability !== "turn")
       .map((segment) => segment.contentHash),
-  );
-});
-
-Deno.test("compiler: session-stable changes do not churn the static cache segment hash", () => {
-  const first = agentInput({
-    instructions: { global: "Use TypeScript.", project: "", trusted: false },
-  });
-  const second = agentInput({
-    instructions: { global: "Use Deno.", project: "", trusted: false },
-  });
-
-  assertEquals(segmentHash(first, "static"), segmentHash(second, "static"));
-  assertEquals(
-    segmentHash(first, "session") === segmentHash(second, "session"),
-    false,
-  );
-  assertEquals(
-    compilePrompt(first).stableCacheProfile.stableSignatureHash ===
-      compilePrompt(second).stableCacheProfile.stableSignatureHash,
-    false,
   );
 });
 

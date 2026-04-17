@@ -12,7 +12,6 @@
  */
 
 import { assertEquals, assertRejects } from "jsr:@std/assert";
-import type { AgentPolicy } from "../../src/hlvm/agent/policy.ts";
 import type { SearchCallOptions } from "../../src/hlvm/agent/tools/web/search-provider.ts";
 import {
   isAllowedByDomainFilters,
@@ -397,37 +396,6 @@ Deno.test({
         "Gemini/OpenClaw",
         batchCompetitive,
         `count=${String(batch.count ?? "n/a")} errors=${String(batch.errors ?? "n/a")}`,
-      );
-
-      // 9) Network policy enforcement remains strict.
-      const denyAllPolicy: AgentPolicy = {
-        version: 1,
-        networkRules: { deny: ["*"] },
-      };
-      const denyQuery = `policy-check-${Date.now()}`;
-      await assertRejects(
-        () =>
-          WEB_TOOLS.search_web.fn(
-            { query: denyQuery },
-            "/tmp",
-            { policy: denyAllPolicy },
-          ),
-        ValidationError,
-      );
-      await assertRejects(
-        () =>
-          WEB_TOOLS.fetch_url.fn(
-            { url: "https://example.com" },
-            "/tmp",
-            { policy: denyAllPolicy },
-          ),
-        ValidationError,
-      );
-      record(
-        "network deny policy blocks web tools",
-        "Claude/Codex",
-        true,
-        "search_web + fetch_url denied as expected",
       );
 
       // 10) Multi-hop chain: search result URL -> web_fetch.

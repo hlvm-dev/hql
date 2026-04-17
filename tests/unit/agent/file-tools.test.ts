@@ -30,7 +30,6 @@ import {
   type WriteFileArgs,
 } from "../../../src/hlvm/agent/tools/file-tools.ts";
 import { FileStateCache } from "../../../src/hlvm/agent/file-state-cache.ts";
-import type { AgentPolicy } from "../../../src/hlvm/agent/policy.ts";
 import { getPlatform, setPlatform } from "../../../src/platform/platform.ts";
 import {
   cleanupWorkspaceDir,
@@ -276,59 +275,6 @@ Deno.test("file tools: list_files handles sorting recursion pattern maxDepth and
   });
 });
 
-Deno.test("file tools: list_files recursively traverses allowed roots outside the workspace", async () => {
-  await withWorkspace(async () => {
-    const globalRoot = await platform().fs.makeTempDir({
-      prefix: "hlvm-list-files-global-",
-    });
-    const nestedDir = `${globalRoot}/nested/deeper`;
-    const nestedFile = `${nestedDir}/kept.txt`;
-    const escapeTarget = await platform().fs.makeTempDir({
-      prefix: "hlvm-list-files-escape-",
-    });
-
-    try {
-      await platform().fs.mkdir(nestedDir, { recursive: true });
-      await platform().fs.writeTextFile(nestedFile, "keep");
-      if (platform().build.os !== "windows") {
-        await platform().command.output({
-          cmd: ["ln", "-s", escapeTarget, `${globalRoot}/nested/escape-link`],
-        });
-      }
-
-      const policy: AgentPolicy = {
-        version: 1,
-        pathRules: { roots: [globalRoot] },
-      };
-
-      const recursive = await listFiles(
-        { path: globalRoot, recursive: true } as ListFilesArgs,
-        TEST_WORKSPACE,
-        { policy },
-      );
-
-      assertEquals(recursive.success, true);
-      assertEquals(
-        recursive.entries?.some((entry) =>
-          entry.path === "nested/deeper/kept.txt"
-        ),
-        true,
-      );
-      assertEquals(
-        recursive.entries?.some((entry) => entry.path.includes("escape-link")),
-        false,
-      );
-    } finally {
-      await platform().fs.remove(globalRoot, { recursive: true }).catch(
-        () => {},
-      );
-      await platform().fs.remove(escapeTarget, { recursive: true }).catch(
-        () => {},
-      );
-    }
-  });
-});
-
 Deno.test("file tools: recursive listing skips symlinked subdirectories", async () => {
   await withWorkspace(async () => {
     await platform().fs.mkdir(`${TEST_WORKSPACE}/legitimate`, {
@@ -400,49 +346,6 @@ Deno.test("file tools: open_path tolerates Unicode whitespace variants in existi
       assertEquals(result.openedPath, `${TEST_WORKSPACE}/${unicodeName}`);
     } finally {
       setPlatform(originalPlatform);
-    }
-  });
-});
-
-Deno.test("file tools: move_to_trash validates allowed roots and uses the trash runtime", async () => {
-  await withWorkspace(async () => {
-    const globalRoot = await platform().fs.makeTempDir({
-      prefix: "hlvm-trash-global-",
-    });
-    const globalFile = `${globalRoot}/outside.txt`;
-    const workspaceFile = `${TEST_WORKSPACE}/trash-me.txt`;
-    const capturedCalls: string[][] = [];
-
-    await writeWorkspaceFile("trash-me.txt", "remove me");
-    await platform().fs.writeTextFile(globalFile, "outside");
-    setFileToolRuntimeForTest({
-      moveToTrash: async (paths: string[]) => {
-        capturedCalls.push([...paths]);
-      },
-    });
-
-    try {
-      const policy: AgentPolicy = {
-        version: 1,
-        pathRules: { roots: [globalRoot] },
-      };
-
-      const result = await moveToTrash(
-        { paths: ["trash-me.txt", globalFile] } as MoveToTrashArgs,
-        TEST_WORKSPACE,
-        { policy },
-      );
-
-      assertEquals(result.success, true);
-      assertEquals(result.count, 2);
-      assertEquals(capturedCalls.length, 1);
-      assertEquals(capturedCalls[0], [workspaceFile, globalFile]);
-      assertEquals(result.trashedPaths, [workspaceFile, globalFile]);
-    } finally {
-      setFileToolRuntimeForTest(null);
-      await platform().fs.remove(globalRoot, { recursive: true }).catch(
-        () => {},
-      );
     }
   });
 });

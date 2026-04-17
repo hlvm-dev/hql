@@ -173,7 +173,6 @@ function requestWantsBinaryAgentMode(body: ChatRequest): boolean {
     body.tool_allowlist !== undefined ||
     body.tool_denylist !== undefined ||
     body.max_iterations !== undefined ||
-    body.max_budget_usd !== undefined ||
     body.computer_use === true;
 }
 

@@ -187,7 +187,6 @@ interface HostBackedChatOptions {
   toolAllowlist?: string[];
   toolDenylist?: string[];
   maxIterations?: number;
-  maxBudgetUsd?: number;
   responseSchema?: Record<string, unknown>;
   expectedVersion?: number;
   signal?: AbortSignal;
@@ -210,7 +209,6 @@ interface HostBackedAgentQueryOptions {
   toolAllowlist?: string[];
   toolDenylist?: string[];
   maxIterations?: number;
-  maxBudgetUsd?: number;
   responseSchema?: Record<string, unknown>;
   signal?: AbortSignal;
   callbacks?: HostBackedChatCallbacks;
@@ -873,8 +871,6 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         inputTokens: event.input_tokens,
         outputTokens: event.output_tokens,
         modelId: event.model_id,
-        costUsd: event.cost_usd,
-        costEstimated: event.cost_estimated,
         continuedThisTurn: event.continued_this_turn,
         continuationCount: event.continuation_count,
         compactionReason: event.compaction_reason,
@@ -1367,7 +1363,6 @@ async function runChatViaHostAttempt(
     tool_allowlist: options.toolAllowlist,
     tool_denylist: options.toolDenylist,
     max_iterations: options.maxIterations,
-    max_budget_usd: options.maxBudgetUsd,
     response_schema: options.responseSchema,
     trace: !!callbacks.onTrace,
   };
@@ -1674,7 +1669,6 @@ export async function runAgentQueryViaHost(
     toolAllowlist: options.toolAllowlist,
     toolDenylist: options.toolDenylist,
     maxIterations: options.maxIterations,
-    maxBudgetUsd: options.maxBudgetUsd,
     responseSchema: options.responseSchema,
     signal: options.signal,
     callbacks: options.callbacks,

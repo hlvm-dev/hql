@@ -7,6 +7,7 @@ import {
   AssistantTextMessage,
 } from "./messages/AssistantTextMessage.tsx";
 import { AttachmentMessage } from "./messages/AttachmentMessage.tsx";
+import { AssistantThinkingMessage } from "./messages/AssistantThinkingMessage.tsx";
 import { GroupedToolUseContent } from "./messages/GroupedToolUseContent.tsx";
 import { SystemTextMessage } from "./messages/SystemTextMessage.tsx";
 import { UserTextMessage } from "./messages/UserTextMessage.tsx";
@@ -19,6 +20,15 @@ type Props = {
 
 export function Message(
   { message, verbose = false }: Props,
+): React.ReactNode {
+  const body = renderBody(message, verbose);
+  if (!body) return null;
+  return <Box flexDirection="column" marginTop={1}>{body}</Box>;
+}
+
+function renderBody(
+  message: RenderableTranscriptMessage,
+  verbose: boolean,
 ): React.ReactNode {
   switch (message.type) {
     case "user":
@@ -65,6 +75,14 @@ export function Message(
         <SystemTextMessage
           title={message.title}
           lines={message.lines}
+          verbose={verbose}
+        />
+      );
+    case "thinking":
+      return (
+        <AssistantThinkingMessage
+          thinking={message.thinking}
+          kind={message.kind}
           verbose={verbose}
         />
       );

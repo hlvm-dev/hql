@@ -56,6 +56,7 @@ import { type JumpHandle } from "./VirtualMessageList.tsx";
 import { Messages } from "./Messages.tsx";
 import { HorizontalRule } from "../components/HorizontalRule.tsx";
 import { FullscreenLayout } from "../components/FullscreenLayout.tsx";
+import { LiveTurnStatus } from "../components/LiveTurnStatus.tsx";
 import { ScrollKeybindingHandler } from "../components/ScrollKeybindingHandler.tsx";
 import {
   isFullscreenActive,
@@ -620,6 +621,17 @@ export function TranscriptWorkbench(): React.ReactNode {
             if (controller.signal.aborted) {
               throw new DOMException("Interaction aborted", "AbortError");
             }
+            if (textBuffer.trim()) {
+              if (pendingStreamTimerRef.current) {
+                clearTimeout(pendingStreamTimerRef.current);
+                pendingStreamTimerRef.current = null;
+              }
+              conversation.addAssistantText(textBuffer, false, undefined, {
+                turnId,
+              });
+              textBuffer = "";
+              lastStreamRender = 0;
+            }
             return await requestInteraction(
               mapInteractionRequest(event),
               controller.signal,
@@ -689,6 +701,11 @@ export function TranscriptWorkbench(): React.ReactNode {
   }, [runPromptSubmission, runtimeBusy]);
 
   useInput((input, key) => {
+    if (key.escape && runtimeBusy && !pendingInteraction && !searchOpen) {
+      abortControllerRef.current?.abort();
+      return;
+    }
+
     if (pendingInteraction) {
       const request = pendingInteraction.request;
 
@@ -937,8 +954,7 @@ export function TranscriptWorkbench(): React.ReactNode {
         <FullscreenLayout
           scrollRef={scrollRef}
           scrollable={
-            <Box flexDirection="column" flexGrow={1}>
-              <HorizontalRule />
+            <Box flexDirection="column">
               {messages.length === 0
                 ? null
                 : (
@@ -960,6 +976,19 @@ export function TranscriptWorkbench(): React.ReactNode {
                     setPositions={setPositions}
                   />
                 )}
+              <LiveTurnStatus active={runtimeBusy} />
+              <HorizontalRule />
+              <PromptInput
+                focus={!searchOpen && !pendingInteraction}
+                isLoading={runtimeBusy}
+                isSearching={searchOpen}
+                footerLabel={footerLabel}
+                onOpenSearch={openSearch}
+                onOpenPermission={() =>
+                  conversation.addInfo("No pending permission request.")}
+                onSubmit={handlePromptSubmit}
+                onStateChange={setPromptState}
+              />
             </Box>
           }
           bottom={
@@ -1019,21 +1048,6 @@ export function TranscriptWorkbench(): React.ReactNode {
                   </Box>
                 </Box>
               )}
-
-              <HorizontalRule />
-              <Box flexDirection="column">
-                <PromptInput
-                  focus={!searchOpen && !pendingInteraction}
-                  isLoading={runtimeBusy}
-                  isSearching={searchOpen}
-                  footerLabel={footerLabel}
-                  onOpenSearch={openSearch}
-                  onOpenPermission={() =>
-                    conversation.addInfo("No pending permission request.")}
-                  onSubmit={handlePromptSubmit}
-                  onStateChange={setPromptState}
-                />
-              </Box>
             </Box>
           }
         />

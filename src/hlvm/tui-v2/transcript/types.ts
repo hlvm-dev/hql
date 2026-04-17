@@ -58,6 +58,16 @@ export type RenderableTranscriptMessage =
     }
   | {
       uuid: string;
+      type: "thinking";
+      title: string;
+      lines: string[];
+      searchText?: string;
+      stickyText?: string | null;
+      thinking: string;
+      kind: "thinking" | "planning";
+    }
+  | {
+      uuid: string;
       type: "attachment";
       title: string;
       lines: string[];

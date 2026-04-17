@@ -59,7 +59,6 @@ export const ASYNC_AGENT_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
   "memory_search",
   "memory_edit",
   "tool_search",
-  "skill",
 ]);
 
 /**

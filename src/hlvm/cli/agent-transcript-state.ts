@@ -41,8 +41,6 @@ interface PendingTurnStats {
   inputTokens?: number;
   outputTokens?: number;
   modelId?: string;
-  costUsd?: number;
-  costEstimated?: boolean;
   continuedThisTurn?: boolean;
   continuationCount?: number;
   compactionReason?: "proactive_pressure" | "overflow_retry";
@@ -284,8 +282,6 @@ function appendCommittedTurnStats(
     inputTokens: state.pendingTurnStats?.inputTokens,
     outputTokens: state.pendingTurnStats?.outputTokens,
     modelId: state.pendingTurnStats?.modelId,
-    costUsd: state.pendingTurnStats?.costUsd,
-    costEstimated: state.pendingTurnStats?.costEstimated,
     continuedThisTurn: state.pendingTurnStats?.continuedThisTurn,
     continuationCount: state.pendingTurnStats?.continuationCount,
     compactionReason: state.pendingTurnStats?.compactionReason,
@@ -1015,8 +1011,6 @@ export function reduceTranscriptState(
               inputTokens: event.inputTokens,
               outputTokens: event.outputTokens,
               modelId: event.modelId,
-              costUsd: event.costUsd,
-              costEstimated: event.costEstimated,
               continuedThisTurn: event.continuedThisTurn,
               continuationCount: event.continuationCount,
               compactionReason: event.compactionReason,

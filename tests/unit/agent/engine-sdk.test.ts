@@ -494,53 +494,6 @@ Deno.test("engine sdk: openai promptCacheKey stays stable across turn-only promp
   assertEquals(firstOpenAI.promptCacheKey, secondOpenAI.promptCacheKey);
 });
 
-Deno.test("engine sdk: openai promptCacheKey changes when session-stable prompt content changes", () => {
-  const firstPrompt = compileSystemPrompt({
-    instructions: { global: "Use TypeScript.", project: "", trusted: false },
-  });
-  const secondPrompt = compileSystemPrompt({
-    instructions: { global: "Use Deno.", project: "", trusted: false },
-  });
-  const messages = convertToSdkMessages([
-    { role: "user", content: "Hello" },
-  ]);
-
-  const first = applyPromptCaching(
-    { providerName: "openai", modelId: "gpt-5", providerConfig: null },
-    firstPrompt.cacheSegments.map((segment) => ({
-      role: "system" as const,
-      content: segment.text,
-    })),
-    messages,
-    {},
-    undefined,
-    toCompiledPromptMeta(firstPrompt),
-    "tool-schema-signature",
-    "tool-filter-signature",
-  );
-  const second = applyPromptCaching(
-    { providerName: "openai", modelId: "gpt-5", providerConfig: null },
-    secondPrompt.cacheSegments.map((segment) => ({
-      role: "system" as const,
-      content: segment.text,
-    })),
-    messages,
-    {},
-    undefined,
-    toCompiledPromptMeta(secondPrompt),
-    "tool-schema-signature",
-    "tool-filter-signature",
-  );
-
-  const firstOpenAI = first.providerOptions?.openai as Record<string, unknown>;
-  const secondOpenAI =
-    second.providerOptions?.openai as Record<string, unknown>;
-  assertEquals(
-    firstOpenAI.promptCacheKey === secondOpenAI.promptCacheKey,
-    false,
-  );
-});
-
 Deno.test("engine sdk: applyPromptCaching passes through google cachedContent from provider options", () => {
   const compiledPrompt = buildAgentPrompt();
   const messages = convertToSdkMessages([

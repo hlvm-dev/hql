@@ -112,8 +112,6 @@ export interface TurnStatsItem {
   inputTokens?: number;
   outputTokens?: number;
   modelId?: string;
-  costUsd?: number;
-  costEstimated?: boolean;
   continuedThisTurn?: boolean;
   continuationCount?: number;
   compactionReason?: "proactive_pressure" | "overflow_retry";

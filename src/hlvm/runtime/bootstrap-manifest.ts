@@ -6,7 +6,7 @@
  */
 
 import { getPlatform } from "../../platform/platform.ts";
-import { getRuntimeDir } from "../../common/paths.ts";
+import { getModelsDir, getRuntimeDir } from "../../common/paths.ts";
 import { log } from "../api/log.ts";
 
 // ---------------------------------------------------------------------------
@@ -29,6 +29,24 @@ export const LOCAL_FALLBACK_IDENTITY = {
   publishedTotalSizeBytes: 7_162_394_016,
   sizeToleranceBytes: 512_000_000,
 } as const;
+
+export const LEGACY_LOCAL_FALLBACK_IDENTITIES = [
+  {
+    modelId: "gemma4:e4b",
+    modelDigestPrefix: "sha256:4c27e0f5b5ad",
+    publishedTotalSizeBytes: 9_608_350_245,
+    sizeToleranceBytes: 512_000_000,
+  },
+] as const;
+
+export type LocalFallbackIdentity =
+  | typeof LOCAL_FALLBACK_IDENTITY
+  | typeof LEGACY_LOCAL_FALLBACK_IDENTITIES[number];
+
+const KNOWN_LOCAL_FALLBACK_IDENTITIES: readonly LocalFallbackIdentity[] = [
+  LOCAL_FALLBACK_IDENTITY,
+  ...LEGACY_LOCAL_FALLBACK_IDENTITIES,
+] as const;
 
 /** Filename for the manifest inside the runtime directory. */
 const MANIFEST_FILENAME = "manifest.json";
@@ -246,13 +264,43 @@ export async function findOllamaModelManifest(
 export function matchesPinnedFallbackIdentity(
   manifest: OllamaModelManifestInfo | null,
 ): boolean {
+  return matchesFallbackIdentity(manifest, LOCAL_FALLBACK_IDENTITY);
+}
+
+export function getKnownLocalFallbackIdentity(
+  modelId: string,
+): LocalFallbackIdentity | null {
+  return KNOWN_LOCAL_FALLBACK_IDENTITIES.find((identity) =>
+    identity.modelId === modelId
+  ) ?? null;
+}
+
+export function matchesFallbackIdentity(
+  manifest: OllamaModelManifestInfo | null,
+  identity: LocalFallbackIdentity,
+): boolean {
   if (!manifest) return false;
-  if (!manifest.digest.startsWith(LOCAL_FALLBACK_IDENTITY.modelDigestPrefix)) {
+  if (!manifest.digest.startsWith(identity.modelDigestPrefix)) {
     return false;
   }
-  const minBytes = LOCAL_FALLBACK_IDENTITY.publishedTotalSizeBytes -
-    LOCAL_FALLBACK_IDENTITY.sizeToleranceBytes;
+  const minBytes = identity.publishedTotalSizeBytes -
+    identity.sizeToleranceBytes;
   return manifest.totalSize >= minBytes;
+}
+
+export async function findAvailableLocalFallbackModel(
+  modelsDir = getModelsDir(),
+): Promise<string | null> {
+  for (const identity of KNOWN_LOCAL_FALLBACK_IDENTITIES) {
+    const resolvedManifest = await findOllamaModelManifest(
+      modelsDir,
+      identity.modelId,
+    );
+    if (matchesFallbackIdentity(resolvedManifest?.manifest ?? null, identity)) {
+      return identity.modelId;
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

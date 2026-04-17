@@ -27,7 +27,6 @@ import {
 } from "../../common/ai-default-model.ts";
 import { AUTO_MODEL_ID, DEFAULT_MODEL_ID } from "../../common/config/types.ts";
 import { getPlatform } from "../../platform/platform.ts";
-import { loadInstructionHierarchy } from "../prompt/mod.ts";
 import { deriveDefaultSessionKey } from "../runtime/session-key.ts";
 import {
   type AgentSession,
@@ -50,7 +49,6 @@ import {
   runReActLoop,
   type TraceEvent,
 } from "./orchestrator.ts";
-import type { AgentPolicy } from "./policy.ts";
 import {
   classifyModelTier,
   computeTierToolFilter,
@@ -130,7 +128,6 @@ import {
   effectiveToolSurfaceIncludesMutation,
   isMutatingTool,
 } from "./security/safety.ts";
-import { type AgentHookRuntime, loadAgentHookRuntime } from "./hooks.ts";
 import { formatStructuredResultText } from "./structured-output.ts";
 import {
   generateStructuredWithSdk,
@@ -139,7 +136,7 @@ import {
 import { resolveSdkModelSpec, toSdkRuntimeModelSpec } from "./engine-sdk.ts";
 import {
   isLocalFallbackReady,
-  LOCAL_FALLBACK_MODEL_ID,
+  resolveLocalFallbackModelId,
 } from "../runtime/local-fallback.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
@@ -181,16 +178,6 @@ function buildPlanModeAllowlist(options: {
   );
 }
 
-/** Load the skill catalog via dynamic import. */
-async function tryLoadSkillCatalog(
-  workspace?: string,
-): Promise<
-  ReadonlyMap<string, import("../skills/types.ts").SkillDefinition> | undefined
-> {
-  const { loadSkillCatalog } = await import("../skills/mod.ts");
-  return await loadSkillCatalog(workspace);
-}
-
 /** Create a reusable agent session without any global/workspace cache key. */
 export async function createReusableSession(
   workspace: string,
@@ -206,12 +193,9 @@ export async function createReusableSession(
   },
 ): Promise<AgentSession> {
   const engine = getAgentEngine();
-  const instructions = await loadInstructionHierarchy(workspace);
   const agentProfiles = await loadAgentProfiles(workspace, {
     toolValidator: hasTool,
-    trusted: instructions.trusted,
   });
-  const skills = await tryLoadSkillCatalog(workspace);
   const toolDenylist = opts?.toolDenylist
     ? [...opts.toolDenylist]
     : [...DEFAULT_TOOL_DENYLIST];
@@ -229,8 +213,6 @@ export async function createReusableSession(
     modelInfo: opts?.modelInfo,
     engine,
     agentProfiles,
-    instructions,
-    skills,
   });
   reusableSessions.add(session);
   return session;
@@ -242,11 +224,6 @@ export async function disposeAllSessions(): Promise<void> {
   reusableSessions.clear();
   await Promise.allSettled(sessions.map((s) => s.dispose()));
   closeFactDb();
-  // Reset cached skill catalog (may reference stale HLVM_DIR in test environments)
-  try {
-    const { resetSkillCatalogCache } = await import("../skills/mod.ts");
-    resetSkillCatalogCache();
-  } catch { /* skills module not available */ }
 }
 
 /**
@@ -262,7 +239,6 @@ export async function reuseSession(
     querySource?: string;
     temperature?: number;
     preserveConversationContext?: boolean;
-    instructions?: typeof session.instructions;
     agentProfiles?: typeof session.agentProfiles;
   },
 ): Promise<AgentSession> {
@@ -272,27 +248,10 @@ export async function reuseSession(
     querySource: options?.querySource,
     temperature: options?.temperature,
     preserveConversationContext: options?.preserveConversationContext,
-    instructions: options?.instructions,
     agentProfiles: options?.agentProfiles,
   });
 }
 
-function mergePolicyPathRoots(
-  policy: AgentPolicy | null,
-  roots: string[],
-): AgentPolicy | null {
-  if (roots.length === 0) return policy;
-  const base: AgentPolicy = policy ?? { version: 1 };
-  const existing = base.pathRules?.roots ?? [];
-  const merged = [...new Set([...existing, ...roots])];
-  return {
-    ...base,
-    pathRules: {
-      ...(base.pathRules ?? {}),
-      roots: merged,
-    },
-  };
-}
 
 function normalizeToolList(list?: string[]): string[] {
   return list?.length ? [...new Set(list)].sort() : [];
@@ -383,28 +342,6 @@ export function shouldReuseAgentSession(
       persistentDenylist,
       options.toolDenylist,
     );
-}
-
-function dispatchLifecycleHookForEvent(
-  hookRuntime: AgentHookRuntime | null,
-  event: AgentUIEvent,
-  context: {
-    modelId: string;
-    sessionId?: string;
-  },
-): void {
-  if (!hookRuntime) return;
-  switch (event.type) {
-    case "plan_created":
-      hookRuntime.dispatchDetached("plan_created", {
-        modelId: context.modelId,
-        sessionId: context.sessionId,
-        plan: event.plan,
-      });
-      return;
-    default:
-      return;
-  }
 }
 
 interface AgentRunnerCallbacks {
@@ -566,8 +503,6 @@ interface AgentRunnerOptions {
   disablePersistentMemory?: boolean;
   /** Override max ReAct loop iterations (headless safety bound). */
   maxIterations?: number;
-  /** Maximum API cost in USD (headless safety bound). */
-  maxBudgetUsd?: number;
 }
 
 function updateSessionBaselineAllowlist(
@@ -817,8 +752,6 @@ export async function runAgentQuery(
   }
   const modelSource: TurnModelSource = autoDecision ? "auto" : "explicit";
   const workspace = options.workspace ?? getPlatform().process.cwd();
-  const hookRuntime = await loadAgentHookRuntime(workspace);
-  hookRuntime?.dispatchDetached("session_start", { workspace, model });
   const profile = ENGINE_PROFILES.normal;
   const turnId = crypto.randomUUID();
   const runStartedAt = Date.now();
@@ -896,16 +829,10 @@ export async function runAgentQuery(
       })
       ? options.reusableSession
       : undefined;
-  const instructions = matchingReusableSession?.instructions ??
-    await loadInstructionHierarchy(workspace);
   const agentProfiles = matchingReusableSession?.agentProfiles ??
     await loadAgentProfiles(workspace, {
       toolValidator: hasTool,
-      trusted: instructions.trusted,
     });
-  const skills = matchingReusableSession
-    ? undefined
-    : await tryLoadSkillCatalog(workspace);
   const isReusableSession = !!matchingReusableSession;
   const engine = isReusableSession ? undefined : getAgentEngine();
   let session: AgentSession;
@@ -916,7 +843,6 @@ export async function runAgentQuery(
       querySource,
       temperature: options.temperature,
       preserveConversationContext: options.skipPersistedHistoryReplay === true,
-      instructions,
       agentProfiles,
     });
   } else {
@@ -935,12 +861,10 @@ export async function runAgentQuery(
       toolDenylist: effectiveToolDenylist,
       onToken: effectiveOnToken,
       modelInfo: options.modelInfo,
-      instructions,
       disablePersistentMemory,
       discoveredDeferredTools: restoredSessionMetadata.discoveredDeferredTools,
       engine,
       agentProfiles,
-      skills,
     });
     resetSessionRoutingToolProfile(session);
   }
@@ -1044,8 +968,6 @@ export async function runAgentQuery(
       persistedTurn = startPersistedAgentTurn(persistedTurnSessionId, query);
     }
 
-    let policy = session.policy;
-    policy = mergePolicyPathRoots(policy, DEFAULT_AGENT_PATH_ROOTS);
     // Wire MCP server-initiated request handlers (sampling, elicitation, roots)
     if (session.mcpSetHandlers) {
       session.mcpSetHandlers({
@@ -1250,15 +1172,11 @@ export async function runAgentQuery(
       );
     }
     const onAgentEvent = (() => {
-      if (!persistedTurn && !sessionKey && !hookRuntime) {
+      if (!persistedTurn && !sessionKey) {
         return callbacks.onAgentEvent;
       }
       const activePersistedTurn = persistedTurn;
       return (event: AgentUIEvent) => {
-        dispatchLifecycleHookForEvent(hookRuntime, event, {
-          modelId: model,
-          sessionId: sessionKey ?? undefined,
-        });
         if (event.type === "tool_end") {
           if (activePersistedTurn) {
             appendPersistedAgentToolResult(
@@ -1323,9 +1241,7 @@ export async function runAgentQuery(
         permissionMode,
         maxToolCalls: profile.maxToolCalls,
         maxIterations: options.maxIterations,
-        maxBudgetUsd: options.maxBudgetUsd,
         groundingMode: profile.groundingMode,
-        policy,
         onTrace: callbacks.onTrace,
         onAgentEvent,
         onFinalResponseMeta: (meta: FinalResponseMeta) => {
@@ -1335,7 +1251,6 @@ export async function runAgentQuery(
         onInteraction: callbacks.onInteraction,
         noInput,
         agentProfiles,
-        instructions: session.instructions,
         planning: {
           mode: getPlanningModeForExecutionMode(permissionMode),
           requireStepMarkers: false,
@@ -1358,7 +1273,6 @@ export async function runAgentQuery(
         todoState: session.todoState,
         fileStateCache: session.fileStateCache,
         lspDiagnostics: session.lspDiagnostics,
-        hookRuntime: hookRuntime ?? undefined,
         onToken: effectiveOnToken,
         initialPlanState: permissionMode !== "plan" &&
             hasIncompleteRestoredPlan && activePlan
@@ -1408,7 +1322,6 @@ export async function runAgentQuery(
               toolOwnerId: session.toolOwnerId,
               querySource: session.querySource,
               modelTier: fbFilter.tier,
-              instructions: session.instructions,
               agentProfiles: session.agentProfiles,
               visionCapable: session.visionCapable,
             })
@@ -1430,15 +1343,10 @@ export async function runAgentQuery(
           return (session.engine ?? getAgentEngine()).createLLM(fbConfig);
         },
         localLastResort: {
-          model: LOCAL_FALLBACK_MODEL_ID,
+          model: await resolveLocalFallbackModelId(),
           isAvailable: isLocalFallbackReady,
         },
       } satisfies OrchestratorConfig;
-      hookRuntime?.dispatchDetached("user_prompt_submit", {
-        workspace,
-        query,
-        model,
-      });
       loopResult = await runReActLoop(
         query,
         reactLoopConfig,
@@ -1472,7 +1380,6 @@ export async function runAgentQuery(
         clearToolProfileLayer(ensureToolProfileState(session), "plan");
         syncSessionToolProfileState(session);
       }
-      await hookRuntime?.waitForIdle();
       // Release CU lock if this turn acquired it. Zero-syscall no-op on non-CU turns.
       const { cleanupComputerUseAfterTurn } = await import(
         "./computer-use/cleanup.ts"
@@ -1510,31 +1417,6 @@ export async function runAgentQuery(
     const usageSnapshot = completedLoopResult.usage;
     const compactedThisTurn = session.context.getCompactionRevision() >
       compactionRevisionBefore;
-
-    await hookRuntime?.dispatch("final_response", {
-      workspace,
-      modelId: model,
-      sessionId: sessionKey ?? undefined,
-      turnId,
-      text,
-      meta: finalResponseMeta ?? completedLoopResult.finalResponseMeta,
-      compactedThisTurn,
-      continuedThisTurn: completedLoopResult.continuedThisTurn,
-      continuationCount: completedLoopResult.continuationCount,
-      compactionReason: completedLoopResult.compactionReason,
-      usage: usageSnapshot.calls > 0
-        ? {
-          inputTokens: usageSnapshot.totalPromptTokens,
-          outputTokens: usageSnapshot.totalCompletionTokens,
-          totalTokens: usageSnapshot.totalTokens,
-          costUsd: usageSnapshot.totalCostUsd,
-          costEstimated: usageSnapshot.costSource === "estimated",
-          costSource: usageSnapshot.costSource,
-          source: usageSnapshot.source,
-        }
-        : undefined,
-    });
-    await hookRuntime?.waitForIdle();
 
     if (persistedTurn) {
       completePersistedAgentTurn(persistedTurn, model, text);
@@ -1594,7 +1476,6 @@ export async function runAgentQuery(
       },
     };
   } finally {
-    hookRuntime?.dispatchDetached("session_end", { workspace, model });
     // Only dispose ad-hoc sessions here; reusable sessions are cleaned up by disposeAllSessions().
     if (!isReusableSession && !keepSessionAlive) {
       const disposeStartedAt = Date.now();

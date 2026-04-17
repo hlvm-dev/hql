@@ -17,6 +17,7 @@
  */
 
 import { extractProvider } from "../providers/approval.ts";
+import { AGENT_TOOL_NAME } from "./tools/agent-constants.ts";
 
 // ============================================================
 // Shell Command Policy Manifest (SSOT)
@@ -745,6 +746,7 @@ const CONSTRAINED_CORE_TOOLS: readonly string[] = [
 export const STANDARD_EAGER_TOOLS: readonly string[] = [
   "ask_user",
   "tool_search",
+  AGENT_TOOL_NAME,
   "todo_read",
   "todo_write",
   "list_files",

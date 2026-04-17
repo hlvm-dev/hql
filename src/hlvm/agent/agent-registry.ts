@@ -234,12 +234,9 @@ export async function loadAgentProfiles(
   workspace?: string,
   options?: {
     toolValidator?: (toolName: string) => boolean;
-    /** When false, project agent profiles (.hlvm/agents/) are skipped. */
-    trusted?: boolean;
   },
 ): Promise<readonly AgentProfile[]> {
   if (!workspace) return AGENT_PROFILES;
-  if (options?.trusted === false) return AGENT_PROFILES;
   const platform = getPlatform();
   const agentsDir = platform.path.join(workspace, PROJECT_AGENT_DIR);
   if (!(await platform.fs.exists(agentsDir))) {

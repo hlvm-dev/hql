@@ -21,7 +21,6 @@ import {
   type InteractionResponse,
 } from "../registry.ts";
 import { DEFAULT_TIMEOUTS } from "../constants.ts";
-import { type AgentPolicy, resolvePolicyDecision } from "../policy.ts";
 import {
   TEXT_ENCODER,
   truncate,
@@ -634,7 +633,6 @@ export async function checkToolSafety(
   toolName: string,
   args: unknown,
   permissionMode: PermissionMode = "default",
-  policy: AgentPolicy | null = null,
   l1Store: Map<string, boolean>,
   ownerId?: string,
   onInteraction?: (event: InteractionRequestEvent) => Promise<InteractionResponse>,
@@ -650,19 +648,6 @@ export async function checkToolSafety(
 ): Promise<boolean> {
   // Classify tool
   const classification = classifyTool(toolName, args, ownerId);
-
-  // Apply policy override if present (always takes precedence)
-  const policyDecision = resolvePolicyDecision(
-    policy,
-    toolName,
-    classification.level,
-  );
-  if (policyDecision === "deny") {
-    return false;
-  }
-  if (policyDecision === "allow") {
-    return true;
-  }
 
   // Apply explicit allow/deny lists and permission mode via resolveToolPermission
   const permissions: ToolPermissions = {

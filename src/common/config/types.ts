@@ -164,16 +164,6 @@ export interface HlvmConfig {
     localOnly?: boolean;
     noUpload?: boolean;
   };
-  /** Tool permission policy (merged from legacy agent-policy.json). */
-  policy?: {
-    default?: "allow" | "deny" | "ask";
-    toolRules?: Record<string, "allow" | "deny" | "ask">;
-    levelRules?: Partial<Record<"L0" | "L1" | "L2", "allow" | "deny" | "ask">>;
-    pathRules?: { allow?: string[]; deny?: string[] };
-    networkRules?: { allow?: string[]; deny?: string[] };
-  };
-  /** Lifecycle hooks (merged from legacy .hlvm/hooks.json). */
-  hooks?: Record<string, unknown[]>;
 }
 
 // ============================================================
@@ -248,8 +238,6 @@ export const CONFIG_KEYS = [
   "chatMaxReferencesLocal",
   "chatMaxReferencesCloud",
   "autoSelect",
-  "policy",
-  "hooks",
 ] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 
@@ -279,11 +267,14 @@ export function validateValue(
       if (typeof value !== "string") {
         return { valid: false, error: "model must be a string" };
       }
+      if (value === AUTO_MODEL_ID) {
+        return { valid: true };
+      }
       if (!MODEL_FORMAT_REGEX.test(value)) {
         return {
           valid: false,
           error:
-            "model must be in 'provider/model' format (e.g., ollama/llama3.2)",
+            "model must be 'auto' or in 'provider/model' format (e.g., ollama/llama3.2)",
         };
       }
       return { valid: true };
@@ -433,20 +424,6 @@ export function validateValue(
       if (value === undefined) return { valid: true }; // optional field
       if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return { valid: false, error: "autoSelect must be an object" };
-      }
-      return { valid: true };
-
-    case "policy":
-      if (value === undefined) return { valid: true };
-      if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return { valid: false, error: "policy must be an object" };
-      }
-      return { valid: true };
-
-    case "hooks":
-      if (value === undefined) return { valid: true };
-      if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return { valid: false, error: "hooks must be an object" };
       }
       return { valid: true };
 

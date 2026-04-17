@@ -27,7 +27,7 @@ import trashPackage from "npm:trash@10.1.1";
 import { getPlatform } from "../../../platform/platform.ts";
 import { isPathWithinRoot, SecurityError } from "../security/path-sandbox.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
-import { createPolicyPathChecker, resolveToolPath } from "../path-utils.ts";
+import { resolveToolPath } from "../path-utils.ts";
 import { copyDirectoryRecursive } from "../../../common/fs-copy.ts";
 import {
   GlobPatternError,
@@ -348,7 +348,6 @@ export async function readFile(
     const validPath = await resolveToolPath(
       args.path,
       workspace,
-      options?.policy ?? null,
     );
 
     // Check if file exists
@@ -440,7 +439,6 @@ export async function writeFile(
     const validPath = await resolveToolPath(
       args.path,
       workspace,
-      options?.policy ?? null,
     );
     const parentDir = platform.path.dirname(validPath);
 
@@ -530,7 +528,6 @@ export async function editFile(
     const validPath = await resolveToolPath(
       args.path,
       workspace,
-      options?.policy ?? null,
     );
 
     // Enforce size limit before reading
@@ -662,7 +659,6 @@ export async function listFiles(
     const validPath = await resolveToolPath(
       normalizedArgs.path,
       workspace,
-      options?.policy ?? null,
     );
 
     // Check if path exists and is a directory
@@ -672,10 +668,7 @@ export async function listFiles(
     }
 
     const entries: FileEntry[] = [];
-    const isAllowedPath = createPolicyPathChecker(
-      options?.policy ?? null,
-      workspace,
-    );
+    const isAllowedPath = (_absolutePath: string): boolean => true;
 
     // Load gitignore patterns to skip node_modules, .git, etc.
     const gitignorePatterns = normalizedArgs.recursive
@@ -805,7 +798,6 @@ export async function listFiles(
             await resolveToolPath(
               entryPath,
               workspace,
-              options?.policy ?? null,
             );
             await walk(entryPath, entryRelativePath, depth + 1);
           } catch (error) {
@@ -863,7 +855,6 @@ export async function openPath(
     const validPath = await resolveToolPath(
       args.path,
       workspace,
-      options?.policy ?? null,
     );
     const openablePath = await resolveOpenPathAlias(validPath);
 
@@ -946,13 +937,11 @@ async function resolveTransferPaths(
     await resolveToolPath(
       args.sourcePath,
       workspace,
-      options?.policy ?? null,
     ),
   );
   const destinationPath = await resolveToolPath(
     args.destinationPath,
     workspace,
-    options?.policy ?? null,
   );
 
   const sourceInfo = await platform.fs.lstat(sourcePath);
@@ -1086,7 +1075,6 @@ export async function moveToTrash(
       const validPath = await resolveToolPath(
         rawPath,
         workspace,
-        options?.policy ?? null,
       );
       const trashablePath = await resolveOpenPathAlias(validPath);
       const stat = await platform.fs.lstat(trashablePath);
@@ -1132,7 +1120,6 @@ export async function revealPath(
     const validPath = await resolveToolPath(
       args.path,
       workspace,
-      options?.policy ?? null,
     );
     const revealablePath = await resolveOpenPathAlias(validPath);
     const stat = await platform.fs.lstat(revealablePath);
@@ -1255,7 +1242,6 @@ export async function makeDirectory(
     const directoryPath = await resolveToolPath(
       args.path,
       workspace,
-      options?.policy ?? null,
     );
 
     if (await platform.fs.exists(directoryPath)) {
@@ -1393,7 +1379,6 @@ export async function fileMetadata(
         validPath = await resolveToolPath(
           rawPath,
           workspace,
-          options?.policy ?? null,
         );
       } catch {
         entries.push({ path: rawPath, exists: false });
@@ -1485,7 +1470,6 @@ export async function archiveFiles(
     const outputPath = await resolveToolPath(
       args.outputPath,
       workspace,
-      options?.policy ?? null,
     );
     const resolvedInputPaths: string[] = [];
     for (const rawPath of archivePaths) {
@@ -1495,7 +1479,6 @@ export async function archiveFiles(
       const validPath = await resolveToolPath(
         rawPath,
         workspace,
-        options?.policy ?? null,
       );
       if (!(await platform.fs.exists(validPath))) {
         return failTool(`Input path does not exist: ${rawPath}`);

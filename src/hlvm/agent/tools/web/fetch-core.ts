@@ -6,7 +6,6 @@
 import { http } from "../../../../common/http-client.ts";
 import { ValidationError } from "../../../../common/error.ts";
 import { withRetry } from "../../../../common/retry.ts";
-import { getNetworkPolicyDeniedUrl, isNetworkAllowed } from "../../policy.ts";
 import type { ToolExecutionOptions } from "../../registry.ts";
 import { RESOURCE_LIMITS } from "../../constants.ts";
 
@@ -21,17 +20,10 @@ export const DEFAULT_WEB_MAX_BYTES = RESOURCE_LIMITS.maxTotalToolResultBytes;
 // ============================================================
 
 export function assertUrlAllowed(
-  url: string,
-  options?: ToolExecutionOptions,
+  _url: string,
+  _options?: ToolExecutionOptions,
 ): void {
-  const policy = options?.policy ?? null;
-  if (!isNetworkAllowed(policy, url)) {
-    const denied = getNetworkPolicyDeniedUrl(policy, [url]) ?? url;
-    throw new ValidationError(
-      `URL denied by policy: ${denied}`,
-      "network_policy",
-    );
-  }
+  // No-op: network policy removed.
 }
 
 // ============================================================

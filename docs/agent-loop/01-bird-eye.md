@@ -25,9 +25,8 @@
 ┃                     │  │                                                  ┃
 ┃                     │  ▼                                                  ┃
 ┃                     │  SESSION CREATION  (session.ts:372)                  ┃
-┃                     │    ├─ loadAgentPolicy()           ─┐                ┃
-┃                     │    ├─ tryGetModelInfo()             ├─ parallel I/O ┃
-┃                     │    ├─ classifyModelTier()          ─┘                ┃
+┃                     │    ├─ tryGetModelInfo()                              ┃
+┃                     │    ├─ classifyModelTier()                            ┃
 ┃                     │    ├─ computeTierToolFilter()                        ┃
 ┃                     │    ├─ createToolProfileState()     → 5-layer stack  ┃
 ┃                     │    ├─ resolveContextBudget()       → token limit    ┃
@@ -110,8 +109,7 @@
 ┃  LAYER 3: POST-LOOP                      agent-runner.ts:1480             ┃
 ┃  ──────────────────                                                       ┃
 ┃                                                                           ┃
-┃  wait hooks → emit traces                                                 ┃
-┃  → structured result synthesis → memory persistence                       ┃
+┃  emit traces → structured result synthesis → memory persistence          ┃
 ┃  → build AgentRunnerResult → dispose session (if not reusing)             ┃
 ┃                                                                           ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -162,14 +160,14 @@
 │  │                                                                   │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
 │                                                                         │
-│  ┌──────────────┐  ┌──────────────┐                                      │
-│  │  hook        │  │  MCP         │                                      │
-│  │  Runtime     │  │  (lazy)      │                                      │
-│  │              │  │              │                                      │
-│  │  pre/post    │  │  ensureMcp   │                                      │
-│  │  tool/llm    │  │  Loaded()    │                                      │
-│  │  stop hooks  │  │  deferred    │                                      │
-│  └──────────────┘  └──────────────┘                                      │
+│  ┌──────────────┐                                                        │
+│  │  MCP         │                                                        │
+│  │  (lazy)      │                                                        │
+│  │              │                                                        │
+│  │  ensureMcp   │                                                        │
+│  │  Loaded()    │                                                        │
+│  │  deferred    │                                                        │
+│  └──────────────┘                                                        │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -241,7 +239,7 @@
   orch-state.ts ────reads────▶ toolProfileState
                                → effectiveAllowlist/denylist helpers
 
-  orch-tool-exec.ts reads────▶ policy, toolProfileState, hookRuntime
+  orch-tool-exec.ts reads────▶ toolProfileState
                                → validate + permit + dispatch
 
   grounding.ts ─────reads────▶ LoopState.toolUses

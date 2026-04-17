@@ -148,6 +148,27 @@ export function createToolProfileState(
   return state;
 }
 
+export function cloneToolProfileState(
+  state?: ToolProfileState,
+): ToolProfileState | undefined {
+  if (!state) return undefined;
+
+  const layers: Partial<Record<ToolProfileSlot, ToolProfileLayer>> = {};
+  for (const slot of TOOL_PROFILE_SLOT_ORDER) {
+    const layer = state.layers[slot];
+    if (!layer) continue;
+    layers[slot] = {
+      slot,
+      profileId: layer.profileId,
+      allowlist: cloneToolList(layer.allowlist),
+      denylist: cloneToolList(layer.denylist),
+      reason: layer.reason,
+    };
+  }
+
+  return createToolProfileState(layers);
+}
+
 export function declareToolProfiles(
   profiles: readonly DeclaredToolProfile[],
 ): DeclaredToolProfileRegistry {

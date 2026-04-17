@@ -86,7 +86,6 @@ export function summarizeTraceEvent(
         sectionCount: event.sections.length,
         cacheSegmentCount: event.cacheSegments.length,
         stableSegmentCount: event.stableCacheProfile.stableSegmentCount,
-        instructionSourceCount: event.instructionSources.length,
       };
     case "context_pressure":
       return {

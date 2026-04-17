@@ -14,7 +14,7 @@ import { verifyBootstrap } from "../../runtime/bootstrap-verify.ts";
 import { recoverBootstrap } from "../../runtime/bootstrap-recovery.ts";
 import { waitForModelAccess } from "../../runtime/model-access.ts";
 import { getPlatform } from "../../../platform/platform.ts";
-import { LOCAL_FALLBACK_MODEL_ID } from "../../runtime/local-fallback.ts";
+import { resolveLocalFallbackModelId } from "../../runtime/local-fallback.ts";
 import { getLocalModelDisplayName } from "../../runtime/local-llm.ts";
 
 /** Resolves when runtime is initialized; rejects permanently if all retries fail. */
@@ -44,7 +44,8 @@ export function isRuntimeReadyForAiRequests(): boolean {
 }
 
 async function ensureLocalFallbackReady(): Promise<boolean> {
-  const result = await waitForModelAccess(LOCAL_FALLBACK_MODEL_ID);
+  const fallbackModelId = await resolveLocalFallbackModelId();
+  const result = await waitForModelAccess(fallbackModelId);
   if (result.available) {
     return true;
   }
@@ -52,7 +53,7 @@ async function ensureLocalFallbackReady(): Promise<boolean> {
     ? "authentication is unexpectedly required"
     : result.error ?? "the model did not answer a readiness probe in time";
   log.warn?.(
-    `Local ${getLocalModelDisplayName()} fallback is not ready for requests yet: ${reason}`,
+    `Local ${getLocalModelDisplayName()} fallback (${fallbackModelId}) is not ready for requests yet: ${reason}`,
   );
   return false;
 }

@@ -1,22 +1,79 @@
-# Routing SSOT & Handoff
+# Routing Guide
 
-> Status: current production routing architecture as of 2026-04-17
-> (post-review).
+> Scope: request-time routing and its immediate runtime boundary.
 >
-> Audience: the next agent who needs to modify routing without prior context.
+> **Important honesty rule.** This document is a guide, not the literal runtime
+> SSOT. The runtime SSOT lives in code:
 >
-> Scope: request-time routing only. `@auto` model selection internals live in
-> [auto.md](./auto.md). CLI/TUI startup issues are not routing, but the known
-> adjacent findings are recorded here because they affected end-to-end
-> validation.
+> - tool-surface state: `src/hlvm/agent/tool-profiles.ts`
+> - turn-start reset behavior: `src/hlvm/agent/orchestrator.ts`
+> - per-turn runner wiring: `src/hlvm/agent/agent-runner.ts`
+> - trace DTO shape: `src/hlvm/agent/routing.ts`
 >
-> **2026-04-17 review summary.** A routing review was performed. The
-> architectural direction in §1 is sound. Three real bugs inside that
-> architecture were fixed (§1.5.1). One honesty correction was recorded
-> (§1.5.0): the `TurnRouting` object is currently a **telemetry DTO**, not
-> an authoritative SSOT — nothing reads `config.turnRouting`. The real
-> tool-surface boundary at runtime is the layered `toolProfileState` plus
-> flat `OrchestratorConfig` fields. Debt list is §1.5.3.
+> The key honesty correction from the review still stands: `TurnRouting` is
+> currently a **telemetry DTO**, not an authoritative runtime boundary. Nothing
+> reads `config.turnRouting`. The real tool-surface boundary at runtime is the
+> layered `toolProfileState` plus flat `OrchestratorConfig` fields.
+
+## 0. If You Know Nothing
+
+Read this section before anything else if you were dropped into the repo cold.
+
+### 0.1 The 60-second mental model
+
+```text
+routing chooses boundaries
+agent loop chooses strategy
+```
+
+Concretely:
+
+- Routing decides:
+  - selected model
+  - model source (`explicit` or `auto`)
+  - model tier
+  - turn-start tool surface
+- Routing does **not** decide:
+  - browser vs code vs data
+  - whether to plan
+  - whether to delegate
+  - whether to search
+  - whether to answer directly
+
+### 0.2 What is actually authoritative today
+
+If you only remember five facts, remember these:
+
+1. `runAgentQuery()` is the production entrypoint for `hlvm ask` and HTTP agent
+   execution.
+2. `routing.ts` produces a lean `TurnRouting` DTO for traces; it is not consumed
+   to enforce runtime tools.
+3. `toolProfileState` is the real runtime tool-surface state.
+4. `computeFallbackToolFilter()` builds fallback LLM tool filters using:
+
+   ```text
+   explicit requested allowlist, if present
+   otherwise the fallback tier floor
+   then merge session.discoveredDeferredTools
+   preserve [] as []
+   ```
+
+5. `discovery` and `runtime` layers are **turn-local** and must be cleared at
+   turn start. That is now done in `applyRequestToolSurface()` as a safety net
+   for non-runner callers too.
+
+### 0.3 First files to open
+
+In this order:
+
+1. [`../../AGENTS.md`](../../AGENTS.md)
+2. `§0`, `§1.5`, and `§14` of this document
+3. [`../../src/hlvm/agent/routing.ts`](../../src/hlvm/agent/routing.ts)
+4. [`../../src/hlvm/agent/agent-runner.ts`](../../src/hlvm/agent/agent-runner.ts)
+5. [`../../src/hlvm/agent/orchestrator.ts`](../../src/hlvm/agent/orchestrator.ts)
+6. [`../../src/hlvm/agent/orchestrator-response.ts`](../../src/hlvm/agent/orchestrator-response.ts)
+7. [`../../src/hlvm/agent/tool-profiles.ts`](../../src/hlvm/agent/tool-profiles.ts)
+8. [model-tiers.md](./model-tiers.md)
 
 ## 1. Executive Summary
 
@@ -43,14 +100,16 @@ system decides boundaries
 model decides strategy
 ```
 
-## 1.5 Post-Review State (2026-04-17)
+## 1.5 Current Runtime Shape
 
-### 1.5.0 What the code actually does (honest picture)
+### 1.5.0 What the code actually does
 
-The architecture narrative in §1 describes intent. The current code
-implements it partially:
+The architectural direction in §1 is still correct, but a cold agent should
+understand the **real** runtime shape, not the idealized one:
 
 ```text
+PRODUCTION USER PATH
+--------------------
 USER REQUEST
     │
     ▼
@@ -61,126 +120,132 @@ agent-runner.runAgentQuery()
     ├─ resetSessionRoutingToolProfile(session)
     │     └─ writes baseline layer, clears domain layer
     ├─ buildTurnRouting(...) → TurnRouting DTO
-    │     └─ ✗ config.turnRouting is NEVER read by any consumer
-    │     └─ ✓ consumed once to emit routing_decision trace
+    │     └─ ✗ never consumed as runtime authority
+    │     └─ ✓ consumed to emit routing_decision trace
     │
     └─ runReActLoop(config)
           │
           ├─ applyRequestToolSurface(config)
-          │     └─ writes baseline layer AGAIN, clears domain AGAIN
-          │        (safety net for non-runner callers: agent.ts, run-agent.ts,
-          │         test harness)
+          │     └─ writes baseline layer AGAIN
+          │     └─ clears domain/discovery/runtime AGAIN
           │
           └─ each iteration:
-                ├─ applyAdaptiveToolPhase(state, config, userRequest)
-                │     ├─ regex-classifies user query (still) — but cached now
-                │     └─ writes runtime layer
-                ├─ LLM call
-                ├─ tool execution
-                └─ on fallback error:
-                      └─ createFallbackLLM(fbModel)
-                            └─ computeFallbackToolFilter({...})
-                               (tier floor ∪ session.discoveredDeferredTools)
+                ├─ applyAdaptiveToolPhase(...) → runtime layer
+                ├─ tool_search narrowing → discovery layer
+                ├─ browser recovery → domain layer
+                └─ fallback error →
+                      createFallbackLLM(fbModel) →
+                      computeFallbackToolFilter(...)
 ```
 
-Four separate code paths write the `baseline` layer at turn start:
-`session.ts` (tier filter bake-in), `resetSessionRoutingToolProfile`,
-`applyRequestToolSurface`, and (conceptually) the `toolSurface` that
-`buildTurnRouting` computes but nothing reads. All four converge to the
-same value, so no correctness bug — but it is why §1.5.3 calls the real
-SSOT surface ambiguous.
+```text
+NON-RUNNER CALLER PATH
+----------------------
+createAgent() / agent.fork() / run-agent.ts / tests
+    │
+    ├─ cloneConfigWithFreshToolProfile()
+    └─ runReActLoop(config)
+          └─ applyRequestToolSurface(config)
+               clears turn-local discovery/runtime layers
+               even if caller reused a config object
+```
 
-### 1.5.1 Fixes applied 2026-04-17
+What is authoritative at runtime:
 
-| # | Fix                                        | Files                                              | Why                                                                                                                                                                                                     |
-| - | ------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 | Phase heuristics cached once per turn      | `orchestrator.ts`, `orchestrator-state.ts`         | `requestImpliesEditing` / `requestImpliesVerification` were re-running on the unchanging user query on every loop iteration. Now lazy-cached on `LoopState.requestHeuristics`; same result, run once.   |
-| 2 | Dead code removed                          | `orchestrator.ts`                                  | `READ_TOOLS` Set + `hasRead` var + `if (hasRead && impliesEditing) return "editing"` branch were all subsumed by the next `if (impliesEditing) return "editing"` check. No behavior change.             |
-| 3 | `createFallbackLLM` preserves discoveries  | `agent-runner.ts`                                  | Fallback was using the user's **original** allowlist only, silently dropping deferred tools discovered mid-turn via `tool_search`. Extracted to tested helper `computeFallbackToolFilter` (see §1.5.2). |
+- `toolProfileState.layers.baseline`
+  - persistent turn-start tool seed
+- `toolProfileState.layers.domain`
+  - runtime browser escalation only
+- `toolProfileState.layers.plan`
+  - plan-mode shaping
+- `toolProfileState.layers.discovery`
+  - current-turn `tool_search` narrowing
+- `toolProfileState.layers.runtime`
+  - current-turn adaptive phase shaping
 
-### 1.5.2 `computeFallbackToolFilter` — the fallback tool-filter contract
+What is **not** authoritative at runtime:
+
+- `TurnRouting`
+- `ToolSurface`
+- `config.turnRouting`
+
+Those objects are currently for trace/observability only.
+
+Why the SSOT story is still imperfect:
+
+- `session.ts` writes the baseline layer when the session is created.
+- `resetSessionRoutingToolProfile()` rewrites the baseline layer at turn start.
+- `applyRequestToolSurface()` rewrites the baseline layer again at loop start.
+- `buildTurnRouting()` computes the same baseline-ish shape again, but only for
+  traces.
+
+These paths currently converge, so this is not a known correctness bug on the
+main user path. But it is still duplicated authority, which is why the debt list
+below matters.
+
+### 1.5.1 `computeFallbackToolFilter` — the fallback tool-filter contract
 
 Exported helper in
 [`../../src/hlvm/agent/agent-runner.ts`](../../src/hlvm/agent/agent-runner.ts).
 The **only** path that builds a fallback LLM's tool surface. Contract:
 
-- **Tier cap is authoritative.** Fallback uses its own tier eager core —
-  NOT the primary's (potentially higher) baseline.
-- **In-turn discoveries merge on top.** `session.discoveredDeferredTools`
-  from `tool_search` promotions is preserved across fallback so the
-  fallback can finish a task the primary began.
-- **Domain-layer additions (browser-hybrid `cu_*`) are NOT inherited.**
-  They encode primary-tier assumptions and a lower-tier fallback should
-  not get them.
-- **User-explicit empty allowlist (`[]`) stays empty.** Discoveries are
-  NOT injected — user said "no tools".
+- **Implicit fallback uses the fallback tier floor.** When the user did not
+  supply an allowlist, fallback uses its own tier eager core — NOT the primary's
+  (potentially higher) baseline.
+- **Explicit allowlist is preserved.** When the user supplied an allowlist,
+  fallback keeps that explicit surface and merges discoveries on top; it does
+  not intersect the explicit allowlist back down to the fallback tier.
+- **In-turn discoveries merge on top.** `session.discoveredDeferredTools` from
+  `tool_search` promotions is preserved across fallback so the fallback can
+  finish a task the primary began.
+- **Domain-layer additions (browser-hybrid `cu_*`) are NOT inherited.** They
+  encode primary-tier assumptions and a lower-tier fallback should not get them.
+- **User-explicit empty allowlist (`[]`) stays empty.** Discoveries are NOT
+  injected — user said "no tools".
 - **Denylist is threaded through unchanged.**
 
 Six unit tests pin every invariant in `tests/unit/agent/routing.test.ts`.
 
-### 1.5.3 Known debt — intentionally NOT fixed in this pass
+### 1.5.2 Known debt
 
-Deferred because each is larger scope than a bug-fix pass and touches
-docs other agents are actively editing:
+Deferred because each is larger scope than the targeted fixes above:
 
-- **`TurnRouting` is a telemetry DTO, not an SSOT.** The P0 finding from
-  the review. Options: (a) make it authoritative by wiring
-  `runReActLoop` to consume `config.turnRouting.toolSurface` directly
-  and deleting `applyRequestToolSurface` + `baselineToolAllowlistSeed`;
-  or (b) delete `routing.ts`, `TurnRouting`, `buildTurnRouting` entirely
-  and compute the trace fields at emission time. Do **not** keep both.
-- **Three owners of the baseline layer seed**
-  (`session.ts` tier bake-in, `resetSessionRoutingToolProfile`,
-  `applyRequestToolSurface`). Idempotent but duplicative.
-- **`applyAdaptiveToolPhase` still regex-classifies the user query.** Fix
-  1 only cached the result per turn; the regexes themselves remain. The
-  rest of the codebase migrated to LLM classification — routing should too.
+- **`TurnRouting` is a telemetry DTO, not an SSOT.** The P0 finding from the
+  review. Options: (a) make it authoritative by wiring `runReActLoop` to consume
+  `config.turnRouting.toolSurface` directly and deleting
+  `applyRequestToolSurface` + `baselineToolAllowlistSeed`; or (b) delete
+  `routing.ts`, `TurnRouting`, `buildTurnRouting` entirely and compute the trace
+  fields at emission time. Do **not** keep both.
+- **Three owners of the baseline layer seed** (`session.ts` tier bake-in,
+  `resetSessionRoutingToolProfile`, `applyRequestToolSurface`). Idempotent but
+  duplicative.
+- **`applyAdaptiveToolPhase` still regex-classifies the user query.** The
+  result is cached per turn, but the regexes themselves remain. The rest of
+  the codebase migrated to LLM classification — routing should too.
 - **`modelSource` (`"explicit" | "auto"`) is a label with no downstream
   branch.** Pure observability.
-- **`buildToolSurface()` runs `getDeferredToolNames()` every turn** to
-  produce a `deferredTools` list that only feeds a trace count.
+- **`buildToolSurface()` runs `getDeferredToolNames()` every turn** to produce a
+  `deferredTools` list that only feeds a trace count.
+- Arithmetic smoke (`"what is 7 times 8"` → `56`)
+- `deno task ssot:check` passes with zero errors (warnings still present)
 
-### 1.5.4 Verification status (2026-04-17)
+Out-of-domain e2e failures observed on 2026-04-17 (NOT caused by this review's
+changes):
 
-Routing-domain unit tests — **all passing, no Ollama dependency**:
-
-| Suite                                  | Tests |
-| -------------------------------------- | ----- |
-| `tests/unit/agent/routing.test.ts`     | 11 (4 original + 1 phase cache + 6 fallback helper) |
-| `tests/unit/agent/phase-filtering.test.ts` | 10 (existing, unbroken) |
-| `tests/unit/agent/auto-select.test.ts` | 74 |
-| `tests/unit/agent/tool-profiles.test.ts` | 14 |
-| `tests/unit/agent/query-tool-routing.test.ts` | 2 |
-| **Total**                              | **111 / 111** |
-
-User-path e2e via `hlvm ask` (via `deno run -A src/hlvm/cli/cli.ts ask …`)
-— **all passing, no backdoor**:
-
-- Baseline answer (`"Reply with just: ok"` → `ok`)
-- Tool use + multi-iteration (`"list files in ~/Downloads and say done"`)
-- `--model auto` path
-- Cache-trigger editing query (`fix …`)
-- Cache-trigger verification query (`check …`)
-- JSON-output simple answers
-
-Out-of-domain e2e failures observed on 2026-04-17 (NOT caused by this
-review's changes):
-
-- `tests/e2e/agent-runtime-shell.test.ts` hybrid promotion cases — caused
-  by the concurrent commit
+- `tests/e2e/agent-runtime-shell.test.ts` hybrid promotion cases — caused by the
+  concurrent commit
   `a26a06fa nuke(agent): remove entire legacy delegation and team system`.
-- `tests/e2e/local-llm-classification-e2e.test.ts` `classifyBrowserAutomation`
-  — LLM semantic judgment flake in `src/hlvm/runtime/local-llm.ts`; not
-  routing code.
+- `tests/e2e/local-llm-classification-e2e.test.ts` `classifyBrowserAutomation` —
+  LLM semantic judgment flake in `src/hlvm/runtime/local-llm.ts`; not routing
+  code.
 
-### 1.5.5 Testing rule — user path only (added 2026-04-17)
+### 1.5.5 Testing rule — user path only
 
 **Never bypass the HLVM-managed runtime when testing routing.**
 
 Forbidden:
 
-- Invoking Ollama binaries directly
-  (`~/.hlvm/.runtime/engine/ollama serve`)
+- Invoking Ollama binaries directly (`~/.hlvm/.runtime/engine/ollama serve`)
 - `curl` probes to `localhost:11439` or `localhost:11434`
 - Setting `HLVM_DISABLE_AI_AUTOSTART=1` to suppress managed autostart
 - Side-starting a parallel Ollama on HLVM's port
@@ -200,7 +265,7 @@ fails, fix the managed path — do not side-start Ollama. See `AGENTS.md` §
 
 The routing rewrite is complete inside the routing domain.
 
-- Added a single SSOT routing module:
+- Added a single lean routing DTO module:
   - [`../../src/hlvm/agent/routing.ts`](../../src/hlvm/agent/routing.ts)
 - Rewired production execution to use it:
   - [`../../src/hlvm/agent/agent-runner.ts`](../../src/hlvm/agent/agent-runner.ts)
@@ -288,7 +353,7 @@ The rewrite happened in four parts.
 
 #### 3.1 New routing contract
 
-`routing.ts` was introduced as the new SSOT. It only produces:
+`routing.ts` was introduced as the lean routing DTO module. It only produces:
 
 ```ts
 {
@@ -309,6 +374,9 @@ The rewrite happened in four parts.
 - session tier
 - current effective tool filter
 - discovered deferred tools
+
+That DTO is still **trace-only** today. The runtime enforcement boundary remains
+`toolProfileState`.
 
 #### 3.3 Orchestrator cleanup
 
@@ -335,26 +403,20 @@ longer uses:
 
 ### Phase 4: Validation
 
-Routing-specific validation was completed during the rewrite.
+Routing-specific validation lives in the repo tests and user-path commands, not
+in frozen counts inside this document.
 
-The targeted routing matrix passed:
-
-```text
-236 passed, 0 failed
-```
-
-That matrix covered:
+When routing changes, verify against the current repo state. The practical
+coverage areas are:
 
 - routing core
 - query-tool routing
 - tool-profile enforcement
-- registry allowlist behavior
 - orchestrator routing behavior
 - runner routing behavior
-- local-llm cleanup around removed routing usage
+- reusable-agent state isolation
 - auto-select integration
-
-The routing rewrite itself is done.
+- real CLI user-path smokes
 
 ## 4. Before vs After
 
@@ -413,11 +475,11 @@ USER REQUEST
                                                resolve current effective tool filter
                                                                  |
                                                                  v
-                                                        buildTurnRouting()
+                                               buildTurnRouting()  (trace DTO)
                      { selectedModel, modelSource, modelTier, toolSurface, reason }
                                                                  |
                                                                  v
-                                                          MAIN AGENT LOOP
+                                                  MAIN AGENT LOOP
                           main model decides answer / plan / search / browse /
                           delegate / edit / tool_search / clarification
 ```
@@ -454,13 +516,14 @@ explicit model already chosen by user
 classifyModelTier()
    |
    v
-buildTurnRouting()
+buildTurnRouting()  (trace DTO)
    |
    v
 main agent loop
 ```
 
-There is **no request-time semantic routing LLM call** here.
+There is **no request-time semantic routing LLM call** here. The live tool
+boundary is still `toolProfileState`, not `TurnRouting`.
 
 ### 5.2 `@auto` path
 
@@ -487,7 +550,7 @@ selected model
 classifyModelTier()
    |
    v
-buildTurnRouting()
+buildTurnRouting()  (trace DTO)
    |
    v
 main agent loop
@@ -499,9 +562,10 @@ This distinction matters:
 - it is **not** a general request-time routing strategy pass
 - its job is model choice, not plan/delegate/browser decisions
 
-## 6. The SSOT Routing Contract
+## 6. The Routing DTO Contract
 
-Current contract from [`../../src/hlvm/agent/routing.ts`](../../src/hlvm/agent/routing.ts):
+Current DTO contract from
+[`../../src/hlvm/agent/routing.ts`](../../src/hlvm/agent/routing.ts):
 
 ```ts
 type TurnModelSource = "explicit" | "auto";
@@ -579,8 +643,8 @@ tool surface
 
 ### 7.3 Important browser detail
 
-Browser tools are eager for standard/enhanced tiers. That means browser tasks
-do **not** require semantic pre-routing just to expose Playwright/Chrome entry
+Browser tools are eager for standard/enhanced tiers. That means browser tasks do
+**not** require semantic pre-routing just to expose Playwright/Chrome entry
 tools.
 
 Discovery still matters for more specialized deferred tools, but plain browser
@@ -687,7 +751,7 @@ Those are loop behaviors, not routing outputs.
 ### 10.1 Core routing
 
 - [`../../src/hlvm/agent/routing.ts`](../../src/hlvm/agent/routing.ts)
-  - SSOT `TurnRouting` and `ToolSurface`
+  - trace-only `TurnRouting` / `ToolSurface` DTO definitions
   - `buildToolSurface()`
   - `buildTurnRouting()`
 
@@ -697,14 +761,29 @@ Those are loop behaviors, not routing outputs.
   - resolves effective session tool filter
   - builds per-turn routing
   - emits `routing_decision` trace
-  - **`computeFallbackToolFilter(options)`** (exported) — the fallback
-    LLM tool surface: tier floor ∪ `session.discoveredDeferredTools`;
-    used inside `createFallbackLLM` closure. See §1.5.2.
+  - **`computeFallbackToolFilter(options)`** (exported) — the fallback LLM tool
+    surface: explicit allowlist or tier floor, plus
+    `session.discoveredDeferredTools`; used inside `createFallbackLLM` closure.
+    See §1.5.1.
 
-### 10.3 Orchestrator integration
+### 10.3 Non-runner wrappers
+
+- [`../../src/hlvm/agent/agent.ts`](../../src/hlvm/agent/agent.ts)
+  - exported `createAgent()` wrapper
+  - clones `toolProfileState` per agent and per run
+  - prevents stale turn-local routing state from leaking across `run()` /
+    `fork()`
+
+- [`../../src/hlvm/agent/tools/run-agent.ts`](../../src/hlvm/agent/tools/run-agent.ts)
+  - child-agent execution path
+  - important because it is a non-runner caller that still relies on the
+    orchestrator turn-start safety net
+
+### 10.4 Orchestrator integration
 
 - [`../../src/hlvm/agent/orchestrator.ts`](../../src/hlvm/agent/orchestrator.ts)
   - clears request-time semantic domain routing
+  - clears turn-local `discovery` / `runtime` layers at run start
   - reactively expands browser iteration budget
 
 - [`../../src/hlvm/agent/orchestrator-response.ts`](../../src/hlvm/agent/orchestrator-response.ts)
@@ -712,10 +791,11 @@ Those are loop behaviors, not routing outputs.
   - persists discovered deferred tools into baseline
   - runtime browser recovery may widen the `domain` layer to hybrid
 
-### 10.4 Supporting tool-filter logic
+### 10.5 Supporting tool-filter logic
 
 - [`../../src/hlvm/agent/tool-profiles.ts`](../../src/hlvm/agent/tool-profiles.ts)
   - layered tool-profile state
+  - `cloneToolProfileState()`
   - canonical baseline allowlist
   - browser tool profile declarations
 
@@ -726,24 +806,28 @@ Those are loop behaviors, not routing outputs.
   - model tiering
   - tier eager-tool sets
 
-### 10.5 Auto selection boundary
+### 10.6 Auto selection boundary
 
 - [`../../src/hlvm/agent/auto-select.ts`](../../src/hlvm/agent/auto-select.ts)
   - picks a model for `@auto`
   - may use `classifyTask()` only when multiple eligible models remain
 
-### 10.6 Tests (routing domain)
+### 10.7 Tests (routing and adjacent runtime boundary)
 
 - `tests/unit/agent/routing.test.ts` — `buildTurnRouting` + phase cache +
   `computeFallbackToolFilter` contract (11 tests)
-- `tests/unit/agent/phase-filtering.test.ts` — `applyAdaptiveToolPhase`
-  behavior (10 tests)
-- `tests/unit/agent/tool-profiles.test.ts` — layered tool-profile
-  semantics (14 tests)
+- `tests/unit/agent/phase-filtering.test.ts` — `applyAdaptiveToolPhase` behavior
+  (10 tests)
+- `tests/unit/agent/tool-profiles.test.ts` — layered tool-profile semantics (14
+  tests)
 - `tests/unit/agent/query-tool-routing.test.ts` — REPL baseline allowlist
   helpers (2 tests)
-- `tests/unit/agent/auto-select.test.ts` — auto-select scoring +
-  fallback chain (74 tests)
+- `tests/unit/agent/auto-select.test.ts` — auto-select scoring + fallback chain
+  (74 tests)
+- `tests/unit/agent/agent-runtime-composition.test.ts` — `createAgent()`
+  isolation / fork behavior (5 tests)
+- `tests/unit/agent/orchestrator.test.ts` — larger runtime contract surface,
+  including turn-start layer reset (43 tests)
 
 ## 11. What Was Removed from Routing
 
@@ -783,13 +867,14 @@ Key proof points:
 
 ### 12.2 User-path validation findings
 
-Routing-domain validation is complete, but two adjacent findings matter for the
-next agent:
+Routing-domain validation is complete. Two adjacent notes are worth carrying
+forward for future investigation, but treat them as **historical findings from
+the 2026-04-17 review**, not as newly revalidated current blockers:
 
 #### A. Old CLI eager import coupling still exists
 
-`hlvm ask` still shares a CLI entrypoint that eagerly imports all commands.
-That means:
+`hlvm ask` still shares a CLI entrypoint that eagerly imports all commands. That
+means:
 
 ```text
 hlvm ask
@@ -849,33 +934,37 @@ The routing rewrite removed semantic pre-routing, not the layered tool-profile
 mechanism. Runtime discovery, plan mode, adaptive phase shaping, and browser
 recovery still use those layers.
 
-## 14. If Another Agent Takes Over
+## 14. Practical Reference
 
 ### 14.1 Read in this order
 
-1. [`../../AGENTS.md`](../../AGENTS.md) — the canonical project guidelines;
-   the **Testing — user path only** section is load-bearing for anyone
-   touching routing or the runtime.
-2. `§1.5` of this doc — honest current state, the 2026-04-17 fixes, and
-   the known debt.
-3. [`../../src/hlvm/agent/routing.ts`](../../src/hlvm/agent/routing.ts)
-   (91 lines — small on purpose).
+1. [`../../AGENTS.md`](../../AGENTS.md) — the canonical project guidelines; the
+   **Testing — user path only** section is load-bearing for anyone touching
+   routing or the runtime.
+2. `§0`, `§1.5`, and `§10` of this doc — fast mental model, current runtime
+   shape, and concrete file map.
+3. [`../../src/hlvm/agent/routing.ts`](../../src/hlvm/agent/routing.ts) (90
+   lines — small on purpose).
 4. [`../../src/hlvm/agent/agent-runner.ts`](../../src/hlvm/agent/agent-runner.ts)
    (specifically `buildTurnRoutingForSession`, `createFallbackLLM`,
    `computeFallbackToolFilter`, `resetSessionRoutingToolProfile`).
-5. [`../../src/hlvm/agent/orchestrator.ts`](../../src/hlvm/agent/orchestrator.ts)
+5. [`../../src/hlvm/agent/agent.ts`](../../src/hlvm/agent/agent.ts)
+   (`cloneConfigWithFreshToolProfile`, `mergeRunConfig`, `createAgent`).
+6. [`../../src/hlvm/agent/orchestrator.ts`](../../src/hlvm/agent/orchestrator.ts)
    (`applyRequestToolSurface`, `applyAdaptiveToolPhase`,
-   `maybeActivateBrowserIterationBudget`,
-   `resolveRequestHeuristics`).
-6. [`../../src/hlvm/agent/orchestrator-response.ts`](../../src/hlvm/agent/orchestrator-response.ts)
+   `maybeActivateBrowserIterationBudget`, `resolveRequestHeuristics`).
+7. [`../../src/hlvm/agent/orchestrator-response.ts`](../../src/hlvm/agent/orchestrator-response.ts)
    (browser hybrid promotion; `tool_search` narrowing).
-7. [`../../src/hlvm/agent/tool-profiles.ts`](../../src/hlvm/agent/tool-profiles.ts)
+8. [`../../src/hlvm/agent/tool-profiles.ts`](../../src/hlvm/agent/tool-profiles.ts)
    (the actual runtime SSOT for tool surface — see §1.5.0).
-8. [auto.md](./auto.md) and [model-tiers.md](./model-tiers.md).
+9. [model-tiers.md](./model-tiers.md).
 
-### 14.2 Verify these first (no backdoor needed)
+### 14.2 Verify changes against the current repo
 
-Unit tests — pure logic, no Ollama, instant:
+Run the relevant routing-focused unit tests for the files you changed. Keep the
+commands current with the repo instead of treating this doc as a status ledger.
+
+Typical routing-focused suite:
 
 ```bash
 deno test --allow-all --no-check \
@@ -886,9 +975,21 @@ deno test --allow-all --no-check \
   tests/unit/agent/auto-select.test.ts
 ```
 
-Expected: **111 / 111 pass**.
+Expand the suite if you touched `agent.ts`, `orchestrator.ts`, or turn-local
+layer reset behavior:
 
-User-path e2e (HLVM manages its own runtime; no env hacks):
+```bash
+deno test --allow-all --no-check \
+  tests/unit/agent/agent-runtime-composition.test.ts \
+  tests/unit/agent/orchestrator.test.ts \
+  tests/unit/agent/routing.test.ts \
+  tests/unit/agent/phase-filtering.test.ts \
+  tests/unit/agent/tool-profiles.test.ts \
+  tests/unit/agent/query-tool-routing.test.ts \
+  tests/unit/agent/auto-select.test.ts
+```
+
+For user-path verification, use HLVM-managed entrypoints only:
 
 ```bash
 deno run -A src/hlvm/cli/cli.ts ask -p "Reply with just: ok"
@@ -896,42 +997,29 @@ deno run -A src/hlvm/cli/cli.ts ask -p "list files in ~/Downloads and say done"
 deno run -A src/hlvm/cli/cli.ts ask -p --model auto "what is 7 times 8"
 ```
 
-If any of those hang, fix the managed-runtime path. **Do not** side-start
-an Ollama instance, `curl` the endpoints, or set
-`HLVM_DISABLE_AI_AUTOSTART=1` to work around it.
+Also run:
+
+```bash
+deno task ssot:check
+```
+
+If any of those hang, fix the managed-runtime path. **Do not** side-start an
+Ollama instance, `curl` the endpoints, or set `HLVM_DISABLE_AI_AUTOSTART=1` to
+work around it.
 
 ### 14.3 Do not reintroduce
 
 Preserve these invariants from the original rewrite:
 
-- No request-time `taskDomain` / `needsPlan` / `shouldDelegate` /
-  semantic browser detection.
+- No request-time `taskDomain` / `needsPlan` / `shouldDelegate` / semantic
+  browser detection.
 - Explicit model path must not spend a semantic routing LLM call.
-- `@auto` may use `classifyTask` only to *pick* the model; after that it
-  flows through the same boundary as explicit selection.
-- Do not delete the whole tool-profile system — runtime discovery,
-  plan mode, adaptive phase shaping, and browser recovery all use it.
+- `@auto` may use `classifyTask` only to _pick_ the model; after that it flows
+  through the same boundary as explicit selection.
+- Do not delete the whole tool-profile system — runtime discovery, plan mode,
+  adaptive phase shaping, and browser recovery all use it.
 
-### 14.4 If you want to take on the known debt (§1.5.3)
-
-The single highest-value follow-up is collapsing the duplication around
-the baseline-layer seed. Concretely, pick **one** of these:
-
-- **(a) Make `TurnRouting` authoritative.** Have `runReActLoop` read
-  `config.turnRouting.toolSurface.eagerTools` as the source of the
-  baseline layer; have the runner seed `baseline` from
-  `turnRouting.toolSurface` exactly once; delete
-  `applyRequestToolSurface` and `baselineToolAllowlistSeed`; drop the
-  duplicate tier bake-in inside `session.ts` or make it use the same
-  computation. Update §1.5.0 and §10 in this doc afterwards.
-- **(b) Delete `routing.ts`, `TurnRouting`, `buildTurnRouting`.** Compute
-  the `routing_decision` trace-event fields at emission time directly
-  from `session.modelTier` + `resolvePersistentToolFilter(session.toolProfileState)`.
-  Remove §10.1 from this doc afterwards.
-
-Do not keep both.
-
-### 14.5 Mental model
+### 14.4 Mental model
 
 Keep this mental model when routing-only:
 
@@ -949,5 +1037,5 @@ query → semantic strategy classification → routing plan → agent loop
 
 Routing is intentionally small: **which model runs and what tool surface it
 starts with**. The agent loop decides everything strategic after that. The
-`TurnRouting` DTO produced by `routing.ts` is currently **trace-only**
-(see §1.5.0); the real runtime boundary is the layered `toolProfileState`.
+`TurnRouting` DTO produced by `routing.ts` is currently **trace-only** (see
+§1.5.0); the real runtime boundary is the layered `toolProfileState`.

@@ -26,8 +26,6 @@ interface TurnStatsProps {
   inputTokens?: number;
   outputTokens?: number;
   modelId?: string;
-  costUsd?: number;
-  costEstimated?: boolean;
   continuedThisTurn?: boolean;
   continuationCount?: number;
   compactionReason?: "proactive_pressure" | "overflow_retry";
@@ -36,20 +34,12 @@ interface TurnStatsProps {
   activityTrail?: string[];
 }
 
-function formatUsd(costUsd: number): string {
-  if (costUsd >= 1) return `$${costUsd.toFixed(2)}`;
-  if (costUsd >= 0.01) return `$${costUsd.toFixed(3)}`;
-  return `$${costUsd.toFixed(4)}`;
-}
-
 export const TurnStats = React.memo(function TurnStats(
   {
     toolCount,
     durationMs,
     inputTokens,
     outputTokens,
-    costUsd,
-    costEstimated,
     continuationCount,
     compactionReason,
     status,
@@ -71,11 +61,6 @@ export const TurnStats = React.memo(function TurnStats(
   if (inputTokens || outputTokens) {
     const total = (inputTokens ?? 0) + (outputTokens ?? 0);
     metricParts.push(`${formatTokens(total)} tokens`);
-  }
-  if (typeof costUsd === "number" && Number.isFinite(costUsd)) {
-    metricParts.push(
-      costEstimated ? `${formatUsd(costUsd)} est.` : formatUsd(costUsd),
-    );
   }
   if ((continuationCount ?? 0) > 0) {
     metricParts.push(

@@ -9,7 +9,6 @@ import {
   setL1Confirmation,
 } from "../../../../src/hlvm/agent/security/safety.ts";
 import { classifyShellPipeline } from "../../../../src/hlvm/agent/security/shell-classifier.ts";
-import type { AgentPolicy } from "../../../../src/hlvm/agent/policy.ts";
 
 Deno.test("Safety: classifyTool covers representative metadata-backed tool families", () => {
   assertEquals(classifyTool("read_file", { path: "src/main.ts" }).level, "L0");
@@ -53,34 +52,19 @@ Deno.test("Safety: L1 confirmation store is per-args for shell_exec and per-tool
   assertEquals(getAllL1Confirmations().size, 0);
 });
 
-Deno.test("Safety: checkToolSafety respects policy overrides before permission mode logic", async () => {
-  const denyPolicy: AgentPolicy = { version: 1, toolRules: { write_file: "deny" } };
-  const allowPolicy: AgentPolicy = { version: 1, toolRules: { write_file: "allow" } };
-  const store = new Map<string, boolean>();
-
-  assertEquals(
-    await checkToolSafety("write_file", { path: "a", content: "b" }, "default", denyPolicy, store),
-    false,
-  );
-  assertEquals(
-    await checkToolSafety("write_file", { path: "a", content: "b" }, "default", allowPolicy, store),
-    true,
-  );
-});
-
 Deno.test("Safety: permission modes auto-approve the intended levels", async () => {
   const store = new Map<string, boolean>();
 
   assertEquals(
-    await checkToolSafety("write_file", { path: "a", content: "b" }, "bypassPermissions", null, store),
+    await checkToolSafety("write_file", { path: "a", content: "b" }, "bypassPermissions", store),
     true,
   );
   assertEquals(
-    await checkToolSafety("shell_exec", { command: "deno test --dry-run" }, "acceptEdits", null, store),
+    await checkToolSafety("shell_exec", { command: "deno test --dry-run" }, "acceptEdits", store),
     true,
   );
   assertEquals(
-    await checkToolSafety("read_file", { path: "a" }, "default", null, store),
+    await checkToolSafety("read_file", { path: "a" }, "default", store),
     true,
   );
 });
@@ -99,7 +83,6 @@ Deno.test("Safety: default-mode L1 prompts once and then uses the confirmation c
       "shell_exec",
       { command: "deno test --dry-run" },
       "default",
-      null,
       store,
       undefined,
       onInteraction,
@@ -113,7 +96,6 @@ Deno.test("Safety: default-mode L1 prompts once and then uses the confirmation c
       "shell_exec",
       { command: "deno test --dry-run" },
       "default",
-      null,
       store,
     ),
     true,
@@ -135,7 +117,6 @@ Deno.test("Safety: default-mode L2 always prompts and never persists confirmatio
       "delete_file",
       { path: "src/main.ts" },
       "default",
-      null,
       store,
       undefined,
       onInteraction,
@@ -147,7 +128,6 @@ Deno.test("Safety: default-mode L2 always prompts and never persists confirmatio
       "delete_file",
       { path: "src/main.ts" },
       "default",
-      null,
       store,
       undefined,
       onInteraction,
@@ -189,7 +169,7 @@ Deno.test("Safety: classifyShellPipeline normalizes invisible whitespace and esc
 });
 
 // ---------------------------------------------------------------------------
-// checkToolSafety: integration with new toolPermissions system
+// checkToolSafety: integration with toolPermissions
 // ---------------------------------------------------------------------------
 
 Deno.test("Safety: checkToolSafety uses toolPermissions when provided", async () => {
@@ -201,7 +181,6 @@ Deno.test("Safety: checkToolSafety uses toolPermissions when provided", async ()
       "write_file",
       { path: "a", content: "b" },
       "bypassPermissions",
-      null,
       store,
       undefined,
       undefined,
@@ -217,7 +196,6 @@ Deno.test("Safety: checkToolSafety uses toolPermissions when provided", async ()
       "shell_exec",
       { command: "rm -rf /" },
       "dontAsk",
-      null,
       store,
       undefined,
       undefined,
@@ -228,51 +206,15 @@ Deno.test("Safety: checkToolSafety uses toolPermissions when provided", async ()
   );
 });
 
-Deno.test("Safety: checkToolSafety policy takes precedence over toolPermissions", async () => {
-  const store = new Map<string, boolean>();
-  const denyPolicy = { version: 1, toolRules: { write_file: "deny" } } as const;
-
-  // Policy deny blocks even with explicit allow in toolPermissions
-  assertEquals(
-    await checkToolSafety(
-      "write_file",
-      { path: "a", content: "b" },
-      "default",
-      denyPolicy,
-      store,
-      undefined,
-      undefined,
-      undefined,
-      { allowedTools: new Set(["write_file"]), deniedTools: new Set() },
-    ),
-    false,
-  );
-});
-
-Deno.test("Safety: checkToolSafety falls back to legacy logic when no toolPermissions", async () => {
+Deno.test("Safety: checkToolSafety falls back to permission-mode logic when no toolPermissions", async () => {
   const store = new Map<string, boolean>();
 
-  // bypassPermissions mode works without toolPermissions
   assertEquals(
-    await checkToolSafety(
-      "write_file",
-      { path: "a", content: "b" },
-      "bypassPermissions",
-      null,
-      store,
-    ),
+    await checkToolSafety("write_file", { path: "a", content: "b" }, "bypassPermissions", store),
     true,
   );
-
-  // acceptEdits mode works without toolPermissions
   assertEquals(
-    await checkToolSafety(
-      "write_file",
-      { path: "a", content: "b" },
-      "acceptEdits",
-      null,
-      store,
-    ),
+    await checkToolSafety("write_file", { path: "a", content: "b" }, "acceptEdits", store),
     true,
   );
 });
@@ -286,13 +228,12 @@ Deno.test("Safety: checkToolSafety L1 confirmation cache works with toolPermissi
     return { approved: true, rememberChoice: true };
   };
 
-  // First call prompts (toolPermissions returns "prompt")
+  // First call prompts
   assertEquals(
     await checkToolSafety(
       "write_file",
       { path: "a", content: "b" },
       "default",
-      null,
       store,
       undefined,
       onInteraction,
@@ -309,7 +250,6 @@ Deno.test("Safety: checkToolSafety L1 confirmation cache works with toolPermissi
       "write_file",
       { path: "a", content: "b" },
       "default",
-      null,
       store,
       undefined,
       onInteraction,
@@ -335,7 +275,6 @@ Deno.test("Safety: checkToolSafety prompt flow with toolPermissions", async () =
       "shell_exec",
       { command: "rm file" },
       "default",
-      null,
       store,
       undefined,
       onInteraction,
@@ -351,13 +290,12 @@ Deno.test("Safety: checkToolSafety with different safety levels", async () => {
   const store = new Map<string, boolean>();
   const permissions = { allowedTools: new Set<string>(), deniedTools: new Set<string>() };
 
-  // L0 is always auto-approved (before toolPermissions are checked)
+  // L0 is always auto-approved
   assertEquals(
     await checkToolSafety(
       "read_file",
       { path: "a" },
       "default",
-      null,
       store,
       undefined,
       undefined,
@@ -373,7 +311,6 @@ Deno.test("Safety: checkToolSafety with different safety levels", async () => {
       "write_file",
       { path: "a", content: "b" },
       "dontAsk",
-      null,
       store,
       undefined,
       undefined,
@@ -389,7 +326,6 @@ Deno.test("Safety: checkToolSafety with different safety levels", async () => {
       "delete_file",
       { path: "a" },
       "dontAsk",
-      null,
       store,
       undefined,
       undefined,
@@ -409,14 +345,12 @@ Deno.test("Safety: auto mode approves safe L1 without prompting user", async () 
     interactionCalled = true;
     return { approved: false };
   };
-  // Stub classifier returns safe
   const classifyStub = () => Promise.resolve({ safe: true, reason: "read-only equivalent" });
 
   const result = await checkToolSafety(
     "write_file",
     { path: "src/test.ts", content: "x" },
     "auto",
-    null,
     l1Store,
     undefined,
     onInteraction,
@@ -426,7 +360,6 @@ Deno.test("Safety: auto mode approves safe L1 without prompting user", async () 
   );
   assertEquals(result, true, "auto-approved safe L1");
   assertEquals(interactionCalled, false, "user not prompted");
-  // L1 confirmation cached
   assertEquals(l1Store.size > 0, true, "L1 confirmation cached");
 });
 
@@ -437,14 +370,12 @@ Deno.test("Safety: auto mode falls back to prompt on unsafe classification", asy
     interactionCalled = true;
     return { approved: true };
   };
-  // Stub classifier returns unsafe
   const classifyStub = () => Promise.resolve({ safe: false, reason: "destructive" });
 
-  const result = await checkToolSafety(
+  await checkToolSafety(
     "shell_exec",
     { command: "rm -rf /" },
     "auto",
-    null,
     l1Store,
     undefined,
     onInteraction,
@@ -462,14 +393,12 @@ Deno.test("Safety: auto mode falls back to prompt on classifier failure", async 
     interactionCalled = true;
     return { approved: true };
   };
-  // Stub classifier throws
   const classifyStub = () => Promise.reject(new Error("LLM unavailable"));
 
-  const result = await checkToolSafety(
+  await checkToolSafety(
     "write_file",
     { path: "src/test.ts", content: "x" },
     "auto",
-    null,
     l1Store,
     undefined,
     onInteraction,

@@ -46,7 +46,6 @@ import {
   RateLimitError,
   SlidingWindowRateLimiter,
 } from "../../common/rate-limiter.ts";
-import type { AgentPolicy } from "./policy.ts";
 import type { ConversationAttachmentPayload } from "../attachments/types.ts";
 import {
   estimateUsage,
@@ -78,7 +77,6 @@ import type { Citation } from "./tools/web/search-provider.ts";
 import type { TodoState } from "./todo-state.ts";
 import { runtimeDirective, runtimeNotice } from "./runtime-messages.ts";
 import { resolveThinkingProfile } from "./thinking-profile.ts";
-import type { AgentHookRuntime } from "./hooks.ts";
 import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
 import type { LastResortFallback } from "./auto-select.ts";
@@ -306,7 +304,6 @@ export type TraceEvent =
     sections: import("../prompt/types.ts").SectionManifestEntry[];
     cacheSegments: import("../prompt/types.ts").PromptCacheSegment[];
     stableCacheProfile: import("../prompt/types.ts").PromptStableCacheProfile;
-    instructionSources: import("../prompt/types.ts").InstructionSource[];
     signatureHash: string;
   }
   | {
@@ -378,7 +375,6 @@ export type AgentStopReason =
   | "complete"
   | "cancelled"
   | "timeout"
-  | "max_budget"
   | "max_iterations"
   | "context_overflow"
   | "plan_review_cancelled"
@@ -474,8 +470,6 @@ export type AgentUIEvent =
     inputTokens?: number;
     outputTokens?: number;
     modelId?: string;
-    costUsd?: number;
-    costEstimated?: boolean;
     continuedThisTurn?: boolean;
     continuationCount?: number;
     compactionReason?: "proactive_pressure" | "overflow_retry";
@@ -545,8 +539,6 @@ export interface OrchestratorWorkspaceConfig {
 export interface OrchestratorLimitConfig {
   /** Override max ReAct loop iterations (default: MAX_ITERATIONS). */
   maxIterations?: number;
-  /** Maximum API cost in USD — loop exits when exceeded (headless safety). */
-  maxBudgetUsd?: number;
   /** Override total loop timeout in ms (default: DEFAULT_TIMEOUTS.total). */
   totalTimeout?: number;
   llmTimeout?: number;
@@ -578,7 +570,6 @@ export interface OrchestratorEventConfig {
 
 export interface OrchestratorPermissionConfig {
   permissionMode?: AgentExecutionMode;
-  policy?: AgentPolicy | null;
   l1Confirmations?: Map<string, boolean>;
   permissionToolAllowlist?: string[];
   permissionToolDenylist?: string[];
@@ -662,8 +653,6 @@ export interface OrchestratorSessionConfig {
   todoState?: TodoState;
   /** Input queue for parent→child mid-task steering messages. */
   agentProfiles?: readonly AgentProfile[];
-  /** Resolved instruction hierarchy for child agent prompt compilation. */
-  instructions?: import("../prompt/types.ts").InstructionHierarchy;
   usage?: UsageTracker;
 }
 
@@ -674,8 +663,6 @@ export interface OrchestratorDiagnosticsConfig {
   fileStateCache?: FileStateCache;
   /** Session-scoped LSP diagnostics runtime for post-write verification. */
   lspDiagnostics?: LspDiagnosticsRuntime;
-  /** Optional lifecycle hook runtime loaded from .hlvm/hooks.json. */
-  hookRuntime?: AgentHookRuntime;
 }
 
 /** Orchestrator configuration */
@@ -770,6 +757,11 @@ function applyRequestToolSurface(config: OrchestratorConfig): void {
   // Routing no longer owns semantic task profiles. The model chooses browser,
   // search, delegation, and planning inside the loop from the allowed tools.
   clearToolProfileLayerFromTarget(config, "domain");
+  // Discovery/runtime layers are turn-local. If a caller reuses a config
+  // object across runs, do not carry a prior turn's narrowing or temporary
+  // denies into the next turn.
+  clearToolProfileLayerFromTarget(config, "discovery");
+  clearToolProfileLayerFromTarget(config, "runtime");
 }
 
 function isBrowserToolName(toolName: string): boolean {
@@ -1044,14 +1036,12 @@ function buildProgressSummary(state: LoopState): string {
 }
 
 function buildLimitStopMessage(
-  reason: "timeout" | "max_iterations" | "max_budget",
+  reason: "timeout" | "max_iterations",
   state: LoopState,
   lc: LoopConfig,
 ): string {
   const headline = reason === "timeout"
     ? `Total timeout (${lc.totalTimeout / 1000}s) exceeded. Task incomplete.`
-    : reason === "max_budget"
-    ? `Maximum budget ($${lc.maxBudgetUsd}) exceeded. Task incomplete.`
     : "Maximum iterations reached. Task incomplete.";
 
   return [
@@ -1112,7 +1102,7 @@ function buildAgentLoopResult(options: {
     stopReason,
     iterations: state.iterations,
     durationMs: Date.now() - startedAt,
-    usage: state.usageTracker.snapshot(modelId),
+    usage: state.usageTracker.snapshot(),
     toolUseCount,
     finalResponseMeta,
     planState: state.planState,
@@ -1286,35 +1276,6 @@ async function runLlmResponsePass(
   usage: TokenUsage;
 }> {
   const onTrace = config.onTrace;
-  const preLlmFeedback = await config.hookRuntime?.dispatchWithFeedback(
-    "pre_llm",
-    {
-      workspace: config.workspace,
-      iteration: state.iterations,
-      modelId: config.modelId,
-      sessionId: config.sessionId,
-      turnId: config.turnId,
-      phase: runtimePhase,
-      messageCount: messages.length,
-      continuedThisTurn: state.continuedThisTurn,
-      continuationCount: state.continuationCount,
-      compactionReason: state.compactionReason,
-    },
-  );
-  if (preLlmFeedback?.blocked) {
-    return {
-      agentResponse: {
-        content: preLlmFeedback.feedback ?? "LLM call blocked by pre_llm hook.",
-        toolCalls: [],
-      },
-      usage: {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-        source: "estimated" as const,
-      },
-    };
-  }
   onTrace?.({ type: "llm_call", messageCount: messages.length });
 
   const llmCallConfig = {
@@ -1323,11 +1284,6 @@ async function runLlmResponsePass(
     callOptions,
     onContextOverflowRetry: () => {
       state.compactionReason = "overflow_retry";
-      config.hookRuntime?.dispatchDetached("pre_compact", {
-        workspace: config.workspace,
-        sessionId: config.sessionId,
-        modelId: config.modelId,
-      });
     },
   };
 
@@ -1390,21 +1346,6 @@ async function runLlmResponsePass(
     truncated: truncate(responseText, 200),
     content: responseText,
     toolCalls: agentResponse.toolCalls?.length ?? 0,
-  });
-  await config.hookRuntime?.dispatch("post_llm", {
-    workspace: config.workspace,
-    iteration: state.iterations,
-    modelId: config.modelId,
-    sessionId: config.sessionId,
-    turnId: config.turnId,
-    phase: runtimePhase,
-    content: responseText,
-    reasoning: agentResponse.reasoning,
-    toolCalls: agentResponse.toolCalls?.length ?? 0,
-    completionState: agentResponse.completionState ?? "complete",
-    continuedThisTurn: state.continuedThisTurn,
-    continuationCount: state.continuationCount,
-    compactionReason: state.compactionReason,
   });
 
   if (agentResponse.reasoning) {
@@ -1556,17 +1497,6 @@ export async function runReActLoop(
         buildLimitStopMessage("timeout", state, lc),
         "timeout",
       );
-    }
-    if (lc.maxBudgetUsd !== undefined) {
-      const snap = state.usageTracker.snapshot(config.modelId);
-      if (
-        snap.totalCostUsd !== undefined && snap.totalCostUsd > lc.maxBudgetUsd
-      ) {
-        return await finish(
-          buildLimitStopMessage("max_budget", state, lc),
-          "max_budget",
-        );
-      }
     }
     state.iterations++;
     const iterationStart = Date.now();
@@ -1838,7 +1768,7 @@ export async function runReActLoop(
       );
       maybeActivateBrowserIterationBudget(result, lc, config);
       toolUseCount += result.toolCallsMade;
-      const usageSnapshot = state.usageTracker.snapshot(config.modelId);
+      const usageSnapshot = state.usageTracker.snapshot();
 
       config.onAgentEvent?.({
         type: "turn_stats",
@@ -1848,10 +1778,6 @@ export async function runReActLoop(
         inputTokens: aggregatedPromptTokens || undefined,
         outputTokens: aggregatedCompletionTokens || undefined,
         modelId: config.modelId,
-        costUsd: usageSnapshot.totalCostUsd,
-        costEstimated: usageSnapshot.costSource === "estimated"
-          ? true
-          : undefined,
         continuedThisTurn: state.continuedThisTurn || undefined,
         continuationCount: state.continuationCount || undefined,
         compactionReason: state.compactionReason,

@@ -123,7 +123,6 @@ OPTIONS:
 
   Headless Safety:
   --max-turns <N>            Maximum agent loop iterations (headless safety)
-  --max-budget <N>           Maximum API cost in USD (headless safety)
 
 PERMISSION MODES:
   default:                     Prompt for L1/L2 tools, auto-approve L0 (read-only)
@@ -543,7 +542,6 @@ export async function askCommand(args: string[]): Promise<void> {
       "attach",
       "output-format",
       "max-turns",
-      "max-budget",
     ],
     alias: {
       p: "print",
@@ -586,15 +584,6 @@ export async function askCommand(args: string[]): Promise<void> {
   if (maxTurns !== undefined && (isNaN(maxTurns) || maxTurns < 1)) {
     throw new ValidationError(
       "--max-turns must be a positive integer",
-      "ask",
-    );
-  }
-  const maxBudget = parsed["max-budget"]
-    ? parseFloat(parsed["max-budget"] as string)
-    : undefined;
-  if (maxBudget !== undefined && (isNaN(maxBudget) || maxBudget <= 0)) {
-    throw new ValidationError(
-      "--max-budget must be a positive number",
       "ask",
     );
   }
@@ -1022,13 +1011,6 @@ export async function askCommand(args: string[]): Promise<void> {
         const dur = event.durationMs
           ? `${(event.durationMs / 1000).toFixed(1)}s`
           : "";
-        const cost = typeof event.costUsd === "number"
-          ? ` · $${
-            event.costUsd >= 0.01
-              ? event.costUsd.toFixed(3)
-              : event.costUsd.toFixed(4)
-          } est`
-          : "";
         const continuation = event.continuationCount
           ? ` · ${event.continuationCount} continuation${
             event.continuationCount === 1 ? "" : "s"
@@ -1044,7 +1026,7 @@ export async function askCommand(args: string[]): Promise<void> {
         log.raw.log(
           `\n${DIM}\u2500\u2500\u2500 ${event.toolCount} tool${
             event.toolCount !== 1 ? "s" : ""
-          } \u00b7 ${dur}${cost}${continuation}${compaction} \u2500\u2500\u2500${RESET}\n`,
+          } \u00b7 ${dur}${continuation}${compaction} \u2500\u2500\u2500${RESET}\n`,
         );
         break;
       }
@@ -1074,7 +1056,6 @@ export async function askCommand(args: string[]): Promise<void> {
         : undefined,
       toolDenylist: deniedTools.size > 0 ? Array.from(deniedTools) : undefined,
       maxIterations: maxTurns,
-      maxBudgetUsd: maxBudget,
       callbacks: {
         onToken,
         onAgentEvent,

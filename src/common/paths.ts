@@ -348,34 +348,6 @@ export function getMcpOAuthPath(): string {
 }
 
 /**
- * Get the global agent policy path (~/.hlvm/agent-policy.json)
- */
-export function getAgentPolicyPath(): string {
-  return join(getHlvmDir(), "agent-policy.json");
-}
-
-/**
- * Get the global custom instructions path (~/.hlvm/HLVM.md)
- */
-export function getCustomInstructionsPath(): string {
-  return join(getHlvmDir(), "HLVM.md");
-}
-
-/**
- * Get the project-level custom instructions path (<workspace>/.hlvm/HLVM.md)
- */
-export function getProjectInstructionsPath(workspace: string): string {
-  return join(workspace, ".hlvm", "HLVM.md");
-}
-
-/**
- * Get the trusted workspaces registry path (~/.hlvm/trusted-workspaces.json)
- */
-export function getTrustedWorkspacesPath(): string {
-  return join(getHlvmDir(), "trusted-workspaces.json");
-}
-
-/**
  * Get the Claude Code external MCP plugins directory.
  * Claude Code stores installed MCP servers as subdirectories here,
  * each with a `.mcp.json` config file.
@@ -446,40 +418,10 @@ export async function ensureModelsDir(): Promise<void> {
 // ── Agent Team Paths ──────────────────────────────────────────────────
 
 // ============================================================
-// Skills & Rules Paths
+// Settings Path
 // ============================================================
 
 /** Unified settings file: ~/.hlvm/settings.json */
 export function getSettingsPath(): string {
   return join(getHlvmDir(), "settings.json");
-}
-
-/** User-global skills directory: ~/.hlvm/skills/ */
-export function getSkillsDir(): string {
-  return join(getHlvmDir(), "skills");
-}
-
-/** Project-local skills directory: <workspace>/.hlvm/skills/ */
-export function getProjectSkillsDir(workspace: string): string {
-  return join(workspace, ".hlvm", "skills");
-}
-
-/** User-global legacy commands directory: ~/.hlvm/commands/ */
-export function getCommandsDir(): string {
-  return join(getHlvmDir(), "commands");
-}
-
-/** Project-local legacy commands directory: <workspace>/.hlvm/commands/ */
-export function getProjectCommandsDir(workspace: string): string {
-  return join(workspace, ".hlvm", "commands");
-}
-
-/** User-global rules directory: ~/.hlvm/rules/ */
-export function getRulesDir(): string {
-  return join(getHlvmDir(), "rules");
-}
-
-/** Project-local rules directory: <workspace>/.hlvm/rules/ */
-export function getProjectRulesDir(workspace: string): string {
-  return join(workspace, ".hlvm", "rules");
 }

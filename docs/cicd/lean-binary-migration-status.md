@@ -221,7 +221,7 @@ DOCS UPDATED:
   docs/cicd/release-pipeline.md          (rewritten: new pipeline)
   docs/BUILD.md                          (updated: new build steps)
   docs/ARCHITECTURE.md                   (updated references)
-  docs/route/auto.md                     (updated binary size)
+  docs/route/routing.md                  (updated routing references)
   README.md                              (updated install command)
   website/src/components/Hero.jsx        (removed bundled mode card)
 ```

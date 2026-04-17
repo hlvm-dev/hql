@@ -12,11 +12,10 @@
 
 import { ContextManager } from "./context.ts";
 import { compileSystemPrompt } from "./llm-integration.ts";
-import type { CompiledPrompt, InstructionHierarchy } from "../prompt/mod.ts";
+import type { CompiledPrompt } from "../prompt/mod.ts";
 import type { AgentProfile } from "./agent-registry.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { ValidationError } from "../../common/error.ts";
-import { type AgentPolicy, loadAgentPolicy } from "./policy.ts";
 import {
   classifyModelTier,
   computeTierToolFilter,
@@ -90,8 +89,6 @@ interface AgentSessionOptions {
   contextWindow?: number;
   /** Pre-fetched model info to avoid duplicate provider API calls */
   modelInfo?: ModelInfo | null;
-  /** Loaded instruction hierarchy (global + project). */
-  instructions?: InstructionHierarchy;
   /** Override the LLM engine (defaults to getAgentEngine()) */
   engine?: AgentEngine;
   /** Preloaded agent profiles for child agent guidance. */
@@ -100,8 +97,6 @@ interface AgentSessionOptions {
   disablePersistentMemory?: boolean;
   /** Persistent deferred-tool discoveries carried across turns. */
   discoveredDeferredTools?: Iterable<string>;
-  /** Loaded skill catalog for prompt rendering. */
-  skills?: ReadonlyMap<string, import("../skills/types.ts").SkillDefinition>;
 }
 
 interface RefreshAgentSessionOptions {
@@ -113,8 +108,6 @@ interface RefreshAgentSessionOptions {
   preserveConversationContext?: boolean;
   /** Disable persistent memory injection for this turn. */
   disablePersistentMemory?: boolean;
-  /** Loaded instruction hierarchy (global + project). */
-  instructions?: InstructionHierarchy;
   /** Preloaded agent profiles for child agent guidance. */
   agentProfiles?: readonly AgentProfile[];
 }
@@ -122,7 +115,6 @@ interface RefreshAgentSessionOptions {
 export interface AgentSession {
   context: ContextManager;
   llm: LLMFunction;
-  policy: AgentPolicy | null;
   l1Confirmations: Map<string, boolean>;
   sessionId?: string | null;
   toolOwnerId: string;
@@ -173,14 +165,11 @@ export interface AgentSession {
     | "sections"
     | "cacheSegments"
     | "stableCacheProfile"
-    | "instructionSources"
     | "signatureHash"
     | "mode"
     | "tier"
     | "querySource"
   >;
-  /** Resolved instruction hierarchy — passed to child agents. */
-  instructions?: InstructionHierarchy;
   /** Preloaded agent profiles used for child agent prompt guidance. */
   agentProfiles?: readonly AgentProfile[];
 }
@@ -218,11 +207,9 @@ function buildCompiledPromptArtifacts(options: {
   toolDenylist?: string[];
   toolOwnerId: string;
   querySource?: string;
-  instructions?: InstructionHierarchy;
   modelTier: ModelTier;
   agentProfiles?: readonly AgentProfile[];
   visionCapable?: boolean;
-  skills?: ReadonlyMap<string, import("../skills/types.ts").SkillDefinition>;
 }): {
   compiledPrompt: NonNullable<AgentLLMConfig["compiledPrompt"]>;
   compiledPromptMeta: AgentSession["compiledPromptMeta"];
@@ -233,11 +220,9 @@ function buildCompiledPromptArtifacts(options: {
     toolDenylist: options.toolDenylist,
     toolOwnerId: options.toolOwnerId,
     querySource: options.querySource,
-    instructions: options.instructions,
     modelTier: options.modelTier,
     agentProfiles: options.agentProfiles,
     visionCapable: options.visionCapable,
-    skills: options.skills,
   });
 
   return {
@@ -251,7 +236,6 @@ function buildCompiledPromptArtifacts(options: {
       sections: compiled.sections,
       cacheSegments: compiled.cacheSegments,
       stableCacheProfile: compiled.stableCacheProfile,
-      instructionSources: compiled.instructionSources,
       signatureHash: compiled.signatureHash,
       mode: compiled.mode,
       tier: compiled.tier,
@@ -289,7 +273,6 @@ export async function refreshReusableAgentSession(
   session: AgentSession,
   options: RefreshAgentSessionOptions = {},
 ): Promise<AgentSession> {
-  const instructions = options.instructions ?? session.instructions;
   const agentProfiles = options.agentProfiles ?? session.agentProfiles;
   const persistentFilter = session.toolProfileState
     ? resolvePersistentToolFilter(session.toolProfileState)
@@ -303,7 +286,6 @@ export async function refreshReusableAgentSession(
     toolDenylist: denylist,
     toolOwnerId: session.toolOwnerId,
     querySource: options.querySource ?? session.querySource,
-    instructions,
     modelTier: session.modelTier,
     agentProfiles,
   });
@@ -367,7 +349,6 @@ export async function refreshReusableAgentSession(
     llmConfig,
     querySource: options.querySource ?? session.querySource,
     compiledPromptMeta: promptArtifacts.compiledPromptMeta,
-    instructions,
     agentProfiles,
   };
 }
@@ -378,17 +359,13 @@ export async function createAgentSession(
   const profile = ENGINE_PROFILES[options.engineProfile ?? "normal"];
   const toolOwnerId = `session:${generateUUID()}`;
 
-  // Parallelize independent I/O: policy, MCP server discovery, and model info
   const providerName = extractProviderName(options.model);
   const modelName = extractModelSuffix(options.model);
-  const [policy, modelInfo] = await Promise.all([
-    loadAgentPolicy(),
-    options.modelInfo !== undefined
-      ? Promise.resolve(options.modelInfo)
-      : (options.model && !options.fixturePath
-        ? tryGetModelInfo(providerName, modelName)
-        : Promise.resolve(null)),
-  ]);
+  const modelInfo = options.modelInfo !== undefined
+    ? options.modelInfo
+    : (options.model && !options.fixturePath
+      ? await tryGetModelInfo(providerName, modelName)
+      : null);
 
   // Compute model tier BEFORE MCP loading (weak models skip MCP entirely)
   const isFrontier = isFrontierProvider(options.model);
@@ -559,10 +536,8 @@ export async function createAgentSession(
     toolOwnerId,
     querySource: options.querySource,
     modelTier,
-    instructions: options.instructions,
     agentProfiles: options.agentProfiles,
     visionCapable,
-    skills: options.skills,
   });
   context.addMessage({
     role: "system",
@@ -642,7 +617,6 @@ export async function createAgentSession(
   return {
     context,
     llm,
-    policy,
     l1Confirmations: new Map<string, boolean>(),
     sessionId,
     toolOwnerId,
@@ -688,7 +662,6 @@ export async function createAgentSession(
     fileStateCache,
     lspDiagnostics,
     compiledPromptMeta: promptArtifacts.compiledPromptMeta,
-    instructions: options.instructions,
     agentProfiles: options.agentProfiles,
   };
 }

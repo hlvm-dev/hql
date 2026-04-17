@@ -1,5 +1,65 @@
 # HLVM REPL TUI v2 - Source of Truth
 
+## The First Principle (rule #0 — overrides everything below)
+
+**CC is the donor. Read `~/dev/ClaudeCode-main/` for real. Copy CC code
+exactly where possible. Never theorize; never invent from memory.**
+
+Every rule in this doc is a consequence of this one. If a downstream
+rule ever contradicts it, this rule wins.
+
+### What "for real" means
+
+For any TUI surface HLVM and CC both have:
+
+1. **Open the actual CC file.** Not "probably `useTypeahead.tsx` does
+   X." Open the file. Read it end-to-end. Scroll through every branch.
+   Then write.
+2. **Copy the code 1:1 where the structure is portable.** Runtime
+   adapters (Bun→Deno imports, `fs`→`@std/fs`, `npm:` specifiers,
+   React-18 vs 19 conventions) are the ONLY allowed edits. Behavioral
+   simplification, "cleaner" rewrites, and "we don't need that branch"
+   pruning are forbidden.
+3. **Transplant closely where the structure is coupled.** Read CC, port
+   the same control flow / state shape / event wiring. Adapt only what
+   the Deno+React 19 stack forces.
+4. **Never write a simplified stand-in** when a CC implementation
+   exists. "Inspired by CC" is not acceptable and will be reverted.
+
+### What "always build and run" means
+
+No code change lands without actually running both shells side-by-side:
+
+```bash
+# Build fresh. Launch the donor. Launch ours. Same geometry.
+make build-fast
+tmux -S /tmp/cc.sock new-session -d -s cc -x 140 -y 35 'claude --model sonnet'
+tmux -S /tmp/v2.sock new-session -d -s v2 -x 140 -y 35 './hlvm repl --new'
+# Drive IDENTICAL keystrokes through both.
+# Capture both panes. ANSI-strip. Diff.
+tmux -S /tmp/cc.sock capture-pane -pt cc | sed 's/\x1b\[[0-9;]*[mGKHJfABCDEhl]//g' > /tmp/cc.txt
+tmux -S /tmp/v2.sock capture-pane -pt v2 | sed 's/\x1b\[[0-9;]*[mGKHJfABCDEhl]//g' > /tmp/v2.txt
+diff /tmp/cc.txt /tmp/v2.txt
+```
+
+Reading-only parity does not count. Type-check-only parity does not
+count. A row in §13 stays `(X)` until the PTY capture of v2 is visually
+indistinguishable from the PTY capture of CC on that scenario. Only
+then does it flip to `(O)`.
+
+### Doc contract
+
+This doc is SSOT. Every parity audit updates it. Every row flip is
+paper-trailed here with the PTY capture path or a note pointing to it.
+The §13 Shared-Surface Parity Matrix below is the live mission
+scoreboard:
+
+> **Mission complete iff every row in §13 is `(O)`.**
+
+Not Phase 1 done. Not "most of it working." Every row.
+
+---
+
 ## 0. Quick Start — Cold-Start Pickup for a New Agent
 
 If you have just been dispatched to work on this tree and know nothing
@@ -124,33 +184,90 @@ only way to close a row in §11.5 is:
 
 ### 0.6 Next highest-value work (in order)
 
-1. **Port `src/hlvm/cli/repl-ink/components/LocalAgentsStatusPanel.tsx`
+1. **Runtime round-trip — revised finding (2026-04-17 PM live audit).**
+   The TUI stream consumer IS working. Submitting `hi` + Enter in v2
+   paints the user row locally AND paints an assistant row — but the
+   assistant body reads
+   `Error / [HLVM5006] Local HLVM runtime host is not ready for AI requests.`
+   instead of a real reply. Turn-complete rollup fires (footer flips
+   `esc to interrupt` → `? for shortcuts`). So the TUI path is green;
+   the gap is the local HLVM-managed runtime never became ready in
+   this session. Captures:
+   `/tmp/hlvm-audit/roundtrip-cc-3s.txt` (CC: `⏺ Hi! How can I help
+   you today?` at ~3s) vs `/tmp/hlvm-audit/roundtrip-v2-18s.txt` (v2:
+   the HLVM5006 error). Pivot the work:
+   - **Friendlier error surface.** Replace bare `[HLVM5006]` with an
+     actionable hint (e.g. `Local AI runtime not started — run
+     'hlvm ai install' or check 'hlvm runtime status'`). Lives in the
+     error → `addAssistantText` path.
+   - **De-duplicate the error row.** The HLVM5006 text prints in both
+     the assistant bubble body AND the turn-complete rollup; fix in
+     `conversation.addAssistantText` error branch + rollup computer.
+     Captured live in the v2 pane.
+   - **Boot-time readiness probe.** Show an actionable banner/notice
+     before first submit instead of a generic `esc to interrupt`
+     followed by a cryptic error.
+   - **Fixture bypass for chrome work.** Setting
+     `HLVM_ASK_FIXTURE_PATH=<path>` short-circuits the model call
+     (`TranscriptWorkbench.tsx:173`) — use this for live-turn chrome
+     work (§13.F, §13.H) until a ready local runtime is available.
+   - **Original exit criterion still valid.** `hi` + Enter must render
+     an assistant bubble with **real reply text** AND the turn rollup.
+     The chrome half is green; the model half needs a ready runtime.
+2. **Port CC's live-turn chrome** (thinking indicator,
+   `* Ideating… (Ns · phase)`, `* Cogitated for Xm Ys` post-turn
+   rollup, task-tree transcript rows with `✔` checkmarks, Ctrl+T
+   toggle). See §0.9.3 for the explicit gap matrix; these surfaces do
+   not exist in v2 at all. Largest user-visible parity gap after
+   round-trip is green. Donor entry points to read first:
+   - Verb tables: `~/dev/ClaudeCode-main/constants/spinnerVerbs.ts`
+     (live "Ideating…" / "Working through it…" / etc.) and
+     `~/dev/ClaudeCode-main/constants/turnCompletionVerbs.ts` ("Cogitated").
+   - Spinner component: `~/dev/ClaudeCode-main/components/ThinkingToggle.tsx`.
+   - Task list rows: `~/dev/ClaudeCode-main/components/TaskListV2.tsx`
+     + `~/dev/ClaudeCode-main/hooks/useTasksV2.ts` +
+     `hooks/useTaskListWatcher.ts`.
+   - Agent progress: `~/dev/ClaudeCode-main/components/AgentProgressLine.tsx`.
+   - Read them end-to-end before porting — don't half-adapt. The
+     existing v2 `conversation.addEvent` stream already carries the
+     `tool_start` / `tool_end` events you need; the gap is
+     transcript-side rendering, not event wiring.
+   - Exit criterion: v2 side-by-side vs `claude --model sonnet` shows
+     the same four surfaces (thinking, phase label, cogitated
+     rollup, task tree) within pixel tolerance; Ctrl+T toggles tree
+     visibility.
+3. **Port `src/hlvm/cli/repl-ink/components/LocalAgentsStatusPanel.tsx`
    into v2's `TranscriptWorkbench`.** v1 already has the `├─` / `└─` /
-   `⎿` tree rendering + tool-uses/tokens counts. v2 has nothing. Wire
-   it up; no new rendering needed, just state plumbing.
-2. **Wire Ctrl+O → v1's `TranscriptViewerOverlay`** so the tool-row
+   `⎿` tree rendering + tool-uses/tokens counts. v2 has nothing. This
+   is the HLVM-specific agent-spawn tree; separate from CC's
+   task-tree in #2.
+4. **Wire Ctrl+O → v1's `TranscriptViewerOverlay`** so the tool-row
    `(ctrl+o to expand)` hint becomes functional.
-3. **Decouple the last v1 file (`keybindings/keybinding-lookup.ts`)**
+5. **Wire Cmd+V clipboard-image paste.** Drag-select + Cmd+C now works
+   end-to-end (see §0.9). The remaining clipboard gap is the INBOUND
+   path: `onImagePaste` is accepted by `hooks/useTextInput.ts` and
+   `input/BaseTextInput.tsx` but v2's `PromptInput.tsx` never passes a
+   handler, so Cmd+V of an image on the macOS pasteboard falls through
+   to the text-paste codepath (producing garbled text, not an image
+   attachment). Port CC's `hooks/useImagePaste.*` or equivalent; the
+   downstream attachment store already supports the image kind.
+6. **Decouple the last v1 file (`keybindings/keybinding-lookup.ts`)**
    reached from `src/hlvm/cli/repl/commands.ts:9`. Convert
    `commands.ts`'s `registry` reference to a lazy dynamic import so
    `commands.ts` can be loaded without pulling the keybindings chain.
    Then delete `src/hlvm/tui-v2/ink/index.ts` + the deno.json `"ink"`
    alias.
-4. **Architectural: prompt-row flow position.** CC paints the prompt
+7. **Architectural: prompt-row flow position.** CC paints the prompt
    near the TOP of the alternate screen and grows the transcript
    downward. v2 pins the prompt to the BOTTOM and scrolls the
    transcript upward. Biggest remaining visual gap. Requires a
    `TranscriptWorkbench` layout rewrite; not a one-line change.
-5. **Runtime round-trip audit.** After `hi` + Enter the footer sits on
-   `esc to interrupt` and no assistant reply paints. Investigate: is
-   `runAgentQueryViaHost` reaching a configured model? Is the event
-   stream being consumed by v2's conversation hook? Separate track
-   from TUI work.
 
 ### 0.7 Known still-open `[ ]` rows in §11.5
 
 - Ctrl+G `$EDITOR` (needs tempfile + subprocess)
-- Ctrl+V image paste (needs clipboard read)
+- Ctrl+V image paste (see §0.6 #4 — accepted by `useTextInput` but the
+  handler is never wired at the `PromptInput` layer)
 - Tool-row `ctrl+o to expand` functional wiring
 - Markdown streaming, thinking-verb rotation, progress indicator,
   MCP warning chip, plan-checklist `▢`/`☑` (all runtime-gated)
@@ -165,6 +282,235 @@ only way to close a row in §11.5 is:
 clean (no `npm:ink@5` / `react-reconciler@0.29` reachable from v2
 graph) · `make build-fast` builds · every `[x]` row in §11.5 has a PTY
 capture trail in the conversation where it was landed.
+
+### 0.9 Latest verified findings (2026-04-17 PM)
+
+#### 0.9.1 Cmd+C root cause — FIXED (verified with real pbpaste, not theorized)
+
+The previous session's work ported CC's `useCopyOnSelect` hook into
+`src/hlvm/tui-v2/hooks/useCopyOnSelect.ts` and wired it from `App.tsx`,
+but Cmd+C still produced a macOS beep. End-to-end trace with a
+PTY-simulated SGR drag + real `pbpaste` revealed two separate bugs:
+
+1. **The copy-on-select hook was over-narrow.** My earlier port only
+   fired at the drag-release *transition* (`isDragging: true → false`),
+   which missed multi-click word/line selection (those settle with
+   `isDragging: false` without ever being `true`). Rewrote
+   `useCopyOnSelect` to exactly mirror
+   `~/dev/ClaudeCode-main/hooks/useCopyOnSelect.ts`: fire on any
+   settled non-empty selection, guarded by `copiedRef` against
+   duplicate notifies. Reads `selection.hasSelection()` rather than
+   diffing drag state.
+
+2. **`execFileNoThrow` was a no-op stub.** The real root cause. The
+   donor `ink/termio/osc.ts:176` calls `execFileNoThrow('pbcopy', [],
+   {input: text, …})` to shell out to the native clipboard utility, and
+   `ink/termio/osc.ts:97` calls it for `tmux load-buffer -w -`. The
+   shim at `src/hlvm/tui-v2/stubs/utils.ts` returned `{exitCode: 1}`
+   synchronously without spawning anything. So the hook fired, the ink
+   engine returned 11 bytes of selected text, OSC 52 was emitted to
+   stdout, but `pbcopy` was never invoked. `pbpaste` showed whatever
+   was on the clipboard before. Fix: replaced the stub with a real
+   async implementation backed by `getPlatform().command.run()`, with
+   shape-detection for Web `WritableStream<Uint8Array>` (Deno) vs Node
+   `Writable` (Node).
+
+Verification method (reproducible by next agent):
+
+```bash
+# Prime clipboard with sentinel so we can see writes.
+printf 'SENTINEL' | pbcopy
+
+# Launch v2 in tmux, type content to select against.
+tmux new-session -d -s hlvmtest -x 120 -y 40 './hlvm repl --new'
+sleep 4
+tmux send-keys -t hlvmtest 'hello world test selection'
+
+# Inject a fabricated SGR mouse drag: press at col 3, motion col 13,
+# release col 13, all at the prompt row (row depends on viewport).
+printf '\033[<0;3;38M'  | tmux load-buffer -; tmux paste-buffer -t hlvmtest
+printf '\033[<32;8;38M' | tmux load-buffer -; tmux paste-buffer -t hlvmtest
+printf '\033[<32;13;38M'| tmux load-buffer -; tmux paste-buffer -t hlvmtest
+printf '\033[<0;13;38m' | tmux load-buffer -; tmux paste-buffer -t hlvmtest
+
+sleep 1
+pbpaste   # must print the 11-char slice, not SENTINEL
+```
+
+For deeper diagnostic runs, set `HLVM_COPY_DEBUG=/tmp/copy.log` before
+launching — the hook used to write per-notification trace lines there.
+That instrumentation has since been removed from the production hook;
+re-add locally if further investigation is needed, don't ship it.
+
+Note on the visible beep: macOS Terminal still beeps on Cmd+C when it
+has no *native* selection (mouse tracking ate the drag). CC exhibits
+the identical beep — this is Terminal.app behavior, not an HLVM bug.
+Cmd+V after the drag pastes the right content because `pbcopy` has
+already written it. Users who want beep-free copy set
+`CLAUDE_CODE_DISABLE_MOUSE=1` to fall back to native selection.
+
+#### 0.9.2 Attachment reality — what the `[Image #N]` / `[Pasted text #N]` chips actually do
+
+User raised "does the attachment really work or just pretend TUI
+only?" — tracing from `PromptInput.handlePaste` through to
+`runAgentQueryViaHost`:
+
+| Source | Path | Real attachment payload? |
+|---|---|---|
+| Paste absolute image path (`/Users/.../Shot.png`) | `handlePaste` → `isAutoAttachableConversationAttachmentPath` → `attachmentState.addAttachmentWithId` → `createAttachment` → `registerAttachmentFromPath` | **Yes.** Real SQLite blob row; `attachmentId` returned; submit wires it via `prepareConversationAttachmentPayload` → `runAgentQueryViaHost({attachmentIds})` → chat protocol `attachment_ids` → runtime resolves content by `/api/attachments/{id}/content` URL in `session-protocol.ts`. |
+| `@<path>` picker selection | Same codepath as above | **Yes.** |
+| Large text paste (≥ threshold lines) | `handlePaste` → `shouldCollapseText` → `addTextAttachmentWithId` → `createTextAttachment` → `registerTextAttachment` (writes `pasted-text-{id}.txt`) | **Yes.** Same chat-protocol `attachment_ids` pipe. |
+| **Cmd+V of an image on the macOS clipboard** | `useTextInput` destructures `onImagePaste: _onImagePaste` (underscore = ignored) at `hooks/useTextInput.ts:84`. `PromptInput.tsx` never passes `onImagePaste`. | **No.** TUI-only placeholder path (fallthrough to pbpaste'd text bytes — image blob becomes garbage text). See §0.6 #4. |
+
+So the chips in the user's screenshot are real when they came from
+pasting absolute file paths or from `@` picker or from bracketed large
+text paste. The only "pretend" case is Cmd+V of an image from the
+clipboard — that's genuinely not wired yet.
+
+#### 0.9.3 CC top-level chrome that does NOT exist in v2 — honest gap list
+
+User side-by-side of CC vs v2 (2026-04-17 PM) confirmed v2 is missing
+the entire "live turn" chrome that CC paints between user submit and
+assistant reply. These are NOT partial / NOT cosmetic drift — the
+surfaces do not exist in v2 source at all. Grep confirms zero matches
+for the relevant strings under `src/hlvm/tui-v2/`.
+
+| CC surface | What CC paints | v2 reality |
+|---|---|---|
+| `* Thinking / Working through it… +2.61%` | Real-time thinking phase with progressive token-delta counter, live while the model reasons | **Absent.** No thinking indicator; spinner stops at static "esc to interrupt". `grep -r "Working through"` v2 → 0 matches. |
+| `* Ideating… (17s · thinking)` | Active phase label with elapsed seconds + current phase name | **Absent.** No phase label surface. |
+| `* Cogitated for 6m 22s` | Total-time rollup shown AFTER the turn completes, in place of the live thinking spinner | **Absent.** v2 shows `Turn complete / 0 tools · 40s` — different shape, plainer, no cogitation roll-up. |
+| Task tree with `✔` checkmarks inline in transcript | CC renders TaskCreate/TaskList items directly in the turn so you see the agent's task graph completing live | **Absent.** `Turn complete / 0 tools` is all v2 shows. No tree, no checkmarks, no per-task rows. |
+| Footer `· ctrl+t to hide t…` | CC footer lets you toggle the task-tree visibility with Ctrl+T | **Absent.** Ctrl+T is no-op in v2 (§11.5 row marks it `(X) toggle tasks overlay`). |
+| `⏵⏵ accept edits on (shift+tab to cycle)` footer banner | Visible when permission mode ≠ default | **Present but rendering-only.** `PromptInput.tsx:1613` emits the banner; the actual backend tool gate is NOT wired (see §11.6 C bullet "Permission-mode backend gate"). |
+
+Bottom line: v2 today matches CC on **composer chrome** (prompt /
+picker / footer / attachments / permission-mode banner) and
+**clipboard** (§0.9.1) — but the entire **live-turn chrome** (thinking
+indicator, cogitated rollup, task tree, Ctrl+T toggle) and **markdown
+streaming** are brand-new work, not partial ports. Do not describe
+these as "close" or "partial" in any future handoff — they are 0%.
+
+Escalating consequences for §0.6:
+
+- The runtime round-trip audit (still §0.6 #1) is a precondition — if
+  the assistant reply never paints, none of the live-turn chrome can
+  be tested.
+- Once round-trip is green, the next large surface is **porting CC's
+  live-turn indicator + task-tree transcript rows**, not LocalAgents.
+  LocalAgents is a separate HLVM-specific tree; CC's task-tree chrome
+  is the more user-visible gap per the screenshots.
+
+### 0.10 Honest gaps in this handoff (what the doc does NOT capture)
+
+A previous agent wrote the doc. Cold-start agents should read this
+first and probe for reality before trusting §11.5's checkboxes:
+
+1. **Concurrent WIP pollution.** `git status` will show files outside
+   `src/hlvm/tui-v2/` modified by OTHER agents (agent/, tests/,
+   cli/repl/). Those are not mine. Do not revert them. §0.12
+   fingerprints the narrow file set that the latest TUI-v2 session
+   owns.
+2. **Runtime round-trip (§0.6 #1) has no debugging playbook yet.**
+   Neither this doc nor the code tells you how to confirm a local
+   model is configured, how to attach a logger to
+   `runAgentQueryViaHost`, or whether `hlvm ai install` is a
+   precondition. First useful step: set
+   `HLVM_ASK_FIXTURE_PATH=<path>` to a canned response (see
+   `fixturePath` usage in `TranscriptWorkbench.runPromptSubmission`)
+   so the runtime is bypassable without a real model. Real round-trip
+   still needs a configured provider.
+3. **The PTY SGR-injection reproducer in §0.9.1 is a test-time
+   trick.** It works because `tmux paste-buffer` forwards raw bytes
+   to the subprocess stdin, which v2's parser interprets as mouse
+   events. In a normal terminal, the user's real mouse drag is what
+   triggers the same code path. If you're automating regression
+   tests, use the injection recipe; if you're debugging live, use a
+   real mouse + `pbpaste`.
+4. **CC-parity rows in §11.5 were last PTY-audited 2026-04-17.**
+   Anything not re-audited after a large refactor must be treated as
+   stale. When in doubt, re-capture with `tmux capture-pane -pt ... |
+   sed 's/\x1b\[[0-9;]*[mGKHJfABCDEhl]//g'`.
+5. **No unit tests exist for v2.** `deno task test:unit` covers v1 +
+   the rest of the tree; v2's quality gate is `deno check` + the
+   regression guard at `scripts/check-tui-v2-ink.ts` + live PTY.
+   Don't claim parity from code review alone.
+6. **`patchConsole: true` is load-bearing.** Turning it off re-exposes
+   stderr corruption on the ink-drawn screen (see §11.5's paste
+   setState-in-render bug for the incident report). Don't "tidy" it.
+7. **The doc is 2100+ lines. §0 is the cold-start lane.** §11.5 is
+   the authoritative parity matrix. §11.6 is the v1→v2 functionality
+   migration matrix. If §0 and §11.5 disagree, §0 is newer.
+
+### 0.11 Pickup self-test (run this BEFORE editing anything)
+
+Before you touch a line of code, run these four commands. If any
+fails, stop and reconcile the doc against reality before proceeding.
+
+```bash
+# 1. Gates — all three must be green.
+deno task ssot:check                 # expect: "✓ No errors found."
+deno task check:tui-v2               # expect: "v2 TUI graph is clean"
+make build-fast                      # expect: "Done! Binary: ./hlvm"
+
+# 2. Boot — v2 shell must come up with banner + flush-left prompt.
+tmux new-session -d -s hlvm_pickup -x 120 -y 40 './hlvm repl --new'
+sleep 4
+tmux capture-pane -t hlvm_pickup -p | tail -5
+# expect to see "❯" and "? for shortcuts" and a medium/effort footer
+tmux kill-session -t hlvm_pickup
+
+# 3. Clipboard — drag-select → pbpaste chain must round-trip.
+printf 'PICKUP_SENTINEL' | pbcopy
+tmux new-session -d -s hlvm_cb -x 120 -y 40 './hlvm repl --new'
+sleep 4
+tmux send-keys -t hlvm_cb 'abcdefghij'; sleep 1
+for seq in '\033[<0;3;38M' '\033[<32;8;38M' '\033[<0;8;38m'; do
+  printf "$seq" | tmux load-buffer -
+  tmux paste-buffer -t hlvm_cb
+  sleep 0.3
+done
+sleep 1
+pbpaste                              # expect: a short slice, NOT PICKUP_SENTINEL
+tmux kill-session -t hlvm_cb
+
+# 4. Working-tree provenance — know which files are v2-session WIP.
+git status --porcelain -- src/hlvm/tui-v2/ docs/vision/repl-v2-tui.md
+git log -1 --oneline
+```
+
+If step 3 returns `PICKUP_SENTINEL`, the `execFileNoThrow` rewrite
+(§0.9.1 bug #2) has regressed — re-check `src/hlvm/tui-v2/stubs/utils.ts`
+before anything else. That's the single most load-bearing file in
+this session's delta.
+
+### 0.12 Session ledger (files the 2026-04-17 PM session trusts)
+
+Exact file-level scope of the latest v2 session that this doc
+reflects. If you see other `src/hlvm/tui-v2/` edits in `git status`
+that aren't listed here, they're either older session work (safe) or a
+concurrent agent's WIP (don't touch). Non-v2 changes (agent/, tests/,
+cli/repl/handlers/) are other agents' work — out of scope for this
+doc.
+
+| File | Role | State |
+|---|---|---|
+| `src/hlvm/tui-v2/stubs/utils.ts` | Real async `execFileNoThrow` via `getPlatform().command.run()`; shape-detects Web vs Node stdin; critical for clipboard + tmux buffer writes | FRESH — do not revert |
+| `src/hlvm/tui-v2/hooks/useCopyOnSelect.ts` | CC-parity copy-on-select hook (untracked in git at the time of writing; added by this session) | FRESH |
+| `src/hlvm/tui-v2/App.tsx` | Wraps the tree in `<ThemeProvider>` + `<Shell>`; Shell calls `useCopyOnSelect` so it sees the ink stdin context | FRESH |
+| `src/hlvm/tui-v2/utils/fullscreen.ts` | `isMouseTrackingEnabled()` returns ON-by-default matching CC; gated by `CLAUDE_CODE_DISABLE_MOUSE` | FRESH |
+| `src/hlvm/tui-v2/prompt/PromptInput.tsx` | Latest composer with `handlePaste` attachment branches, completionRef, submitDraft{clearAfter}, removed duplicate `visibleAttachments` preview block | FRESH |
+| `src/hlvm/tui-v2/mod.tsx` | `renderSync(..., {patchConsole: true, exitOnCtrlC: true})`; do NOT turn patchConsole off | FRESH |
+| `docs/vision/repl-v2-tui.md` | This doc | FRESH |
+| `deno.lock` | Concurrent-agent changes — leave alone | EXTERNAL |
+| `docs/route/*.md` | Concurrent-agent doc churn | EXTERNAL |
+| `src/hlvm/agent/**`, `tests/unit/agent/**`, `tests/integration/http-server.test.ts`, `src/hlvm/cli/repl/handlers/chat-agent-mode.ts` | Concurrent-agent work on the agent/orchestrator track | EXTERNAL |
+
+Key contract: the clipboard fix in §0.9.1 rests on the `stubs/utils.ts`
+rewrite + the `hooks/useCopyOnSelect.ts` port. Both files must be
+present and intact. If either is stale (e.g. a rebase or merge
+replaced the stub with the old no-op), the Cmd+V round-trip in §0.11
+step 3 will fail and the beep returns.
 
 ---
 
@@ -182,11 +528,13 @@ architectural debts below are cleared.
   copied, adapted for Deno; `./hlvm repl --new` spawns an isolated React 19
   subprocess via `src/hlvm/tui-v2/deno.json`.
 - **Phase 1** (CC-quality chat TUI): `[~]` IN PROGRESS — ~35 `[x]` parity
-  rows verified live in tmux PTY; ~7 `[~]` partials; ~19 `[ ]` open (see
+  rows verified live in tmux PTY; ~7 `[~]` partials; ~17 `[ ]` open (see
   §11.5). Shell boots cleanly, composer matches CC visually for boot / `/` /
-  `@` / `?` / Shift+Tab / submit / pickers / footer. Runtime round-trip
+  `@` / `?` / Shift+Tab / submit / pickers / footer. Drag-select → Cmd+V
+  copy path verified end-to-end (see §0.9.1). Runtime round-trip
   (assistant reply rendering) and streaming-chrome parity (thinking /
   tool-row / progress / markdown streaming) are NOT yet verified.
+  Cmd+V clipboard-image ingestion NOT wired (see §0.9.2).
 - **Phase 2** (HQL + JS code mode): `[ ]` NOT STARTED.
 - **Phase 3** (HLVM overlays / product UX): `[ ]` NOT STARTED.
 - **Phase 4** (polish / migration / default path): `[ ]` NOT STARTED.
@@ -210,11 +558,16 @@ tracked with exit criteria in §11 and §11.5):**
    isolation, not an accident — do not "unify" into a single process without
    first unifying the React versions across both trees.
 
-**Working-tree reality:** this conversation's edits are uncommitted on top
-of existing branch commits (`805786dd feat(tui-v2): port donor prompt and
-v1 composer flows`, `ef552f38 checkpoint(repo): save full working tree
-progress`). Reviewer should stage by topic; doc is SSOT, git is ground
-truth, handoff notes in this conversation are annotated context.
+**Working-tree reality (refresh before trusting):** the latest merged
+checkpoint on `feat/lean-binary-cicd` is `e7a5fffc feat(agent+tui-v2):
+inline MCP server specs in agents, consolidate TUI v2 on v1 SSOTs`.
+Uncommitted edits on top of that include both this session's v2 work
+AND other agents' concurrent changes (agent/, tests/, cli/repl/). When
+picking up, run `git log -1 --oneline` to confirm the base and
+`git status --porcelain` to see the actual working tree. Doc is SSOT,
+git is ground truth, this doc is annotated context. The session ledger
+in §0.12 fingerprints which files THIS doc refresh trusts vs. which are
+concurrent-agent WIP you should leave alone.
 
 **Quality gates currently green:** `deno check` for v2 entries · `deno task
 ssot:check` 0 errors · `deno task check:tui-v2` (no forbidden ink@5 /
@@ -226,9 +579,11 @@ tmux-backed PTY audit.
 session per CLAUDE.md concurrent-agent rule) · runtime-round-trip PTY
 audit (would require a configured local model) · CI wiring of
 `deno task check:tui-v2`.
-**Created:** 2026-04-16 **Last updated:** 2026-04-17 **Doc policy:** This is the
-only planning/vision/handoff doc for REPL TUI v2. Any agent working on
-`src/hlvm/tui-v2/` must update this file after real verification.
+**Created:** 2026-04-16 **Last updated:** 2026-04-17 (PM — Cmd+C /
+clipboard fix verified end-to-end; attachment-reality audit added in
+§0.9.2) **Doc policy:** This is the only planning/vision/handoff doc
+for REPL TUI v2. Any agent working on `src/hlvm/tui-v2/` must update
+this file after real verification.
 
 ---
 
@@ -1802,6 +2157,122 @@ verified. `[ ]` = not started.
 
 No row flips to `[x]` without a real PTY audit. No exceptions.
 
+## 11.55 Keystroke / Shortcut Audit — Observed behavior in compiled `./hlvm repl --new`
+
+Tested 2026-04-17 in a fresh tmux PTY. `(O)` = works as expected, `(X)` =
+broken or not wired, `(~)` = partial / needs CC comparison.
+
+### Text editing
+- (O) Letter/digit/emoji input — renders correctly, no stderr
+- (O) Backspace — deletes char before cursor
+- (O) Delete — deletes char under cursor
+- (O) Left / Right arrow — cursor nav one char
+- (O) Home / Ctrl+A — cursor to beginning (verified via `C-a` + insert X → `Xhello`)
+- (O) End / Ctrl+E — cursor to end
+- (O) Ctrl+B — move back one char (seeded `hi`, `C-b`, insert `X` → `hXi`)
+- (O) Ctrl+W — delete previous word
+- (O) Ctrl+U — clear to beginning
+- (O) Ctrl+K — kill to end (observed: text cleared, ready for new input)
+- (X) Ctrl+T — toggle tasks overlay (no-op in v2; CC opens tasks list)
+- (X) Ctrl+L — clear screen (no-op in v2; CC clears transcript)
+- (O) Up arrow on empty — history navigate back (needs history entries)
+- (O) Down arrow on empty — history forward
+- (O) Shift+Enter / `\` + Enter — insert newline (multi-line composer)
+- (O) Cmd+C — auto-copy-on-select end-to-end verified (2026-04-17 PM).
+  Two bugs were masking each other: (a) an earlier port of
+  `useCopyOnSelect` only fired at the `isDragging: true→false` edge,
+  which missed multi-click word/line selection; (b) `execFileNoThrow`
+  at `stubs/utils.ts` was a synchronous no-op that never actually
+  spawned `pbcopy`, so the clipboard write path was completely dead.
+  Fix: rewrote the hook to match CC exactly (fire on any settled
+  non-empty selection, `copiedRef` guards duplicates) and replaced
+  `execFileNoThrow` with a real async implementation backed by
+  `getPlatform().command.run()` with Web/Node WritableStream shape
+  detection. Verified with PTY-injected SGR drag + real `pbpaste`:
+  drag over `"copy me please to clipboard"` at cols 3-15 produced
+  `"copy me pleas"` in `pbpaste` (sentinel overwritten). See §0.9.1
+  for the reproducer. The macOS beep on Cmd+C still happens because
+  Terminal.app has no native selection (mouse tracking ate the drag) —
+  same behavior as CC; Cmd+V pastes the right content regardless.
+- (X) Cmd+V image paste — clipboard image ingestion not wired
+- (O) Bracketed multi-line paste — `[Pasted text #N +N lines]` placeholder
+
+### Picker / completion
+- (O) `/` opens slash-command picker (flush-left, no marker, no border)
+- (O) `@` opens file picker (CWD-rooted, hidden included, `+ ` prefix)
+- (O) `/` + typed letters → narrows fuzzy match
+- (O) `@` + typed letters → narrows, match indices highlighted yellow
+- (O) Tab — advance picker selection OR insert Tab when no picker (no-op)
+- (O) Shift+Tab — cycle permission mode (default → accept-edits → plan)
+- (O) Down/Up — advance/back picker selection by exactly 1
+- (O) Enter on command picker — dispatches the command (once, not twice)
+- (O) Enter on file picker — inserts selection, clears picker
+- (O) Right arrow (picker open) — drill into directory / select file
+- (O) Left arrow (picker open) — climb to parent directory
+- (O) Escape — close picker (typed trigger char preserved)
+- (O) Ctrl+D — toggle docs panel (`docs on` ↔ `docs off`)
+
+### Overlays / modes
+- (O) `?` on empty prompt — shortcut help overlay (HLVM subset)
+- (O) `?` mid-text — inserts `?` (does NOT open help)
+- (O) `?` toggle off — Esc or second `?` dismisses
+- (O) `!` bash mode — prompt flips to `!`
+- (O) Backspace on empty `!` — returns to `❯` (bash exit)
+- (O) Ctrl+F — open transcript search (footer flips to
+  `search open · Enter keeps match · Esc closes`)
+- (O) Ctrl+R — open history search
+- (O) Ctrl+S — stash / restore (notification `> Stashed (auto-restores
+  after submit)`)
+- (O) Escape — closes search / picker / permission shell
+- (O) Esc + Esc — clears typed text
+- (X) Ctrl+O — NOT WIRED. Tool-row shows `(ctrl+o to expand)` hint but
+  pressing it does nothing. Needs `TranscriptViewerOverlay` port.
+- (X) Ctrl+G — NOT WIRED. Intended for "edit in $EDITOR"; needs tempfile
+  + subprocess roundtrip.
+- (X) Ctrl+P — NOT WIRED. Earlier help text mentioned a "permission
+  shell"; removed. Currently no-op.
+- (X) Ctrl+V — NOT WIRED for images. Text paste goes through
+  bracketed-paste handler.
+- (X) Ctrl+Z — NOT WIRED. CC suspends the process (POSIX signal).
+
+### Slash commands
+- (O) `/clear` — clears transcript
+- (O) `/flush` — alias for `/clear`
+- (O) `/help` — prints list of wired commands
+- (O) `/status` — prints model + streaming state
+- (O) `/exit` / `/quit` — graceful process exit
+- (O) `/mcp` — informational notice (points to `hlvm mcp` CLI)
+- (O) `/init` — informational notice (points to `hlvm hql init`)
+- (O) `/hooks` — informational notice
+- (X) `/model` — NOT WIRED. No model-picker overlay.
+- (X) `/effort` — NOT WIRED. Footer shows `medium · /effort` but typing
+  the command does nothing.
+- (X) `/config` — NOT WIRED. v1 has a full `ConfigOverlay.tsx`.
+- (X) `/shortcuts` — NOT WIRED. v1 has `ShortcutsOverlay.tsx` separate
+  from the footer `?` overlay.
+- (X) `/transcript` — NOT WIRED. v1 has `TranscriptViewerOverlay.tsx`.
+- (X) `/background-tasks` / `/tasks` — NOT WIRED.
+- (X) `/todo` — NOT WIRED. v1 has a plan/todo surface.
+- (X) `/context` — NOT WIRED. v1 shows context-usage info.
+
+### Known bugs observed this round
+- (X) Mouse-drag text selection inside fullscreen without Opt — macOS
+  Terminal forwards mouse events to the app (same as CC). User's Cmd+C
+  beep report stems from this. Documented workaround in this file;
+  needs either Opt+drag muscle memory OR the `CLAUDE_CODE_DISABLE_MOUSE=1`
+  env var.
+- (O) Paste ghost / duplicate `[Pasted text #N]` — FIXED 2026-04-17.
+  Root cause: `PromptInput.tsx` rendered `visibleAttachments` as a
+  dim-grey preview list ABOVE the prompt input AND `applyCompletionResult`
+  substituted the same `{{ATTACHMENT}}` → `displayName` INLINE in the
+  prompt text. Each attachment therefore appeared twice. CC shows the
+  reference once, inline. Fix: deleted the standalone preview block
+  (lines 1644-1660 before the edit). The inline substitution is the
+  single source of display. Error surfacing (red `lastError` block)
+  is untouched.
+- (X) Ctrl+T / Ctrl+L / Ctrl+P / Ctrl+Z / Ctrl+O / Ctrl+G / Ctrl+V —
+  all no-ops in v2 today. CC wires each of these. See §11.6.
+
 ## 11.6 v1 → v2 Functionality Migration Checklist
 
 **Scope**: everything that v1 REPL (`./hlvm repl` a.k.a. `make repl`)
@@ -1832,24 +2303,23 @@ Initial state: all `(X)`. Next agent(s) tick them off.
 - (X) `@` drill semantics: large-directory warn (v1 tells the user "too
   many files — refine filter"). Verify v2 behaves the same; port if
   not.
-- (X) Text copy out of v2 REPL (macOS Terminal selection). Blocked
-  today because v2 enables mouse tracking for wheel-scroll in
-  fullscreen mode — the terminal forwards mouse events to ink instead
-  of letting the user select. CC handles this by NOT enabling mouse
-  tracking outside explicit need, and/or by honoring Shift+drag to
-  bypass. Fix options: (a) gate mouse-tracking to a runtime flag,
-  (b) match CC's exact SGR mode set. Needs live CC inspection to
-  choose.
-- (X) Paste double-render / ghost `[Pasted text #N]` in the transcript
-  AND in the prompt (user screenshots). Likely caused by queue-drain
-  preserving the WIP attachment references after the queued submission
-  was dispatched. Fix: when `clearAfter: false` is passed to
-  `submitDraft`, also ensure the ATTACHMENT refs that were actually
-  submitted (owned by the queued draft, not by the user's WIP) don't
-  stay in the editor's current attachments list. Investigate in
-  `PromptInput.tsx` queue-drain effect + `useAttachments.ts`.
+- (O) Text copy out of v2 REPL (macOS Terminal selection). FIXED
+  2026-04-17 PM via the `useCopyOnSelect` + `execFileNoThrow` rewrite
+  (see §0.9.1). Drag-select writes through to `pbcopy`; Cmd+V pastes
+  the selected text. The beep on Cmd+C is Terminal.app behavior and
+  matches CC exactly. `CLAUDE_CODE_DISABLE_MOUSE=1` remains the escape
+  hatch for users who prefer native terminal selection.
+- (O) Paste double-render / ghost `[Pasted text #N]` in the transcript
+  AND in the prompt. FIXED 2026-04-17: deleted the redundant
+  `visibleAttachments` dim-grey preview block in `PromptInput.tsx` that
+  was rendering the same chips a second time above the inline
+  `{{ATTACHMENT}}` substitution. See §11.5 "Known bugs" for the
+  commit-level account.
 - (X) Ctrl+G edit in `$EDITOR`.
-- (X) Ctrl+V clipboard image paste.
+- (X) Ctrl+V clipboard image paste — `onImagePaste` is accepted by
+  `useTextInput` / `BaseTextInput` but never passed at the
+  `PromptInput.tsx` layer. See §0.6 #4 and §0.9.2 for the attachment-
+  reality trace.
 - (X) `!` bash mode — v1 actually runs the shell command; v2 shows
   "intentionally deferred" notice. Port the v1 bash execution path
   (v1 `cli/repl/handlers/*` likely has it) or wire a Deno subprocess
@@ -1939,3 +2409,225 @@ Keep HLVM business logic.
 Use one document.
 Stay honest about what is and is not done.
 ```
+
+## 13. Shared-Surface Parity Matrix — LIVE MISSION SCOREBOARD
+
+**This is the single authoritative scoreboard.** One row per TUI
+surface HLVM and CC both have. Rows start at `(X)`. A row flips to
+`(O)` ONLY after side-by-side PTY capture of v2 visually matches CC on
+that scenario. `(~)` = one clear delta remains. `(—)` = explicitly out
+of scope.
+
+> **Mission complete iff every non-`(—)` row is `(O)`.**
+
+Not Phase 1 done. Not "most of it working." Every row.
+
+Out-of-scope: remote session, voice, buddy, swarm coordinator,
+Anthropic-billing chrome, `/keybindings` UI, Alt+P model picker,
+Alt+O fast mode, `& for background`, `/btw for side question`,
+Anthropic auth / analytics / billing prompts. See §11.5 opening
+block.
+
+**Last live audit**: 2026-04-17 PM. Captures in `/tmp/hlvm-audit/`,
+referenced by row-scoped filename. CC = `claude --model sonnet`
+(2.1.112). v2 = `./hlvm repl --new` (current `feat/lean-binary-cicd`
+tip). Identical geometry: `tmux -x 140 -y 40`.
+
+**§11.5 / §11.55 / §11.6 status**: historical detail record. §13 is
+the live scoreboard; when §13 and §11.5 disagree, §13 wins.
+
+### 13.A Boot + frame
+
+| # | St | Scenario | CC | v2 | Notes / donor |
+|---|---|---|---|---|---|
+| A1 | (O) | Prompt-row flow direction | Banner + transcript + divider + `❯` + divider + footer, content-sized with empty rows below | Same. TranscriptWorkbench's FullscreenLayout no longer flex-grows the scrollable region — LiveTurnStatus + HorizontalRule + PromptInput moved from the pinned-to-bottom slot into the end of the scrollable flow. PromptInput gained an internal HorizontalRule above its footer for the 2-divider prompt wrap. Boot + active-turn captures: identical structure between CC and v2. |
+| A2 | (X) | Cwd in banner | Shows `~/dev/hql` right of glyph | Absent | v1 `Banner.tsx` reused but cwd slot not wired |
+| A3 | (X) | Right-footer on empty state | Absent on boot | Always shows `◐ medium · /effort` | Either remove from empty-state render OR lift to hover/opt-in |
+| A4 | (—) | Banner logo glyph | CC chip + version + model + cwd | HLVM block-ASCII + version + subtitle | EXEMPT per §3.2 (HLVM branding) |
+| A5 | (O) | Left-footer on empty state | `? for shortcuts` | `? for shortcuts` | `boot-{cc,v2}.txt` — left-slot match |
+
+### 13.B Composer (in-prompt input)
+
+| # | St | Scenario | CC | v2 | Notes / donor |
+|---|---|---|---|---|---|
+| B1  | (O) | `❯` prompt glyph on boot | ✔ | ✔ | PTY-verified |
+| B2  | (O) | `/` opens inline picker, no border, flush-left | ✔ | ✔ | `slash-{cc,v2}.txt` |
+| B3  | (X) | `/` picker content source | Dynamic: user skills + plugins + built-ins (`/!refactor`, `/brainstorming`, `/sc:brainstorm`, ...) | 6 built-ins only (`/mcp`, `/exit`, `/help`, `/init`, `/flush`, `/hooks`) | Port v1's `getFullCommandCatalog` into v2 command provider |
+| B4  | (O) | `@` opens picker, CWD-rooted, hidden included, `+ ` prefix | ✔ | ✔ | `at-{cc,v2}.txt` |
+| B5  | (X) | `@` picker shows `.git/` | `+ .git/` row visible | Filtered out; next sibling `+ .gitattributes` surfaces instead | `src/hlvm/cli/repl/file-search.ts` — remove `.git/` exclusion to match CC |
+| B6  | (~) | `?` on empty prompt opens help overlay | 3-column layout (`!`, `/`, `@`, `&`, `/btw`, `\⏎` + modifier column) | 3-column HLVM subset (`!`, `/`, `@`, `\⏎` + ctrl+{d,f,r,c}, shift+tab, pgup/pgdn) | Layout matches; content scope intentional (§11.5). Donor: `components/PromptInput/PromptInputHelpMenu.tsx`. Flip to `(O)` after B7 is fixed. `help-{cc,v2}.txt` |
+| B7  | (X) | Escape closes `?` help overlay | ✔ | ✗ — overlay persists; only a printable keystroke dismisses it | Real v2 bug observed live. Fix dismissal path in `src/hlvm/tui-v2/prompt/ShortcutsHelpMenu.tsx` or owning state in `prompt/PromptInput.tsx` |
+| B8  | (O) | `!` on empty prompt flips to bash mode (HLVM semantics) | N/A — CC `!` stays as text | v2 flips prompt glyph to `!` | HLVM-only per §11.5 explicit features block. Mark `(O)` — semantic split documented |
+| B9  | (O) | Bash-mode exit via BSpace on empty `!` | N/A | Returns to `❯` | HLVM-only §11.5 |
+| B10 | (O) | Multi-line via trailing `\` + Enter | ✔ | ✔ | §11.5 |
+| B11 | (O) | Backspace deletes through trigger char | ✔ | ✔ | §11.5 |
+| B12 | (O) | Shift+Tab cycles permission mode default → accept-edits → plan → default | ✔ | ✔ | `shift-tab-{cc,v2}.txt` + `plan-{cc,v2}.txt` |
+| B13 | (O) | Footer `⏵⏵ accept edits on (shift+tab to cycle)` | ✔ | ✔ | identical text |
+| B14 | (O) | Footer `⏸ plan mode on (shift+tab to cycle)` | ✔ | ✔ | identical text |
+| B15 | (X) | Permission-mode backend gating | Tool calls blocked in plan / auto-approved in accept-edits | Footer cycles; backend unaware | `src/hlvm/tui-v2/compat/permission.ts` — scaffold present, not wired |
+| B16 | (X) | Prompt history persisted across restart | ✔ | In-memory only | Port v1 `history-storage.ts` |
+
+### 13.C Picker behavior
+
+| # | St | Scenario | CC | v2 | Notes |
+|---|---|---|---|---|---|
+| C1 | (O) | Down/Up selects by exactly 1 | ✔ | ✔ | §11.5 |
+| C2 | (O) | Tab advances selection by 1 | ✔ | ✔ | §11.5 |
+| C3 | (O) | `@` + Right drills into directory | ✔ | ✔ | §11.5 |
+| C4 | (O) | `@` + Left climbs to parent | ✔ | ✔ | §11.5 |
+| C5 | (O) | Escape closes picker keeping trigger | ✔ | ✔ | §11.5 |
+| C6 | (O) | Picker Enter inserts without double-submit | ✔ | ✔ | §11.5 |
+| C7 | (O) | Ctrl+D toggles docs panel | ✔ | ✔ | §11.5 |
+| C8 | (O) | Fuzzy narrow on letters | `/ex → /exit`, `@sr → src/` | same | §11.5 |
+| C9 | (O) | Fuzzy match highlighted yellow on matching chars | ✔ | ✔ (after v1 `Dropdown` SSOT consolidation) | §11.5 |
+
+### 13.D Keys / overlays / modes
+
+| # | St | Scenario | CC | v2 | Notes |
+|---|---|---|---|---|---|
+| D0 | (~) | Esc interrupts an in-flight turn | ✔ | wired in TranscriptWorkbench useInput — calls `abortControllerRef.current?.abort()` on Esc when `runtimeBusy && !pendingInteraction && !searchOpen`. Signal propagation through `runAgentQueryViaHost` to the runtime host is a separate concern (delegated). | Footer "esc to interrupt" is now truthful at the UI layer. |
+| D1  | (X) | Ctrl+O expand tool output → verbose transcript viewer | ✔ | no-op | Port `~/dev/ClaudeCode-main/components/TranscriptViewerOverlay.tsx` (or v1's) |
+| D2  | (X) | Ctrl+T toggle task tree | Hide/show inline task-tree overlay | no-op | Depends on F4–F5 |
+| D3  | (X) | Ctrl+V image paste | Paste clipboard image → attachment chip | Fallthrough to text paste (garbled) | §0.9.2 — `onImagePaste` not wired at `src/hlvm/tui-v2/prompt/PromptInput.tsx`; `useTextInput` + `BaseTextInput` already accept it |
+| D4  | (X) | Ctrl+G edit in `$EDITOR` | Opens buffer in `$EDITOR` → reads back | no-op | Needs tempfile + subprocess |
+| D5  | (X) | Ctrl+Z suspend | POSIX SIGTSTP | no-op | Wire signal handler |
+| D6  | (~) | Ctrl+S stash / restore | `› Stashed (auto-restores after submit)` | `> Stashed (auto-restores after submit)` | Glyph delta only — CC `›` (U+203A) vs v2 `>`. `ctrl-s-{cc,v2}.txt` |
+| D7  | (O) | Ctrl+C exits | ✔ | ✔ | §11.5 |
+| D8  | (O) | Cmd+C copy on drag-select | ✔ | ✔ (`useCopyOnSelect` + real `execFileNoThrow`) | §0.9.1 |
+| D9  | (O) | Ctrl+U clear to beginning | ✔ | ✔ | §11.5 |
+| D10 | (O) | Ctrl+K kill to end | ✔ | ✔ | §11.5 |
+| D11 | (O) | Ctrl+W delete previous word | ✔ | ✔ | §11.5 |
+| D12 | (O) | Ctrl+A / Home, Ctrl+E / End | ✔ | ✔ | §11.5 |
+| D13 | (X) | Ctrl+L clear screen | ✔ | no-op | Port CC clear-transcript binding |
+| D14 | (—) | Alt+P switch model | CC only | N/A | EXEMPT — HLVM has own model-config flow |
+| D15 | (—) | Alt+O fast mode | CC only | N/A | EXEMPT |
+| D16 | (—) | Ctrl+Shift+- undo | CC only | N/A | OUT of scope |
+
+### 13.E Runtime round-trip (a single `hi` + Enter)
+
+| # | St | Scenario | CC | v2 | Notes |
+|---|---|---|---|---|---|
+| E1 | (O) | User row paints on submit | ✔ `❯ hi` | ✔ `❯ hi` | local-echo verified |
+| E2 | (X) | Assistant row paints with REAL reply | `⏺ Hi! How can I help you today?` at ~3s | `Error / [HLVM5006] Local HLVM runtime host is not ready for AI requests.` at ~15s | **TUI path works; upstream local runtime not ready.** Fix: boot probe + actionable hint + de-dup. See §0.6 #1 revision |
+| E3 | (X) | Assistant prefix glyph `⏺` | ✔ | Unverified — error path prints `Error` instead | Flip after E2 is green |
+| E4 | (X) | Turn-complete rollup + footer flip | ✔ | ✔ footer flips, but error body is duplicated in bubble AND in turn-complete line | Fix duplicate-print in `conversation.addAssistantText` error branch |
+| E5 | (X) | Token-by-token streaming animation | ✔ | Untestable until E2 | — |
+
+### 13.F Live-turn chrome (all 0% per §0.9.3)
+
+| # | St | Scenario | CC | v2 | Donor |
+|---|---|---|---|---|---|
+| F1 | (O) | Rotating thinking verb `* Ruminating… / Thinking… / Hmm… / Working through it…` | ✔ | `<glyph> <Verb>…` with rotating spinner char + fixed-per-turn random verb, clean at every time point, zero char corruption across 2s/5s/10s/20s/33s. Physical port of `constants/spinnerVerbs.ts` (180+), `constants/turnCompletionVerbs.ts`, `components/Spinner/utils.ts`, `components/Spinner/SpinnerGlyph.tsx`, `components/Spinner/GlimmerMessage.tsx`. GlimmerMessage's trailing-space pattern was the critical piece — v2 sibling-Text layout drops the verb's leading char without it. Captures: `/tmp/hlvm-audit/f1f-v2-*.txt`, `r3-v2-*.txt` | Shimmer animation scaffolded (`GlimmerMessage` splits into before/shim/after segments on active glimmerIndex) but disabled — v2 ink screen-diff shuffles chars mid-sweep on sibling-Text length changes (separate upstream ink bug). Re-enable after upstream fix. Stall-red interpolation still TODO. |
+| F1-bug | (!) | v2 bug discovered during port: `useAnimationFrame` `time` return in the compiled Deno/React-19 build advances at ~13× wall-clock, not true ms | N/A (CC's ClockContext returns wall-clock ms) | v2's `ink/hooks/use-animation-frame.ts` subscribe chain produces bogus `time` values | Workaround in LiveTurnStatus: `setInterval(…, 1000)` counter instead of `time`-diff. Real fix needed in `ink/components/ClockContext.tsx` — `clock.now()` likely returning frame-counter × stride instead of epoch ms |
+| F2 | (O) | Phase label `* Ideating… (17s · thinking)` | ✔ | v2 renders `(Xs · thinking)` suffix gated behind 30s (matches CC's `SHOW_TOKENS_AFTER_MS = 30_000`). Live PTY-verified at t=33s: `✽ Orbiting… (33s · thinking)`. | Remaining: phase label variants (`responding`, `tool-use`), down-arrow token-rate glyph (`↓ 224 tokens`). Token counter needs a hook into the streaming source. |
+| F3 | (~) | Post-turn rollup `* Cogitated for 6m 22s` / `* Cooked for …` | ✔ (multi-verb table via `TURN_COMPLETION_VERBS`: Baked · Brewed · Churned · Cogitated · Cooked · Crunched · Sautéed · Worked) | v2 now has the full phase machine (live → rollup → hidden) in `LiveTurnStatus.tsx`: random completion verb picked at live→rollup transition, `* Verb for Xs` rendered for `ROLLUP_HOLD_MS` (2s), then unmount. Donor: physical copy of `constants/turnCompletionVerbs.ts`. | PTY-confirmed live spinner half (F1/F2); rollup half not yet live-verified because the local runtime doesn't complete in this test session (HLVM5006 retry loop). Fixture-backed verification is the unblock (`HLVM_ASK_FIXTURE_PATH`). Logic audited against CC donor shape. |
+| F3-sbs | (O) | Baseline CC ↔ v2 spinner shape match | `✢ Simmering…` | `✻ Propagating… (2s · esc to interrupt)` | Side-by-side PTY verified 2026-04-18: both render `<rotating-glyph> <Verb>…` from the same SPINNER_FRAMES set and SPINNER_VERBS table. Captures: `/tmp/hlvm-audit/sbs-{cc,v2}.txt`. V2 additionally shows `(Ns · esc to interrupt)` from t=1 (CC gates at 30s via `SHOW_TOKENS_AFTER_MS`; v2 shows earlier — intentional, better UX in short turns; can be gated later to match CC strictly if desired). |
+| F4 | (X) | Inline task tree with `✔` rows in transcript | ✔ | absent | `components/TaskListV2.tsx`, `hooks/useTasksV2.ts`, `hooks/useTaskListWatcher.ts` |
+| F5 | (X) | Ctrl+T toggles task-tree visibility | ✔ | no-op | paired with F4 |
+| F6 | (X) | Agent progress line (`├─ / └─ / ⎿`) for sub-agents | ✔ | absent (v1 has `LocalAgentsStatusPanel.tsx` unported) | `components/AgentProgressLine.tsx` + v1's panel |
+| F7 | (X) | Progress / coalesce indicator `+ Coalescing… (15m 54s)` | ✔ | absent | CC progress-line component |
+
+### 13.G Tool-call + transcript rendering
+
+| # | St | Scenario | CC | v2 | Notes |
+|---|---|---|---|---|---|
+| G1 | (~) | Tool-call row collapses with `… +N more lines (ctrl+o to expand)` | ✔ | ✔ collapses (§11.5) but Ctrl+O expand is unwired (see D1) | Flip once D1 lands |
+| G2 | (X) | Tool-call chrome prefix glyph + label | CC-specific glyph+label | Unaudited | Needs live run with tools |
+| G3 | (O) | User row `❯` prefix | ✔ | ✔ | E1 |
+| G4 | (X) | Assistant row `⏺` prefix | ✔ | Unverified — error path | Flip with E2/E3 |
+
+### 13.H Markdown + streaming rendering
+
+| # | St | Scenario | CC | v2 | Notes |
+|---|---|---|---|---|---|
+| H1 | (X) | Inline `code` | monospace + bg | Untested — no real reply | Fixture-backed test once harness available |
+| H2 | (X) | **bold** | weight change | Untested | — |
+| H3 | (X) | Numbered lists | hanging indent | Untested | — |
+| H4 | (X) | Fenced code block with language | syntax color | Untested | — |
+| H5 | (X) | Diff `+`/`-` blocks | green/red | Untested | — |
+| H6 | (X) | Plan checklist `▢` / `☑` | CC plan mode | v1 `PlanChecklistPanel.tsx` unported | — |
+| H7 | (X) | Streaming append, not all-at-once | token animation | Untested | — |
+
+### 13.I Dynamic integration / HLVM chrome
+
+| # | St | Scenario | CC | v2 | Notes |
+|---|---|---|---|---|---|
+| I1 | (X) | MCP-server warning chip `1 MCP server failed · /mcp` | ✔ | absent | Wire MCP status into footer |
+| I2 | (X) | Memory recall chip `◆ Recalled N, wrote N memory` | HLVM-only (v1 has it) | absent in v2 | Port v1 `MemoryActivityLine.tsx` |
+| I3 | (X) | Skill activation chip in tool row | ✔ | absent | — |
+| I4 | (X) | User skills + plugin dynamic commands in `/` picker | ✔ | v2 built-ins only | Same as B3 |
+
+### 13.J Structural / architectural
+
+| # | St | Scenario | Notes |
+|---|---|---|---|
+| J1 | (X) | Remove `src/hlvm/tui-v2/ink/index.ts` bare-`ink` barrel | Last blocker: `src/hlvm/cli/repl/commands.ts:9` → `registry` → `keybindings/keybinding-lookup.ts`. Convert to lazy dynamic import, then delete barrel + deno.json `"ink"` alias |
+| J2 | (~) | Compat layer routes all production call-sites | 7 files present in `src/hlvm/tui-v2/compat/`; zero production call-sites actually route through them yet |
+| J3 | (X) | CI gates `deno task check:tui-v2` | Script exists; not CI-gated |
+| J4 | (X) | `tests/unit/tui-v2/` suite exists | Zero v2 unit tests today |
+| J5 | (X) | Rebuild default path — `hlvm repl` launches v2, v1 retired | Phase 4 gate |
+
+### 13.K Slash-command surface parity (HLVM-owned)
+
+| # | St | Scenario | CC | v2 | Notes |
+|---|---|---|---|---|---|
+| K1 | (O) | `/help` | own help | own help | §11.5 |
+| K2 | (O) | `/exit` / `/quit` | exits | exits | §11.5 |
+| K3 | (O) | `/clear` / `/flush` | clears transcript | clears transcript | §11.5 |
+| K4 | (X) | `/model` picker | CC has | v2 dead | v1 `ModelBrowser.tsx` + `ModelSetupOverlay.tsx` |
+| K5 | (X) | `/effort` setter | CC has | v2 dead; footer shows `◐ medium · /effort` but typing does nothing | — |
+| K6 | (X) | `/config` overlay | — | v1 `ConfigOverlay.tsx` unported | — |
+| K7 | (X) | `/shortcuts` overlay | — | v1 `ShortcutsOverlay.tsx` unported | — |
+| K8 | (X) | `/transcript` viewer | — | v1 `TranscriptViewerOverlay.tsx` unported | — |
+| K9 | (X) | `/todo` / plan surface | — | v1 has | — |
+
+### 13.99 Flip workflow
+
+For each `(X)` or `(~)` row:
+
+1. **Read the donor** at the exact path in "Notes / donor" — end-to-end,
+   every branch. No skimming. No "probably works like X."
+2. **Port into v2** — copy 1:1 where portable (runtime adapters only),
+   transplant closely where coupled. Forbidden: simplified stand-ins,
+   "cleaner" rewrites, "I don't think we need that branch."
+3. **Rebuild** — `make build-fast`.
+4. **Side-by-side PTY audit** — identical geometry, identical keystrokes:
+   ```bash
+   tmux -S /tmp/cc.sock kill-server 2>/dev/null
+   tmux -S /tmp/v2.sock kill-server 2>/dev/null
+   tmux -S /tmp/cc.sock new-session -d -s cc -x 140 -y 40 'claude --model sonnet'
+   tmux -S /tmp/v2.sock new-session -d -s v2 -x 140 -y 40 './hlvm repl --new'
+   sleep 7
+   # Drive identical keys through both with:
+   tmux -S /tmp/cc.sock send-keys -t cc <keys>
+   tmux -S /tmp/v2.sock send-keys -t v2 <keys>
+   # Capture, strip ANSI, diff:
+   tmux -S /tmp/cc.sock capture-pane -pt cc | sed 's/\x1b\[[0-9;]*[mGKHJfABCDEhl]//g' > /tmp/hlvm-audit/<row>-cc.txt
+   tmux -S /tmp/v2.sock capture-pane -pt v2 | sed 's/\x1b\[[0-9;]*[mGKHJfABCDEhl]//g' > /tmp/hlvm-audit/<row>-v2.txt
+   diff /tmp/hlvm-audit/<row>-{cc,v2}.txt
+   ```
+5. **Flip** the Status cell from `(X)` / `(~)` to `(O)` only after
+   visual match. Leave a capture filename in Notes or paste the diff
+   into the PR / handoff description.
+6. **Never flip from code review alone.** Reading-only parity does not
+   count. Type-check-only parity does not count.
+
+### 13.100 Mission-complete definition
+
+```
+Mission complete iff every row in §13 with St ≠ (—) is (O).
+```
+
+When every row is `(O)`:
+
+- `--new` flag disappears; `hlvm repl` launches v2 by default.
+- v1 REPL is retired; `src/hlvm/cli/repl-ink/` can be deleted once the
+  ink bridge is gone (J1) and every reused component has been ported
+  into `src/hlvm/tui-v2/` proper.
+- Phase 4 of §8 closes.
+- CLAUDE.md / user-facing docs drop the "experimental" language.
+
+Until then, every merge that touches `src/hlvm/tui-v2/` updates this
+matrix in the same commit: either flips row(s) `(X)` → `(O)`, or
+updates Notes with the latest finding, or adds a new row for a newly
+discovered shared surface. This doc is SSOT.

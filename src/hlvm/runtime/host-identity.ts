@@ -37,6 +37,24 @@ function getSourceFingerprintRoot(): string {
   return getPlatform().path.fromFileUrl(new URL("../../..", CLI_ENTRY_URL));
 }
 
+function getSourceFingerprintTargets(): string[] {
+  const platform = getPlatform();
+  const root = getSourceFingerprintRoot();
+  return [
+    platform.path.join(root, "src", "common"),
+    platform.path.join(root, "src", "platform"),
+    platform.path.join(root, "src", "hlvm", "api"),
+    platform.path.join(root, "src", "hlvm", "agent"),
+    platform.path.join(root, "src", "hlvm", "cli", "cli.ts"),
+    platform.path.join(root, "src", "hlvm", "cli", "commands"),
+    platform.path.join(root, "src", "hlvm", "cli", "repl"),
+    platform.path.join(root, "src", "hlvm", "runtime"),
+    platform.path.join(root, "embedded-ollama-version.txt"),
+    platform.path.join(root, "deno.json"),
+    platform.path.join(root, "deno.lock"),
+  ];
+}
+
 export function buildRuntimeServeCommand(): string[] {
   const platform = getPlatform();
   const execPath = platform.process.execPath();
@@ -143,24 +161,29 @@ async function computeSourceTreeFingerprint(): Promise<{
   mtimeMs: number;
 }> {
   const platform = getPlatform();
-  const root = getSourceFingerprintRoot();
   let totalSize = 0;
   let latestMtimeMs = 0;
 
-  const walk = async (dir: string): Promise<void> => {
-    for await (const entry of platform.fs.readDir(dir)) {
-      const path = platform.path.join(dir, entry.name);
-      if (entry.isDirectory) {
-        await walk(path);
-        continue;
-      }
-      if (!entry.isFile) continue;
-      const info = await platform.fs.stat(path);
-      totalSize += info.size;
-      latestMtimeMs = Math.max(latestMtimeMs, info.mtimeMs ?? 0);
+  const walk = async (path: string): Promise<void> => {
+    let info;
+    try {
+      info = await platform.fs.stat(path);
+    } catch {
+      return;
     }
+    if (info.isDirectory) {
+      for await (const entry of platform.fs.readDir(path)) {
+        await walk(platform.path.join(path, entry.name));
+      }
+      return;
+    }
+    if (!info.isFile) return;
+    totalSize += info.size;
+    latestMtimeMs = Math.max(latestMtimeMs, info.mtimeMs ?? 0);
   };
 
-  await walk(root);
+  for (const target of getSourceFingerprintTargets()) {
+    await walk(target);
+  }
   return { size: totalSize, mtimeMs: latestMtimeMs };
 }

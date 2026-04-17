@@ -12,7 +12,10 @@
 
 import { getErrorMessage } from "../../common/utils.ts";
 import { log } from "../api/log.ts";
-import { LOCAL_FALLBACK_MODEL_ID } from "./local-fallback.ts";
+import {
+  LOCAL_FALLBACK_MODEL_ID,
+  resolveLocalFallbackModelId,
+} from "./local-fallback.ts";
 
 type LocalChatFailureKind =
   | "disabled"
@@ -65,10 +68,11 @@ async function collectChatResult(
     }
     const { ai } = await import("../api/ai.ts");
     const messages = [{ role: "user" as const, content: prompt }];
+    const localFallbackModelId = await resolveLocalFallbackModelId();
     let result = "";
     for await (
       const token of ai.chat(messages, {
-        model: LOCAL_FALLBACK_MODEL_ID,
+        model: localFallbackModelId,
         temperature: opts.temperature ?? 0,
         maxTokens: opts.maxTokens ?? 64,
       })

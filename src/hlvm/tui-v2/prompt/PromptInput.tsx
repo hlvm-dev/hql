@@ -68,6 +68,7 @@ import {
   isInputModeCharacter,
   prependModeCharacterToInput,
 } from "./inputModes.ts";
+import { HorizontalRule } from "../components/HorizontalRule.tsx";
 import { PromptInputFooter } from "./PromptInputFooter.tsx";
 import { PromptInputModeIndicator } from "./PromptInputModeIndicator.tsx";
 import { PromptInputQueuedCommands } from "./PromptInputQueuedCommands.tsx";
@@ -1641,23 +1642,7 @@ export function PromptInput({
         </Box>
       )}
 
-      {visibleAttachments.length > 0 && (
-        <Box marginBottom={1} flexDirection="column" paddingLeft={2}>
-          {visibleAttachments.slice(0, 4).map((attachment) => (
-            <Text
-              key={`${attachment.id}:${attachment.displayName}`}
-              color={DONOR_INACTIVE}
-            >
-              {attachment.displayName}
-            </Text>
-          ))}
-          {visibleAttachments.length > 4 && (
-            <Text color={DONOR_INACTIVE}>
-              +{visibleAttachments.length - 4} more attachments
-            </Text>
-          )}
-        </Box>
-      )}
+      {/* CC-parity: attachments render inline in the prompt text only. */}
 
       <Box flexDirection="row" alignItems="flex-start">
         <PromptInputModeIndicator mode={mode} isLoading={isLoading} />
@@ -1709,6 +1694,7 @@ export function PromptInput({
         />
       )}
 
+      <HorizontalRule />
       <PromptInputFooter
         mode={mode}
         isLoading={isLoading}

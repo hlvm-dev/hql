@@ -285,14 +285,6 @@ function normalizeConfigInput(
     }
   }
 
-  // Policy and hooks: pass through as-is (validated at use site, not here)
-  if (raw.policy && typeof raw.policy === "object" && !Array.isArray(raw.policy)) {
-    normalized.policy = raw.policy as HlvmConfig["policy"];
-  }
-  if (raw.hooks && typeof raw.hooks === "object" && !Array.isArray(raw.hooks)) {
-    normalized.hooks = raw.hooks as HlvmConfig["hooks"];
-  }
-
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 

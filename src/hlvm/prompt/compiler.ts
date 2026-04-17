@@ -9,9 +9,7 @@ import { tierMeetsMinimum } from "../agent/constants.ts";
 import { fnv1aHex } from "../../common/hash.ts";
 import { collectSections } from "./sections.ts";
 import {
-  GLOBAL_INSTRUCTIONS_DISPLAY_PATH,
   type CompiledPrompt,
-  type InstructionSource,
   type PromptCacheSegment,
   type PromptCompilerInput,
   type PromptSection,
@@ -116,27 +114,6 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   const cacheSegments = buildCacheSegments(filtered);
   const stableCacheProfile = buildStableCacheProfile(cacheSegments);
 
-  // Build instruction source manifest for observability.
-  // Record any source that was attempted, even if the file was missing.
-  const instructionSources: InstructionSource[] = [];
-  const hasGlobal = input.instructions.global.length > 0;
-  const hasProjectPath = !!input.instructions.projectPath;
-  if (hasGlobal || hasProjectPath) {
-    instructionSources.push({
-      path: GLOBAL_INSTRUCTIONS_DISPLAY_PATH,
-      trusted: true,
-      loaded: hasGlobal,
-    });
-  }
-  if (hasProjectPath) {
-    instructionSources.push({
-      path: input.instructions.projectPath!,
-      trusted: input.instructions.trusted,
-      loaded: input.instructions.project.length > 0 &&
-        input.instructions.trusted,
-    });
-  }
-
   const signatureHash = `${input.mode}:${input.tier}:${
     fnv1aHex(`${input.mode}:${input.tier}:${text}`)
   }`;
@@ -149,7 +126,6 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     sections,
     cacheSegments,
     stableCacheProfile,
-    instructionSources,
     signatureHash,
   };
 }

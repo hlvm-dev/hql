@@ -166,23 +166,21 @@ function renderConversationItem(
         lines: [],
         stickyText: item.text,
       };
-    case "thinking":
-      return renderSystem(
-        item.id,
-        item.kind === "planning" ? "Planning" : "Thinking",
-        [item.summary || `iteration ${item.iteration}`],
-        "thinking",
-      );
+    case "thinking": {
+      const thinkingText = item.summary || `iteration ${item.iteration}`;
+      return {
+        uuid: item.id,
+        type: "thinking",
+        title: item.kind === "planning" ? "Planning" : "Thinking",
+        lines: [],
+        thinking: thinkingText,
+        kind: item.kind === "planning" ? "planning" : "thinking",
+      };
+    }
     case "tool_group":
       return renderToolGroup(item);
-    case "turn_stats": {
-      const stats = compactLines([
-        ...(item.summary ? [item.summary] : []),
-        ...(item.activityTrail ?? []),
-        `${item.toolCount} tools · ${formatDuration(item.durationMs) ?? "0ms"}`,
-      ]);
-      return renderSystem(item.id, "Turn complete", stats, "turn_duration");
-    }
+    case "turn_stats":
+      return null;
     case "error":
       return renderSystem(item.id, "Error", [item.text], "error");
     case "info":

@@ -26,7 +26,6 @@ function makeTraces(input: {
         stableSegmentHashes: ["s1", "s2"],
         stableSignatureHash: input.stableCacheSignatureHash,
       },
-      instructionSources: [],
       signatureHash: input.promptSignatureHash,
     },
     {

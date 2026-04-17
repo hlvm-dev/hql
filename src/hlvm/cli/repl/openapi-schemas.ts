@@ -342,8 +342,6 @@
  *             type: string
  *         max_iterations:
  *           type: integer
- *         max_budget_usd:
- *           type: number
  *         response_schema:
  *           type: object
  *         computer_use:

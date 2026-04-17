@@ -405,13 +405,12 @@ When the user types "fix the auth bug" in the Chat window:
 │     │     ├── Cache miss? → createAgentSession()                    │
 │     │     │     ├── resolveEngine() (legacy or SDK)                 │
 │     │     │     ├── engine.createLLM(model)                         │
-│     │     │     ├── loadAgentPolicy(workspace)                      │
 │     │     │     ├── resolveContextBudget(model)                     │
 │     │     │     ├── loadMemoryContext(budget)                        │
 │     │     │     ├── detectGitContext() (3s timeout)                  │
 │     │     │     ├── ensureMcpLoaded()                               │
 │     │     │     └── classifyModelTier() → weak|mid|frontier         │
-│     │     └── session: { engine, llm, modelTier, context, policy }  │
+│     │     └── session: { engine, llm, modelTier, context }          │
 │     │                                                               │
 │     ├── ③ Build system prompt (11 modular sections, tier-filtered)  │
 │     ├── ④ Build tool definitions (filtered by model tier)           │
@@ -656,8 +655,6 @@ GUI                          Server                    Ollama
 | Persistent | Sessions, messages, SSE events                                                                                     | `~/.hlvm/hlvm.db` (SQLite)               |
 | Persistent | Memory, FTS5 index                                                                                                 | `~/.hlvm/memory/`                        |
 | Persistent | MCP server configs                                                                                                 | `~/.hlvm/mcp.json`                       |
-| Persistent | Security policy                                                                                                    | `~/.hlvm/settings.json` (policy field)   |
-| Persistent | Project instructions                                                                                               | `.hlvm/prompt.md`                        |
 | REPL state | globalThis bindings (defn, def), module cache, code history                                                        | Memory (survives evals, lost on restart) |
 
 ### Shared via Filesystem
@@ -732,7 +729,6 @@ GUI                          Server                    Ollama
 createAgentSession(options)
   ├── resolveEngine()         → Legacy or SDK (HLVM_AGENT_ENGINE env)
   ├── engine.createLLM()      → Provider instance
-  ├── loadAgentPolicy()       → Path/network rules, tool permissions
   ├── resolveContextBudget()  → 3-layer token budget pipeline
   ├── loadMemoryContext()     → SQLite FTS5 search, budget-aware
   ├── detectGitContext()      → Branch, dirty state (3s timeout)
@@ -754,7 +750,6 @@ createAgentSession(options)
 | `renderCodeQuality()`         | Mid+     | Code quality standards            |
 | `renderThinkingProtocol()`    | Frontier | Chain-of-thought                  |
 | `renderExamples()`            | Weak+Mid | Few-shot examples                 |
-| `renderProjectInstructions()` | All      | `.hlvm/prompt.md` if present      |
 
 ### Tool Registry
 
@@ -1153,8 +1148,7 @@ js-eval.ts → JavaScript evaluation harness │ │ │ │ │
 (Legacy or SDK) │ │ │ │ │ │ ├── llm: AIProvider
 (Ollama/OpenAI/Anthropic/Google/ClaudeCode) │ │ │ │ │ │ ├── modelTier: weak |
 mid | frontier │ │ │ │ │ │ ├── context: AgentContext (token budget, file roots)
-│ │ │ │ │ │ ├── policy: AgentPolicy (path/network rules, tool permissions) │ │ │
-│ │ │ ├── mcp: MCP client (SDK-based, spec-compliant) │ │ │ │ │ │ └── memory:
+│ │ │ │ │ │ ├── mcp: MCP client (SDK-based, spec-compliant) │ │ │ │ │ │ └── memory:
 loadMemoryContext() (SQLite FTS5, BM25 + temporal decay) │ │ │ │ │ │ │ │ │ │ │ │
 detectGitContext() → branch, dirty state (3s timeout, parallel) │ │ │ │ │ │
 resolveContextBudget() → 3-layer pipeline + overflow retry │ │ │ │ │
@@ -1183,8 +1177,7 @@ renderPermissions() (auto-generated from safetyLevel) │ │ │ │ │ │ �
 renderConciseness() (all tiers) │ │ │ │ │ │ ├── renderWebSafety() (all tiers) │
 │ │ │ │ │ ├── renderFileEditing() (mid+frontier only) │ │ │ │ │ │ ├──
 renderCodeQuality() (mid+frontier only) │ │ │ │ │ │ ├── renderThinkingProtocol()
-(frontier only) │ │ │ │ │ │ ├── renderExamples() (weak+mid only) │ │ │ │ │ │ └──
-renderProjectInstructions() (.hlvm/prompt.md if present) │ │ │ │ │
+(frontier only) │ │ │ │ │ │ └── renderExamples() (weak+mid only) │ │ │ │ │
 └────────────────────────────────────────────────────────────────────────────────────┘
 │ │ │ │ │ │ │ │ ┌─ Tool Registry (registry.ts)
 ────────────────────────────────────────────────────┐ │ │ │ │ │ │ │ │ │ │ │
@@ -1756,14 +1749,13 @@ details as well - in ASCII visual
     │  │     ├── Cache miss? → createAgentSession()                             │   │
     │  │     │     ├── resolveEngine() (legacy or SDK based on env var)         │   │
     │  │     │     ├── engine.createLLM(model, config)                          │   │
-    │  │     │     ├── loadAgentPolicy(workspace)                               │   │
     │  │     │     ├── resolveContextBudget(model) → token budget               │   │
     │  │     │     ├── loadMemoryContext(budget) → memory system msg            │   │
     │  │     │     ├── detectGitContext() → branch, dirty (3s timeout)          │   │
     │  │     │     ├── ensureMcpLoaded() → load MCP tools                      │   │
     │  │     │     └── classifyModelTier(model) → weak|mid|frontier             │   │
     │  │     │                                                                  │   │
-    │  │     └── session: { engine, llm, modelTier, context, policy, mcp }     │   │
+    │  │     └── session: { engine, llm, modelTier, context, mcp }              │   │
     │  │                                                                        │   │
     │  │  ③ Build system prompt                                                 │   │
     │  │     llm-integration.ts → generateSystemPrompt(session)                │   │
@@ -1777,8 +1769,7 @@ details as well - in ASCII visual
     │  │     ├── renderFileEditing()       → (mid+frontier only)               │   │
     │  │     ├── renderCodeQuality()       → (mid+frontier only)               │   │
     │  │     ├── renderThinkingProtocol()  → (frontier only)                   │   │
-    │  │     ├── renderExamples()          → (weak+mid only)                   │   │
-    │  │     └── renderProjectInstructions() → .hlvm/prompt.md                 │   │
+    │  │     └── renderExamples()          → (weak+mid only)                   │   │
     │  │                                                                        │   │
     │  │  ④ Build tool definitions                                              │   │
     │  │     llm-integration.ts → buildToolDefinitions(session)                │   │
@@ -2301,12 +2292,10 @@ State ║ ║ ║
     │  └── Module import cache (Deno's built-in ESM cache)                      │
     │                                                                            │
     │  Persistent (filesystem):                                                  │
-    │  ├── ~/.hlvm/settings.json         → model, temperature, agent mode, policy, hooks │
+    │  ├── ~/.hlvm/settings.json        → model, temperature, agent mode       │
     │  ├── ~/.hlvm/hlvm.db (SQLite)     → sessions, messages, SSE events        │
     │  ├── ~/.hlvm/memory/              → MEMORY.md, memory.db (SQLite)        │
-    │  ├── ~/.hlvm/mcp.json             → MCP server configurations             │
-    │  ├── (policy inside settings.json) → security policy overrides             │
-    │  └── .hlvm/prompt.md (per-project) → project-specific instructions        │
+    │  └── ~/.hlvm/mcp.json             → MCP server configurations             │
     │                                                                            │
     │  REPL state (in-memory, persistent across evals but not restarts):         │
     │  ├── globalThis bindings (defn, def values)                                │

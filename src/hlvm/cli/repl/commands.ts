@@ -25,7 +25,6 @@ import {
   formatProgressBar,
 } from "../repl-ink/utils/formatting.ts";
 import { STATUS_GLYPHS } from "../repl-ink/ui-constants.ts";
-import type { SkillDefinition } from "../../skills/types.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -101,19 +100,10 @@ ${BOLD}Bindings (auto-persist def/defn):${RESET}
 ${BOLD}Keybindings & Commands:${RESET}
 ${shortcuts}
 
-${BOLD}Skills & Hooks:${RESET}
-
-  ${CYAN}/skills${RESET}              List available skills
-  ${CYAN}/hooks${RESET}               List active hooks
-  ${CYAN}/init${RESET}                Scaffold skill/rules directories + templates
-  ${CYAN}/commit${RESET}              Create a git commit (bundled skill)
-  ${CYAN}/test${RESET}                Run project tests (bundled skill)
-  ${CYAN}/review${RESET}              Review code changes (bundled skill)
-
 ${BOLD}Input Routing:${RESET}
   ${CYAN}(expression)${RESET}         HQL code evaluation
   ${CYAN}(js "code")${RESET}          JavaScript evaluation
-  ${CYAN}/command${RESET}             Slash commands (including skills)
+  ${CYAN}/command${RESET}             Slash commands
   Everything else      AI conversation
 
 ${BOLD}Tip:${RESET} Press ${YELLOW}Ctrl+P${RESET} to open the command palette with fuzzy search.
@@ -132,35 +122,6 @@ ${BOLD}Examples:${RESET}
   ${GREEN}what does this function do?${RESET}
   ${GREEN}explain the error in my code${RESET}
 `;
-}
-
-function collectSkillBadges(skill: SkillDefinition): string[] {
-  const badges: string[] = [];
-  if (skill.frontmatter.manual_only) badges.push("manual only");
-  if (skill.frontmatter.context === "fork") badges.push("background");
-  if (skill.sourceKind === "legacy-command") badges.push("legacy command");
-  return badges;
-}
-
-function formatSkillDescription(skill: SkillDefinition): string {
-  const hint = skill.frontmatter.argument_hint
-    ? `[${skill.frontmatter.argument_hint}] `
-    : "";
-  const badges = collectSkillBadges(skill);
-  return `${hint}${skill.frontmatter.description}${
-    badges.length > 0 ? ` (${badges.join(", ")})` : ""
-  }`;
-}
-
-function buildDelegatedSkillMessage(
-  skill: SkillDefinition,
-  renderedBody: string,
-  origin: "user" | "model",
-): string {
-  const header = origin === "user"
-    ? `# Skill: ${skill.name}\n(User invoked /${skill.name})`
-    : `# Skill: ${skill.name}`;
-  return `${header}\nUse delegate_agent to run this in a background agent.\n\n${renderedBody}`;
 }
 
 export const commands: Record<string, Command> = {
@@ -353,260 +314,6 @@ export const commands: Record<string, Command> = {
     },
   },
 
-  "/skills": {
-    description: "List available skills",
-    handler: async (_state, _args, context) => {
-      try {
-        const { loadSkillCatalog, resetSkillCatalogCache } = await import(
-          "../../skills/mod.ts"
-        );
-        resetSkillCatalogCache();
-        const workspace = getPlatform().process.cwd();
-        const catalog = await loadSkillCatalog(workspace);
-
-        context.output(`${BOLD}HLVM Skills${RESET}`);
-        context.output("");
-
-        if (catalog.size === 0) {
-          context.output(
-            `  ${DIM_GRAY}No skills found.${RESET}`,
-          );
-          context.output(
-            `  Create skills at ${CYAN}~/.hlvm/skills/<name>/SKILL.md${RESET}`,
-          );
-          return;
-        }
-
-        const groups: Record<string, { name: string; desc: string }[]> = {
-          bundled: [],
-          user: [],
-          project: [],
-        };
-        for (const [name, skill] of catalog) {
-          if (!skill.frontmatter.user_invocable) continue;
-          groups[skill.source].push({
-            name,
-            desc: formatSkillDescription(skill),
-          });
-        }
-
-        const sections: [string, string, string][] = [
-          ["bundled", "Bundled", ""],
-          [
-            "user",
-            "User",
-            ` ${DIM_GRAY}(~/.hlvm/skills/, ~/.hlvm/commands/)${RESET}`,
-          ],
-          [
-            "project",
-            "Project",
-            ` ${DIM_GRAY}(.hlvm/skills/, .hlvm/commands/)${RESET}`,
-          ],
-        ];
-        for (const [key, label, hint] of sections) {
-          const entries = groups[key];
-          if (!entries.length) continue;
-          context.output(`  ${BOLD}${label}${RESET}${hint}`);
-          for (const e of entries) {
-            context.output(
-              `    ${CYAN}/${e.name}${RESET}  ${e.desc}`,
-            );
-          }
-          context.output("");
-        }
-
-        context.output(
-          `  ${DIM_GRAY}Type /<name> to invoke. Create at ~/.hlvm/skills/<name>/SKILL.md${RESET}`,
-        );
-      } catch (err: unknown) {
-        context.output(
-          `${YELLOW}Could not load skills: ${
-            err instanceof Error ? err.message : String(err)
-          }${RESET}`,
-        );
-      }
-    },
-  },
-
-  "/hooks": {
-    description: "List active hooks",
-    handler: async (_state, _args, context) => {
-      const { loadConfig } = await import("../../../common/config/storage.ts");
-      const { getHooksConfigPath } = await import("../../agent/hooks.ts");
-      const platform = getPlatform();
-      const workspace = platform.process.cwd();
-
-      context.output(`${BOLD}HLVM Hooks${RESET}`);
-      context.output("");
-
-      // Helper to display hooks from a parsed config
-      function displayHooks(
-        hooksObj: Record<string, unknown[]> | undefined,
-        sourceLabel: string,
-      ): boolean {
-        if (!hooksObj) return false;
-        let found = false;
-        for (const [event, handlers] of Object.entries(hooksObj)) {
-          if (!Array.isArray(handlers) || handlers.length === 0) continue;
-          found = true;
-          context.output(
-            `  ${CYAN}${event}${RESET}  ${GREEN}${handlers.length} handler${handlers.length > 1 ? "s" : ""}${RESET}  ${DIM_GRAY}(${sourceLabel})${RESET}`,
-          );
-          for (const h of handlers) {
-            if (typeof h !== "object" || h === null) continue;
-            const handler = h as Record<string, unknown>;
-            const type = typeof handler.type === "string" ? handler.type : "command";
-            if (type === "command" && Array.isArray(handler.command)) {
-              context.output(
-                `    ${DIM_GRAY}command${RESET}  ${handler.command.join(" ")}`,
-              );
-            } else if (type === "prompt" && typeof handler.prompt === "string") {
-              const preview = handler.prompt.length > 50
-                ? handler.prompt.slice(0, 50) + "..."
-                : handler.prompt;
-              context.output(`    ${DIM_GRAY}prompt${RESET}   "${preview}"`);
-            } else if (type === "http" && typeof handler.url === "string") {
-              context.output(`    ${DIM_GRAY}http${RESET}     ${handler.url}`);
-            }
-          }
-        }
-        return found;
-      }
-
-      // 1. Global hooks from settings.json (config.hooks is flat: { event: handlers[] })
-      let globalFound = false;
-      try {
-        const cfg = await loadConfig();
-        if (cfg.hooks && typeof cfg.hooks === "object") {
-          globalFound = displayHooks(
-            cfg.hooks as Record<string, unknown[]>,
-            "settings.json",
-          );
-        }
-      } catch {
-        // settings.json not available or invalid — skip
-      }
-
-      // 2. Workspace hooks from .hlvm/hooks.json (overrides)
-      let workspaceFound = false;
-      const hooksPath = getHooksConfigPath(workspace);
-      try {
-        const raw = await platform.fs.readTextFile(hooksPath);
-        const parsed = JSON.parse(raw) as {
-          version?: number;
-          hooks?: Record<string, unknown[]>;
-        };
-        if (parsed.version === 1 && parsed.hooks) {
-          workspaceFound = displayHooks(parsed.hooks, ".hlvm/hooks.json");
-        }
-      } catch {
-        // No workspace hooks — skip
-      }
-
-      if (!globalFound && !workspaceFound) {
-        context.output(`  ${DIM_GRAY}No hooks configured.${RESET}`);
-        context.output(
-          `  Add hooks to ${CYAN}~/.hlvm/settings.json${RESET} (global) or ${CYAN}.hlvm/hooks.json${RESET} (workspace).`,
-        );
-        context.output("");
-        context.output(`  ${DIM_GRAY}Example (settings.json):${RESET}`);
-        context.output(`  ${DIM_GRAY}{${RESET}`);
-        context.output(`  ${DIM_GRAY}  "hooks": {${RESET}`);
-        context.output(
-          `  ${DIM_GRAY}    "pre_tool": [{ "command": ["lint.sh"] }]${RESET}`,
-        );
-        context.output(`  ${DIM_GRAY}  }${RESET}`);
-        context.output(`  ${DIM_GRAY}}${RESET}`);
-      }
-    },
-  },
-
-  "/init": {
-    description: "Scaffold skill/rules directories and templates",
-    handler: async (_state, _args, context) => {
-      const { getSkillsDir, getRulesDir, getCustomInstructionsPath } = await import(
-        "../../../common/paths.ts"
-      );
-      const platform = getPlatform();
-      const skillsDir = getSkillsDir();
-      const rulesDir = getRulesDir();
-      const hlvmMd = getCustomInstructionsPath();
-
-      context.output(`${BOLD}HLVM Init${RESET}`);
-      context.output("");
-
-      // Create directories
-      for (const [dir, label] of [
-        [skillsDir, "~/.hlvm/skills/"],
-        [rulesDir, "~/.hlvm/rules/"],
-      ] as const) {
-        try {
-          if (await platform.fs.exists(dir)) {
-            context.output(`  ${DIM_GRAY}exists${RESET}   ${label}`);
-          } else {
-            await platform.fs.mkdir(dir, { recursive: true });
-            context.output(`  ${GREEN}created${RESET}  ${label}`);
-          }
-        } catch {
-          context.output(`  ${YELLOW}failed${RESET}   ${label}`);
-        }
-      }
-
-      // Check HLVM.md
-      try {
-        if (await platform.fs.exists(hlvmMd)) {
-          context.output(`  ${DIM_GRAY}exists${RESET}   ~/.hlvm/HLVM.md`);
-        } else {
-          await platform.fs.writeTextFile(
-            hlvmMd,
-            "# HLVM Global Instructions\n\n# Add your global rules here.\n",
-          );
-          context.output(`  ${GREEN}created${RESET}  ~/.hlvm/HLVM.md`);
-        }
-      } catch {
-        context.output(`  ${YELLOW}failed${RESET}   ~/.hlvm/HLVM.md`);
-      }
-
-      context.output("");
-      context.output(`${BOLD}Skill Template:${RESET}`);
-      context.output("");
-      context.output(`  ${DIM_GRAY}Path: ~/.hlvm/skills/my-skill/SKILL.md${RESET}`);
-      context.output("");
-      context.output(`  ${DIM_GRAY}---${RESET}`);
-      context.output(
-        `  ${DIM_GRAY}description: "What this skill does"${RESET}`,
-      );
-      context.output(
-        `  ${DIM_GRAY}argument-hint: "[target]"${RESET}`,
-      );
-      context.output(
-        `  ${DIM_GRAY}allowed-tools: Bash Read${RESET}`,
-      );
-      context.output(`  ${DIM_GRAY}context: inline${RESET}`);
-      context.output(`  ${DIM_GRAY}---${RESET}`);
-      context.output(
-        `  ${DIM_GRAY}Your skill instructions here.${RESET}`,
-      );
-      context.output(
-        `  ${DIM_GRAY}Use $ARGUMENTS, $0, $1, etc. for arguments.${RESET}`,
-      );
-
-      context.output("");
-      context.output(`${BOLD}Next Steps:${RESET}`);
-      context.output(
-        `  1. Create a skill: ${CYAN}~/.hlvm/skills/my-skill/SKILL.md${RESET}`,
-      );
-      context.output(
-        `  2. Add a rule: ${CYAN}~/.hlvm/rules/naming.md${RESET}`,
-      );
-      context.output(
-        `  3. Set up hooks: ${CYAN}~/.hlvm/settings.json${RESET} (global) or ${CYAN}.hlvm/hooks.json${RESET} (workspace)`,
-      );
-      context.output(
-        `  4. Type ${CYAN}/skills${RESET} to see available skills`,
-      );
-    },
-  },
 };
 
 /** Unified catalog of all slash commands (derived from `commands` + App-handled commands). */
@@ -619,23 +326,11 @@ export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
     ...APP_HANDLED_COMMANDS,
   ];
 
-/** Extended catalog including dynamically loaded skills. */
-export async function getFullCommandCatalog(
-  workspace?: string,
+/** Extended catalog (skills removed). */
+export function getFullCommandCatalog(
+  _workspace?: string,
 ): Promise<readonly { name: string; description: string }[]> {
-  try {
-    const { loadSkillCatalog } = await import("../../skills/mod.ts");
-    const catalog = await loadSkillCatalog(workspace);
-    const skillEntries = [...catalog.values()]
-      .filter((s) => s.frontmatter.user_invocable)
-      .map((s) => ({
-        name: `/${s.name}`,
-        description: formatSkillDescription(s),
-      }));
-    return [...COMMAND_CATALOG, ...skillEntries];
-  } catch {
-    return COMMAND_CATALOG;
-  }
+  return Promise.resolve(COMMAND_CATALOG);
 }
 
 /** Check if input is a slash command */
@@ -644,14 +339,12 @@ export function isCommand(input: string): boolean {
   return trimmed.startsWith("/");
 }
 
-/** Result from running a command — includes optional skill activation. */
+/** Result from running a command. */
 export interface RunCommandResult {
   handled: boolean;
-  /** If set, the REPL should submit this as an agent query with the system message prepended. */
-  skillActivation?: { systemMessage: string; allowedTools?: string[] };
 }
 
-/** Run a command. Returns result indicating if a skill was activated. */
+/** Run a command. */
 export async function runCommand(
   input: string,
   state: ReplState,
@@ -661,47 +354,9 @@ export async function runCommand(
   const trimmed = input.trim();
   const [cmdName, ...args] = trimmed.split(WHITESPACE_SPLIT_REGEX);
 
-  // 1. Try static commands first
   const command = commands[cmdName];
   if (command) {
     await command.handler(state, args.join(" "), { output });
-    return { handled: true };
-  }
-
-  // 2. Try skill catalog
-  try {
-    const { loadSkillCatalog } = await import("../../skills/mod.ts");
-    const { executeInlineSkill, renderSkillBody } = await import(
-      "../../skills/executor.ts"
-    );
-    const workspace = getPlatform().process.cwd();
-    const catalog = await loadSkillCatalog(workspace);
-    const skillName = cmdName.slice(1); // strip leading "/"
-    const skill = catalog.get(skillName);
-    if (skill && skill.frontmatter.user_invocable) {
-      if (skill.frontmatter.context === "fork") {
-        return {
-          handled: true,
-          skillActivation: {
-            systemMessage: buildDelegatedSkillMessage(
-              skill,
-              renderSkillBody(skill, args.join(" ")),
-              "user",
-            ),
-            allowedTools: skill.frontmatter.allowed_tools,
-          },
-        };
-      }
-      const result = executeInlineSkill(skill, args.join(" "));
-      output(`Activating skill: ${skill.frontmatter.description}`);
-      return { handled: true, skillActivation: result };
-    }
-  } catch (err: unknown) {
-    output(
-      `${YELLOW}Skill loading failed: ${
-        err instanceof Error ? err.message : String(err)
-      }${RESET}`,
-    );
     return { handled: true };
   }
 

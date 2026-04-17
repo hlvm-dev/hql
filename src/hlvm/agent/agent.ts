@@ -13,6 +13,7 @@ import {
   runReActLoop,
 } from "./orchestrator.ts";
 import type { LLMFunction } from "./orchestrator-llm.ts";
+import { cloneToolProfileState } from "./tool-profiles.ts";
 
 export interface AgentRunOptions {
   config?: Partial<OrchestratorConfig>;
@@ -55,15 +56,23 @@ export interface CreateAgentOptions {
   attachments?: ConversationAttachmentPayload[];
 }
 
+function cloneConfigWithFreshToolProfile(
+  config: OrchestratorConfig,
+): OrchestratorConfig {
+  const cloned = { ...config } as OrchestratorConfig;
+  cloned.toolProfileState = cloneToolProfileState(config.toolProfileState);
+  return cloned;
+}
+
 function mergeRunConfig(
   baseConfig: OrchestratorConfig,
   overrideConfig: Partial<OrchestratorConfig> | undefined,
   options: Pick<AgentRunOptions, "eventSink" | "signal">,
 ): OrchestratorConfig {
-  const merged = {
+  const merged = cloneConfigWithFreshToolProfile({
     ...baseConfig,
     ...(overrideConfig ?? {}),
-  } as OrchestratorConfig;
+  } as OrchestratorConfig);
   const signal = composeAbortSignals([
     baseConfig.signal,
     overrideConfig?.signal,
@@ -79,7 +88,7 @@ function mergeRunConfig(
 }
 
 export function createAgent(options: CreateAgentOptions): Agent {
-  const baseConfig = { ...options.config } as OrchestratorConfig;
+  const baseConfig = cloneConfigWithFreshToolProfile(options.config);
   const baseAttachments = options.attachments;
   const baseLlmFunction = options.llmFunction;
 

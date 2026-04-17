@@ -18,8 +18,6 @@ import type { Message } from "./context.ts";
 
 type TokenUsageSource = "provider" | "estimated";
 
-type UsageCostSource = "estimated" | "unavailable";
-
 export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
@@ -34,49 +32,6 @@ export interface UsageSnapshot {
   totalTokens: number;
   last?: TokenUsage;
   source: TokenUsageSource;
-  totalCostUsd?: number;
-  costSource: UsageCostSource;
-}
-
-interface ModelPrice {
-  inputUsdPerMillion: number;
-  outputUsdPerMillion: number;
-}
-
-/** Model pricing table — order matters: first match wins (most-specific first). */
-const MODEL_PRICING: Array<[substring: string, price: ModelPrice]> = [
-  ["claude-haiku-4-5", { inputUsdPerMillion: 1, outputUsdPerMillion: 5 }],
-  ["claude-haiku", { inputUsdPerMillion: 0.8, outputUsdPerMillion: 4 }],
-  ["claude-opus-4-5", { inputUsdPerMillion: 5, outputUsdPerMillion: 25 }],
-  ["claude-opus-4-6", { inputUsdPerMillion: 5, outputUsdPerMillion: 25 }],
-  ["claude-opus", { inputUsdPerMillion: 15, outputUsdPerMillion: 75 }],
-  ["claude-sonnet", { inputUsdPerMillion: 3, outputUsdPerMillion: 15 }],
-  ["gemini-2.5-pro", { inputUsdPerMillion: 1.25, outputUsdPerMillion: 10 }],
-  ["gemini-2.5-flash-lite", { inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.4 }],
-  ["gemini-2.5-flash", { inputUsdPerMillion: 0.3, outputUsdPerMillion: 2.5 }],
-  ["gemini-2.0-flash", { inputUsdPerMillion: 0.3, outputUsdPerMillion: 2.5 }],
-  ["o4-mini", { inputUsdPerMillion: 1.1, outputUsdPerMillion: 4.4 }],
-  ["o3", { inputUsdPerMillion: 2, outputUsdPerMillion: 8 }],
-  ["gpt-5-mini", { inputUsdPerMillion: 0.25, outputUsdPerMillion: 2 }],
-  ["gpt-5", { inputUsdPerMillion: 1.25, outputUsdPerMillion: 10 }],
-];
-
-function resolveModelPrice(modelId?: string): ModelPrice | undefined {
-  const normalized = modelId?.toLowerCase().trim();
-  if (!normalized) return undefined;
-  return MODEL_PRICING.find(([key]) => normalized.includes(key))?.[1];
-}
-
-export function estimateUsageCostUsd(
-  modelId: string | undefined,
-  usage: Pick<TokenUsage, "promptTokens" | "completionTokens">,
-): number | undefined {
-  const price = resolveModelPrice(modelId);
-  if (!price) return undefined;
-  return (
-    (usage.promptTokens / 1_000_000) * price.inputUsdPerMillion +
-    (usage.completionTokens / 1_000_000) * price.outputUsdPerMillion
-  );
 }
 
 export class UsageTracker {
@@ -94,11 +49,7 @@ export class UsageTracker {
     this.source = usage.source;
   }
 
-  snapshot(modelId?: string): UsageSnapshot {
-    const totalCostUsd = estimateUsageCostUsd(modelId, {
-      promptTokens: this.totalPrompt,
-      completionTokens: this.totalCompletion,
-    });
+  snapshot(): UsageSnapshot {
     return {
       calls: this.calls,
       totalPromptTokens: this.totalPrompt,
@@ -106,8 +57,6 @@ export class UsageTracker {
       totalTokens: this.totalPrompt + this.totalCompletion,
       last: this.lastUsage,
       source: this.source,
-      totalCostUsd,
-      costSource: totalCostUsd === undefined ? "unavailable" : "estimated",
     };
   }
 }

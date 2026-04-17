@@ -409,65 +409,6 @@ async function todoWrite(
 // Tool Registry Export
 // ============================================================
 
-const SKILL_TOOL: ToolMetadata = {
-  fn: async (
-    args: unknown,
-    workspace: string,
-  ): Promise<unknown> => {
-    const { loadSkillCatalog } = await import("../../skills/mod.ts");
-    const { executeInlineSkill, renderSkillBody } = await import(
-      "../../skills/executor.ts"
-    );
-    if (!isToolArgsObject(args)) {
-      return { error: "Missing arguments. Provide skill name." };
-    }
-    const record = args as Record<string, unknown>;
-    const skillName = typeof record.skill === "string" ? record.skill : "";
-    const catalog = await loadSkillCatalog(workspace);
-    const skill = catalog.get(skillName);
-    if (!skill) {
-      return {
-        error: `Unknown skill: ${skillName}. Available: ${
-          [...catalog.keys()].join(", ")
-        }`,
-      };
-    }
-    if (!skill.frontmatter.model_invocable) {
-      return {
-        error:
-          `Skill '${skillName}' is manual-only. Invoke it directly with '/${skillName}'.`,
-      };
-    }
-    if (skill.frontmatter.context === "fork") {
-      return {
-        systemMessage:
-          `# Skill: ${skill.name}\nUse delegate_agent to run this in a background agent.\n\n${
-            renderSkillBody(
-              skill,
-              typeof record.args === "string" ? record.args : undefined,
-            )
-          }`,
-        allowedTools: skill.frontmatter.allowed_tools,
-      };
-    }
-    return executeInlineSkill(
-      skill,
-      typeof record.args === "string" ? record.args : undefined,
-    );
-  },
-  description: "Execute a named skill (reusable workflow)",
-  category: "meta",
-  args: {
-    skill: "string - Skill name (e.g. 'commit', 'test', 'review')",
-    args: "string (optional) - Arguments for the skill",
-  },
-  returns: {
-    systemMessage: "string - Skill instructions to follow",
-    allowedTools: "string[] (optional) - Tools the skill needs",
-  },
-  safetyLevel: "L0" as const,
-};
-
 export const META_TOOLS: Record<string, ToolMetadata> = {
   ask_user: {
     fn: askUser,
@@ -549,6 +490,4 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
     },
     safetyLevel: "L0" as const,
   },
-  Skill: SKILL_TOOL,
-  skill: SKILL_TOOL,
 };

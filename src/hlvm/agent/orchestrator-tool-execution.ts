@@ -147,7 +147,6 @@ async function executeToolWithTimeout(
         argsSummary: generateArgsSummary(toolCall.toolName, args),
         modelId: config.modelId,
         modelTier: config.modelTier,
-        policy: config.policy ?? null,
         onInteraction: config.onInteraction,
         toolOwnerId: config.toolOwnerId,
         ensureMcpLoaded: config.ensureMcpLoaded,
@@ -163,10 +162,8 @@ async function executeToolWithTimeout(
           }),
         sessionId: config.sessionId,
         currentUserRequest: config.currentUserRequest,
-        hookRuntime: config.hookRuntime,
         onAgentEvent: config.onAgentEvent,
         agentProfiles: config.agentProfiles,
-        instructions: config.instructions,
         permissionMode: config.permissionMode,
         contextBudget: config.context.getMaxTokens(),
         querySource: config.querySource,
@@ -267,7 +264,6 @@ async function maybeBuildEditFileRecoveryResult(
     const resolvedPath = await resolveToolPath(
       path,
       config.workspace,
-      config.policy ?? null,
     );
     const fileContent = await getPlatform().fs.readTextFile(resolvedPath);
     return buildEditFileRecovery({ path, find }, errorMessage, fileContent) ??
@@ -344,32 +340,6 @@ export async function executeToolCall(
   }
   const toolExists = preparedArgs !== undefined;
   const coercedArgs = preparedArgs?.coercedArgs ?? normalizedArgs;
-  const preToolFeedback = await config.hookRuntime?.dispatchWithFeedback(
-    "pre_tool",
-    {
-      workspace: config.workspace,
-      toolName: toolCall.toolName,
-      toolCallId: toolCall.id,
-      modelId: config.modelId,
-      sessionId: config.sessionId,
-      turnId: config.turnId,
-      args: coercedArgs,
-      argsSummary: generateArgsSummary(toolCall.toolName, coercedArgs),
-      toolIndex,
-      toolTotal,
-    },
-  );
-  if (preToolFeedback?.blocked) {
-    const msg = preToolFeedback.feedback ??
-      `Tool ${toolCall.toolName} was blocked by a pre_tool hook.`;
-    return buildToolErrorResult(
-      toolCall.toolName,
-      msg,
-      startedAt,
-      config,
-      toolCall.id,
-    );
-  }
   // Emit trace event: tool call
   config.onTrace?.({
     type: "tool_call",
@@ -536,7 +506,6 @@ export async function executeToolCall(
       toolCall.toolName,
       coercedArgs,
       permissionMode,
-      config.policy ?? null,
       l1Store,
       config.toolOwnerId,
       config.onInteraction,
@@ -615,20 +584,6 @@ export async function executeToolCall(
     if (isFileWriteTool(toolCall.toolName) && isSuccessfulToolPayload(result)) {
       const verification = await maybeVerifyWrite(toolCall, config);
       if (verification) {
-        await config.hookRuntime?.dispatch("write_verified", {
-          toolName: toolCall.toolName,
-          toolCallId: toolCall.id,
-          modelId: config.modelId,
-          sessionId: config.sessionId,
-          path: typeof toolCall.args?.path === "string"
-            ? toolCall.args.path
-            : undefined,
-          ok: verification.ok,
-          source: verification.source,
-          verifier: verification.verifier,
-          summary: verification.summary,
-          diagnostics: verification.diagnostics,
-        });
         result = attachWriteVerification(result, verification);
       }
     }

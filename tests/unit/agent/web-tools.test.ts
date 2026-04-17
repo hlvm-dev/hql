@@ -15,7 +15,6 @@ import {
   parseDuckDuckGoSearchResults,
 } from "../../../src/hlvm/agent/tools/web/duckduckgo.ts";
 import { ValidationError } from "../../../src/common/error.ts";
-import type { AgentPolicy } from "../../../src/hlvm/agent/policy.ts";
 import {
   isAllowedByDomainFilters,
   registerSearchProvider,
@@ -63,15 +62,11 @@ async function withStubbedFetch(
   }
 }
 
-Deno.test("web tools: input validation and network policy denial are enforced", async () => {
+Deno.test("web tools: input validation is enforced", async () => {
   await withIsolatedSearchRegistry(async () => {
-    const denyAll: AgentPolicy = { version: 1, networkRules: { deny: ["*"] } };
-
     await assertRejects(() => WEB_TOOLS.search_web.fn({} as Record<string, unknown>, "/tmp"), ValidationError);
     await assertRejects(() => WEB_TOOLS.fetch_url.fn({} as Record<string, unknown>, "/tmp"), ValidationError);
     await assertRejects(() => WEB_TOOLS.web_fetch.fn({} as Record<string, unknown>, "/tmp"), ValidationError);
-    await assertRejects(() => WEB_TOOLS.search_web.fn({ query: "hlvm" }, "/tmp", { policy: denyAll }), ValidationError);
-    await assertRejects(() => WEB_TOOLS.fetch_url.fn({ url: "https://example.com" }, "/tmp", { policy: denyAll }), ValidationError);
   });
 });
 

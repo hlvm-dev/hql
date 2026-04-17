@@ -106,16 +106,6 @@ Deno.test("LLM integration: prompt omits memory exceptions when memory tools are
   );
 });
 
-Deno.test("LLM integration: custom instructions are included and truncated", () => {
-  const prompt = generateSystemPrompt({
-    instructions: { global: "x".repeat(10000), project: "", trusted: false },
-  });
-
-  assertStringIncludes(prompt, "# Custom Instructions");
-  // MAX_INSTRUCTION_CHARS is 8000, so 10000 should be truncated
-  assertEquals(prompt.includes("x".repeat(8001)), false);
-});
-
 Deno.test("LLM integration: compileSystemPrompt exposes cache-segment metadata without dropping content", () => {
   const compiled = compileSystemPrompt();
 

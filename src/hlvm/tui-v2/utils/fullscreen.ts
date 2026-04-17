@@ -80,6 +80,12 @@ export function isFullscreenEnvEnabled(): boolean {
 }
 
 export function isMouseTrackingEnabled(): boolean {
+  // Match CC exactly: mouse tracking is ON by default so in-app wheel
+  // scroll works. Users who want native terminal text selection + Cmd+C
+  // can either (a) hold Opt while dragging (macOS Terminal standard for
+  // bypassing app-level mouse capture), or (b) set
+  // `CLAUDE_CODE_DISABLE_MOUSE=1` to turn tracking off.
+  // Reference: ~/dev/ClaudeCode-main/utils/fullscreen.ts:140.
   return !isEnvTruthy(env("CLAUDE_CODE_DISABLE_MOUSE"));
 }
 

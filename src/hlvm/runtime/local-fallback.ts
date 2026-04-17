@@ -16,6 +16,14 @@ import { classifyError } from "../agent/error-taxonomy.ts";
 /** Fully-qualified model ID for the local gemma4 fallback. */
 export const LOCAL_FALLBACK_MODEL_ID = `ollama/${LOCAL_FALLBACK_MODEL}`;
 
+export async function resolveLocalFallbackModelId(): Promise<string> {
+  const { findAvailableLocalFallbackModel } = await import(
+    "./bootstrap-manifest.ts"
+  );
+  const availableModel = await findAvailableLocalFallbackModel();
+  return availableModel ? `ollama/${availableModel}` : LOCAL_FALLBACK_MODEL_ID;
+}
+
 // ============================================================
 // Error Classification
 // ============================================================
@@ -67,7 +75,9 @@ export async function isLocalFallbackReady(): Promise<boolean> {
       import("./bootstrap-verify.ts"),
       import("../cli/commands/serve.ts"),
     ]);
-  return isRuntimeReadyForAiRequests() && await isFallbackModelAvailable();
+  const fallbackModelId = await resolveLocalFallbackModelId();
+  return isRuntimeReadyForAiRequests() &&
+    await isFallbackModelAvailable(fallbackModelId.split("/").pop());
 }
 
 // ============================================================

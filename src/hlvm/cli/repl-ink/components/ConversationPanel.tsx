@@ -285,8 +285,6 @@ function renderItem(
           inputTokens={item.inputTokens}
           outputTokens={item.outputTokens}
           modelId={item.modelId}
-          costUsd={item.costUsd}
-          costEstimated={item.costEstimated}
           continuedThisTurn={item.continuedThisTurn}
           continuationCount={item.continuationCount}
           compactionReason={item.compactionReason}

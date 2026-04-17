@@ -52,6 +52,12 @@ Deno.test("commands registry - omits retired legacy commands from the active con
     "/resume",
     "/status",
     "/bg",
+    "/skills",
+    "/hooks",
+    "/init",
+    "/commit",
+    "/test",
+    "/review",
   ];
 
   for (const cmd of removedCommands) {

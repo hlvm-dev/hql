@@ -41,7 +41,6 @@ import {
   ensureWorkspaceDir,
 } from "./workspace-test-helpers.ts";
 import { STANDARD_EAGER_TOOLS } from "../../../src/hlvm/agent/constants.ts";
-import type { AgentHookRuntime } from "../../../src/hlvm/agent/hooks.ts";
 
 const TEST_WORKSPACE = "/tmp/hlvm-test-orchestrator";
 const platform = () => getPlatform();
@@ -996,46 +995,6 @@ Deno.test({
 });
 
 Deno.test({
-  name:
-    "Orchestrator: runReActLoop respects blocking pre_llm hook and skips the LLM call",
-  async fn() {
-    resetApprovals();
-    const context = new ContextManager();
-    let llmCalls = 0;
-
-    const hookRuntime: AgentHookRuntime = {
-      hasHandlers: (name) => name === "pre_llm",
-      dispatch: () => Promise.resolve(),
-      dispatchWithFeedback: (name) =>
-        Promise.resolve(
-          name === "pre_llm"
-            ? { blocked: true, feedback: "policy: blocked" }
-            : { blocked: false },
-        ),
-      dispatchDetached: () => {},
-      waitForIdle: () => Promise.resolve(),
-    };
-
-    const result = await runReActLoop(
-      "What is the answer?",
-      {
-        workspace: TEST_WORKSPACE,
-        context,
-        permissionMode: "bypassPermissions",
-        hookRuntime,
-      },
-      async () => {
-        llmCalls += 1;
-        return makeResponse("42");
-      },
-    );
-
-    assertEquals(result.text, "policy: blocked");
-    assertEquals(llmCalls, 0);
-  },
-});
-
-Deno.test({
   name: "Orchestrator: runReActLoop rejects text tool-call JSON fallback",
   async fn() {
     resetApprovals();
@@ -1208,6 +1167,77 @@ Deno.test({
 
     assertEquals(nonBrowserResult.text, "done");
     assertEquals(config.toolProfileState?.layers.domain, undefined);
+  },
+});
+
+Deno.test({
+  name:
+    "Orchestrator: runReActLoop clears turn-local discovery and runtime layers between reused runs",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const probeToolName = uniqueToolName("probe");
+    let probeExecutions = 0;
+
+    await withTemporaryTool(
+      probeToolName,
+      {
+        fn: async () => {
+          probeExecutions += 1;
+          return { ok: true };
+        },
+        description: "probe tool",
+        args: {},
+        safetyLevel: "L0",
+      },
+      async () => {
+        const config: OrchestratorConfig = {
+          workspace: TEST_WORKSPACE,
+          context,
+          permissionMode: "bypassPermissions",
+          toolProfileState: createToolProfileState({
+            baseline: {
+              slot: "baseline",
+              allowlist: ["tool_search", "read_file", probeToolName],
+            },
+          }),
+        };
+        let llmCallCount = 0;
+        const llmFunction = async () => {
+          llmCallCount += 1;
+          if (llmCallCount === 1) {
+            return makeResponse("", [
+              {
+                toolName: "tool_search",
+                args: { query: "read file", limit: 3 },
+              },
+            ]);
+          }
+          if (llmCallCount === 2) {
+            return makeResponse("first done");
+          }
+          if (llmCallCount === 3) {
+            return makeResponse("", [{ toolName: probeToolName, args: {} }]);
+          }
+          return makeResponse("second done");
+        };
+
+        const first = await runReActLoop(
+          "Find the right read tool",
+          config,
+          llmFunction,
+        );
+        const second = await runReActLoop(
+          "Use the probe tool",
+          config,
+          llmFunction,
+        );
+
+        assertEquals(first.text, "first done");
+        assertEquals(second.text, "second done");
+        assertEquals(probeExecutions, 1);
+      },
+    );
   },
 });
 

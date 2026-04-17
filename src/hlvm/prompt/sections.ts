@@ -7,14 +7,11 @@
 
 import { type ToolMetadata, getDeferredToolNames } from "../agent/registry.ts";
 import type { AgentProfile } from "../agent/agent-registry.ts";
-import type { SkillDefinition } from "../skills/types.ts";
 import { MEMORY_TOOLS } from "../memory/mod.ts";
 import { CHROME_EXT_SYSTEM_PROMPT } from "../agent/chrome-ext/prompt.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { type ModelTier, tierMeetsMinimum } from "../agent/constants.ts";
-import { mergeInstructions } from "./instructions.ts";
 import type {
-  InstructionHierarchy,
   PromptCompilerInput,
   PromptSection,
   PromptSectionStability,
@@ -49,8 +46,6 @@ const SECTION_STABILITY: Record<string, PromptSectionStability> = {
   remote_exec_guidance: "session",
   permissions: "session",
   environment: "session",
-  custom: "session",
-  skills: "session",
   computer_use: "session",
   browser_automation: "session",
 };
@@ -319,19 +314,6 @@ function renderEnvironment(): RawPromptSection {
   };
 }
 
-function renderCustomInstructions(
-  hierarchy: InstructionHierarchy,
-): RawPromptSection {
-  // Delegate filtering, ordering, and cap to the SSOT mergeInstructions.
-  const merged = mergeInstructions(hierarchy);
-  if (!merged) return { id: "custom", content: "", minTier: "constrained" };
-  return {
-    id: "custom",
-    content: `# Custom Instructions\n${merged}`,
-    minTier: "constrained",
-  };
-}
-
 function renderExamples(): RawPromptSection {
   return {
     id: "examples",
@@ -539,39 +521,6 @@ function renderChromeExtGuidance(
   };
 }
 
-function renderSkillCatalog(
-  skills?: ReadonlyMap<string, SkillDefinition>,
-): RawPromptSection {
-  if (!skills || skills.size === 0) {
-    return { id: "skills", content: "", minTier: "constrained" };
-  }
-  const lines = [
-    "# Skills",
-    "Invoke a skill by calling the `Skill` tool with its name. Skills are reusable workflows.",
-    "",
-  ];
-  for (const [name, skill] of skills) {
-    if (!skill.frontmatter.model_invocable) continue;
-    const badges: string[] = [];
-    if (!skill.frontmatter.user_invocable) badges.push("model-only");
-    if (skill.frontmatter.context === "fork") badges.push("runs in background");
-    if (skill.sourceKind === "legacy-command") badges.push("legacy command");
-    const hint = skill.frontmatter.argument_hint ? ` [${skill.frontmatter.argument_hint}]` : "";
-    lines.push(
-      `- **${name}**${hint}: ${skill.frontmatter.description}${
-        badges.length > 0 ? ` (${badges.join(", ")})` : ""
-      }`,
-    );
-    if (skill.frontmatter.when_to_use) {
-      lines.push(`  When: ${skill.frontmatter.when_to_use}`);
-    }
-  }
-  return {
-    id: "skills",
-    content: lines.join("\n"),
-    minTier: "constrained",
-  };
-}
 
 // ============================================================
 // Section Collection
@@ -595,7 +544,6 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
   const {
     tools,
     tier,
-    instructions,
   } = input;
 
   const sections: RawPromptSection[] = [
@@ -610,18 +558,6 @@ export function collectSections(input: PromptCompilerInput): PromptSection[] {
     renderPermissionTiers(tools),
     renderEnvironment(),
   ];
-
-  // Custom instructions — only if there's content
-  const customSection = renderCustomInstructions(instructions);
-  if (customSection.content) {
-    sections.push(customSection);
-  }
-
-  // Skill catalog — only if skills are present
-  const skillSection = renderSkillCatalog(input.skills);
-  if (skillSection.content) {
-    sections.push(skillSection);
-  }
 
   sections.push(renderExamples());
   sections.push(renderTips());

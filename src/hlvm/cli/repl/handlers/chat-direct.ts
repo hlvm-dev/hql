@@ -21,7 +21,7 @@ import {
   buildChatProviderMessages,
   shouldHonorRequestMessages,
 } from "./chat-context.ts";
-import { compilePrompt, EMPTY_INSTRUCTIONS } from "../../../prompt/mod.ts";
+import { compilePrompt } from "../../../prompt/mod.ts";
 import {
   buildWeakDirectChatContext,
   isWeakLocalDirectChatModel,
@@ -30,7 +30,7 @@ import {
 import { traceReplMainThreadForSource } from "../../../repl-main-thread-trace.ts";
 import {
   isLocalFallbackReady,
-  LOCAL_FALLBACK_MODEL_ID,
+  resolveLocalFallbackModelId,
   withFallbackChain,
 } from "../../../runtime/local-fallback.ts";
 import { getLocalModelDisplayName } from "../../../runtime/local-llm.ts";
@@ -131,7 +131,8 @@ async function streamChatWithFallback(
   weakContextRawLimit?: number,
   scoredFallbacks: string[] = [],
 ): Promise<string> {
-  if (resolvedModel === LOCAL_FALLBACK_MODEL_ID && !(await isLocalFallbackReady())) {
+  const localFallbackModelId = await resolveLocalFallbackModelId();
+  if (resolvedModel === localFallbackModelId && !(await isLocalFallbackReady())) {
     throw new RuntimeError(LOCAL_FALLBACK_READY_MESSAGE);
   }
 
@@ -160,7 +161,7 @@ async function streamChatWithFallback(
     },
     lastResort: emittedAnyToken || resolvedModel?.startsWith("ollama/")
       ? undefined
-      : { model: LOCAL_FALLBACK_MODEL_ID, isAvailable: isLocalFallbackReady },
+      : { model: localFallbackModelId, isAvailable: isLocalFallbackReady },
     tryLastResort: (model) => {
       emit({ event: "warning", message: LOCAL_FALLBACK_RETRY_MESSAGE });
       return tryStream(model);
@@ -178,7 +179,6 @@ function getChatSystemPrompt(): string {
     mode: "chat",
     tier: "standard",
     tools: {},
-    instructions: EMPTY_INSTRUCTIONS,
   }).text;
 }
 

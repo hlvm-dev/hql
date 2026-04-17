@@ -21,7 +21,6 @@ import {
   parseShellCommand,
 } from "../../../common/shell-parser.ts";
 import { classifyShellPipeline } from "../security/shell-classifier.ts";
-import { getNetworkPolicyDeniedUrl } from "../policy.ts";
 import type { ToolExecutionOptions } from "../registry.ts";
 import {
   failTool,
@@ -280,7 +279,7 @@ export async function shellExec(
 
     // Validate working directory
     const workDir = args.cwd
-      ? await resolveToolPath(args.cwd, workspace, options?.policy ?? null)
+      ? await resolveToolPath(args.cwd, workspace)
       : workspace;
 
     // Classify command for safety level
@@ -308,20 +307,6 @@ export async function shellExec(
     const detach = args.detach === true ||
       shouldAutoDetachShellCommand(args.command, platform.build.os);
 
-    // Enforce optional network policy on URL-like args
-    const urlSources = cmdArgs;
-    const deniedUrl = getNetworkPolicyDeniedUrl(
-      options?.policy,
-      extractUrlsFromArgs(urlSources),
-    );
-    if (deniedUrl) {
-      return failTool(`Network access denied by policy: ${deniedUrl}`, {
-        stdout: "",
-        stderr: `Network access denied by policy: ${deniedUrl}`,
-        exitCode: 1,
-        safetyLevel,
-      });
-    }
 
     if (options?.signal?.aborted) {
       throw createAbortError("Shell command aborted");
@@ -454,25 +439,12 @@ export async function shellScript(
   try {
     // Validate working directory
     const workDir = args.cwd
-      ? await resolveToolPath(args.cwd, workspace, options?.policy ?? null)
+      ? await resolveToolPath(args.cwd, workspace)
       : workspace;
 
     const isWindows = platform.build.os === "windows";
     const interpreter = args.interpreter ||
       (isWindows ? "cmd" : "sh");
-
-    // Enforce optional network policy on URLs in script
-    const deniedUrl = getNetworkPolicyDeniedUrl(
-      options?.policy,
-      extractUrlsFromText(args.script),
-    );
-    if (deniedUrl) {
-      return failTool(`Network access denied by policy: ${deniedUrl}`, {
-        stdout: "",
-        stderr: `Network access denied by policy: ${deniedUrl}`,
-        exitCode: 1,
-      });
-    }
 
     // Create temp directory for script
     tempDir = await platform.fs.makeTempDir({ prefix: "hlvm-shell-" });
@@ -616,14 +588,6 @@ export async function localCodeExecute(
     command: buildInlineCodeCommand(language, args.code),
     cwd: args.cwd,
   }, workspace, options);
-}
-
-function extractUrlsFromArgs(args: string[]): string[] {
-  return args.flatMap(extractUrlsFromText);
-}
-
-function extractUrlsFromText(text: string): string[] {
-  return text.match(/https?:\/\/[^\s"'`]+/g) ?? [];
 }
 
 // Process stream and abort helpers: see common/stream-utils.ts (SSOT)

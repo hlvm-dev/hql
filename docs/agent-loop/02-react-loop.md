@@ -161,8 +161,6 @@
   │                                                                    │
   │  runLlmResponsePass(messages, state, lc, config, llm)              │
   │    │                                            orch.ts:1349       │
-  │    ├─ hookRuntime.dispatch("pre_llm")                              │
-  │    │                                                               │
   │    ├─ callLLM(llm, messages, config)            orch-llm.ts:58    │
   │    │    │                                                          │
   │    │    │  ┌─ INSIDE engine-sdk.ts ──────────────────────────────┐ │
@@ -192,7 +190,6 @@
   │    │                                                               │
   │    ├─ record token usage                                           │
   │    ├─ emit { type: "llm_performance", latency, tokens }           │
-  │    ├─ hookRuntime.dispatch("post_llm")                             │
   │    └─ if native thinking: emit { type: "reasoning" }              │
   │                                                                    │
   └─────────────────────────────────────────────────────────────────────┘
@@ -292,10 +289,9 @@
   │         │  │    │  headless + ask_user? → error              │  │ │
   │         │  │    │  plan mode + mutating? → error             │  │ │
   │         │  │    │  plan review gate (ensureApproved)         │  │ │
-  │         │  │    │  checkToolSafety() → modal or policy       │  │ │
+  │         │  │    │  checkToolSafety() → modal                  │  │ │
   │         │  │    ├────────────────────────────────────────────┘  │ │
   │         │  │    │                                                │ │
-  │         │  │    ├─ hookRuntime.dispatch("pre_tool")             │ │
   │         │  │    ├─ emit { type: "tool_start" }                 │ │
   │         │  │    │                                                │ │
   │         │  │    ├─ DISPATCH ─────────────────────────────────┐  │ │
@@ -311,7 +307,6 @@
   │         │  │    ├────────────────────────────────────────────┘  │ │
   │         │  │    │                                                │ │
   │         │  │    ├─ emit { type: "tool_end" }                   │ │
-  │         │  │    ├─ hookRuntime.dispatch("post_tool")           │ │
   │         │  │    └─ return ToolExecutionResult                   │ │
   │         │  │                                                     │ │
   │         │  └─────────────────────────────────────────────────────┘ │
