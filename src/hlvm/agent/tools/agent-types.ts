@@ -6,12 +6,22 @@
  */
 
 import type { AgentExecutionMode } from "../execution-mode.ts";
+import type { McpServerConfig } from "../mcp/types.ts";
 
 // ============================================================
 // Agent Definition Types (CC: loadAgentsDir.ts)
 // ============================================================
 
 export type AgentSource = "built-in" | "user" | "project";
+
+/**
+ * Per-agent MCP server specification.
+ * - string: reference an existing configured server by name
+ * - record: inline server definition keyed by server name
+ */
+export type AgentMcpServerSpec =
+  | string
+  | Record<string, Omit<McpServerConfig, "name">>;
 
 /** Common fields for all agent types. CC: BaseAgentDefinition */
 export interface BaseAgentDefinition {
@@ -41,6 +51,10 @@ export interface BaseAgentDefinition {
   omitClaudeMd?: boolean;
   /** Permission mode override for child execution */
   permissionMode?: AgentExecutionMode;
+  /** Sticky prompt prepended ahead of the invocation prompt */
+  initialPrompt?: string;
+  /** Agent-specific MCP servers (configured refs and/or inline defs) */
+  mcpServers?: AgentMcpServerSpec[];
 }
 
 /** Built-in agent defined in code. CC: BuiltInAgentDefinition */
@@ -76,6 +90,8 @@ export interface AgentToolInput {
   run_in_background?: boolean;
   /** Isolation mode */
   isolation?: "worktree";
+  /** Absolute cwd override for the child agent */
+  cwd?: string;
 }
 
 /** Result from a completed sync agent. CC: AgentToolResult */
@@ -86,6 +102,7 @@ export interface AgentToolResult {
   content: string;
   totalDurationMs: number;
   totalToolUseCount: number;
+  totalTokens: number;
   /** Worktree path if agent ran in isolation and made changes */
   worktreePath?: string;
   /** Worktree branch if agent ran in isolation and made changes */
@@ -98,6 +115,7 @@ export interface AgentAsyncResult {
   agentId: string;
   description: string;
   prompt: string;
+  outputFile: string;
 }
 
 /** Union of all agent tool outputs */

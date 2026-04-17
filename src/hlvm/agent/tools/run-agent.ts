@@ -78,6 +78,8 @@ export interface RunAgentOptions {
   agentId: string;
   /** Callback for agent events */
   onAgentEvent?: OrchestratorConfig["onAgentEvent"];
+  /** Optional live transcript line sink for async task output */
+  onTranscriptLine?: (line: string) => void | Promise<void>;
 }
 
 export interface RunAgentResult {
@@ -132,6 +134,7 @@ export async function runAgent(
     inheritedConfig,
     agentId,
     onAgentEvent,
+    onTranscriptLine,
   } = options;
 
   const startTime = Date.now();
@@ -207,15 +210,19 @@ export async function runAgent(
   // Child events are NOT forwarded to parent TUI — only counted and recorded.
   let toolUseCount = 0;
   const transcriptLines: string[] = [];
+  const pushTranscriptLine = (line: string): void => {
+    transcriptLines.push(line);
+    void onTranscriptLine?.(line);
+  };
   const childOnAgentEvent: typeof onAgentEvent = (event) => {
     if (event.type === "tool_start") {
-      transcriptLines.push(`  ${event.name} ${event.argsSummary}`);
+      pushTranscriptLine(`  ${event.name} ${event.argsSummary}`);
     }
     if (event.type === "tool_end") {
       toolUseCount++;
       const status = event.success ? "ok" : "ERROR";
       const summary = event.summary ? ` — ${event.summary.slice(0, 100)}` : "";
-      transcriptLines.push(`  ⎿ ${status} (${event.durationMs}ms)${summary}`);
+      pushTranscriptLine(`  ⎿ ${status} (${event.durationMs}ms)${summary}`);
       // Emit progress event to PARENT for TUI updates
       onAgentEvent?.({
         type: "agent_progress",
@@ -269,10 +276,13 @@ export async function runAgent(
 
   let loopResult: AgentLoopResult | undefined;
   try {
+    const effectivePrompt = agentDefinition.initialPrompt
+      ? `${agentDefinition.initialPrompt}\n\n${prompt}`
+      : prompt;
     loopResult = await createAgent({
       config: childConfig,
       llmFunction: childLlmFunction,
-    }).run(prompt);
+    }).run(effectivePrompt);
   } catch (err) {
     if (signal?.aborted) {
       throw err; // Propagate abort

@@ -12,24 +12,27 @@ type Props = {
 export function PromptInputModeIndicator(
   { mode, isLoading }: Props,
 ): React.ReactNode {
+  // CC-parity: the prompt indicator is `❯ ` (glyph + one space) with no
+  // extra marginRight. Previously `marginRight={1}` added a second space,
+  // producing `❯  value` where CC renders `❯ value`.
   return (
     <Box
       alignItems="flex-start"
       alignSelf="flex-start"
       flexWrap="nowrap"
       justifyContent="flex-start"
-      marginRight={1}
     >
       {mode === "bash"
-        ? <Text color={DONOR_BASH_BORDER} dim={isLoading}>! </Text>
+        ? <Text color={DONOR_BASH_BORDER} dim={isLoading}>!</Text>
         : (
           <Text
             bold
             color={isLoading ? DONOR_INACTIVE : undefined}
           >
-            ❯{" "}
+            ❯
           </Text>
         )}
+      <Text> </Text>
     </Box>
   );
 }

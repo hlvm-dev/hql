@@ -61,6 +61,11 @@ function GenericItem({
   width,
 }: GenericItemProps): React.ReactElement {
   const rowWidth = Math.max(1, width ?? COMPLETION_PANEL_MAX_WIDTH);
+  // CC-parity: the `@` file picker prefixes every row with `+ ` rather
+  // than a `›` selection marker — selection is conveyed via color/bold.
+  // `markerWidth={1}` keeps just the `+` glyph in the marker column;
+  // PickerRow adds its own single-cell separator after, giving `+ label`
+  // with exactly one space (matching `+ .DS_Store`), not `+  label`.
   return (
     <PickerRow
       label={spec.label}
@@ -68,8 +73,8 @@ function GenericItem({
       pickerColors={pickerColors}
       isSelected={isSelected}
       width={rowWidth}
-      markerText={isSelected ? "›" : " "}
-      markerWidth={SELECTOR_COLUMN_WIDTH}
+      markerText={"+"}
+      markerWidth={1}
       metaText={spec.typeLabel}
       metaWidth={META_COLUMN_WIDTH}
       maxLabelWidth={spec.maxWidth}
@@ -141,13 +146,10 @@ function CommandItemRow({
     ? truncate(renderSpec.description, descriptionWidth, "…")
     : "";
 
+  // CC-parity: the `/` command picker has NO leading selection marker
+  // column. Selection is conveyed via color/bold on the label only.
   return (
     <Box width={width}>
-      <Box width={COMMAND_MARKER_WIDTH}>
-        <Text color={isSelected ? accentColor : mutedColor}>
-          {isSelected ? "›" : " "}
-        </Text>
-      </Box>
       <Box width={commandColumnWidth}>
         <HighlightedText
           text={renderSpec.label}
@@ -312,6 +314,10 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
     );
   }
 
+  // CC-parity: the `@` file picker is inline (no round-box border) and
+  // flush against the composer column. No inline `helpText` footer under
+  // the picker — that hint belongs in the shell footer, not stacked
+  // inside the panel.
   return (
     <Box
       flexDirection="column"
@@ -319,9 +325,6 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
       marginTop={marginTop}
       marginBottom={marginBottom}
       width={panelWidth}
-      borderStyle="round"
-      borderColor={pickerColors.borderColor}
-      paddingX={1}
     >
       {/* Loading indicator */}
       {isLoading && items.length === 0 && (
@@ -358,12 +361,6 @@ export function Dropdown(props: DropdownProps): React.ReactElement | null {
 
       {/* Scroll down indicator */}
       {hasMoreBelow ? <Text color={pickerColors.separatorColor}>…</Text> : null}
-
-      {items.length > 0 && (
-        <Box marginTop={1}>
-          <Text color={pickerColors.hintColor}>{helpText}</Text>
-        </Box>
-      )}
 
       {previewLines.map((line: string, index: number) => (
         <React.Fragment key={`${selectedItem?.id ?? "doc"}-${index}`}>

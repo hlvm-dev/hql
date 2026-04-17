@@ -406,7 +406,14 @@ export function TranscriptWorkbench(): React.ReactNode {
     const trimmed = value.trim();
     if (!trimmed.startsWith("/")) return false;
 
-    if (trimmed === "/clear") {
+    // NB: the slash-command picker still surfaces commands loaded from v1's
+    // shared `COMMAND_CATALOG` (so users see the full set HLVM plans to
+    // support). The v2 handler wires the subset that is safe to invoke
+    // in the v2 shell today. Any picker row that is NOT in this handler
+    // falls through to the "not wired in v2 yet" notice instead of
+    // silently doing nothing.
+
+    if (trimmed === "/clear" || trimmed === "/flush") {
       conversation.clear();
       setCursor(null);
       setFooterLabel(undefined);
@@ -415,7 +422,9 @@ export function TranscriptWorkbench(): React.ReactNode {
     }
 
     if (trimmed === "/help") {
-      conversation.addInfo("v2 commands: /clear · /help · /status");
+      conversation.addInfo(
+        "v2 commands: /clear · /flush · /help · /status · /exit",
+      );
       queueMicrotask(() => scrollRef.current?.scrollToBottom());
       return true;
     }
@@ -425,6 +434,51 @@ export function TranscriptWorkbench(): React.ReactNode {
         `model: ${
           runtimeModelLabel ?? "resolving"
         } · stream: ${conversation.streamingState}`,
+      );
+      queueMicrotask(() => scrollRef.current?.scrollToBottom());
+      return true;
+    }
+
+    if (trimmed === "/exit" || trimmed === "/quit") {
+      // Mirror CC's `/exit`: graceful process exit. In v2 the shell is a
+      // Deno subprocess spawned by `hlvm repl --new`, so exiting the
+      // subprocess returns the user to the parent shell.
+      conversation.addInfo("exiting…");
+      queueMicrotask(() => {
+        try {
+          // Route through platform abstraction per SSOT (CLAUDE.md).
+          getPlatform().process.exit(0);
+        } catch {
+          // If exit is unavailable (e.g. under a test runtime), fall
+          // through silently — no infinite loop, just a no-op.
+        }
+      });
+      return true;
+    }
+
+    // Picker-advertised commands that aren't yet wired with full behaviour
+    // get a helpful info response instead of the generic "not wired yet"
+    // dead-end, so users who see them in the `/` picker get trust-building
+    // feedback instead of confusion.
+    if (trimmed === "/mcp") {
+      conversation.addInfo(
+        "MCP servers: manage via `hlvm mcp` (list / add / remove) from the parent shell. In-shell controls arrive with the TUI v2 model/config overlay.",
+      );
+      queueMicrotask(() => scrollRef.current?.scrollToBottom());
+      return true;
+    }
+
+    if (trimmed === "/init") {
+      conversation.addInfo(
+        "Initialize an HQL project via `hlvm hql init` from the parent shell.",
+      );
+      queueMicrotask(() => scrollRef.current?.scrollToBottom());
+      return true;
+    }
+
+    if (trimmed === "/hooks") {
+      conversation.addInfo(
+        "Hooks: configured in settings.json. Active-hook listing in v2 is tracked in docs/vision/repl-v2-tui.md.",
       );
       queueMicrotask(() => scrollRef.current?.scrollToBottom());
       return true;

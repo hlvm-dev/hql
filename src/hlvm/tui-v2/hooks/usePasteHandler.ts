@@ -33,6 +33,16 @@ export function usePasteHandler({
   }>({ chunks: [], timeoutId: null });
   const [isPasting, setIsPasting] = React.useState(false);
   const pastePendingRef = React.useRef(false);
+  // Mirror chunks into a ref so the paste-completion timeout can read the
+  // final text WITHOUT performing side-effects inside the `setPasteState`
+  // updater. Calling the parent `onPaste` (which setValue's PromptInput)
+  // from inside a React state-updater callback triggered the warning:
+  //   "Cannot update a component (`PromptInput`) while rendering a different
+  //    component (`BaseTextInput`). …setstate-in-render"
+  // The stderr text for that warning then leaked into the tmux PTY and
+  // corrupted the ink-drawn screen. Moving side-effects out of the updater
+  // eliminates the warning at its source.
+  const chunksRef = React.useRef<string[]>([]);
 
   const resetPasteTimeout = React.useCallback(
     (currentTimeoutId: ReturnType<typeof setTimeout> | null) => {
@@ -42,19 +52,16 @@ export function usePasteHandler({
 
       return setTimeout(() => {
         pastePendingRef.current = false;
-        setPasteState(({ chunks }) => {
-          const pastedText = chunks.join("").replace(/\[I$/, "").replace(
-            /\[O$/,
-            "",
-          );
-
-          if (onPaste) {
-            onPaste(pastedText);
-          }
-
-          setIsPasting(false);
-          return { chunks: [], timeoutId: null };
-        });
+        const pastedText = chunksRef.current
+          .join("")
+          .replace(/\[I$/, "")
+          .replace(/\[O$/, "");
+        chunksRef.current = [];
+        setPasteState({ chunks: [], timeoutId: null });
+        setIsPasting(false);
+        if (onPaste) {
+          onPaste(pastedText);
+        }
       }, PASTE_COMPLETION_TIMEOUT_MS);
     },
     [onPaste],
@@ -78,8 +85,9 @@ export function usePasteHandler({
 
     if (shouldHandleAsPaste) {
       pastePendingRef.current = true;
-      setPasteState(({ chunks, timeoutId }) => ({
-        chunks: [...chunks, input],
+      chunksRef.current = [...chunksRef.current, input];
+      setPasteState(({ timeoutId }) => ({
+        chunks: chunksRef.current,
         timeoutId: resetPasteTimeout(timeoutId),
       }));
       return;

@@ -13,10 +13,15 @@
 import {
   assertEquals,
   assertExists,
+  assertMatch,
+  assertNotEquals,
   assertRejects,
   assertStringIncludes,
-  assertNotEquals,
 } from "jsr:@std/assert";
+import {
+  getHlvmTasksDir,
+  getMcpConfigPath,
+} from "../../../src/common/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { runAgent } from "../../../src/hlvm/agent/tools/run-agent.ts";
 import { GENERAL_PURPOSE_AGENT } from "../../../src/hlvm/agent/tools/built-in/general.ts";
@@ -30,17 +35,18 @@ import {
   loadAgentDefinitions,
   parseAgentFromMarkdown,
 } from "../../../src/hlvm/agent/tools/agent-definitions.ts";
+import { AGENT_TOOL_METADATA as AGENT_TOOL } from "../../../src/hlvm/agent/tools/agent-tool-metadata.ts";
 import {
-  AGENT_TOOL,
-  getAllBackgroundAgents,
   drainCompletionNotifications,
+  getAllBackgroundAgents,
 } from "../../../src/hlvm/agent/tools/agent-tool.ts";
 import {
-  resetAgentEngine,
-  setAgentEngine,
   type AgentEngine,
   type AgentLLMConfig,
+  resetAgentEngine,
+  setAgentEngine,
 } from "../../../src/hlvm/agent/engine.ts";
+import { withTempHlvmDir } from "../helpers.ts";
 
 const platform = getPlatform();
 const TEST_WORKSPACE = "/tmp/hlvm-test-agent-integration";
@@ -119,6 +125,14 @@ function createCapturingLLM(response: string): {
   return { llm, getCapturedMessages: () => captured };
 }
 
+function extractLastUserText(messages: unknown[]): string {
+  const lastUser = [...messages].reverse().find((message) =>
+    typeof message === "object" && message !== null &&
+    "role" in message && (message as { role?: unknown }).role === "user"
+  ) as { content?: unknown } | undefined;
+  return typeof lastUser?.content === "string" ? lastUser.content : "";
+}
+
 /** Create mock tool registry */
 function mockToolRegistry(...names: string[]): Record<string, ToolMetadata> {
   const registry: Record<string, ToolMetadata> = {};
@@ -178,7 +192,44 @@ Deno.test({
 });
 
 Deno.test({
-  name: "runAgent: maxTurns enforced — loop stops even when LLM keeps calling tools",
+  name: "runAgent: prepends initialPrompt ahead of the user prompt",
+  async fn() {
+    let capturedPrompt = "";
+    const inspectLLM: LLMFunction = async (messages) => {
+      capturedPrompt = extractLastUserText(messages);
+      return { content: "ACK: complete", toolCalls: [] };
+    };
+    const tools = mockToolRegistry("read_file");
+
+    await ensureDir(TEST_WORKSPACE);
+    try {
+      await runAgent({
+        agentDefinition: {
+          ...GENERAL_PURPOSE_AGENT,
+          initialPrompt: "Always begin with ACK:",
+        },
+        prompt: "List one file",
+        workspace: TEST_WORKSPACE,
+        llmFunction: inspectLLM,
+        allTools: tools,
+        agentId: "test-initial-prompt",
+      });
+
+      assertEquals(
+        capturedPrompt,
+        "Always begin with ACK:\n\nList one file",
+      );
+    } finally {
+      await cleanDir(TEST_WORKSPACE);
+    }
+  },
+  sanitizeOps: false,
+  sanitizeResources: false,
+});
+
+Deno.test({
+  name:
+    "runAgent: maxTurns enforced — loop stops even when LLM keeps calling tools",
   async fn() {
     // LLM keeps calling read_file forever — maxTurns must stop it
     const { llm, getCallCount } = createToolCallingLLM({
@@ -207,8 +258,11 @@ Deno.test({
       // Loop should have stopped at or before maxTurns
       // The exact count depends on orchestrator internals, but it must be <= maxTurns + 1
       // (maxTurns iterations + possibly 1 final call)
-      assertEquals(getCallCount() <= customAgent.maxTurns + 1, true,
-        `Expected <= ${customAgent.maxTurns + 1} calls, got ${getCallCount()}`);
+      assertEquals(
+        getCallCount() <= customAgent.maxTurns + 1,
+        true,
+        `Expected <= ${customAgent.maxTurns + 1} calls, got ${getCallCount()}`,
+      );
       // Should have returned SOMETHING (not hang forever)
       assertExists(result.text);
     } finally {
@@ -224,10 +278,12 @@ Deno.test({
   async fn() {
     // Agent 1 gets a unique prompt, Agent 2 gets a different one.
     // Verify Agent 2's LLM call does NOT contain Agent 1's prompt.
-    const { llm: llm1, getCapturedMessages: getCapture1 } =
-      createCapturingLLM("Agent 1 result.");
-    const { llm: llm2, getCapturedMessages: getCapture2 } =
-      createCapturingLLM("Agent 2 result.");
+    const { llm: llm1, getCapturedMessages: getCapture1 } = createCapturingLLM(
+      "Agent 1 result.",
+    );
+    const { llm: llm2, getCapturedMessages: getCapture2 } = createCapturingLLM(
+      "Agent 2 result.",
+    );
     const tools = mockToolRegistry("read_file");
 
     await ensureDir(TEST_WORKSPACE);
@@ -361,7 +417,10 @@ Deno.test({
 
       // The first message should be system prompt containing READ-ONLY
       assertEquals(capturedMessages.length >= 1, true);
-      const systemMsg = capturedMessages[0] as { role: string; content: string };
+      const systemMsg = capturedMessages[0] as {
+        role: string;
+        content: string;
+      };
       assertEquals(systemMsg.role, "system");
       assertStringIncludes(systemMsg.content, "READ-ONLY");
     } finally {
@@ -464,17 +523,55 @@ Deno.test({
         },
         TEST_WORKSPACE,
         { llmFunction: mockLLM },
-      ) as { status: string; content: string; agentType: string };
+      ) as {
+        status: string;
+        content: string;
+        agentType: string;
+        totalTokens: number;
+      };
 
       assertEquals(result.status, "completed");
       assertStringIncludes(result.content, "auth");
       assertEquals(result.agentType, "general-purpose");
+      assertEquals(typeof result.totalTokens, "number");
     } finally {
       await cleanDir(TEST_WORKSPACE);
     }
   },
   sanitizeOps: false,
   sanitizeResources: false,
+});
+
+Deno.test("agent-tool: formatResult strips continuation trailer for one-shot agents", () => {
+  const formatted = AGENT_TOOL["Agent"].formatResult?.({
+    status: "completed",
+    agentId: "agent-1",
+    agentType: "Explore",
+    content: "Found files.",
+    totalDurationMs: 42,
+    totalToolUseCount: 2,
+    totalTokens: 123,
+  });
+
+  assertExists(formatted);
+  assertEquals(formatted!.llmContent, "Found files.");
+});
+
+Deno.test("agent-tool: formatResult includes HLVM-safe trailer for reusable agents", () => {
+  const formatted = AGENT_TOOL["Agent"].formatResult?.({
+    status: "completed",
+    agentId: "agent-2",
+    agentType: "general-purpose",
+    content: "Did the work.",
+    totalDurationMs: 84,
+    totalToolUseCount: 3,
+    totalTokens: 456,
+  });
+
+  assertExists(formatted);
+  assertStringIncludes(formatted!.llmContent ?? "", "agentId: agent-2");
+  assertStringIncludes(formatted!.llmContent ?? "", "<usage>total_tokens: 456");
+  assertEquals((formatted!.llmContent ?? "").includes("SendMessage"), false);
 });
 
 Deno.test({
@@ -508,32 +605,39 @@ Deno.test({
 Deno.test({
   name: "agent-tool: async execution returns async_launched",
   async fn() {
-    const agentToolMeta = AGENT_TOOL["Agent"];
-    const mockLLM = createMockLLM("Background done.");
+    await withTempHlvmDir(async () => {
+      const agentToolMeta = AGENT_TOOL["Agent"];
+      const mockLLM = createMockLLM("Background done.");
 
-    await ensureDir(TEST_WORKSPACE);
-    try {
-      const result = await agentToolMeta.fn(
-        {
-          prompt: "Background task",
-          description: "bg test",
-          run_in_background: true,
-        },
-        TEST_WORKSPACE,
-        { llmFunction: mockLLM },
-      ) as { status: string; agentId: string };
+      await ensureDir(TEST_WORKSPACE);
+      try {
+        const result = await agentToolMeta.fn(
+          {
+            prompt: "Background task",
+            description: "bg test",
+            run_in_background: true,
+          },
+          TEST_WORKSPACE,
+          { llmFunction: mockLLM },
+        ) as { status: string; agentId: string; outputFile: string };
 
-      assertEquals(result.status, "async_launched");
-      assertExists(result.agentId);
+        assertEquals(result.status, "async_launched");
+        assertExists(result.agentId);
+        assertStringIncludes(result.outputFile, getHlvmTasksDir());
+        assertEquals(await platform.fs.exists(result.outputFile), true);
 
-      // Background agent should be tracked
-      const bgAgents = getAllBackgroundAgents();
-      const found = bgAgents.find((a) => a.agentId === result.agentId);
-      assertExists(found);
-      assertEquals(found!.status === "running" || found!.status === "completed", true);
-    } finally {
-      await cleanDir(TEST_WORKSPACE);
-    }
+        // Background agent should be tracked
+        const bgAgents = getAllBackgroundAgents();
+        const found = bgAgents.find((a) => a.agentId === result.agentId);
+        assertExists(found);
+        assertEquals(
+          found!.status === "running" || found!.status === "completed",
+          true,
+        );
+      } finally {
+        await cleanDir(TEST_WORKSPACE);
+      }
+    });
   },
   sanitizeOps: false,
   sanitizeResources: false,
@@ -631,7 +735,8 @@ Custom explore prompt.`,
 // ============================================================
 
 Deno.test({
-  name: "runAgent: multi-turn — LLM makes tool calls, loop continues, then stops",
+  name:
+    "runAgent: multi-turn — LLM makes tool calls, loop continues, then stops",
   async fn() {
     // LLM makes tool calls for 2 turns, then returns final text
     const { llm, getCallCount } = createToolCallingLLM({
@@ -668,11 +773,15 @@ Deno.test({
 // ============================================================
 
 Deno.test({
-  name: "runAgent: Explore agent tool calls are restricted — unknown tools fail",
+  name:
+    "runAgent: Explore agent tool calls are restricted — unknown tools fail",
   async fn() {
     // LLM tries to call write_file (which Explore disallows)
     const { llm } = createToolCallingLLM({
-      toolCallsPerTurn: [{ toolName: "write_file", args: { path: "x.ts", content: "hack" } }],
+      toolCallsPerTurn: [{
+        toolName: "write_file",
+        args: { path: "x.ts", content: "hack" },
+      }],
       turnsBeforeStop: 1,
       finalResponse: "Done.",
     });
@@ -706,7 +815,8 @@ Deno.test({
 // ============================================================
 
 Deno.test({
-  name: "agent-tool: sync spawn with Explore type — verifies full dispatch chain",
+  name:
+    "agent-tool: sync spawn with Explore type — verifies full dispatch chain",
   async fn() {
     const agentToolMeta = AGENT_TOOL["Agent"];
     let capturedSystemPrompt = "";
@@ -749,44 +859,112 @@ Deno.test({
 Deno.test({
   name: "agent-tool: async agent completes and result becomes accessible",
   async fn() {
-    const agentToolMeta = AGENT_TOOL["Agent"];
-    const mockLLM = createMockLLM("Background work complete.");
+    await withTempHlvmDir(async () => {
+      const agentToolMeta = AGENT_TOOL["Agent"];
+      const mockLLM = createMockLLM("Background work complete.");
 
-    await ensureDir(TEST_WORKSPACE);
-    try {
-      const result = await agentToolMeta.fn(
-        {
-          prompt: "Long background task",
-          description: "bg completion test",
-          run_in_background: true,
-        },
-        TEST_WORKSPACE,
-        { llmFunction: mockLLM },
-      ) as { status: string; agentId: string };
-
-      assertEquals(result.status, "async_launched");
-      const agentId = result.agentId;
-
-      // Wait for background agent to complete (mock LLM is instant)
-      const bg = getAllBackgroundAgents().find((a) => a.agentId === agentId);
-      assertExists(bg);
-
-      // Wait for the promise to resolve
+      await ensureDir(TEST_WORKSPACE);
       try {
-        await bg!.promise;
-      } catch { /* may throw if already resolved */ }
+        const result = await agentToolMeta.fn(
+          {
+            prompt: "Long background task",
+            description: "bg completion test",
+            run_in_background: true,
+          },
+          TEST_WORKSPACE,
+          { llmFunction: mockLLM },
+        ) as { status: string; agentId: string; outputFile: string };
 
-      // After completion, status should be updated
-      // Give microtask a chance to update
-      await new Promise((r) => setTimeout(r, 50));
-      const updated = getAllBackgroundAgents().find((a) => a.agentId === agentId);
-      assertExists(updated);
-      assertEquals(updated!.status, "completed");
-      assertExists(updated!.result);
-      assertStringIncludes(updated!.result!.content, "Background work");
-    } finally {
-      await cleanDir(TEST_WORKSPACE);
-    }
+        assertEquals(result.status, "async_launched");
+        const agentId = result.agentId;
+
+        // Wait for background agent to complete (mock LLM is instant)
+        const bg = getAllBackgroundAgents().find((a) => a.agentId === agentId);
+        assertExists(bg);
+
+        // Wait for the promise to resolve
+        try {
+          await bg!.promise;
+        } catch { /* may throw if already resolved */ }
+
+        // After completion, status should be updated
+        await new Promise((r) => setTimeout(r, 50));
+        const updated = getAllBackgroundAgents().find((a) =>
+          a.agentId === agentId
+        );
+        assertExists(updated);
+        assertEquals(updated!.status, "completed");
+        assertExists(updated!.result);
+        assertStringIncludes(updated!.result!.content, "Background work");
+
+        const output = await platform.fs.readTextFile(result.outputFile);
+        assertStringIncludes(output, "Background work complete.");
+        assertStringIncludes(output, "<usage>total_tokens:");
+      } finally {
+        await cleanDir(TEST_WORKSPACE);
+      }
+    });
+  },
+  sanitizeOps: false,
+  sanitizeResources: false,
+});
+
+Deno.test({
+  name:
+    "agent-tool: async outputFile receives live transcript lines before completion",
+  async fn() {
+    await withTempHlvmDir(async () => {
+      const agentToolMeta = AGENT_TOOL["Agent"];
+      const slowToolLlm: LLMFunction = async (messages) => {
+        const seenToolResult = JSON.stringify(messages).includes("streamed");
+        if (!seenToolResult) {
+          return {
+            content: "",
+            toolCalls: [{
+              id: "call_1",
+              toolName: "shell_exec",
+              args: { command: "sleep 0.2 && printf streamed" },
+            }],
+          };
+        }
+        return { content: "Background shell done.", toolCalls: [] };
+      };
+
+      await ensureDir(TEST_WORKSPACE);
+      try {
+        const result = await agentToolMeta.fn(
+          {
+            prompt: "Run a slow shell command",
+            description: "bg output streaming test",
+            run_in_background: true,
+          },
+          TEST_WORKSPACE,
+          { llmFunction: slowToolLlm },
+        ) as { status: string; agentId: string; outputFile: string };
+
+        assertEquals(result.status, "async_launched");
+
+        await new Promise((r) => setTimeout(r, 50));
+        const midRunOutput = await platform.fs.readTextFile(result.outputFile);
+        assertStringIncludes(
+          midRunOutput,
+          'Agent "bg output streaming test" started.',
+        );
+        assertStringIncludes(midRunOutput, "shell_exec");
+
+        const bg = getAllBackgroundAgents().find((a) =>
+          a.agentId === result.agentId
+        );
+        assertExists(bg);
+        try {
+          await bg!.promise;
+        } catch {
+          // The background promise should not reject here, but keep cleanup best-effort.
+        }
+      } finally {
+        await cleanDir(TEST_WORKSPACE);
+      }
+    });
   },
   sanitizeOps: false,
   sanitizeResources: false,
@@ -797,17 +975,43 @@ Deno.test({
 // ============================================================
 
 Deno.test({
-  name: "agent-tool: isolation='worktree' creates worktree and passes it as workspace",
+  name:
+    "agent-tool: isolation='worktree' creates worktree and passes it as workspace",
   async fn() {
     // This test needs a real git repo as workspace
     const testRepo = "/tmp/hlvm-test-agent-worktree-integration";
     await ensureDir(testRepo);
-    await platform.command.output({ cmd: ["git", "init"], cwd: testRepo, stdout: "piped", stderr: "piped" });
-    await platform.command.output({ cmd: ["git", "config", "user.email", "t@t.com"], cwd: testRepo, stdout: "piped", stderr: "piped" });
-    await platform.command.output({ cmd: ["git", "config", "user.name", "T"], cwd: testRepo, stdout: "piped", stderr: "piped" });
+    await platform.command.output({
+      cmd: ["git", "init"],
+      cwd: testRepo,
+      stdout: "piped",
+      stderr: "piped",
+    });
+    await platform.command.output({
+      cmd: ["git", "config", "user.email", "t@t.com"],
+      cwd: testRepo,
+      stdout: "piped",
+      stderr: "piped",
+    });
+    await platform.command.output({
+      cmd: ["git", "config", "user.name", "T"],
+      cwd: testRepo,
+      stdout: "piped",
+      stderr: "piped",
+    });
     await platform.fs.writeTextFile(`${testRepo}/file.txt`, "original");
-    await platform.command.output({ cmd: ["git", "add", "file.txt"], cwd: testRepo, stdout: "piped", stderr: "piped" });
-    await platform.command.output({ cmd: ["git", "commit", "-m", "init"], cwd: testRepo, stdout: "piped", stderr: "piped" });
+    await platform.command.output({
+      cmd: ["git", "add", "file.txt"],
+      cwd: testRepo,
+      stdout: "piped",
+      stderr: "piped",
+    });
+    await platform.command.output({
+      cmd: ["git", "commit", "-m", "init"],
+      cwd: testRepo,
+      stdout: "piped",
+      stderr: "piped",
+    });
 
     try {
       let capturedWorkspace = "";
@@ -844,6 +1048,183 @@ Deno.test({
       });
       await cleanDir(testRepo);
     }
+  },
+  sanitizeOps: false,
+  sanitizeResources: false,
+});
+
+Deno.test({
+  name: "agent-tool: cwd overrides child workspace for model-created subagents",
+  async fn() {
+    const capturedConfigs: AgentLLMConfig[] = [];
+    const testEngine: AgentEngine = {
+      createLLM(config) {
+        capturedConfigs.push(config);
+        return async () => {
+          throw new Error("cwd-override-used");
+        };
+      },
+      createSummarizer() {
+        return async () => "summary";
+      },
+    };
+
+    const cwdDir = "/tmp/hlvm-agent-cwd-override";
+    setAgentEngine(testEngine);
+    await ensureDir(cwdDir);
+    await ensureDir(TEST_WORKSPACE);
+    try {
+      const agentToolMeta = AGENT_TOOL["Agent"];
+      const result = await agentToolMeta.fn(
+        {
+          prompt: "List files from another cwd",
+          description: "cwd override test",
+          subagent_type: "Explore",
+          model: "override-model-123",
+          cwd: cwdDir,
+        },
+        TEST_WORKSPACE,
+        {
+          llmFunction: createMockLLM("parent llm should not be used"),
+          modelId: "claude-code/claude-haiku-4-5-20251001",
+        },
+      ) as AgentToolResult;
+
+      assertEquals(capturedConfigs.length, 1);
+      assertEquals(capturedConfigs[0].workspace, cwdDir);
+      assertStringIncludes(result.content, "cwd-override-used");
+    } finally {
+      resetAgentEngine();
+      await cleanDir(cwdDir);
+      await cleanDir(TEST_WORKSPACE);
+    }
+  },
+  sanitizeOps: false,
+  sanitizeResources: false,
+});
+
+Deno.test({
+  name: "agent-tool: cwd and isolation='worktree' are mutually exclusive",
+  async fn() {
+    const agentToolMeta = AGENT_TOOL["Agent"];
+
+    await ensureDir(TEST_WORKSPACE);
+    try {
+      await assertRejects(
+        () =>
+          agentToolMeta.fn(
+            {
+              prompt: "Do isolated work",
+              description: "invalid cwd+worktree test",
+              cwd: "/tmp",
+              isolation: "worktree",
+            },
+            TEST_WORKSPACE,
+            { llmFunction: createMockLLM("unused") },
+          ),
+        Error,
+        "mutually exclusive",
+      );
+    } finally {
+      await cleanDir(TEST_WORKSPACE);
+    }
+  },
+  sanitizeOps: false,
+  sanitizeResources: false,
+});
+
+Deno.test({
+  name:
+    "agent-tool: frontmatter mcpServers load configured and inline MCP tools into an agent-scoped owner",
+  async fn() {
+    await withTempHlvmDir(async () => {
+      const capturedConfigs: AgentLLMConfig[] = [];
+      const testEngine: AgentEngine = {
+        createLLM(config) {
+          capturedConfigs.push(config);
+          return async () => {
+            throw new Error("agent-mcp-loaded");
+          };
+        },
+        createSummarizer() {
+          return async () => "summary";
+        },
+      };
+
+      const fixturePath = platform.path.join(
+        platform.process.cwd(),
+        "tests",
+        "fixtures",
+        "mcp-server.ts",
+      );
+      const agentsDir = `${TEST_WORKSPACE}/.hlvm/agents`;
+
+      setAgentEngine(testEngine);
+      await ensureDir(agentsDir);
+      await platform.fs.mkdir(platform.path.dirname(getMcpConfigPath()), {
+        recursive: true,
+      });
+      await platform.fs.writeTextFile(
+        getMcpConfigPath(),
+        JSON.stringify({
+          version: 1,
+          servers: [
+            { name: "configured", command: ["deno", "run", fixturePath] },
+          ],
+        }),
+      );
+      await platform.fs.writeTextFile(
+        `${agentsDir}/mcp-agent.md`,
+        `---
+name: mcp-agent
+description: Agent with MCP tools
+tools:
+  - mcp_configured_echo
+  - mcp_inline_test_echo
+mcpServers:
+  - configured
+  - inline_test:
+      command:
+        - deno
+        - run
+        - ${fixturePath}
+---
+
+Use MCP tools only.`,
+      );
+
+      try {
+        const agentToolMeta = AGENT_TOOL["Agent"];
+        const result = await agentToolMeta.fn(
+          {
+            prompt: "Use MCP tools",
+            description: "mcp agent test",
+            subagent_type: "mcp-agent",
+            model: "override-model-123",
+          },
+          TEST_WORKSPACE,
+          {
+            llmFunction: createMockLLM("parent llm should not be used"),
+            modelId: "claude-code/claude-haiku-4-5-20251001",
+          },
+        ) as AgentToolResult;
+
+        assertEquals(capturedConfigs.length, 1);
+        assertEquals(
+          capturedConfigs[0].toolAllowlist?.includes("mcp_configured_echo"),
+          true,
+        );
+        assertEquals(
+          capturedConfigs[0].toolAllowlist?.includes("mcp_inline_test_echo"),
+          true,
+        );
+        assertMatch(capturedConfigs[0].toolOwnerId ?? "", /^agent:/);
+        assertStringIncludes(result.content, "agent-mcp-loaded");
+      } finally {
+        resetAgentEngine();
+        await cleanDir(TEST_WORKSPACE);
+      }
+    });
   },
   sanitizeOps: false,
   sanitizeResources: false,
@@ -902,7 +1283,9 @@ Deno.test({
     drainCompletionNotifications();
 
     const agentToolMeta = AGENT_TOOL["Agent"];
-    const mockLLM = createMockLLM("Background analysis complete: found 3 issues.");
+    const mockLLM = createMockLLM(
+      "Background analysis complete: found 3 issues.",
+    );
 
     await ensureDir(TEST_WORKSPACE);
     try {
@@ -919,17 +1302,24 @@ Deno.test({
       assertEquals(result.status, "async_launched");
 
       // Wait for background agent to complete (mock LLM is instant)
-      const bg = getAllBackgroundAgents().find((a) => a.agentId === result.agentId);
+      const bg = getAllBackgroundAgents().find((a) =>
+        a.agentId === result.agentId
+      );
       assertExists(bg);
-      try { await bg!.promise; } catch { /* may already be resolved */ }
+      try {
+        await bg!.promise;
+      } catch { /* may already be resolved */ }
 
       // Give microtask time to enqueue notification
       await new Promise((r) => setTimeout(r, 100));
 
       // CC: parent drains completion queue → sees result as user message
       const notifications = drainCompletionNotifications();
-      assertEquals(notifications.length >= 1, true,
-        "Expected at least 1 completion notification");
+      assertEquals(
+        notifications.length >= 1,
+        true,
+        "Expected at least 1 completion notification",
+      );
 
       const notification = notifications[notifications.length - 1];
       assertStringIncludes(notification, "background agent completed");
@@ -945,7 +1335,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "agent-tool: errored background agent — error surfaces in notification result",
+  name:
+    "agent-tool: errored background agent — error surfaces in notification result",
   async fn() {
     drainCompletionNotifications();
 
@@ -970,9 +1361,13 @@ Deno.test({
 
       assertEquals(result.status, "async_launched");
 
-      const bg = getAllBackgroundAgents().find((a) => a.agentId === result.agentId);
+      const bg = getAllBackgroundAgents().find((a) =>
+        a.agentId === result.agentId
+      );
       assertExists(bg);
-      try { await bg!.promise; } catch { /* may resolve or reject */ }
+      try {
+        await bg!.promise;
+      } catch { /* may resolve or reject */ }
 
       await new Promise((r) => setTimeout(r, 100));
 
@@ -993,7 +1388,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "agent-tool: drainCompletionNotifications returns empty when no notifications",
+  name:
+    "agent-tool: drainCompletionNotifications returns empty when no notifications",
   fn() {
     // Drain first to clear any leftovers
     drainCompletionNotifications();
@@ -1004,7 +1400,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "agent-tool: explicit model override creates a child LLM with the override model",
+  name:
+    "agent-tool: explicit model override creates a child LLM with the override model",
   async fn() {
     const capturedConfigs: AgentLLMConfig[] = [];
     const testEngine: AgentEngine = {
@@ -1048,7 +1445,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "agent-tool: explicit model override failure is surfaced instead of silently falling back",
+  name:
+    "agent-tool: explicit model override failure is surfaced instead of silently falling back",
   async fn() {
     const testEngine: AgentEngine = {
       createLLM() {

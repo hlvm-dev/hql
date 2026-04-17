@@ -16,15 +16,15 @@ import {
   assertEquals,
   assertExists,
   assertMatch,
+  assertNotEquals,
   assertRejects,
   assertStringIncludes,
-  assertNotEquals,
 } from "jsr:@std/assert";
 
 // Constants
 import {
-  AGENT_TOOL_NAME,
   AGENT_MAX_TURNS,
+  AGENT_TOOL_NAME,
   ALL_AGENT_DISALLOWED_TOOLS,
   ASYNC_AGENT_ALLOWED_TOOLS,
   CUSTOM_AGENT_DISALLOWED_TOOLS,
@@ -33,11 +33,11 @@ import {
 
 // Types
 import {
-  isBuiltInAgent,
-  isCustomAgent,
   type AgentDefinition,
   type BuiltInAgentDefinition,
   type CustomAgentDefinition,
+  isBuiltInAgent,
+  isCustomAgent,
 } from "../../../src/hlvm/agent/tools/agent-types.ts";
 
 // Tool utils
@@ -54,8 +54,8 @@ import { getBuiltInAgents } from "../../../src/hlvm/agent/tools/built-in-agents.
 
 // Agent definitions
 import {
-  parseAgentFromMarkdown,
   getActiveAgentsFromList,
+  parseAgentFromMarkdown,
 } from "../../../src/hlvm/agent/tools/agent-definitions.ts";
 
 // Prompt
@@ -66,12 +66,12 @@ import {
 
 // Agent tool
 import {
-  getBackgroundAgent,
   getAllBackgroundAgents,
+  getBackgroundAgent,
 } from "../../../src/hlvm/agent/tools/agent-tool.ts";
 
 // Registry (verify wiring)
-import { hasTool, getAllTools } from "../../../src/hlvm/agent/registry.ts";
+import { getAllTools, hasTool } from "../../../src/hlvm/agent/registry.ts";
 import type { ToolMetadata } from "../../../src/hlvm/agent/registry.ts";
 import { buildToolJsonSchema } from "../../../src/hlvm/agent/tool-schema.ts";
 
@@ -79,7 +79,10 @@ import { buildToolJsonSchema } from "../../../src/hlvm/agent/tool-schema.ts";
 // Helper: create mock tool metadata
 // ============================================================
 
-function mockTool(name: string, overrides?: Partial<ToolMetadata>): ToolMetadata {
+function mockTool(
+  name: string,
+  overrides?: Partial<ToolMetadata>,
+): ToolMetadata {
   return {
     fn: async () => `result from ${name}`,
     description: `Mock ${name}`,
@@ -164,7 +167,12 @@ Deno.test("types: isCustomAgent returns true for custom, false for built-in", ()
 // ============================================================
 
 Deno.test("filterToolsForAgent: blocks ALL_AGENT_DISALLOWED_TOOLS", () => {
-  const tools = mockToolRegistry("read_file", "ask_user", "complete_task", "Agent");
+  const tools = mockToolRegistry(
+    "read_file",
+    "ask_user",
+    "complete_task",
+    "Agent",
+  );
   const filtered = filterToolsForAgent({ tools, isBuiltIn: true });
 
   assertEquals("read_file" in filtered, true);
@@ -183,7 +191,11 @@ Deno.test("filterToolsForAgent: allows MCP tools always", () => {
 
 Deno.test("filterToolsForAgent: async restricts to allowlist", () => {
   const tools = mockToolRegistry("read_file", "write_file", "some_custom_tool");
-  const filtered = filterToolsForAgent({ tools, isBuiltIn: true, isAsync: true });
+  const filtered = filterToolsForAgent({
+    tools,
+    isBuiltIn: true,
+    isAsync: true,
+  });
 
   assertEquals("read_file" in filtered, true);
   assertEquals("write_file" in filtered, true);
@@ -418,14 +430,69 @@ Prompt.`;
   assertEquals(agent!.disallowedTools, ["shell_exec", "write_file"]);
 });
 
+Deno.test("parseAgentFromMarkdown: parses initialPrompt and permissionMode", () => {
+  const md = `---
+name: guided
+description: Guided agent
+initialPrompt: "Always start with ACK:"
+permissionMode: plan
+---
+
+Prompt.`;
+
+  const agent = parseAgentFromMarkdown("/test/guided.md", md, "user");
+  assertExists(agent);
+  assertEquals(agent!.initialPrompt, "Always start with ACK:");
+  assertEquals(agent!.permissionMode, "plan");
+});
+
+Deno.test("parseAgentFromMarkdown: parses mcpServers references and inline servers", () => {
+  const md = `---
+name: mcp-agent
+description: MCP-backed agent
+mcpServers:
+  - test
+  - inline_test:
+      command:
+        - deno
+        - run
+        - /tmp/mcp-server.ts
+      env:
+        MCP_REPLY_PREFIX: inline
+---
+
+Prompt.`;
+
+  const agent = parseAgentFromMarkdown("/test/mcp-agent.md", md, "user");
+  assertExists(agent);
+  assertEquals(agent!.mcpServers?.length, 2);
+  assertEquals(agent!.mcpServers?.[0], "test");
+  assertEquals(
+    typeof agent!.mcpServers?.[1] === "object" &&
+      agent!.mcpServers?.[1] !== null &&
+      "inline_test" in agent!.mcpServers![1],
+    true,
+  );
+});
+
 // ============================================================
 // 5b. agent-definitions.ts — priority resolution
 // ============================================================
 
 Deno.test("getActiveAgentsFromList: deduplicates by agentType", () => {
   const agents: AgentDefinition[] = [
-    { agentType: "test", whenToUse: "built-in", source: "built-in", getSystemPrompt: () => "v1" },
-    { agentType: "test", whenToUse: "user", source: "user", getSystemPrompt: () => "v2" },
+    {
+      agentType: "test",
+      whenToUse: "built-in",
+      source: "built-in",
+      getSystemPrompt: () => "v1",
+    },
+    {
+      agentType: "test",
+      whenToUse: "user",
+      source: "user",
+      getSystemPrompt: () => "v2",
+    },
   ];
 
   const active = getActiveAgentsFromList(agents);
@@ -435,9 +502,24 @@ Deno.test("getActiveAgentsFromList: deduplicates by agentType", () => {
 
 Deno.test("getActiveAgentsFromList: project overrides user", () => {
   const agents: AgentDefinition[] = [
-    { agentType: "test", whenToUse: "built-in", source: "built-in", getSystemPrompt: () => "v1" },
-    { agentType: "test", whenToUse: "user", source: "user", getSystemPrompt: () => "v2" },
-    { agentType: "test", whenToUse: "project", source: "project", getSystemPrompt: () => "v3" },
+    {
+      agentType: "test",
+      whenToUse: "built-in",
+      source: "built-in",
+      getSystemPrompt: () => "v1",
+    },
+    {
+      agentType: "test",
+      whenToUse: "user",
+      source: "user",
+      getSystemPrompt: () => "v2",
+    },
+    {
+      agentType: "test",
+      whenToUse: "project",
+      source: "project",
+      getSystemPrompt: () => "v3",
+    },
   ];
 
   const active = getActiveAgentsFromList(agents);
@@ -447,8 +529,18 @@ Deno.test("getActiveAgentsFromList: project overrides user", () => {
 
 Deno.test("getActiveAgentsFromList: different types coexist", () => {
   const agents: AgentDefinition[] = [
-    { agentType: "alpha", whenToUse: "a", source: "built-in", getSystemPrompt: () => "" },
-    { agentType: "beta", whenToUse: "b", source: "user", getSystemPrompt: () => "" },
+    {
+      agentType: "alpha",
+      whenToUse: "a",
+      source: "built-in",
+      getSystemPrompt: () => "",
+    },
+    {
+      agentType: "beta",
+      whenToUse: "b",
+      source: "user",
+      getSystemPrompt: () => "",
+    },
   ];
 
   const active = getActiveAgentsFromList(agents);
@@ -569,8 +661,13 @@ Deno.test("agent-tool: getAllBackgroundAgents starts empty", () => {
 
 Deno.test("integration: Explore agent cannot use edit/write tools", () => {
   const tools = mockToolRegistry(
-    "read_file", "write_file", "edit_file", "search_code",
-    "list_files", "shell_exec", "Agent",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "search_code",
+    "list_files",
+    "shell_exec",
+    "Agent",
   );
   const result = resolveAgentTools(EXPLORE_AGENT, tools);
 
@@ -584,8 +681,14 @@ Deno.test("integration: Explore agent cannot use edit/write tools", () => {
 
 Deno.test("integration: GP agent gets all tools minus disallowed", () => {
   const tools = mockToolRegistry(
-    "read_file", "write_file", "edit_file", "search_code",
-    "shell_exec", "ask_user", "complete_task", "Agent",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "search_code",
+    "shell_exec",
+    "ask_user",
+    "complete_task",
+    "Agent",
   );
   const result = resolveAgentTools(GENERAL_PURPOSE_AGENT, tools);
 
@@ -602,7 +705,11 @@ Deno.test("integration: GP agent gets all tools minus disallowed", () => {
 
 Deno.test("integration: Plan agent has same restrictions as Explore", () => {
   const tools = mockToolRegistry(
-    "read_file", "write_file", "edit_file", "search_code", "Agent",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "search_code",
+    "Agent",
   );
   const exploreResult = resolveAgentTools(EXPLORE_AGENT, tools);
   const planResult = resolveAgentTools(PLAN_AGENT, tools);

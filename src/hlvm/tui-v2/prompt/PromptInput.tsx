@@ -53,8 +53,15 @@ import type {
   QueuedCommand,
   TextHighlight,
 } from "../types/textInputTypes.ts";
-import { CompletionDropdown } from "./CompletionDropdown.tsx";
-import { HistorySearchPrompt } from "./HistorySearchPrompt.tsx";
+// SSOT: reuse the v1 `repl-ink` components directly. Previously v2 kept
+// local copies of HighlightedText / PickerRow / CompletionDropdown /
+// HistorySearchPrompt which drifted (notably: the v1 originals highlight
+// fuzzy-match characters in yellow; the v2 copies rendered the row in
+// plain white). Per the doc SSOT rule, one implementation only — v1's.
+// v1 files import bare `"ink"`, which v2's deno.json maps to the local
+// donor engine, so these files work under React 19 unchanged.
+import { Dropdown as CompletionDropdown } from "../../cli/repl-ink/completion/Dropdown.tsx";
+import { HistorySearchPrompt } from "../../cli/repl-ink/components/HistorySearchPrompt.tsx";
 import {
   getModeFromInput,
   getValueFromInput,
@@ -768,6 +775,7 @@ export function PromptInput({
     nextMode: PromptInputMode,
     nextValue: string,
     attachments: readonly AnyAttachment[],
+    options: { clearAfter?: boolean } = { clearAfter: true },
   ) => {
     const trimmed = nextValue.trim();
     if (trimmed.length === 0 && attachments.length === 0) {
@@ -800,8 +808,18 @@ export function PromptInput({
       return next.slice(-MAX_HISTORY_ENTRIES);
     });
     setSubmitCount((current) => current + 1);
-    if (!restoreStashIfPresent()) {
-      clearEditor();
+    // Only clear the editor when the caller's draft IS what's in the
+    // editor. The queue-drain effect calls submitDraft with a DIFFERENT
+    // value (the next queued command), so clearing here would wipe the
+    // user's in-progress WIP draft — the exact bug users reported:
+    // "I was typing while waiting; the prompt got flushed when the
+    // queue advanced." Callers that want the editor cleared pass
+    // `{ clearAfter: true }` (the default); the queue-drain path passes
+    // `false`.
+    if (options.clearAfter !== false) {
+      if (!restoreStashIfPresent()) {
+        clearEditor();
+      }
     }
     return true;
   }, [clearEditor, onSubmit, restoreStashIfPresent]);
@@ -1162,6 +1180,17 @@ export function PromptInput({
       return "";
     }
 
+    // Inverse of the above: Backspace on an empty bash-mode prompt returns
+    // to chat-mode (`❯`). Without this, users who entered bash mode via `!`
+    // had no way back short of Ctrl+C exiting the whole REPL.
+    if (
+      mode === "bash" && value.length === 0 && cursorOffset === 0 &&
+      key.backspace
+    ) {
+      setMode("prompt");
+      return "";
+    }
+
     // CC parity: typing `?` into an empty prompt toggles the shortcut-help
     // footer instead of inserting the character. Any other visible keystroke
     // closes the help panel. Mirrors the onChange handler in
@@ -1312,6 +1341,12 @@ export function PromptInput({
       }
       if (key.return) {
         event.stopImmediatePropagation();
+        // For the slash-command picker, confirmSelected returns an
+        // ApplyResult whose `sideEffect.type === "EXECUTE"`.
+        // `applyCompletionResult` already dispatches that via
+        // `submitDraft` + `clearEditor` (see the EXECUTE branch). Do NOT
+        // re-submit here — a duplicate submit path caused the slash
+        // command to run twice (e.g. `/help` printed its notice twice).
         const result = completion.confirmSelected();
         if (result) {
           applyCompletionResult(result);
@@ -1517,10 +1552,16 @@ export function PromptInput({
     }
 
     drainingQueuedCommandIdRef.current = nextQueued.id;
+    // `clearAfter: false` preserves the user's in-progress WIP draft in
+    // the editor. The queue-drain path is submitting a DIFFERENT value
+    // (the queued command) and must NOT wipe whatever the user is
+    // currently typing in the composer. This is the "prompt flushed
+    // when queue advances" bug the user reported.
     const accepted = submitDraft(
       nextQueued.mode === "task-notification" ? "prompt" : nextQueued.mode,
       nextQueued.value,
       nextQueued.attachments ?? [],
+      { clearAfter: false },
     );
     if (!accepted) {
       drainingQueuedCommandIdRef.current = null;
@@ -1574,19 +1615,21 @@ export function PromptInput({
     ? "\u23F8 plan mode on (shift+tab to cycle)"
     : undefined;
 
-  // CC parity: when the prompt is empty and no attachments are queued, the
-  // footer's left side should read `? for shortcuts` (rendered by
-  // PromptInputFooterLeftSide's default branch), not HLVM's `Enter send`
-  // submit cue. Only surface the submit cue when there is something to
-  // submit or when a non-default permission mode is active.
-  const hasDraftContent = value.trim().length > 0 ||
-    visibleAttachments.length > 0;
+  // CC parity: CC's footer shows `? for shortcuts` constantly unless a
+  // special state owns the row (loading, search, permission mode,
+  // placeholder/snippet mode, or a runtime-supplied label like `52% ctx`).
+  // Drop the HLVM-specific `Enter send` / `Enter command` submit cue —
+  // it was the last remaining diff on the footer vs CC. Users still see
+  // the shortcuts hint by design.
+  // `submitActionCue` is still computed so that future product flows can
+  // opt in by providing a `footerLabel` override, but it is no longer
+  // surfaced for plain drafts.
+  void submitActionCue;
   const resolvedFooterLabel = placeholderModeActive
     ? `snippet ${
       placeholderIndex + 1
     }/${placeholders.length} · Tab next · Shift+Tab prev · Enter send`
-    : permissionModeLabel ?? footerLabel ??
-      (hasDraftContent ? submitActionCue : undefined);
+    : permissionModeLabel ?? footerLabel;
 
   return (
     <Box flexDirection="column">
@@ -1655,7 +1698,12 @@ export function PromptInput({
           helpText={completion.renderProps.helpText}
           isLoading={completion.renderProps.isLoading}
           providerId={completion.renderProps.providerId}
-          marginLeft={completionPanelLayout.marginLeft}
+          // CC-parity: CC renders the `@` / `/` picker rows flush to the
+          // shell column (no per-row indent tied to the cursor position).
+          // v1's layout utility aligns the picker with the cursor column,
+          // which pushes rows ~3 cells right of the prompt. We override
+          // here (v2 call-site only; v1 REPL keeps its own layout).
+          marginLeft={0}
           width={completionPanelLayout.maxWidth}
           showDocPanel={completion.renderProps.showDocPanel}
         />

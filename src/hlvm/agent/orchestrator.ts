@@ -799,12 +799,19 @@ const COMPLETE_TOOLS = new Set([
   "git_diff",
   "git_status",
 ]);
-const READ_TOOLS = new Set([
-  "read_file",
-  "search_code",
-  "list_files",
-  "tool_search",
-]);
+
+function resolveRequestHeuristics(
+  state: LoopState,
+  userRequest: string,
+): { impliesEditing: boolean; impliesVerification: boolean } {
+  if (!state.requestHeuristics) {
+    state.requestHeuristics = {
+      impliesEditing: requestImpliesEditing(userRequest),
+      impliesVerification: requestImpliesVerification(userRequest),
+    };
+  }
+  return state.requestHeuristics;
+}
 
 async function deriveRuntimePhase(
   state: LoopState,
@@ -814,11 +821,9 @@ async function deriveRuntimePhase(
   // Single pass: classify last tool names into categories
   let hasWrite = false;
   let hasComplete = false;
-  let hasRead = false;
   for (const name of state.lastToolNames) {
     if (WRITE_TOOLS.has(name)) hasWrite = true;
     else if (COMPLETE_TOOLS.has(name)) hasComplete = true;
-    else if (READ_TOOLS.has(name)) hasRead = true;
   }
 
   if (config.planModeState?.phase === "executing" || state.planState) {
@@ -827,9 +832,9 @@ async function deriveRuntimePhase(
 
   if (hasWrite) return "verifying";
   if (hasComplete) return "completing";
-  if (hasRead && requestImpliesEditing(userRequest)) return "editing";
-  if (requestImpliesEditing(userRequest)) return "editing";
-  if (requestImpliesVerification(userRequest)) return "verifying";
+  const heuristics = resolveRequestHeuristics(state, userRequest);
+  if (heuristics.impliesEditing) return "editing";
+  if (heuristics.impliesVerification) return "verifying";
   return "researching";
 }
 

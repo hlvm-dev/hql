@@ -178,27 +178,35 @@ export async function createAttachment(
   filePath: string,
   id: number,
 ): Promise<Attachment | AttachmentError> {
+  // Expand `~` to $HOME BEFORE handing off to the attachment service.
+  // Without this, a user selecting `@~/Desktop/file.png` from the `@`
+  // picker would end up calling `Deno.readFile("~/Desktop/file.png")`
+  // which resolves against CWD as `./~/Desktop/file.png` → ENOENT with
+  // a confusing message like `File not found: /Users/.../hql/~/Desktop/
+  // Screenshot ….png`. `resolveAttachmentPath` already knows how to do
+  // the home-expand + normalize dance; it was just never invoked here.
+  const resolvedPath = resolveAttachmentPath(filePath);
   try {
-    const record = await registerAttachmentFromPath(filePath);
+    const record = await registerAttachmentFromPath(resolvedPath);
     return {
       id,
       attachmentId: record.id,
       type: record.kind,
       displayName: getDisplayName(record.kind, id),
-      path: record.sourcePath ?? filePath,
-      fileName: record.fileName || getAttachmentFileName(filePath),
+      path: record.sourcePath ?? resolvedPath,
+      fileName: record.fileName || getAttachmentFileName(resolvedPath),
       mimeType: record.mimeType,
       size: record.size,
       metadata: record.metadata,
     };
   } catch (error) {
     if (error instanceof AttachmentServiceError) {
-      return formatAttachmentError(error, filePath);
+      return formatAttachmentError(error, resolvedPath);
     }
     return {
       type: "read_error",
       message: error instanceof Error ? error.message : "Failed to read file",
-      path: filePath,
+      path: resolvedPath,
     };
   }
 }

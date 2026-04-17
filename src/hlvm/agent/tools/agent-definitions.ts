@@ -11,16 +11,101 @@
  */
 
 import { parseFrontmatter } from "../../../common/frontmatter.ts";
+import { PERMISSION_MODES_SET } from "../../../common/config/types.ts";
+import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
+import type { AgentExecutionMode } from "../execution-mode.ts";
 import type {
   AgentDefinition,
   AgentDefinitionsResult,
+  AgentMcpServerSpec,
   CustomAgentDefinition,
 } from "./agent-types.ts";
 import { getBuiltInAgents } from "./built-in-agents.ts";
+import type { McpServerConfig } from "../mcp/types.ts";
 
 const log = getAgentLogger();
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const strings = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return strings.length > 0 ? strings : undefined;
+}
+
+function normalizeStringRecord(
+  value: unknown,
+): Record<string, string> | undefined {
+  if (!isObjectValue(value)) return undefined;
+  const entries = Object.entries(value)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .map(([key, entryValue]) => [key, entryValue.trim()] as const)
+    .filter((entry) => entry[1].length > 0);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function normalizeMcpServerConfig(
+  value: unknown,
+): Omit<McpServerConfig, "name"> | null {
+  if (!isObjectValue(value)) return null;
+
+  const command = normalizeStringArray(value.command);
+  const url = typeof value.url === "string" && value.url.trim().length > 0
+    ? value.url.trim()
+    : undefined;
+  if (!command && !url) {
+    return null;
+  }
+
+  const cwd = typeof value.cwd === "string" && value.cwd.trim().length > 0
+    ? value.cwd.trim()
+    : undefined;
+  const transport = value.transport === "stdio" || value.transport === "http" ||
+      value.transport === "sse"
+    ? value.transport
+    : undefined;
+  const headers = normalizeStringRecord(value.headers);
+  const env = normalizeStringRecord(value.env);
+  const disabled_tools = normalizeStringArray(value.disabled_tools);
+  const connection_timeout_ms =
+    typeof value.connection_timeout_ms === "number" &&
+      Number.isFinite(value.connection_timeout_ms) &&
+      value.connection_timeout_ms > 0
+      ? Math.floor(value.connection_timeout_ms)
+      : undefined;
+
+  return {
+    ...(command ? { command } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(env ? { env } : {}),
+    ...(url ? { url } : {}),
+    ...(transport ? { transport } : {}),
+    ...(headers ? { headers } : {}),
+    ...(disabled_tools ? { disabled_tools } : {}),
+    ...(connection_timeout_ms ? { connection_timeout_ms } : {}),
+  };
+}
+
+function normalizeAgentMcpServerSpec(
+  value: unknown,
+): AgentMcpServerSpec | null {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim();
+  }
+  if (!isObjectValue(value)) return null;
+
+  const entries = Object.entries(value);
+  if (entries.length !== 1) return null;
+  const [serverName, serverConfig] = entries[0]!;
+  if (serverName.trim().length === 0) return null;
+
+  const normalizedConfig = normalizeMcpServerConfig(serverConfig);
+  if (!normalizedConfig) return null;
+  return { [serverName.trim()]: normalizedConfig };
+}
 
 // ============================================================
 // Frontmatter Parsing (CC: parseAgentFromMarkdown)
@@ -31,7 +116,8 @@ const log = getAgentLogger();
  * CC: parseAgentFromMarkdown() — simplified (no plugins, no memory, no hooks)
  *
  * Required frontmatter: name, description
- * Optional: tools, disallowedTools, model, maxTurns, background, isolation
+ * Optional: tools, disallowedTools, model, maxTurns, background, isolation,
+ * initialPrompt, permissionMode, mcpServers
  */
 export function parseAgentFromMarkdown(
   filePath: string,
@@ -60,42 +146,73 @@ export function parseAgentFromMarkdown(
       model = trimmed.toLowerCase() === "inherit" ? "inherit" : trimmed;
     }
 
-    // Parse tools
-    const toolsRaw = meta["tools"];
-    let tools: string[] | undefined;
-    if (Array.isArray(toolsRaw)) {
-      tools = toolsRaw.filter((t): t is string => typeof t === "string");
-    }
-
-    // Parse disallowedTools
-    const disallowedToolsRaw = meta["disallowedTools"];
-    let disallowedTools: string[] | undefined;
-    if (Array.isArray(disallowedToolsRaw)) {
-      disallowedTools = disallowedToolsRaw.filter(
-        (t): t is string => typeof t === "string",
-      );
-    }
+    // Parse tools / disallowedTools
+    const tools = normalizeStringArray(meta["tools"]);
+    const disallowedTools = normalizeStringArray(meta["disallowedTools"]);
 
     // Parse maxTurns
     const maxTurnsRaw = meta["maxTurns"];
     let maxTurns: number | undefined;
-    if (typeof maxTurnsRaw === "number" && Number.isInteger(maxTurnsRaw) && maxTurnsRaw > 0) {
+    if (
+      typeof maxTurnsRaw === "number" && Number.isInteger(maxTurnsRaw) &&
+      maxTurnsRaw > 0
+    ) {
       maxTurns = maxTurnsRaw;
     }
 
     // Parse background
     const backgroundRaw = meta["background"];
-    const background =
-      backgroundRaw === true || backgroundRaw === "true" ? true : undefined;
+    const background = backgroundRaw === true || backgroundRaw === "true"
+      ? true
+      : undefined;
 
     // Parse isolation
     const isolationRaw = meta["isolation"];
-    const isolation = isolationRaw === "worktree" ? "worktree" as const : undefined;
+    const isolation = isolationRaw === "worktree"
+      ? "worktree" as const
+      : undefined;
 
     // Parse omitClaudeMd
     const omitClaudeMdRaw = meta["omitClaudeMd"];
-    const omitClaudeMd =
-      omitClaudeMdRaw === true || omitClaudeMdRaw === "true" ? true : undefined;
+    const omitClaudeMd = omitClaudeMdRaw === true || omitClaudeMdRaw === "true"
+      ? true
+      : undefined;
+
+    // Parse permissionMode
+    const permissionModeRaw = meta["permissionMode"];
+    const permissionMode = typeof permissionModeRaw === "string" &&
+        PERMISSION_MODES_SET.has(permissionModeRaw)
+      ? permissionModeRaw as AgentExecutionMode
+      : undefined;
+    if (permissionModeRaw !== undefined && permissionMode === undefined) {
+      log.debug(
+        `Agent file ${filePath} has invalid permissionMode '${
+          String(permissionModeRaw)
+        }'`,
+      );
+    }
+
+    // Parse initialPrompt
+    const initialPromptRaw = meta["initialPrompt"];
+    const initialPrompt =
+      typeof initialPromptRaw === "string" && initialPromptRaw.trim().length > 0
+        ? initialPromptRaw
+        : undefined;
+
+    // Parse mcpServers
+    const mcpServersRaw = meta["mcpServers"];
+    let mcpServers: AgentMcpServerSpec[] | undefined;
+    if (Array.isArray(mcpServersRaw)) {
+      const parsedSpecs = mcpServersRaw
+        .map((spec) => normalizeAgentMcpServerSpec(spec))
+        .filter((spec): spec is AgentMcpServerSpec => spec !== null);
+      if (parsedSpecs.length > 0) {
+        mcpServers = parsedSpecs;
+      }
+      if (parsedSpecs.length !== mcpServersRaw.length) {
+        log.debug(`Agent file ${filePath} has invalid mcpServers entries`);
+      }
+    }
 
     // Extract filename
     const parts = filePath.split("/");
@@ -114,13 +231,16 @@ export function parseAgentFromMarkdown(
       ...(background ? { background } : {}),
       ...(isolation ? { isolation } : {}),
       ...(omitClaudeMd ? { omitClaudeMd } : {}),
+      ...(permissionMode ? { permissionMode } : {}),
+      ...(initialPrompt ? { initialPrompt } : {}),
+      ...(mcpServers ? { mcpServers } : {}),
       getSystemPrompt: () => systemPrompt,
       source,
       baseDir: filePath.substring(0, filePath.lastIndexOf("/")),
       filename,
     };
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = getErrorMessage(error);
     log.debug(`Error parsing agent from ${filePath}: ${msg}`);
     return null;
   }
@@ -152,7 +272,13 @@ export async function loadAgentDefinitions(
 
   // Load project agents (.hlvm/agents/ in workspace)
   const projectAgentsDir = `${workspace}/.hlvm/agents`;
-  await loadAgentsFromDir(projectAgentsDir, "project", customAgents, failedFiles, fs);
+  await loadAgentsFromDir(
+    projectAgentsDir,
+    "project",
+    customAgents,
+    failedFiles,
+    fs,
+  );
 
   const builtInAgents = getBuiltInAgents();
 

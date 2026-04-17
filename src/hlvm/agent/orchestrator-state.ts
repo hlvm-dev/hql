@@ -126,6 +126,15 @@ export interface LoopState {
   compactionReason?: "proactive_pressure" | "overflow_retry";
   /** Message revision at the last proactive compaction boundary. */
   lastProactiveCompactionMessageRevision?: number;
+  /**
+   * Cached regex heuristics about the (constant) user request.
+   * Populated lazily on first use by `applyAdaptiveToolPhase` so the same
+   * regexes do not re-run on every loop iteration.
+   */
+  requestHeuristics?: {
+    impliesEditing: boolean;
+    impliesVerification: boolean;
+  };
 }
 
 /** Resolved constants from OrchestratorConfig, computed once at loop start.

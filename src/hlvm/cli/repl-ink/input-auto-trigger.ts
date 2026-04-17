@@ -1,7 +1,17 @@
+// Import DIRECTLY from providers.ts, NOT from ./completion/index.ts.
+// The `./completion/index.ts` barrel eagerly re-exports `Dropdown` from
+// `./completion/Dropdown.tsx`, which in turn imports `PickerRow.tsx` and
+// `HighlightedText.tsx` — all three use bare `from "ink"`. When v2 reaches
+// this module through PromptInput, those three files get pulled into the
+// v2 dependency graph, where bare `"ink"` resolves through v2's deno.json
+// ink-barrel alias. Routing around the barrel keeps them out of the v2
+// graph entirely so the `ink/index.ts` bridge can eventually be deleted.
+// `extractMentionQuery` and `shouldTriggerFileMention` are defined in
+// providers.ts; the barrel only re-exports them.
 import {
   extractMentionQuery,
   shouldTriggerFileMention,
-} from "./completion/index.ts";
+} from "./completion/providers.ts";
 import type { CompletionContext } from "./completion/types.ts";
 
 /**

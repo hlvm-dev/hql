@@ -13,34 +13,34 @@
  * 6. Return result
  */
 
-import type { ToolMetadata, ToolFunction, ToolExecutionOptions } from "../registry.ts";
+import { getHlvmTasksDir } from "../../../common/paths.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+import type {
+  ToolExecutionOptions,
+  ToolFunction,
+  ToolMetadata,
+} from "../registry.ts";
 // NOTE: getAllTools is imported dynamically to break circular dep
 // (registry.ts → agent-tool.ts → registry.ts)
 import type {
+  AgentAsyncResult,
   AgentDefinition,
+  AgentMcpServerSpec,
   AgentToolInput,
   AgentToolOutput,
   AgentToolResult,
-  AgentAsyncResult,
   BackgroundAgent,
 } from "./agent-types.ts";
 import { loadAgentDefinitions } from "./agent-definitions.ts";
-import { AGENT_TOOL_NAME } from "./agent-constants.ts";
+import { loadMcpTools } from "../mcp/tools.ts";
+import type { McpLoadResult, McpServerConfig } from "../mcp/types.ts";
+import { type InheritedAgentConfig, runAgent } from "./run-agent.ts";
 import {
-  getAgentToolFallbackDescription,
-  AGENT_TOOL_ARGS,
-  resolveAgentToolDescription,
-} from "./agent-tool-spec.ts";
-import { runAgent, type InheritedAgentConfig } from "./run-agent.ts";
-import {
-  createAgentWorktree,
   cleanupWorktree,
+  createAgentWorktree,
   type WorktreeInfo,
-  type WorktreeResult,
 } from "./agent-worktree.ts";
 import { getAgentLogger } from "../logger.ts";
-// Side-effect: registers getBackgroundAgentEntries on globalThis for TUI access
-import "./agent-local-agents.ts";
 
 const log = getAgentLogger();
 
@@ -62,8 +62,84 @@ function generateAgentId(): string {
   return `agent-${++agentCounter}-${Date.now().toString(36)}`;
 }
 
+function getInlineMcpServers(
+  specs: readonly AgentMcpServerSpec[] | undefined,
+): McpServerConfig[] {
+  if (!specs?.length) return [];
+  const inlineConfigs: McpServerConfig[] = [];
+  for (const spec of specs) {
+    if (typeof spec === "string") continue;
+    const entries = Object.entries(spec);
+    if (entries.length !== 1) continue;
+    const [name, config] = entries[0]!;
+    inlineConfigs.push({ name, ...config });
+  }
+  return inlineConfigs;
+}
+
+async function prepareAgentMcpRuntime(opts: {
+  agentId: string;
+  workspace: string;
+  selectedAgent: AgentDefinition;
+  options?: ToolExecutionOptions;
+  inheritedConfig: InheritedAgentConfig;
+}): Promise<{
+  allTools: Record<string, ToolMetadata>;
+  inheritedConfig: InheritedAgentConfig;
+  cleanup: () => Promise<void>;
+}> {
+  const { agentId, workspace, selectedAgent, options, inheritedConfig } = opts;
+  const { getAllTools } = await import("../registry.ts");
+
+  if (!selectedAgent.mcpServers?.length) {
+    return {
+      allTools: getAllTools(options?.toolOwnerId),
+      inheritedConfig,
+      cleanup: async () => {},
+    };
+  }
+
+  const inlineServers = getInlineMcpServers(selectedAgent.mcpServers);
+
+  if (
+    inlineServers.length === 0 && options?.ensureMcpLoaded &&
+    options.toolOwnerId
+  ) {
+    await options.ensureMcpLoaded(options.signal);
+    return {
+      allTools: getAllTools(options.toolOwnerId),
+      inheritedConfig: {
+        ...inheritedConfig,
+        toolOwnerId: options.toolOwnerId,
+        ensureMcpLoaded: options.ensureMcpLoaded,
+      },
+      cleanup: async () => {},
+    };
+  }
+
+  const ownerId = `agent:${agentId}`;
+  const loadResult: McpLoadResult = await loadMcpTools(
+    workspace,
+    inlineServers.length > 0 ? inlineServers : undefined,
+    ownerId,
+    options?.signal,
+  );
+
+  return {
+    allTools: getAllTools(loadResult.ownerId),
+    inheritedConfig: {
+      ...inheritedConfig,
+      toolOwnerId: loadResult.ownerId,
+      ensureMcpLoaded: async () => {},
+    },
+    cleanup: loadResult.dispose,
+  };
+}
+
 /** Get a background agent by ID */
-export function getBackgroundAgent(agentId: string): BackgroundAgent | undefined {
+export function getBackgroundAgent(
+  agentId: string,
+): BackgroundAgent | undefined {
   return backgroundAgents.get(agentId);
 }
 
@@ -110,12 +186,11 @@ function buildCompletionNotification(
   result?: string,
   error?: string,
 ): string {
-  const summary =
-    status === "completed"
-      ? `Agent "${description}" completed`
-      : status === "failed"
-        ? `Agent "${description}" failed: ${error ?? "Unknown error"}`
-        : `Agent "${description}" was stopped`;
+  const summary = status === "completed"
+    ? `Agent "${description}" completed`
+    : status === "failed"
+    ? `Agent "${description}" failed: ${error ?? "Unknown error"}`
+    : `Agent "${description}" was stopped`;
 
   // CC format: <task-notification> XML
   const resultSection = result ? `\n<result>${result}</result>` : "";
@@ -163,10 +238,11 @@ const agentToolFn: ToolFunction = async (
     subagent_type,
     model,
     isolation,
+    cwd,
   } = input;
-  // LLM may send run_in_background as string "true" — coerce to boolean
-  const run_in_background = input.run_in_background === true ||
-    input.run_in_background === "true" as unknown as boolean;
+  // LLMs sometimes emit boolean args as the string "true" — coerce at the boundary.
+  const rawBackground: unknown = input.run_in_background;
+  const run_in_background = rawBackground === true || rawBackground === "true";
 
   if (!prompt || typeof prompt !== "string") {
     throw new Error("Agent tool requires a 'prompt' parameter");
@@ -188,12 +264,7 @@ const agentToolFn: ToolFunction = async (
     );
   }
 
-  // Step 3: Get all tools for the child agent
-  // Dynamic import to break circular dep (CC: same pattern in AgentTool.tsx)
-  const { getAllTools } = await import("../registry.ts");
-  const allTools = getAllTools();
-
-  // Step 4: Get LLM function from parent config
+  // Step 3: Get LLM function from parent config
   // The LLM function is passed through ToolExecutionOptions
   const llmFunction = options?.llmFunction;
   if (!llmFunction) {
@@ -204,7 +275,7 @@ const agentToolFn: ToolFunction = async (
   }
 
   const agentId = generateAgentId();
-  const inheritedConfig: InheritedAgentConfig = {
+  const baseInheritedConfig: InheritedAgentConfig = {
     contextBudget: options?.contextBudget,
     policy: options?.policy ?? null,
     modelTier: options?.modelTier,
@@ -223,8 +294,21 @@ const agentToolFn: ToolFunction = async (
     modelId: options?.modelId,
   };
 
-  // Step 5: Create worktree if isolation requested (CC: effectiveIsolation)
+  const trimmedCwd = typeof cwd === "string" && cwd.trim().length > 0
+    ? cwd.trim()
+    : undefined;
+
+  // Step 4: Create worktree if isolation requested (CC: effectiveIsolation)
   const effectiveIsolation = isolation ?? selectedAgent.isolation;
+  if (effectiveIsolation === "worktree" && trimmedCwd) {
+    throw new Error("cwd and isolation='worktree' are mutually exclusive");
+  }
+  if (
+    trimmedCwd &&
+    !getPlatform().path.isAbsolute(trimmedCwd)
+  ) {
+    throw new Error("Agent tool cwd must be an absolute path");
+  }
   let worktreeInfo: WorktreeInfo | null = null;
 
   if (effectiveIsolation === "worktree") {
@@ -233,11 +317,33 @@ const agentToolFn: ToolFunction = async (
   }
 
   // Use worktree path as workspace override (CC: cwdOverridePath)
-  const effectiveWorkspace = worktreeInfo?.worktreePath ?? workspace;
+  const effectiveWorkspace = worktreeInfo?.worktreePath ?? trimmedCwd ??
+    workspace;
+
+  // Step 5: Get all tools for the child agent
+  let allTools: Record<string, ToolMetadata> = {};
+  let inheritedConfig: InheritedAgentConfig = baseInheritedConfig;
+  let agentMcpCleanup: () => Promise<void> = async () => {};
+  try {
+    ({
+      allTools,
+      inheritedConfig,
+      cleanup: agentMcpCleanup,
+    } = await prepareAgentMcpRuntime({
+      agentId,
+      workspace: effectiveWorkspace,
+      selectedAgent,
+      options,
+      inheritedConfig: baseInheritedConfig,
+    }));
+  } catch (error) {
+    await cleanupWorktree(worktreeInfo);
+    throw error;
+  }
 
   // Step 6: Route sync vs async (CC: shouldRunAsync logic)
-  const shouldRunAsync =
-    run_in_background === true || selectedAgent.background === true;
+  const shouldRunAsync = run_in_background === true ||
+    selectedAgent.background === true;
 
   if (shouldRunAsync) {
     return runAsyncAgent({
@@ -252,6 +358,7 @@ const agentToolFn: ToolFunction = async (
       worktreeInfo,
       modelOverride: model,
       inheritedConfig,
+      agentMcpCleanup,
     });
   }
 
@@ -267,6 +374,7 @@ const agentToolFn: ToolFunction = async (
     worktreeInfo,
     modelOverride: model,
     inheritedConfig,
+    agentMcpCleanup,
   });
 };
 
@@ -286,6 +394,7 @@ async function runSyncAgent(opts: {
   worktreeInfo?: WorktreeInfo | null;
   modelOverride?: string;
   inheritedConfig?: InheritedAgentConfig;
+  agentMcpCleanup?: () => Promise<void>;
 }): Promise<AgentToolResult> {
   const {
     agentId,
@@ -299,10 +408,13 @@ async function runSyncAgent(opts: {
     worktreeInfo,
     modelOverride,
     inheritedConfig,
+    agentMcpCleanup,
   } = opts;
 
   log.info(
-    `[Agent:${selectedAgent.agentType}] Sync spawn: "${description}"${worktreeInfo ? ` (worktree: ${worktreeInfo.worktreePath})` : ""}`,
+    `[Agent:${selectedAgent.agentType}] Sync spawn: "${description}"${
+      worktreeInfo ? ` (worktree: ${worktreeInfo.worktreePath})` : ""
+    }`,
   );
 
   // CC: emit agent_spawn event for TUI rendering
@@ -342,8 +454,9 @@ async function runSyncAgent(opts: {
       transcript: result.transcript,
     });
 
-    // Cleanup worktree (CC: cleanupWorktreeIfNeeded in finally block)
+    // Cleanup worktree / agent-scoped MCP on completion
     const worktreeResult = await cleanupWorktree(worktreeInfo ?? null);
+    await agentMcpCleanup?.();
 
     return {
       status: "completed",
@@ -352,6 +465,7 @@ async function runSyncAgent(opts: {
       content: result.text,
       totalDurationMs: result.durationMs,
       totalToolUseCount: result.toolUseCount,
+      totalTokens: result.totalTokens,
       ...worktreeResult,
     };
   } catch (err) {
@@ -366,6 +480,7 @@ async function runSyncAgent(opts: {
     });
     // Cleanup on error too
     await cleanupWorktree(worktreeInfo ?? null);
+    await agentMcpCleanup?.();
     throw err;
   }
 }
@@ -386,6 +501,7 @@ async function runAsyncAgent(opts: {
   worktreeInfo?: WorktreeInfo | null;
   modelOverride?: string;
   inheritedConfig?: InheritedAgentConfig;
+  agentMcpCleanup?: () => Promise<void>;
 }): Promise<AgentAsyncResult> {
   const {
     agentId,
@@ -399,6 +515,7 @@ async function runAsyncAgent(opts: {
     worktreeInfo,
     modelOverride,
     inheritedConfig,
+    agentMcpCleanup,
   } = opts;
 
   log.info(
@@ -415,6 +532,30 @@ async function runAsyncAgent(opts: {
   });
 
   const abortController = new AbortController();
+  const platform = getPlatform();
+  const outputDir = getHlvmTasksDir();
+  const outputFile = platform.path.join(outputDir, `${agentId}.output`);
+  await platform.fs.ensureDir(outputDir);
+  await platform.fs.writeTextFile(
+    outputFile,
+    `Agent "${description}" started.\nagentId: ${agentId}\nagentType: ${selectedAgent.agentType}\n\n`,
+    { create: true },
+  );
+  let outputWriteChain = Promise.resolve();
+  const appendOutput = (chunk: string): void => {
+    outputWriteChain = outputWriteChain
+      .then(() =>
+        platform.fs.writeTextFile(outputFile, chunk, {
+          append: true,
+          create: true,
+        })
+      )
+      .catch((error) => {
+        log.warn(
+          `[Agent:${selectedAgent.agentType}] Failed to append async output: ${error}`,
+        );
+      });
+  };
 
   // Fire-and-forget (CC: void runAsyncAgentLifecycle)
   const promise = runAgent({
@@ -429,6 +570,9 @@ async function runAsyncAgent(opts: {
     signal: abortController.signal,
     onAgentEvent: options?.onAgentEvent,
     inheritedConfig,
+    onTranscriptLine: (line) => {
+      appendOutput(`${line}\n`);
+    },
   }).then(async (result) => {
     options?.onAgentEvent?.({
       type: "agent_complete",
@@ -441,8 +585,13 @@ async function runAsyncAgent(opts: {
       resultPreview: result.text.slice(0, 200),
       transcript: result.transcript,
     });
-    // Cleanup worktree on completion (CC: getWorktreeResult in runAsyncAgentLifecycle)
+    appendOutput(
+      `\nFinal response:\n${result.text}\n\n<usage>total_tokens: ${result.totalTokens}\ntool_uses: ${result.toolUseCount}\nduration_ms: ${result.durationMs}</usage>\n`,
+    );
+    await outputWriteChain;
+    // Cleanup worktree / agent-scoped MCP on completion
     await cleanupWorktree(worktreeInfo ?? null);
+    await agentMcpCleanup?.();
 
     // Update background agent status on completion
     const bg = backgroundAgents.get(agentId);
@@ -455,6 +604,7 @@ async function runAsyncAgent(opts: {
         content: result.text,
         totalDurationMs: result.durationMs,
         totalToolUseCount: result.toolUseCount,
+        totalTokens: result.totalTokens,
       };
     }
 
@@ -476,6 +626,7 @@ async function runAsyncAgent(opts: {
       content: result.text,
       totalDurationMs: result.durationMs,
       totalToolUseCount: result.toolUseCount,
+      totalTokens: result.totalTokens,
     };
   }).catch(async (err) => {
     options?.onAgentEvent?.({
@@ -487,8 +638,13 @@ async function runAsyncAgent(opts: {
       toolUseCount: 0,
       resultPreview: err instanceof Error ? err.message : String(err),
     });
-    // Cleanup worktree on error too
+    appendOutput(
+      `\nAgent failed: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    await outputWriteChain;
+    // Cleanup worktree / agent-scoped MCP on error too
     await cleanupWorktree(worktreeInfo ?? null);
+    await agentMcpCleanup?.();
 
     const errMsg = err instanceof Error ? err.message : String(err);
     const bg = backgroundAgents.get(agentId);
@@ -530,27 +686,9 @@ async function runAsyncAgent(opts: {
     agentId,
     description,
     prompt,
+    outputFile,
   };
 }
 
-// ============================================================
-// Tool Metadata Export (for registry.ts)
-// ============================================================
-
-/**
- * The Agent tool metadata for registration in the tool registry.
- * This is the HLVM equivalent of CC's AgentTool class.
- */
-export const AGENT_TOOL: Record<string, ToolMetadata> = {
-  [AGENT_TOOL_NAME]: {
-    fn: agentToolFn,
-    description: getAgentToolFallbackDescription(),
-    resolveDescription: ({ workspace } = {}) =>
-      resolveAgentToolDescription(workspace),
-    args: AGENT_TOOL_ARGS,
-    safetyLevel: "L0",
-    category: "meta",
-    loading: { exposure: "eager" },
-    presentation: { kind: "meta" },
-  },
-};
+// Tool metadata for registry is exported from agent-tool-metadata.ts
+// (single source of truth to avoid a circular dep through registry.ts).

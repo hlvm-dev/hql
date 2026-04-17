@@ -360,6 +360,28 @@ Primary Model Call
       +-- throw original error
 ```
 
+### 7.1 Fallback tool surface (2026-04-17)
+
+When a fallback LLM is constructed, its tool surface is built by
+`computeFallbackToolFilter` in `src/hlvm/agent/agent-runner.ts`:
+
+```text
+fallback allowlist = (fallback-tier floor) ∪ (session.discoveredDeferredTools)
+```
+
+Rules:
+
+- Tier cap is authoritative — the fallback never inherits the primary's
+  potentially over-scoped baseline.
+- In-turn discoveries promoted by `tool_search` survive the fallback so
+  the fallback can finish the task the primary began.
+- Domain-layer additions (browser-hybrid `cu_*`) are **not** inherited.
+- User-explicit empty allowlist stays empty.
+
+Invariants pinned by six unit tests in
+`tests/unit/agent/routing.test.ts`. Full contract in
+[`routing.md`](./routing.md#152-computefallbacktoolfilter--the-fallback-tool-filter-contract).
+
 ---
 
 ## 8. Bootstrap & Binary Architecture

@@ -113,6 +113,7 @@
     "publish-catalog": "deno task scrape-models && gh gist edit b8c5e2a44ec9cb01cbaa010a8953304c /tmp/ollama_models.json",
     "check:platform": "deno run --allow-read scripts/check-platform-abstraction.ts",
     "ssot:check": "deno run --allow-read scripts/ssot-check.ts",
+    "check:tui-v2": "deno run --allow-run --allow-read scripts/check-tui-v2-ink.ts",
     "check:stdlib:generated": "deno run -A scripts/check-stdlib-generated.ts",
     "check:stdlib:deterministic": "deno run -A scripts/check-stdlib-deterministic.ts",
     "check:prod:p0": "deno task ssot:check && deno task check:stdlib:generated && deno task check:stdlib:deterministic && deno task test:conformance",

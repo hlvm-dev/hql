@@ -156,16 +156,3 @@ export function resolveAgentTools(
   };
 }
 
-// ============================================================
-// countToolUses (CC: agentToolUtils.ts lines 262-274)
-// ============================================================
-
-/**
- * Count tool_use blocks in a message history.
- * Used for metrics in AgentToolResult.
- */
-export function countToolUsesInResponse(response: string): number {
-  // Tool calls are tracked by the structured AgentLoopResult now; this helper
-  // remains for compatibility with older AgentTool plumbing.
-  return 0; // Will be updated by the orchestrator integration
-}

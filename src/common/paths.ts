@@ -284,6 +284,13 @@ export function getRuntimeDir(): string {
 }
 
 /**
+ * Get the async-agent task output directory (~/.hlvm/tasks)
+ */
+export function getHlvmTasksDir(): string {
+  return join(getHlvmDir(), "tasks");
+}
+
+/**
  * Get the tool-result sidecar root directory (~/.hlvm/.runtime/tool-results)
  */
 export function getToolResultsDir(): string {

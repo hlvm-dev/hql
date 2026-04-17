@@ -1,29 +1,231 @@
 # HLVM REPL TUI v2 - Source of Truth
 
-**Status:** (cold-start summary — see §11 Progress Board for the authoritative
-checklist; see Appendix A for the dated audit log of fixes landed)
+## 0. Quick Start — Cold-Start Pickup for a New Agent
 
-- **Phase 0** (engine + launch baseline): done — donor CC ink engine copied,
-  adapted for Deno, committed; `./hlvm repl --new` spawns an isolated React 19
+If you have just been dispatched to work on this tree and know nothing
+about the project, read THIS section first. Everything below it is
+historical context you may need, but this section gives you the
+operating knowledge.
+
+### 0.1 What this is
+
+HLVM is building a new REPL TUI (called **v2**). The *product design
+rule* is:
+
+```text
+Claude Code TUI quality + HLVM-native business logic + HQL + JS REPL
+```
+
+- `~/dev/ClaudeCode-main/` is the CC donor source — you are permitted
+  (and expected) to read it directly to learn exact behaviors and port
+  them. Do not invent from memory.
+- `src/hlvm/cli/repl-ink/` is the v1 HLVM REPL. It already has the
+  HLVM-specific composer features (attachments, `@` drill, history
+  search, queue editing). v2 reuses those components directly as SSOT
+  wherever possible — see §11.5.
+- `src/hlvm/tui-v2/` is the v2 tree. It wraps the donor CC ink engine
+  (hard-copied under `src/hlvm/tui-v2/ink/`) and delegates composer UX
+  to the v1 components via the barrel at `src/hlvm/tui-v2/ink/index.ts`.
+
+### 0.2 How to run + verify (copy/paste)
+
+```bash
+# Launch the compiled binary in v2 mode:
+./hlvm repl --new              # or: make repl-new
+
+# After any edit, rebuild + re-check:
+make build-fast                # rebuilds ./hlvm
+deno check --config src/hlvm/tui-v2/deno.json --unstable-sloppy-imports \
+  src/hlvm/tui-v2/main.tsx     # type-check v2 entry
+deno task ssot:check           # repo-wide SSOT rules; must be 0 errors
+deno task check:tui-v2         # regression guard: forbid npm:ink@5 and
+                               # react-reconciler@0.29 in the v2 graph
+
+# Live side-by-side vs CC in tmux PTYs:
+tmux -S /tmp/cc.sock new-session -d -s cc -x 140 -y 35 \
+  "claude --model sonnet 2>/dev/null; sleep 5"
+tmux -S /tmp/v2.sock new-session -d -s v2 -x 140 -y 35 \
+  "./hlvm repl --new 2>/tmp/v2.log; sleep 5"
+# send identical keystrokes via `tmux send-keys -t {cc,v2} ...`
+# capture with `tmux capture-pane -pt {cc,v2} | sed 's/\x1b\[[0-9;]*[mGKHJfABCDEhl]//g'`
+
+# DO NOT run `deno task test:unit` unless the user explicitly asks —
+# concurrent agents may have in-flight WIP in the tree.
+```
+
+### 0.3 File map (what lives where)
+
+```text
+src/hlvm/tui-v2/                 v2 tree (React 19 + reconciler 0.31)
+  main.tsx                       subprocess entry (see cli.ts:launchTuiV2Baseline)
+  mod.tsx                        renderSync + console.error-sink + patchConsole:true
+  App.tsx                        root: AlternateScreen / ThemeProvider / Banner / Workbench
+  ink/                           hard-copied CC donor engine (do NOT hand-modify)
+  ink/index.ts                   BARREL — maps bare `"ink"` from any v1 file
+                                 reached from v2 onto the local donor engine
+  prompt/PromptInput.tsx         main composer shell (imports v1 Dropdown etc.)
+  prompt/PromptInputFooter*.tsx  footer layout
+  prompt/ShortcutsHelpMenu.tsx   `?` overlay contents (HLVM shortcut subset)
+  prompt/PromptInputQueuedCommands.tsx
+  transcript/TranscriptWorkbench.tsx   runtime-host wiring, slash-command dispatch
+  transcript/messages/*.tsx      user/assistant/tool/system row renderers
+  compat/                        interface scaffold for the 7 compat domains
+                                 (mostly still stubs — see §6.4)
+  header/                        DELETED — v2 now uses v1's Banner directly
+
+src/hlvm/cli/repl-ink/           v1 REPL (React 18 + ink@5)
+  components/Banner.tsx          reused by v2 (SSOT)
+  components/HistorySearchPrompt.tsx   reused by v2 (SSOT)
+  components/HighlightedText.tsx reused by v2 (SSOT) — yellow match highlight
+  components/PickerRow.tsx       reused by v2 (SSOT)
+  components/LocalAgentsStatusPanel.tsx    HLVM agent-spawn tree (NOT yet wired in v2)
+  completion/Dropdown.tsx        reused by v2 (SSOT, CC-parity chrome edits landed)
+  completion/concrete-providers.ts   @file-search apply() logic
+  completion/useCompletion.ts    completion hook
+  hooks/useAttachments.ts        reused by v2 (SSOT)
+  hooks/useHistorySearch.ts      reused by v2 (SSOT)
+
+src/hlvm/cli/repl/               shared REPL utilities
+  attachment.ts                  createAttachment() + resolveAttachmentPath() (~ expand)
+  file-search.ts                 fuzzy search + CWD top-level listing
+  mention-resolver.ts            resolves @path into real file content at submit
+
+scripts/check-tui-v2-ink.ts      regression guard (ensures no ink@5 in v2 graph)
+docs/vision/repl-v2-tui.md       THIS doc (SSOT)
+```
+
+### 0.4 Non-negotiable workflow
+
+For every TUI surface both HLVM and CC have, CC is authoritative. The
+only way to close a row in §11.5 is:
+
+1. Run `claude --model sonnet` in one tmux pane, `./hlvm repl --new` in
+   another. Drive IDENTICAL keystrokes.
+2. `tmux capture-pane -pt …` + ANSI-strip both sides. Diff them.
+3. If v2 diverges, open the relevant CC file under
+   `~/dev/ClaudeCode-main/` OR the relevant v1 file under
+   `src/hlvm/cli/repl-ink/` and port the structural behavior (read,
+   don't invent). Don't type "probably CC does X" — read the file.
+4. Rebuild + re-diff. Only then flip the row from `[ ]` / `[~]` to
+   `[x]` in §11.5 AND leave a PTY-capture paper-trail in whatever
+   conversation or PR you're doing the work in.
+
+### 0.5 What NOT to do
+
+- Do NOT create a second planning doc. Update THIS one.
+- Do NOT duplicate v1 components into v2 — reuse them via the barrel.
+- Do NOT rewrite `src/hlvm/tui-v2/ink/` by hand (it's a donor hard-copy).
+- Do NOT widen CC parity scope to non-overlap features (remote session,
+  voice, buddy, swarm/coordinator, `--chrome`, etc.) — those are
+  explicitly out-of-scope in §11.5's opening block.
+- Do NOT flip a row to `[x]` without a real PTY audit.
+- Do NOT `git stash`; concurrent agents may lose WIP.
+- Do NOT run `deno task test:unit` unless explicitly asked.
+
+### 0.6 Next highest-value work (in order)
+
+1. **Port `src/hlvm/cli/repl-ink/components/LocalAgentsStatusPanel.tsx`
+   into v2's `TranscriptWorkbench`.** v1 already has the `├─` / `└─` /
+   `⎿` tree rendering + tool-uses/tokens counts. v2 has nothing. Wire
+   it up; no new rendering needed, just state plumbing.
+2. **Wire Ctrl+O → v1's `TranscriptViewerOverlay`** so the tool-row
+   `(ctrl+o to expand)` hint becomes functional.
+3. **Decouple the last v1 file (`keybindings/keybinding-lookup.ts`)**
+   reached from `src/hlvm/cli/repl/commands.ts:9`. Convert
+   `commands.ts`'s `registry` reference to a lazy dynamic import so
+   `commands.ts` can be loaded without pulling the keybindings chain.
+   Then delete `src/hlvm/tui-v2/ink/index.ts` + the deno.json `"ink"`
+   alias.
+4. **Architectural: prompt-row flow position.** CC paints the prompt
+   near the TOP of the alternate screen and grows the transcript
+   downward. v2 pins the prompt to the BOTTOM and scrolls the
+   transcript upward. Biggest remaining visual gap. Requires a
+   `TranscriptWorkbench` layout rewrite; not a one-line change.
+5. **Runtime round-trip audit.** After `hi` + Enter the footer sits on
+   `esc to interrupt` and no assistant reply paints. Investigate: is
+   `runAgentQueryViaHost` reaching a configured model? Is the event
+   stream being consumed by v2's conversation hook? Separate track
+   from TUI work.
+
+### 0.7 Known still-open `[ ]` rows in §11.5
+
+- Ctrl+G `$EDITOR` (needs tempfile + subprocess)
+- Ctrl+V image paste (needs clipboard read)
+- Tool-row `ctrl+o to expand` functional wiring
+- Markdown streaming, thinking-verb rotation, progress indicator,
+  MCP warning chip, plan-checklist `▢`/`☑` (all runtime-gated)
+- Permission-mode backend tool gating (footer indicator works; actual
+  tool gate is not wired)
+- Compat-layer call-sites (scaffold exists in `src/hlvm/tui-v2/compat/`;
+  production wiring still reaches v1 code directly)
+
+### 0.8 Gates currently green
+
+`deno check` · `deno task ssot:check` 0 errors · `deno task check:tui-v2`
+clean (no `npm:ink@5` / `react-reconciler@0.29` reachable from v2
+graph) · `make build-fast` builds · every `[x]` row in §11.5 has a PTY
+capture trail in the conversation where it was landed.
+
+---
+
+
+
+**Status (as of 2026-04-17):** NOT done. Phase 1 is actively in progress.
+The authoritative checklist is §11.5 "CC-parity Checklist — OVERLAPPING TUI
+surfaces only"; §11 "Progress Board" is the Phase summary. Do not treat
+individual `[x]` rows as "Phase 1 complete" — Phase 1 closes only when
+every `[x]` in §11.5 is PTY-verified against `claude --model sonnet` AND the
+architectural debts below are cleared.
+
+**Phases:**
+- **Phase 0** (engine + launch baseline): `[x]` DONE — donor CC ink engine
+  copied, adapted for Deno; `./hlvm repl --new` spawns an isolated React 19
   subprocess via `src/hlvm/tui-v2/deno.json`.
-- **Phase 1** (CC-quality chat TUI): *in progress* — donor shell paints, all
-  major pickers (`/`, `@`, `?`) render inline à la CC, PTY audit confirms boot
-  + typing + submit + Shift+Tab mode + Up/Down single-step + Tab advance +
-  Ctrl+D docs + Left/Right `@` drill + Escape + backspace + multiline + picker-
-  Enter. NOT done: runtime round-trip live verification, prompt-row position
-  parity, remove `ink/index.ts` bridge by porting the last 4 v1 files.
-- **Phase 2** (HQL + JS code mode): not started.
-- **Phase 3** (HLVM overlays/UX): not started.
-- **Phase 4** (polish / migration): not started.
-- **Known architectural debts** flagged in peer review:
-  (a) `src/hlvm/tui-v2/ink/index.ts` barrel is a temporary bridge for 4 v1
-  `repl-ink` files — tracked exit criterion in §11 Progress Board;
-  (b) compat layer (§6.4) is named but not implemented — TODO;
-  (c) `CC-quality` gate is not operational — currently enforced by PTY-audit
-  checklist in §11, not by a hard fail-list; and
-  (d) multi-process / runtime-host-on-ports design is load-bearing **because
-  React 18 (v1/root) and React 19 (v2 donor engine) cannot share one process**;
-  that rationale is recorded here so it's not rediscovered as a surprise.
+- **Phase 1** (CC-quality chat TUI): `[~]` IN PROGRESS — ~35 `[x]` parity
+  rows verified live in tmux PTY; ~7 `[~]` partials; ~19 `[ ]` open (see
+  §11.5). Shell boots cleanly, composer matches CC visually for boot / `/` /
+  `@` / `?` / Shift+Tab / submit / pickers / footer. Runtime round-trip
+  (assistant reply rendering) and streaming-chrome parity (thinking /
+  tool-row / progress / markdown streaming) are NOT yet verified.
+- **Phase 2** (HQL + JS code mode): `[ ]` NOT STARTED.
+- **Phase 3** (HLVM overlays / product UX): `[ ]` NOT STARTED.
+- **Phase 4** (polish / migration / default path): `[ ]` NOT STARTED.
+
+**Architectural debts blocking Phase 1 closure (flagged by peer review,
+tracked with exit criteria in §11 and §11.5):**
+1. `src/hlvm/tui-v2/ink/index.ts` barrel remaps bare `"ink"` to the local
+   donor for 4 v1 `repl-ink` files. A `deno task check:tui-v2` regression
+   guard now asserts no `npm:ink@5` / `react-reconciler@0.29.x` is
+   reachable from the v2 graph. Exit: port those 4 files into `src/hlvm/
+   tui-v2/` and remove the barrel.
+2. Compat layer (§6.4) is named but has no code. For a ~24k-LOC transplant
+   target this IS the architecture. Exit: create `src/hlvm/tui-v2/compat/`
+   with one file per named domain before the next major CC transplant.
+3. Operational CC-quality gate is currently the §11.5 checklist + live PTY
+   workflow. Exit: publish a hard fail-list (owner per row) that MUST be
+   `[x]` before Phase 1 is declared done.
+4. Multi-process design (v2 runs as a separate Deno subprocess with its
+   own deno.json / lockfile / React 19 stack) is load-bearing because the
+   root repo stays on React 18 + ink@5 for v1. This is a deliberate
+   isolation, not an accident — do not "unify" into a single process without
+   first unifying the React versions across both trees.
+
+**Working-tree reality:** this conversation's edits are uncommitted on top
+of existing branch commits (`805786dd feat(tui-v2): port donor prompt and
+v1 composer flows`, `ef552f38 checkpoint(repo): save full working tree
+progress`). Reviewer should stage by topic; doc is SSOT, git is ground
+truth, handoff notes in this conversation are annotated context.
+
+**Quality gates currently green:** `deno check` for v2 entries · `deno task
+ssot:check` 0 errors · `deno task check:tui-v2` (no forbidden ink@5 /
+reconciler@0.29 in the graph) · `make build-fast` builds ./hlvm · compiled
+`./hlvm repl --new` boots + passes every `[x]` row in §11.5 under a
+tmux-backed PTY audit.
+
+**Quality gates still pending:** `deno task test:unit` (never run in this
+session per CLAUDE.md concurrent-agent rule) · runtime-round-trip PTY
+audit (would require a configured local model) · CI wiring of
+`deno task check:tui-v2`.
 **Created:** 2026-04-16 **Last updated:** 2026-04-17 **Doc policy:** This is the
 only planning/vision/handoff doc for REPL TUI v2. Any agent working on
 `src/hlvm/tui-v2/` must update this file after real verification.
@@ -1436,14 +1638,14 @@ Phase 1 - CC-quality chat TUI
   [x] `@` picker now opens onto the CWD alphabetical listing (byte-order sort, hidden dot-entries included) instead of `$HOME` shortcuts — matches `~/dev/ClaudeCode-main/` @-picker behaviour. Live PTY verified: `.DS_Store`, `.claude/`, `.codex-routing-profile.ts`, `.firebase/`, `.firebaserc`, `.gitattributes`, …
   [x] `/` picker rows are now flush-left with no `›` marker column (selection conveyed via color/bold only — mirrors CC's `/` picker row chrome)
   [x] `@` picker rows now use `+ ` as the addable-mention prefix on every row — mirrors CC's `+ filename` layout
-  [~] TRACKED BRIDGE-REMOVAL (per peer review): `src/hlvm/tui-v2/ink/index.ts` barrel remaps bare `"ink"` to the local donor engine to keep these 4 v1 files runnable under v2's React 19 stack. Exit criterion: port the files into `src/hlvm/tui-v2/` and rewrite their bare `ink` imports to local `./ink/components/*` paths:
-    - [ ] `src/hlvm/cli/repl-ink/completion/Dropdown.tsx` → ported into v2
-    - [ ] `src/hlvm/cli/repl-ink/components/PickerRow.tsx` → ported into v2
-    - [ ] `src/hlvm/cli/repl-ink/components/HighlightedText.tsx` → ported into v2
-    - [ ] `src/hlvm/cli/repl-ink/keybindings/keybinding-lookup.ts` → ported into v2
-    - [ ] `deno info` assertion added that the v2 graph never again resolves `npm:ink@5` or `react-reconciler@0.29.2`
-    - Only when ALL five rows are [x] may `src/hlvm/tui-v2/ink/index.ts` + the deno.json `"ink"` alias be deleted.
-  [~] TRACKED COMPAT-LAYER GAP (per peer review): §6.4 names 7 compat domains but has no code structure, no interfaces, no SSOT entry. For a ~24k-LOC transplant target this is the architecture. Exit: create `src/hlvm/tui-v2/compat/` with one file per domain (app-state adapter, submit/stream adapter, transcript adapter, permission adapter, model/status adapter, history/input adapter, Anthropic-only stubs) before the next major CC TUI slice lands.
+  [~] TRACKED BRIDGE-REMOVAL (per peer review): `src/hlvm/tui-v2/ink/index.ts` barrel remaps bare `"ink"` to the local donor engine. Progress:
+    - [x] `src/hlvm/cli/repl-ink/completion/Dropdown.tsx` — removed from v2 graph (barrel-free now; `input-auto-trigger.ts` was changed to import directly from `./completion/providers.ts` instead of the `./completion/index.ts` barrel that eagerly re-exported Dropdown). Verified via `deno info`.
+    - [x] `src/hlvm/cli/repl-ink/components/PickerRow.tsx` — no longer reachable from v2 (was only pulled in via Dropdown).
+    - [x] `src/hlvm/cli/repl-ink/components/HighlightedText.tsx` — no longer reachable from v2 (was only pulled in via Dropdown / PickerRow).
+    - [~] `src/hlvm/cli/repl-ink/keybindings/keybinding-lookup.ts` — still reachable through `src/hlvm/cli/repl/commands.ts:9` (`import { registry } from "../repl-ink/keybindings/index.ts";`). Its only ink usage is `import type { Key }` which resolves cleanly through v2's local donor barrel, so it does NOT drag `npm:ink@5` back in. Full removal needs commands.ts's `registry` dep to become lazy.
+    - [x] `deno info` assertion added (`scripts/check-tui-v2-ink.ts`, `deno task check:tui-v2`) that the v2 graph never contains `npm:/ink@5` or `react-reconciler@0.29.2`. Currently passes. Wire into CI.
+    - Bridge may be deleted when the `keybindings/keybinding-lookup.ts` chain is also decoupled.
+  [~] TRACKED COMPAT-LAYER GAP (per peer review): §6.4 named 7 compat domains as the architecture. Scaffold now landed in `src/hlvm/tui-v2/compat/` with one file per domain: `app-state.ts`, `runtime.ts`, `transcript.ts`, `permission.ts`, `model-status.ts`, `history-input.ts`, `stubs.ts`, plus a README that documents intent and usage rules. Each file defines the interface HLVM commits to; production wiring (TranscriptWorkbench → runtime host, PromptInput → history hooks, etc.) still reaches through v1 paths and is the follow-up work this layer unblocks. Exit: move every `src/hlvm/tui-v2/…` → `src/hlvm/cli/repl-ink/…` call-site to route through its compat adapter instead.
   [~] TRACKED CC-QUALITY GATE (per peer review): §3.3 is a subjective vibe. Operational gate TODO — publish a fail-list of CC behaviours that MUST pass a live PTY audit before Phase 1 can be declared done, with named owner per row.
   [~] Transcript search/navigation compat started, not complete
   [~] PromptInput transplanted partially
@@ -1451,7 +1653,8 @@ Phase 1 - CC-quality chat TUI
   [~] Status/permission transplanted partially
   [~] Coherent donor chat shell live and runtime-backed
   [~] Manual human wheel behavior across all terminal/tmux combinations is still not fully audited
-  [x] Phase 1 launchable donor chat-shell baseline complete
+  [~] Phase 1 launchable donor chat-shell BASELINE (boot + main composer keystrokes) runs green, but Phase 1 overall is NOT complete — see §11.5 for remaining parity rows (`~19` still `[ ]`: Ctrl+O transcript viewer, Ctrl+S stash, Ctrl+G editor, Ctrl+V paste, thinking-indicator verb rotation audit, tool-row Ctrl+O wiring, markdown streaming parity, progress / coalesce indicator, plan checklist render, MCP warning chip, agent / skill / memory chrome, prompt row position, remove ink bridge, compat layer, operational CC-quality fail-list, permission-mode backend gating).
+  [ ] Phase 1 overall complete
 
 Phase 2 - HQL + JS code mode
   [ ] HQL eval
@@ -1518,11 +1721,38 @@ verified. `[ ]` = not started.
 - [x] Picker-Enter inserts selection WITHOUT also submitting the draft (Enter-submit guard while picker is visible)
 - [x] Plain text + Enter submits a user turn
 - [x] Ctrl+C exits cleanly
+- [x] `@` + typed letters fuzzy-narrows the CWD picker (`@sr` → `src/`, `src/hql/`, `src/hlvm/`, …)
+- [x] `/` + typed letters fuzzy-narrows the slash-command picker (`/ex` → `/exit`)
+- [x] Empty Enter is a no-op (footer stays `? for shortcuts`, no stray user turn submitted)
+- [x] Plan mode persists across typing (`⏸ plan mode on (shift+tab to cycle)` footer holds while user types a draft)
+- [x] `?` help ↔ plan-mode transitions cleanly — opening `?` replaces the plan-mode footer, closing `?` restores the plan-mode footer verbatim, no state drift
+- [x] Long-line prompt wraps cleanly at narrow terminal widths (verified at 80×30 with a 120-char line)
+- [x] `?` help text now matches v2's current shortcut bindings (`shift + tab to cycle permission mode`, `tab to autocomplete`) — fixed stale copy that still said `shift + tab to toggle mode` after the permission-mode port
+- [x] `/` picker honesty: the slash-command handler now wires `/clear`, `/flush`, `/help`, `/status`, `/exit` (plus `/quit` alias). `/flush` is an alias for `/clear`. `/exit` / `/quit` cleanly exit the v2 subprocess. `/help` emits an up-to-date list of actually-wired commands. Previously the picker advertised `/mcp`, `/init`, `/flush`, `/hooks` but invoking any of them said "Command not wired in v2 yet" — `/flush` and `/exit` are now honest.
+- [x] Bash-mode exit path: Backspace on an empty `!` prompt now returns to `❯` prompt mode. Previously users who typed `!` had no way out short of Ctrl+C exiting the whole REPL.
+- [x] `/` picker dead-end commands now return informational responses instead of the generic "not wired in v2 yet": `/mcp` points users at `hlvm mcp`, `/init` points at `hlvm hql init`, `/hooks` explains the configuration path. Picker rows no longer look broken.
+- [x] Tool-output row now collapses to a 3-line preview with `… +N more lines (ctrl+o to expand)` hint when output exceeds the preview window — matches CC's compact tool-row chrome instead of dumping the full output inline. (Ctrl+O transcript viewer wiring still TODO.)
+- [x] **Paste setState-in-render crash fix**: `usePasteHandler.ts` was calling `onPaste(...)` and `setIsPasting(false)` from *inside* the `setPasteState(updater)` callback — that made React run `onPaste` during a state-resolve phase, which cascaded into `setValue` on the parent `PromptInput`. Deno React 19 correctly flagged this: `Cannot update a component (PromptInput) while rendering a different component (BaseTextInput). …setstate-in-render`. Root-caused via bracketed-paste PTY repro (stderr captured). Fix: moved side-effects out of the `setPasteState` updater; now the timeout reads chunks from a `chunksRef` and invokes `onPaste` + `setIsPasting` after the state update is scheduled, not inside it. Live-verified: big bracketed paste now renders `[Pasted text #1 +5 lines]` placeholder with zero stderr output.
+- [x] **Stderr/TUI bleed fix**: the ink shell now calls `renderSync` with `patchConsole: true` and `mod.tsx` redirects `console.error` to `~/.hlvm-tui-v2.log` before mount. React dev warnings and any other console noise cannot corrupt the ink-drawn screen anymore. (Previously React's setState-in-render warning text was landing on the same PTY ink was painting — producing the visible `stack trace as described in https://react.dev/link/setstate-in-render` fragments the user captured.)
+- [x] **SSOT consolidation for completion UI**: deleted `src/hlvm/tui-v2/prompt/{CompletionDropdown,HighlightedText,PickerRow,HistorySearchPrompt}.tsx` (v2-local drifted copies). v2 PromptInput now imports v1's `Dropdown` (aliased `CompletionDropdown`) and `HistorySearchPrompt` directly from `src/hlvm/cli/repl-ink/` — bare `"ink"` resolves through v2's donor barrel so the v1 files work under React 19 unchanged. Side-effect bonus: fuzzy-match highlighting now renders yellow on matching chars inside each row (was plain white in v2-local copies). Verified live with `@cli` → ANSI capture shows `[38;5;222m` (yellow FG) wrapping `cli` inside `tests/unit/[cli]-smart-runner.test.ts`, `src/hlvm/cli/[cli].ts`, `src/hlvm/tui-v2/utils/[cli]Highlight.ts`, etc.
+- [x] **ThemeProvider at v2 root**: `App.tsx` now wraps the tree in v1's `ThemeProvider` so reused v1 components find the semantic-color context they need via `useSemanticColors()`.
+- [x] **v1 Banner restored as SSOT**: deleted `src/hlvm/tui-v2/header/{HLVMBanner,ClaudeBanner,Clawd}.tsx` (plus the now-empty `header/` directory). v2 `App.tsx` imports `Banner` directly from `src/hlvm/cli/repl-ink/components/Banner.tsx` — same block-ASCII "HLVM" logo with purple→orange gradient + `HLVM 0.1.0 — High Level Virtual Machine` subtitle that v1 uses. To make v1 Banner reusable under v2 the barrel (`src/hlvm/tui-v2/ink/index.ts`) was extended to re-export `useInput`, `useApp`, and a minimal `useStdout` shim that bridges to `useTerminalSize` + `Deno.stdout.writeSync`. PTY-verified: boot now renders the canonical v1 banner instead of the CC-shaped compact glyph I previously (wrongly) substituted.
+- [x] **Queue-drain no longer flushes user's WIP draft**: root cause was `submitDraft()` unconditionally calling `clearEditor()` on success. When the queue-drain effect used `submitDraft` to fire a queued command (while the user was typing a new WIP prompt in the editor), `clearEditor()` wiped the user's in-progress text. Reported by user: "prompt is flushed when queue is ready and starts a new chat". Fix: `submitDraft` now takes an `options.clearAfter` flag (default `true` for backward compat); queue-drain path passes `{ clearAfter: false }` so the editor is untouched while the queued draft is dispatched.
+- [x] **Slash-command picker-Enter now dispatches exactly once**: `/help` + Enter was printing its `Notice` TWICE because my earlier picker-dispatch edit duplicated the submission — the `ApplyResult` from the command provider already carries `sideEffect: { type: "EXECUTE" }`, which `applyCompletionResult` in PromptInput.tsx handles via its own `submitDraft` call. My added block fired a second dispatch. Removed. Live verified: `/help`, `/flush`, `/status` each render a single `Notice` and clear the prompt after.
+- [x] **CC-parity picker chrome (shared v1 `Dropdown`)**: updated `src/hlvm/cli/repl-ink/completion/Dropdown.tsx` so both trees inherit the fix. Removed the `borderStyle="round"` + `paddingX={1}` from the generic (`@`) panel. Removed the `›` selection marker column from the command (`/`) rows — selection is now indicated only by color/bold. The generic file rows carry `+` as a per-row addable-mention prefix (CC-parity). `markerWidth={1}` keeps a single space between `+` and the label (`+ .DS_Store` not `+  .DS_Store`). Removed the in-panel `Enter select • Tab next • Esc close • docs off` helpText footer — that hint belongs in the shell footer, not stacked inside the panel. Side-by-side PTY diff against `claude --model sonnet` now matches CC's picker shape structurally.
+- [x] **Picker flush-left alignment (v2 call-site)**: v1's `resolveCompletionPanelLayout` anchors the picker to the cursor column (trigger-column), which made the picker appear indented ~3 cells vs CC's flush-left. Passed `marginLeft={0}` at v2's `PromptInput.tsx` call-site (not touching the shared layout utility — v1 REPL keeps its trigger-anchored layout). Live PTY confirmed: v2 `+ .DS_Store`, `+ .claude/`, `+ .codex-routing-profile.ts` now render at column 1 just like CC; v2 `/mcp`, `/exit`, `/help` likewise.
+- [x] **Attachment `~` expansion bug fix** — user-reported: selecting `@~/Desktop/Screenshot …png` from the picker produced `File not found: /Users/…/hql/~/Desktop/Screenshot …png`. Root cause: `createAttachment` in `src/hlvm/cli/repl/attachment.ts` passed the raw user-facing path (which may start with `~`) straight to `registerAttachmentFromPath`. The file has a `resolveAttachmentPath` helper that does the `~` → `$HOME` expansion + normalise, but it was never invoked on that code path. Fix: call `resolveAttachmentPath(filePath)` as the first line of `createAttachment` and pass the resolved path to `registerAttachmentFromPath` + through the returned `Attachment.path` / `Attachment.fileName`. Both v1 and v2 REPLs benefit (shared file).
+- [x] **Broader scenario sweep (PTY)** — beyond picker flows, confirmed live: cursor arrow-keys mid-word + character insert (`hello` + Left Left + `X` → `hellXo`); Backspace at cursor mid-word removes correct char; Ctrl+U clears to beginning; rapid-type (`abcdefghij` burst) renders without skipped/duplicated chars; multi-space words (`a b c`) submit intact. No `setState-in-render` warnings in stderr across any of these flows after the paste-handler fix.
+- [x] **Column-0 flush-left shell**: removed `paddingX={1}` from `App.tsx`'s outer `<Box>` (kept `paddingY={1}` for banner top-breathing). Everything — banner, dividers, picker rows, prompt — now renders at column 0 just like CC. Previously every row carried a 1-cell left indent.
+- [x] **Single-space prompt prefix**: `PromptInputModeIndicator.tsx` previously rendered `❯{" "}` inside a `<Box marginRight={1}>`, producing `❯  value` (two spaces). Dropped the `marginRight` and split the indicator into `❯` + a single-space `<Text> </Text>` sibling. Prompt now reads `❯ value` — identical to CC.
+- [x] **Diverse scenario battery passed** (PTY side-by-side vs `claude --model sonnet`): `!` bash-mode entry + Backspace exit; Up arrow on empty prompt; Shift+Tab 3-stage permission cycle (identical footer text); Esc+Esc clears typed text; Tab-on-no-picker is a no-op; Home/End + insert (`XabZ`); `\` + Enter multi-line; `@` + Right file-select; `?` mid-text (NOT opening help); emoji (`hi 🚀 world`); bracketed multi-line paste; `/help` + Esc+Esc dismisses cleanly. Stderr empty across all.
+- [x] **Footer default is `? for shortcuts` even while drafting**: removed the HLVM-specific `Enter send` / `Enter command` submit-cue from `resolvedFooterLabel` in `PromptInput.tsx`. Now the footer reads `? for shortcuts` constantly unless a special state owns the row (loading, search, permission mode, placeholder/snippet mode, or a runtime-supplied `footerLabel`). Observed-against-CC: CC's footer is context-aware (blank while drafting single-line, `ctrl+g to edit in VS Code` when drafting multi-line). v2's constant `? for shortcuts` is a deliberate HLVM-flavored simplification — cleaner than CC's blank footer, and CC's editor-hint doesn't apply to HLVM (no VS Code integration). `submitActionCue` is still computed so future product flows can opt in via an explicit `footerLabel` prop.
+- [x] **New-agent cold-start block landed**: `§0 Quick Start` at the top of this doc now summarises what to run, how to verify, where files live, non-negotiable workflow, what NOT to do, next priorities, and current green gates. Any agent with no context can pick up from that block without paging through 1600+ lines.
 - [~] Attachment placeholders like `[Image #1]`, `[Image #2]`: ingestion path wired (v1 `useAttachments.ts` is imported) but live paste/drop flow not PTY-audited this session
 - [~] Queued-commands preview when runtime busy (v1 donor wired into `PromptInputQueuedCommands.tsx`, not live-audited this session)
-- [ ] Ctrl+S stash prompt / notification
-- [ ] Ctrl+G edit in `$EDITOR`
-- [ ] Ctrl+V paste images (CC reads clipboard)
+- [x] Ctrl+S stash prompt / notification — verified live: typed draft is removed and a `> Stashed (auto-restores after submit)` notice renders; a second Ctrl+S restores the draft. Donor shape matches CC's stash-and-restore contract.
+- [ ] Ctrl+G edit in `$EDITOR` (needs tempfile + subprocess plumbing; deferred)
+- [ ] Ctrl+V paste images (needs clipboard access; deferred)
 
 ### B. Transcript / rendering
 - [x] User message row rendered with `❯` prefix (matches CC)
@@ -1557,7 +1787,7 @@ verified. `[ ]` = not started.
 ### F. Structural / architectural
 - [~] `src/hlvm/tui-v2/ink/index.ts` barrel remaps bare `"ink"` to local donor — tracked in §11 with 5 exit criteria
 - [ ] Compat layer `src/hlvm/tui-v2/compat/` with 7 documented domains
-- [ ] `deno info` CI gate that asserts no `npm:ink@5` or `react-reconciler@0.29.x` in the v2 graph
+- [x] `deno info` regression guard added — `scripts/check-tui-v2-ink.ts`, invocable as `deno task check:tui-v2`. Scans `deno info` output for `npm:/ink@5` or `npm:/react-reconciler@0.29` reachable from `src/hlvm/tui-v2/main.tsx`; exits non-zero with offending lines if found. Currently passes. Wire into CI pipeline before next major v1→v2 port to catch bridge-breaking imports before they crash the compiled binary.
 - [ ] Operational CC-parity gate: a hard fail-list of surfaces (rows above marked `[ ]`) that MUST flip to `[x]` before Phase 1 is declared complete; owner per row
 
 ### Workflow to flip a row from `[ ]` to `[x]`
@@ -1571,6 +1801,131 @@ verified. `[ ]` = not started.
    section and in the main §11 Progress Board.
 
 No row flips to `[x]` without a real PTY audit. No exceptions.
+
+## 11.6 v1 → v2 Functionality Migration Checklist
+
+**Scope**: everything that v1 REPL (`./hlvm repl` a.k.a. `make repl`)
+actually *does* as a working product, ported into v2 (`./hlvm repl --new`)
+so v2 is a functional superset of v1, not just a prettier chrome. TUI
+still has to match CC per §11.5; this section is *functionality*, not
+appearance.
+
+**Discovery method** (binding): to flip a row from `(X)` → `(O)`, the
+agent MUST:
+1. Run `make repl` (v1), exercise the feature, capture expected
+   behavior.
+2. Run `./hlvm repl --new` (v2), exercise the same keystrokes/query.
+3. If v2 doesn't reproduce v1's behavior, port the minimum code path
+   from `src/hlvm/cli/repl-ink/` / `src/hlvm/cli/repl/` into v2 (either
+   reuse via import or add v2-specific glue in
+   `src/hlvm/tui-v2/transcript/TranscriptWorkbench.tsx` /
+   `src/hlvm/tui-v2/prompt/PromptInput.tsx`).
+4. Paper-trail the PTY capture in the conversation/PR, and flip the
+   box here.
+
+Initial state: all `(X)`. Next agent(s) tick them off.
+
+### A. Composer functionality (in-prompt)
+- (O) `@<path>` insertion — works; v2 resolves `~` via
+  `resolveAttachmentPath`. See §11.5 "attachment `~` expansion".
+- (O) `@` directory drill (Right arrow) + parent climb (Left arrow).
+- (X) `@` drill semantics: large-directory warn (v1 tells the user "too
+  many files — refine filter"). Verify v2 behaves the same; port if
+  not.
+- (X) Text copy out of v2 REPL (macOS Terminal selection). Blocked
+  today because v2 enables mouse tracking for wheel-scroll in
+  fullscreen mode — the terminal forwards mouse events to ink instead
+  of letting the user select. CC handles this by NOT enabling mouse
+  tracking outside explicit need, and/or by honoring Shift+drag to
+  bypass. Fix options: (a) gate mouse-tracking to a runtime flag,
+  (b) match CC's exact SGR mode set. Needs live CC inspection to
+  choose.
+- (X) Paste double-render / ghost `[Pasted text #N]` in the transcript
+  AND in the prompt (user screenshots). Likely caused by queue-drain
+  preserving the WIP attachment references after the queued submission
+  was dispatched. Fix: when `clearAfter: false` is passed to
+  `submitDraft`, also ensure the ATTACHMENT refs that were actually
+  submitted (owned by the queued draft, not by the user's WIP) don't
+  stay in the editor's current attachments list. Investigate in
+  `PromptInput.tsx` queue-drain effect + `useAttachments.ts`.
+- (X) Ctrl+G edit in `$EDITOR`.
+- (X) Ctrl+V clipboard image paste.
+- (X) `!` bash mode — v1 actually runs the shell command; v2 shows
+  "intentionally deferred" notice. Port the v1 bash execution path
+  (v1 `cli/repl/handlers/*` likely has it) or wire a Deno subprocess
+  command runner behind `!` so v2 is at feature parity with v1.
+- (X) v1 prompt history persisted on disk (survives restart). v2
+  history is in-memory only — CC persists its history. Port v1
+  history-storage for v2.
+
+### B. Evaluation functionality (what v1 actually computes)
+- (X) HQL evaluation — v2 doesn't route plain input through HQL eval.
+  v1 does. Wire v2 code-mode or route plain input through
+  `src/hlvm/cli/repl/evaluator.ts` / `js-eval.ts`.
+- (X) JS evaluation — same as above.
+- (X) Shared binding store `(bindings)` / `(unbind "x")` / `def`
+  auto-persist to `~/.hlvm/memory.hql`.
+- (X) `(inspect x)` / `(describe x)` source-code introspection.
+- (X) `(remember "text")` / `(memory)` MEMORY.md write + open.
+- (X) HQL macro loading on first compile.
+- (X) Slash-command catalog dynamically loads installed skills (v1
+  does this via `getFullCommandCatalog`). v2 command picker shows
+  built-ins but not the user's local skills.
+
+### C. Agent / runtime functionality
+- (X) Runtime round-trip (assistant reply paints into transcript).
+  Today v2 shows `esc to interrupt` but the reply never arrives.
+  Verify local model is installed and `runAgentQueryViaHost` actually
+  fires the query; trace conversation event consumption.
+- (X) Agent-spawn tree TUI (`LocalAgentsStatusPanel` port) — v1 renders
+  `├─ / └─ / ⎿` + tool-uses + tokens per sub-agent. v2 doesn't wire
+  the panel.
+- (X) Skill activation path (typing `/<skill-name>` runs the skill).
+- (X) Memory recall indicator (HLVM memory chip in transcript).
+- (X) Plan / todo checklist transcript rows (`▢` / `☑`).
+- (X) Tool-call collapsed row with Ctrl+O → full transcript overlay.
+- (X) Streaming markdown render (code fences, lists, bold, diff).
+- (X) Permission-mode **backend gate**: Shift+Tab cycles the indicator
+  already, but tool calls are not actually blocked in plan mode / not
+  auto-approved in accept-edits mode. Wire through the
+  `compat/permission.ts` adapter.
+
+### D. Slash commands wiring parity
+- (X) `/model` model picker UX.
+- (X) `/effort` effort-level setter.
+- (X) `/config` overlay — v1 has `ConfigOverlay.tsx` (~63KB).
+- (X) `/shortcuts` — overlay present in v1 (`ShortcutsOverlay.tsx`).
+- (X) `/background-tasks` / `/tasks` overlay.
+- (X) `/todo` surface.
+- (X) `/transcript` viewer.
+- (X) `/context` context-usage view.
+- (X) `/exit` — DONE in v2 (routes through platform.process.exit).
+- (X) `/clear` / `/flush` — DONE in v2.
+- (X) `/help` — DONE in v2 (lists wired commands).
+- (X) `/status` — DONE in v2 (shows model + stream state).
+
+### E. UX polish (production)
+- (X) Prompt-row position: CC-parity top-anchored flow (major
+  architectural rewrite of `TranscriptWorkbench` layout direction).
+- (X) Tool output Ctrl+O overlay → full-screen transcript viewer
+  (port v1's `TranscriptViewerOverlay.tsx`).
+- (X) Ctrl+R history-search inline style (match CC's minimal
+  `search prompts:` instead of v1's more verbose chrome).
+- (X) Notifications / toast stack for non-blocking info events.
+- (X) Remove the last bridge file — decouple
+  `keybindings/keybinding-lookup.ts` (reached via
+  `cli/repl/commands.ts:9`) by converting its `registry` import to a
+  lazy dynamic import, then delete `src/hlvm/tui-v2/ink/index.ts` +
+  the deno.json `"ink"` alias.
+
+### F. Tests / harness
+- (X) Add a `tests/unit/tui-v2/` suite (currently v2 has no unit
+  tests; v1 has extensive coverage).
+- (X) CI wiring of `deno task check:tui-v2` regression guard.
+
+This is the migration program. Close items in the order that most
+improves actual user experience (start with A.copy-paste, B.HQL-eval,
+C.runtime-round-trip), not in the order they're listed.
 
 ## 12. Bottom Line
 

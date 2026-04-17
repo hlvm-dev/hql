@@ -13,9 +13,6 @@ export const AGENT_TOOL_NAME = "Agent";
 /** Default max turns for sub-agents (CC uses 200) */
 export const AGENT_MAX_TURNS = 200;
 
-/** Default timeout for sub-agent execution (10 minutes) */
-export const AGENT_TOTAL_TIMEOUT = 600_000;
-
 /**
  * Tools that NO sub-agent can use.
  * CC: ALL_AGENT_DISALLOWED_TOOLS
@@ -67,8 +64,7 @@ export const ASYNC_AGENT_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
 
 /**
  * Built-in agents that run once and return a report.
- * CC: ONE_SHOT_BUILTIN_AGENT_TYPES
- * Skip agentId/continuation trailer to save tokens.
+ * Skip the continuation trailer for these to save tokens.
  */
 export const ONE_SHOT_AGENT_TYPES: ReadonlySet<string> = new Set([
   "Explore",

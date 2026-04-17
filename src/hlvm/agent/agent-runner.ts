@@ -59,6 +59,7 @@ import {
   extractModelSuffix,
   isFrontierProvider,
   MAX_SESSION_HISTORY,
+  type ModelTier,
   supportsAgentExecution,
 } from "./constants.ts";
 import { compileSystemPrompt } from "./llm-integration.ts";
@@ -435,6 +436,76 @@ function resolveSessionEffectiveToolFilter(
     return resolveEffectiveToolFilterCached(session.toolProfileState);
   }
   return resolveSessionPersistentToolFilter(session);
+}
+
+/**
+ * Compute the tool filter for a fallback LLM attempt.
+ *
+ * Design rules (exercised by routing.test.ts):
+ *   1. Tier cap is authoritative — the fallback's native tier eager core
+ *      (or the user's explicit allowlist, if provided) is the floor. We do
+ *      NOT carry the primary's potentially higher-tier baseline over — a
+ *      constrained fallback must not be given an enhanced-tier surface.
+ *   2. In-turn discoveries (tools the primary explicitly promoted via
+ *      `tool_search`) are merged on top, so a fallback can finish the task
+ *      the primary began with extended tools.
+ *   3. A user-provided empty allowlist (`[]`) is preserved as zero tools —
+ *      discoveries are NOT injected in that case, because the user has
+ *      explicitly restricted the surface to nothing.
+ *   4. Domain-layer additions from runtime browser recovery (e.g. hybrid
+ *      cu_* promotion) are intentionally NOT preserved: they encode
+ *      primary-model-tier assumptions and cross-tier fallbacks should not
+ *      inherit them.
+ *
+ * @internal Exported for unit tests. Used by `createFallbackLLM`.
+ */
+export interface FallbackToolFilterOptions {
+  fallbackModel: string;
+  requestedToolAllowlist?: readonly string[];
+  effectiveToolDenylist?: readonly string[];
+  discoveredDeferredTools?: Iterable<string>;
+}
+
+export interface FallbackToolFilter {
+  tier: ModelTier;
+  allowlist?: string[];
+  denylist?: string[];
+}
+
+export function computeFallbackToolFilter(
+  options: FallbackToolFilterOptions,
+): FallbackToolFilter {
+  const tier = classifyModelTier(undefined, options.fallbackModel);
+  const userAllowlist = options.requestedToolAllowlist !== undefined
+    ? [...options.requestedToolAllowlist]
+    : undefined;
+  const native = computeTierToolFilter(
+    tier,
+    userAllowlist,
+    options.effectiveToolDenylist
+      ? [...options.effectiveToolDenylist]
+      : undefined,
+  );
+  const discoveries = options.discoveredDeferredTools
+    ? [...new Set(options.discoveredDeferredTools)]
+    : [];
+
+  let allowlist = native.allowlist;
+  // Rule 2 + Rule 3: enrich with discoveries unless the floor is explicitly
+  // zero tools (user said "no tools" — respect that).
+  if (
+    allowlist !== undefined &&
+    allowlist.length > 0 &&
+    discoveries.length > 0
+  ) {
+    allowlist = [...new Set([...allowlist, ...discoveries])];
+  }
+
+  return {
+    tier,
+    allowlist,
+    denylist: native.denylist,
+  };
 }
 
 function buildTurnRoutingForSession(options: {
@@ -1318,22 +1389,25 @@ export async function runAgentQuery(
         ensureMcpLoaded: session.ensureMcpLoaded,
         autoFallbacks: autoDecision?.fallbacks,
         createFallbackLLM: (fallbackModel: string) => {
-          // Recalculate tier + system prompt for the fallback model.
-          // The primary may be enhanced (bounded eager core) while
-          // the fallback may be standard (leaner eager core).
-          const fbTier = classifyModelTier(undefined, fallbackModel);
-          const fbToolFilter = computeTierToolFilter(
-            fbTier,
+          // Tier cap is authoritative for the fallback model. In-turn
+          // discoveries (tool_search promotions) are merged on top so the
+          // fallback can finish the task the primary began. Domain-layer
+          // additions from browser recovery are intentionally dropped —
+          // they encode primary-tier assumptions and a cross-tier fallback
+          // should not inherit them. See `computeFallbackToolFilter`.
+          const fbFilter = computeFallbackToolFilter({
+            fallbackModel,
             requestedToolAllowlist,
             effectiveToolDenylist,
-          );
-          const fbPrompt = fbToolFilter.allowlist
+            discoveredDeferredTools: session.discoveredDeferredTools,
+          });
+          const fbPrompt = fbFilter.allowlist
             ? compileSystemPrompt({
-              toolAllowlist: fbToolFilter.allowlist,
-              toolDenylist: fbToolFilter.denylist,
+              toolAllowlist: fbFilter.allowlist,
+              toolDenylist: fbFilter.denylist,
               toolOwnerId: session.toolOwnerId,
               querySource: session.querySource,
-              modelTier: fbTier,
+              modelTier: fbFilter.tier,
               instructions: session.instructions,
               agentProfiles: session.agentProfiles,
               visionCapable: session.visionCapable,
@@ -1342,12 +1416,12 @@ export async function runAgentQuery(
           const fbConfig = {
             ...session.llmConfig!,
             model: fallbackModel,
-            toolProfileState: fbToolFilter.allowlist
+            toolProfileState: fbFilter.allowlist
               ? createToolProfileState({
                 baseline: {
                   slot: "baseline",
-                  allowlist: fbToolFilter.allowlist,
-                  denylist: fbToolFilter.denylist,
+                  allowlist: fbFilter.allowlist,
+                  denylist: fbFilter.denylist,
                 },
               })
               : undefined,

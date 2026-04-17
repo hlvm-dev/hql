@@ -38,15 +38,15 @@ export function ShortcutsHelpMenu({
         <Text dimColor={dimColor}>@ for file paths</Text>
       </Box>
       <Box flexDirection="column">
-        <Text dimColor={dimColor}>shift + tab to toggle mode</Text>
+        <Text dimColor={dimColor}>shift + tab to cycle permission mode</Text>
         <Text dimColor={dimColor}>ctrl + f to search transcript</Text>
         <Text dimColor={dimColor}>ctrl + r to search history</Text>
         <Text dimColor={dimColor}>\⏎ for newline</Text>
       </Box>
       <Box flexDirection="column">
         <Text dimColor={dimColor}>ctrl + d to toggle docs</Text>
-        <Text dimColor={dimColor}>ctrl + p for permission shell</Text>
         <Text dimColor={dimColor}>pgup / pgdn to scroll transcript</Text>
+        <Text dimColor={dimColor}>tab to autocomplete</Text>
         <Text dimColor={dimColor}>ctrl + c to exit</Text>
       </Box>
     </Box>

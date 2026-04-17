@@ -6259,3 +6259,207 @@
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────   ``    ``  
   ⏵⏵ accept edits on (shift+tab to cycle)                                                                                                                          Rind    
                                                                                                                                                        => what do you think about entire conversation? share your thoughts objectively -
+
+## HLVM Agent System Current State (2026-04-17)
+
+This section is the current SSOT for HLVM's Claude Code agent fidelity.
+It supersedes the rough gap estimates and planning notes earlier in this
+document.
+
+The comparison surface that counts is:
+
+- CC production agent behavior that applies to a local HLVM runtime
+- not Anthropic-only server infrastructure
+- not CC plugin ecosystem machinery that HLVM does not have
+- not CC experimental or gated agent features
+
+### Scope Counted As Fidelity
+
+Counted:
+
+- `Agent()` dispatcher behavior
+- child `runAgent` execution path
+- sync execution
+- async/background execution
+- worktree isolation
+- built-in agent definitions and prompts
+- custom markdown agent definitions
+- agent tool filtering and resolution
+- per-agent input/output contract that HLVM actually exposes
+
+Explicitly not counted:
+
+- CC plugin agents
+- Remote/CCR execution
+- GrowthBook, analytics, Perfetto, agent summarization service
+- CC React UI files
+- fork/resume, auto-background timer, verification agent, memory/snapshots,
+  coordinator, swarm
+
+Reason:
+
+- those are either CC ecosystem features, Anthropic-internal infra, or
+  experimental/gated features per the production inventory earlier in this
+  document
+
+### Implemented In HLVM
+
+As of 2026-04-17, HLVM implements the following parity items in the agent
+system:
+
+- `ONE_SHOT_AGENT_TYPES` restored for `Explore` and `Plan`
+- one-shot result formatting now strips the reusable-agent trailer when the
+  child agent is one-shot and did not create a worktree
+- result formatting is now centralized in `ToolMetadata.formatResult` for the
+  `Agent` tool
+- sync agent results now include `totalTokens`
+- agent markdown frontmatter now parses `permissionMode`
+- agent markdown frontmatter now parses `initialPrompt`
+- agent markdown frontmatter now parses `mcpServers`
+- `initialPrompt` is prepended to the agent's first user turn
+- `cwd` is supported on `Agent` input
+- `cwd` is validated as absolute
+- `cwd` is mutually exclusive with `isolation: "worktree"`
+- async agents now return `outputFile`
+- async `outputFile` is live-written during execution via transcript/event
+  append, not only after completion
+- per-agent MCP loading/scoping is implemented
+- inline per-agent MCP server definitions are supported
+- agent-scoped MCP cleanup runs after sync and async completion
+
+### Current HLVM Behavior Map
+
+Implemented and verified:
+
+- `Agent()` tool dispatcher
+- `runAgent` child execution loop
+- sync child execution
+- async/background child execution
+- worktree-isolated child execution
+- built-in `general-purpose`, `Explore`, and `Plan`
+- project/user markdown agent loading
+- project/user agent precedence over built-ins
+- default fallback to `general-purpose`
+- model override
+- `maxTurns` override
+- tool allowlist/disallowlist resolution
+- `permissionMode` frontmatter parsing
+- `initialPrompt` frontmatter parsing and execution
+- `mcpServers` frontmatter parsing and child MCP runtime setup
+- `cwd` input override
+- async output file streaming
+- HLVM-safe result trailer with usage block
+- one-shot trailer suppression for `Explore` and `Plan`
+
+### HLVM-Specific Adaptations
+
+These are intentional and current:
+
+- HLVM uses `runReActLoop()` instead of CC's `query()` async generator
+- HLVM uses `ToolMetadata.formatResult` instead of CC's React-layer result
+  formatting
+- HLVM does not mention `SendMessage` in agent trailers because HLVM does not
+  expose a `SendMessage` tool
+- HLVM does not load agent definitions from `*.json` files
+
+The `*.json` point is deliberate:
+
+- CC's `parseAgentFromJson()` parses in-memory objects from plugin/policy
+  sources
+- CC does not scan `.claude/agents/*.json`
+- adding filesystem `*.json` agent files in HLVM would be an HLVM extension,
+  not CC fidelity
+
+### Still Not Implemented
+
+These are the real remaining parity gaps that still fit the local HLVM agent
+surface:
+
+- agent frontmatter `hooks`
+- agent frontmatter `skills`
+- agent frontmatter `color`
+- agent frontmatter `effort`
+- object-level `parseAgentFromJson()` for future non-filesystem agent sources
+
+Status of each:
+
+- `hooks`: HLVM has hook runtime infrastructure already, but agent-definition
+  frontmatter is not yet wired into child-agent hook execution
+- `skills`: HLVM has skill catalog/runtime already, but agent-definition
+  frontmatter is not yet wired into child-agent prompt/session setup
+- `color`: cosmetic/UI parity only
+- `effort`: depends on child-agent reasoning-budget plumbing
+- `parseAgentFromJson()`: only needed if HLVM adds managed/plugin/policy agent
+  sources
+
+### Intentionally Out Of Scope
+
+These are not current TODOs for local CC-faithful HLVM agent behavior:
+
+- CC plugin agents
+- filesystem `*.json` agent files
+- fork/resume
+- auto-background 2s/120s threshold behavior
+- verification built-in
+- remote/CCR agent execution
+- agent memory/snapshots
+- teams/swarm
+- coordinator mode
+- Anthropic telemetry/feature-flag infrastructure
+
+### Files Of Record
+
+Current implementation lives in:
+
+- `src/hlvm/agent/tools/agent-constants.ts`
+- `src/hlvm/agent/tools/agent-types.ts`
+- `src/hlvm/agent/tools/agent-definitions.ts`
+- `src/hlvm/agent/tools/agent-tool-spec.ts`
+- `src/hlvm/agent/tools/agent-tool.ts`
+- `src/hlvm/agent/tools/agent-tool-metadata.ts`
+- `src/hlvm/agent/tools/run-agent.ts`
+- `src/common/paths.ts`
+
+Verification coverage lives in:
+
+- `tests/unit/agent/agent-system.test.ts`
+- `tests/unit/agent/agent-integration.test.ts`
+
+### Verification Snapshot (2026-04-17)
+
+Completed:
+
+- targeted `deno check` on the modified agent files passed
+- targeted agent-domain tests passed:
+  `113 passed | 0 failed`
+- user-path CLI smoke passed with the CLI source path and Claude Haiku:
+  the `Agent` tool launched an `Explore` child and returned
+  `src/hlvm/agent/tools/agent-constants.ts`
+
+The exact successful smoke shape was:
+
+- `deno run -A src/hlvm/cli/cli.ts ask ... --model claude-code/claude-haiku-4-5-20251001`
+- prompt: use `Agent` with `subagent_type Explore` to find the file defining
+  `AGENT_MAX_TURNS`
+
+Current repo-level caveat:
+
+- `deno task ssot:check` is green on errors as of 2026-04-17
+- it still reports existing repo-wide `raw-error` warnings
+- this work introduced no new SSOT errors in the agent slice
+
+### Continuation Checklist
+
+If a future agent needs to continue the CC-fidelity work, continue in this
+order:
+
+1. Wire `hooks` frontmatter into child-agent hook runtime
+2. Wire `skills` frontmatter into child-agent prompt/session setup
+3. Add `color` only if UI parity matters
+4. Add `effort` only if child-agent reasoning-budget control exists
+5. Add object-level `parseAgentFromJson()` only when HLVM has a real managed or
+   plugin agent source that feeds parsed objects rather than markdown files
+
+Do not reopen the old "8k-10k line gap" claim unless the scope expands to CC
+server infrastructure and experimental surfaces. For local HLVM agent behavior,
+that earlier number overcounted the real work substantially.

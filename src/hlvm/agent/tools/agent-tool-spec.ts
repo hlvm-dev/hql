@@ -4,16 +4,16 @@
  * Kept separate from registry.ts and agent-tool.ts to avoid circular imports
  * while allowing both eager registration and test access to share one source
  * of truth for the Agent tool description/args.
+ *
+ * The fallback description is computed once at module load from the built-in
+ * agent registry — this is the SSOT. When a workspace is known,
+ * resolveAgentToolDescription() recomputes from built-ins + custom .md agents.
  */
 
-const AGENT_TOOL_FALLBACK_DESCRIPTION = `Launch a new agent to handle complex, multi-step tasks. Each agent type has specific capabilities and tools available to it.
+import { getAgentToolPrompt } from "./agent-prompt.ts";
+import { getBuiltInAgents } from "./built-in-agents.ts";
 
-Available agent types and the tools they have access to:
-- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)
-- Explore: Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions. (Tools: All tools except Agent, edit_file, write_file)
-- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: All tools except Agent, edit_file, write_file)
-
-Custom agents defined in .hlvm/agents/*.md may also be available. Specify subagent_type to use an agent by name.`;
+const AGENT_TOOL_FALLBACK_DESCRIPTION = getAgentToolPrompt(getBuiltInAgents());
 
 export const AGENT_TOOL_ARGS = {
   description: "string - A short (3-5 word) description of the task",
@@ -26,6 +26,8 @@ export const AGENT_TOOL_ARGS = {
     "boolean (optional) - Set to true to run this agent in the background. You will be notified when it completes.",
   isolation:
     'string (optional) - Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo.',
+  cwd:
+    'string (optional) - Absolute path to run the agent in. Overrides the working directory for filesystem and shell operations. Mutually exclusive with isolation: "worktree".',
 } as const;
 
 export function getAgentToolFallbackDescription(): string {
@@ -40,11 +42,7 @@ export async function resolveAgentToolDescription(
   }
 
   try {
-    const [{ loadAgentDefinitions }, { getAgentToolPrompt }] = await Promise
-      .all([
-        import("./agent-definitions.ts"),
-        import("./agent-prompt.ts"),
-      ]);
+    const { loadAgentDefinitions } = await import("./agent-definitions.ts");
     const { activeAgents } = await loadAgentDefinitions(workspace);
     return getAgentToolPrompt(activeAgents);
   } catch {
