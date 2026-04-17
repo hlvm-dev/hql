@@ -2,12 +2,19 @@
 
 **Status:** Donor-engine baseline active; Phase 1 donor chat shell is
 runtime-backed and launchable, the root shell now runs through donor-style
-fullscreen/tmux ownership logic, compiled PTY audits now confirm multiline
-input, immediate local echo, queued/busy typing, and in-app PageUp/PageDown
-scrolling, and tmux-with-mouse-off now surfaces the donor-style hint instead of
-failing silently, but transcript/prompt parity is still in progress
-**Created:** 2026-04-16 **Last updated:** 2026-04-17 **Doc policy:** This is
-the only planning/vision/handoff doc for REPL TUI v2. Any agent working on
+fullscreen/tmux ownership logic, compiled PTY audits have previously confirmed
+multiline input, immediate local echo, queued/busy typing, and in-app
+PageUp/PageDown scrolling, and tmux-with-mouse-off now surfaces the donor-style
+hint instead of failing silently; v1 investigation confirmed that old-REPL
+attachment/reference/history UX should be ported into v2 as app-layer donor
+logic rather than by attempting a v1 engine swap, and that migration has now
+started inside `PromptInput` (attachments, `@` / `/` completion, history search,
+first snippet/placeholder session, donor submit routing, donor file-picker
+left/right navigation, and donor queue preview), but this newest prompt slice is
+not yet compiled-path parity-verified inside the Codex audit environment and the
+direct Codex PTY audit path still trips the local `ReactCurrentOwner` split
+**Created:** 2026-04-16 **Last updated:** 2026-04-17 **Doc policy:** This is the
+only planning/vision/handoff doc for REPL TUI v2. Any agent working on
 `src/hlvm/tui-v2/` must update this file after real verification.
 
 ---
@@ -38,10 +45,9 @@ Required behavior:
   working session.
 - Do not leave status stale after a real verification result.
 - Do not mark a phase done based on file existence alone.
-- Do not hide uncertainty; explicitly mark partial/transitional states as
-  `[~]`.
-- Do not create a second planning doc for v2. This file remains the only
-  source of truth.
+- Do not hide uncertainty; explicitly mark partial/transitional states as `[~]`.
+- Do not create a second planning doc for v2. This file remains the only source
+  of truth.
 
 Every meaningful update should keep these parts current:
 
@@ -62,6 +68,38 @@ Minimum handoff standard for each update:
 
 If there is a conflict between optimistic narrative and verified behavior,
 verified behavior wins and the doc must say so plainly.
+
+## 1.2 Required parity-audit workflow
+
+The target is full CC TUI parity, not approximate similarity.
+
+Agents must not depend on the user as the primary bug-finding loop. User reports
+are useful, but self-audit is required.
+
+Required default workflow:
+
+1. run the real user path (`./hlvm repl --new`, and when useful `make repl-new`)
+2. exercise the shell in a real PTY, not just through static code review
+3. compare behavior directly against the donor CC shell in
+   `~/dev/ClaudeCode-main/`
+4. record the observed gap in this document
+5. port donor behavior directly where possible instead of inventing local fixes
+6. re-run the same live audit after the change
+
+Minimum areas that must be self-audited repeatedly until parity is credible:
+
+- prompt focus and immediate typing after submit
+- multiline editing
+- prompt history / queued-message behavior
+- transcript rendering and spacing
+- scrolling behavior (keyboard, wheel, tmux, fullscreen)
+- search behavior
+- status / footer behavior
+- streaming / tool-progress behavior
+- startup banner / layout chrome
+
+If a behavior has not been exercised live in the compiled path, treat it as
+unverified even if the code looks correct.
 
 ## 2. Vision
 
@@ -294,7 +332,7 @@ So the engine donor strategy is valid.
 [x] spike-validated
 [x] wired into tui-v2 baseline
 [x] integrated into a supported launch path
-[ ] committed cleanly
+[x] committed cleanly
 ```
 
 ## 5.2 App-layer TUI research
@@ -390,8 +428,24 @@ After landing the first donor slice into `src/hlvm/tui-v2/`:
 - donor-shaped `StatusLine.tsx` and `permissions/PermissionRequest.tsx`
   first-pass compat shells are now mounted and verified in the live baseline
   shell
-- full PromptInput parity is still not done; this remains the next large donor
-  transplant
+- `PromptInput.tsx` now carries the first real v1 advanced-composer migration:
+  - attachment snapshots are preserved through history/queue state
+  - `@` and `/` now use the unified completion infrastructure
+  - raw `@` no longer triggers the React update-depth loop that earlier audits
+    exposed
+  - first snippet/placeholder-session wiring is landed for function completion
+  - donor-style placeholder cleanup/validation now clears stale snippet state on
+    history/search/mode transitions instead of letting tabstop state drift
+  - donor submit routing is now wired into Enter handling, so unbalanced prompt
+    input follows the v1 `continue-multiline` path instead of forcing a send
+  - file completion now has donor-style left/right behavior:
+    - `Left` climbs to the parent `@path/`
+    - `Right` drills into directories or selects files
+    - `Ctrl+D` / `^D` toggles completion docs
+  - queued drafts now render through a donor-style queue preview instead of the
+    earlier plain debug list
+- full PromptInput parity is still not done; this remains active donor
+  transplant work rather than a completed slice
 
 So the next correct order is:
 
@@ -421,6 +475,297 @@ That is better than:
 
 - rewriting most of the app layer ourselves
 - or blind-copying the whole CC app and deleting things until it works
+
+## 5.4 V1 REPL research
+
+This section records the concrete findings from inspecting the current
+`src/hlvm/cli/repl-ink/` tree to answer whether we should pivot back to v1 or
+try to swap the CC engine underneath it.
+
+### What v1 already does well
+
+The advanced behaviors the user keeps asking for are mostly already implemented
+in v1, but they live in the v1 app layer, not in the Ink renderer itself.
+
+Concrete evidence:
+
+- `components/Input.tsx` is `3797` lines and already contains:
+  - multiline editing and wrapped cursor math
+  - queue editing
+  - prompt history navigation
+  - Ctrl+R history search
+  - unified completion dropdowns
+  - placeholder-mode completion
+  - `@` file references and drill-in behavior
+  - attachment insertion / filtering / sync
+- `components/ComposerSurface.tsx` owns composer-local state so typing does not
+  rerender the whole shell and already wires:
+  - attachment state
+  - draft restore
+  - pending queue
+  - submit routing
+- `hooks/useAttachments.ts` already provides monotonic attachment ids, async
+  invalidation, restore/sync/clear behavior
+- `completion/concrete-providers.ts` already implements:
+  - `@` file mention browsing
+  - directory drill
+  - media-file attachment creation
+  - slash-command completion
+- `mention-resolver.ts` already resolves `@path` references into actual file or
+  directory content for REPL use
+- `components/VirtualTranscript.tsx` and
+  `components/TranscriptViewerOverlay.tsx` already provide v1 transcript/history
+  viewing behavior
+
+Conclusion:
+
+```text
+v1's strongest UX surfaces are app-layer HLVM features, not renderer magic
+```
+
+### Why a v1 engine swap is not the right move
+
+The current v1 shell is built against the root repo runtime:
+
+- root `deno.json` uses `react@18`
+- root `deno.json` maps `ink` to `npm:ink@5`
+- v1 imports `Box`, `Text`, `useInput`, `useStdout`, `render`, etc. directly
+  from `"ink"`
+
+The donor v2 engine is not a drop-in replacement:
+
+- `src/hlvm/tui-v2/deno.json` uses `react@19`
+- `src/hlvm/tui-v2/deno.json` uses `react-reconciler@0.31`
+- v2 app-layer code depends on donor-specific primitives such as:
+  - `AlternateScreen`
+  - `ScrollBox`
+  - donor event parsing / wheel handling / fullscreen ownership
+
+That means:
+
+```text
+swapping the CC engine under v1 is not a low-risk "change one import" job
+```
+
+It would force one of these bad outcomes:
+
+- mix incompatible React / reconciler stacks in the same tree
+- rewrite large portions of v1 to donor engine primitives anyway
+- keep v1 app structure but still not inherit the CC-specific behavior that
+  depends on donor app-layer assumptions
+
+### Strategic decision after v1 inspection
+
+Do **not** pivot to:
+
+```text
+maintain v1 as the main shell + try to hot-swap the CC engine underneath it
+```
+
+That path is attractive because v1 already has good HLVM-specific UX, but
+structurally it mixes the wrong halves of the system.
+
+Instead:
+
+```text
+keep v2 as the renderer/shell baseline
+and use v1 as a donor for HLVM-specific app-layer features
+```
+
+More concretely:
+
+- CC remains the donor for:
+  - engine
+  - fullscreen / wheel / transcript shell / prompt shell primitives
+- v1 becomes the donor for HLVM-specific composer UX:
+  - attachments
+  - `@` file/reference UX
+  - history search
+  - queue editing
+  - prompt draft restore
+  - transcript/history overlay ideas where still useful
+
+So the correct hybrid is:
+
+```text
+CC engine + CC shell primitives + HLVM v1 composer/reference logic ported into v2
+```
+
+Not:
+
+```text
+v1 shell + CC engine hot swap
+```
+
+## 5.5 V1 -> V2 migration inventory
+
+This is the concrete list of v1 app-layer features that should be migrated into
+v2 because they are HLVM-specific UX strengths and are currently missing or only
+partially implemented in v2.
+
+This is **not** a list of renderer features. It is a list of advanced REPL
+behaviors living above the renderer.
+
+### A. Highest-priority composer features missing in v2
+
+- `[~]` **Attachment state pipeline**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/hooks/useAttachments.ts`
+    - `src/hlvm/cli/repl/attachment.ts`
+  - why:
+    - monotonic attachment ids
+    - async invalidation
+    - restore/sync/clear semantics
+    - immediate placeholder insertion for pending attachment registration
+
+- `[~]` **`@` file reference browser / drill UX**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/completion/concrete-providers.ts`
+    - `src/hlvm/cli/repl/file-search.ts`
+  - why:
+    - explicit `@`-triggered file browsing
+    - directory drill-in / drill-back
+    - already-attached-file filtering
+    - directory commit vs media-file attachment behavior
+
+- `[~]` **`@` mention resolution into actual REPL content**
+  - donor source:
+    - `src/hlvm/cli/repl/mention-resolver.ts`
+  - why:
+    - actual file/directory resolution for REPL semantics, not just UI labels
+
+- `[~]` **Slash-command completion**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/completion/concrete-providers.ts`
+  - why:
+    - v1 already has mature `/` command completion and execution semantics
+
+- `[~]` **Unified completion session architecture**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/completion/*`
+    - `src/hlvm/cli/repl-ink/components/Input.tsx`
+  - why:
+    - one surface for `@`, `/`, and symbol completion
+    - provider priority
+    - action model (`select`, `drill`, `cancel`, docs toggle)
+    - completion footer help text
+
+- `[~]` **Placeholder-mode parameter completion**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/Input.tsx`
+  - why:
+    - function placeholder navigation
+    - Tab / Shift+Tab traversal
+    - untouched-placeholder cleanup
+    - typed replacement and pair insertion logic
+
+- `[~]` **Reverse history search (Ctrl+R)**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/hooks/useHistorySearch.ts`
+    - `src/hlvm/cli/repl-ink/components/HistorySearchPrompt.tsx`
+  - why:
+    - v2 currently has transcript search, not the same thing as composer history
+
+- `[~]` **History recall with attachment restoration**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/Input.tsx`
+    - `src/hlvm/cli/repl/history-storage.ts`
+  - why:
+    - recalling a prompt must restore both text and attachment snapshot
+
+- `[~]` **Conversation queue editing parity**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/ComposerSurface.tsx`
+    - `src/hlvm/cli/repl-ink/components/Input.tsx`
+    - `src/hlvm/cli/repl-ink/utils/conversation-queue.ts`
+  - why:
+    - v2 has a simpler queued-command model today
+    - v1 already has richer queue edit / restore / binding behavior
+
+### B. Important shell behaviors still ahead in v2
+
+- `[ ]` **ComposerSurface split**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/ComposerSurface.tsx`
+  - why:
+    - keeps typing localized to the composer subtree
+    - owns queue + draft + attachment state together
+    - cleaner shell/composer boundary than current v2 prompt shell
+
+- `[ ]` **Empty-submit local-agents handoff**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/Input.tsx`
+    - `src/hlvm/cli/repl-ink/components/LocalAgentsStatusPanel.tsx`
+  - why:
+    - v1 already has a focus-handoff model for local-agent surfaces
+    - v2 currently does not expose this advanced shell interaction
+
+- `[ ]` **Composer interaction-mode chrome**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/Input.tsx`
+  - why:
+    - subdued / modified prompt behavior when permission/question pickers own
+      focus
+
+- `[ ]` **Transcript/history overlay UX**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/TranscriptViewerOverlay.tsx`
+  - why:
+    - v2 has live transcript search, but not yet the richer v1 history-view path
+
+- `[ ]` **Plan / todo transcript surfaces**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/conversation/PlanChecklistPanel.tsx`
+    - `src/hlvm/cli/repl-ink/hooks/useConversation.ts`
+  - why:
+    - v2 carries some planning items already, but the v1 HLVM plan/todo UX is
+      still richer
+
+### C. Secondary shell surfaces to review after core composer parity
+
+- `[ ]` **Command palette overlay**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/CommandPaletteOverlay.tsx`
+
+- `[ ]` **Shortcuts overlay**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/ShortcutsOverlay.tsx`
+
+- `[ ]` **Background tasks overlay**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/BackgroundTasksOverlay.tsx`
+
+- `[ ]` **Config overlay**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/ConfigOverlay.tsx`
+
+- `[ ]` **Model browser / model setup overlay**
+  - donor source:
+    - `src/hlvm/cli/repl-ink/components/ModelBrowser.tsx`
+    - `src/hlvm/cli/repl-ink/components/ModelSetupOverlay.tsx`
+
+These are useful, but they should come **after** the core prompt/reference/
+attachment/history path is solid.
+
+### D. Explicit non-goals for this backfill
+
+The following should **not** be copied from v1 as the new renderer baseline:
+
+- `repl-ink`'s root `ink@5` / `react@18` renderer path
+- v1 top-level app shell as the new permanent shell
+- a hybrid runtime where v1 and donor v2 renderers are mixed in one tree
+
+The backfill goal is:
+
+```text
+port v1 HLVM-specific advanced UX into v2
+```
+
+Not:
+
+```text
+rescue v1 as the long-term shell
+```
 
 ## 6. What To Copy, What To Transplant, What To Drop
 
@@ -566,7 +911,7 @@ Current status:
 [x] direct v2 baseline entry works
 [x] hlvm repl --new now proxies into the isolated React 19 process
 [x] toy v2 app-layer scaffold removed
-[!] engine tree not committed cleanly yet
+[x] engine tree committed in local checkpoint e0bcec2d
 ```
 
 ## Phase 1 - CC-Quality Chat TUI
@@ -621,6 +966,7 @@ Current status:
 [~] CC-faithful status / permission path started but not at full parity
 [~] coherent donor chat shell is now live and runtime-backed
 [~] live donor chat shell is usable, but user-reported interaction bugs showed Phase 1 was overcalled
+[~] v1 advanced-composer migration is now active inside v2 PromptInput
 [ ] Phase 1 complete
 ```
 
@@ -654,6 +1000,17 @@ Latest live audit:
   [x] isolated tmux audit on the compiled `./hlvm repl --new` path confirms immediate local echo and multiline prompt editing still work after the donor fullscreen/tmux transplant
   [~] wheel-scroll ownership is now explained structurally in tmux (same as donor CC), but full mouse-wheel parity still needs user-path validation outside the tmux-mouse-off case
   [x] runtime-host port exhaustion is no longer a manual cleanup problem in the shared host bootstrap path
+  [x] `deno check --config src/hlvm/tui-v2/deno.json src/hlvm/tui-v2/prompt/PromptInput.tsx` => green after the v1 advanced-composer migration
+  [x] `deno check --config src/hlvm/tui-v2/deno.json src/hlvm/tui-v2/main.tsx` => green after the v1 advanced-composer migration
+  [x] donor-style placeholder/snippet cleanup and validation now type-check after wiring history/search/mode cleanup into PromptInput
+  [x] `make build-fast` => rebuilt `./hlvm` after the new PromptInput changes
+  [x] code audit confirmed v2 now consumes donor `ENTER_SNIPPET_SESSION` completion side effects instead of dropping them
+  [x] code audit confirmed raw `@` completion now follows the donor explicit-typed-char rule instead of re-triggering from a value-change loop
+  [x] `deno check --config src/hlvm/tui-v2/deno.json src/hlvm/tui-v2/prompt/PromptInputQueuedCommands.tsx` => green after donor queue-preview port
+  [x] code audit confirmed v2 Enter handling now uses donor submit routing (`continue-multiline` instead of forced send for unbalanced prompt input)
+  [x] code audit confirmed file completion now has donor-style `Left` parent climb and `Right` drill/select handling
+  [x] `make build-fast` => rebuilt `./hlvm` after the submit-routing / file-picker / queue-preview batch
+  [ ] this turn's newest prompt/completion changes have NOT been re-verified in a compiled PTY from inside Codex; direct `./hlvm repl --new` auditing in this tool still hits the local ReactCurrentOwner reconciler split
 ```
 
 ## Phase 2 - HLVM Code Mode
@@ -766,6 +1123,7 @@ At the moment:
   - local echo appears immediately on submit
   - multiline prompt editing works
   - PageUp/PageDown scroll the in-app transcript while the prompt stays pinned
+  - raw wheel SGR events scroll the in-app transcript in the compiled shell
   - compiled `./hlvm repl --new` in an isolated tmux server now shows the tmux
     mouse-off hint and still preserves immediate local echo + multiline input
   - queued/busy prompt behavior can be exercised without waiting for more user
@@ -805,7 +1163,8 @@ At the moment:
 - those issues are now being corrected directly in the live shell path before
   Phase 1 is allowed to close
 - donor shell cleanup now landed in the real path:
-  - the local top status/debug strip was removed from the default transcript view
+  - the local top status/debug strip was removed from the default transcript
+    view
   - the default prompt no longer shows HLVM-specific placeholder copy
   - banner version/footer effort chrome now follow the donor shell rather than
     local placeholder values
@@ -906,8 +1265,8 @@ Agent handoff note:
 - `VirtualMessageList`, `Messages / MessageRow`, `PromptInput`, `StatusLine`,
   and `PermissionRequest` are all first-pass donor transplants, not
   parity-complete
-- shared HLVM runtime wiring is now in place; the next agent should move to
-  Phase 2 while continuing donor-parity refinements opportunistically
+- shared HLVM runtime wiring is now in place, but Phase 1 parity work is still
+  active and must continue before Phase 2 is treated as the main focus
 - do not rebuild local shell state; preserve the donor-chat baseline and layer
   REPL-mode work on top
 
@@ -956,7 +1315,7 @@ Phase 0 - Engine / launch baseline
   [x] Minimal donor-baseline shell running
   [x] Supported launch path fixed
   [x] hlvm repl --new working
-  [ ] Engine committed cleanly
+  [x] Engine committed cleanly
 
 Phase 1 - CC-quality chat TUI
   [x] False-start scaffold removed
@@ -972,11 +1331,23 @@ Phase 1 - CC-quality chat TUI
   [x] Full unit suite passes
   [x] SSOT check passes with 0 errors
   [x] deno check passes under src/hlvm/tui-v2/deno.json
+  [x] Fixture-backed submit path no longer leaks auto-model selection
+  [x] Compiled-path audit verifies immediate local echo on submit
+  [x] Compiled-path audit verifies multiline editing
+  [x] Compiled-path audit verifies history up/down editing
+  [x] Compiled-path audit verifies transcript search can open in the live shell
+  [x] Compiled-path audit verifies PageUp/PageDown transcript scrolling
+  [x] Compiled-path audit verifies raw wheel-event transcript scrolling
+  [~] v1 advanced-composer migration started in PromptInput (attachments, completion, history search, first snippet session, donor submit routing, donor queue preview, donor file-picker left/right behavior)
+  [~] donor placeholder/snippet lifecycle is now structurally closer to v1, but compiled-path parity for the newest transitions still needs a live PTY audit
+  [~] direct Codex PTY audit of the rebuilt binary still trips the local ReactCurrentOwner split, so newest prompt/completion behavior is source-checked + rebuilt but not re-verified live inside Codex
+  [ ] compiled-path audit still needed for the newest PromptInput completion/snippet/file-picker changes
   [~] Transcript search/navigation compat started, not complete
   [~] PromptInput transplanted partially
   [~] Messages/transcript transplanted partially
   [~] Status/permission transplanted partially
   [~] Coherent donor chat shell live and runtime-backed
+  [~] Manual human wheel behavior across all terminal/tmux combinations is still not fully audited
   [x] Phase 1 launchable donor chat-shell baseline complete
 
 Phase 2 - HQL + JS code mode

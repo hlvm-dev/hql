@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { AnyAttachment } from "../../cli/repl/attachment.ts";
 import type { Key } from "../ink/events/input-event.ts";
 import type { Color } from "../ink/styles.ts";
 
@@ -15,6 +16,8 @@ export type QueuedCommand = {
   mode: PromptInputMode | "task-notification";
   value: string;
   createdAt: number;
+  attachments?: AnyAttachment[];
+  cursorOffset?: number;
 };
 
 export type TextHighlight = {

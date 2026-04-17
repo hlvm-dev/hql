@@ -1,6 +1,17 @@
 import React from "react";
+import {
+  AUTO_MODEL_ID,
+  DEFAULT_MODEL_ID,
+} from "../../../common/config/types.ts";
 import { ensureError } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import {
+  expandTextAttachmentReferences,
+  filterReferencedAttachments,
+  type AnyAttachment,
+  type Attachment,
+} from "../../cli/repl/attachment.ts";
+import { resolveAtMentions } from "../../cli/repl/mention-resolver.ts";
 import type {
   InteractionOption,
   InteractionResponse,
@@ -12,6 +23,7 @@ import {
   runAgentQueryViaHost,
 } from "../../runtime/host-client.ts";
 import { useConversation } from "../../cli/repl-ink/hooks/useConversation.ts";
+import { createConversationAttachmentRef } from "../../cli/repl-ink/types.ts";
 import { useTerminalSize } from "../hooks/useTerminalSize.ts";
 import Box from "../ink/components/Box.tsx";
 import type { ScrollBoxHandle } from "../ink/components/ScrollBox.tsx";
@@ -71,6 +83,43 @@ function formatUsageLabel(
     return undefined;
   }
   return `${estimatedTokens} tokens`;
+}
+
+function prepareConversationAttachmentPayload(
+  attachments?: readonly AnyAttachment[],
+  text = "",
+): {
+  attachmentIds?: string[];
+  attachments?: ReturnType<typeof createConversationAttachmentRef>[];
+} {
+  const referencedAttachments = text.trim().length > 0
+    ? filterReferencedAttachments(text, attachments ?? [])
+    : attachments ?? [];
+  const runtimeAttachments = referencedAttachments.filter(
+    (attachment): attachment is Attachment =>
+      "attachmentId" in attachment && !("content" in attachment),
+  );
+
+  return {
+    attachmentIds: runtimeAttachments.length > 0
+      ? runtimeAttachments.map((attachment) => attachment.attachmentId)
+      : undefined,
+    attachments: runtimeAttachments.length > 0
+      ? runtimeAttachments.map((attachment) =>
+        createConversationAttachmentRef(
+          attachment.displayName,
+          attachment.attachmentId,
+        )
+      )
+      : undefined,
+  };
+}
+
+function expandConversationDraftText(
+  text: string,
+  attachments?: readonly AnyAttachment[],
+): string {
+  return expandTextAttachmentReferences(text, attachments ?? []);
 }
 
 type RuntimeInteractionState = {
@@ -316,7 +365,11 @@ export function TranscriptWorkbench(): React.ReactNode {
     const runtimeConfig = await createRuntimeConfigManager();
     let model = runtimeConfig.getConfiguredModel();
 
-    if (!fixturePath) {
+    if (fixturePath) {
+      if (!model || model === AUTO_MODEL_ID) {
+        model = DEFAULT_MODEL_ID;
+      }
+    } else {
       const ensured = await runtimeConfig.ensureInitialModelConfigured();
       model = await runtimeConfig.resolveCompatibleClaudeCodeModel(
         ensured.model,
@@ -401,13 +454,28 @@ export function TranscriptWorkbench(): React.ReactNode {
         return;
       }
 
+      const displayText = trimmed;
+      const expandedText = expandConversationDraftText(
+        trimmed,
+        submission.attachments,
+      );
+      const resolvedText = await resolveAtMentions(expandedText);
+      const { attachmentIds, attachments } = prepareConversationAttachmentPayload(
+        submission.attachments,
+        trimmed,
+      );
+
       setRuntimeBusy(true);
       setFooterLabel(undefined);
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
       let finalizeStatus: "completed" | "cancelled" | "failed" = "completed";
-      const turnId = conversation.addUserMessage(trimmed, { startTurn: true });
+      const turnId = conversation.addUserMessage(displayText, {
+        startTurn: true,
+        submittedText: resolvedText !== displayText ? resolvedText : undefined,
+        attachments,
+      });
       conversation.addAssistantText("", true, undefined, { turnId });
       queueMicrotask(() => scrollRef.current?.scrollToBottom());
 
@@ -434,9 +502,10 @@ export function TranscriptWorkbench(): React.ReactNode {
         };
 
         const result = await runAgentQueryViaHost({
-          query: trimmed,
+          query: resolvedText,
           model: runtime.model,
           fixturePath,
+          attachmentIds,
           querySource: REPL_MAIN_THREAD_QUERY_SOURCE,
           contextWindow: runtime.contextWindow,
           stateless: fixturePath ? true : undefined,

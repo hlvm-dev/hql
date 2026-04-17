@@ -442,8 +442,16 @@ export async function handleChat(req: Request): Promise<Response> {
     }
   }
 
+  const fixturePath = typeof body.fixture_path === "string" &&
+      body.fixture_path.trim()
+    ? body.fixture_path.trim()
+    : undefined;
   let resolvedModel = isEvalMode
     ? undefined
+    : fixturePath
+    ? (body.model && body.model !== AUTO_MODEL_ID
+      ? body.model
+      : DEFAULT_MODEL_ID)
     : body.model ?? (await ensureInitialModelConfigured()).model;
   const requestAttachmentIds = getRequestAttachmentIds(body.messages);
   traceReplMainThreadForSource(body.query_source, "server.chat.model_ready", {
@@ -464,10 +472,6 @@ export async function handleChat(req: Request): Promise<Response> {
     });
   }
   const cfgSnapshot = config.snapshot;
-  const fixturePath = typeof body.fixture_path === "string" &&
-      body.fixture_path.trim()
-    ? body.fixture_path.trim()
-    : undefined;
 
   if (
     !isEvalMode &&

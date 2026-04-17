@@ -1,44 +1,122 @@
 import React from "react";
+import { truncate } from "../../../common/utils.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+import {
+  getConversationDraftPreview,
+  getConversationQueueEditBinding,
+  getConversationQueueEditBindingLabel,
+  getQueuedDraftKind,
+  type QueuedInputKind,
+} from "../../cli/repl-ink/utils/conversation-queue.ts";
+import {
+  buildMixedQueuePreviewHeaderLine,
+  buildMixedQueuePreviewItemLine,
+  buildMixedQueuePreviewOverflowLine,
+  buildQueuePreviewHintLine,
+  type ShellQueuePreviewLine,
+} from "../../cli/repl-ink/utils/shell-chrome.ts";
 import Box from "../ink/components/Box.tsx";
 import Text from "../ink/components/Text.tsx";
+import { DONOR_INACTIVE } from "../theme/donorTheme.ts";
 import type { QueuedCommand } from "../types/textInputTypes.ts";
-import { prependModeCharacterToInput } from "./inputModes.ts";
 
 type Props = {
   queuedCommands: QueuedCommand[];
 };
 
-function summarize(value: string): string {
-  return value.length > 72 ? `${value.slice(0, 69)}...` : value;
+const MAX_VISIBLE_ITEMS = 3;
+const PREVIEW_LENGTH = 72;
+
+function renderPreviewLine(
+  line: ShellQueuePreviewLine,
+): React.ReactElement {
+  if (line.text.startsWith("• ")) {
+    return (
+      <Text>
+        <Text color="white">•</Text>
+        <Text color="white">{line.text.slice(2)}</Text>
+      </Text>
+    );
+  }
+
+  if (line.text.startsWith("↳ ")) {
+    return (
+      <Text>
+        <Text color={DONOR_INACTIVE} dimColor>↳</Text>
+        <Text color={DONOR_INACTIVE} dimColor>{line.text.slice(2)}</Text>
+      </Text>
+    );
+  }
+
+  const color = line.kind === "header" ? "white" : DONOR_INACTIVE;
+  return (
+    <Text color={color} dimColor={line.kind !== "header"}>
+      {line.text}
+    </Text>
+  );
+}
+
+function buildQueuePreviewLines(
+  queuedCommands: readonly QueuedCommand[],
+): ShellQueuePreviewLine[] {
+  if (queuedCommands.length === 0) {
+    return [];
+  }
+
+  const editBindingLabel = getConversationQueueEditBindingLabel(
+    getConversationQueueEditBinding(getPlatform().env),
+  );
+  const visibleCommands = queuedCommands.slice(0, MAX_VISIBLE_ITEMS);
+  const lines: ShellQueuePreviewLine[] = [buildMixedQueuePreviewHeaderLine()];
+
+  for (const command of visibleCommands) {
+    const draft = {
+      text: command.value,
+      attachments: command.attachments ?? [],
+      cursorOffset: command.cursorOffset ?? command.value.length,
+      queuedKind: command.mode === "bash"
+        ? "command" as QueuedInputKind
+        : undefined,
+    };
+    lines.push(
+      buildMixedQueuePreviewItemLine(
+        getQueuedDraftKind(draft),
+        truncate(getConversationDraftPreview(draft), PREVIEW_LENGTH, "…"),
+      ),
+    );
+  }
+
+  if (queuedCommands.length > visibleCommands.length) {
+    lines.push(
+      buildMixedQueuePreviewOverflowLine(
+        queuedCommands.length - visibleCommands.length,
+      ),
+    );
+  }
+
+  lines.push(buildQueuePreviewHintLine(editBindingLabel));
+  return lines;
 }
 
 export function PromptInputQueuedCommands(
   { queuedCommands }: Props,
 ): React.ReactNode {
-  if (queuedCommands.length === 0) {
+  const lines = React.useMemo(
+    () => buildQueuePreviewLines(queuedCommands),
+    [queuedCommands],
+  );
+
+  if (lines.length === 0) {
     return null;
   }
 
-  const visibleCommands = queuedCommands.slice(-3);
-
   return (
     <Box marginBottom={1} flexDirection="column">
-      <Text dimColor>Queued commands</Text>
-      {visibleCommands.map((command) => (
-        <Text key={command.id} dimColor wrap="wrap">
-          {summarize(
-            prependModeCharacterToInput(
-              command.value,
-              command.mode === "task-notification" ? "prompt" : command.mode,
-            ),
-          )}
-        </Text>
+      {lines.map((line, index) => (
+        <Box key={`${line.kind}-${index}`}>
+          {renderPreviewLine(line)}
+        </Box>
       ))}
-      {queuedCommands.length > visibleCommands.length && (
-        <Text dimColor>
-          +{queuedCommands.length - visibleCommands.length} more queued
-        </Text>
-      )}
     </Box>
   );
 }
