@@ -40,7 +40,7 @@ if [ "$BOOTSTRAP_EXIT" -ne 0 ]; then
       -H "Content-Type: application/json" \
       -d "{\"model\":\"gemma4:e4b\",\"prompt\":\"test\",\"stream\":false}" \
       "http://127.0.0.1:11439/api/generate" 2>&1) || true
-    if echo "$GEN_RESP" | grep -q '"resource limitations"'; then
+    if echo "$GEN_RESP" | grep -q 'resource limitations'; then
       echo "==> ARM CI: Ollama alive but model OOM (expected on ~7 GB runner)."
       echo "==> Verified: binary installed, bootstrap ran, Ollama started."
       echo "==> Public smoke succeeded (ARM CI — model load skipped due to runner memory)."

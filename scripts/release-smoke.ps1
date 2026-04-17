@@ -78,10 +78,15 @@ try {
             Write-Error "Latest release is $latest, expected $Tag"
         }
 
-        Write-Host "==> Running public installer (from hlvm.dev)..."
+        # Download install.ps1 from the release assets (not hlvm.dev, which is
+        # deployed from main — stale until this branch merges).
+        # TODO: After merge to main + Firebase deploy, switch to:
+        #   Invoke-WebRequest -Uri "https://hlvm.dev/install.ps1"
+        Write-Host "==> Running public installer (from release assets)..."
+        $installerUrl = "https://github.com/$Repo/releases/download/$Tag/install.ps1"
         $env:HLVM_INSTALL_DIR = $InstallBin
         $env:HLVM_INSTALL_VERSION = $Tag
-        & ([scriptblock]::Create((Invoke-WebRequest -Uri "https://hlvm.dev/install.ps1" -UseBasicParsing).Content))
+        & ([scriptblock]::Create((Invoke-WebRequest -Uri $installerUrl -UseBasicParsing).Content))
     }
 
     Write-Host "==> Verifying bootstrap..."
