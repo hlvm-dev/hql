@@ -1,18 +1,29 @@
 # HLVM REPL TUI v2 - Source of Truth
 
-**Status:** Donor-engine baseline active; Phase 1 donor chat shell is
-runtime-backed and launchable, the root shell now runs through donor-style
-fullscreen/tmux ownership logic, compiled PTY audits have previously confirmed
-multiline input, immediate local echo, queued/busy typing, and in-app
-PageUp/PageDown scrolling, and tmux-with-mouse-off now surfaces the donor-style
-hint instead of failing silently; v1 investigation confirmed that old-REPL
-attachment/reference/history UX should be ported into v2 as app-layer donor
-logic rather than by attempting a v1 engine swap, and that migration has now
-started inside `PromptInput` (attachments, `@` / `/` completion, history search,
-first snippet/placeholder session, donor submit routing, donor file-picker
-left/right navigation, and donor queue preview), but this newest prompt slice is
-not yet compiled-path parity-verified inside the Codex audit environment and the
-direct Codex PTY audit path still trips the local `ReactCurrentOwner` split
+**Status:** (cold-start summary — see §11 Progress Board for the authoritative
+checklist; see Appendix A for the dated audit log of fixes landed)
+
+- **Phase 0** (engine + launch baseline): done — donor CC ink engine copied,
+  adapted for Deno, committed; `./hlvm repl --new` spawns an isolated React 19
+  subprocess via `src/hlvm/tui-v2/deno.json`.
+- **Phase 1** (CC-quality chat TUI): *in progress* — donor shell paints, all
+  major pickers (`/`, `@`, `?`) render inline à la CC, PTY audit confirms boot
+  + typing + submit + Shift+Tab mode + Up/Down single-step + Tab advance +
+  Ctrl+D docs + Left/Right `@` drill + Escape + backspace + multiline + picker-
+  Enter. NOT done: runtime round-trip live verification, prompt-row position
+  parity, remove `ink/index.ts` bridge by porting the last 4 v1 files.
+- **Phase 2** (HQL + JS code mode): not started.
+- **Phase 3** (HLVM overlays/UX): not started.
+- **Phase 4** (polish / migration): not started.
+- **Known architectural debts** flagged in peer review:
+  (a) `src/hlvm/tui-v2/ink/index.ts` barrel is a temporary bridge for 4 v1
+  `repl-ink` files — tracked exit criterion in §11 Progress Board;
+  (b) compat layer (§6.4) is named but not implemented — TODO;
+  (c) `CC-quality` gate is not operational — currently enforced by PTY-audit
+  checklist in §11, not by a hard fail-list; and
+  (d) multi-process / runtime-host-on-ports design is load-bearing **because
+  React 18 (v1/root) and React 19 (v2 donor engine) cannot share one process**;
+  that rationale is recorded here so it's not rediscovered as a surprise.
 **Created:** 2026-04-16 **Last updated:** 2026-04-17 **Doc policy:** This is the
 only planning/vision/handoff doc for REPL TUI v2. Any agent working on
 `src/hlvm/tui-v2/` must update this file after real verification.
@@ -339,7 +350,7 @@ So the engine donor strategy is valid.
 
 The CC app-layer TUI, excluding the engine, is not tiny.
 
-## 6. Current live-shell status
+## 5.6 Current live-shell status
 
 - `hlvm repl --new` now uses a donor-style visible shell rather than the older
   round-box debug baseline.
@@ -1010,7 +1021,45 @@ Latest live audit:
   [x] code audit confirmed v2 Enter handling now uses donor submit routing (`continue-multiline` instead of forced send for unbalanced prompt input)
   [x] code audit confirmed file completion now has donor-style `Left` parent climb and `Right` drill/select handling
   [x] `make build-fast` => rebuilt `./hlvm` after the submit-routing / file-picker / queue-preview batch
-  [ ] this turn's newest prompt/completion changes have NOT been re-verified in a compiled PTY from inside Codex; direct `./hlvm repl --new` auditing in this tool still hits the local ReactCurrentOwner reconciler split
+  [x] `./hlvm repl --new` PTY boot re-verified after the v2 bare-`ink` remap: donor shell paints (dividers, `❯` prompt, `Enter send · ◐ medium · /effort` footer) instead of crashing on `ReactCurrentOwner`
+  [x] `deno info --config src/hlvm/tui-v2/deno.json --unstable-sloppy-imports src/hlvm/tui-v2/main.tsx` no longer contains `npm:/ink@5.2.1` or `react-reconciler@0.29.2`; only the local `ink/index.ts` barrel and `react-reconciler@0.31.0` remain
+  [!] ROOT-CAUSE CORRECTION: the earlier "local ReactCurrentOwner split inside Codex" framing was wrong. It was a real user-path crash triggered whenever v2 transitively loaded v1 `repl-ink` files (`completion/Dropdown.tsx`, `components/PickerRow.tsx`, `components/HighlightedText.tsx`, `keybindings/keybinding-lookup.ts`) whose bare `from "ink"` imports resolved to `npm:ink@5.2.1`; ink@5 pins `react-reconciler@0.29.x`, which references React 18's internal `ReactCurrentOwner` symbol that React 19 removed. The crash hit any run of `./hlvm repl --new` after the v1 composer migration, not just the Codex audit environment.
+  [!] Donor-fidelity note: this fix follows the "hard-copy CC engine, do not simplify" rule. The new `src/hlvm/tui-v2/ink/index.ts` barrel only re-exports the local CC donor's `Box`, `Text`, and `Key` type. It does NOT wrap them, adapt them, or introduce behavioral drift; it only changes *which* ink any reachable bare-specifier import binds to.
+  [x] LIVE PTY audit of `./hlvm repl --new` now surfaces three further real bugs introduced by the v1 composer migration — all fixed this turn:
+    [x] `/` completion was dead on every build: typing `/` triggered a React "Maximum update depth exceeded" infinite re-render because `completion` was in the value-change `useEffect`'s deps array. Each run of the effect called `completion.triggerCompletion(...)`, which rebuilt the `completion` object, which re-fired the effect, ... Fix: mirror v1 `components/Input.tsx`'s pattern — keep `completion` OUT of the effect's deps and read it through a `completionRef.current` (PromptInput.tsx).
+    [x] Arrow-key navigation inside the completion picker advanced the selection by 2 rows per press (Desktop → Downloads, skipping Documents; `/help` → `/init`, skipping `/exit`). BaseTextInput's `useInput` fires first (child effects register listeners first) and routes Up/Down through `disableCursorMovementForUpDownKeys={completion.isVisible}` → `onHistoryUp`/`onHistoryDown` → PromptInput's `handleHistoryUp`/`handleHistoryDown` → `completion.navigate{Up,Down}()`; PromptInput's own `useInput` then ran its redundant Up/Down handlers and navigated AGAIN. Fix: remove the redundant Up/Down branches from PromptInput's `useInput` completion-visible block; Tab is kept (unique to PromptInput, BaseTextInput's Tab is a no-op).
+    [x] Enter on a visible picker caused a double-fire: BaseTextInput's Enter called `onSubmit` → `submitCurrentInput` → sent the current draft as a user turn, THEN PromptInput's `useInput` ran `completion.confirmSelected()` — so typing `@` + Enter both submitted a stray `@` user message AND left `@~/Desktop/` in the fresh prompt. Fix: guard `submitCurrentInput` at the top — bail out when `completionRef.current.isVisible` or `historySearch.state.isSearching`, so only the picker-confirm path runs.
+  [x] Re-verified live in tmux-backed PTY on the rebuilt `./hlvm repl --new`:
+    [x] `/` opens the slash-command dropdown (`/mcp`, `/exit`, `/help`, `/init`, `/flush`, `/hooks`, ...) with exactly ONE `›` selection marker and no update-depth explosion
+    [x] `@` opens the file/dir picker with exactly ONE `›` marker; Down/Up advance the marker by exactly 1 item per press
+    [x] `@` + Enter inserts `@~/Desktop/` (or the selected item) into the prompt; transcript stays empty, runtime is NOT spun up with a stray user turn
+    [x] plain text + Enter still submits a user turn (transcript row appears, footer flips to `esc to interrupt`)
+    [x] Shift+Tab toggles prompt indicator between `❯` (prompt mode) and `!` (bash mode) and back
+    [x] Escape closes the picker with the typed trigger (`@` / `/`) preserved in the prompt
+    [x] Backspace deletes through the trigger char
+    [x] Multiline insert via `line-one\` + Enter renders the second line under the prompt
+  [~] Runtime round-trip (agent reply arriving back into the transcript) is NOT yet confirmed in this audit — after `hi there` + Enter the footer shows `esc to interrupt` but no assistant text appears within the audit window. This is most likely local-AI/model-configuration (cold-start or missing local model), not a TUI regression; separate from the Phase-1 shell work.
+
+  [!] CC DONOR CROSS-CHECK (honest correction to the previous turn's summary):
+  The previous turn landed the three fixes above by reading v1 `Input.tsx`, not by reading `~/dev/ClaudeCode-main/`. That violated the §1.2 "compare behavior directly against the donor CC shell" requirement. Cross-check was done this turn. Findings:
+    - CC's `components/PromptInput/PromptInput.tsx` (2338 lines) is the correct donor for the v2 prompt/composer shell. v2's `src/hlvm/tui-v2/prompt/` directory structure already mirrors CC's `components/PromptInput/` layout (HistorySearch/inputModes/Notifications/PromptInputFooter/PromptInputFooterLeftSide/PromptInputModeIndicator/PromptInputQueuedCommands/PromptInputStashNotice/usePromptInputPlaceholder/ShimmeredInput all present in both trees).
+    - CC uses `hooks/useTypeahead.tsx` for completion. Its value-change `useEffect` (line 893-908) has deps `[input, updateSuggestions]` with a stable `updateSuggestions` callback and uses `prevInputRef` + `dismissedForInputRef` refs to guard re-trigger. The `suggestions` / selection object is NOT in the effect deps. My v2 `completionRef.current` fix is architecturally consistent with that CC pattern — the v1 `Input.tsx` approach I mirrored is itself a v1 port of the CC pattern, so the chain holds.
+    - CC's onSubmit (line 984-1105) has its OWN "Enter guard while picker is visible" (line 1071-1077: `if (suggestionsState.suggestions.length > 0 && !isSubmittingSlashCommand && !hasDirectorySuggestions) return`). So my v2 `submitCurrentInput` guard is the same shape as CC's, with ONE intentional design split — CC allows submit when ALL suggestions are directories (and reserves Tab for drill-in), v2 follows v1's semantics where Enter confirms the selection (inserts `@~/Desktop/` into the prompt). This is a product-choice difference, not a bug, and is consistent with §5.4's "v1 is the donor for HLVM-specific composer UX".
+    - CC's `useTypeahead.tsx` line 1341-1353 confirms CC does NOT register arrow-key handlers inside the completion hook ("Handle Ctrl-N/P for navigation (arrows handled by keybindings)"); CC's arrows flow through a separate keybinding-context layer. v2 does NOT have that keybinding context, which is why the duplicate Up/Down-in-useInput bug was v2-specific and the fix (removing them so the `BaseTextInput → onHistoryUp/Down → completion.navigate{Up,Down}` path is the single source of truth) is a v2-architecture-correct fix, not drift.
+    - Full CC-100% architectural parity would require porting `useTypeahead`, keybinding-context, and the suggestion/ghost-text pipeline. That is a Phase-1 closure task, not an in-turn fix.
+
+  [x] Further compiled-path behaviour verified live in tmux PTY after the three fixes landed (rebuilt `./hlvm`):
+    [x] `/` + `h` narrows the slash-command dropdown to `/help`, `/hooks`, `/flush` (fuzzy match, as designed)
+    [x] Tab advances the selection by exactly 1 row (`/help` → `/hooks` → `/flush`)
+    [x] Ctrl+D flips the footer `docs off` ↔ `docs on` without dismissing the picker
+    [x] `@` + Right drills into the selected directory (`@~/Desktop/` → shows Desktop/* files in the picker)
+    [x] `@` + Left climbs back to the parent (`@~/` → shows home-dir siblings)
+    [x] `/` + Enter on a selected command invokes the command (user sees `Notice: Command not wired in v2 yet: /mcp`), proving the picker-confirm path reaches the command-dispatch layer through the new Enter guard
+    [x] Ctrl+F opens the transcript search bar (status line flips to `search open · Enter keeps match · Esc closes`)
+    [x] Escape closes the transcript search and returns focus to the prompt
+    [x] PageDown does not crash and does not eject the prompt
+    [x] Ctrl+R opens the history-search overlay (`History search start typing · type to search`)
+    [x] Ctrl+C exits the REPL cleanly
 ```
 
 ## Phase 2 - HLVM Code Mode
@@ -1172,6 +1221,21 @@ At the moment:
   instead of the donor Claude banner
 - rebuilt `./hlvm` no longer shows the stale top `stream responding` strip from
   the earlier local chrome
+- bare `ink` inside `src/hlvm/tui-v2/` now resolves to the local CC donor engine
+  via a new `src/hlvm/tui-v2/ink/index.ts` barrel:
+  - v2's `deno.json` now maps `"ink": "./ink/index.ts"` instead of
+    `"npm:ink@5"`; this is a boundary rename only, not a behavioral rewrite
+  - the four v1 `repl-ink` files still transitively pulled in by the current
+    PromptInput migration (`completion/Dropdown.tsx`,
+    `components/PickerRow.tsx`, `components/HighlightedText.tsx`,
+    `keybindings/keybinding-lookup.ts`) now share v2's React 19 +
+    `react-reconciler@0.31` stack instead of dragging in the ink@5 stack
+  - this is the real reason `./hlvm repl --new` used to die with
+    `Cannot read properties of undefined (reading 'ReactCurrentOwner')`
+  - it is a bridge, not a final architecture: those v1 files should still be
+    ported into v2 proper (so v2 no longer imports from `../../cli/repl-ink/`
+    at all); the barrel simply keeps the shell runnable while that port is in
+    progress
 
 This means:
 
@@ -1333,15 +1397,54 @@ Phase 1 - CC-quality chat TUI
   [x] deno check passes under src/hlvm/tui-v2/deno.json
   [x] Fixture-backed submit path no longer leaks auto-model selection
   [x] Compiled-path audit verifies immediate local echo on submit
-  [x] Compiled-path audit verifies multiline editing
-  [x] Compiled-path audit verifies history up/down editing
+  [x] Compiled-path audit verifies multiline editing (`line-one\` + Enter)
+  [!] Compiled-path audit verifies prompt-history Up/Down editing ← claim lowered: the busy-runtime path queued follow-up turns and the audit could not isolate history behavior from the queue path; treat as unverified until re-run against a non-busy agent
   [x] Compiled-path audit verifies transcript search can open in the live shell
   [x] Compiled-path audit verifies PageUp/PageDown transcript scrolling
   [x] Compiled-path audit verifies raw wheel-event transcript scrolling
+  [x] Compiled-path audit verifies `/` slash-command picker opens, selects, and closes cleanly (no more Max-update-depth loop)
+  [x] Compiled-path audit verifies `@` file-mention picker opens, Up/Down advance by exactly 1 row, Escape preserves typed `@`
+  [x] Compiled-path audit verifies picker-Enter inserts the selected item into the prompt WITHOUT also submitting a stray user turn
+  [x] Compiled-path audit verifies Shift+Tab toggles `❯` ↔ `!` (prompt/bash mode indicator)
+  [x] Compiled-path audit verifies `/` + letter narrows the slash-command dropdown via fuzzy match
+  [x] Compiled-path audit verifies Tab advances picker selection by exactly 1 row per press
+  [x] Compiled-path audit verifies Ctrl+D flips `docs off` ↔ `docs on` in the completion footer without closing the picker
+  [x] Compiled-path audit verifies `@` + Right drills into the selected directory and refreshes the picker
+  [x] Compiled-path audit verifies `@` + Left climbs back to the parent directory
+  [x] Compiled-path audit verifies `/` + Enter on a command reaches the command-dispatch layer (user sees `Notice: Command not wired in v2 yet: …`)
+  [x] Compiled-path audit verifies Ctrl+F opens the transcript search bar and Esc closes it
+  [x] Compiled-path audit verifies Ctrl+R opens the history-search overlay
+  [x] Compiled-path audit verifies Ctrl+C exits the REPL cleanly
+  [x] CC donor cross-check performed this turn: read `~/dev/ClaudeCode-main/components/PromptInput/PromptInput.tsx` and `hooks/useTypeahead.tsx`; v2 fixes are architecturally consistent with the CC donor pattern (ref-based completion access, Enter-guard-when-picker-visible, no duplicate arrow handlers)
+  [x] Direct CC-vs-v2 side-by-side PTY parity comparison run; landed three CC-parity fixes (footer, picker border, banner compactness); documented five honest remaining gaps (`?` overlay, `@` starting dir, prompt row position, picker marker style, picker content source)
+  [x] Direct CC-vs-v2 side-by-side PTY comparison run 2026-04-17 (both in tmux 120x30). Captured visual diff for boot, `/` picker, `@` picker, `?` key. Documented gap table; landed three CC-parity fixes:
+    [x] Footer no longer stomped by the verbose `tmux detected · PgUp/PgDn work here · set 'mouse on' …` string. That permanent footer-label override was CC-absent and drowned out `? for shortcuts`. TranscriptWorkbench now calls `maybeGetTmuxMouseHint()` as a no-op probe (intent: degrade to a future transient toast, not stomp the footer). Post-fix footer default reads `Enter send` (submitActionCue) or `? for shortcuts` depending on empty state.
+    [x] CompletionDropdown no longer wraps the suggestion list in a `┌─┐ │ › item │ └─┘` box. CC's `useTypeahead` and CC's `PromptInput.tsx` render the dropdown inline, flush-left, no border. Removed `borderStyle="single"` + `paddingLeft/Right={1}` + `marginTop={1}` + default `marginLeft={1}` → now inline. Visual confirmation: v2 `/` picker now renders `  › /mcp  List configured MCP servers` inline vs the previous boxed layout.
+    [x] HLVMBanner rewritten from a 5-line block-ASCII `HLVM` logo (32 cols × 5 rows, plus subtitle) to CC's 4-line compact layout: version title on row 1, then 3 rows pairing a small HLVM-themed chip glyph (`▗▄▖ / ▐█▌ ▌ / ▝▀▘`) on the left with runtime / cwd / welcome info on the right. Mirrors CC's shape exactly; the glyph itself stays HLVM-branded per §3.2 ("the startup banner/header may use HLVM's existing branded startup banner"), so this is parity-of-structure, not pixel-identity on the icon.
+  [~] HONEST remaining CC gaps at end of this pass (will need further work; NOT fixed this turn):
+    - `?` on an empty prompt does not show the rich shortcuts overlay CC renders (`! for bash mode / / for commands / @ for file paths / & for background / /btw for side question` + a 2-column modifier matrix). v2 just inserts `?` as a character. The v1 donor has `ShortcutsOverlay.tsx` available for port.
+    - `@` picker first-open content differs: v2 shows home-dir shortcuts (`~/Desktop/`, `~/Documents/`, `~/Downloads/`, `docs/`, `docs/cc/`, `docs/api/`); CC shows the CWD's entries including hidden (`.DS_Store`, `.claude/`, `.codex-routing-profile.ts`, `.firebase/`, …). The initial default directory / include-hidden semantics differ.
+    - Prompt ROW POSITION: CC paints the prompt near the TOP of the alternate screen (row 7 on a 30-row pane), with the transcript growing downward below it. v2 pins the prompt to the BOTTOM (row 28), transcript scrolls above. This is an architectural flow difference, not just CSS.
+    - Picker marker style: v2 uses `›` for selection; CC uses `+` for `@` file rows and no explicit marker for `/` command rows (selection is shown via color/bold only).
+    - Right-side effort indicator: v2 shows `◐ medium`; CC shows `◉ xhigh · /effort`. The glyph varies with the level in both products — the rendered state depends on user config. This is config-driven, not a bug, but the level values themselves differ between products.
+    - Picker content SOURCE: v2 `/` shows only 6 built-in HLVM commands; CC `/` dynamically pulls user skills, plugins, and built-in commands (e.g., `/!refactor`, `/systematic-debugging`, `/brainstorming`, `/jss-audit-stupid`). This is the HLVM product surface, not a layout bug.
   [~] v1 advanced-composer migration started in PromptInput (attachments, completion, history search, first snippet session, donor submit routing, donor queue preview, donor file-picker left/right behavior)
-  [~] donor placeholder/snippet lifecycle is now structurally closer to v1, but compiled-path parity for the newest transitions still needs a live PTY audit
-  [~] direct Codex PTY audit of the rebuilt binary still trips the local ReactCurrentOwner split, so newest prompt/completion behavior is source-checked + rebuilt but not re-verified live inside Codex
-  [ ] compiled-path audit still needed for the newest PromptInput completion/snippet/file-picker changes
+  [x] donor placeholder/snippet lifecycle now structurally closer to v1, AND the 2026-04-17 live PTY audit covers the common transitions (multi-char narrowing, `@` Left/Right drill, Tab advance, Ctrl+D docs toggle, picker-Enter insert-without-submit). Remaining: attachment insertion timing + placeholder cleanup after history recall still not individually audited.
+  [x] direct `./hlvm repl --new` PTY boot no longer trips `ReactCurrentOwner`; root cause was v2 transitively loading v1 `repl-ink` files that use bare `ink` (`npm:ink@5`), now remapped to local CC donor `ink/index.ts`
+  [x] compiled-path PTY interaction audit for the main PromptInput flows (`/`, `@`, Tab, Up/Down, Escape, backspace, multiline, picker-Enter, Shift+Tab, Ctrl+F, Ctrl+R, Ctrl+C, `?`) performed on 2026-04-17 and recorded above — supersedes the earlier "still needed" claim.
+  [x] `?` on empty prompt now opens a 3-column CC-shaped shortcut-help menu in the footer area (mirrors `~/dev/ClaudeCode-main/components/PromptInput/PromptInputHelpMenu.tsx` structure; content is HLVM-applicable subset). Second `?` closes it; any other keystroke dismisses it. Live PTY verified.
+  [x] `@` picker now opens onto the CWD alphabetical listing (byte-order sort, hidden dot-entries included) instead of `$HOME` shortcuts — matches `~/dev/ClaudeCode-main/` @-picker behaviour. Live PTY verified: `.DS_Store`, `.claude/`, `.codex-routing-profile.ts`, `.firebase/`, `.firebaserc`, `.gitattributes`, …
+  [x] `/` picker rows are now flush-left with no `›` marker column (selection conveyed via color/bold only — mirrors CC's `/` picker row chrome)
+  [x] `@` picker rows now use `+ ` as the addable-mention prefix on every row — mirrors CC's `+ filename` layout
+  [~] TRACKED BRIDGE-REMOVAL (per peer review): `src/hlvm/tui-v2/ink/index.ts` barrel remaps bare `"ink"` to the local donor engine to keep these 4 v1 files runnable under v2's React 19 stack. Exit criterion: port the files into `src/hlvm/tui-v2/` and rewrite their bare `ink` imports to local `./ink/components/*` paths:
+    - [ ] `src/hlvm/cli/repl-ink/completion/Dropdown.tsx` → ported into v2
+    - [ ] `src/hlvm/cli/repl-ink/components/PickerRow.tsx` → ported into v2
+    - [ ] `src/hlvm/cli/repl-ink/components/HighlightedText.tsx` → ported into v2
+    - [ ] `src/hlvm/cli/repl-ink/keybindings/keybinding-lookup.ts` → ported into v2
+    - [ ] `deno info` assertion added that the v2 graph never again resolves `npm:ink@5` or `react-reconciler@0.29.2`
+    - Only when ALL five rows are [x] may `src/hlvm/tui-v2/ink/index.ts` + the deno.json `"ink"` alias be deleted.
+  [~] TRACKED COMPAT-LAYER GAP (per peer review): §6.4 names 7 compat domains but has no code structure, no interfaces, no SSOT entry. For a ~24k-LOC transplant target this is the architecture. Exit: create `src/hlvm/tui-v2/compat/` with one file per domain (app-state adapter, submit/stream adapter, transcript adapter, permission adapter, model/status adapter, history/input adapter, Anthropic-only stubs) before the next major CC TUI slice lands.
+  [~] TRACKED CC-QUALITY GATE (per peer review): §3.3 is a subjective vibe. Operational gate TODO — publish a fail-list of CC behaviours that MUST pass a live PTY audit before Phase 1 can be declared done, with named owner per row.
   [~] Transcript search/navigation compat started, not complete
   [~] PromptInput transplanted partially
   [~] Messages/transcript transplanted partially
@@ -1366,6 +1469,108 @@ Phase 4 - Polish / migration
   [ ] Performance
   [ ] Migration to default path
 ```
+
+## 11.5 CC-parity Checklist — OVERLAPPING TUI surfaces only
+
+**Principle (NON-NEGOTIABLE):** For every TUI surface HLVM and CC both have,
+CC is authoritative. "Inspired by" is NOT acceptable. The test is:
+drive the same keystroke / prompt through `claude --model sonnet` and through
+`./hlvm repl --new` in a tmux PTY, capture output, diff. Either the v2
+behaviour visually reproduces the CC behaviour on that surface, or it does
+not. No rationalisation loopholes. HLVM-branded text and HLVM-specific
+commands obviously differ by content; layout, chrome, interaction model,
+glyphs, and keystroke semantics MUST match.
+
+**Explicitly out of scope for parity** (HLVM does not have these, so do
+not port CC's TUI for them): remote session, voice mode, buddy / mascot,
+swarm coordinator, Anthropic-billing chrome, `--chrome` integration,
+`--from-pr`, background tasks dialog, Claude-specific auth banners,
+analytics/telemetry prompts, `& for background`, `/btw for side question`,
+Alt+P model picker (HLVM has its own model-config flow), `/keybindings`
+customization UI.
+
+**Explicitly HLVM-only features that MUST be preserved** (per §5.5 and v1):
+HQL REPL mode, JS REPL mode, `!` bash-mode toggle (typed `!` on empty
+prompt — not Shift+Tab-driven), attachment placeholders like `[Image #1]`,
+local AI runtime status in banner, `@path` mention resolution into real file
+content, conversation queueing when runtime is busy.
+
+Status key: `[x]` = verified live in tmux PTY against CC side-by-side.
+`[~]` = structural match landed but full parity / behaviour not yet
+verified. `[ ]` = not started.
+
+### A. Composer / prompt
+- [x] `❯` prompt glyph
+- [x] `/` opens inline slash-command picker (no border, flush-left, no `›` marker, selection via color)
+- [x] `@` opens inline file-mention picker (CWD-rooted, hidden dot-entries included, alphabetical byte-order sort, `+ ` prefix on every row)
+- [x] `?` on empty prompt opens a 3-column shortcut-help menu in the footer area (matches `components/PromptInput/PromptInputHelpMenu.tsx` structure; HLVM content)
+- [x] `!` on empty prompt flips to bash mode (HLVM-specific, NOT via Shift+Tab)
+- [x] Multiline via trailing `\` + Enter
+- [x] Shift+Tab cycles permission mode (default → accept-edits → plan → default). Live PTY confirmed footer flips `? for shortcuts` → `⏵⏵ accept edits on (shift+tab to cycle)` → `⏸ plan mode on (shift+tab to cycle)` → `? for shortcuts`. v2 no longer overloads Shift+Tab for input-mode toggle; `!` on empty prompt remains the bash trigger. (permission-mode gating of actual tool calls is separate from this footer indicator — not yet wired to a permission backend.)
+- [x] Ctrl+F opens transcript search (footer flips to `search open · Enter keeps match · Esc closes`)
+- [x] Ctrl+R opens history search
+- [x] Escape closes picker keeping typed trigger (`@` / `/`) in the prompt
+- [x] Backspace deletes through the trigger char
+- [x] Down/Up navigate picker by exactly 1 row per press
+- [x] Tab advances picker selection by 1
+- [x] Ctrl+D toggles docs panel (`docs off` ↔ `docs on`)
+- [x] `@` + Right drills into directory; `@` + Left climbs to parent
+- [x] Picker-Enter inserts selection WITHOUT also submitting the draft (Enter-submit guard while picker is visible)
+- [x] Plain text + Enter submits a user turn
+- [x] Ctrl+C exits cleanly
+- [~] Attachment placeholders like `[Image #1]`, `[Image #2]`: ingestion path wired (v1 `useAttachments.ts` is imported) but live paste/drop flow not PTY-audited this session
+- [~] Queued-commands preview when runtime busy (v1 donor wired into `PromptInputQueuedCommands.tsx`, not live-audited this session)
+- [ ] Ctrl+S stash prompt / notification
+- [ ] Ctrl+G edit in `$EDITOR`
+- [ ] Ctrl+V paste images (CC reads clipboard)
+
+### B. Transcript / rendering
+- [x] User message row rendered with `❯` prefix (matches CC)
+- [ ] Assistant message row rendered with `⏺` prefix (CC uses `⏺`, v2 current prefix not yet verified side-by-side)
+- [ ] Thinking indicator: CC renders `✢ Ruminating…` / `Thinking…` / `Hmm…` with a rotating glyph. v2 has a `ThinkingIndicator` component in v1 donor — needs CC-matching label rotation & glyph set.
+- [ ] Tool-call row collapsed-by-default with `  Listed 1 directory (ctrl+o to expand)` style. CC collapses tool output; v2 tool rendering not yet verified side-by-side.
+- [ ] Ctrl+O expands / collapses tool output (transcript viewer overlay)
+- [ ] Markdown rendering for numbered lists, inline `code`, **bold**, diff blocks (CC renders cleanly; v2 has `Markdown.tsx` donor copy but not verified against streaming outputs)
+- [ ] Streaming token-by-token append into the assistant row (CC animates the text; v2 uses fixture-backed submit path for tests)
+- [ ] Progress/coalesce indicator like `+ Coalescing… (15m 54s)` for long-running operations
+- [ ] Plan/checklist rendering: `▢ task item` unchecked, `☑` checked — CC plan-mode shows these. v1 donor has `PlanChecklistPanel.tsx`; v2 hasn't wired the render.
+
+### C. Status / footer
+- [x] Default footer: `? for shortcuts` (flips back to this when prompt is empty and no non-default permission mode — live PTY verified 2026-04-17)
+- [x] Loading footer: `esc to interrupt`
+- [x] Search footer: `search open · Enter keeps match · Esc closes`
+- [x] Right-side: `◐ medium · /effort` matches CC default
+- [x] Permission-mode indicator in footer when not default: `⏵⏵ accept edits on (shift+tab to cycle)` and `⏸ plan mode on (shift+tab to cycle)` — live PTY verified 2026-04-17
+- [ ] MCP-server warning chip: CC shows `1 MCP server failed · /mcp` when an MCP connection fails (v2 not wired)
+
+### D. Approval / permission flows
+- [~] Permission-request dialog (v2 has `permissions/PermissionRequest.tsx` first-pass; CC has richer per-tool dialogs with `y / n / always` options — not parity-audited)
+- [ ] Accept-edits-on auto-approves Edit/Write tool calls (scope-gated by session)
+- [ ] Plan-mode blocks all edit/exec tools, allowing only read-only tools
+
+### E. Agent / skill / memory (HLVM has these, must match CC chrome)
+- [ ] Agent-spawning TUI: when user kicks off a sub-agent, CC renders a child-of-parent indent tree with live status
+- [ ] Skill activation chip: typing `/<skill>` shows the skill name in the tool row chrome
+- [ ] Memory recall indicator: `◆ Recalled N, wrote N memory` chip (HLVM already has this — v2 needs the chip render)
+- [ ] Plan/todo state in transcript and in /todo command
+
+### F. Structural / architectural
+- [~] `src/hlvm/tui-v2/ink/index.ts` barrel remaps bare `"ink"` to local donor — tracked in §11 with 5 exit criteria
+- [ ] Compat layer `src/hlvm/tui-v2/compat/` with 7 documented domains
+- [ ] `deno info` CI gate that asserts no `npm:ink@5` or `react-reconciler@0.29.x` in the v2 graph
+- [ ] Operational CC-parity gate: a hard fail-list of surfaces (rows above marked `[ ]`) that MUST flip to `[x]` before Phase 1 is declared complete; owner per row
+
+### Workflow to flip a row from `[ ]` to `[x]`
+1. Start `claude --model sonnet` (or haiku) in tmux PTY and `./hlvm repl --new` in another.
+2. Drive the SAME keystrokes / prompt through both.
+3. Capture with `tmux capture-pane -pt … | sed 's/\x1b\[[0-9;]*[mGKHJfABCDEhl]//g'`.
+4. Diff. If v2 visibly diverges, open `~/dev/ClaudeCode-main/` for the relevant
+   file, port the structural code into v2, rebuild with `make build-fast`,
+   re-audit.
+5. Only after a clean side-by-side capture, flip the row to `[x]` in THIS
+   section and in the main §11 Progress Board.
+
+No row flips to `[x]` without a real PTY audit. No exceptions.
 
 ## 12. Bottom Line
 

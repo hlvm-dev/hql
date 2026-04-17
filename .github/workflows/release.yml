@@ -160,7 +160,6 @@ jobs:
             platform: darwin-x86_64
           - os: ubuntu-latest
             platform: linux-x86_64
-            allow_failure: true
     steps:
       - uses: actions/checkout@v4
       - name: Staged Unix smoke
@@ -173,7 +172,6 @@ jobs:
   staged-windows:
     name: Staged smoke windows
     needs: [resolve, create-release]
-    continue-on-error: true
     if: |
       !cancelled() &&
       needs.resolve.result == 'success' &&
@@ -243,7 +241,6 @@ jobs:
             platform: darwin-x86_64
           - os: ubuntu-latest
             platform: linux-x86_64
-            allow_failure: true
     steps:
       - uses: actions/checkout@v4
       - name: Validate published release
@@ -262,7 +259,6 @@ jobs:
   public-windows:
     name: Public smoke windows
     needs: [resolve, publish]
-    continue-on-error: true
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

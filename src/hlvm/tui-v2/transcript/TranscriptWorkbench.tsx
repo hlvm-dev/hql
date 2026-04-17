@@ -274,18 +274,16 @@ export function TranscriptWorkbench(): React.ReactNode {
     };
   }, []);
 
+  // CC parity: default footer stays `? for shortcuts`. The tmux-mouse-off
+  // hint previously permanently stomped the footer text which CC never does.
+  // PgUp/PgDn still works in tmux-mouse-off, so degrading to a notification-
+  // style hint (future: transient toast) rather than a persistent footer
+  // label better matches the donor shell.
   React.useEffect(() => {
     if (!isFullscreenActive()) return;
-
-    let cancelled = false;
-    void maybeGetTmuxMouseHint().then((hint) => {
-      if (cancelled || !hint) return;
-      setFooterLabel((current) => current ?? hint);
-    });
-
-    return () => {
-      cancelled = true;
-    };
+    // Intentional no-op: the probe is still useful for future transient
+    // notifications but must not set footerLabel permanently.
+    void maybeGetTmuxMouseHint();
   }, []);
 
   const openSearch = React.useCallback(() => {

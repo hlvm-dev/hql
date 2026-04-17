@@ -1,97 +1,74 @@
 import React from "react";
 import { VERSION } from "../../../common/version.ts";
-import { useTerminalSize } from "../hooks/useTerminalSize.ts";
 import Box from "../ink/components/Box.tsx";
 import Text from "../ink/components/Text.tsx";
-import { stringWidth } from "../ink/stringWidth.ts";
 
-const LOGO_LINES = [
-  "██  ██ ██      ██    ██ ██    ██",
-  "██  ██ ██      ██    ██ ███  ███",
-  "██████ ██      ██    ██ ██ ██ ██",
-  "██  ██ ██       ██  ██  ██    ██",
-  "██  ██ ███████   ████   ██    ██",
+// CC-parity banner layout (with HLVM branding per §3.2 of
+// docs/vision/repl-v2-tui.md — the startup banner may use HLVM's branded
+// startup banner instead of the donor Claude banner, but size/shape should
+// match CC's compact 3-line glyph + right-side info-panel structure).
+//
+// Donor reference: ~/dev/ClaudeCode-main/components/PromptInput/PromptInput.tsx
+// and its banner rendering — the full CC shell paints:
+//
+//              Claude Code v2.1.112
+//    ▐▛███▜▌   Opus 4.7 (1M context) · Claude Max
+//   ▝▜█████▛▘  ~/dev/hql
+//     ▘▘ ▝▝    Welcome to Opus 4.7 xhigh! · /effort to tune speed vs. intelligence
+//
+// We mirror that 4-line shape: row 1 floats the product title above the
+// glyph-right column, rows 2-4 pair the glyph with runtime / cwd / welcome.
+// The glyph here is HLVM-themed (a small chip icon), not the CC Clawd glyph.
+
+const GLYPH_LINES = [
+  " ▗▄▖ ",
+  "▐█▌ ▌",
+  " ▝▀▘ ",
 ] as const;
 
-const FULL_LOGO_WIDTH = Math.max(...LOGO_LINES.map((line) => line.length));
-const SICP_LOGO_START = "rgb(90,58,151)";
-const SICP_LOGO_MIDDLE = "rgb(216,90,67)";
-const SICP_LOGO_END = "rgb(239,227,194)";
-const SICP_META = "rgb(246,238,220)";
-
-function clampChannel(value: number): number {
-  return Math.max(0, Math.min(255, Math.round(value)));
-}
-
-function interpolateColor(
-  from: readonly [number, number, number],
-  to: readonly [number, number, number],
-  ratio: number,
-): string {
-  const clampedRatio = Math.max(0, Math.min(1, ratio));
-  const [fr, fg, fb] = from;
-  const [tr, tg, tb] = to;
-  return `rgb(${
-    clampChannel(fr + (tr - fr) * clampedRatio)
-  },${
-    clampChannel(fg + (tg - fg) * clampedRatio)
-  },${
-    clampChannel(fb + (tb - fb) * clampedRatio)
-  })`;
-}
-
-function truncateEnd(value: string, width: number): string {
-  if (width <= 0) return "";
-  if (stringWidth(value) <= width) return value;
-  if (width <= 1) return "…";
-  return `${value.slice(0, Math.max(0, width - 1))}…`;
-}
-
-function shouldUseCompactBanner(width: number, height: number): boolean {
-  return width < FULL_LOGO_WIDTH + 4 || height < 22;
-}
-
-function buildLogoColors(compact: boolean): readonly string[] {
-  if (compact) {
-    return [SICP_LOGO_START];
-  }
-
-  const from: readonly [number, number, number] = [90, 58, 151];
-  const mid: readonly [number, number, number] = [216, 90, 67];
-  const to: readonly [number, number, number] = [239, 227, 194];
-
-  return LOGO_LINES.map((_, index) => {
-    const position = LOGO_LINES.length <= 1 ? 0 : index / (LOGO_LINES.length - 1);
-    return position <= 0.5
-      ? interpolateColor(from, mid, position * 2)
-      : interpolateColor(mid, to, (position - 0.5) * 2);
-  });
-}
+const GLYPH_WIDTH = Math.max(...GLYPH_LINES.map((l) => l.length));
+const GLYPH_COLOR = "rgb(215,119,87)"; // matches donor dark-theme clawd_body
 
 export function HLVMBanner(): React.ReactNode {
-  const { columns, rows } = useTerminalSize();
-  const compact = shouldUseCompactBanner(columns, rows);
-  const contentWidth = Math.max(20, columns - 2);
-  const titleLine = truncateEnd(
-    `HLVM ${VERSION} — High Level Virtual Machine`,
-    contentWidth,
-  );
-  const logoColors = buildLogoColors(compact);
-  const lines = compact ? ["HLVM"] : LOGO_LINES;
+  const cwd = getCwdLabel();
+  const modelLine = "Local runtime · HLVM-managed";
+  const welcomeLine = "Welcome · /effort to tune speed vs. intelligence";
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Box flexDirection="column">
-        {lines.map((line, index) => (
-          <Text key={index} color={logoColors[index] ?? SICP_LOGO_START} bold>
-            {line}
-          </Text>
-        ))}
+      {/* Row 1: product title floats above the glyph-right column */}
+      <Box>
+        <Box width={GLYPH_WIDTH + 2} />
+        <Text bold>HLVM v{VERSION}</Text>
       </Box>
-      {!compact && <Text />}
-      <Text color={SICP_META} bold={!compact}>
-        {titleLine}
-      </Text>
+      {/* Rows 2-4: glyph on the left, runtime/cwd/welcome on the right */}
+      {GLYPH_LINES.map((line, index) => (
+        <Box key={index}>
+          <Box width={GLYPH_WIDTH + 2}>
+            <Text color={GLYPH_COLOR} bold>{line}</Text>
+          </Box>
+          <Text>
+            {index === 0
+              ? modelLine
+              : index === 1
+              ? cwd
+              : welcomeLine}
+          </Text>
+        </Box>
+      ))}
     </Box>
   );
+}
+
+function getCwdLabel(): string {
+  try {
+    const cwd = Deno.cwd();
+    const home = Deno.env.get("HOME");
+    if (home && cwd.startsWith(home)) {
+      return "~" + cwd.slice(home.length);
+    }
+    return cwd;
+  } catch {
+    return "";
+  }
 }

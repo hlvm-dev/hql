@@ -185,6 +185,20 @@ export function PromptInput({
   );
   const [placeholders, setPlaceholders] = React.useState<Placeholder[]>([]);
   const [placeholderIndex, setPlaceholderIndex] = React.useState(-1);
+  // CC parity: `?` on an empty prompt toggles a shortcut-help footer.
+  // Mirror of ~/dev/ClaudeCode-main/components/PromptInput/PromptInput.tsx
+  // line 854-864 where the onChange handler treats `value === '?'` as a
+  // help-toggle signal instead of a character insert.
+  const [helpOpen, setHelpOpen] = React.useState(false);
+  // CC parity: Shift+Tab cycles permission mode (default →
+  // accept-edits → plan → default). CC's footer shows
+  // `⏵⏵ accept edits on (shift+tab to cycle)` and
+  // `⏸ plan mode on (shift+tab to cycle)` when not in default. HLVM keeps
+  // `!` on an empty prompt as the bash-mode trigger — Shift+Tab is NOT
+  // overloaded for input-mode toggling (that was a v2 divergence).
+  const [permissionMode, setPermissionMode] = React.useState<
+    "default" | "accept-edits" | "plan"
+  >("default");
   const [snippetExitCursor, setSnippetExitCursor] = React.useState<
     number | null
   >(
@@ -222,6 +236,11 @@ export function PromptInput({
     attachedPaths: attachedPathsSet,
     debounceMs: 50,
   });
+  // Stable ref so effects/callbacks can reach the latest completion state
+  // without including `completion` in their deps (which changes object
+  // identity per render and caused an infinite loop on `/`).
+  const completionRef = React.useRef(completion);
+  completionRef.current = completion;
   const historySearch = useHistorySearch(historyEntries);
 
   React.useEffect(() => {
@@ -354,6 +373,21 @@ export function PromptInput({
       current === "prompt" ? "bash" : "prompt"
     );
   }, [clearPlaceholderMode]);
+
+  // CC parity: Shift+Tab cycles permission mode in the order
+  // default → accept-edits → plan → default. Mirrors
+  // ~/dev/ClaudeCode-main/ behavior where the footer flips between
+  // `? for shortcuts`, `⏵⏵ accept edits on (shift+tab to cycle)`, and
+  // `⏸ plan mode on (shift+tab to cycle)`.
+  const cyclePermissionMode = React.useCallback(() => {
+    setPermissionMode((current) =>
+      current === "default"
+        ? "accept-edits"
+        : current === "accept-edits"
+        ? "plan"
+        : "default"
+    );
+  }, []);
 
   const replaceEditor = React.useCallback((
     nextValue: string,
@@ -773,6 +807,19 @@ export function PromptInput({
   }, [clearEditor, onSubmit, restoreStashIfPresent]);
 
   const submitCurrentInput = React.useCallback(() => {
+    // BaseTextInput's useInput fires `onSubmit` on Enter before PromptInput's
+    // own useInput handler runs (child effects register listeners first), so
+    // this path is hit even when a completion picker or history search owns
+    // Enter. Without this guard, typing `@` and pressing Enter would both
+    // submit `@` as a user message AND let the picker confirm, leaving the
+    // next prompt with `@~/Desktop/` while a stray `@` turn was sent to the
+    // runtime.
+    if (
+      completionRef.current.isVisible ||
+      historySearch.state.isSearching
+    ) {
+      return;
+    }
     if (pendingAttachmentOpsRef.current > 0) {
       return;
     }
@@ -812,6 +859,7 @@ export function PromptInput({
     attachmentState.attachments,
     clearEditor,
     cursorOffset,
+    historySearch.state.isSearching,
     mode,
     replaceEditor,
     submitDraft,
@@ -1028,9 +1076,10 @@ export function PromptInput({
   React.useEffect(() => {
     const previousValue = previousValueRef.current;
     previousValueRef.current = value;
+    const currentCompletion = completionRef.current;
 
     if (historySearch.state.isSearching) {
-      completion.close();
+      currentCompletion.close();
       clearPlaceholderMode();
       return;
     }
@@ -1049,13 +1098,13 @@ export function PromptInput({
       !shouldProcessComposerAutoTrigger(
         previousValue,
         value,
-        completion.isVisible,
+        currentCompletion.isVisible,
       )
     ) {
       return;
     }
 
-    if (completion.isVisible) {
+    if (currentCompletion.isVisible) {
       const textBeforeCursor = value.slice(0, cursorOffset);
       const trimmedBefore = textBeforeCursor.trimStart();
       const lastAt = textBeforeCursor.lastIndexOf("@");
@@ -1064,26 +1113,26 @@ export function PromptInput({
         !afterAt.includes(" ") && !afterAt.includes("\n");
       const isInCommand = trimmedBefore.startsWith("/") &&
         !trimmedBefore.includes(" ");
-      const activeProvider = completion.renderProps?.providerId;
+      const activeProvider = currentCompletion.renderProps?.providerId;
       const shouldAutoClose = context.currentWord.length === 0 &&
         !isInMention &&
         !isInCommand &&
         activeProvider !== "symbol";
       if (shouldAutoClose) {
-        completion.close();
+        currentCompletion.close();
         return;
       }
-      void completion.triggerCompletion(value, cursorOffset, false);
+      void currentCompletion.triggerCompletion(value, cursorOffset, false);
       return;
     }
 
     if (shouldTriggerCommand(context)) {
-      void completion.triggerCompletion(value, cursorOffset, false);
+      void currentCompletion.triggerCompletion(value, cursorOffset, false);
       return;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     attachedPathsSet,
-    completion,
     cursorOffset,
     emptyBindings,
     emptyDocstrings,
@@ -1113,6 +1162,23 @@ export function PromptInput({
       return "";
     }
 
+    // CC parity: typing `?` into an empty prompt toggles the shortcut-help
+    // footer instead of inserting the character. Any other visible keystroke
+    // closes the help panel. Mirrors the onChange handler in
+    // ~/dev/ClaudeCode-main/components/PromptInput/PromptInput.tsx:854-864.
+    if (
+      mode === "prompt" && value.length === 0 && cursorOffset === 0 &&
+      input === "?" && !key.ctrl && !key.meta && !key.super
+    ) {
+      setHelpOpen((current) => !current);
+      return "";
+    }
+    if (
+      helpOpen && input.length > 0 && !key.ctrl && !key.meta && !key.super
+    ) {
+      setHelpOpen(false);
+    }
+
     if (
       key.ctrl && ["f", "p", "q", "r", "s", "d"].includes(input.toLowerCase())
     ) {
@@ -1136,7 +1202,7 @@ export function PromptInput({
     }
 
     return input;
-  }, [cursorOffset, mode, placeholderModeActive, value.length]);
+  }, [cursorOffset, helpOpen, mode, placeholderModeActive, value.length]);
 
   useInput((input, key, event) => {
     if (!focus || isSearching) {
@@ -1232,12 +1298,14 @@ export function PromptInput({
         completion.toggleDocPanel();
         return;
       }
-      if (key.upArrow) {
-        event.stopImmediatePropagation();
-        completion.navigateUp();
-        return;
-      }
-      if (key.downArrow || (isTabKey && !key.shift)) {
+      // NB: Up/Down arrows are intentionally NOT handled here. Completion
+      // navigation for Up/Down is already driven by BaseTextInput via
+      // `disableCursorMovementForUpDownKeys={completion.isVisible}` →
+      // `onHistoryUp` / `onHistoryDown` → `handleHistoryUp` /
+      // `handleHistoryDown` → `completion.navigate{Up,Down}()`. Calling it
+      // here too would advance the selection twice per keypress (observed
+      // live: Down moved the selector 2 rows at a time).
+      if (isTabKey && !key.shift) {
         event.stopImmediatePropagation();
         completion.navigateDown();
         return;
@@ -1417,8 +1485,11 @@ export function PromptInput({
     }
 
     if (isTabKey && key.shift) {
+      // CC parity: Shift+Tab cycles permission mode, NOT input mode.
+      // Bash mode is entered by typing `!` on an empty prompt (see the
+      // isInputModeCharacter path at the top of inputFilter).
       event.stopImmediatePropagation();
-      cycleMode();
+      cyclePermissionMode();
       return;
     }
 
@@ -1493,11 +1564,29 @@ export function PromptInput({
       }));
     return highlights.length > 0 ? highlights : undefined;
   }, [placeholderIndex, placeholderModeActive, placeholders]);
+  // CC parity: non-default permission mode is shown in the footer's left
+  // side. Glyphs and phrasing mirror the CC footer verbatim — `⏵⏵ accept
+  // edits on (shift+tab to cycle)` and `⏸ plan mode on (shift+tab to
+  // cycle)`.
+  const permissionModeLabel = permissionMode === "accept-edits"
+    ? "\u23F5\u23F5 accept edits on (shift+tab to cycle)"
+    : permissionMode === "plan"
+    ? "\u23F8 plan mode on (shift+tab to cycle)"
+    : undefined;
+
+  // CC parity: when the prompt is empty and no attachments are queued, the
+  // footer's left side should read `? for shortcuts` (rendered by
+  // PromptInputFooterLeftSide's default branch), not HLVM's `Enter send`
+  // submit cue. Only surface the submit cue when there is something to
+  // submit or when a non-default permission mode is active.
+  const hasDraftContent = value.trim().length > 0 ||
+    visibleAttachments.length > 0;
   const resolvedFooterLabel = placeholderModeActive
     ? `snippet ${
       placeholderIndex + 1
     }/${placeholders.length} · Tab next · Shift+Tab prev · Enter send`
-    : footerLabel ?? submitActionCue;
+    : permissionModeLabel ?? footerLabel ??
+      (hasDraftContent ? submitActionCue : undefined);
 
   return (
     <Box flexDirection="column">
@@ -1580,6 +1669,7 @@ export function PromptInput({
         hasStash={stashedInput !== null}
         historyCount={historyEntries.length}
         footerLabel={resolvedFooterLabel}
+        helpOpen={helpOpen}
       />
     </Box>
   );

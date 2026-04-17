@@ -51,15 +51,22 @@ try {
         }
     } else {
         Write-Host "==> Validating published release..."
-        $latest = (Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest").tag_name
+        # Use gh api (authenticated) to avoid 60/hour unauthenticated rate limit
+        $latest = gh api "repos/$Repo/releases/latest" --jq '.tag_name' 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            # Fallback: use GH_TOKEN header if gh is unavailable
+            $headers = @{}
+            if ($env:GH_TOKEN) { $headers["Authorization"] = "Bearer $env:GH_TOKEN" }
+            $latest = (Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest" -Headers $headers).tag_name
+        }
         if ($latest -ne $Tag) {
             Write-Error "Latest release is $latest, expected $Tag"
         }
 
-        Write-Host "==> Running public installer..."
+        Write-Host "==> Running public installer (from hlvm.dev)..."
         $env:HLVM_INSTALL_DIR = $InstallBin
-        # Use repo install.ps1 (hlvm.dev may be stale until branch merges to main)
-        & ([scriptblock]::Create((Get-Content -Raw "$PSScriptRoot\..\install.ps1")))
+        $env:HLVM_INSTALL_VERSION = $Tag
+        & ([scriptblock]::Create((Invoke-WebRequest -Uri "https://hlvm.dev/install.ps1" -UseBasicParsing).Content))
     }
 
     Write-Host "==> Verifying bootstrap..."

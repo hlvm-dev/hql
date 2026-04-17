@@ -74,13 +74,11 @@ function CommandItemRow({
     width - COMMAND_MARKER_WIDTH - commandColumnWidth,
   );
 
+  // CC parity: CC's `/` picker has NO leading marker column — each row is
+  // the command name flush-left, with the selected row shown via color /
+  // bold only. Mirror that: drop the marker Box entirely.
   return (
     <Box width={width}>
-      <Box width={COMMAND_MARKER_WIDTH}>
-        <Text color={isSelected ? "yellow" : DONOR_INACTIVE}>
-          {isSelected ? "›" : " "}
-        </Text>
-      </Box>
       <Box width={commandColumnWidth}>
         <HighlightedText
           text={spec.label}
@@ -105,7 +103,7 @@ export function CompletionDropdown({
   helpText,
   isLoading,
   providerId,
-  marginLeft = 1,
+  marginLeft = 0,
   width,
   showDocPanel = false,
 }: Props): React.ReactElement | null {
@@ -174,8 +172,13 @@ export function CompletionDropdown({
   }, [visibleItems]);
 
   return (
-    <Box marginLeft={marginLeft} marginTop={1} flexDirection="column" width={Math.max(COMPLETION_PANEL_MIN_WIDTH, panelWidth)}>
-      <Box borderStyle="single" borderColor={DONOR_INACTIVE} flexDirection="column" paddingLeft={1} paddingRight={1}>
+    // CC parity: CC's autocomplete dropdown is inline (no box border), flush
+    // to the prompt column with no top margin gap. Removing `borderStyle` +
+    // padding + top margin here matches CC's `useTypeahead` rendering layout
+    // (~/dev/ClaudeCode-main/hooks/useTypeahead.tsx + the inline row rendering
+    // in CC's PromptInput.tsx).
+    <Box marginLeft={marginLeft} flexDirection="column" width={Math.max(COMPLETION_PANEL_MIN_WIDTH, panelWidth)}>
+      <Box flexDirection="column">
         {isLoading && items.length === 0
           ? <Text color={DONOR_INACTIVE}>Loading…</Text>
           : (
@@ -199,12 +202,16 @@ export function CompletionDropdown({
                 return (
                   <React.Fragment key={item.id}>
                     <PickerRow
+                      // CC parity: CC's `@` picker uses `+ ` as an "addable
+                      // mention" prefix on EVERY row, and conveys selection
+                      // via color/bold, not a different marker character.
+                      // Mirror that here (~/dev/ClaudeCode-main/ @ picker).
                       label={spec.label}
                       matchIndices={spec.matchIndices}
                       pickerColors={PICKER_COLORS}
                       isSelected={absoluteIndex === selectedIndex}
                       width={Math.max(1, panelWidth - 2)}
-                      markerText={absoluteIndex === selectedIndex ? "›" : " "}
+                      markerText={"+"}
                       markerWidth={SELECTOR_COLUMN_WIDTH}
                       metaText={spec.typeLabel}
                       metaWidth={META_COLUMN_WIDTH}

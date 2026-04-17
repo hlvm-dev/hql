@@ -1,7 +1,27 @@
 # Auto Model Selection & Local Fallback — Architecture & Progress
 
-> Last updated: 2026-04-08 Status: **Phase 1 + Phase 2 complete — 15 LLM
-> classifiers, rate-limit smart skip**
+> Last updated: 2026-04-17
+>
+> Scope note: this document is about `@auto` model selection and local fallback.
+> Request-time routing architecture now lives in [routing.md](./routing.md).
+> Routing no longer uses `classifyAll()` or request-time `taskDomain` /
+> `needsPlan` outputs.
+>
+> Important current boundary:
+>
+> - `resolveAutoModel()` may use `classifyTask()` **only** to choose between
+>   multiple eligible model candidates
+> - if `@auto` has 0 or 1 eligible model after deterministic filtering, no
+>   `classifyTask()` call is needed
+> - after model selection, `@auto` follows the same production routing path as
+>   explicit model selection:
+>
+> ```text
+> @auto -> resolveAutoModel() -> classifyModelTier() -> buildTurnRouting() -> agent loop
+> ```
+>
+> Status: historical classifier/fallback work complete; see `routing.md` for
+> the current request-routing SSOT.
 
 ## TL;DR for the Next Agent
 

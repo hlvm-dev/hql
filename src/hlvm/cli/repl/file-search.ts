@@ -196,6 +196,59 @@ const ESCAPE_SINGLE_QUOTE_REGEX = /\\'/g;
 const ESCAPE_DOUBLE_QUOTE_REGEX = /\\"/g;
 const ESCAPE_BACKSLASH_REGEX = /\\\\/g;
 const COMMON_HOME_FOLDER_SCORE_BONUS = 180;
+const CWD_TOP_LEVEL_SCORE_BASE = 300;
+
+/**
+ * List the current working directory's top-level entries for the empty-query
+ * `@` picker. Includes hidden dot-entries (matching Claude Code's @ picker
+ * which surfaces `.git/`, `.claude/`, `.DS_Store`, …), alpha-sorted,
+ * directories first, with dot-entries de-prioritised within each group so
+ * plain files/dirs render above them.
+ */
+async function listCwdTopLevelEntries(maxResults: number): Promise<FileMatch[]> {
+  const platform = getPlatform();
+  let cwd: string;
+  try {
+    cwd = platform.process.cwd();
+  } catch {
+    return [];
+  }
+
+  // CC's @ picker interleaves directories and files in a single
+  // alphabetical list (e.g. `.DS_Store`, `.claude/`, `.codex-routing-
+  // profile.ts`, `.firebase/`, `.firebaserc`, `.git/`, …). Mirror that:
+  // one sort key, no type grouping, no hidden-last bias.
+  const entries: { name: string; isDirectory: boolean }[] = [];
+  try {
+    for await (const entry of platform.fs.readDir(cwd)) {
+      if (entry.isDirectory) {
+        if (SKIP_DIRS.has(entry.name)) continue;
+        entries.push({ name: entry.name, isDirectory: true });
+      } else {
+        if (shouldSkipFile(entry.name)) continue;
+        entries.push({ name: entry.name, isDirectory: false });
+      }
+    }
+  } catch {
+    return [];
+  }
+
+  // Byte-order sort to match CC's @ picker (uppercase before lowercase, so
+  // `.DS_Store` sorts before `.claude/`).
+  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+
+  const out: FileMatch[] = [];
+  for (let rank = 0; rank < entries.length && out.length < maxResults; rank += 1) {
+    const entry = entries[rank]!;
+    out.push({
+      path: entry.isDirectory ? `${entry.name}/` : entry.name,
+      isDirectory: entry.isDirectory,
+      score: CWD_TOP_LEVEL_SCORE_BASE - rank,
+      matchIndices: [],
+    });
+  }
+  return out;
+}
 
 /**
  * Unescape shell-escaped path (e.g., "file\ name.png" -> "file name.png")
@@ -437,13 +490,26 @@ export async function searchFiles(
   const results: FileMatch[] = [];
   const commonHomeMatches = await searchCommonHomeFolders(query, maxResults);
 
-  // If empty query, return recent/common files
+  // If empty query, show CWD top-level entries first (including hidden
+  // dot-entries), matching Claude Code's @ picker which opens onto the
+  // current working directory rather than onto home-folder shortcuts.
+  // See ~/dev/ClaudeCode-main/ @ picker behavior (lists `.DS_Store`,
+  // `.claude/`, `.git/`, `.firebaserc`, etc. at the top level on empty query).
   if (!query.trim()) {
+    const cwdTopLevel = await listCwdTopLevelEntries(maxResults);
+    for (const entry of cwdTopLevel) {
+      insertTopMatch(results, entry, maxResults);
+    }
+
+    // Keep common home-folder shortcuts as lower-priority fallback. Their
+    // score (180) is lower than cwdTopLevel entries (300+) so they appear
+    // below the CWD listing instead of above it.
     for (const homeMatch of commonHomeMatches) {
       insertTopMatch(results, homeMatch, maxResults);
     }
 
-    // Return some directories and files
+    // Workspace index entries filled-in after home folders so the picker
+    // still has something useful if the CWD is empty.
     for (const dir of index.dirs.slice(0, 6)) {
       insertTopMatch(results, {
         path: dir,

@@ -23,7 +23,7 @@
     "@std/encoding": "jsr:@std/encoding@1",
     "tldts": "npm:tldts@7.0.23",
     "react": "npm:react@19",
-    "ink": "npm:ink@5",
+    "ink": "./ink/index.ts",
     "esbuild": "npm:esbuild@^0.17.0",
     "esbuild-wasm": "npm:esbuild-wasm@^0.17.0",
     "jsdom": "npm:jsdom@22.1.0",

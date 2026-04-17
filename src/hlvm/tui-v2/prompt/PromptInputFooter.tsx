@@ -2,6 +2,7 @@ import React from "react";
 import Box from "../ink/components/Box.tsx";
 import { Notifications } from "./Notifications.tsx";
 import { PromptInputFooterLeftSide } from "./PromptInputFooterLeftSide.tsx";
+import { ShortcutsHelpMenu } from "./ShortcutsHelpMenu.tsx";
 import type { PromptInputMode } from "../types/textInputTypes.ts";
 import { useTerminalSize } from "../hooks/useTerminalSize.ts";
 
@@ -13,6 +14,7 @@ type Props = {
   hasStash: boolean;
   historyCount: number;
   footerLabel?: string;
+  helpOpen?: boolean;
 };
 
 export function PromptInputFooter({
@@ -23,9 +25,18 @@ export function PromptInputFooter({
   hasStash,
   historyCount,
   footerLabel,
+  helpOpen,
 }: Props): React.ReactNode {
   const { columns } = useTerminalSize();
   const stacked = columns < 72;
+
+  // CC parity: when `?` has toggled the help menu on an empty prompt, the
+  // footer row is replaced by the shortcuts grid until the next keystroke
+  // closes it. Mirrors ~/dev/ClaudeCode-main/components/PromptInput/
+  // PromptInputFooter.tsx:135-137 `if (helpOpen) return <PromptInputHelpMenu/>`.
+  if (helpOpen) {
+    return <ShortcutsHelpMenu dimColor paddingX={2} gap={2} />;
+  }
 
   return (
     <Box

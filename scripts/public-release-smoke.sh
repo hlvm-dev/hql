@@ -14,13 +14,15 @@ mkdir -p "$INSTALL_BIN"
 echo "==> Running public installer..."
 # Pass HLVM_INSTALL_VERSION to avoid GitHub API rate limit in CI.
 # Real users won't hit this because they run from different IPs.
+# Run installer — capture exit code without set -e killing the script
+BOOTSTRAP_EXIT=0
 curl -fsSL "https://hlvm.dev/install.sh" | \
   HLVM_INSTALL_DIR="$INSTALL_BIN" \
   HLVM_INSTALL_VERSION="${HLVM_SMOKE_TAG:-}" \
-  sh || BOOTSTRAP_FAILED=1
+  sh || BOOTSTRAP_EXIT=$?
 
-if [ "${BOOTSTRAP_FAILED:-0}" = "1" ]; then
-  echo "==> Bootstrap warmup timed out. Testing Ollama API directly..."
+if [ "$BOOTSTRAP_EXIT" -ne 0 ]; then
+  echo "==> Bootstrap exited with code ${BOOTSTRAP_EXIT}. Testing Ollama API directly..."
   echo "==> Polling Ollama API (model may still be loading, retrying up to 5 min)..."
   ATTEMPTS=0
   MAX_ATTEMPTS=60
@@ -35,7 +37,7 @@ if [ "${BOOTSTRAP_FAILED:-0}" = "1" ]; then
       exit 0
     fi
     ATTEMPTS=$((ATTEMPTS + 1))
-    echo "    Attempt ${ATTEMPTS}/${MAX_ATTEMPTS}: model not ready yet"
+    echo "    Attempt ${ATTEMPTS}/${MAX_ATTEMPTS}: model not ready yet ($(echo "$RESPONSE" | head -1))"
     sleep 5
   done
   echo "FAIL: Ollama API not responding after ${MAX_ATTEMPTS} attempts" >&2
