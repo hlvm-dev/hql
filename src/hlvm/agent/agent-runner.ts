@@ -25,7 +25,7 @@ import {
   getConfiguredModel,
   resolveCompatibleClaudeCodeModel,
 } from "../../common/ai-default-model.ts";
-import { AUTO_MODEL_ID, DEFAULT_MODEL_ID } from "../../common/config/types.ts";
+import { AUTO_MODEL_ID } from "../../common/config/types.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { deriveDefaultSessionKey } from "../runtime/session-key.ts";
 import {
@@ -739,10 +739,12 @@ export async function runAgentQuery(
 
   if (!supportsAgentExecution(model, options.modelInfo)) {
     // Configured model is constrained — fall back to guaranteed local default
+    const fallbackModelId = await resolveLocalFallbackModelId();
     if (
-      model !== DEFAULT_MODEL_ID && supportsAgentExecution(DEFAULT_MODEL_ID)
+      model !== fallbackModelId &&
+      supportsAgentExecution(fallbackModelId)
     ) {
-      model = DEFAULT_MODEL_ID;
+      model = fallbackModelId;
     } else {
       throw new ValidationError(
         "Constrained models do not support agent mode. Use direct chat mode instead.",

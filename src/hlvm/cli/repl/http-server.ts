@@ -30,7 +30,9 @@ import {
   handleChatInteraction,
 } from "./handlers/chat.ts";
 import {
+  getRuntimeAiReadyReason,
   getRuntimeReady,
+  isRuntimeAiReadyRetryable,
   isRuntimeReadinessManaged,
   isRuntimeReadyForAiRequests,
   runtimeReadyState,
@@ -417,6 +419,8 @@ async function handleHealth(): Promise<Response> {
     initialized: replState !== null,
     definitions: replState?.getDocstrings().size ?? 0,
     aiReady: isRuntimeReadyForAiRequests(),
+    aiReadyReason: getRuntimeAiReadyReason(),
+    aiReadyRetryable: isRuntimeAiReadyRetryable(),
     version: identity.version,
     buildId: identity.buildId,
     authToken: serverAuthToken,
@@ -510,18 +514,22 @@ async function maybeGateAiRoute(
     }
   }
 
-  const response = runtimeReadyState === "failed"
-    ? jsonError(
-      "AI runtime initialization failed. Restart HLVM and check logs.",
-      503,
-    )
-    : jsonError(
-      "AI runtime is still initializing. Please retry shortly.",
-      503,
-    );
+  const aiReadyReason = getRuntimeAiReadyReason() ??
+    (runtimeReadyState === "failed"
+      ? "AI runtime initialization failed. Restart HLVM and check logs."
+      : "AI runtime is still initializing. Please retry shortly.");
+  const aiReadyRetryable = isRuntimeAiReadyRetryable();
+  const response = jsonError(
+    aiReadyReason,
+    503,
+    {
+      aiReadyReason,
+      retryable: aiReadyRetryable,
+    },
+  );
   response.headers.set(
     "Retry-After",
-    runtimeReadyState === "failed" ? "5" : "1",
+    aiReadyRetryable ? "1" : "5",
   );
   return response;
 }

@@ -3,6 +3,7 @@
  * Provides the local HTTP/SSE/NDJSON shell boundary for GUI and CLI clients.
  */
 
+import { delay } from "@std/async";
 import { log } from "../../api/log.ts";
 import { startHttpServer } from "../repl/http-server.ts";
 import { initializeRuntime } from "../../../common/runtime-initializer.ts";
@@ -27,9 +28,20 @@ export let runtimeReadyState: "pending" | "ready" | "failed" = "pending";
 /** Whether the bootstrap substrate has been verified. */
 let bootstrapVerified = false;
 let localFallbackReady = false;
+let runtimeAiReadyReason: string | null = "AI runtime is still initializing.";
+let runtimeAiReadyRetryable = true;
+let localFallbackRetryTask: Promise<void> | null = null;
 
 function emitModelsReadyEvent(): void {
   pushSSEEvent("__models__", "models_updated", { reason: "runtime_ready" });
+}
+
+function setRuntimeAiReadyState(
+  reason: string | null,
+  retryable = true,
+): void {
+  runtimeAiReadyReason = reason;
+  runtimeAiReadyRetryable = retryable;
 }
 
 /** Whether serveCommand manages runtime readiness for this process. */
@@ -43,15 +55,32 @@ export function isRuntimeReadyForAiRequests(): boolean {
     (runtimeReadyState === "ready" && bootstrapVerified && localFallbackReady);
 }
 
+export function getRuntimeAiReadyReason(): string | null {
+  return isRuntimeReadyForAiRequests() ? null : runtimeAiReadyReason;
+}
+
+export function isRuntimeAiReadyRetryable(): boolean {
+  return !isRuntimeReadyForAiRequests() && runtimeAiReadyRetryable;
+}
+
+function hasRuntimeInitializationFailed(): boolean {
+  return runtimeReadyState === "failed";
+}
+
 async function ensureLocalFallbackReady(): Promise<boolean> {
   const fallbackModelId = await resolveLocalFallbackModelId();
   const result = await waitForModelAccess(fallbackModelId);
   if (result.available) {
+    setRuntimeAiReadyState(null);
     return true;
   }
   const reason = result.authRequired
     ? "authentication is unexpectedly required"
     : result.error ?? "the model did not answer a readiness probe in time";
+  setRuntimeAiReadyState(
+    `Local ${getLocalModelDisplayName()} fallback (${fallbackModelId}) is not ready for AI requests: ${reason}`,
+    !result.authRequired,
+  );
   log.warn?.(
     `Local ${getLocalModelDisplayName()} fallback (${fallbackModelId}) is not ready for requests yet: ${reason}`,
   );
@@ -60,8 +89,44 @@ async function ensureLocalFallbackReady(): Promise<boolean> {
 
 function emitModelsReadyIfReady(): void {
   if (bootstrapVerified && localFallbackReady) {
+    setRuntimeAiReadyState(null);
     emitModelsReadyEvent();
   }
+}
+
+function scheduleLocalFallbackRetry(): void {
+  if (
+    localFallbackRetryTask !== null || localFallbackReady ||
+    !isRuntimeAiReadyRetryable()
+  ) {
+    return;
+  }
+
+  localFallbackRetryTask = (async () => {
+    try {
+      while (
+        runtimeReadinessManaged &&
+        !hasRuntimeInitializationFailed() &&
+        !localFallbackReady &&
+        isRuntimeAiReadyRetryable()
+      ) {
+        await delay(5_000);
+        if (
+          !runtimeReadinessManaged || hasRuntimeInitializationFailed() ||
+          localFallbackReady
+        ) {
+          break;
+        }
+        localFallbackReady = await ensureLocalFallbackReady();
+        if (localFallbackReady) {
+          emitModelsReadyIfReady();
+          break;
+        }
+      }
+    } finally {
+      localFallbackRetryTask = null;
+    }
+  })();
 }
 
 /** Returns the runtime readiness promise. Endpoints can await this before using AI. */
@@ -89,6 +154,8 @@ export async function serveCommand(args: string[]): Promise<number> {
     runtimeReadyState = "pending";
     bootstrapVerified = false;
     localFallbackReady = false;
+    localFallbackRetryTask = null;
+    setRuntimeAiReadyState("AI runtime is still initializing.", true);
 
     // Start server FIRST so the port is open immediately for GUI clients.
     // Deno.serve() binds the port synchronously — no "Connection refused" race.
@@ -105,20 +172,38 @@ export async function serveCommand(args: string[]): Promise<number> {
         if (verification.state === "verified") {
           bootstrapVerified = true;
           localFallbackReady = await ensureLocalFallbackReady();
+          if (!localFallbackReady) {
+            scheduleLocalFallbackRetry();
+          }
         } else if (verification.state === "degraded") {
           // Bootstrap exists but is broken — attempt recovery.
           // bootstrapVerified stays false until recovery actually succeeds.
+          setRuntimeAiReadyState(
+            "Bootstrap verification is degraded. Recovery is in progress.",
+            true,
+          );
           recoverBootstrap(verification.manifest, verification).then(async (r) => {
             if (r.success) {
               bootstrapVerified = true;
               localFallbackReady = await ensureLocalFallbackReady();
+              if (!localFallbackReady) {
+                scheduleLocalFallbackRetry();
+              }
               log.info?.("Bootstrap recovery completed.");
               emitModelsReadyIfReady();
             } else {
+              setRuntimeAiReadyState(
+                `Bootstrap recovery failed: ${r.message}. Run 'hlvm bootstrap --repair' to fix.`,
+                false,
+              );
               log.warn?.(`Bootstrap recovery failed: ${r.message}. ` +
                 `Run 'hlvm bootstrap --repair' to fix.`);
             }
           }).catch((err) => {
+            setRuntimeAiReadyState(
+              `Bootstrap recovery error: ${(err as Error).message}`,
+              false,
+            );
             log.warn?.(`Bootstrap recovery error: ${(err as Error).message}`);
           });
         } else {
@@ -135,6 +220,7 @@ export async function serveCommand(args: string[]): Promise<number> {
             if (isDenoDrivenDevBuild) {
               bootstrapVerified = true;
               localFallbackReady = true;
+              setRuntimeAiReadyState(null);
             } else {
               const {
                 extractAIEngine,
@@ -143,6 +229,10 @@ export async function serveCommand(args: string[]): Promise<number> {
               await extractAIEngine();
               const embeddedEnginePath = await resolveEmbeddedEnginePath();
               if (embeddedEnginePath) {
+                setRuntimeAiReadyState(
+                  "Verified bootstrap not found. Local AI bootstrap is being materialized.",
+                  true,
+                );
                 log.info?.(
                   "Embedded engine found without a verified bootstrap. " +
                     `Starting ${getLocalModelDisplayName()}-first local AI bootstrap in the background...`,
@@ -151,16 +241,31 @@ export async function serveCommand(args: string[]): Promise<number> {
                   if (r.success) {
                     bootstrapVerified = true;
                     localFallbackReady = await ensureLocalFallbackReady();
+                    if (!localFallbackReady) {
+                      scheduleLocalFallbackRetry();
+                    }
                     log.info?.("Bootstrap materialization completed.");
                     emitModelsReadyIfReady();
                   } else {
+                    setRuntimeAiReadyState(
+                      `Bootstrap auto-setup failed: ${r.message}. Run 'hlvm bootstrap --repair' to retry.`,
+                      false,
+                    );
                     log.warn?.(`Bootstrap auto-setup failed: ${r.message}. ` +
                       `Run 'hlvm bootstrap --repair' to retry.`);
                   }
                 }).catch((err) => {
+                  setRuntimeAiReadyState(
+                    `Bootstrap auto-setup error: ${(err as Error).message}`,
+                    false,
+                  );
                   log.warn?.(`Bootstrap auto-setup error: ${(err as Error).message}`);
                 });
               } else {
+                setRuntimeAiReadyState(
+                  "Compiled HLVM build does not have a verified embedded AI runtime. Run 'hlvm bootstrap' after reinstalling the AI-enabled binary.",
+                  false,
+                );
                 log.warn?.(
                   "Compiled HLVM build does not have a verified embedded AI runtime. " +
                   "Run 'hlvm bootstrap' after reinstalling the AI-enabled binary.",
@@ -168,6 +273,12 @@ export async function serveCommand(args: string[]): Promise<number> {
               }
             }
           } catch (error) {
+            setRuntimeAiReadyState(
+              `Failed to determine embedded engine status: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              false,
+            );
             log.warn?.(`Failed to determine embedded engine status: ${
               error instanceof Error ? error.message : String(error)
             }`);
@@ -193,6 +304,7 @@ export async function serveCommand(args: string[]): Promise<number> {
           originalError: error instanceof Error ? error : undefined,
         },
       );
+      setRuntimeAiReadyState(wrappedError.message, false);
       log.error(wrappedError.message, error);
       throw wrappedError;
     });

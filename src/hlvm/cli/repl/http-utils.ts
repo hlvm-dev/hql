@@ -13,8 +13,12 @@ type JsonParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; response: Response };
 
-export function jsonError(message: string, status: number): Response {
-  return Response.json({ error: message }, { status });
+export function jsonError(
+  message: string,
+  status: number,
+  details: Record<string, unknown> = {},
+): Response {
+  return Response.json({ ...details, error: message }, { status });
 }
 
 /** Check if origin is a localhost variant (http://localhost:* or http://127.0.0.1:*) */

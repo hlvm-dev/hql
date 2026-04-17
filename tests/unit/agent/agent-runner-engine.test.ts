@@ -1,6 +1,6 @@
 import { assertEquals, assertExists, assertRejects } from "jsr:@std/assert";
 import { AUTO_MODEL_ID } from "../../../src/common/config/types.ts";
-import { getMcpConfigPath } from "../../../src/common/paths.ts";
+import { getHlvmDir, getMcpConfigPath } from "../../../src/common/paths.ts";
 import { __setListAllProviderModelsForTesting } from "../../../src/hlvm/agent/auto-select.ts";
 import {
   createReusableSession,
@@ -713,31 +713,62 @@ Deno.test({
 
 Deno.test({
   name:
-    "agent-runner: runAgentQuery falls back to default model for constrained models",
+    "agent-runner: runAgentQuery falls back to the installed local fallback for constrained models",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
-    // Constrained models (< 3B) can't run agent mode directly.
-    // The runner falls back to DEFAULT_MODEL_ID instead of rejecting,
-    // so the function completes without throwing a ValidationError.
-    const engine: AgentEngine = {
-      createLLM: () => () =>
-        Promise.resolve({ content: "done", toolCalls: [] }),
-      createSummarizer: () => () => Promise.resolve(""),
-    };
-
-    await withEngineOverride(engine, async () => {
-      // deno-lint-ignore no-explicit-any
-      const result: any = await runAgentQuery({
-        query: "search the web for latest release notes",
-        model: "ollama/tinyllama:1b",
-        modelInfo: { name: "tinyllama:1b", parameterSize: "1B" },
-        callbacks: {},
-        workspace: getPlatform().process.cwd(),
+    await withTempHlvmDir(async () => {
+      const platform = getPlatform();
+      const manifestPath = platform.path.join(
+        getHlvmDir(),
+        ".runtime",
+        "models",
+        "manifests",
+        "registry.ollama.ai",
+        "library",
+        "gemma4",
+        "e4b",
+      );
+      await platform.fs.mkdir(platform.path.dirname(manifestPath), {
+        recursive: true,
       });
-      // Should complete without throwing — model was downgraded to default
-      assertExists(result);
-      assertEquals(typeof result.text, "string");
+      await platform.fs.writeTextFile(
+        manifestPath,
+        JSON.stringify({
+          layers: [
+            {
+              mediaType: "application/vnd.ollama.image.model",
+              digest:
+                "sha256:4c27e0f5b5adf02ac956c7322bd2ee7636fe3f45a8512c9aba5385242cb6e09a",
+              size: 9_608_350_245,
+            },
+          ],
+        }),
+      );
+
+      let capturedModel: string | undefined;
+      const engine: AgentEngine = {
+        createLLM: (config) => {
+          capturedModel = config.model;
+          return () => Promise.resolve({ content: "done", toolCalls: [] });
+        },
+        createSummarizer: () => () => Promise.resolve(""),
+      };
+
+      await withEngineOverride(engine, async () => {
+        // deno-lint-ignore no-explicit-any
+        const result: any = await runAgentQuery({
+          query: "search the web for latest release notes",
+          model: "ollama/tinyllama:1b",
+          modelInfo: { name: "tinyllama:1b", parameterSize: "1B" },
+          callbacks: {},
+          workspace: getPlatform().process.cwd(),
+        });
+        assertExists(result);
+        assertEquals(typeof result.text, "string");
+      });
+
+      assertEquals(capturedModel, "ollama/gemma4:e4b");
     });
   },
 });

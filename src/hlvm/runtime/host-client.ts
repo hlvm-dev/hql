@@ -347,7 +347,12 @@ async function waitForRuntimeHost(
       health?.status === "ok" && health.authToken &&
       (!predicate || predicate(health))
     ) {
-      if (!requireAiReady || health.aiReady) return health;
+      if (
+        !requireAiReady || health.aiReady ||
+        health.aiReadyRetryable === false
+      ) {
+        return health;
+      }
     }
     await delay(HEALTH_POLL_DELAY_MS);
   }
@@ -734,8 +739,11 @@ async function ensureRuntimeAiReady(): Promise<{
     );
   }
   if (!health.aiReady) {
+    const reason = health.aiReadyReason?.trim();
     throw createRuntimeHostError(
-      "Local HLVM runtime host is not ready for AI requests.",
+      reason
+        ? `Local HLVM runtime host is not ready for AI requests: ${reason}`
+        : "Local HLVM runtime host is not ready for AI requests.",
     );
   }
   return {

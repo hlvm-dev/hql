@@ -62,6 +62,7 @@ import { recordPromptHistory } from "../prompt-history.ts";
 import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
 import { evaluateProviderApproval } from "../../../providers/approval.ts";
 import { supportsAgentExecution } from "../../../agent/constants.ts";
+import { resolveLocalFallbackModelId } from "../../../runtime/local-fallback.ts";
 
 export { handleChatInteraction } from "./chat-session.ts";
 
@@ -445,12 +446,15 @@ export async function handleChat(req: Request): Promise<Response> {
       body.fixture_path.trim()
     ? body.fixture_path.trim()
     : undefined;
+  const localFallbackModelId = isEvalMode
+    ? undefined
+    : await resolveLocalFallbackModelId();
   let resolvedModel = isEvalMode
     ? undefined
     : fixturePath
     ? (body.model && body.model !== AUTO_MODEL_ID
       ? body.model
-      : DEFAULT_MODEL_ID)
+      : localFallbackModelId ?? DEFAULT_MODEL_ID)
     : body.model ?? (await ensureInitialModelConfigured()).model;
   const requestAttachmentIds = getRequestAttachmentIds(body.messages);
   traceReplMainThreadForSource(body.query_source, "server.chat.model_ready", {
@@ -478,7 +482,7 @@ export async function handleChat(req: Request): Promise<Response> {
     !resolvedModel
   ) {
     // Guaranteed local default is always available — use it as last resort
-    resolvedModel = DEFAULT_MODEL_ID;
+    resolvedModel = localFallbackModelId ?? DEFAULT_MODEL_ID;
   }
 
   let resolvedModelInfo:
@@ -501,22 +505,23 @@ export async function handleChat(req: Request): Promise<Response> {
     }
     if (resolvedModelInfo === null && !modelDiscoveryFailed) {
       // Configured model not found — fall back to guaranteed local default
-      if (resolvedModel !== DEFAULT_MODEL_ID) {
-        const [defProvider, defModelName] = parseModelString(DEFAULT_MODEL_ID);
+      const defaultModelId = localFallbackModelId ?? DEFAULT_MODEL_ID;
+      if (resolvedModel !== defaultModelId) {
+        const [defProvider, defModelName] = parseModelString(defaultModelId);
         try {
           resolvedModelInfo = await ai.models.get(
             defModelName,
             defProvider ?? undefined,
           );
           if (resolvedModelInfo) {
-            resolvedModel = DEFAULT_MODEL_ID;
+            resolvedModel = defaultModelId;
           }
         } catch { /* modelDiscoveryFailed stays false, fallback continues */ }
       }
       // Only error if both the configured model AND the default are missing
       if (resolvedModelInfo === null) {
         return jsonError(
-          `Model not found: ${body.model ?? resolvedModel}. Default model (${DEFAULT_MODEL_ID}) also unavailable.`,
+          `Model not found: ${body.model ?? resolvedModel}. Default model (${defaultModelId}) also unavailable.`,
           400,
         );
       }
@@ -527,8 +532,9 @@ export async function handleChat(req: Request): Promise<Response> {
       modelDiscoveryFailed
     ) {
       // Discovery failed for configured model — try guaranteed local default
-      if (resolvedModel !== DEFAULT_MODEL_ID) {
-        const [defProvider, defModelName] = parseModelString(DEFAULT_MODEL_ID);
+      const defaultModelId = localFallbackModelId ?? DEFAULT_MODEL_ID;
+      if (resolvedModel !== defaultModelId) {
+        const [defProvider, defModelName] = parseModelString(defaultModelId);
         try {
           const fallbackInfo = await ai.models.get(
             defModelName,
@@ -536,7 +542,7 @@ export async function handleChat(req: Request): Promise<Response> {
           );
           if (fallbackInfo) {
             resolvedModelInfo = fallbackInfo;
-            resolvedModel = DEFAULT_MODEL_ID;
+            resolvedModel = defaultModelId;
             modelDiscoveryFailed = false;
           }
         } catch { /* default also unreachable — fall through to error */ }

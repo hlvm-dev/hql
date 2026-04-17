@@ -1,8 +1,9 @@
 import { getErrorMessage } from "../../common/utils.ts";
 import { createRuntimeConfigManager } from "./model-config.ts";
-import { getRuntimeProviderStatus } from "./host-client.ts";
+import { getRuntimeProviderStatus, listRuntimeInstalledModels } from "./host-client.ts";
 import {
   getRuntimeModelAvailability,
+  resolveEffectiveModelAvailabilityTarget,
   resolveModelAvailabilityTarget,
 } from "./model-availability.ts";
 
@@ -26,7 +27,9 @@ export interface ConfiguredModelReadiness {
 export async function getModelReadiness(
   modelId: string,
 ): Promise<ConfiguredModelReadiness> {
-  const target = resolveModelAvailabilityTarget(modelId);
+  const target = await resolveEffectiveModelAvailabilityTarget(modelId, {
+    listModels: listRuntimeInstalledModels,
+  });
 
   let providerStatus: { available: boolean; error?: string };
   try {

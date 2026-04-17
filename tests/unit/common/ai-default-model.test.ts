@@ -308,6 +308,39 @@ Deno.test("ai default model: unified initial-model resolver upgrades gemma4 lega
   assertEquals(resolved.reconciledClaudeModel, false);
 });
 
+Deno.test("ai default model: unified initial-model resolver upgrades legacy gemma4:e4b default to auto", async () => {
+  resetBootstrapProbeState();
+  let snapshot = {
+    model: "ollama/gemma4:e4b",
+    modelConfigured: false,
+    agentMode: undefined as "hlvm" | undefined,
+  };
+
+  const resolved = await ensureInitialModelConfigured(
+    {
+      allowFirstRunSetup: false,
+    },
+    {
+      getSnapshot: () => snapshot,
+      listModels: () => Promise.resolve([]),
+      patchConfig: (patch) => {
+        snapshot = {
+          ...snapshot,
+          ...(patch as Partial<Record<ConfigKey, unknown>>),
+        } as typeof snapshot;
+        return Promise.resolve();
+      },
+      syncSnapshot: () => Promise.resolve(snapshot),
+    },
+  );
+
+  assertEquals(resolved.model, AUTO_MODEL_ID);
+  assertEquals(resolved.modelConfigured, true);
+  assertEquals(resolved.autoConfiguredLocalFallback, true);
+  assertEquals(resolved.firstRunConfigured, false);
+  assertEquals(resolved.reconciledClaudeModel, false);
+});
+
 Deno.test("ai default model: unified initial-model resolver respects explicitly configured legacy model", async () => {
   resetBootstrapProbeState();
   const snapshot = {

@@ -3,6 +3,8 @@ import { isOllamaCloudModel } from "../hlvm/providers/ollama/cloud.ts";
 import type { ModelInfo, PullProgress } from "../hlvm/providers/types.ts";
 import { AUTO_MODEL_ID, DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER } from "./config/types.ts";
 import { getErrorMessage } from "./utils.ts";
+import { LOCAL_FALLBACK_MODEL_ID } from "../hlvm/runtime/local-fallback.ts";
+import { LEGACY_LOCAL_FALLBACK_IDENTITIES } from "../hlvm/runtime/bootstrap-manifest.ts";
 
 export interface ModelAvailabilityTarget {
   modelId: string;
@@ -60,6 +62,13 @@ export interface EnsureModelAvailabilityResult
   error?: string;
 }
 
+const KNOWN_LOCAL_FALLBACK_MODEL_IDS = [
+  LOCAL_FALLBACK_MODEL_ID,
+  ...LEGACY_LOCAL_FALLBACK_IDENTITIES.map((identity) =>
+    `ollama/${identity.modelId}`
+  ),
+] as const;
+
 export function resolveModelAvailabilityTarget(
   modelId: string,
 ): ModelAvailabilityTarget {
@@ -81,6 +90,59 @@ export function resolveModelAvailabilityTarget(
     supportsLocalInstall: resolvedProvider === "ollama" &&
       !isOllamaCloudModel(modelName),
   };
+}
+
+function shouldResolveInstalledLocalFallback(
+  requestedModelId: string,
+  target: ModelAvailabilityTarget,
+): boolean {
+  return requestedModelId === AUTO_MODEL_ID ||
+    target.modelId === LOCAL_FALLBACK_MODEL_ID;
+}
+
+function findInstalledKnownLocalFallbackModelId(
+  models: ModelInfo[],
+): string | null {
+  for (const fallbackModelId of KNOWN_LOCAL_FALLBACK_MODEL_IDS) {
+    const [, modelName] = parseModelString(fallbackModelId);
+    if (modelName && isModelInstalled(models, modelName)) {
+      return fallbackModelId;
+    }
+  }
+  return null;
+}
+
+async function resolveModelAvailabilityContext(
+  modelId: string,
+  deps: Pick<EnsureModelAvailabilityDeps, "listModels">,
+): Promise<{ target: ModelAvailabilityTarget; models?: ModelInfo[] }> {
+  const target = resolveModelAvailabilityTarget(modelId);
+  if (
+    !target.supportsLocalInstall ||
+    !shouldResolveInstalledLocalFallback(modelId, target)
+  ) {
+    return { target };
+  }
+
+  const models = await deps.listModels(target.providerName);
+  const installedFallbackModelId = findInstalledKnownLocalFallbackModelId(
+    models,
+  );
+  if (!installedFallbackModelId) {
+    return { target, models };
+  }
+
+  return {
+    target: resolveModelAvailabilityTarget(installedFallbackModelId),
+    models,
+  };
+}
+
+export async function resolveEffectiveModelAvailabilityTarget(
+  modelId: string,
+  deps: Pick<EnsureModelAvailabilityDeps, "listModels">,
+): Promise<ModelAvailabilityTarget> {
+  return (await resolveModelAvailabilityContext(modelId, deps)).target;
 }
 
 export function isModelInstalled(models: ModelInfo[], target: string): boolean {
@@ -147,7 +209,10 @@ export async function getModelAvailability(
   modelId: string,
   deps: Pick<EnsureModelAvailabilityDeps, "listModels">,
 ): Promise<ModelAvailabilitySnapshot> {
-  const target = resolveModelAvailabilityTarget(modelId);
+  const { target, models: resolvedModels } = await resolveModelAvailabilityContext(
+    modelId,
+    deps,
+  );
   if (!target.supportsLocalInstall) {
     return {
       ...target,
@@ -156,7 +221,7 @@ export async function getModelAvailability(
     };
   }
 
-  const models = await deps.listModels(target.providerName);
+  const models = resolvedModels ?? await deps.listModels(target.providerName);
   const available = isModelInstalled(models, target.modelName);
   return {
     ...target,
@@ -207,7 +272,7 @@ export async function ensureModelAvailability(
   deps: EnsureModelAvailabilityDeps,
   options: EnsureModelAvailabilityOptions = {},
 ): Promise<EnsureModelAvailabilityResult> {
-  const target = resolveModelAvailabilityTarget(modelId);
+  const { target } = await resolveModelAvailabilityContext(modelId, deps);
 
   let availability: ModelAvailabilitySnapshot;
   try {

@@ -82,6 +82,8 @@ export interface HostHealthResponse {
   initialized: boolean;
   definitions: number;
   aiReady: boolean;
+  aiReadyReason?: string | null;
+  aiReadyRetryable?: boolean;
   version: string;
   buildId: string;
   authToken: string | null;

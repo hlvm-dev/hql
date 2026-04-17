@@ -6,7 +6,8 @@ import type { TranscriptToolCall } from "../types.ts";
 
 const COLLAPSED_PREVIEW_LINES = 3;
 const BULLET = "⏺";
-const TREE_CORNER = "⎿";
+const CORNER_PREFIX = "⎿  ";
+const CONTINUATION_PREFIX = "   ";
 
 type Props = {
   title: string;
@@ -28,30 +29,16 @@ export function GroupedToolUseContent(
       </NoSelect>
       <Box flexDirection="column" flexGrow={1}>
         <Text bold wrap="truncate-end">{title}</Text>
-        {visibleLines.length > 0 && (
-          <Box flexDirection="column" marginLeft={2}>
-            {visibleLines.map((line, index) => (
-              <Box key={index} flexDirection="row">
-                <Box minWidth={2}>
-                  <Text dimColor>{index === 0 ? TREE_CORNER : " "}</Text>
-                </Box>
-                <Box flexGrow={1}>
-                  <Text wrap="wrap">{line}</Text>
-                </Box>
-              </Box>
-            ))}
-            {hiddenLineCount > 0 && (
-              <Box flexDirection="row">
-                <Box minWidth={2}>
-                  <Text dimColor> </Text>
-                </Box>
-                <Text dimColor>
-                  … +{hiddenLineCount} more line{hiddenLineCount === 1 ? "" : "s"}
-                  {" "}(ctrl+o to expand)
-                </Text>
-              </Box>
-            )}
-          </Box>
+        {visibleLines.map((line, index) => (
+          <Text key={index} wrap="wrap">
+            {index === 0 ? CORNER_PREFIX : CONTINUATION_PREFIX}{line}
+          </Text>
+        ))}
+        {hiddenLineCount > 0 && (
+          <Text dimColor>
+            {CONTINUATION_PREFIX}… +{hiddenLineCount} more line
+            {hiddenLineCount === 1 ? "" : "s"} (ctrl+o to expand)
+          </Text>
         )}
       </Box>
     </Box>

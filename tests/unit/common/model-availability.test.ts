@@ -3,6 +3,7 @@ import type { PullProgress } from "../../../src/hlvm/providers/types.ts";
 import {
   ensureModelAvailability,
   getModelAvailability,
+  resolveEffectiveModelAvailabilityTarget,
   resolveModelAvailabilityTarget,
 } from "../../../src/common/model-availability.ts";
 
@@ -57,6 +58,23 @@ Deno.test("model availability: external providers and Ollama cloud models are tr
   });
   assertEquals(cloud.available, true);
   assertEquals(cloud.requiresLocalInstall, false);
+});
+
+Deno.test("model availability: auto resolves to an installed legacy local fallback", async () => {
+  const listModels = async () => [{ name: "gemma4:e4b" }];
+
+  const target = await resolveEffectiveModelAvailabilityTarget("auto", {
+    listModels,
+  });
+  assertEquals(target.modelId, "ollama/gemma4:e4b");
+
+  const availability = await getModelAvailability("auto", {
+    listModels,
+  });
+  assertEquals(availability.modelId, "ollama/gemma4:e4b");
+  assertEquals(availability.modelName, "gemma4:e4b");
+  assertEquals(availability.available, true);
+  assertEquals(availability.requiresLocalInstall, false);
 });
 
 Deno.test("model availability: ensure pulls a missing local model once", async () => {

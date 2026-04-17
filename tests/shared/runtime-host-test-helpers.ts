@@ -14,6 +14,8 @@ export async function createRuntimeHostHealthResponse(
   authToken: string,
   overrides: {
     aiReady?: boolean;
+    aiReadyReason?: string | null;
+    aiReadyRetryable?: boolean;
     authToken?: string | null;
   } = {},
 ): Promise<Record<string, unknown>> {
@@ -23,6 +25,9 @@ export async function createRuntimeHostHealthResponse(
     initialized: true,
     definitions: 0,
     aiReady: overrides.aiReady ?? true,
+    aiReadyReason: overrides.aiReadyReason ?? null,
+    aiReadyRetryable: overrides.aiReadyRetryable ??
+      (overrides.aiReady === false),
     version: identity.version,
     buildId: identity.buildId,
     authToken: overrides.authToken ?? authToken,

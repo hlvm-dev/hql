@@ -1116,6 +1116,60 @@ Deno.test("runAgentQueryViaHost waits for runtime readiness before sending chat"
   }
 });
 
+Deno.test("runAgentQueryViaHost surfaces non-retryable AI readiness reasons without waiting for the full poll window", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+  let healthChecks = 0;
+  let chatRequests = 0;
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      healthChecks += 1;
+      return Response.json(
+        await createRuntimeHostHealthResponse(authToken, {
+          aiReady: false,
+          aiReadyReason:
+            "Local Julienning fallback (ollama/gemma4:e4b) is not ready for AI requests: authentication is unexpectedly required",
+          aiReadyRetryable: false,
+        }),
+      );
+    }
+
+    if (url.pathname === "/api/chat") {
+      chatRequests += 1;
+      return new Response("unexpected chat request", { status: 500 });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const error = await assertRejects(
+        () =>
+          runAgentQueryViaHost({
+            query: "blocked on runtime readiness",
+            model: "ollama/llama3.1:8b",
+            callbacks: {},
+          }),
+        RuntimeError,
+      );
+      assertEquals(error.code, HLVMErrorCode.REQUEST_FAILED);
+      assertStringIncludes(error.message, "ollama/gemma4:e4b");
+      assertEquals(chatRequests, 0);
+      assertEquals(healthChecks < 10, true);
+    });
+  } finally {
+    await handle.shutdown();
+    await handle.finished;
+  }
+});
+
 Deno.test("runAgentQueryViaHost takes over runtime startup after an abandoned start lock", async () => {
   const port = await findFreePort();
   const authToken = "lock-handoff-auth-token";

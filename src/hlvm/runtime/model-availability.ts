@@ -1,6 +1,7 @@
 import {
   ensureModelAvailability,
   getModelAvailability,
+  resolveEffectiveModelAvailabilityTarget,
   resolveModelAvailabilityTarget,
   type EnsureModelAvailabilityOptions,
   type EnsureModelAvailabilityResult,
@@ -84,4 +85,4 @@ export async function ensureRuntimeModelAvailable(
   );
 }
 
-export { resolveModelAvailabilityTarget };
+export { resolveEffectiveModelAvailabilityTarget, resolveModelAvailabilityTarget };
