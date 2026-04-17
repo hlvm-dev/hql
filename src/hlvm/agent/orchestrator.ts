@@ -31,6 +31,7 @@ import {
 import {
   CONTEXT_PRESSURE_SOFT_THRESHOLD,
   type GroundingMode,
+  MAX_ITERATIONS,
   type ModelTier,
   RESPONSE_CONTINUATION_MAX_HOPS,
 } from "./constants.ts";
@@ -67,7 +68,6 @@ import {
   type PlanningPhase,
   type PlanState,
   requestPlan,
-  shouldPlanRequest,
 } from "./planning.ts";
 import type { AgentExecutionMode } from "./execution-mode.ts";
 import { isPlanExecutionMode } from "./execution-mode.ts";
@@ -82,11 +82,7 @@ import type { AgentHookRuntime } from "./hooks.ts";
 import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
 import type { LastResortFallback } from "./auto-select.ts";
-import {
-  type RoutingBehavior,
-  type RoutingProvenance,
-  type RoutingResult,
-} from "./request-routing.ts";
+import type { TurnRouting } from "./routing.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -114,7 +110,6 @@ export {
 } from "./orchestrator-response.ts";
 
 import { callLLM, type LLMFunction } from "./orchestrator-llm.ts";
-import { isMainThreadQuerySource } from "./query-tool-routing.ts";
 import {
   cloneToolList,
   effectiveAllowlist,
@@ -134,12 +129,10 @@ import {
   processAgentResponse,
 } from "./orchestrator-response.ts";
 import {
-  BROWSER_SAFE_PROFILE_ID,
   clearToolProfileLayerFromTarget,
   ensureToolProfileState,
   intersectToolLists,
   resolveCanonicalBaselineAllowlist,
-  resolveDeclaredToolProfileFilter,
   resolvePersistentToolFilter,
   uniqueToolList,
   updateToolProfileLayer,
@@ -318,11 +311,13 @@ export type TraceEvent =
   }
   | {
     type: "routing_decision";
-    tier: import("./constants.ts").ModelTier;
-    behavior: RoutingBehavior;
-    provenance: RoutingProvenance;
-    taskDomain: import("./request-routing.ts").TaskDomain;
-    needsPlan: boolean;
+    selectedModel: string;
+    modelSource: "explicit" | "auto";
+    modelTier: import("./constants.ts").ModelTier;
+    eagerToolCount: number;
+    deferredToolCount: number;
+    deniedToolCount: number;
+    discovery: "tool_search" | "none";
     reason: string;
   };
 
@@ -642,7 +637,7 @@ export interface OrchestratorModelConfig {
   visionCapable?: boolean;
   skipModelCompensation?: boolean;
   modelTier?: ModelTier;
-  routingResult?: RoutingResult;
+  turnRouting?: TurnRouting;
   modelId?: string;
   eagerToolCount?: number;
   discoveredDeferredToolCount?: number;
@@ -743,6 +738,8 @@ export const COMPLETE_PHASE_CATEGORIES = new Set([
   "meta",
 ]);
 
+const BROWSER_REACT_MAX_ITERATIONS = Math.max(MAX_ITERATIONS, 28);
+
 function requestImpliesVerification(query: string): boolean {
   return /\b(test|verify|validation|validate|check|build|compile|run)\b/i.test(
     query,
@@ -754,35 +751,7 @@ function requestImpliesEditing(query: string): boolean {
     .test(query);
 }
 
-async function applyRequestDomainToolProfile(
-  config: OrchestratorConfig,
-): Promise<void> {
-  if (isMainThreadQuerySource(config.querySource)) {
-    return;
-  }
-  // Caller-provided tool allowlists are authoritative. Do not infer a
-  // browser-safe domain profile on top of an explicit CU-only (or other
-  // specialized) allowlist, or the intersection will mask the caller's tools.
-  if (config.permissionToolAllowlist?.length) {
-    const baselineLayer = ensureToolProfileState(config).layers.baseline;
-    const canonicalBaselineAllowlist = resolveCanonicalBaselineAllowlist({
-      querySource: config.querySource,
-      baseAllowlist: config.baselineToolAllowlistSeed,
-      discoveredDeferredTools: config.discoveredDeferredTools,
-      ownerId: config.toolOwnerId,
-    });
-    if (config.baselineToolAllowlistSeed) {
-      updateToolProfileLayer(config, "baseline", {
-        profileId: baselineLayer?.profileId,
-        allowlist: cloneToolList(canonicalBaselineAllowlist),
-        denylist: cloneToolList(baselineLayer?.denylist),
-        reason: baselineLayer?.reason,
-      });
-    }
-    clearToolProfileLayerFromTarget(config, "domain");
-    return;
-  }
-  const taskDomain = config.routingResult?.taskDomain ?? "general";
+function applyRequestToolSurface(config: OrchestratorConfig): void {
   const baselineLayer = ensureToolProfileState(config).layers.baseline;
   const canonicalBaselineAllowlist = resolveCanonicalBaselineAllowlist({
     querySource: config.querySource,
@@ -790,37 +759,36 @@ async function applyRequestDomainToolProfile(
     discoveredDeferredTools: config.discoveredDeferredTools,
     ownerId: config.toolOwnerId,
   });
-  const nextBaselineAllowlist = cloneToolList(canonicalBaselineAllowlist);
-  if (
-    taskDomain === "browser" &&
-    nextBaselineAllowlist?.length
-  ) {
-    const browserSafeAllowlist =
-      resolveDeclaredToolProfileFilter(BROWSER_SAFE_PROFILE_ID).allowlist;
-    if (browserSafeAllowlist?.length) {
-      nextBaselineAllowlist.push(
-        ...browserSafeAllowlist.filter((name) =>
-          !nextBaselineAllowlist.includes(name)
-        ),
-      );
-    }
-  }
-  if (config.baselineToolAllowlistSeed) {
+  if (config.baselineToolAllowlistSeed !== undefined) {
     updateToolProfileLayer(config, "baseline", {
       profileId: baselineLayer?.profileId,
-      allowlist: cloneToolList(nextBaselineAllowlist),
+      allowlist: cloneToolList(canonicalBaselineAllowlist),
       denylist: cloneToolList(baselineLayer?.denylist),
       reason: baselineLayer?.reason,
     });
   }
-  if (taskDomain === "browser") {
-    updateToolProfileLayer(config, "domain", {
-      profileId: BROWSER_SAFE_PROFILE_ID,
-      reason: "browser_task_detected",
-    });
+  // Routing no longer owns semantic task profiles. The model chooses browser,
+  // search, delegation, and planning inside the loop from the allowed tools.
+  clearToolProfileLayerFromTarget(config, "domain");
+}
+
+function isBrowserToolName(toolName: string): boolean {
+  return toolName.startsWith("pw_") || toolName.startsWith("ch_");
+}
+
+function maybeActivateBrowserIterationBudget(
+  result: Awaited<ReturnType<typeof processAgentResponse>>,
+  lc: LoopConfig,
+  config: OrchestratorConfig,
+): void {
+  if (config.maxIterations !== undefined) return;
+  if (lc.maxIterations >= BROWSER_REACT_MAX_ITERATIONS) return;
+  if (
+    !result.toolCalls.some((toolCall) => isBrowserToolName(toolCall.toolName))
+  ) {
     return;
   }
-  clearToolProfileLayerFromTarget(config, "domain");
+  lc.maxIterations = BROWSER_REACT_MAX_ITERATIONS;
 }
 
 // Pre-defined tool name sets for O(1) phase classification
@@ -1514,7 +1482,7 @@ export async function runReActLoop(
     );
   const autoMemoryRecall = config.autoMemoryRecall ?? false;
   resetWebToolBudget();
-  await applyRequestDomainToolProfile(config);
+  applyRequestToolSurface(config);
 
   addContextMessage(config, {
     role: "user",
@@ -1539,11 +1507,7 @@ export async function runReActLoop(
     !config.planModeState?.active &&
     !state.planState &&
     lc.planningConfig.mode !== "off" &&
-    await shouldPlanRequest(
-      userRequest,
-      lc.planningConfig.mode!,
-      config.routingResult?.needsPlan,
-    )
+    lc.planningConfig.mode === "always"
   ) {
     try {
       const agentNames = (config.agentProfiles ?? []).map((agent) =>
@@ -1867,6 +1831,7 @@ export async function runReActLoop(
         config,
         lc.toolRateLimiter,
       );
+      maybeActivateBrowserIterationBudget(result, lc, config);
       toolUseCount += result.toolCallsMade;
       const usageSnapshot = state.usageTracker.snapshot(config.modelId);
 

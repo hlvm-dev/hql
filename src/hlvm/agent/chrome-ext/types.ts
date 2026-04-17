@@ -2,19 +2,9 @@
  * Chrome Extension Bridge — Type Definitions
  */
 
-// ── Backend Resolution ──────────────────────────────────────────────
-
 export type ChromeExtBackendResolution =
-  | {
-      readonly backend: "extension";
-      readonly socketPath: string;
-    }
-  | {
-      readonly backend: "unavailable";
-      readonly reason: string;
-    };
-
-// ── Native Messaging Protocol Types ─────────────────────────────────
+  | { readonly backend: "extension"; readonly socketPath: string }
+  | { readonly backend: "unavailable"; readonly reason: string };
 
 /** Message sent from CLI to native host (via socket). */
 export interface ChromeExtRequest {
@@ -30,24 +20,8 @@ export interface ChromeExtResponse {
   readonly error?: string;
 }
 
-// ── Session State ───────────────────────────────────────────────────
-
-export interface ChromeExtSessionState {
-  activeTabId?: number;
-  attachedDebuggerTabs: Set<number>;
-  monitoringEnabled: boolean;
-}
-
-// ── Browser Config (copied from CC's common.ts) ─────────────────────
-
 export type ChromiumBrowser =
-  | "chrome"
-  | "brave"
-  | "arc"
-  | "chromium"
-  | "edge"
-  | "vivaldi"
-  | "opera";
+  | "chrome" | "brave" | "arc" | "chromium" | "edge" | "vivaldi" | "opera";
 
 export interface BrowserConfig {
   readonly name: string;

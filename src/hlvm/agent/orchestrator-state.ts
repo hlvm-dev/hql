@@ -26,7 +26,6 @@ import type {
 } from "./orchestrator.ts";
 import type { CitationSourceEntry } from "./tools/web/citation-spans.ts";
 import type { EditFileRecovery } from "./error-taxonomy.ts";
-import type { RoutingResult } from "./request-routing.ts";
 import type { ToolPresentationKind } from "./registry.ts";
 import type { ToolFailureMetadata } from "./tool-results.ts";
 import {
@@ -167,7 +166,6 @@ export function createRateLimiter(
   return new SlidingWindowRateLimiter(config);
 }
 
-/** Clone a string list shallowly, returning undefined for empty/missing lists. */
 /** Create initial mutable loop state from config */
 export function initializeLoopState(config: OrchestratorConfig): LoopState {
   const usageTracker = config.usage ?? new UsageTracker();

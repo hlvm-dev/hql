@@ -1769,7 +1769,11 @@ Deno.test("app-names: filters noisy names (Helper, Agent, etc.)", () => {
 // 9. Image Pipeline Tests
 // ============================================================
 
-Deno.test("tools: cu_screenshot result contains _imageAttachment key", async () => {
+Deno.test({
+  name: "tools: cu_screenshot result contains _imageAttachment key",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
   if (getPlatform().build.os !== "darwin") return;
 
   try {
@@ -1796,6 +1800,7 @@ Deno.test("tools: cu_screenshot result contains _imageAttachment key", async () 
   } catch {
     // Expected in headless CI
   }
+  },
 });
 
 // ============================================================

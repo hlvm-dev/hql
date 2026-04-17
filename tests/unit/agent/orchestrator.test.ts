@@ -30,6 +30,7 @@ import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
 import { clearAllL1Confirmations } from "../../../src/hlvm/agent/security/safety.ts";
 import {
   createToolProfileState,
+  setToolProfileLayer,
   syncEffectiveToolFilterToConfig,
 } from "../../../src/hlvm/agent/tool-profiles.ts";
 import { UsageTracker } from "../../../src/hlvm/agent/usage.ts";
@@ -172,6 +173,19 @@ function makeReminderHarness(): {
     config: { workspace: TEST_WORKSPACE, context },
   };
 }
+
+Deno.test("Orchestrator: explicit empty allowlist blocks all tools", () => {
+  const context = new ContextManager();
+  const config: OrchestratorConfig = {
+    workspace: TEST_WORKSPACE,
+    context,
+    toolAllowlist: [],
+  };
+
+  const isToolAllowed = buildIsToolAllowed(config);
+
+  assertEquals(isToolAllowed("read_file"), false);
+});
 
 Deno.test({
   name:
@@ -1145,7 +1159,7 @@ Deno.test({
 
 Deno.test({
   name:
-    "Orchestrator: runReActLoop activates browser_safe for browser requests and clears domain for non-browser reuse",
+    "Orchestrator: runReActLoop leaves routing domain clear and preserves eager browser tools",
   async fn() {
     resetApprovals();
     const context = new ContextManager();
@@ -1157,15 +1171,6 @@ Deno.test({
       toolProfileState: createToolProfileState(),
       baselineToolAllowlistSeed: [...STANDARD_EAGER_TOOLS],
       discoveredDeferredTools: [],
-      routingResult: {
-        tier: "standard",
-        behavior: "assisted",
-        provenance: "assisted_classify_all",
-        taskDomain: "browser",
-        needsPlan: false,
-        taskClassification: null,
-        reason: "browser detected",
-      },
     };
 
     let browserTurnCalls = 0;
@@ -1182,10 +1187,7 @@ Deno.test({
     );
 
     assertEquals(browserResult.text, "done");
-    assertEquals(
-      config.toolProfileState?.layers.domain?.profileId,
-      "browser_safe",
-    );
+    assertEquals(config.toolProfileState?.layers.domain, undefined);
     const browserAllowlist = effectiveAllowlist(config) ?? [];
     assertEquals(browserAllowlist.includes("pw_goto"), true);
     assertEquals(browserAllowlist.includes("pw_promote"), false);
@@ -1194,16 +1196,10 @@ Deno.test({
       false,
     );
 
-    // Clear browser routing for non-browser reuse
-    config.routingResult = {
-      tier: "standard",
-      behavior: "assisted",
-      provenance: "assisted_classify_all",
-      taskDomain: "general",
-      needsPlan: false,
-      taskClassification: null,
-      reason: "non-browser request",
-    };
+    setToolProfileLayer(config.toolProfileState!, "domain", {
+      profileId: "browser_safe",
+      reason: "legacy_semantic_routing",
+    });
     const nonBrowserResult = await runReActLoop(
       "Read README.md and summarize it",
       config,

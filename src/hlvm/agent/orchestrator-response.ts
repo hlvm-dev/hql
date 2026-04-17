@@ -729,7 +729,7 @@ function canRepairTextEnvelopeIntoLocalToolCall(
 ): boolean {
   if (!hasTool(toolName, config.toolOwnerId)) return false;
   const allowlist = effectiveAllowlist(config);
-  if (allowlist?.length && !allowlist.includes(toolName)) return false;
+  if (allowlist && !allowlist.includes(toolName)) return false;
   const denylist = effectiveDenylist(config);
   return !denylist?.includes(toolName);
 }
@@ -1076,8 +1076,9 @@ function shouldRunBrowserFinalAnswerGate(
   state: LoopState,
   config: OrchestratorConfig,
 ): boolean {
-  return state.toolUses.some((toolUse) => toolUse.toolName.startsWith("pw_")) &&
-    config.routingResult?.taskDomain === "browser" &&
+  return state.toolUses.some((toolUse) =>
+    toolUse.toolName.startsWith("pw_") || toolUse.toolName.startsWith("ch_")
+  ) &&
     typeof config.currentUserRequest === "string" &&
     config.currentUserRequest.trim().length > 0;
 }

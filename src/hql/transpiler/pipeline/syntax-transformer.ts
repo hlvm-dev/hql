@@ -1088,9 +1088,9 @@ function transformDotChainForm(
   let result = transformSExpNode(list.elements[0], enumDefinitions, logger);
 
   // Group methods and their arguments
-  const methodGroups = [];
-  let currentMethod = null;
-  let currentArgs = [];
+  const methodGroups: Array<{ method: SymbolNode; args: SExp[] }> = [];
+  let currentMethod: SymbolNode | null = null;
+  let currentArgs: SExp[] = [];
 
   for (let i = 1; i < list.elements.length; i++) {
     const element = list.elements[i];

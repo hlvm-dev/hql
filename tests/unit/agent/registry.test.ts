@@ -197,6 +197,12 @@ Deno.test("Registry: dynamic tools participate in selection and search", () => {
   assertEquals(hasTool("test_dynamic_registry"), false);
 });
 
+Deno.test("Registry: explicit empty allowlist exposes no tools", () => {
+  const selected = resolveTools({ allowlist: [] });
+
+  assertEquals(Object.keys(selected), []);
+});
+
 Deno.test("Registry: releaseToolOwner clears owner-scoped caches and dynamic tools", () => {
   const ownerId = "session:test-owner";
   registerTools({

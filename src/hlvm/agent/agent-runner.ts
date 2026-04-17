@@ -58,7 +58,6 @@ import {
   ENGINE_PROFILES,
   extractModelSuffix,
   isFrontierProvider,
-  MAX_ITERATIONS,
   MAX_SESSION_HISTORY,
   supportsAgentExecution,
 } from "./constants.ts";
@@ -69,16 +68,15 @@ import {
   resolveQueryToolAllowlist,
 } from "./query-tool-routing.ts";
 import {
-  BROWSER_SAFE_PROFILE_ID,
   clearToolProfileLayer,
   cloneToolList,
   createToolProfileState,
   ensureToolProfileState,
   resolveCanonicalBaselineAllowlist,
-  resolveDeclaredToolProfileFilter,
   resolveEffectiveToolFilterCached,
   resolvePersistentToolFilter,
   setToolProfileLayer,
+  syncEffectiveToolFilterToConfig,
 } from "./tool-profiles.ts";
 import {
   type AgentExecutionMode,
@@ -122,8 +120,11 @@ import {
   type PlanningPhase,
   restorePlanState,
 } from "./planning.ts";
-import { computeRoutingResult, type TaskDomain } from "./request-routing.ts";
-import type { AllClassification } from "../runtime/local-llm.ts";
+import {
+  buildTurnRouting,
+  type TurnModelSource,
+  type TurnRouting,
+} from "./routing.ts";
 import {
   effectiveToolSurfaceIncludesMutation,
   isMutatingTool,
@@ -148,7 +149,6 @@ const DEFAULT_AGENT_PATH_ROOTS = [
 ];
 
 const reusableSessions = new Set<AgentSession>();
-const BROWSER_REACT_MAX_ITERATIONS = Math.max(MAX_ITERATIONS, 28);
 
 function isAbortLikeError(error: unknown, signal?: AbortSignal): boolean {
   return signal?.aborted === true ||
@@ -437,6 +437,24 @@ function resolveSessionEffectiveToolFilter(
   return resolveSessionPersistentToolFilter(session);
 }
 
+function buildTurnRoutingForSession(options: {
+  session: AgentSession;
+  selectedModel: string;
+  modelSource: TurnModelSource;
+  toolSearchUniverseAllowlist?: string[];
+}): TurnRouting {
+  const effectiveFilter = resolveSessionEffectiveToolFilter(options.session);
+  return buildTurnRouting({
+    selectedModel: options.selectedModel,
+    modelSource: options.modelSource,
+    modelTier: options.session.modelTier,
+    eagerTools: effectiveFilter.allowlist,
+    deniedTools: effectiveFilter.denylist,
+    toolOwnerId: options.session.toolOwnerId,
+    toolSearchUniverseAllowlist: options.toolSearchUniverseAllowlist,
+  });
+}
+
 interface AgentRunnerOptions {
   query: string;
   model?: string;
@@ -507,10 +525,7 @@ function updateSessionBaselineAllowlist(
   return nextAllowlist;
 }
 
-function applySessionDomainToolProfile(
-  session: AgentSession,
-  taskDomain: TaskDomain,
-): void {
+function resetSessionRoutingToolProfile(session: AgentSession): void {
   const profileState = ensureToolProfileState(session);
   const baselineLayer = profileState.layers.baseline;
   const canonicalBaselineAllowlist = resolveCanonicalBaselineAllowlist({
@@ -520,34 +535,13 @@ function applySessionDomainToolProfile(
     ownerId: session.toolOwnerId,
   });
 
-  const nextBaselineAllowlist = cloneToolList(canonicalBaselineAllowlist);
-  if (taskDomain === "browser" && nextBaselineAllowlist?.length) {
-    const browserSafeAllowlist =
-      resolveDeclaredToolProfileFilter(BROWSER_SAFE_PROFILE_ID).allowlist;
-    if (browserSafeAllowlist?.length) {
-      appendNewNames(nextBaselineAllowlist, browserSafeAllowlist);
-    }
-  }
-
   setToolProfileLayer(profileState, "baseline", {
     profileId: baselineLayer?.profileId,
-    allowlist: cloneToolList(nextBaselineAllowlist),
+    allowlist: cloneToolList(canonicalBaselineAllowlist),
     denylist: cloneToolList(baselineLayer?.denylist),
     reason: baselineLayer?.reason,
   });
-
-  if (taskDomain === "browser") {
-    // If the baseline already contains cu_* tools (e.g., explicit
-    // toolAllowlist from caller), use browser_hybrid so the domain
-    // layer doesn't mask CU tools via intersection.
-    setToolProfileLayer(profileState, "domain", {
-      profileId: BROWSER_SAFE_PROFILE_ID,
-      reason: "browser_task_detected",
-    });
-  } else {
-    clearToolProfileLayer(profileState, "domain");
-  }
-
+  clearToolProfileLayer(profileState, "domain");
   syncSessionToolProfileState(session);
 }
 
@@ -555,18 +549,11 @@ function syncSessionToolProfileState(session: AgentSession): void {
   const profileState = ensureToolProfileState(session);
   if (session.llmConfig) {
     session.llmConfig.toolProfileState = profileState;
+    syncEffectiveToolFilterToConfig(session.llmConfig, profileState);
     session.llmConfig.eagerToolCount = resolvePersistentToolFilter(profileState)
       .allowlist?.length;
     session.llmConfig.discoveredDeferredToolCount =
       session.discoveredDeferredTools.size;
-  }
-}
-
-/** Append names from `source` into `target` (mutates), skipping duplicates. */
-function appendNewNames(target: string[], source: Iterable<string>): void {
-  const existing = new Set(target);
-  for (const name of source) {
-    if (!existing.has(name)) target.push(name);
   }
 }
 
@@ -724,23 +711,17 @@ export async function runAgentQuery(
 
   // Auto model resolution — dynamic import to avoid loading provider listing when not needed
   let autoDecision: import("./auto-select.ts").AutoDecision | null = null;
-  let allClassification: AllClassification | undefined;
   if (model === AUTO_MODEL_ID) {
-    const [{ classifyAll }, { resolveAutoModel }] = await Promise.all([
-      import("../runtime/local-llm.ts"),
-      import("./auto-select.ts"),
-    ]);
+    const { resolveAutoModel } = await import("./auto-select.ts");
     const { loadConfig } = await import("../../common/config/storage.ts");
     const config = await loadConfig();
     const policy = config.autoSelect as
       | import("./auto-select.ts").AutoSelectPolicy
       | undefined;
-    allClassification = await classifyAll(query);
     autoDecision = await resolveAutoModel(
       query,
       options.attachments,
       policy,
-      allClassification.taskClassification,
     );
     model = autoDecision.model;
     traceReplMainThreadForSource(options.querySource, "agent.auto_select", {
@@ -763,6 +744,7 @@ export async function runAgentQuery(
       );
     }
   }
+  const modelSource: TurnModelSource = autoDecision ? "auto" : "explicit";
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const hookRuntime = await loadAgentHookRuntime(workspace);
   hookRuntime?.dispatchDetached("session_start", { workspace, model });
@@ -803,30 +785,6 @@ export async function runAgentQuery(
   const effectiveToolDenylist = !persistentMemoryEnabled
     ? [...new Set([...toolDenylist, ...Object.keys(MEMORY_TOOLS)])]
     : [...toolDenylist];
-  const routingResult = await computeRoutingResult({
-    query,
-    tier: classifyModelTier(options.modelInfo, model),
-    querySource,
-    preComputedClassification: allClassification,
-  });
-  const taskDomain = routingResult.taskDomain;
-  callbacks.onTrace?.({
-    type: "routing_decision",
-    tier: routingResult.tier,
-    behavior: routingResult.behavior,
-    provenance: routingResult.provenance,
-    taskDomain: routingResult.taskDomain,
-    needsPlan: routingResult.needsPlan,
-    reason: routingResult.reason,
-  });
-  traceReplMainThreadForSource(querySource, "agent.routing", {
-    tier: routingResult.tier,
-    behavior: routingResult.behavior,
-    provenance: routingResult.provenance,
-    taskDomain: routingResult.taskDomain,
-    needsPlan: routingResult.needsPlan,
-    reason: routingResult.reason,
-  });
   const requestedToolAllowlist = resolveQueryToolAllowlist(
     options.toolAllowlist,
   );
@@ -881,12 +839,7 @@ export async function runAgentQuery(
   const engine = isReusableSession ? undefined : getAgentEngine();
   let session: AgentSession;
   if (matchingReusableSession) {
-    if (!requestedToolAllowlist?.length) {
-      applySessionDomainToolProfile(
-        matchingReusableSession,
-        taskDomain,
-      );
-    }
+    resetSessionRoutingToolProfile(matchingReusableSession);
     session = await reuseSession(matchingReusableSession, effectiveOnToken, {
       disablePersistentMemory,
       querySource,
@@ -918,26 +871,35 @@ export async function runAgentQuery(
       agentProfiles,
       skills,
     });
-    // Skip domain profile AND browser session reuse when caller provided
-    // an explicit allowlist — the caller's tool set is authoritative.
-    // Domain profiling (browser_safe intersection) would mask tools the
-    // caller intentionally included.
-    if (requestedToolAllowlist?.length) {
-      // Caller controls the tool set — no domain profiling.
-    } else {
-      applySessionDomainToolProfile(session, taskDomain);
-      if (taskDomain === "browser") {
-        session = await reuseSession(session, effectiveOnToken, {
-          disablePersistentMemory,
-          querySource,
-          temperature: options.temperature,
-          preserveConversationContext: true,
-          instructions,
-          agentProfiles,
-        });
-      }
-    }
+    resetSessionRoutingToolProfile(session);
   }
+  const turnRouting = buildTurnRoutingForSession({
+    session,
+    selectedModel: model,
+    modelSource,
+    toolSearchUniverseAllowlist: requestedToolAllowlist,
+  });
+  callbacks.onTrace?.({
+    type: "routing_decision",
+    selectedModel: turnRouting.selectedModel,
+    modelSource: turnRouting.modelSource,
+    modelTier: turnRouting.modelTier,
+    eagerToolCount: turnRouting.toolSurface.eagerTools.length,
+    deferredToolCount: turnRouting.toolSurface.deferredTools.length,
+    deniedToolCount: turnRouting.toolSurface.deniedTools.length,
+    discovery: turnRouting.toolSurface.discovery,
+    reason: turnRouting.reason,
+  });
+  traceReplMainThreadForSource(querySource, "agent.routing", {
+    selectedModel: turnRouting.selectedModel,
+    modelSource: turnRouting.modelSource,
+    modelTier: turnRouting.modelTier,
+    eagerToolCount: turnRouting.toolSurface.eagerTools.length,
+    deferredToolCount: turnRouting.toolSurface.deferredTools.length,
+    deniedToolCount: turnRouting.toolSurface.deniedTools.length,
+    discovery: turnRouting.toolSurface.discovery,
+    reason: turnRouting.reason,
+  });
   traceReplMainThreadForSource(querySource, "agent.session.ready", {
     requestId: options.requestId ?? null,
     sessionId: sessionKey,
@@ -1289,8 +1251,7 @@ export async function runAgentQuery(
         context: session.context,
         permissionMode,
         maxToolCalls: profile.maxToolCalls,
-        maxIterations: options.maxIterations ??
-          (taskDomain === "browser" ? BROWSER_REACT_MAX_ITERATIONS : undefined),
+        maxIterations: options.maxIterations,
         maxBudgetUsd: options.maxBudgetUsd,
         groundingMode: profile.groundingMode,
         policy,
@@ -1310,7 +1271,7 @@ export async function runAgentQuery(
         },
         skipModelCompensation: false,
         modelTier: session.modelTier,
-        routingResult,
+        turnRouting,
         modelId: model,
         sessionId: runtimeSessionId,
         turnId,

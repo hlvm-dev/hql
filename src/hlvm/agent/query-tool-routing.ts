@@ -10,7 +10,7 @@ const REPL_MAIN_THREAD_EAGER_CORE = STANDARD_EAGER_TOOLS;
 export function resolveQueryToolAllowlist(
   userAllowlist?: readonly string[],
 ): string[] | undefined {
-  return userAllowlist?.length ? [...new Set(userAllowlist)] : undefined;
+  return userAllowlist === undefined ? undefined : [...new Set(userAllowlist)];
 }
 
 export function isMainThreadQuerySource(querySource?: string): boolean {
@@ -40,7 +40,7 @@ export function resolveMainThreadBaselineToolAllowlist(options: {
     ? [...new Set(options.discoveredDeferredTools)]
     : [];
   const baseline = [...new Set([...eagerCore, ...discovered])];
-  if (!explicitAllowlist?.length) {
+  if (explicitAllowlist === undefined) {
     return baseline;
   }
 

@@ -426,7 +426,7 @@ async function processCachedImports(
         );
 
         // Two possible locations: hash-based or preserveRelative
-        const cachedImportPaths = [];
+        const cachedImportPaths: string[] = [];
 
         // Strategy 1: preserveRelative makes exact directory structure
         // IMPORTANT: For JS files importing HQL, use .js extension not .ts

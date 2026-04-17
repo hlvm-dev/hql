@@ -1,13 +1,8 @@
 /**
  * Chrome Extension Bridge — Backend Resolution & Communication
  *
- * Pattern copied from computer-use/bridge.ts:
- * - Socket-based backend resolution (instead of HTTP port probe)
- * - Cached resolution with invalidation on fresh lock
- * - Request/response dispatch through Unix socket
- *
- * ── SSOT compliance ─────────────────────────────────────────────────
- * Uses getPlatform().fs, getAgentLogger() — never raw Deno.* or console.*
+ * Simplified: no socket probing (CC doesn't probe). Just scan for
+ * sockets, try to connect, handle errors.
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
@@ -32,10 +27,9 @@ export function getResolvedChromeExtBackend(): ChromeExtBackendResolution | unde
 }
 
 /**
- * Resolve the Chrome extension backend by checking for active native host sockets.
- *
- * Unlike CU bridge (HTTP probe), this checks for Unix socket existence and
- * validates with a ping message.
+ * Resolve the Chrome extension backend by scanning for active sockets.
+ * No probing — just check if socket files exist. Actual connectivity
+ * is verified on first request (fail-fast, like CC).
  */
 export async function resolveChromeExtBackend(): Promise<ChromeExtBackendResolution> {
   if (_backendResolution) return _backendResolution;
@@ -43,52 +37,30 @@ export async function resolveChromeExtBackend(): Promise<ChromeExtBackendResolut
   const log = getAgentLogger();
   const platform = getPlatform();
 
-  // Check for env override
+  // Env override
   const envSocket = platform.env.get("HLVM_CHROME_EXT_SOCKET");
   if (envSocket) {
     try {
-      const info = await platform.fs.stat(envSocket);
-      if (info) {
-        log.debug(`Chrome extension socket from env: ${envSocket}`);
-        _backendResolution = { backend: "extension", socketPath: envSocket };
-        return _backendResolution;
-      }
-    } catch {
-      // Socket doesn't exist
-    }
+      await platform.fs.stat(envSocket);
+      _backendResolution = { backend: "extension", socketPath: envSocket };
+      return _backendResolution;
+    } catch { /* doesn't exist */ }
   }
 
-  // Scan for active sockets
+  // Scan for sockets
   const socketPaths = await getAllSocketPaths();
   for (const socketPath of socketPaths) {
     try {
-      const info = await platform.fs.stat(socketPath);
-      if (!info) continue;
-
-      // Validate socket is alive with a ping
-      const alive = await probeChromeExtSocket(socketPath);
-      if (alive) {
-        log.info(`Chrome extension backend resolved: ${socketPath}`);
-        _backendResolution = { backend: "extension", socketPath };
-        return _backendResolution;
-      }
-
-      // Dead socket, clean up
-      log.debug(`Removing dead Chrome extension socket: ${socketPath}`);
-      try {
-        await platform.fs.remove(socketPath);
-      } catch {
-        // Ignore
-      }
-    } catch {
-      // Socket doesn't exist
-    }
+      await platform.fs.stat(socketPath);
+      log.info(`Chrome extension socket found: ${socketPath}`);
+      _backendResolution = { backend: "extension", socketPath };
+      return _backendResolution;
+    } catch { /* doesn't exist */ }
   }
 
   _backendResolution = {
     backend: "unavailable",
-    reason:
-      "No active Chrome extension bridge found. Install the HLVM Chrome Extension and run 'hlvm chrome-ext setup'.",
+    reason: "No Chrome extension bridge found. Install the extension and run 'hlvm chrome-ext setup'.",
   };
   return _backendResolution;
 }
@@ -101,12 +73,10 @@ function nextRequestId(): string {
   return `req_${++_requestIdCounter}_${Date.now()}`;
 }
 
-/** Default timeout for chrome extension requests (30 seconds). */
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * Send a request to the Chrome extension via the native host socket.
- * Uses the same 4-byte LE length-prefix protocol as the native host.
  */
 export async function chromeExtRequest<T = unknown>(
   method: string,
@@ -131,53 +101,43 @@ export async function chromeExtRequest<T = unknown>(
     const jsonBytes = encoder.encode(JSON.stringify(request));
     const lengthBuffer = new Uint8Array(4);
     new DataView(lengthBuffer.buffer).setUint32(0, jsonBytes.length, true);
-
     await conn.write(lengthBuffer);
     await conn.write(jsonBytes);
 
-    // Read response (length prefix + body) with timeout
+    // Read response with timeout
     const deadline = Date.now() + REQUEST_TIMEOUT_MS;
 
-    const responseLengthBuf = new Uint8Array(4);
-    let headerRead = 0;
-    while (headerRead < 4) {
+    // Read 4-byte header
+    const hdr = new Uint8Array(4);
+    let hdrRead = 0;
+    while (hdrRead < 4) {
       if (Date.now() > deadline) {
-        throw new Error(
-          `Chrome extension request timed out after ${REQUEST_TIMEOUT_MS}ms (method: ${method})`,
-        );
+        throw new Error(`Chrome extension request timed out (method: ${method})`);
       }
-      const n = await conn.read(responseLengthBuf.subarray(headerRead));
-      if (n === null) {
-        throw new Error("Chrome extension bridge disconnected");
-      }
-      headerRead += n;
+      const n = await conn.read(hdr.subarray(hdrRead));
+      if (n === null) throw new Error("Chrome extension bridge disconnected");
+      hdrRead += n;
     }
 
-    const responseLength = new DataView(
-      responseLengthBuf.buffer,
-    ).getUint32(0, true);
-
+    const responseLength = new DataView(hdr.buffer).getUint32(0, true);
     if (responseLength === 0 || responseLength > MAX_MESSAGE_SIZE) {
-      throw new Error(
-        `Invalid response length from Chrome extension: ${responseLength}`,
-      );
+      throw new Error(`Invalid response length: ${responseLength}`);
     }
 
-    const responseBytes = new Uint8Array(responseLength);
-    let totalRead = 0;
-    while (totalRead < responseLength) {
+    // Read body
+    const body = new Uint8Array(responseLength);
+    let bodyRead = 0;
+    while (bodyRead < responseLength) {
       if (Date.now() > deadline) {
-        throw new Error(
-          `Chrome extension request timed out after ${REQUEST_TIMEOUT_MS}ms (method: ${method})`,
-        );
+        throw new Error(`Chrome extension request timed out (method: ${method})`);
       }
-      const n = await conn.read(responseBytes.subarray(totalRead));
+      const n = await conn.read(body.subarray(bodyRead));
       if (n === null) break;
-      totalRead += n;
+      bodyRead += n;
     }
 
     const response: ChromeExtResponse = JSON.parse(
-      new TextDecoder().decode(responseBytes.subarray(0, totalRead)),
+      new TextDecoder().decode(body.subarray(0, bodyRead)),
     );
 
     if (response.error) {
@@ -187,47 +147,5 @@ export async function chromeExtRequest<T = unknown>(
     return response.result as T;
   } finally {
     conn.close();
-  }
-}
-
-/**
- * Probe a socket to check if the native host is alive.
- * Connects, sends a ping, checks we get any response within 2s.
- */
-async function probeChromeExtSocket(socketPath: string): Promise<boolean> {
-  try {
-    const conn = await Deno.connect({
-      transport: "unix",
-      path: socketPath,
-    });
-
-    try {
-      // Send ping with length prefix
-      const encoder = new TextEncoder();
-      const pingPayload = encoder.encode(
-        JSON.stringify({ id: "probe", method: "ping" }),
-      );
-      const frame = new Uint8Array(4 + pingPayload.length);
-      new DataView(frame.buffer).setUint32(0, pingPayload.length, true);
-      frame.set(pingPayload, 4);
-      await conn.write(frame);
-
-      // Read response length prefix (4 bytes) with timeout
-      const buf = new Uint8Array(4);
-      let totalRead = 0;
-      const deadline = Date.now() + 2000;
-
-      while (totalRead < 4 && Date.now() < deadline) {
-        const n = await conn.read(buf.subarray(totalRead));
-        if (n === null) return false;
-        totalRead += n;
-      }
-
-      return totalRead === 4; // Got a response header = alive
-    } finally {
-      conn.close();
-    }
-  } catch {
-    return false;
   }
 }

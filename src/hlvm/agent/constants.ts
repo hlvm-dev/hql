@@ -766,6 +766,37 @@ export const STANDARD_EAGER_TOOLS: readonly string[] = [
   "shell_exec",
   "shell_script",
   "open_path",
+  // Browser tools — eager so any model can use them directly.
+  // pw_* fail gracefully if Chromium not installed.
+  // ch_* fail gracefully if Chrome extension not connected.
+  "pw_goto",
+  "pw_click",
+  "pw_fill",
+  "pw_content",
+  "pw_snapshot",
+  "pw_screenshot",
+  "ch_navigate",
+  "ch_back",
+  "ch_tabs",
+  "ch_tab_create",
+  "ch_tab_close",
+  "ch_tab_select",
+  "ch_click",
+  "ch_fill",
+  "ch_type",
+  "ch_hover",
+  "ch_scroll",
+  "ch_select_option",
+  "ch_content",
+  "ch_links",
+  "ch_evaluate",
+  "ch_screenshot",
+  "ch_find",
+  "ch_resize_window",
+  "ch_wait_for",
+  "ch_enable_monitoring",
+  "ch_console",
+  "ch_network",
 ] as const;
 
 /**
@@ -789,19 +820,19 @@ export function computeTierToolFilter(
   userDenylist?: string[],
 ): { allowlist?: string[]; denylist?: string[] } {
   if (tier === "enhanced") {
-    const baseAllowlist = userAllowlist?.length
+    const baseAllowlist = userAllowlist !== undefined
       ? userAllowlist
       : [...ENHANCED_EAGER_TOOLS];
     return { allowlist: baseAllowlist, denylist: userDenylist };
   }
   if (tier === "constrained") {
-    const baseAllowlist = userAllowlist?.length
+    const baseAllowlist = userAllowlist !== undefined
       ? userAllowlist
       : [...CONSTRAINED_CORE_TOOLS];
     return { allowlist: baseAllowlist, denylist: userDenylist };
   }
   // standard: eager core unless caller already provides an allowlist (e.g. REPL with discovered tools)
-  const baseAllowlist = userAllowlist?.length
+  const baseAllowlist = userAllowlist !== undefined
     ? userAllowlist
     : [...STANDARD_EAGER_TOOLS];
   return { allowlist: baseAllowlist, denylist: userDenylist };

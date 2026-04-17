@@ -1,5 +1,7 @@
 import { assertEquals, assertExists, assertRejects } from "jsr:@std/assert";
+import { AUTO_MODEL_ID } from "../../../src/common/config/types.ts";
 import { getMcpConfigPath } from "../../../src/common/paths.ts";
+import { __setListAllProviderModelsForTesting } from "../../../src/hlvm/agent/auto-select.ts";
 import {
   createReusableSession,
   disposeAllSessions,
@@ -12,11 +14,15 @@ import {
   resetAgentEngine,
   setAgentEngine,
 } from "../../../src/hlvm/agent/engine.ts";
+import type {
+  AgentUIEvent,
+  TraceEvent,
+} from "../../../src/hlvm/agent/orchestrator.ts";
 import { hasTool } from "../../../src/hlvm/agent/registry.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { generateUUID } from "../../../src/common/utils.ts";
-import { resolveDeclaredToolProfileFilter } from "../../../src/hlvm/agent/tool-profiles.ts";
+import type { ModelInfo } from "../../../src/hlvm/providers/types.ts";
 import { withTempHlvmDir } from "../helpers.ts";
 
 async function withEngineOverride(
@@ -311,9 +317,15 @@ Deno.test({
 
       // tool_search discovered search_web on the active session
       const liveSession = firstResult.liveSession;
-      assertExists(liveSession, "retainSessionForReuse should return liveSession");
+      assertExists(
+        liveSession,
+        "retainSessionForReuse should return liveSession",
+      );
       assertEquals(liveSession.discoveredDeferredTools.has("search_web"), true);
-      assertEquals(liveSession.llmConfig?.toolAllowlist?.includes("search_web"), true);
+      assertEquals(
+        liveSession.llmConfig?.toolAllowlist?.includes("search_web"),
+        true,
+      );
     } finally {
       resetAgentEngine();
       await disposeAllSessions();
@@ -491,7 +503,8 @@ Deno.test({
       );
 
       const engine: AgentEngine = {
-        createLLM: () => () => Promise.resolve({ content: "done", toolCalls: [] }),
+        createLLM: () => () =>
+          Promise.resolve({ content: "done", toolCalls: [] }),
         createSummarizer: () => () => Promise.resolve(""),
       };
 
@@ -517,7 +530,10 @@ Deno.test({
 
           const liveSession = result.liveSession;
           assertExists(liveSession);
-          assertEquals(hasTool("mcp_test_echo", liveSession.toolOwnerId), false);
+          assertEquals(
+            hasTool("mcp_test_echo", liveSession.toolOwnerId),
+            false,
+          );
         });
       } finally {
         await platform.fs.remove(workspace, { recursive: true });
@@ -528,7 +544,7 @@ Deno.test({
 
 Deno.test({
   name:
-    "agent-runner: browser requests widen standard-tier baseline to browser_safe",
+    "agent-runner: browser-shaped requests keep standard eager tools without semantic domain routing",
   sanitizeOps: false,
   sanitizeResources: false,
   async fn() {
@@ -541,7 +557,8 @@ Deno.test({
     await platform.fs.mkdir(workspace, { recursive: true });
 
     const engine: AgentEngine = {
-      createLLM: () => () => Promise.resolve({ content: "done", toolCalls: [] }),
+      createLLM: () => () =>
+        Promise.resolve({ content: "done", toolCalls: [] }),
       createSummarizer: () => () => Promise.resolve(""),
     };
 
@@ -575,20 +592,14 @@ Deno.test({
 
         const liveSession = result.liveSession;
         assertExists(liveSession);
-        assertEquals(
-          liveSession.toolProfileState?.layers.domain?.profileId,
-          "browser_safe",
-        );
+        assertEquals(liveSession.toolProfileState?.layers.domain, undefined);
         const allowlist = liveSession.llmConfig?.toolAllowlist ?? [];
-        const browserSafe =
-          resolveDeclaredToolProfileFilter("browser_safe").allowlist ?? [];
         assertEquals(allowlist.includes("pw_goto"), true);
         assertEquals(allowlist.includes("pw_promote"), false);
         assertEquals(
           allowlist.some((name: string) => name.startsWith("cu_")),
           false,
         );
-        assertEquals(browserSafe.every((name) => allowlist.includes(name)), true);
       });
     } finally {
       await platform.fs.remove(workspace, { recursive: true });
@@ -598,19 +609,135 @@ Deno.test({
 
 Deno.test({
   name:
-    "agent-runner: runAgentQuery rejects constrained models before agent execution",
+    "agent-runner: auto routing selects the model boundary and leaves planning to the agent loop",
+  sanitizeOps: false,
+  sanitizeResources: false,
   async fn() {
-    await assertRejects(
-      () =>
-        runAgentQuery({
-          query: "search the web for latest release notes",
-          model: "ollama/tinyllama:1b",
-          modelInfo: { name: "tinyllama:1b", parameterSize: "1B" },
-          callbacks: {},
-          workspace: getPlatform().process.cwd(),
-        }),
-      ValidationError,
-      "Constrained models do not support agent mode",
+    const platform = getPlatform();
+    const workspace = platform.path.join(
+      platform.process.cwd(),
+      ".tmp",
+      `hlvm-agent-auto-routing-${generateUUID()}`,
     );
+    await platform.fs.mkdir(workspace, { recursive: true });
+
+    const traces: TraceEvent[] = [];
+    const events: AgentUIEvent[] = [];
+    let llmCallCount = 0;
+    const engine: AgentEngine = {
+      createLLM: () => {
+        return async () => {
+          llmCallCount += 1;
+          if (llmCallCount === 1) {
+            return {
+              content: "",
+              toolCalls: [{
+                toolName: "todo_write",
+                args: {
+                  items: [{
+                    id: "step-1",
+                    content: "Inspect request",
+                    status: "in_progress",
+                  }],
+                },
+              }],
+            };
+          }
+          return {
+            content: "Auto routing smoke complete",
+            toolCalls: [],
+          };
+        };
+      },
+      createSummarizer: () => () => Promise.resolve(""),
+    };
+
+    try {
+      __setListAllProviderModelsForTesting(() =>
+        Promise.resolve<ModelInfo[]>([{
+          name: "claude-sonnet-4",
+          capabilities: ["chat", "tools", "vision"],
+          contextWindow: 200_000,
+          metadata: {
+            provider: "anthropic",
+            cloud: true,
+            apiKeyConfigured: true,
+          },
+        }])
+      );
+
+      await withEngineOverride(engine, async () => {
+        const result = await runAgentQuery({
+          query: "routing auto planning smoke",
+          model: AUTO_MODEL_ID,
+          workspace,
+          skipSessionHistory: true,
+          callbacks: {
+            onAgentEvent: (event) => events.push(event),
+            onTrace: (event) => traces.push(event),
+          },
+        });
+
+        assertEquals(result.text, "Auto routing smoke complete");
+        const routingDecision = traces.find((
+          event,
+        ): event is Extract<TraceEvent, { type: "routing_decision" }> =>
+          event.type === "routing_decision"
+        );
+        assertExists(routingDecision);
+        assertEquals(
+          routingDecision.selectedModel,
+          "anthropic/claude-sonnet-4",
+        );
+        assertEquals(routingDecision.modelSource, "auto");
+        assertEquals(routingDecision.modelTier, "enhanced");
+        assertEquals(routingDecision.discovery, "tool_search");
+        assertEquals(routingDecision.deferredToolCount > 0, true);
+        assertEquals("taskDomain" in routingDecision, false);
+        assertEquals("needsPlan" in routingDecision, false);
+
+        const todoWrite = events.find((
+          event,
+        ): event is Extract<AgentUIEvent, { type: "tool_end" }> =>
+          event.type === "tool_end" && event.name === "todo_write"
+        );
+        assertExists(todoWrite);
+        assertEquals(todoWrite.success, true);
+      });
+    } finally {
+      __setListAllProviderModelsForTesting(null);
+      await platform.fs.remove(workspace, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "agent-runner: runAgentQuery falls back to default model for constrained models",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    // Constrained models (< 3B) can't run agent mode directly.
+    // The runner falls back to DEFAULT_MODEL_ID instead of rejecting,
+    // so the function completes without throwing a ValidationError.
+    const engine: AgentEngine = {
+      createLLM: () => () =>
+        Promise.resolve({ content: "done", toolCalls: [] }),
+      createSummarizer: () => () => Promise.resolve(""),
+    };
+
+    await withEngineOverride(engine, async () => {
+      // deno-lint-ignore no-explicit-any
+      const result: any = await runAgentQuery({
+        query: "search the web for latest release notes",
+        model: "ollama/tinyllama:1b",
+        modelInfo: { name: "tinyllama:1b", parameterSize: "1B" },
+        callbacks: {},
+        workspace: getPlatform().process.cwd(),
+      });
+      // Should complete without throwing — model was downgraded to default
+      assertExists(result);
+      assertEquals(typeof result.text, "string");
+    });
   },
 });

@@ -169,6 +169,7 @@ Deno.test("LLM integration: computeTierToolFilter returns correct tools per tier
   // Enhanced with user allowlist: user override
   const enhancedWithAllow = computeTierToolFilter("enhanced", ["read_file"]);
   assertEquals(enhancedWithAllow.allowlist, ["read_file"]);
+  assertEquals(computeTierToolFilter("enhanced", []).allowlist, []);
 
   // Standard: eager core tools (includes tool_search for discovery)
   const standard = computeTierToolFilter("standard");
@@ -193,6 +194,7 @@ Deno.test("LLM integration: computeTierToolFilter returns correct tools per tier
     "search_web",
   ]);
   assertEquals(standardWithAllow.allowlist, ["read_file", "search_web"]);
+  assertEquals(computeTierToolFilter("standard", []).allowlist, []);
 
   // Constrained: hard cap (no tool_search)
   const constrained = computeTierToolFilter("constrained");
@@ -204,6 +206,7 @@ Deno.test("LLM integration: computeTierToolFilter returns correct tools per tier
     "read_file",
   ]);
   assertEquals(constrainedWithAllow.allowlist, ["read_file"]);
+  assertEquals(computeTierToolFilter("constrained", []).allowlist, []);
 });
 
 Deno.test("LLM integration: fallback model tier recalculation gives standard tools to local model", () => {
@@ -326,7 +329,10 @@ You count files.`,
     const defs = await buildToolDefinitions({ workspace: tempDir });
     const agentTool = defs.find((tool) => tool.function.name === "Agent");
     assertEquals(Boolean(agentTool), true);
-    assertStringIncludes(agentTool!.function.description ?? "", "probe-counter");
+    assertStringIncludes(
+      agentTool!.function.description ?? "",
+      "probe-counter",
+    );
   } finally {
     await platform.fs.remove(tempDir, { recursive: true });
     clearToolDefCache();

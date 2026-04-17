@@ -55,6 +55,18 @@ Deno.test("ToolProfile intersects allowlists and unions denylists across layers"
   });
 });
 
+Deno.test("ToolProfile preserves explicit empty allowlist as restrictive", () => {
+  const state = createToolProfileState();
+  setToolProfileLayer(state, "baseline", {
+    allowlist: ["read_file", "tool_search"],
+  });
+  setToolProfileLayer(state, "runtime", {
+    allowlist: [],
+  });
+
+  assertEquals(resolveEffectiveToolFilter(state).allowlist, []);
+});
+
 Deno.test("ToolProfile discovery narrowing is excluded from persistent baseline", () => {
   const state = createToolProfileState();
   setToolProfileLayer(state, "baseline", {
@@ -165,10 +177,13 @@ Deno.test("ToolProfile bootstraps profile state from flat compatibility filters 
   });
   assertEquals(target.toolAllowlist, ["read_file"]);
   assertEquals(target.toolDenylist, ["complete_task"]);
-  assertEquals(resolvePersistentToolFilter(target.toolProfileState!).allowlist, [
-    "read_file",
-    "tool_search",
-  ]);
+  assertEquals(
+    resolvePersistentToolFilter(target.toolProfileState!).allowlist,
+    [
+      "read_file",
+      "tool_search",
+    ],
+  );
 });
 
 Deno.test("browser profiles are declared for future domain routing", () => {

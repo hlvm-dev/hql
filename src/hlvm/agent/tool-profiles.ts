@@ -102,7 +102,7 @@ const DEFAULT_DECLARED_TOOL_PROFILES = declareToolProfiles([
 ]);
 
 export function cloneToolList(list?: string[]): string[] | undefined {
-  return list?.length ? [...list] : undefined;
+  return list === undefined ? undefined : [...list];
 }
 
 /**
@@ -125,11 +125,14 @@ export function intersectToolLists(
   left?: readonly string[],
   right?: readonly string[],
 ): string[] | undefined {
-  if (!left?.length) return cloneToolList(right ? [...right] : undefined);
-  if (!right?.length) return cloneToolList(left ? [...left] : undefined);
+  if (left === undefined) {
+    return cloneToolList(right ? [...right] : undefined);
+  }
+  if (right === undefined) {
+    return cloneToolList([...left]);
+  }
   const rightSet = new Set(right);
-  const intersected = left.filter((item) => rightSet.has(item));
-  return intersected.length > 0 ? intersected : undefined;
+  return left.filter((item) => rightSet.has(item));
 }
 
 export function createToolProfileState(
@@ -195,7 +198,7 @@ export function resolveCanonicalBaselineAllowlist(options: {
   const baseAllowlist = cloneToolList(
     options.baseAllowlist ? [...options.baseAllowlist] : undefined,
   );
-  if (!baseAllowlist?.length) {
+  if (baseAllowlist === undefined) {
     return undefined;
   }
   return uniqueToolList([
@@ -255,7 +258,7 @@ function computeToolFilter(
     const layer = state.layers[slot];
     if (!layer) continue;
     const resolvedLayer = resolveToolProfileLayer(layer, registry);
-    if (resolvedLayer.allowlist?.length) {
+    if (resolvedLayer.allowlist !== undefined) {
       const before = allowlist?.length ?? 0;
       allowlist = intersectToolLists(allowlist, resolvedLayer.allowlist);
       const after = allowlist?.length ?? 0;
@@ -264,7 +267,9 @@ function computeToolFilter(
       if (before > 0 && after < before) {
         const dropped = before - after;
         getAgentLogger().debug(
-          `[tool-profiles] Layer '${slot}'${layer.profileId ? ` (${layer.profileId})` : ""} dropped ${dropped} tools via intersection: ${before} → ${after}`,
+          `[tool-profiles] Layer '${slot}'${
+            layer.profileId ? ` (${layer.profileId})` : ""
+          } dropped ${dropped} tools via intersection: ${before} → ${after}`,
         );
       }
     }
@@ -349,7 +354,10 @@ export function syncPersistentToolFilterToTarget(
   const persistent = resolvePersistentToolFilter(profileState, registry);
   target.toolAllowlist = cloneToolList(persistent.allowlist);
   // Merge, not replace — preserve caller denies.
-  target.toolDenylist = mergeDenylists(target.toolDenylist, persistent.denylist);
+  target.toolDenylist = mergeDenylists(
+    target.toolDenylist,
+    persistent.denylist,
+  );
   return persistent;
 }
 
@@ -364,10 +372,7 @@ export function syncEffectiveToolFilterToConfig(
   );
 
   target.toolAllowlist = cloneToolList(effective.allowlist);
-  // Merge profile denylist INTO existing toolDenylist instead of replacing.
-  // This preserves caller-specified denies (e.g., test-level pw_evaluate deny)
-  // that would otherwise be dropped when profile layers mutate.
-  target.toolDenylist = mergeDenylists(target.toolDenylist, effective.denylist);
+  target.toolDenylist = cloneToolList(effective.denylist);
 
   return { effective, persistent };
 }
@@ -422,7 +427,9 @@ export function widenBaselineForDomainProfile(
   const baseline = state.layers.baseline;
   if (!resolved.allowlist?.length || !baseline?.allowlist?.length) {
     getAgentLogger().debug(
-      `[tool-profiles] widenBaseline skipped for '${profileId}': resolved=${resolved.allowlist?.length ?? 0} baseline=${baseline?.allowlist?.length ?? "unrestricted"}`,
+      `[tool-profiles] widenBaseline skipped for '${profileId}': resolved=${
+        resolved.allowlist?.length ?? 0
+      } baseline=${baseline?.allowlist?.length ?? "unrestricted"}`,
     );
     return;
   }
@@ -443,15 +450,23 @@ function resolveToolProfileLayer(
   const declared = layer.profileId
     ? resolveDeclaredToolProfile(layer.profileId, registry)
     : undefined;
+  const hasAllowlist = declared?.allowlist !== undefined ||
+    layer.allowlist !== undefined;
+  const hasDenylist = declared?.denylist !== undefined ||
+    layer.denylist !== undefined;
   return {
-    allowlist: uniqueToolList([
-      ...(declared?.allowlist ?? []),
-      ...(layer.allowlist ?? []),
-    ]),
-    denylist: uniqueToolList([
-      ...(declared?.denylist ?? []),
-      ...(layer.denylist ?? []),
-    ]),
+    allowlist: hasAllowlist
+      ? uniqueToolList([
+        ...(declared?.allowlist ?? []),
+        ...(layer.allowlist ?? []),
+      ])
+      : undefined,
+    denylist: hasDenylist
+      ? uniqueToolList([
+        ...(declared?.denylist ?? []),
+        ...(layer.denylist ?? []),
+      ])
+      : undefined,
   };
 }
 

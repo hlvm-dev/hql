@@ -25,12 +25,24 @@ async function withTestEnv(
   const testRoot = await platform.fs.makeTempDir({ prefix: "hlvm-e2e-" });
   const hlvmDir = platform.path.join(testRoot, ".hlvm");
   const workspace = platform.path.join(testRoot, "project");
-  await platform.fs.mkdir(platform.path.join(hlvmDir, "skills"), { recursive: true });
-  await platform.fs.mkdir(platform.path.join(hlvmDir, "commands"), { recursive: true });
-  await platform.fs.mkdir(platform.path.join(hlvmDir, "rules"), { recursive: true });
-  await platform.fs.mkdir(platform.path.join(workspace, ".hlvm", "skills"), { recursive: true });
-  await platform.fs.mkdir(platform.path.join(workspace, ".hlvm", "commands"), { recursive: true });
-  await platform.fs.mkdir(platform.path.join(workspace, ".hlvm", "rules"), { recursive: true });
+  await platform.fs.mkdir(platform.path.join(hlvmDir, "skills"), {
+    recursive: true,
+  });
+  await platform.fs.mkdir(platform.path.join(hlvmDir, "commands"), {
+    recursive: true,
+  });
+  await platform.fs.mkdir(platform.path.join(hlvmDir, "rules"), {
+    recursive: true,
+  });
+  await platform.fs.mkdir(platform.path.join(workspace, ".hlvm", "skills"), {
+    recursive: true,
+  });
+  await platform.fs.mkdir(platform.path.join(workspace, ".hlvm", "commands"), {
+    recursive: true,
+  });
+  await platform.fs.mkdir(platform.path.join(workspace, ".hlvm", "rules"), {
+    recursive: true,
+  });
   setHlvmDirForTests(hlvmDir);
   resetSkillCatalogCache();
   try {
@@ -50,7 +62,10 @@ async function writeSkillFile(
   const platform = getPlatform();
   const skillDir = platform.path.join(root, "skills", name);
   await platform.fs.mkdir(skillDir, { recursive: true });
-  await platform.fs.writeTextFile(platform.path.join(skillDir, "SKILL.md"), content);
+  await platform.fs.writeTextFile(
+    platform.path.join(skillDir, "SKILL.md"),
+    content,
+  );
 }
 
 async function writeLegacyCommandFile(
@@ -61,7 +76,10 @@ async function writeLegacyCommandFile(
   const platform = getPlatform();
   const commandsDir = platform.path.join(root, "commands");
   await platform.fs.mkdir(commandsDir, { recursive: true });
-  await platform.fs.writeTextFile(platform.path.join(commandsDir, `${name}.md`), content);
+  await platform.fs.writeTextFile(
+    platform.path.join(commandsDir, `${name}.md`),
+    content,
+  );
 }
 
 // ═══════════════════════════════════════════════
@@ -70,9 +88,14 @@ async function writeLegacyCommandFile(
 
 Deno.test("harness: @include resolves files into HLVM.md", async () => {
   await withTestEnv(async ({ hlvmDir, fs, path }) => {
-    await fs.writeTextFile(path.join(hlvmDir, "HLVM.md"),
-      "# Global\n@./rules/style.md\nBe concise.");
-    await fs.writeTextFile(path.join(hlvmDir, "rules", "style.md"), "Use strict mode.");
+    await fs.writeTextFile(
+      path.join(hlvmDir, "HLVM.md"),
+      "# Global\n@./rules/style.md\nBe concise.",
+    );
+    await fs.writeTextFile(
+      path.join(hlvmDir, "rules", "style.md"),
+      "Use strict mode.",
+    );
 
     const { loadInstructionHierarchy } = await import(
       "../../src/hlvm/prompt/instructions.ts"
@@ -89,7 +112,10 @@ Deno.test("harness: rules/*.md auto-loaded and sorted", async () => {
     await fs.writeTextFile(path.join(hlvmDir, "HLVM.md"), "Base.");
     await fs.writeTextFile(path.join(hlvmDir, "rules", "02-b.md"), "Rule B.");
     await fs.writeTextFile(path.join(hlvmDir, "rules", "01-a.md"), "Rule A.");
-    await fs.writeTextFile(path.join(hlvmDir, "rules", "skip.txt"), "Not a rule.");
+    await fs.writeTextFile(
+      path.join(hlvmDir, "rules", "skip.txt"),
+      "Not a rule.",
+    );
 
     const { loadInstructionHierarchy, mergeInstructions } = await import(
       "../../src/hlvm/prompt/instructions.ts"
@@ -99,7 +125,8 @@ Deno.test("harness: rules/*.md auto-loaded and sorted", async () => {
     assertEquals(h.globalRules?.includes("Rule B") === true, true);
     assertEquals(h.globalRules?.includes("Not a rule") === true, false);
     assertEquals(
-      (h.globalRules?.indexOf("Rule A") ?? 0) < (h.globalRules?.indexOf("Rule B") ?? 0),
+      (h.globalRules?.indexOf("Rule A") ?? 0) <
+        (h.globalRules?.indexOf("Rule B") ?? 0),
       true,
     );
     const merged = mergeInstructions(h);
@@ -110,7 +137,10 @@ Deno.test("harness: rules/*.md auto-loaded and sorted", async () => {
 
 Deno.test("harness: missing @include shows placeholder", async () => {
   await withTestEnv(async ({ hlvmDir, fs, path }) => {
-    await fs.writeTextFile(path.join(hlvmDir, "HLVM.md"), "Before\n@./gone.md\nAfter");
+    await fs.writeTextFile(
+      path.join(hlvmDir, "HLVM.md"),
+      "Before\n@./gone.md\nAfter",
+    );
 
     const { loadInstructionHierarchy } = await import(
       "../../src/hlvm/prompt/instructions.ts"
@@ -136,14 +166,26 @@ Deno.test("harness: @include blocks path traversal", async () => {
     await fs.writeTextFile(path.join(hlvmDir, "rules", "legit.md"), "Legit.");
 
     const { loadInstructionHierarchy } = await import(
-      "../../src/hlvm/prompt/instructions.ts",
+      "../../src/hlvm/prompt/instructions.ts"
     );
     const h = await loadInstructionHierarchy();
     assertEquals(h.global.includes("SECRET"), false, "secret NOT leaked");
-    assertEquals(h.global.includes("[include blocked:"), true, "blocked message shown");
+    assertEquals(
+      h.global.includes("[include blocked:"),
+      true,
+      "blocked message shown",
+    );
     assertEquals(h.global.includes("Legit"), true, "legit include still works");
-    assertEquals(h.global.includes("Before"), true, "surrounding text preserved");
-    assertEquals(h.global.includes("After"), true, "surrounding text preserved");
+    assertEquals(
+      h.global.includes("Before"),
+      true,
+      "surrounding text preserved",
+    );
+    assertEquals(
+      h.global.includes("After"),
+      true,
+      "surrounding text preserved",
+    );
   });
 });
 
@@ -152,19 +194,34 @@ Deno.test("harness: @include blocks symlinks", async () => {
     const secretPath = path.join(path.dirname(hlvmDir), "secret2.txt");
     await fs.writeTextFile(secretPath, "SYMLINK_SECRET");
     await Deno.symlink(secretPath, path.join(hlvmDir, "rules", "link.md"));
-    await fs.writeTextFile(path.join(hlvmDir, "rules", "real.md"), "Real content.");
+    await fs.writeTextFile(
+      path.join(hlvmDir, "rules", "real.md"),
+      "Real content.",
+    );
     await fs.writeTextFile(
       path.join(hlvmDir, "HLVM.md"),
       "@./rules/link.md\n@./rules/real.md",
     );
 
     const { loadInstructionHierarchy } = await import(
-      "../../src/hlvm/prompt/instructions.ts",
+      "../../src/hlvm/prompt/instructions.ts"
     );
     const h = await loadInstructionHierarchy();
-    assertEquals(h.global.includes("SYMLINK_SECRET"), false, "symlink secret NOT leaked");
-    assertEquals(h.global.includes("symlink"), true, "blocked message mentions symlink");
-    assertEquals(h.global.includes("Real content"), true, "real file still works");
+    assertEquals(
+      h.global.includes("SYMLINK_SECRET"),
+      false,
+      "symlink secret NOT leaked",
+    );
+    assertEquals(
+      h.global.includes("symlink"),
+      true,
+      "blocked message mentions symlink",
+    );
+    assertEquals(
+      h.global.includes("Real content"),
+      true,
+      "real file still works",
+    );
   });
 });
 
@@ -189,7 +246,7 @@ Deno.test("harness: user skill loaded and invoked with args", async () => {
     await writeSkillFile(
       hlvmDir,
       "deploy",
-      "---\ndescription: Deploy\nargument-hint: \"[environment]\"\nallowed-tools: Bash Read\ncontext: inline\n---\nDeploy to $ARGUMENTS.",
+      '---\ndescription: Deploy\nargument-hint: "[environment]"\nallowed-tools: Bash Read\ncontext: inline\n---\nDeploy to $ARGUMENTS.',
     );
 
     const { loadSkillCatalog, executeInlineSkill } = await import(
@@ -229,7 +286,10 @@ Deno.test("harness: legacy command is loaded as a skill", async () => {
     assertEquals(skill.frontmatter.model_invocable, false);
 
     const rendered = executeInlineSkill(skill, "staging");
-    assertEquals(rendered.systemMessage.includes("Run deploy for staging."), true);
+    assertEquals(
+      rendered.systemMessage.includes("Run deploy for staging."),
+      true,
+    );
   });
 });
 
@@ -339,51 +399,65 @@ Deno.test("harness: unsupported allowed-tools entries fail fast", async () => {
   });
 });
 
-Deno.test("harness: model-only skills stay out of slash catalog but remain in prompt", async () => {
-  await withTestEnv(async ({ hlvmDir }) => {
-    await writeSkillFile(
-      hlvmDir,
-      "auto-fix",
-      "---\ndescription: Auto fix\nuser-invocable: false\n---\nRepair the issue.",
-    );
+Deno.test({
+  name:
+    "harness: model-only skills stay out of slash catalog but remain in prompt",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    await withTestEnv(async ({ hlvmDir }) => {
+      await writeSkillFile(
+        hlvmDir,
+        "auto-fix",
+        "---\ndescription: Auto fix\nuser-invocable: false\n---\nRepair the issue.",
+      );
 
-    const { compileSystemPrompt } = await import(
-      "../../src/hlvm/agent/llm-integration.ts"
-    );
-    const { getFullCommandCatalog } = await import(
-      "../../src/hlvm/cli/repl/commands.ts"
-    );
-    const { loadSkillCatalog } = await import("../../src/hlvm/skills/mod.ts");
+      const { compileSystemPrompt } = await import(
+        "../../src/hlvm/agent/llm-integration.ts"
+      );
+      const { getFullCommandCatalog } = await import(
+        "../../src/hlvm/cli/repl/commands.ts"
+      );
+      const { loadSkillCatalog } = await import("../../src/hlvm/skills/mod.ts");
 
-    resetSkillCatalogCache();
-    const skills = await loadSkillCatalog();
-    const prompt = compileSystemPrompt({ skills }).text;
-    const commands = await getFullCommandCatalog();
+      resetSkillCatalogCache();
+      const skills = await loadSkillCatalog();
+      const prompt = compileSystemPrompt({ skills }).text;
+      const commands = await getFullCommandCatalog();
 
-    assertEquals(prompt.includes("**auto-fix**"), true);
-    assertEquals(prompt.includes("model-only"), true);
-    assertEquals(commands.some((entry) => entry.name === "/auto-fix"), false);
-  });
+      assertEquals(prompt.includes("**auto-fix**"), true);
+      assertEquals(prompt.includes("model-only"), true);
+      assertEquals(commands.some((entry) => entry.name === "/auto-fix"), false);
+    });
+  },
 });
 
-Deno.test("harness: manual-only skills reject model invocation", async () => {
-  await withTestEnv(async ({ hlvmDir }) => {
-    await writeSkillFile(
-      hlvmDir,
-      "deploy",
-      "---\ndescription: Deploy\ndisable-model-invocation: true\n---\nDeploy to $ARGUMENTS.",
-    );
+Deno.test({
+  name: "harness: manual-only skills reject model invocation",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    await withTestEnv(async ({ hlvmDir }) => {
+      await writeSkillFile(
+        hlvmDir,
+        "deploy",
+        "---\ndescription: Deploy\ndisable-model-invocation: true\n---\nDeploy to $ARGUMENTS.",
+      );
 
-    const { getTool } = await import("../../src/hlvm/agent/registry.ts");
-    const tool = getTool("Skill");
-    const result = await tool.fn({ skill: "deploy", args: "staging" }, "/tmp");
-    assertEquals(
-      typeof result === "object" && result !== null &&
-        "error" in result &&
-        String(result.error).includes("manual-only"),
-      true,
-    );
-  });
+      const { getTool } = await import("../../src/hlvm/agent/registry.ts");
+      const tool = getTool("Skill");
+      const result = await tool.fn(
+        { skill: "deploy", args: "staging" },
+        "/tmp",
+      );
+      assertEquals(
+        typeof result === "object" && result !== null &&
+          "error" in result &&
+          String(result.error).includes("manual-only"),
+        true,
+      );
+    });
+  },
 });
 
 Deno.test("harness: user skill overrides bundled by name", async () => {
@@ -477,49 +551,70 @@ Deno.test("harness: unsupported skill metadata fails fast", async () => {
 // E2E 3: Slash commands
 // ═══════════════════════════════════════════════
 
-Deno.test({ name: "harness: /commit activates inline skill", sanitizeOps: false, sanitizeResources: false, fn: async () => {
-  await withTestEnv(async () => {
-    const { runCommand } = await import("../../src/hlvm/cli/repl/commands.ts");
-    resetSkillCatalogCache();
-    const out: string[] = [];
-    // deno-lint-ignore no-explicit-any
-    const r = await runCommand("/commit fix bug", {} as any, {
-      onOutput: (l: string) => out.push(l),
+Deno.test({
+  name: "harness: /commit activates inline skill",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    await withTestEnv(async () => {
+      const { runCommand } = await import(
+        "../../src/hlvm/cli/repl/commands.ts"
+      );
+      resetSkillCatalogCache();
+      const out: string[] = [];
+      // deno-lint-ignore no-explicit-any
+      const r = await runCommand("/commit fix bug", {} as any, {
+        onOutput: (l: string) => out.push(l),
+      });
+      assertEquals(r.handled, true);
+      assertEquals(!!r.skillActivation, true);
+      assertEquals(r.skillActivation!.systemMessage.includes("fix bug"), true);
+      assertEquals(r.skillActivation!.allowedTools?.includes("git_diff"), true);
     });
-    assertEquals(r.handled, true);
-    assertEquals(!!r.skillActivation, true);
-    assertEquals(r.skillActivation!.systemMessage.includes("fix bug"), true);
-    assertEquals(r.skillActivation!.allowedTools?.includes("git_diff"), true);
-  });
-}});
+  },
+});
 
-Deno.test({ name: "harness: /review activates fork skill", sanitizeOps: false, sanitizeResources: false, fn: async () => {
-  await withTestEnv(async () => {
-    const { runCommand } = await import("../../src/hlvm/cli/repl/commands.ts");
-    resetSkillCatalogCache();
-    const out: string[] = [];
-    // deno-lint-ignore no-explicit-any
-    const r = await runCommand("/review src/x.ts", {} as any, {
-      onOutput: (l: string) => out.push(l),
+Deno.test({
+  name: "harness: /review activates fork skill",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    await withTestEnv(async () => {
+      const { runCommand } = await import(
+        "../../src/hlvm/cli/repl/commands.ts"
+      );
+      resetSkillCatalogCache();
+      const out: string[] = [];
+      // deno-lint-ignore no-explicit-any
+      const r = await runCommand("/review src/x.ts", {} as any, {
+        onOutput: (l: string) => out.push(l),
+      });
+      assertEquals(r.handled, true);
+      assertEquals(!!r.skillActivation, true);
+      assertEquals(r.skillActivation!.systemMessage.includes("src/x.ts"), true);
     });
-    assertEquals(r.handled, true);
-    assertEquals(!!r.skillActivation, true);
-    assertEquals(r.skillActivation!.systemMessage.includes("src/x.ts"), true);
-  });
-}});
+  },
+});
 
-Deno.test({ name: "harness: unknown slash command rejected", sanitizeOps: false, sanitizeResources: false, fn: async () => {
-  await withTestEnv(async () => {
-    const { runCommand } = await import("../../src/hlvm/cli/repl/commands.ts");
-    const out: string[] = [];
-    // deno-lint-ignore no-explicit-any
-    const r = await runCommand("/nope", {} as any, {
-      onOutput: (l: string) => out.push(l),
+Deno.test({
+  name: "harness: unknown slash command rejected",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    await withTestEnv(async () => {
+      const { runCommand } = await import(
+        "../../src/hlvm/cli/repl/commands.ts"
+      );
+      const out: string[] = [];
+      // deno-lint-ignore no-explicit-any
+      const r = await runCommand("/nope", {} as any, {
+        onOutput: (l: string) => out.push(l),
+      });
+      assertEquals(r.handled, false);
+      assertEquals(r.skillActivation, undefined);
     });
-    assertEquals(r.handled, false);
-    assertEquals(r.skillActivation, undefined);
-  });
-}});
+  },
+});
 
 // ═══════════════════════════════════════════════
 // E2E 4: Skills in system prompt
@@ -558,7 +653,9 @@ Deno.test("harness: skill tool aliases registered in registry", async () => {
 Deno.test("harness: hook runtime loads all 3 types + new events", async () => {
   const platform = getPlatform();
   const dir = await platform.fs.makeTempDir({ prefix: "hlvm-hook-" });
-  await platform.fs.mkdir(platform.path.join(dir, ".hlvm"), { recursive: true });
+  await platform.fs.mkdir(platform.path.join(dir, ".hlvm"), {
+    recursive: true,
+  });
   await platform.fs.writeTextFile(
     platform.path.join(dir, ".hlvm", "hooks.json"),
     JSON.stringify({
@@ -600,14 +697,18 @@ Deno.test("harness: hook runtime loads all 3 types + new events", async () => {
 Deno.test("harness: dispatchWithFeedback blocks on exit code 2", async () => {
   const platform = getPlatform();
   const dir = await platform.fs.makeTempDir({ prefix: "hlvm-hook-block-" });
-  await platform.fs.mkdir(platform.path.join(dir, ".hlvm"), { recursive: true });
+  await platform.fs.mkdir(platform.path.join(dir, ".hlvm"), {
+    recursive: true,
+  });
   // Runtime-level hook behavior: exit code 2 blocks and stdout becomes feedback.
   await platform.fs.writeTextFile(
     platform.path.join(dir, ".hlvm", "hooks.json"),
     JSON.stringify({
       version: 1,
       hooks: {
-        pre_tool: [{ command: ["sh", "-c", "echo 'blocked by policy' && exit 2"] }],
+        pre_tool: [{
+          command: ["sh", "-c", "echo 'blocked by policy' && exit 2"],
+        }],
       },
     }),
   );
@@ -618,7 +719,9 @@ Deno.test("harness: dispatchWithFeedback blocks on exit code 2", async () => {
     );
     const rt = await loadAgentHookRuntime(dir);
     assertEquals(!!rt, true);
-    const fb = await rt!.dispatchWithFeedback("pre_tool", { tool: "shell_exec" });
+    const fb = await rt!.dispatchWithFeedback("pre_tool", {
+      tool: "shell_exec",
+    });
     assertEquals(fb.blocked, true, "exit code 2 must block");
     assertEquals(
       fb.feedback?.includes("blocked by policy"),
@@ -712,21 +815,34 @@ Deno.test("harness: skill cache is workspace-keyed", async () => {
     // Load 2: with workspace — should NOT return stale cache from load 1
     const cat2 = await loadSkillCatalog(workspace);
     assertEquals(cat2.has("global-only"), true, "load 2: global skill present");
-    assertEquals(cat2.has("project-only"), true, "load 2: project skill present (not stale)");
+    assertEquals(
+      cat2.has("project-only"),
+      true,
+      "load 2: project skill present (not stale)",
+    );
 
     // Load 3: no workspace again — should NOT return stale cache from load 2
     const cat3 = await loadSkillCatalog();
-    assertEquals(cat3.has("project-only"), false, "load 3: project skill gone (not leaked from load 2)");
+    assertEquals(
+      cat3.has("project-only"),
+      false,
+      "load 3: project skill gone (not leaked from load 2)",
+    );
   });
 });
 
 Deno.test("harness: old-format hooks (no type field) still work", async () => {
   const platform = getPlatform();
   const dir = await platform.fs.makeTempDir({ prefix: "hlvm-hook-compat-" });
-  await platform.fs.mkdir(platform.path.join(dir, ".hlvm"), { recursive: true });
+  await platform.fs.mkdir(platform.path.join(dir, ".hlvm"), {
+    recursive: true,
+  });
   await platform.fs.writeTextFile(
     platform.path.join(dir, ".hlvm", "hooks.json"),
-    JSON.stringify({ version: 1, hooks: { pre_tool: [{ command: ["old.sh"] }] } }),
+    JSON.stringify({
+      version: 1,
+      hooks: { pre_tool: [{ command: ["old.sh"] }] },
+    }),
   );
 
   try {
@@ -747,10 +863,17 @@ Deno.test("harness: old-format hooks (no type field) still work", async () => {
 Deno.test("harness: trust gates agents, skills, and rules consistently", async () => {
   await withTestEnv(async ({ workspace, fs, path }) => {
     // Setup project files
-    await fs.mkdir(path.join(workspace, ".hlvm", "agents"), { recursive: true });
-    await fs.writeTextFile(path.join(workspace, ".hlvm", "agents", "evil.md"),
-      "---\nname: evil\ndescription: Bad\ntools:\n  - shell_exec\n---\nEvil.");
-    await fs.writeTextFile(path.join(workspace, ".hlvm", "rules", "proj.md"), "Project rule.");
+    await fs.mkdir(path.join(workspace, ".hlvm", "agents"), {
+      recursive: true,
+    });
+    await fs.writeTextFile(
+      path.join(workspace, ".hlvm", "agents", "evil.md"),
+      "---\nname: evil\ndescription: Bad\ntools:\n  - shell_exec\n---\nEvil.",
+    );
+    await fs.writeTextFile(
+      path.join(workspace, ".hlvm", "rules", "proj.md"),
+      "Project rule.",
+    );
     await writeSkillFile(
       path.join(workspace, ".hlvm"),
       "pskill",

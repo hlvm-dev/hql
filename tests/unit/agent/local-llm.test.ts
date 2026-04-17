@@ -1,6 +1,5 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
-  classifyAll,
   classifyBrowserAutomation,
   classifyBrowserFinalAnswer,
   classifyFactConflicts,
@@ -160,53 +159,6 @@ Deno.test("classifyPlanNeed: empty query returns defaults", async () => {
 Deno.test("classifyPlanNeed: whitespace-only returns defaults", async () => {
   const result = await classifyPlanNeed("   ");
   assertEquals(result.needsPlan, false);
-});
-
-Deno.test("classifyAll: empty query returns defaults", async () => {
-  const result = await classifyAll("");
-  assertEquals(result.isBrowser, false);
-
-  assertEquals(result.needsPlan, false);
-  assertEquals(result.taskClassification.isCodeTask, false);
-  assertEquals(result.taskClassification.isReasoningTask, false);
-  assertEquals(result.taskClassification.needsStructuredOutput, false);
-});
-
-Deno.test("classifyAll: whitespace-only returns defaults", async () => {
-  const result = await classifyAll("   ");
-  assertEquals(result.isBrowser, false);
-
-  assertEquals(result.needsPlan, false);
-  assertEquals(result.taskClassification.isCodeTask, false);
-  assertEquals(result.taskClassification.isReasoningTask, false);
-  assertEquals(result.taskClassification.needsStructuredOutput, false);
-});
-
-Deno.test("classifyAll: disabled local AI falls back to defaults", async () => {
-  const platform = getPlatform();
-  const previous = platform.env.get("HLVM_DISABLE_AI_AUTOSTART");
-  const captured = captureLogs();
-  platform.env.set("HLVM_DISABLE_AI_AUTOSTART", "1");
-  try {
-    const result = await classifyAll("open example.com and summarize it");
-    assertEquals(result.isBrowser, false);
-  
-    assertEquals(result.needsPlan, false);
-    assertEquals(result.taskClassification.isCodeTask, false);
-    assertEquals(result.taskClassification.isReasoningTask, false);
-    assertEquals(result.taskClassification.needsStructuredOutput, false);
-    assertEquals(
-      captured.debugs.some((message) => message.includes("disabled")),
-      true,
-    );
-  } finally {
-    captured.restore();
-    if (previous === undefined) {
-      platform.env.delete("HLVM_DISABLE_AI_AUTOSTART");
-    } else {
-      platform.env.set("HLVM_DISABLE_AI_AUTOSTART", previous);
-    }
-  }
 });
 
 Deno.test("classifyFactConflicts: empty new fact returns defaults", async () => {

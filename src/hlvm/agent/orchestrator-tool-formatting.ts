@@ -1029,7 +1029,7 @@ export function buildIsToolAllowed(
 ): (name: string) => boolean {
   const allowlist = effectiveAllowlist(config);
   const denylist = effectiveDenylist(config);
-  const allowSet = allowlist?.length ? new Set(allowlist) : null;
+  const allowSet = allowlist ? new Set(allowlist) : null;
   const denySet = denylist?.length ? new Set(denylist) : null;
   return (name: string) => {
     if (allowSet && !allowSet.has(name)) return false;

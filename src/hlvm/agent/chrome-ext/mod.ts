@@ -14,18 +14,6 @@ export {
 } from "./bridge.ts";
 export type { ChromeExtBackendResolution } from "./types.ts";
 
-// Lock (uses shared SessionLock)
-export {
-  tryAcquireChromeExtLock,
-  releaseChromeExtLock,
-  checkChromeExtLock,
-  isLockHeldLocally,
-} from "./lock.ts";
-export type { AcquireResult, CheckResult } from "./lock.ts";
-
-// Session state
-export { resetChromeExtSessionState } from "./session-state.ts";
-
 // Setup & installation
 export { installNativeHost, uninstallNativeHost, checkStatus } from "./setup.ts";
 

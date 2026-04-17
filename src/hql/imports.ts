@@ -934,7 +934,7 @@ async function processNamespaceImport(
       ? String(elements[3].value)
       : "unknown";
     // Try to get line information using cached file lines (avoids redundant file I/O)
-    let line = undefined;
+    let line: { line: number; column: number } | undefined = undefined;
     if (options.currentFile) {
       const cachedLines = getCachedFileLines(options.currentFile);
       if (cachedLines) {
@@ -1085,7 +1085,7 @@ async function processVectorBasedImport(
       ? String(elements[3].value)
       : "unknown";
     // Try to find the import position
-    let lineInfo = undefined;
+    let lineInfo: { line: number; column: number } | undefined = undefined;
     if (options.currentFile) {
       const symbolsVector = elements[1] as SList;
       const vectorElements = processVectorElements(symbolsVector.elements, {

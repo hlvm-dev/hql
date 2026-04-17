@@ -6,17 +6,14 @@
   "minimum_chrome_version": "120",
 
   "permissions": [
-    "debugger",
     "tabs",
     "activeTab",
-    "nativeMessaging"
+    "nativeMessaging",
+    "scripting",
+    "webRequest"
   ],
 
-  "optional_permissions": [
-    "scripting"
-  ],
-
-  "optional_host_permissions": [
+  "host_permissions": [
     "<all_urls>"
   ],
 

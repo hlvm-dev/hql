@@ -694,13 +694,14 @@ export function resolveTools(
   options?: { allowlist?: string[]; denylist?: string[]; ownerId?: string },
 ): Record<string, ToolMetadata> {
   const tools = getAllTools(options?.ownerId);
+  const hasAllowlist = options?.allowlist !== undefined;
   const allowlist = options?.allowlist?.filter((name) => name in tools) ?? [];
   const denylist = options?.denylist?.filter((name) => name in tools) ?? [];
-  if (allowlist.length === 0 && denylist.length === 0) {
+  if (!hasAllowlist && denylist.length === 0) {
     return tools;
   }
 
-  const selected: Record<string, ToolMetadata> = allowlist.length > 0
+  const selected: Record<string, ToolMetadata> = hasAllowlist
     ? Object.fromEntries(
       allowlist.map((name) => [name, tools[name]]),
     )

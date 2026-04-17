@@ -602,7 +602,13 @@ export class SdkMcpClient {
           requestSignal,
         ),
       signal,
-    );
+    ) as {
+      tools: Array<Record<string, unknown> & {
+        name: string;
+        description?: string;
+        inputSchema?: unknown;
+      }>;
+    };
     return result.tools.map((t) => ({
       name: t.name,
       description: capMcpDescription(t.description),
@@ -651,7 +657,14 @@ export class SdkMcpClient {
           requestSignal,
         ),
       signal,
-    );
+    ) as {
+      resources: Array<{
+        uri: string;
+        name: string;
+        description?: string;
+        mimeType?: string;
+      }>;
+    };
     return result.resources.map((r) => ({
       uri: r.uri,
       name: sanitizeMcpText(r.name),
@@ -671,7 +684,14 @@ export class SdkMcpClient {
           requestSignal,
         ),
       signal,
-    );
+    ) as {
+      contents: Array<Record<string, unknown> & {
+        uri: string;
+        mimeType?: string;
+        text?: string;
+        blob?: string;
+      }>;
+    };
     return result.contents.map((c) => ({
       uri: c.uri,
       mimeType: c.mimeType,
@@ -692,7 +712,14 @@ export class SdkMcpClient {
           requestSignal,
         ),
       signal,
-    );
+    ) as {
+      resourceTemplates: Array<{
+        uriTemplate: string;
+        name: string;
+        description?: string;
+        mimeType?: string;
+      }>;
+    };
     return result.resourceTemplates.map((t) => ({
       uriTemplate: t.uriTemplate,
       name: sanitizeMcpText(t.name),
@@ -735,7 +762,17 @@ export class SdkMcpClient {
           requestSignal,
         ),
       signal,
-    );
+    ) as {
+      prompts: Array<{
+        name: string;
+        description?: string;
+        arguments?: Array<{
+          name: string;
+          description?: string;
+          required?: boolean;
+        }>;
+      }>;
+    };
     return result.prompts.map((p) => ({
       name: sanitizeMcpText(p.name),
       description: capMcpDescription(p.description),
@@ -759,7 +796,9 @@ export class SdkMcpClient {
           requestSignal,
         ),
       signal,
-    );
+    ) as {
+      messages: McpPromptMessage[];
+    };
     return (result.messages as McpPromptMessage[]).map((message) => {
       const content = message.content;
       if ("text" in content) {
@@ -805,7 +844,9 @@ export class SdkMcpClient {
           requestSignal,
         ),
       signal,
-    );
+    ) as {
+      completion: { values: string[] };
+    };
     return result.completion.values;
   }
 

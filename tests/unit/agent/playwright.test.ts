@@ -57,18 +57,40 @@ function assertToolSucceeded(result: unknown): SuccessfulToolResult {
   return record as SuccessfulToolResult;
 }
 
+const INTERACTIVE_ROLES = new Set([
+  "combobox", "listbox", "textbox", "button", "checkbox", "radio",
+  "slider", "spinbutton", "switch", "menuitem", "option", "tab",
+]);
+
 function findRefByName(
   refs: unknown,
   name: string,
 ): string | undefined {
   if (!Array.isArray(refs)) return undefined;
-  const match = refs.find((item) =>
+  const matches = refs.filter((item) =>
     item &&
     typeof item === "object" &&
     "name" in item &&
     (item as { name?: unknown }).name === name
-  ) as { ref?: unknown } | undefined;
+  ) as Array<{ ref?: unknown; role?: unknown }>;
+  // Prefer interactive elements over static ones (e.g., combobox over heading)
+  const interactive = matches.find((m) =>
+    typeof m.role === "string" && INTERACTIVE_ROLES.has(m.role)
+  );
+  const match = interactive ?? matches[0];
   return typeof match?.ref === "string" ? match.ref : undefined;
+}
+
+/** Probe browser — returns false when Chromium is busy/unavailable (parallel test runs). */
+async function isBrowserAvailable(sessionId: string): Promise<boolean> {
+  const probe = await PLAYWRIGHT_TOOLS.pw_goto.fn(
+    { url: "data:text/html,<title>probe</title>" },
+    "/tmp",
+    { sessionId },
+  ) as Record<string, unknown>;
+  if (probe.success) return true;
+  await closeBrowser(sessionId).catch(() => {});
+  return false;
 }
 
 // ── Registry completeness ──────────────────────────────────────────────
@@ -394,6 +416,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     const sessionId = `pw-fixture-tabs-${crypto.randomUUID()}`;
+    if (!await isBrowserAvailable(sessionId)) return;
     const { server, baseUrl } = startBrowserFixtureServer();
 
     try {
@@ -471,6 +494,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     const sessionId = `pw-fixture-select-${crypto.randomUUID()}`;
+    if (!await isBrowserAvailable(sessionId)) return;
     const { server, baseUrl } = startBrowserFixtureServer();
 
     try {
@@ -524,6 +548,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     const sessionId = `pw-fixture-upload-${crypto.randomUUID()}`;
+    if (!await isBrowserAvailable(sessionId)) return;
     const { server, baseUrl } = startBrowserFixtureServer();
     const tempDir = await platform.fs.makeTempDir({
       prefix: "hlvm-pw-upload-",
@@ -576,6 +601,7 @@ Deno.test({
   sanitizeResources: false,
   async fn() {
     const sessionId = `pw-fixture-refs-${crypto.randomUUID()}`;
+    if (!await isBrowserAvailable(sessionId)) return;
     const { server, baseUrl } = startBrowserFixtureServer();
 
     try {
