@@ -159,7 +159,7 @@ Deno.test("applyAdaptiveToolPhase caches per-turn request heuristics", async () 
 // ---------------------------------------------------------------------------
 
 Deno.test("fallback: native tier surface is the floor when user is implicit", () => {
-  const model = "ollama/gemma4:e4b";
+  const model = "ollama/gemma4:e2b";
   const filter = computeFallbackToolFilter({
     fallbackModel: model,
     requestedToolAllowlist: undefined,
@@ -187,7 +187,7 @@ Deno.test("fallback: does NOT inherit the primary's hybrid domain-layer tools", 
   // additions) are NOT inherited. Only session.discoveredDeferredTools
   // crosses the boundary.
   const filter = computeFallbackToolFilter({
-    fallbackModel: "ollama/gemma4:e4b",
+    fallbackModel: "ollama/gemma4:e2b",
     requestedToolAllowlist: undefined,
     effectiveToolDenylist: [],
     discoveredDeferredTools: [], // cu_* came from hybrid promotion, not discovery
@@ -198,7 +198,7 @@ Deno.test("fallback: does NOT inherit the primary's hybrid domain-layer tools", 
 
 Deno.test("fallback: merges in-turn discovered deferred tools onto tier floor", () => {
   const filter = computeFallbackToolFilter({
-    fallbackModel: "ollama/gemma4:e4b",
+    fallbackModel: "ollama/gemma4:e2b",
     requestedToolAllowlist: undefined,
     effectiveToolDenylist: [],
     discoveredDeferredTools: ["__test_data_query", "__test_data_summary"],
@@ -212,7 +212,7 @@ Deno.test("fallback: merges in-turn discovered deferred tools onto tier floor", 
 
 Deno.test("fallback: user-explicit allowlist is respected and discoveries are merged", () => {
   const filter = computeFallbackToolFilter({
-    fallbackModel: "ollama/gemma4:e4b",
+    fallbackModel: "ollama/gemma4:e2b",
     requestedToolAllowlist: ["read_file", "web_fetch"],
     effectiveToolDenylist: [],
     discoveredDeferredTools: ["fetch_url"],
@@ -226,7 +226,7 @@ Deno.test("fallback: user-explicit allowlist is respected and discoveries are me
 
 Deno.test("fallback: user-explicit EMPTY allowlist is preserved as zero tools", () => {
   const filter = computeFallbackToolFilter({
-    fallbackModel: "ollama/gemma4:e4b",
+    fallbackModel: "ollama/gemma4:e2b",
     requestedToolAllowlist: [],
     effectiveToolDenylist: [],
     discoveredDeferredTools: ["fetch_url"],
@@ -237,7 +237,7 @@ Deno.test("fallback: user-explicit EMPTY allowlist is preserved as zero tools", 
 
 Deno.test("fallback: denylist is threaded through from effectiveToolDenylist", () => {
   const filter = computeFallbackToolFilter({
-    fallbackModel: "ollama/gemma4:e4b",
+    fallbackModel: "ollama/gemma4:e2b",
     requestedToolAllowlist: undefined,
     effectiveToolDenylist: ["complete_task"],
     discoveredDeferredTools: [],

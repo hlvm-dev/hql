@@ -278,7 +278,7 @@ Deno.test("ai default model: unified initial-model resolver upgrades legacy defa
 Deno.test("ai default model: unified initial-model resolver upgrades gemma4 legacy default to auto without cloud override", async () => {
   resetBootstrapProbeState();
   let snapshot = {
-    model: "ollama/gemma4:e4b",
+    model: "ollama/gemma4:e2b",
     modelConfigured: false,
     agentMode: undefined as "hlvm" | undefined,
   };
@@ -311,7 +311,7 @@ Deno.test("ai default model: unified initial-model resolver upgrades gemma4 lega
 Deno.test("ai default model: unified initial-model resolver respects explicitly configured legacy model", async () => {
   resetBootstrapProbeState();
   const snapshot = {
-    model: "ollama/gemma4:e4b",
+    model: "ollama/gemma4:e2b",
     modelConfigured: true,
     agentMode: "hlvm" as const,
   };
@@ -327,7 +327,7 @@ Deno.test("ai default model: unified initial-model resolver respects explicitly 
   );
 
   // modelConfigured: true means user explicitly chose this — never override
-  assertEquals(resolved.model, "ollama/gemma4:e4b");
+  assertEquals(resolved.model, "ollama/gemma4:e2b");
   assertEquals(resolved.modelConfigured, true);
   assertEquals(resolved.autoConfiguredLocalFallback, false);
   assertEquals(resolved.firstRunConfigured, false);

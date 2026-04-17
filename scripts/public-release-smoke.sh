@@ -4,6 +4,7 @@
 set -eu
 
 PROMPT="${HLVM_SMOKE_PROMPT:-hello}"
+MODEL="${HLVM_SMOKE_MODEL:-gemma4:e2b}"
 
 SMOKE_ROOT=$(mktemp -d)
 trap 'rm -rf "$SMOKE_ROOT"' EXIT
@@ -38,7 +39,7 @@ if [ "$BOOTSTRAP_EXIT" -ne 0 ]; then
   if [ "$IS_ARM" = "1" ] && [ "$OLLAMA_ALIVE" = "1" ]; then
     GEN_RESP=$(curl -sS --max-time 30 \
       -H "Content-Type: application/json" \
-      -d "{\"model\":\"gemma4:e4b\",\"prompt\":\"test\",\"stream\":false}" \
+      -d "{\"model\":\"${MODEL}\",\"prompt\":\"test\",\"stream\":false}" \
       "http://127.0.0.1:11439/api/generate" 2>&1) || true
     if echo "$GEN_RESP" | grep -q 'resource limitations'; then
       echo "==> ARM CI: Ollama alive but model OOM (expected on ~7 GB runner)."
@@ -55,7 +56,7 @@ if [ "$BOOTSTRAP_EXIT" -ne 0 ]; then
   while [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
     RESPONSE=$(curl -sS --max-time 30 \
       -H "Content-Type: application/json" \
-      -d "{\"model\":\"gemma4:e4b\",\"prompt\":\"${PROMPT}\",\"stream\":false}" \
+      -d "{\"model\":\"${MODEL}\",\"prompt\":\"${PROMPT}\",\"stream\":false}" \
       "http://127.0.0.1:11439/api/generate" 2>&1) || true
     if echo "$RESPONSE" | grep -q '"response"'; then
       echo "Ollama response: ${RESPONSE}"

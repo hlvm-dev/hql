@@ -14,19 +14,19 @@ import { log } from "../api/log.ts";
 // ---------------------------------------------------------------------------
 
 /** The default local fallback model pulled during bootstrap. */
-export const LOCAL_FALLBACK_MODEL = "gemma4:e4b";
+export const LOCAL_FALLBACK_MODEL = "gemma4:e2b";
 
 /**
  * Pinned public identity for the bundled fallback model.
  *
  * Ollama's on-disk manifest records the model layer digest and exact layer
  * sizes. We pin the model layer digest prefix strictly and use the published
- * 9.6 GB size as a sanity bound rather than a byte-for-byte equality check.
+ * size as a sanity bound rather than a byte-for-byte equality check.
  */
 export const LOCAL_FALLBACK_IDENTITY = {
   modelId: LOCAL_FALLBACK_MODEL,
-  modelDigestPrefix: "sha256:4c27e0f5b5ad",
-  publishedTotalSizeBytes: 9_600_000_000,
+  modelDigestPrefix: "sha256:4e30e2665218",
+  publishedTotalSizeBytes: 7_162_394_016,
   sizeToleranceBytes: 512_000_000,
 } as const;
 
@@ -52,7 +52,7 @@ export interface BootstrapEngineRecord {
 
 /** Metadata for a single model in the bootstrap store. */
 export interface BootstrapModelRecord {
-  /** Model identifier (e.g. "gemma4:e4b"). */
+  /** Model identifier (e.g. "gemma4:e2b"). */
   modelId: string;
   /** Total size in bytes of all model blobs. */
   size: number;

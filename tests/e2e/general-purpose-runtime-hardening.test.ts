@@ -9,7 +9,7 @@
  *
  * Run:
  *   HLVM_E2E_GENERAL_PURPOSE_RUNTIME=1 \
- *   HLVM_LIVE_AGENT_MODEL=ollama/gemma4:e4b \
+ *   HLVM_LIVE_AGENT_MODEL=ollama/gemma4:e2b \
  *   deno test --no-check --allow-all tests/e2e/general-purpose-runtime-hardening.test.ts
  */
 

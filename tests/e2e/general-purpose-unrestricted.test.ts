@@ -6,7 +6,7 @@
  *
  * Run:
  *   HLVM_E2E_GP_UNRESTRICTED=1 \
- *   HLVM_LIVE_AGENT_MODEL=ollama/gemma4:e4b \
+ *   HLVM_LIVE_AGENT_MODEL=ollama/gemma4:e2b \
  *   deno test --allow-all tests/e2e/general-purpose-unrestricted.test.ts
  */
 

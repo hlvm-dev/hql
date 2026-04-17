@@ -7,7 +7,7 @@ import { LOCAL_FALLBACK_MODEL } from "../../../src/hlvm/runtime/bootstrap-manife
 import { withTempHlvmDir } from "../helpers.ts";
 
 /** The pinned default local model is always injected into remote model lists. */
-const PINNED_MODEL = LOCAL_FALLBACK_MODEL; // "gemma4:e4b"
+const PINNED_MODEL = LOCAL_FALLBACK_MODEL; // "gemma4:e2b"
 
 Deno.test("model discovery store reads persisted snapshot before refresh", async () => {
   await withTempHlvmDir(async () => {

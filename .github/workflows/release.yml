@@ -18,6 +18,7 @@ permissions:
 env:
   PUBLIC_RELEASE_REPO: hlvm-dev/hql
   SMOKE_PROMPT: hello
+  SMOKE_MODEL: gemma4:e2b
 
 jobs:
   # ─── Resolve release tag from trigger ───────────────────────────────────
@@ -167,6 +168,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           HLVM_SMOKE_REPO: hlvm-dev/hql
           HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
+          HLVM_SMOKE_MODEL: ${{ env.SMOKE_MODEL }}
         run: sh scripts/release-smoke.sh "${{ needs.resolve.outputs.tag }}"
 
   staged-windows:
@@ -184,6 +186,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           HLVM_SMOKE_REPO: hlvm-dev/hql
           HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
+          HLVM_SMOKE_MODEL: ${{ env.SMOKE_MODEL }}
         run: ./scripts/release-smoke.ps1 -Mode "staged" -Tag "${{ needs.resolve.outputs.tag }}"
 
   # ─── Phase 4: Publish draft → live ──────────────────────────────────────
@@ -254,6 +257,7 @@ jobs:
         env:
           HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
           HLVM_SMOKE_TAG: ${{ needs.resolve.outputs.tag }}
+          HLVM_SMOKE_MODEL: ${{ env.SMOKE_MODEL }}
         run: sh scripts/public-release-smoke.sh
 
   public-windows:
@@ -266,4 +270,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           HLVM_SMOKE_PROMPT: ${{ env.SMOKE_PROMPT }}
+          HLVM_SMOKE_MODEL: ${{ env.SMOKE_MODEL }}
         run: ./scripts/release-smoke.ps1 -Mode "public" -Tag "${{ needs.resolve.outputs.tag }}"

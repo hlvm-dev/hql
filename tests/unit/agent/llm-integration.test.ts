@@ -211,7 +211,7 @@ Deno.test("LLM integration: computeTierToolFilter returns correct tools per tier
 
 Deno.test("LLM integration: fallback model tier recalculation gives standard tools to local model", () => {
   // Simulates what createFallbackLLM does: classify the fallback model, get its tool filter
-  const gemma4Tier = classifyModelTier(undefined, "ollama/gemma4:e4b");
+  const gemma4Tier = classifyModelTier(undefined, "ollama/gemma4:e2b");
   assertEquals(gemma4Tier, "standard");
   const gemma4Filter = computeTierToolFilter(gemma4Tier);
   assertEquals(gemma4Filter.allowlist?.length, STANDARD_EAGER_TOOLS.length);
@@ -243,7 +243,7 @@ Deno.test("LLM integration: supportsAgentExecution uses capabilities ground trut
 
   // Capability-driven: model reports "tools" → agent supported
   assertEquals(
-    supportsAgentExecution("ollama/gemma4:e4b", {
+    supportsAgentExecution("ollama/gemma4:e2b", {
       capabilities: ["chat", "tools"],
       parameterSize: "8B",
     }),

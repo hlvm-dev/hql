@@ -11,6 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 $Repo = if ($env:HLVM_SMOKE_REPO) { $env:HLVM_SMOKE_REPO } else { "hlvm-dev/hql" }
 $Prompt = if ($env:HLVM_SMOKE_PROMPT) { $env:HLVM_SMOKE_PROMPT } elseif ($env:HLVM_PUBLIC_SMOKE_PROMPT) { $env:HLVM_PUBLIC_SMOKE_PROMPT } else { "hello" }
+$Model = if ($env:HLVM_SMOKE_MODEL) { $env:HLVM_SMOKE_MODEL } else { "gemma4:e2b" }
 
 $SmokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("hlvm-smoke-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 $AssetDir = Join-Path $SmokeRoot "assets"
@@ -117,7 +118,7 @@ try {
     # Test the AI path directly via Ollama API to verify bootstrap worked.
     Write-Host "==> Testing AI via Ollama API directly (Windows)..."
     try {
-        $body = @{ model = "gemma4:e4b"; prompt = $Prompt; stream = $false } | ConvertTo-Json
+        $body = @{ model = "$Model"; prompt = $Prompt; stream = $false } | ConvertTo-Json
         $aiResponse = Invoke-WebRequest -Uri "http://127.0.0.1:11439/api/generate" `
             -Method POST -Body $body -ContentType "application/json" `
             -TimeoutSec 300 -UseBasicParsing

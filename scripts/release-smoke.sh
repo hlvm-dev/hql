@@ -6,6 +6,7 @@ set -eu
 TAG="${1:?Usage: release-smoke.sh <tag>}"
 REPO="${HLVM_SMOKE_REPO:-hlvm-dev/hql}"
 PROMPT="${HLVM_SMOKE_PROMPT:-hello}"
+MODEL="${HLVM_SMOKE_MODEL:-gemma4:e2b}"
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "Required: $1" >&2; exit 1; }
@@ -90,7 +91,7 @@ if [ "$IS_ARM" = "1" ]; then
   echo "## /api/generate (full body):"
   curl -sS --max-time 30 \
     -H "Content-Type: application/json" \
-    -d "{\"model\":\"gemma4:e4b\",\"prompt\":\"test\",\"stream\":false}" \
+    -d "{\"model\":\"${MODEL}\",\"prompt\":\"test\",\"stream\":false}" \
     "http://127.0.0.1:11439/api/generate" 2>&1 || true
   echo ""
   echo "## Disk usage (~/.hlvm):"
@@ -114,7 +115,7 @@ if [ "$BOOTSTRAP_EXIT" -ne 0 ]; then
   if [ "$IS_ARM" = "1" ] && [ "$OLLAMA_ALIVE" = "1" ]; then
     GEN_RESP=$(curl -sS --max-time 30 \
       -H "Content-Type: application/json" \
-      -d "{\"model\":\"gemma4:e4b\",\"prompt\":\"test\",\"stream\":false}" \
+      -d "{\"model\":\"${MODEL}\",\"prompt\":\"test\",\"stream\":false}" \
       "http://127.0.0.1:11439/api/generate" 2>&1) || true
     if echo "$GEN_RESP" | grep -q 'resource limitations'; then
       echo "==> ARM CI: Ollama alive but model OOM (expected on ~7 GB runner)."
@@ -131,7 +132,7 @@ if [ "$BOOTSTRAP_EXIT" -ne 0 ]; then
   while [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
     RESPONSE=$(curl -sS --max-time 30 \
       -H "Content-Type: application/json" \
-      -d "{\"model\":\"gemma4:e4b\",\"prompt\":\"${PROMPT}\",\"stream\":false}" \
+      -d "{\"model\":\"${MODEL}\",\"prompt\":\"${PROMPT}\",\"stream\":false}" \
       "http://127.0.0.1:11439/api/generate" 2>&1) || true
     if echo "$RESPONSE" | grep -q '"response"'; then
       echo "Ollama response: ${RESPONSE}"

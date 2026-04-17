@@ -360,7 +360,7 @@ async function runBrowserCase(model: string): Promise<AgentSummary> {
 async function main() {
   const routing = await runRoutingBenchmark();
   const liveModels = [
-    "ollama/gemma4:e4b",
+    "ollama/gemma4:e2b",
     "claude-code/claude-haiku-4-5-20251001",
   ];
 

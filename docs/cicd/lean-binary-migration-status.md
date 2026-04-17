@@ -134,7 +134,7 @@ Compared to v0.1.0:
 
 ### What "pipeline verified, model skipped" means on ARM
 
-The hosted ARM runner has ~7 GB RAM. The gemma4:e4b model needs ~5 GB to
+The hosted ARM runner has ~7 GB RAM. The gemma4:e2b model needs ~5 GB to
 load into memory. With OS + Ollama + binary overhead, the runner runs out
 of memory (only 82 MB free at load time). This is a CI runner hardware
 limitation, NOT a code bug.
@@ -234,7 +234,7 @@ DOCS UPDATED:
 
 ```
 Model:           src/hlvm/runtime/bootstrap-manifest.ts
-                 → LOCAL_FALLBACK_MODEL = "gemma4:e4b"
+                 → LOCAL_FALLBACK_MODEL = "gemma4:e2b"
                  → local-fallback.ts derives LOCAL_FALLBACK_MODEL_ID
                  → config/types.ts derives DEFAULT_MODEL_ID
 
@@ -365,7 +365,7 @@ rc19 — Fix: revert Windows PUBLIC to repo checkout installer, add GH_TOKEN
 ```
 Runner total RAM:     ~7 GB (435,305 pages × 16KB)
 Free RAM at model load: ~82 MB (5,249 pages)
-Model on disk:        8.9 GB (gemma4:e4b, 4-bit quantized)
+Model on disk:        8.9 GB (gemma4:e2b, 4-bit quantized)
 Model RAM needed:     ~5 GB runtime
 Ollama RSS:           113 MB (not loading anything — gave up)
 /api/ps:              {"models":[]} — model NOT loaded, NOT even loading
@@ -833,7 +833,7 @@ CI INFRA LIMITATION (1):
 
 6. ARM hosted runner OOM — model can't load
    Root cause: GitHub's hosted ARM runner has ~7 GB RAM.
-     gemma4:e4b needs ~5 GB to load. With OS + Ollama + binary,
+     gemma4:e2b needs ~5 GB to load. With OS + Ollama + binary,
      only 82 MB was free at load time. Model permanently fails
      with "resource limitations". Not a timeout, not a slow load,
      not a code bug — hard OOM.

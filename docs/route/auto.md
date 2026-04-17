@@ -20,8 +20,8 @@
 > @auto -> resolveAutoModel() -> classifyModelTier() -> buildTurnRouting() -> agent loop
 > ```
 >
-> Status: historical classifier/fallback work complete; see `routing.md` for
-> the current request-routing SSOT.
+> Status: historical classifier/fallback work complete; see `routing.md` for the
+> current request-routing SSOT.
 
 ## TL;DR for the Next Agent
 
@@ -129,7 +129,7 @@ Separate path in `chat-direct.ts`, but same SSOT:
 ## 2. SSOT Chain
 
 ```
-bootstrap-manifest.ts  ->  LOCAL_FALLBACK_MODEL = "gemma4:e4b"  (ONE definition)
+bootstrap-manifest.ts  ->  LOCAL_FALLBACK_MODEL = "gemma4:e2b"  (ONE definition)
         |
         v
 local-fallback.ts      ->  LOCAL_FALLBACK_MODEL_ID = `ollama/${LOCAL_FALLBACK_MODEL}`
@@ -173,7 +173,7 @@ Zero hardcoded "gemma4" or "Gemma 4" outside `bootstrap-manifest.ts`.
 
 | File                                        | Role                                                |
 | ------------------------------------------- | --------------------------------------------------- |
-| `src/hlvm/runtime/bootstrap-manifest.ts`    | `LOCAL_FALLBACK_MODEL = "gemma4:e4b"`, manifest I/O |
+| `src/hlvm/runtime/bootstrap-manifest.ts`    | `LOCAL_FALLBACK_MODEL = "gemma4:e2b"`, manifest I/O |
 | `src/hlvm/runtime/bootstrap-verify.ts`      | `isFallbackModelAvailable()` — disk check           |
 | `src/hlvm/runtime/bootstrap-materialize.ts` | Extract engine + pull model                         |
 | `src/hlvm/runtime/bootstrap-recovery.ts`    | Repair on failure                                   |
@@ -205,17 +205,17 @@ Zero hardcoded "gemma4" or "Gemma 4" outside `bootstrap-manifest.ts`.
 
 ### Phase 2: What Was Replaced (10 heuristics)
 
-| Before (regex/keyword/Jaccard)                                 | After (LLM)                                                | Location                 |
-| -------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------ |
-| 5 keyword `.includes()` + `length >= 160`                      | `classifyPlanNeed(query).needsPlan`                        | planning.ts              |
-| `RE_JSON_OBJECT_TOOL`/`RE_FUNCTION_TOOL_CALL`/`RE_INVOKE_TOOL` | `classifyToolInstruction(text).isInstruction`              | model-compat.ts          |
-| Jaccard token similarity (tokenize+jaccard)                    | `classifyFactConflicts(new, existing[]).conflicts` (batch) | invalidate.ts            |
-| Token-set intersection grounding                               | `classifyGroundedness(resp, tools).incorporatesData`       | grounding.ts             |
-| 7 regex word lists for intent                                  | `classifySearchIntent(query)` (6 boolean fields)           | query-strategy.ts        |
-| 5 `ERROR_PATTERNS` regex (fallback)                            | `classifyErrorMessage(msg).errorClass` (after SDK+regex)   | error-taxonomy.ts        |
-| 27 `RECOVERY_HINT_RULES` keyword arrays                        | `suggestRecoveryHint(msg)` (after static rules)            | error-taxonomy.ts        |
-| 4 PII regex patterns (supplementary)                           | `classifySensitiveContent(text)` (after regex pass)        | store.ts                 |
-| 11 hardcoded domain/path heuristics                            | `classifySourceAuthorities(results[])` (batch, after sync) | source-authority.ts      |
+| Before (regex/keyword/Jaccard)                                 | After (LLM)                                                | Location            |
+| -------------------------------------------------------------- | ---------------------------------------------------------- | ------------------- |
+| 5 keyword `.includes()` + `length >= 160`                      | `classifyPlanNeed(query).needsPlan`                        | planning.ts         |
+| `RE_JSON_OBJECT_TOOL`/`RE_FUNCTION_TOOL_CALL`/`RE_INVOKE_TOOL` | `classifyToolInstruction(text).isInstruction`              | model-compat.ts     |
+| Jaccard token similarity (tokenize+jaccard)                    | `classifyFactConflicts(new, existing[]).conflicts` (batch) | invalidate.ts       |
+| Token-set intersection grounding                               | `classifyGroundedness(resp, tools).incorporatesData`       | grounding.ts        |
+| 7 regex word lists for intent                                  | `classifySearchIntent(query)` (6 boolean fields)           | query-strategy.ts   |
+| 5 `ERROR_PATTERNS` regex (fallback)                            | `classifyErrorMessage(msg).errorClass` (after SDK+regex)   | error-taxonomy.ts   |
+| 27 `RECOVERY_HINT_RULES` keyword arrays                        | `suggestRecoveryHint(msg)` (after static rules)            | error-taxonomy.ts   |
+| 4 PII regex patterns (supplementary)                           | `classifySensitiveContent(text)` (after regex pass)        | store.ts            |
+| 11 hardcoded domain/path heuristics                            | `classifySourceAuthorities(results[])` (batch, after sync) | source-authority.ts |
 
 ### What Still Uses Regex (by design)
 
@@ -288,7 +288,7 @@ substrate decisions.
 - Prefer structured facts first, then keyword fast-paths, then local LLM only
   when the remaining ambiguity is genuinely semantic
 
-Measured on gemma4:e4b (local laptop): 300-660ms per ambiguous browser-failure
+Measured on gemma4:e2b (local laptop): 300-660ms per ambiguous browser-failure
 classification sample.
 
 ---
@@ -304,7 +304,7 @@ All user-facing model name strings derive from `getLocalModelDisplayName()`:
 | `first-run-setup.ts`       | `"Gemma"` (1 place)                     | `getLocalModelDisplayName()`                            |
 | `model-discovery-store.ts` | `displayName: "Gemma 4"`                | `displayName: getLocalModelDisplayName()`               |
 
-Changing `LOCAL_FALLBACK_MODEL` from `"gemma4:e4b"` to `"gemma5:e4b"`
+Changing `LOCAL_FALLBACK_MODEL` from `"gemma4:e2b"` to `"gemma5:e4b"`
 auto-updates all UI strings.
 
 ---
@@ -354,7 +354,7 @@ Primary Model Call
       |   +-- All scored fallbacks exhausted
       |       |
       |       +-- lastResort available?
-      |       |   +-- Yes -> try gemma4:e4b -> return or throw
+      |       |   +-- Yes -> try gemma4:e2b -> return or throw
       |       |   +-- No  -> throw original error
       |       |
       +-- throw original error
@@ -366,20 +366,24 @@ When a fallback LLM is constructed, its tool surface is built by
 `computeFallbackToolFilter` in `src/hlvm/agent/agent-runner.ts`:
 
 ```text
-fallback allowlist = (fallback-tier floor) ∪ (session.discoveredDeferredTools)
+fallback allowlist =
+  (explicit requested allowlist, if present; otherwise fallback-tier floor)
+  ∪ (session.discoveredDeferredTools)
 ```
 
 Rules:
 
-- Tier cap is authoritative — the fallback never inherits the primary's
-  potentially over-scoped baseline.
-- In-turn discoveries promoted by `tool_search` survive the fallback so
-  the fallback can finish the task the primary began.
+- If the user did not specify tools, the fallback uses its own tier floor and
+  never inherits the primary's potentially over-scoped baseline.
+- If the user explicitly specified tools, that explicit allowlist is preserved
+  and discoveries are merged on top.
+- In-turn discoveries promoted by `tool_search` survive the fallback so the
+  fallback can finish the task the primary began.
 - Domain-layer additions (browser-hybrid `cu_*`) are **not** inherited.
 - User-explicit empty allowlist stays empty.
 
-Invariants pinned by six unit tests in
-`tests/unit/agent/routing.test.ts`. Full contract in
+Invariants pinned by six unit tests in `tests/unit/agent/routing.test.ts`. Full
+contract in
 [`routing.md`](./routing.md#152-computefallbacktoolfilter--the-fallback-tool-filter-contract).
 
 ---
@@ -401,7 +405,7 @@ hlvm binary
 hlvm bootstrap
   1. Download pinned Ollama -> ~/.hlvm/.runtime/engine/
   2. Start Ollama on localhost:11439
-  3. Pull gemma4:e4b (~9.6 GB) -> ~/.hlvm/.runtime/models/
+  3. Pull gemma4:e2b (~9.6 GB) -> ~/.hlvm/.runtime/models/
   4. Verify: digest prefix + size tolerance
   5. Write manifest.json { state: "verified" }
 ```
@@ -558,7 +562,7 @@ deno task test:unit
 
 ```bash
 # No hardcoded model IDs outside SSOT root
-grep -rn 'gemma4:e4b' src/ --include='*.ts' | grep -v 'bootstrap-manifest.ts' | grep -v node_modules
+grep -rn 'gemma4:e2b' src/ --include='*.ts' | grep -v 'bootstrap-manifest.ts' | grep -v node_modules
 
 # No hardcoded display strings
 grep -rn '"Gemma 4"' src/
