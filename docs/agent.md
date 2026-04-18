@@ -909,16 +909,17 @@ have not yet fixed.
 | Tool filtering (MCP → universal disallow → custom disallow → async allowlist → **parent `toolAllowlist`/`toolDenylist` intersection** → wildcard/explicit) | same |
 | `disallowedTools` + `tools` spec parsing (`"Tool"` / `"Tool(pattern)"` / `"Tool(*)"` / escaped parens) | same |
 | Worktree isolation (`.hlvm/worktrees/{slug}`, branch `worktree-{slug}`, cleanup-on-clean) | same |
-| **Sync result raw shape** — HLVM: `content: string` + single `totalTokens: number`. CC: `content: Array<{type:'text', text:string}>` + detailed `usage` object (input/output/cache/tier). | **diverge (intentional)** — HLVM ships a simplified projection; internal HLVM consumers rely on the flat-string shape. Flip to CC's block shape only if an explicit external-compatibility requirement appears. |
+| Sync result raw shape — `content: Array<{type:'text', text:string}>`, `usage` object with `input_tokens/output_tokens/cache_creation_input_tokens/cache_read_input_tokens/server_tool_use/service_tier/cache_creation` | same. HLVM populates `input_tokens`/`output_tokens` from the usage tracker; the remaining cache/server fields are `null` (HLVM's engine doesn't report cache-tier breakdown). Helper `getAgentToolResultText(result)` extracts concatenated text for internal consumers. |
 | Async result shape (`status: "async_launched"`, `agentId`, `description`, `prompt`, `outputFile`, `canReadOutputFile`) | same |
 | ONE_SHOT trailer stripping for Explore/Plan | same |
 | Error handling (wrapped into `AgentLoopResult` with `stopReason`, not thrown to parent) | same |
 | Observer event stream wire format | **diverge (intentional)** — CC: per-message JSON events; HLVM: aggregated `agent_spawn/progress/complete` events. Same semantic information available; parent LLM sees only final result in both. Matching CC would require rewriting HLVM's orchestrator around an async generator. |
 
-**Overall:** outcome-equivalent to CC on the happy path; two intentional
-divergences remain (raw result shape; observer stream format). Not a
-final CC-contract sign-off — a documented parity surface with explicit
-known deltas.
+**Overall:** outcome-equivalent to CC on the happy path; one intentional
+divergence remains (observer stream format). All three peer-review
+findings closed: parent tool-permission propagation, child-cwd env block,
+and raw sync result shape (`content: Array<TextBlock>` + structured
+`usage`).
 
 ## A.3 File inventory
 

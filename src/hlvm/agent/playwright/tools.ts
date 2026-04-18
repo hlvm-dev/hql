@@ -784,7 +784,7 @@ const pwSnapshotFn = pwTool("Snapshot failed", async (args, toolOptions) => {
   const target = await resolveOptionalPlaywrightTarget(args, toolOptions);
   const page = target?.page ?? await getOrCreatePage(toolOptions?.sessionId);
   const loc = target?.locator ?? page.locator("body");
-  const yaml = await loc.ariaSnapshot({ ref: true, timeout: 10_000 });
+  const yaml = await loc.ariaSnapshot({ mode: "ai", timeout: 10_000 });
   const refs = parsePlaywrightSnapshotRefs(yaml);
   replaceSnapshotRefs(refs, toolOptions?.sessionId);
   const truncated = yaml.length > MAX_SNAPSHOT_CHARS

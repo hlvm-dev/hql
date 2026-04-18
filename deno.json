@@ -44,7 +44,7 @@
     "ajv": "npm:ajv@^8.18.0",
     "shell-quote": "npm:shell-quote@^1.8.0",
     "diff": "npm:diff@^7",
-    "playwright-core": "npm:playwright-core@1.52.0",
+    "playwright-core": "npm:playwright-core@1",
     "signal-exit": "npm:signal-exit@4",
     "auto-bind": "npm:auto-bind@5",
     "chalk": "npm:chalk@5",

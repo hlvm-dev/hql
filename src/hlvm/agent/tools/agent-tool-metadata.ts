@@ -10,6 +10,7 @@
 import type { ToolFunction, ToolMetadata } from "../registry.ts";
 import { AGENT_TOOL_NAME, ONE_SHOT_AGENT_TYPES } from "./agent-constants.ts";
 import type { AgentAsyncResult, AgentToolResult } from "./agent-types.ts";
+import { getAgentToolResultText } from "./agent-types.ts";
 import {
   AGENT_TOOL_ARGS,
   getAgentToolFallbackDescription,
@@ -22,8 +23,9 @@ const agentToolFn: ToolFunction = async (args, workspace, options) => {
 };
 
 function formatCompletedAgentResult(result: AgentToolResult) {
-  const content = result.content.length > 0
-    ? result.content
+  const rawText = getAgentToolResultText(result);
+  const content = rawText.length > 0
+    ? rawText
     : "(Subagent completed but returned no output.)";
   if (
     ONE_SHOT_AGENT_TYPES.has(result.agentType) &&

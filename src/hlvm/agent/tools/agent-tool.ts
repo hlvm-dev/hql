@@ -30,8 +30,10 @@ import type {
   AgentToolInput,
   AgentToolOutput,
   AgentToolResult,
+  AgentToolUsage,
   BackgroundAgent,
 } from "./agent-types.ts";
+import { makeAgentTextBlocks } from "./agent-types.ts";
 import { loadAgentDefinitions } from "./agent-definitions.ts";
 import { loadMcpTools } from "../mcp/tools.ts";
 import type { McpLoadResult, McpServerConfig } from "../mcp/types.ts";
@@ -70,6 +72,22 @@ function getAgentToolRuntimeState(): AgentToolRuntimeState {
     };
   }
   return globalState.__hlvmAgentToolRuntimeState__;
+}
+
+function buildAgentToolUsage(
+  result: { promptTokens?: number; completionTokens?: number; totalTokens: number },
+): AgentToolUsage {
+  const input = result.promptTokens ?? 0;
+  const output = result.completionTokens ?? Math.max(0, result.totalTokens - input);
+  return {
+    input_tokens: input,
+    output_tokens: output,
+    cache_creation_input_tokens: null,
+    cache_read_input_tokens: null,
+    server_tool_use: null,
+    service_tier: null,
+    cache_creation: null,
+  };
 }
 
 function generateAgentId(): string {
@@ -510,10 +528,11 @@ async function runSyncAgent(opts: {
       agentId,
       agentType: result.agentType,
       prompt,
-      content: result.text,
+      content: makeAgentTextBlocks(result.text),
       totalDurationMs: result.durationMs,
       totalToolUseCount: result.toolUseCount,
       totalTokens: result.totalTokens,
+      usage: buildAgentToolUsage(result),
       ...worktreeResult,
     };
   } catch (err) {
@@ -654,10 +673,11 @@ async function runAsyncAgent(opts: {
         agentId,
         agentType: result.agentType,
         prompt,
-        content: result.text,
+        content: makeAgentTextBlocks(result.text),
         totalDurationMs: result.durationMs,
         totalToolUseCount: result.toolUseCount,
         totalTokens: result.totalTokens,
+        usage: buildAgentToolUsage(result),
       };
       const bg = getAgentToolRuntimeState().backgroundAgents.get(agentId);
       if (bg) {

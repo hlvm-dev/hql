@@ -334,7 +334,7 @@ export async function materializeBootstrap(
           browser: "chromium" as const,
           path: chromiumPath,
           hash: chromiumHash,
-          revision: "playwright-core-1.52.0",
+          revision: "playwright-core-1.59.1",
         }],
       } : {}),
       buildId: VERSION ?? "dev",

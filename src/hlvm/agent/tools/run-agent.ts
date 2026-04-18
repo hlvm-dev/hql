@@ -91,6 +91,8 @@ export interface RunAgentResult {
   toolUseCount: number;
   /** Total tokens used (input + output) */
   totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
   /** Core loop stop reason */
   stopReason?: AgentLoopResult["stopReason"];
   /** Core loop iteration count */
@@ -311,6 +313,8 @@ export async function runAgent(
     durationMs,
     toolUseCount: completedLoopResult.toolUseCount || toolUseCount,
     totalTokens: usageSnapshot.totalTokens,
+    promptTokens: usageSnapshot.totalPromptTokens,
+    completionTokens: usageSnapshot.totalCompletionTokens,
     stopReason: completedLoopResult.stopReason,
     iterations: completedLoopResult.iterations,
     transcript: transcriptLines.join("\n"),

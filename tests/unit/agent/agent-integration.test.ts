@@ -27,7 +27,21 @@ import { runAgent } from "../../../src/hlvm/agent/tools/run-agent.ts";
 import { GENERAL_PURPOSE_AGENT } from "../../../src/hlvm/agent/tools/built-in/general.ts";
 import { EXPLORE_AGENT } from "../../../src/hlvm/agent/tools/built-in/explore.ts";
 import { AGENT_MAX_TURNS } from "../../../src/hlvm/agent/tools/agent-constants.ts";
-import type { AgentToolResult } from "../../../src/hlvm/agent/tools/agent-types.ts";
+import type {
+  AgentToolResult,
+  AgentToolUsage,
+} from "../../../src/hlvm/agent/tools/agent-types.ts";
+import { getAgentToolResultText } from "../../../src/hlvm/agent/tools/agent-types.ts";
+
+const makeTestUsage = (): AgentToolUsage => ({
+  input_tokens: 0,
+  output_tokens: 0,
+  cache_creation_input_tokens: null,
+  cache_read_input_tokens: null,
+  server_tool_use: null,
+  service_tier: null,
+  cache_creation: null,
+});
 import type { LLMFunction } from "../../../src/hlvm/agent/orchestrator-llm.ts";
 import type { LLMResponse } from "../../../src/hlvm/agent/tool-call.ts";
 import type { ToolMetadata } from "../../../src/hlvm/agent/registry.ts";
@@ -525,15 +539,10 @@ Deno.test({
         },
         TEST_WORKSPACE,
         { llmFunction: mockLLM },
-      ) as {
-        status: string;
-        content: string;
-        agentType: string;
-        totalTokens: number;
-      };
+      ) as AgentToolResult;
 
       assertEquals(result.status, "completed");
-      assertStringIncludes(result.content, "auth");
+      assertStringIncludes(getAgentToolResultText(result), "auth");
       assertEquals(result.agentType, "general-purpose");
       assertEquals(typeof result.totalTokens, "number");
     } finally {
@@ -550,10 +559,11 @@ Deno.test("agent-tool: formatResult strips continuation trailer for one-shot age
     agentId: "agent-1",
     agentType: "Explore",
     prompt: "Find files.",
-    content: "Found files.",
+    content: [{ type: "text", text: "Found files." }],
     totalDurationMs: 42,
     totalToolUseCount: 2,
     totalTokens: 123,
+    usage: makeTestUsage(),
   });
 
   assertExists(formatted);
@@ -566,10 +576,11 @@ Deno.test("agent-tool: formatResult includes HLVM-safe trailer for reusable agen
     agentId: "agent-2",
     agentType: "general-purpose",
     prompt: "Do the work.",
-    content: "Did the work.",
+    content: [{ type: "text", text: "Did the work." }],
     totalDurationMs: 84,
     totalToolUseCount: 3,
     totalTokens: 456,
+    usage: makeTestUsage(),
   });
 
   assertExists(formatted);
@@ -840,12 +851,12 @@ Deno.test({
         },
         TEST_WORKSPACE,
         { llmFunction: captureLLM },
-      ) as { status: string; agentType: string; content: string };
+      ) as AgentToolResult;
 
       // Verify full chain: dispatch → resolve Explore → build prompt → run → return
       assertEquals(result.status, "completed");
       assertEquals(result.agentType, "Explore");
-      assertStringIncludes(result.content, "files");
+      assertStringIncludes(getAgentToolResultText(result), "files");
       // Verify Explore's system prompt was used (contains READ-ONLY)
       assertStringIncludes(capturedSystemPrompt, "READ-ONLY");
     } finally {
@@ -899,7 +910,10 @@ Deno.test({
         assertExists(updated);
         assertEquals(updated!.status, "completed");
         assertExists(updated!.result);
-        assertStringIncludes(updated!.result!.content, "Background work");
+        assertStringIncludes(
+          getAgentToolResultText(updated!.result!),
+          "Background work",
+        );
 
         const output = await platform.fs.readTextFile(result.outputFile);
         assertStringIncludes(output, "Background work complete.");
@@ -1036,7 +1050,7 @@ Deno.test({
         },
         testRepo,
         { llmFunction: captureLLM },
-      ) as { status: string; content: string; worktreePath?: string };
+      ) as AgentToolResult;
 
       assertEquals(result.status, "completed");
       assertEquals(capturedWorkspace, "called");
@@ -1096,7 +1110,7 @@ Deno.test({
 
       assertEquals(capturedConfigs.length, 1);
       assertEquals(capturedConfigs[0].workspace, cwdDir);
-      assertStringIncludes(result.content, "cwd-override-used");
+      assertStringIncludes(getAgentToolResultText(result), "cwd-override-used");
     } finally {
       resetAgentEngine();
       await cleanDir(cwdDir);
@@ -1223,7 +1237,7 @@ Use MCP tools only.`,
           true,
         );
         assertMatch(capturedConfigs[0].toolOwnerId ?? "", /^agent:/);
-        assertStringIncludes(result.content, "agent-mcp-loaded");
+        assertStringIncludes(getAgentToolResultText(result), "agent-mcp-loaded");
       } finally {
         resetAgentEngine();
         await cleanDir(TEST_WORKSPACE);
@@ -1498,7 +1512,7 @@ Deno.test({
 
       assertEquals(capturedConfigs.length, 1);
       assertEquals(capturedConfigs[0].model, "override-model-123");
-      assertStringIncludes(result.content, "child-override-used");
+      assertStringIncludes(getAgentToolResultText(result), "child-override-used");
     } finally {
       resetAgentEngine();
       await cleanDir(TEST_WORKSPACE);
