@@ -30,7 +30,7 @@
     "ink": "npm:ink@5",
     "esbuild": "npm:esbuild@^0.17.0",
     "esbuild-wasm": "npm:esbuild-wasm@^0.17.0",
-    "jsdom": "npm:jsdom@22.1.0",
+    "jsdom": "npm:jsdom@29",
     "@mozilla/readability": "npm:@mozilla/readability@0.5",
     "lowlight": "npm:lowlight@3",
     "marked": "npm:marked@^18",
