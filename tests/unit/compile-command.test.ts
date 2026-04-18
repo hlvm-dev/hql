@@ -42,6 +42,39 @@ async function createTempHqlFile(content: string): Promise<string> {
   return tempFile;
 }
 
+async function createBundledTsFixture(): Promise<{
+  tempDir: string;
+  tsEntry: string;
+}> {
+  const tempDir = await p.fs.makeTempDir({ prefix: "hlvm_compile_ts_test_" });
+  const libDir = p.path.join(tempDir, "lib");
+  await p.fs.mkdir(libDir, { recursive: true });
+
+  await p.fs.writeTextFile(p.path.join(libDir, "check.hql"), `
+    (import [assertEqual] from "@hlvm/assert")
+    (fn affirm [x]
+      (do
+        (assertEqual x 7 "x should be 7")
+        x))
+    (export [affirm])
+  `);
+
+  await p.fs.writeTextFile(p.path.join(libDir, "math.hql"), `
+    (import [affirm] from "./check.hql")
+    (fn add2 [x]
+      (affirm (+ x 2)))
+    (export [add2])
+  `);
+
+  const tsEntry = p.path.join(tempDir, "mod.ts");
+  await p.fs.writeTextFile(
+    tsEntry,
+    `import { add2 } from "./lib/math.hql";\nexport const seven = add2(5);\nconsole.log(seven);\n`,
+  );
+
+  return { tempDir, tsEntry };
+}
+
 Deno.test("compile --help shows usage", async () => {
   const result = await runHqlCompile(["--help"]);
 
@@ -182,5 +215,33 @@ Deno.test("compile complex HQL with TCO", async () => {
     try {
       await p.fs.remove(outputFile);
     } catch { /* ignore */ }
+  }
+});
+
+Deno.test("compile TypeScript entry with nested HQL imports and embedded packages", async () => {
+  const { tempDir, tsEntry } = await createBundledTsFixture();
+  const outputFile = p.path.join(tempDir, "bundle.js");
+
+  try {
+    const result = await runHqlCompile([tsEntry, "-o", outputFile], {
+      cwd: tempDir,
+    });
+
+    assertEquals(result.code, 0, `Compile failed: ${result.stderr}`);
+    assertStringIncludes(result.stdout, "JavaScript output");
+
+    const stat = await p.fs.stat(outputFile);
+    assertEquals(stat.isFile, true);
+
+    const runResult = await p.command.output({
+      cmd: [p.process.execPath(), "run", "-A", outputFile],
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const runOutput = new TextDecoder().decode(runResult.stdout);
+    assertStringIncludes(runOutput, "7");
+  } finally {
+    await p.fs.remove(tempDir, { recursive: true });
   }
 });

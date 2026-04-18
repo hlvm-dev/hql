@@ -95,7 +95,7 @@ function resolveWaitingLabel(
     if (item?.type !== "info") continue;
     const text = normalizeActivityText(item.text).toLowerCase();
     if (text.startsWith(CLARIFICATION_PREFIX)) {
-      return "Clarification needed";
+      return "Reply needed";
     }
   }
   return "Waiting for approval";

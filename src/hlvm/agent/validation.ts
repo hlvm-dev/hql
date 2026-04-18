@@ -52,7 +52,7 @@ export function requireNonEmptyString(
 function unwrapArgsObject(
   input: Record<string, unknown>,
 ): Record<string, unknown> {
-  const directWrapperKeys = ["parameters", "input", "args"];
+  const directWrapperKeys = ["parameters", "arguments", "input", "args"];
   for (const key of directWrapperKeys) {
     const wrapped = input[key];
     if (isToolArgsObject(wrapped)) {

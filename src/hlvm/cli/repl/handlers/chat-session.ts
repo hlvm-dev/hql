@@ -170,6 +170,7 @@ export function awaitInteractionResponse(
     mode: "permission" | "question";
     toolName?: string;
     toolArgs?: string;
+    toolInput?: unknown;
     question?: string;
     options?: InteractionOption[];
     sourceLabel?: string;
@@ -184,6 +185,7 @@ export function awaitInteractionResponse(
     mode: event.mode,
     tool_name: event.toolName,
     tool_args: event.toolArgs,
+    tool_input: event.toolInput,
     question: event.question,
     options: event.options,
     source_label: event.sourceLabel,

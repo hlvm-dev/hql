@@ -11,6 +11,7 @@ import { useSemanticColors } from "../../../theme/index.ts";
 import { formatDurationMs } from "../../utils/formatting.ts";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 import type { TurnCompletionStatus } from "../../types.ts";
+import { getCcTurnCompletionVerb } from "./cc-turn-copy.ts";
 
 /** Format a token count as a compact human-readable string (e.g. 1.2k, 3.4M). */
 function formatTokens(count: number): string {
@@ -20,6 +21,7 @@ function formatTokens(count: number): string {
 }
 
 interface TurnStatsProps {
+  id: string;
   toolCount: number;
   durationMs: number;
   width: number;
@@ -36,6 +38,7 @@ interface TurnStatsProps {
 
 export const TurnStats = React.memo(function TurnStats(
   {
+    id,
     toolCount,
     durationMs,
     inputTokens,
@@ -50,7 +53,10 @@ export const TurnStats = React.memo(function TurnStats(
 ): React.ReactElement {
   const sc = useSemanticColors();
   const duration = formatDurationMs(durationMs);
-  const contentWidth = Math.max(10, width - TRANSCRIPT_LAYOUT.detailIndent);
+  const completionVerb = React.useMemo(
+    () => getCcTurnCompletionVerb(`${id}:${status}:${durationMs}`),
+    [durationMs, id, status],
+  );
 
   const metricParts: string[] = [];
   if (toolCount > 0) {
@@ -77,44 +83,32 @@ export const TurnStats = React.memo(function TurnStats(
     );
   }
   const primaryLabel = status === "completed"
-    ? `✻ Completed in ${duration}`
+    ? `${completionVerb} for ${duration}`
     : status === "cancelled"
-    ? `! Cancelled after ${duration}`
-    : `✗ Failed after ${duration}`;
+    ? `Cancelled after ${duration}`
+    : `Failed after ${duration}`;
   const primaryColor = status === "completed"
-    ? sc.status.success
+    ? sc.text.muted
     : status === "cancelled"
     ? sc.status.warning
     : sc.status.error;
+  const prefix = status === "completed"
+    ? "✻"
+    : status === "cancelled"
+    ? "!"
+    : "✗";
+  const line = `${prefix} ${primaryLabel}${
+    metricParts.length > 0 ? ` · ${metricParts.join(" · ")}` : ""
+  }`;
 
   return (
     <Box
-      flexDirection="column"
       marginTop={0}
       marginBottom={0}
       paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
       width={width}
     >
-      <Box width={contentWidth} justifyContent="space-between">
-        <Text color={primaryColor}>{primaryLabel}</Text>
-        {metricParts.length > 0 && (
-          <Text color={sc.text.muted}>{metricParts.join(" · ")}</Text>
-        )}
-      </Box>
-      {summary && (
-        <Box marginTop={0}>
-          <Text color={sc.text.secondary}>{summary}</Text>
-        </Box>
-      )}
-      {activityTrail && activityTrail.length > 0 && (
-        <Box marginTop={0} flexDirection="column">
-          {activityTrail.map((label) => (
-            <Box key={label}>
-              <Text color={sc.text.muted}>{`· ${label}`}</Text>
-            </Box>
-          ))}
-        </Box>
-      )}
+      <Text color={primaryColor} wrap="truncate-end">{line}</Text>
     </Box>
   );
 });

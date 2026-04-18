@@ -306,10 +306,10 @@ export function buildSemanticColors(palette: ThemePalette): SemanticColors {
     },
     syntax: {
       keyword: palette.accent,
-      string: palette.success,
+      string: palette.secondary,
       number: palette.warning,
       comment: palette.muted,
-      function: palette.text,
+      function: palette.primary,
       operator: palette.text,
       default: palette.text,
     },

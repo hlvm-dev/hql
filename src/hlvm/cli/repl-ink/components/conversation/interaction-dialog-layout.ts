@@ -4,11 +4,11 @@ import { isObjectValue } from "../../../../../common/utils.ts";
 
 const CONFIRMATION_DIALOG_MAX_ARG_LINES = 10;
 const PLAN_REVIEW_MAX_STEPS = 6;
-export const QUESTION_DIALOG_HINT = "Type your answer below, then press Enter";
+export const QUESTION_DIALOG_HINT = "Type your reply below, then press Enter";
 export const QUESTION_PICKER_HINT =
-  "Use arrows or 1-9 to choose · Tab add notes · Enter submit · Esc cancel";
+  "Esc to cancel · Tab to amend";
 export const PLAN_REVIEW_PICKER_HINT =
-  "Use arrows or 1-9 to choose · Tab add notes · Enter submit · Esc cancel";
+  "Esc to cancel · Tab to amend";
 
 interface PlanReviewDialogDisplay {
   plan: Plan;
@@ -31,6 +31,10 @@ interface QuestionDialogDisplay {
 interface ConfirmationDialogDisplay {
   isPlanReview: boolean;
   planReview?: PlanReviewDialogDisplay;
+  requestKind: "generic" | "shell" | "url";
+  focusText?: string;
+  supportText?: string;
+  warningText?: string;
   visibleArgLines: string[];
   hiddenArgLines: number;
 }
@@ -132,9 +136,103 @@ export function isPickerInteractionRequest(
   return getQuestionDialogDisplay(request.question, request.options).usesPicker;
 }
 
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  return isObjectValue(value) ? value : undefined;
+}
+
+function normalizeDisplayString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function extractStructuredToolArgs(toolArgs?: string): unknown {
+  if (!toolArgs) return undefined;
+  const jsonStart = toolArgs.search(/[{\[]/);
+  if (jsonStart < 0) return undefined;
+  try {
+    return JSON.parse(toolArgs.slice(jsonStart));
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveConfirmationArgsRecord(
+  toolInput: unknown,
+  toolArgs?: string,
+): Record<string, unknown> | undefined {
+  return toRecord(toolInput) ?? toRecord(extractStructuredToolArgs(toolArgs));
+}
+
+function extractPermissionWarning(toolArgs?: string): string | undefined {
+  if (!toolArgs) return undefined;
+  const jsonStart = toolArgs.search(/[{\[]/);
+  if (jsonStart <= 0) return undefined;
+  const warningText = toolArgs.slice(0, jsonStart).trim();
+  return warningText.length > 0 ? warningText : undefined;
+}
+
+function extractFirstUrlFromArgs(toolArgs?: string): string | undefined {
+  if (!toolArgs) return undefined;
+  const match = toolArgs.match(/https?:\/\/[^\s"'}\]]+/);
+  if (!match?.[0]) return undefined;
+  try {
+    return new URL(match[0]).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function isWebFetchPermissionTool(normalizedToolName?: string): boolean {
+  return normalizedToolName === "web_fetch" || normalizedToolName === "fetch_url" ||
+    normalizedToolName === "fetch";
+}
+
+function isBrowserPermissionTool(normalizedToolName?: string): boolean {
+  return normalizedToolName?.startsWith("pw_") === true ||
+    normalizedToolName?.includes("browser") === true;
+}
+
+function buildUrlPermissionSupportText(
+  normalizedToolName: string | undefined,
+  permissionUrl: string,
+): string | undefined {
+  let hostname: string | undefined;
+  try {
+    hostname = new URL(permissionUrl).hostname;
+  } catch {
+    hostname = undefined;
+  }
+
+  if (isWebFetchPermissionTool(normalizedToolName)) {
+    return hostname
+      ? `HLVM wants to fetch content from ${hostname}.`
+      : "HLVM wants to fetch this content.";
+  }
+  if (isBrowserPermissionTool(normalizedToolName)) {
+    return hostname
+      ? `HLVM wants to open ${hostname} in the browser.`
+      : "HLVM wants to open this page in the browser.";
+  }
+  return undefined;
+}
+
+function buildPrettyArgLines(toolArgs: unknown): string[] {
+  if (toolArgs == null) return [];
+  if (typeof toolArgs === "string") {
+    return toolArgs.split("\n");
+  }
+  try {
+    return JSON.stringify(toolArgs, null, 2).split("\n");
+  } catch {
+    return [String(toolArgs)];
+  }
+}
+
 export function getConfirmationDialogDisplay(
   toolName?: string,
   toolArgs?: string,
+  toolInput?: unknown,
 ): ConfirmationDialogDisplay {
   const isPlanReview = toolName === "plan_review";
   const parsedPlanReview = parsePlanReviewToolArgs(toolName, toolArgs);
@@ -146,6 +244,7 @@ export function getConfirmationDialogDisplay(
     ].slice(0, 4);
     return {
       isPlanReview,
+      requestKind: "generic",
       planReview: {
         plan: parsedPlanReview,
         visibleSteps: parsedPlanReview.steps.slice(0, PLAN_REVIEW_MAX_STEPS),
@@ -159,28 +258,82 @@ export function getConfirmationDialogDisplay(
       hiddenArgLines: 0,
     };
   }
-  if (!toolArgs) {
+  const normalizedToolName = toolName?.trim().toLowerCase();
+  const argsRecord = resolveConfirmationArgsRecord(toolInput, toolArgs);
+  const warningText = extractPermissionWarning(toolArgs);
+
+  const shellCommand = normalizeDisplayString(
+    argsRecord?.command ?? argsRecord?.script ?? argsRecord?.code,
+  );
+  if (
+    shellCommand &&
+    (
+      normalizedToolName?.includes("shell") ||
+      normalizedToolName?.includes("bash") ||
+      normalizedToolName?.includes("command")
+    )
+  ) {
+    const shellLines = [
+      normalizeDisplayString(argsRecord?.cwd)
+        ? `cwd: ${normalizeDisplayString(argsRecord?.cwd)}`
+        : undefined,
+      typeof argsRecord?.detach === "boolean"
+        ? `detach: ${argsRecord.detach ? "true" : "false"}`
+        : undefined,
+      normalizeDisplayString(argsRecord?.interpreter)
+        ? `interpreter: ${normalizeDisplayString(argsRecord?.interpreter)}`
+        : undefined,
+      normalizeDisplayString(argsRecord?.language)
+        ? `language: ${normalizeDisplayString(argsRecord?.language)}`
+        : undefined,
+    ].filter((line): line is string => Boolean(line));
     return {
       isPlanReview,
+      requestKind: "shell",
+      focusText: shellCommand,
+      warningText,
+      visibleArgLines: shellLines.slice(0, CONFIRMATION_DIALOG_MAX_ARG_LINES),
+      hiddenArgLines: Math.max(
+        0,
+        shellLines.length - CONFIRMATION_DIALOG_MAX_ARG_LINES,
+      ),
+    };
+  }
+
+  const permissionUrl = normalizeDisplayString(argsRecord?.url) ??
+    extractFirstUrlFromArgs(toolArgs);
+  if (
+    permissionUrl &&
+    (
+      isWebFetchPermissionTool(normalizedToolName) ||
+      isBrowserPermissionTool(normalizedToolName)
+    )
+  ) {
+    return {
+      isPlanReview,
+      requestKind: "url",
+      focusText: permissionUrl,
+      supportText: buildUrlPermissionSupportText(
+        normalizedToolName,
+        permissionUrl,
+      ),
+      warningText,
       visibleArgLines: [],
       hiddenArgLines: 0,
     };
   }
 
-  const parsedArgs = (() => {
-    try {
-      return JSON.stringify(JSON.parse(toolArgs), null, 2).split("\n");
-    } catch {
-      return toolArgs.split("\n");
-    }
-  })();
-
+  const parsedArgs = buildPrettyArgLines(
+    argsRecord ?? toolArgs,
+  );
   const visibleArgLines = parsedArgs.slice(
     0,
     CONFIRMATION_DIALOG_MAX_ARG_LINES,
   );
   return {
     isPlanReview,
+    requestKind: "generic",
+    warningText,
     visibleArgLines,
     hiddenArgLines: Math.max(0, parsedArgs.length - visibleArgLines.length),
   };
@@ -189,13 +342,14 @@ export function getConfirmationDialogDisplay(
 function estimateConfirmationDialogRows(
   toolName: string | undefined,
   toolArgs: string | undefined,
+  toolInput: unknown,
   width: number,
 ): number {
   const contentWidth = Math.max(18, width - 6);
-  const dialog = getConfirmationDialogDisplay(toolName, toolArgs);
+  const dialog = getConfirmationDialogDisplay(toolName, toolArgs, toolInput);
   let rows = 2; // header + bottom actions
 
-  if (toolName) {
+  if (toolName && dialog.requestKind === "generic") {
     rows += 1;
   }
 
@@ -224,6 +378,19 @@ function estimateConfirmationDialogRows(
       );
     }
     return rows + 2; // border + spacing
+  }
+
+  if (dialog.warningText) {
+    rows += estimateWrappedTextRows(dialog.warningText, contentWidth);
+  }
+
+  if (dialog.focusText) {
+    rows += 1;
+    rows += estimateWrappedTextRows(dialog.focusText, contentWidth);
+  }
+
+  if (dialog.supportText) {
+    rows += estimateWrappedTextRows(dialog.supportText, contentWidth);
   }
 
   if (dialog.visibleArgLines.length > 0) {
@@ -290,6 +457,7 @@ export function estimateInteractionDialogRows(
   const confirmationRows = estimateConfirmationDialogRows(
     request.toolName,
     request.toolArgs,
+    request.toolInput,
     width,
   );
   return confirmationRows + 6;

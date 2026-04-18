@@ -18,16 +18,79 @@ import {
   type InteractionPickerOption,
 } from "./InteractionPicker.tsx";
 import type { InteractionResponse } from "../../../../agent/registry.ts";
-import { ShortcutHint } from "../ShortcutHint.tsx";
 import {
   splitArgKeyValue,
 } from "./conversation-chrome.ts";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
+import { PermissionDialogFrame } from "./PermissionDialogFrame.tsx";
+
+function isWebFetchTool(toolName?: string): boolean {
+  const normalized = toolName?.trim().toLowerCase();
+  return normalized === "web_fetch" || normalized === "fetch_url" ||
+    normalized === "fetch";
+}
+
+function isBrowserTool(toolName?: string): boolean {
+  const normalized = toolName?.trim().toLowerCase();
+  return normalized?.startsWith("pw_") === true ||
+    normalized?.includes("browser") === true;
+}
+
+function isShellTool(toolName?: string): boolean {
+  const normalized = toolName?.trim().toLowerCase();
+  return normalized?.includes("shell") === true ||
+    normalized?.includes("bash") === true ||
+    normalized?.includes("command") === true;
+}
+
+function extractHostname(url?: string): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolvePermissionTitle(toolName?: string): string {
+  const normalized = toolName?.trim().toLowerCase();
+  if (!normalized) return "Permission";
+  if (isWebFetchTool(normalized)) return "Fetch";
+  if (isShellTool(normalized)) return "Bash";
+  if (
+    normalized.includes("write") || normalized.includes("edit") ||
+    normalized.includes("patch")
+  ) {
+    return "Edit";
+  }
+  if (normalized.startsWith("pw_") || normalized.includes("browser")) {
+    return "Browser";
+  }
+  return normalized.replace(/_/g, " ").replace(/\b\w/g, (char) =>
+    char.toUpperCase()
+  );
+}
+
+function resolvePermissionQuestion(
+  toolName?: string,
+): string {
+  if (isWebFetchTool(toolName)) {
+    return "Do you want to allow HLVM to fetch this content?";
+  }
+  if (isBrowserTool(toolName)) {
+    return "Do you want to allow HLVM to open this page?";
+  }
+  if (isShellTool(toolName)) {
+    return "Do you want to proceed?";
+  }
+  return "Do you want to allow HLVM to continue with this action?";
+}
 
 interface ConfirmationDialogProps {
   requestId?: string;
   toolName?: string;
   toolArgs?: string;
+  toolInput?: unknown;
   sourceLabel?: string;
   onResolve?: (requestId: string, response: InteractionResponse) => void;
 }
@@ -38,13 +101,152 @@ export const ConfirmationDialog = React.memo(
       requestId,
       toolName,
       toolArgs,
+      toolInput,
       sourceLabel,
       onResolve,
     }: ConfirmationDialogProps,
   ): React.ReactElement {
     const sc = useSemanticColors();
-    const dialog = getConfirmationDialogDisplay(toolName, toolArgs);
+    const dialog = getConfirmationDialogDisplay(toolName, toolArgs, toolInput);
     const { isPlanReview, visibleArgLines, hiddenArgLines } = dialog;
+    const permissionUrl = dialog.requestKind === "url"
+      ? dialog.focusText
+      : undefined;
+    const permissionHostname = extractHostname(permissionUrl);
+    const canRememberChoice = isWebFetchTool(toolName) && permissionHostname;
+    const permissionTitle = resolvePermissionTitle(toolName);
+    const permissionQuestion = resolvePermissionQuestion(toolName);
+    const isUrlPermission = dialog.requestKind === "url";
+    const permissionSubtitle = isUrlPermission ? undefined : permissionUrl;
+    const requestSectionLabel = dialog.requestKind === "shell"
+      ? "Context"
+      : "Request";
+
+    const renderRequestLines = (): React.ReactNode => {
+      if (visibleArgLines.length === 0) return null;
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color={sc.text.secondary}>{requestSectionLabel}</Text>
+          <Box
+            paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
+            flexDirection="column"
+          >
+            {visibleArgLines.map((line: string, i: number) => {
+              const kv = splitArgKeyValue(line);
+              if (kv) {
+                return (
+                  <Box key={i}>
+                    <Text color={sc.text.secondary} wrap="truncate-end">
+                      {kv.key}
+                      {kv.separator}
+                    </Text>
+                    <Text color={sc.text.muted} wrap="truncate-end">
+                      {kv.value}
+                    </Text>
+                  </Box>
+                );
+              }
+              return (
+                <React.Fragment key={i}>
+                  <Text color={sc.text.muted} wrap="truncate-end">
+                    {line}
+                  </Text>
+                </React.Fragment>
+              );
+            })}
+            {hiddenArgLines > 0 && (
+              <Text color={sc.text.muted}>
+                … {hiddenArgLines} more line{hiddenArgLines === 1 ? "" : "s"}
+              </Text>
+            )}
+          </Box>
+        </Box>
+      );
+    };
+
+    const renderPermissionBody = (): React.ReactNode => {
+      if (dialog.planReview) {
+        return (
+          <>
+            <Text color={sc.text.primary} wrap="wrap">
+              {dialog.planReview.plan.goal}
+            </Text>
+            <Box marginTop={1} flexDirection="column">
+              <Text color={sc.text.secondary}>Implementation steps</Text>
+              {dialog.planReview.visibleSteps.map((step, index) => (
+                <React.Fragment key={step.id}>
+                  <Text color={sc.text.primary} wrap="wrap">
+                    {" "}
+                    {index + 1}. {step.title}
+                  </Text>
+                </React.Fragment>
+              ))}
+              {dialog.planReview.hiddenStepCount > 0 && (
+                <Text color={sc.text.muted}>
+                  ... {dialog.planReview.hiddenStepCount} more step
+                  {dialog.planReview.hiddenStepCount === 1 ? "" : "s"}
+                </Text>
+              )}
+            </Box>
+            {dialog.planReview.verificationLines.length > 0 && (
+              <Box marginTop={1} flexDirection="column">
+                <Text color={sc.text.secondary}>Verification</Text>
+                {dialog.planReview.verificationLines.map((line) => (
+                  <React.Fragment key={line}>
+                    <Text color={sc.text.muted} wrap="wrap">
+                      {" "}
+                      • {line}
+                    </Text>
+                  </React.Fragment>
+                ))}
+              </Box>
+            )}
+          </>
+        );
+      }
+
+      return (
+        <>
+          {dialog.warningText && (
+            <Text color={sc.status.warning} wrap="wrap">
+              {dialog.warningText}
+            </Text>
+          )}
+          {dialog.requestKind === "url" && dialog.focusText && (
+            <Box
+              flexDirection="column"
+              marginTop={dialog.warningText ? 1 : 0}
+              paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
+            >
+              <Text color={sc.text.primary} wrap="wrap">
+                {dialog.focusText}
+              </Text>
+              {dialog.supportText && (
+                <Text color={sc.text.muted} wrap="wrap">
+                  {dialog.supportText}
+                </Text>
+              )}
+            </Box>
+          )}
+          {dialog.requestKind === "shell" && dialog.focusText && (
+            <Box flexDirection="column" marginTop={dialog.warningText ? 1 : 0}>
+              <Text color={sc.text.secondary}>Command</Text>
+              <Box paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}>
+                <Text color={sc.text.primary} bold wrap="wrap">
+                  {dialog.focusText}
+                </Text>
+              </Box>
+            </Box>
+          )}
+          <Box marginTop={1}>
+            <Text color={sc.text.primary} wrap="wrap">
+              {permissionQuestion}
+            </Text>
+          </Box>
+          {!isUrlPermission && renderRequestLines()}
+        </>
+      );
+    };
 
     const buildPermissionOptions = (): InteractionPickerOption[] => {
       if (isPlanReview) {
@@ -68,28 +270,34 @@ export const ConfirmationDialog = React.memo(
           },
         ];
       }
-      return [
+      const options: InteractionPickerOption[] = [
         {
-          label: "Approve and continue",
+          label: "Yes",
           value: "approve",
-          detail: "Allow this action and keep the current task moving.",
           recommended: true,
         },
-        {
-          label: "Reject",
-          value: "reject",
-          detail: "Decline the action. Add notes to steer the next attempt.",
-        },
       ];
+      if (canRememberChoice) {
+        options.push({
+          label: `Yes, and don't ask again for ${permissionHostname}`,
+          value: "approve:remember",
+        });
+      }
+      options.push(
+        {
+          label: isUrlPermission
+            ? "No, and tell HLVM what to do differently (esc)"
+            : "No",
+          value: "reject",
+        },
+      );
+      return options;
     };
 
     if (requestId && onResolve) {
       const options = buildPermissionOptions();
       const hintContent = (
-        <Text color={sc.text.muted}>
-          <ShortcutHint bindingId="tab" label="notes" />
-          <Text color={sc.text.muted}> · Use arrows or 1-9 below · Enter submit · Esc cancel</Text>
-        </Text>
+        <Text color={sc.text.muted}>Esc to cancel · Tab to amend</Text>
       );
       const resolvePermission = (
         option: InteractionPickerOption,
@@ -114,6 +322,14 @@ export const ConfirmationDialog = React.memo(
           });
           return;
         }
+        if (option.value === "approve:remember") {
+          onResolve(requestId, {
+            approved: true,
+            rememberChoice: true,
+            userInput: trimmedNotes,
+          });
+          return;
+        }
         if (option.value === "approve") {
           onResolve(requestId, {
             approved: true,
@@ -127,21 +343,23 @@ export const ConfirmationDialog = React.memo(
         });
       };
 
-      return (
+      const picker = (
         <InteractionPicker
-          title={isPlanReview ? "Ready to start implementation?" : "Permission required"}
+          title={isPlanReview ? "Ready to start implementation?" : ""}
           subtitle={!isPlanReview
-            ? "Review the requested action and decide what the agent should do next."
+            ? undefined
             : undefined}
           options={options}
-          hint={PLAN_REVIEW_PICKER_HINT}
+          hint={isPlanReview
+            ? PLAN_REVIEW_PICKER_HINT
+            : "Use arrows or 1-9 to choose · Tab add guidance · Enter submit · Esc cancel"}
           hintContent={hintContent}
-          tone="warning"
+          tone={isPlanReview ? "warning" : "active"}
           allowNotes
           notesLabel={isPlanReview ? "Revision notes" : "Guidance"}
           notesPlaceholder={isPlanReview
             ? "Tell the agent what to revise..."
-            : "Tell the agent what to do differently..."}
+            : "Tell HLVM what to do differently..."}
           notesEmptyText={isPlanReview
             ? "Press Tab to add revision notes."
             : "Press Tab to add guidance."}
@@ -149,7 +367,7 @@ export const ConfirmationDialog = React.memo(
           onCancel={() => onResolve(requestId, { approved: false })}
         >
           <Box flexDirection="column">
-            {sourceLabel && !isPlanReview && (
+            {sourceLabel && !isPlanReview && !permissionUrl && (
               <Box marginBottom={1}>
                 <Text color={sc.text.secondary}>From: </Text>
                 <Text color={sc.text.primary} bold>
@@ -157,97 +375,33 @@ export const ConfirmationDialog = React.memo(
                 </Text>
               </Box>
             )}
-            <Text color={sc.text.secondary}>
-              {isPlanReview ? "Overview" : "Request"}
-            </Text>
-            {toolName && !isPlanReview && (
+            {isPlanReview && (
+              <Text color={sc.text.secondary}>Overview</Text>
+            )}
+            {toolName && !isPlanReview && dialog.requestKind === "generic" && (
               <Text color={sc.text.primary} bold>{toolName}</Text>
             )}
-            <Text color={sc.text.primary} wrap="wrap">
-              {dialog.planReview?.plan.goal ?? "Review the tool request below."}
-            </Text>
-            {dialog.planReview
-              ? (
-                <>
-                  <Box marginTop={1} flexDirection="column">
-                    <Text color={sc.text.secondary}>Implementation steps</Text>
-                    {dialog.planReview.visibleSteps.map((step, index) => (
-                      <React.Fragment key={step.id}>
-                        <Text color={sc.text.primary} wrap="wrap">
-                          {" "}
-                          {index + 1}. {step.title}
-                        </Text>
-                      </React.Fragment>
-                    ))}
-                    {dialog.planReview.hiddenStepCount > 0 && (
-                      <Text color={sc.text.muted}>
-                        ... {dialog.planReview.hiddenStepCount} more step
-                        {dialog.planReview.hiddenStepCount === 1 ? "" : "s"}
-                      </Text>
-                    )}
-                  </Box>
-                  {dialog.planReview.verificationLines.length > 0 && (
-                    <Box marginTop={1} flexDirection="column">
-                      <Text color={sc.text.secondary}>Verification</Text>
-                      {dialog.planReview.verificationLines.map((line) => (
-                        <React.Fragment key={line}>
-                          <Text color={sc.text.muted} wrap="wrap">
-                            {" "}
-                            • {line}
-                          </Text>
-                        </React.Fragment>
-                      ))}
-                    </Box>
-                  )}
-                </>
-              )
-              : visibleArgLines.length > 0 && (
-                <Box flexDirection="column" marginTop={1}>
-                  <Text color={sc.text.secondary}>Args</Text>
-                  <Box
-                    paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
-                    flexDirection="column"
-                  >
-                    {visibleArgLines.map((line: string, i: number) => {
-                      const kv = splitArgKeyValue(line);
-                      if (kv) {
-                        return (
-                          <Box key={i}>
-                            <Text color={sc.text.secondary} wrap="truncate-end">
-                              {kv.key}
-                              {kv.separator}
-                            </Text>
-                            <Text color={sc.text.muted} wrap="truncate-end">
-                              {kv.value}
-                            </Text>
-                          </Box>
-                        );
-                      }
-                      return (
-                        <React.Fragment key={i}>
-                          <Text color={sc.text.muted} wrap="truncate-end">
-                            {line}
-                          </Text>
-                        </React.Fragment>
-                      );
-                    })}
-                    {hiddenArgLines > 0 && (
-                      <Text color={sc.text.muted}>
-                        … {hiddenArgLines} more line{hiddenArgLines === 1 ? "" : "s"}
-                      </Text>
-                    )}
-                  </Box>
-                </Box>
-              )}
+            {renderPermissionBody()}
           </Box>
         </InteractionPicker>
       );
+
+      return isPlanReview
+        ? picker
+        : (
+          <PermissionDialogFrame
+            title={permissionTitle}
+            subtitle={permissionSubtitle}
+          >
+            {picker}
+          </PermissionDialogFrame>
+        );
     }
 
-    return (
+    const content = (
       <Box flexDirection="column">
         <Text color={isPlanReview ? sc.text.primary : sc.status.warning} bold>
-          {isPlanReview ? "Ready to code?" : "Permission required"}
+          {isPlanReview ? "Ready to code?" : permissionTitle}
         </Text>
         {sourceLabel && (
           <Box marginTop={0}>
@@ -260,7 +414,7 @@ export const ConfirmationDialog = React.memo(
         {isPlanReview && (
           <Text color={sc.text.secondary}>Review before proceeding.</Text>
         )}
-        {toolName && !isPlanReview && (
+        {toolName && !isPlanReview && dialog.requestKind === "generic" && (
           <Box marginTop={0}>
             <Text color={sc.text.secondary}>Tool:</Text>
             <Text color={sc.text.primary} bold>
@@ -268,87 +422,9 @@ export const ConfirmationDialog = React.memo(
             </Text>
           </Box>
         )}
-        {dialog.planReview && (
-          <Box flexDirection="column" marginTop={1}>
-            <Text color={sc.text.primary} wrap="wrap">
-              {dialog.planReview.plan.goal}
-            </Text>
-            <Text color={sc.text.secondary}>Steps</Text>
-            <Box
-              paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
-              flexDirection="column"
-            >
-              {dialog.planReview.visibleSteps.map((step) => (
-                <React.Fragment key={step.id}>
-                  <Text color={sc.text.primary} wrap="truncate-end">
-                    [ ] {step.title}
-                  </Text>
-                </React.Fragment>
-              ))}
-              {dialog.planReview.hiddenStepCount > 0 && (
-                <Text color={sc.text.muted}>
-                  … {dialog.planReview.hiddenStepCount} more step
-                  {dialog.planReview.hiddenStepCount === 1 ? "" : "s"}
-                </Text>
-              )}
-            </Box>
-            {dialog.planReview.verificationLines.length > 0 && (
-              <>
-                <Text color={sc.text.secondary}>Verification</Text>
-                <Box
-                  paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
-                  flexDirection="column"
-                >
-                  {dialog.planReview.verificationLines.map((line) => (
-                    <React.Fragment key={line}>
-                      <Text color={sc.text.muted} wrap="truncate-end">
-                        • {line}
-                      </Text>
-                    </React.Fragment>
-                  ))}
-                </Box>
-              </>
-            )}
-          </Box>
-        )}
-        {!dialog.planReview && visibleArgLines.length > 0 && (
-          <Box flexDirection="column" marginTop={0}>
-            <Text color={sc.text.secondary}>{isPlanReview ? "Plan" : "Args"}</Text>
-            <Box
-              paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}
-              flexDirection="column"
-            >
-              {visibleArgLines.map((line: string, i: number) => {
-                const kv = splitArgKeyValue(line);
-                if (kv) {
-                  return (
-                    <Box key={i}>
-                      <Text color={sc.text.secondary} wrap="truncate-end">
-                        {kv.key}
-                        {kv.separator}
-                      </Text>
-                      <Text color={sc.text.muted} wrap="truncate-end">
-                        {kv.value}
-                      </Text>
-                    </Box>
-                  );
-                }
-                return (
-                  <React.Fragment key={i}>
-                    <Text color={sc.text.muted} wrap="truncate-end">
-                      {line}
-                    </Text>
-                  </React.Fragment>
-                );
-              })}
-              {hiddenArgLines > 0 && (
-                <Text color={sc.text.muted}>
-                  … {hiddenArgLines} more line{hiddenArgLines === 1 ? "" : "s"}
-                </Text>
-              )}
-            </Box>
-          </Box>
-        )}
+        <Box marginTop={1} flexDirection="column">
+          {renderPermissionBody()}
+        </Box>
         <Box marginTop={1}>
           <Text color={sc.status.success} bold>Enter</Text>
           <Text color={sc.text.muted}>
@@ -373,5 +449,16 @@ export const ConfirmationDialog = React.memo(
         </Box>
       </Box>
     );
+
+    return isPlanReview
+      ? content
+      : (
+        <PermissionDialogFrame
+          title={permissionTitle}
+          subtitle={permissionSubtitle}
+        >
+          {content}
+        </PermissionDialogFrame>
+      );
   },
 );

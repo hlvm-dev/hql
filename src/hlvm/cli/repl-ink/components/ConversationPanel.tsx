@@ -623,6 +623,7 @@ export const ConversationPanel = React.memo(function ConversationPanel({
               requestId={interactionRequest.requestId}
               toolName={interactionRequest.toolName}
               toolArgs={interactionRequest.toolArgs}
+              toolInput={interactionRequest.toolInput}
               sourceLabel={interactionRequest.sourceLabel}
               onResolve={onInteractionResponse}
             />
@@ -632,6 +633,7 @@ export const ConversationPanel = React.memo(function ConversationPanel({
               requestId={interactionRequest.requestId}
               question={interactionRequest.question}
               options={interactionRequest.options}
+              sourceLabel={interactionRequest.sourceLabel}
               onResolve={onInteractionResponse}
               onInterrupt={onQuestionInterrupt}
             />

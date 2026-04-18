@@ -174,7 +174,28 @@ export interface BackgroundAgent {
   promise: Promise<AgentToolResult>;
   result?: AgentToolResult;
   error?: string;
+  toolUseCount?: number;
+  tokenCount?: number;
+  lastToolInfo?: string;
+  transcriptTail?: string[];
   abortController: AbortController;
+  cancelled?: boolean;
+  onAgentEvent?: (event: unknown) => void;
+}
+
+export interface BackgroundAgentSnapshot {
+  agentId: string;
+  agentType: string;
+  description: string;
+  status: BackgroundAgent["status"];
+  cancelled?: boolean;
+  durationMs: number;
+  toolUseCount?: number;
+  tokenCount?: number;
+  lastToolInfo?: string;
+  previewLines: string[];
+  resultPreview?: string;
+  error?: string;
 }
 
 // ============================================================

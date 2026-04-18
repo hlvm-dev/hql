@@ -92,7 +92,10 @@ Deno.test('"array of objects with fields: ..." → array of inline object schema
         type: "object",
         properties: {
           text: { type: "string" },
-          sentiment: { type: "string", enum: ["positive", "negative", "neutral"] },
+          sentiment: {
+            type: "string",
+            enum: ["positive", "negative", "neutral"],
+          },
         },
         required: ["text", "sentiment"],
         additionalProperties: false,
@@ -107,7 +110,10 @@ Deno.test('"array of objects with fields: ..." → array of inline object schema
 
 Deno.test("nested objects", () => {
   assertEquals(
-    descriptorToJsonSchema({ city: "string", coords: { lat: "number", lng: "number" } }),
+    descriptorToJsonSchema({
+      city: "string",
+      coords: { lat: "number", lng: "number" },
+    }),
     {
       type: "object",
       properties: {
@@ -153,4 +159,25 @@ Deno.test("complex schema (RPG character)", () => {
   assertEquals(props.level, { type: "number" });
   assertEquals((props.stats as Record<string, unknown>).type, "object");
   assertEquals((props.inventory as Record<string, unknown>).type, "array");
+});
+
+Deno.test("passes through direct JSON Schema object roots unchanged", () => {
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      sentiment: {
+        type: "string",
+        enum: ["positive", "negative", "neutral"],
+      },
+      confidence: {
+        type: "number",
+        minimum: 0,
+        maximum: 1,
+      },
+    },
+    required: ["sentiment", "confidence"],
+  };
+
+  assertEquals(descriptorToJsonSchema(schema), schema);
 });

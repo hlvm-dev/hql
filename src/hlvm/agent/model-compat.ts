@@ -10,6 +10,7 @@
 
 import { PLAN_END, PLAN_START } from "./planning.ts";
 import { analyzeAssistantResponse } from "./response-analysis.ts";
+import { normalizeToolArgs } from "./validation.ts";
 
 // Pre-compiled regexes — hoisted to module level to avoid recompilation per call
 const RE_TOOL_CALL_JSON =
@@ -63,7 +64,7 @@ export function parseToolCallTextEnvelope(
     }
     return {
       toolName,
-      args: parsed as Record<string, unknown>,
+      args: normalizeToolArgs(parsed),
     };
   } catch {
     return null;

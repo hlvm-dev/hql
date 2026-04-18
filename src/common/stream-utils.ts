@@ -100,6 +100,7 @@ export async function readProcessStream(
   stream: unknown,
   signal?: AbortSignal,
   maxBytes: number = MAX_STREAM_BYTES,
+  onChunk?: (chunk: Uint8Array) => void,
 ): Promise<Uint8Array> {
   if (
     !stream ||
@@ -133,7 +134,14 @@ export async function readProcessStream(
         if (totalBytes > maxBytes) {
           const overshoot = totalBytes - maxBytes;
           const trimmed = value.slice(0, value.length - overshoot);
-          if (trimmed.length > 0) chunks.push(trimmed);
+          if (trimmed.length > 0) {
+            chunks.push(trimmed);
+            try {
+              onChunk?.(trimmed);
+            } catch {
+              // Progress callbacks must not break stream collection.
+            }
+          }
           // Drain remaining stream to avoid broken pipe
           try {
             while (true) {
@@ -146,6 +154,11 @@ export async function readProcessStream(
           break;
         }
         chunks.push(value);
+        try {
+          onChunk?.(value);
+        } catch {
+          // Progress callbacks must not break stream collection.
+        }
       }
     }
   } finally {

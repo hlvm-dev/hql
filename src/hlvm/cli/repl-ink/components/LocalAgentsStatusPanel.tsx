@@ -2,13 +2,19 @@ import React from "react";
 import { Box, Text } from "ink";
 import { truncate } from "../../../../common/utils.ts";
 import { useSemanticColors } from "../../theme/index.ts";
+import { useConversationSpinnerFrame } from "../hooks/useConversationMotion.ts";
 import { formatDurationMs } from "../utils/formatting.ts";
 import { type LocalAgentEntry, statusPriority } from "../utils/local-agents.ts";
 
 const MAX_VISIBLE_LOCAL_AGENTS = 4;
 const MAX_PREVIEW_LINES = 3;
+const LOCAL_AGENT_SELECT_HINT = "↓ to manage";
 
 type AgentRowTone = "active" | "warning" | "success" | "error" | "muted";
+
+function isFinishedStatus(status: LocalAgentEntry["status"]): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
 
 export interface LocalAgentsLeaderState {
   activityText?: string;
@@ -16,21 +22,13 @@ export interface LocalAgentsLeaderState {
   tokenCount?: number;
 }
 
-interface LocalAgentsLeaderRow {
-  treePrefix: string;
-  name: string;
-  bodyText: string;
-  metricsText?: string;
-  hintText?: string;
-  highlighted: boolean;
-}
-
 interface LocalAgentsAgentRow {
   id: string;
   treePrefix: string;
+  statusPrefix: string;
   previewPrefix: string;
   name: string;
-  bodyText: string;
+  statusText: string;
   metricsText?: string;
   previewLines: string[];
   tone: AgentRowTone;
@@ -40,6 +38,7 @@ export interface LocalAgentsCompactFooterModel {
   text: string;
   hintText?: string;
   highlighted: boolean;
+  hasActiveAgents: boolean;
   rowCount: number;
 }
 
@@ -51,7 +50,9 @@ interface BackgroundStatusFooterOptions {
 }
 
 export interface LocalAgentsManagerPanelModel {
-  leader: LocalAgentsLeaderRow;
+  summaryText: string;
+  summaryHintText?: string;
+  hasActiveAgents: boolean;
   agents: LocalAgentsAgentRow[];
   overflow?: string;
   rowCount: number;
@@ -76,13 +77,6 @@ function formatMetrics(entry: LocalAgentEntry): string | undefined {
     parts.push(formatDurationMs(entry.progress.durationMs));
   }
   return parts.length > 0 ? ` · ${parts.join(" · ")}` : undefined;
-}
-
-function formatLeaderMetrics(
-  leader: LocalAgentsLeaderState | undefined,
-): string | undefined {
-  if (!leader?.tokenCount || leader.tokenCount <= 0) return undefined;
-  return ` · ${formatCount(leader.tokenCount)} tokens`;
 }
 
 function statusTone(status: LocalAgentEntry["status"]): AgentRowTone {
@@ -120,23 +114,32 @@ function toneColor(
   }
 }
 
-function buildLeaderText(
+function formatLocalAgentCount(entries: LocalAgentEntry[]): string {
+  const totalCount = entries.length;
+  const activeCount = entries.filter((entry) => !isFinishedStatus(entry.status))
+    .length;
+  if (activeCount === 0) {
+    return `${totalCount} local agent${totalCount === 1 ? "" : "s"} finished`;
+  }
+  if (activeCount === totalCount) {
+    return `${totalCount} local agent${totalCount === 1 ? "" : "s"}`;
+  }
+  return `${totalCount} local agent${totalCount === 1 ? "" : "s"} · ${activeCount} active`;
+}
+
+function buildManagerSummary(
   entries: LocalAgentEntry[],
-  leader: LocalAgentsLeaderState | undefined,
   focused: boolean,
-): LocalAgentsLeaderRow {
-  const hintText = focused
-    ? entries.length === 1 ? " · enter to view · esc back" : " · enter to manage · esc back"
-    : undefined;
+): { text: string; hintText?: string } {
+  const activeCount = entries.filter((entry) => !isFinishedStatus(entry.status))
+    .length;
   return {
-    treePrefix: focused ? "╒═" : "┌─",
-    name: "lead",
-    bodyText: leader?.activityText?.trim() ||
-      leader?.idleText?.trim() ||
-      "Coordinating agents",
-    metricsText: formatLeaderMetrics(leader),
-    hintText,
-    highlighted: focused,
+    text: formatLocalAgentCount(entries),
+    hintText: focused
+      ? activeCount === 0
+        ? " · Enter to view results · Esc back"
+        : " · Enter to view tasks · Esc back"
+      : ` · ${LOCAL_AGENT_SELECT_HINT}`,
   };
 }
 
@@ -151,40 +154,20 @@ function buildAgentText(
   const isTerminalBranch = isLastVisible && !hasOverflow;
   const activityText = entry.progress?.activityText?.trim() ||
     entry.detail?.trim() ||
-    entry.statusLabel;
+    (entry.status === "completed" ? "" : entry.statusLabel);
   return {
     id: entry.id,
     treePrefix: isTerminalBranch ? "└─" : "├─",
-    previewPrefix: isTerminalBranch ? "   " : "│  ",
+    statusPrefix: isTerminalBranch ? "   ⎿  " : "│  ⎿  ",
+    previewPrefix: isTerminalBranch ? "      " : "│     ",
     name: entry.name,
-    bodyText: activityText,
+    statusText: activityText,
     metricsText: formatMetrics(entry),
     previewLines: showPreviewLines
       ? entry.progress?.previewLines.slice(0, MAX_PREVIEW_LINES) ?? []
       : [],
     tone: statusTone(entry.status),
   };
-}
-
-function summarizeCompactFooterText(
-  entries: LocalAgentEntry[],
-  leader: LocalAgentsLeaderState | undefined,
-): string {
-  const highestPriority = [...entries].sort((a, b) =>
-    statusPriority(a.status) - statusPriority(b.status)
-  )[0];
-  const activeSummary = highestPriority?.progress?.activityText?.trim() ||
-    highestPriority?.detail?.trim() ||
-    highestPriority?.label?.trim();
-  const countSummary = entries.length === 1
-    ? "1 agent running"
-    : `${entries.length} agents active`;
-  const leaderSummary = leader?.activityText?.trim() ||
-    leader?.idleText?.trim() ||
-    countSummary;
-  return activeSummary && activeSummary !== leaderSummary
-    ? `${leaderSummary} · ${activeSummary}`
-    : leaderSummary;
 }
 
 export function buildLocalAgentsCompactFooterModel(
@@ -198,16 +181,17 @@ export function buildLocalAgentsCompactFooterModel(
   if (entries.length === 0) return null;
   const highlighted = options.focused === true;
   const hintText = highlighted
-    ? entries.length === 1 ? " · Enter view · Esc back" : " · Enter manager · Esc back"
-    : " · Ctrl+T manager";
+    ? " · Enter to view tasks · Esc back"
+    : ` · ${LOCAL_AGENT_SELECT_HINT}`;
   const text = truncate(
-    `lead · ${summarizeCompactFooterText(entries, options.leader)}`,
+    formatLocalAgentCount(entries),
     Math.max(18, width),
   );
   return {
     text,
     hintText,
     highlighted,
+    hasActiveAgents: entries.some((entry) => !isFinishedStatus(entry.status)),
     rowCount: 1,
   };
 }
@@ -240,6 +224,7 @@ export function buildBackgroundStatusFooterModel(
     text,
     hintText: " · Ctrl+T manager",
     highlighted: false,
+    hasActiveAgents: true,
     rowCount: 1,
   };
 }
@@ -256,10 +241,13 @@ export function buildLocalAgentsManagerModel(
 
   const focused = options.focused === true;
   const showPreviewLines = focused;
-  const visibleEntries = entries.slice(0, MAX_VISIBLE_LOCAL_AGENTS);
+  const sortedEntries = [...entries].sort((a, b) =>
+    statusPriority(a.status) - statusPriority(b.status)
+  );
+  const visibleEntries = sortedEntries.slice(0, MAX_VISIBLE_LOCAL_AGENTS);
   const overflowCount = Math.max(0, entries.length - visibleEntries.length);
   const hasOverflow = overflowCount > 0;
-  const leader = buildLeaderText(entries, options.leader, focused);
+  const summary = buildManagerSummary(entries, focused);
   const agents = visibleEntries.map((entry, index) =>
     buildAgentText(
       entry,
@@ -275,16 +263,18 @@ export function buildLocalAgentsManagerModel(
   );
   const overflow = hasOverflow
     ? truncate(
-      `└─ ${overflowCount} more agents · Ctrl+T manager`,
+      `└─ ${overflowCount} more agents · ${LOCAL_AGENT_SELECT_HINT}`,
       Math.max(18, width),
     )
     : undefined;
 
   return {
-    leader,
+    summaryText: summary.text,
+    summaryHintText: summary.hintText,
+    hasActiveAgents: entries.some((entry) => !isFinishedStatus(entry.status)),
     agents,
     overflow,
-    rowCount: 1 + agents.length + previewRowCount + (overflow ? 1 : 0),
+    rowCount: 1 + (agents.length * 2) + previewRowCount + (overflow ? 1 : 0),
   };
 }
 
@@ -297,6 +287,7 @@ export function LocalAgentsCompactFooter(
   { model, width }: LocalAgentsStatusPanelProps,
 ): React.ReactElement | null {
   const sc = useSemanticColors();
+  const spinner = useConversationSpinnerFrame(model.hasActiveAgents);
   const contentWidth = Math.max(18, width);
 
   return (
@@ -310,6 +301,9 @@ export function LocalAgentsCompactFooter(
           : sc.text.primary}
         bold
       >
+        <Text color={model.highlighted ? sc.shell.chipActive.foreground : sc.status.warning}>
+          {`${spinner ?? "●"} `}
+        </Text>
         <Text color={model.highlighted ? sc.shell.chipActive.foreground : sc.status.warning}>
           {truncate(model.text, contentWidth)}
         </Text>
@@ -332,56 +326,51 @@ export function LocalAgentsManagerPanel(
   { model, width }: LocalAgentsManagerPanelProps,
 ): React.ReactElement | null {
   const sc = useSemanticColors();
+  const spinner = useConversationSpinnerFrame(model.hasActiveAgents);
   const primaryWidth = Math.max(18, width);
-  const previewWidth = Math.max(16, width - 2);
+  const previewWidth = Math.max(16, width - 6);
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Text
-        backgroundColor={model.leader.highlighted
-          ? sc.shell.chipActive.background
-          : undefined}
-        color={model.leader.highlighted
-          ? sc.shell.chipActive.foreground
-          : sc.text.primary}
-        bold
-      >
-        <Text dimColor={!model.leader.highlighted}>{`${model.leader.treePrefix} `}</Text>
-        <Text color={model.leader.highlighted ? sc.shell.chipActive.foreground : sc.status.warning}>
-          {model.leader.name}
+      <Text bold>
+        <Text color={model.hasActiveAgents ? sc.footer.status.active : sc.status.success}>
+          {`${spinner ?? "●"} `}
         </Text>
-        <Text color={model.leader.highlighted ? sc.shell.chipActive.foreground : sc.text.muted}>
-          {`: ${truncate(model.leader.bodyText, primaryWidth)}`}
+        <Text color={sc.text.primary}>
+          {truncate(model.summaryText, primaryWidth)}
         </Text>
-        {model.leader.metricsText && (
-          <Text color={model.leader.highlighted ? sc.shell.chipActive.foreground : sc.text.muted}>
-            {truncate(model.leader.metricsText, primaryWidth)}
-          </Text>
-        )}
-        {model.leader.hintText && (
-          <Text color={model.leader.highlighted ? sc.shell.chipActive.foreground : sc.text.muted}>
-            {truncate(model.leader.hintText, primaryWidth)}
+        {model.summaryHintText && (
+          <Text color={sc.text.muted}>
+            {truncate(model.summaryHintText, primaryWidth)}
           </Text>
         )}
       </Text>
       {model.agents.map((row) => {
-        const rowColor = toneColor(row.tone, sc);
-        const mainText = truncate(
-          `${row.name}: ${row.bodyText}${row.metricsText ?? ""}`,
-          primaryWidth,
-        );
+        const rowColor = row.tone === "error"
+          ? toneColor(row.tone, sc)
+          : sc.text.primary;
+        const statusText = truncate(row.statusText, previewWidth);
         return (
           <Box key={row.id} flexDirection="column">
-            <Text color={rowColor}>
+            <Text bold>
               <Text color={sc.text.muted}>{`${row.treePrefix} `}</Text>
-              {mainText}
+              <Text color={rowColor}>{row.name}</Text>
+              {row.metricsText && (
+                <Text color={sc.text.muted}>{row.metricsText}</Text>
+              )}
             </Text>
-            {row.previewLines.map((line) => (
-              <Box key={`${row.id}:${line}`}>
-                <Text color={sc.text.muted}>
-                  {`${row.previewPrefix} ${truncate(line, previewWidth)}`}
+            {statusText && (
+              <Text>
+                <Text color={sc.text.muted}>{row.statusPrefix}</Text>
+                <Text color={row.tone === "error" ? toneColor(row.tone, sc) : sc.text.muted}>
+                  {statusText}
                 </Text>
-              </Box>
+              </Text>
+            )}
+            {row.previewLines.map((line) => (
+              <Text key={`${row.id}:${line}`} color={sc.text.muted}>
+                {`${row.previewPrefix}${truncate(line, previewWidth)}`}
+              </Text>
             ))}
           </Box>
         );

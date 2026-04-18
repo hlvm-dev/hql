@@ -126,8 +126,14 @@ function pickColorKey(classes: string[]): "keyword" | "string" | "number" | "com
   if (joined.includes("comment")) return "comment";
   if (joined.includes("string") || joined.includes("regexp")) return "string";
   if (joined.includes("number") || joined.includes("literal")) return "number";
-  if (joined.includes("keyword") || joined.includes("built_in") || joined.includes("type")) return "keyword";
-  if (joined.includes("title") || joined.includes("function")) return "function";
+  if (
+    joined.includes("keyword") ||
+    joined.includes("built_in") ||
+    joined.includes("type") ||
+    joined.includes("attr") ||
+    joined.includes("property")
+  ) return "keyword";
+  if (joined.includes("title") || joined.includes("function") || joined.includes("variable")) return "function";
   if (joined.includes("operator") || joined.includes("punctuation")) return "operator";
   return "default";
 }

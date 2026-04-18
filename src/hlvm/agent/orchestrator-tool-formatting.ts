@@ -27,6 +27,7 @@ import {
 import type { FormattedToolResult } from "./registry.ts";
 import type { SearchResult } from "./tools/web/search-provider.ts";
 import { hasStructuredEvidence } from "./tools/web/web-utils.ts";
+import { AGENT_TOOL_NAME } from "./tools/agent-constants.ts";
 import { summarizeToolResult } from "./tool-result-summary.ts";
 import { parseShellCommand } from "../../common/shell-parser.ts";
 import { getPlatform } from "../../platform/platform.ts";
@@ -744,9 +745,12 @@ const SUMMARY_FIELD = new Map<string, string>([
   ["shell_exec", "command"],
   ["compute", "expression"],
   ["search_web", "query"],
+  ["ask_user", "question"],
   ["memory_search", "query"],
   ["web_fetch", "url"],
   ["fetch_url", "url"],
+  ["pw_goto", "url"],
+  ["pw_download", "url"],
   ["memory_write", "content"],
   ["memory_edit", "action"],
 ]);
@@ -766,6 +770,18 @@ export function generateArgsSummary(
   }
 
   switch (toolName) {
+    case AGENT_TOOL_NAME: {
+      const description = readStringField(a, "description");
+      const agentType = readStringField(a, "subagent_type");
+      if (description && agentType && agentType !== "general-purpose") {
+        return `${truncate(description, 60)} · ${agentType}`;
+      }
+      if (description) return truncate(description, 80);
+      const prompt = readStringField(a, "prompt");
+      const firstLine = prompt?.split("\n").find((line) => line.trim().length > 0)
+        ?.trim();
+      return firstLine ? truncate(firstLine, 80) : "";
+    }
     case "search_code":
       return `'${truncate(String(a.pattern ?? a.query ?? ""), 40)}'${
         a.path ? ` in ${a.path}` : ""
@@ -779,6 +795,46 @@ export function generateArgsSummary(
     case "todo_write": {
       const items = Array.isArray(a.items) ? a.items.length : 0;
       return `${items} todo${items === 1 ? "" : "s"}`;
+    }
+    case "pw_click":
+    case "pw_hover":
+    case "pw_content":
+    case "pw_screenshot":
+    case "pw_snapshot":
+      return truncate(
+        readStringField(a, "ref", "selector", "path", "url") ?? "",
+        80,
+      );
+    case "pw_wait_for":
+      return truncate(
+        readStringField(a, "ref", "selector", "text", "url") ?? "",
+        80,
+      );
+    case "pw_back":
+      return "back";
+    case "pw_tabs":
+      return truncate(
+        readStringField(a, "action", "title", "url") ?? "",
+        80,
+      );
+    case "pw_fill":
+    case "pw_type": {
+      const target = readStringField(a, "ref", "selector");
+      const value = readStringField(a, "text", "value");
+      if (target && value) {
+        return `${truncate(target, 40)} · ${truncate(value, 30)}`;
+      }
+      return truncate(target ?? value ?? "", 80);
+    }
+    case "pw_select_option": {
+      const target = readStringField(a, "ref", "selector");
+      const value = readStringField(a, "value");
+      return truncate([target, value].filter(Boolean).join(" · "), 80);
+    }
+    case "pw_upload_file": {
+      const target = readStringField(a, "ref", "selector");
+      const path = readStringField(a, "path");
+      return truncate([target, path].filter(Boolean).join(" · "), 80);
     }
     default: {
       try {

@@ -144,12 +144,15 @@ export type ChatStreamEvent =
     agent_type: string;
     tool_use_count: number;
     duration_ms: number;
+    token_count?: number;
+    last_tool_info?: string;
   }
   | {
     event: "agent_complete";
     agent_id: string;
     agent_type: string;
     success: boolean;
+    cancelled?: boolean;
     duration_ms: number;
     tool_use_count: number;
     total_tokens?: number;
@@ -177,6 +180,7 @@ export type ChatStreamEvent =
     mode: "permission" | "question";
     tool_name?: string;
     tool_args?: string;
+    tool_input?: unknown;
     question?: string;
     options?: InteractionOption[];
     source_label?: string;

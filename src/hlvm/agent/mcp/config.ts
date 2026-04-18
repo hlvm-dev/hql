@@ -14,6 +14,7 @@ import type { McpConfig, McpServerConfig } from "./types.ts";
 import { expandMcpServerEnv } from "./env-expansion.ts";
 
 const DOT_MCP_FILE = ".mcp.json";
+const CLAUDE_PLUGIN_COLLECTION_DIRS = new Set(["external_plugins", "plugins"]);
 
 // ============================================================
 // Loading
@@ -95,6 +96,16 @@ function parseClaudeCodeServerEntry(
   name: string,
   entry: Record<string, unknown>,
 ): McpServerConfig | null {
+  const type = typeof entry.type === "string" ? entry.type : undefined;
+  if (
+    type !== undefined &&
+    type !== "stdio" &&
+    type !== "http" &&
+    type !== "sse"
+  ) {
+    return null;
+  }
+
   const env = isObjectValue(entry.env)
     ? Object.fromEntries(
       Object.entries(entry.env as Record<string, unknown>)
@@ -121,19 +132,24 @@ function parseClaudeCodeServerEntry(
         .map(([k, v]) => [k, v as string]),
     )
     : undefined;
-  const transport = entry.type === "sse"
+  const transport = type === "sse"
     ? "sse"
-    : entry.type === "http"
+    : type === "http"
     ? "http"
+    : undefined;
+  const oauth = isObjectValue(entry.oauth)
+    ? parseClaudeCodeOAuthConfig(entry.oauth as Record<string, unknown>)
     : undefined;
 
   // HTTP / SSE transport
   if (typeof entry.url === "string") {
+    if (type === "stdio") return null;
     return {
       name,
       url: entry.url,
       ...(transport ? { transport } : {}),
       ...(headers ? { headers } : {}),
+      ...(oauth ? { oauth } : {}),
       ...(env ? { env } : {}),
       ...(disabled_tools ? { disabled_tools } : {}),
       ...(connection_timeout_ms ? { connection_timeout_ms } : {}),
@@ -142,6 +158,7 @@ function parseClaudeCodeServerEntry(
 
   // Stdio transport: command + args
   if (typeof entry.command === "string") {
+    if (type === "http" || type === "sse") return null;
     const args = Array.isArray(entry.args)
       ? entry.args.filter((a: unknown) => typeof a === "string") as string[]
       : [];
@@ -149,6 +166,7 @@ function parseClaudeCodeServerEntry(
       name,
       command: [entry.command, ...args],
       env,
+      oauth,
       disabled_tools,
       connection_timeout_ms,
     };
@@ -225,30 +243,21 @@ export function parseClaudeCodeMcpJson(
 async function loadClaudeCodeMcpServers(): Promise<McpServerConfig[]> {
   const platform = getPlatform();
   const pluginsDir = getClaudeCodeMcpDir();
-
-  // Collect directory entries (readDir returns AsyncIterable)
-  const dirs: string[] = [];
-  try {
-    for await (const entry of platform.fs.readDir(pluginsDir)) {
-      if (entry.isDirectory) {
-        dirs.push(entry.name);
-      }
-    }
-  } catch {
-    // Directory doesn't exist or is unreadable — no Claude Code plugins
-    return [];
-  }
-
-  if (dirs.length === 0) return [];
+  const mcpPaths = await collectClaudeCodeMcpPaths(pluginsDir);
+  if (mcpPaths.length === 0) return [];
 
   // Read all .mcp.json files in parallel
   const results = await Promise.allSettled(
-    dirs.map(async (dirName) => {
-      const mcpPath = platform.path.join(pluginsDir, dirName, DOT_MCP_FILE);
+    mcpPaths.map(async (mcpPath) => {
       const content = await platform.fs.readTextFile(mcpPath);
+      const claudePluginEnv = await buildClaudePluginEnv(mcpPath);
       return expandServersWithWarnings(
-        parseClaudeCodeMcpJson(content, dirName),
+        parseClaudeCodeMcpJson(
+          content,
+          platform.path.basename(platform.path.dirname(mcpPath)),
+        ),
         mcpPath,
+        claudePluginEnv,
       );
     }),
   );
@@ -260,6 +269,126 @@ async function loadClaudeCodeMcpServers(): Promise<McpServerConfig[]> {
     }
   }
   return servers;
+}
+
+function parseClaudeCodeOAuthConfig(
+  value: Record<string, unknown>,
+): McpServerConfig["oauth"] {
+  const clientId = typeof value.clientId === "string"
+    ? value.clientId
+    : undefined;
+  const callbackPort = typeof value.callbackPort === "number" &&
+      Number.isFinite(value.callbackPort) &&
+      value.callbackPort > 0
+    ? Math.floor(value.callbackPort)
+    : undefined;
+  const authServerMetadataUrl = typeof value.authServerMetadataUrl === "string"
+    ? value.authServerMetadataUrl
+    : undefined;
+  const xaa = typeof value.xaa === "boolean" ? value.xaa : undefined;
+  if (
+    clientId === undefined &&
+    callbackPort === undefined &&
+    authServerMetadataUrl === undefined &&
+    xaa === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    ...(clientId ? { clientId } : {}),
+    ...(callbackPort ? { callbackPort } : {}),
+    ...(authServerMetadataUrl ? { authServerMetadataUrl } : {}),
+    ...(xaa !== undefined ? { xaa } : {}),
+  };
+}
+
+async function collectClaudeCodeMcpPaths(rootDir: string): Promise<string[]> {
+  const platform = getPlatform();
+  const rootName = platform.path.basename(rootDir);
+  if (CLAUDE_PLUGIN_COLLECTION_DIRS.has(rootName)) {
+    return await collectPluginCollectionMcpPaths(rootDir);
+  }
+
+  const results: string[] = [];
+  try {
+    for await (const entry of platform.fs.readDir(rootDir)) {
+      if (!entry.isDirectory) continue;
+      if (CLAUDE_PLUGIN_COLLECTION_DIRS.has(entry.name)) {
+        results.push(
+          ...await collectPluginCollectionMcpPaths(
+            platform.path.join(rootDir, entry.name),
+          ),
+        );
+        continue;
+      }
+      if (rootName === "marketplaces") {
+        results.push(
+          ...await collectClaudeCodeMcpPaths(
+            platform.path.join(rootDir, entry.name),
+          ),
+        );
+      }
+    }
+  } catch {
+    return [];
+  }
+
+  return results;
+}
+
+async function collectPluginCollectionMcpPaths(
+  rootDir: string,
+): Promise<string[]> {
+  const platform = getPlatform();
+  const results: string[] = [];
+  try {
+    for await (const entry of platform.fs.readDir(rootDir)) {
+      if (!entry.isDirectory) continue;
+      const mcpPath = platform.path.join(rootDir, entry.name, DOT_MCP_FILE);
+      try {
+        const info = await platform.fs.stat(mcpPath);
+        if (info.isFile) {
+          results.push(mcpPath);
+        }
+      } catch {
+        // Ignore plugin directories without MCP manifests.
+      }
+    }
+  } catch {
+    return [];
+  }
+  return results;
+}
+
+async function buildClaudePluginEnv(
+  mcpPath: string,
+): Promise<Record<string, string> | undefined> {
+  const platform = getPlatform();
+  const pluginRoot = platform.path.dirname(mcpPath);
+  const parentDir = platform.path.dirname(pluginRoot);
+  const parentName = platform.path.basename(parentDir);
+  if (!CLAUDE_PLUGIN_COLLECTION_DIRS.has(parentName)) {
+    return { CLAUDE_PLUGIN_ROOT: pluginRoot };
+  }
+
+  const marketplaceDir = platform.path.dirname(parentDir);
+  const marketplaceName = platform.path.basename(marketplaceDir);
+  const pluginsDir = platform.path.dirname(
+    platform.path.dirname(marketplaceDir),
+  );
+  const pluginId = sanitizeClaudePluginId(
+    `${platform.path.basename(pluginRoot)}-${marketplaceName}`,
+  );
+  const pluginDataDir = platform.path.join(pluginsDir, "data", pluginId);
+  await platform.fs.mkdir(pluginDataDir, { recursive: true });
+  return {
+    CLAUDE_PLUGIN_ROOT: pluginRoot,
+    CLAUDE_PLUGIN_DATA: pluginDataDir,
+  };
+}
+
+function sanitizeClaudePluginId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9\-_]/g, "-");
 }
 
 // ============================================================
@@ -344,6 +473,12 @@ export function isMcpServerConfig(value: unknown): value is McpServerConfig {
   if (!isObjectValue(value)) return false;
   if (typeof value.name !== "string") return false;
   if (
+    value.oauth !== undefined &&
+    !isMcpOAuthConfig(value.oauth)
+  ) {
+    return false;
+  }
+  if (
     value.transport !== undefined &&
     value.transport !== "stdio" &&
     value.transport !== "http" &&
@@ -363,9 +498,10 @@ export function isMcpServerConfig(value: unknown): value is McpServerConfig {
 function expandServersWithWarnings(
   servers: readonly McpServerConfig[],
   sourceLabel: string,
+  env?: Record<string, string>,
 ): McpServerConfig[] {
   return servers.map((server) => {
-    const expanded = expandMcpServerEnv(server);
+    const expanded = expandMcpServerEnv(server, { env });
     if (expanded.missingVars.length > 0) {
       getAgentLogger().warn(
         `MCP config '${server.name}' in ${sourceLabel} references unset env vars: ${
@@ -373,6 +509,47 @@ function expandServersWithWarnings(
         }`,
       );
     }
-    return expanded.server;
+    if (!env || expanded.server.url) {
+      return expanded.server;
+    }
+    return {
+      ...expanded.server,
+      env: {
+        ...env,
+        ...(expanded.server.env ?? {}),
+      },
+    };
   });
+}
+
+function isMcpOAuthConfig(
+  value: unknown,
+): value is NonNullable<McpServerConfig["oauth"]> {
+  if (!isObjectValue(value)) return false;
+  if (
+    value.clientId !== undefined &&
+    typeof value.clientId !== "string"
+  ) {
+    return false;
+  }
+  if (
+    value.callbackPort !== undefined &&
+    (
+      typeof value.callbackPort !== "number" ||
+      !Number.isFinite(value.callbackPort) ||
+      value.callbackPort <= 0
+    )
+  ) {
+    return false;
+  }
+  if (
+    value.authServerMetadataUrl !== undefined &&
+    typeof value.authServerMetadataUrl !== "string"
+  ) {
+    return false;
+  }
+  if (value.xaa !== undefined && typeof value.xaa !== "boolean") {
+    return false;
+  }
+  return true;
 }

@@ -1,10 +1,3 @@
-/**
- * QuestionDialog Component
- *
- * Displays an agent question dialog for user text input.
- * Submit on Enter.
- */
-
 import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
@@ -17,25 +10,35 @@ import {
   InteractionPicker,
   type InteractionPickerOption,
 } from "./InteractionPicker.tsx";
-import { ShortcutHint } from "../ShortcutHint.tsx";
 import type {
   InteractionOption,
   InteractionResponse,
 } from "../../../../agent/registry.ts";
+import { PermissionDialogFrame } from "./PermissionDialogFrame.tsx";
 
 interface QuestionDialogProps {
   requestId?: string;
   question?: string;
   options?: InteractionOption[];
+  sourceLabel?: string;
   onResolve?: (requestId: string, response: InteractionResponse) => void;
   onInterrupt?: () => void;
 }
 
 export const QuestionDialog = React.memo(function QuestionDialog(
-  { requestId, question, options, onResolve, onInterrupt }: QuestionDialogProps,
+  {
+    requestId,
+    question,
+    options,
+    sourceLabel,
+    onResolve,
+    onInterrupt,
+  }: QuestionDialogProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
   const dialog = getQuestionDialogDisplay(question, options);
+  const promptTitle = "Reply needed";
+  const promptSubtitle = sourceLabel?.trim() || undefined;
 
   const buildQuestionResponse = (
     option: InteractionPickerOption,
@@ -56,55 +59,54 @@ export const QuestionDialog = React.memo(function QuestionDialog(
 
   if (dialog.usesPicker && requestId && onResolve) {
     return (
-      <InteractionPicker
-        title="Clarification needed"
-        subtitle={dialog.question}
-        options={dialog.options}
-        hint={QUESTION_PICKER_HINT}
-        hintContent={(
-          <Text color={sc.text.muted}>
-            <ShortcutHint bindingId="tab" label="notes" />
-            <Text color={sc.text.muted}> · Use arrows or 1-9 below · Enter submit · Esc cancel</Text>
-          </Text>
-        )}
-        tone="warning"
-        allowNotes
-        notesLabel="Reply details"
-        notesPlaceholder="Type the clarification here..."
-        notesEmptyText="Press Tab to add more context."
-        onSubmit={(option: InteractionPickerOption, notes?: string) =>
-          onResolve(requestId, {
-            approved: true,
-            userInput: buildQuestionResponse(option, notes),
-          })}
-        onCancel={() =>
-          onInterrupt
-            ? onInterrupt()
-            : onResolve(requestId, { approved: false })}
-      />
+      <PermissionDialogFrame title={promptTitle} subtitle={promptSubtitle}>
+        <InteractionPicker
+          title=""
+          options={dialog.options}
+          hint=""
+          hintContent={(
+            <Text color={sc.text.muted}>{QUESTION_PICKER_HINT}</Text>
+          )}
+          tone="active"
+          allowNotes
+          notesLabel="Response"
+          notesPlaceholder="Type your response..."
+          notesEmptyText="Press Tab to amend your reply."
+          onSubmit={(option: InteractionPickerOption, notes?: string) =>
+            onResolve(requestId, {
+              approved: true,
+              userInput: buildQuestionResponse(option, notes),
+            })}
+          onCancel={() =>
+            onInterrupt
+              ? onInterrupt()
+              : onResolve(requestId, { approved: false })}
+        >
+          {dialog.question && (
+            <Text color={sc.text.primary} wrap="wrap">
+              {dialog.question}
+            </Text>
+          )}
+        </InteractionPicker>
+      </PermissionDialogFrame>
     );
   }
 
   return (
-    <Box flexDirection="column">
-      <Text color={sc.status.warning} bold>Clarification needed</Text>
-      {dialog.question && (
-        <Box marginTop={0}>
+    <PermissionDialogFrame title={promptTitle} subtitle={promptSubtitle}>
+      <Box flexDirection="column">
+        {dialog.question && (
           <Text color={sc.text.primary} wrap="wrap">
             {dialog.question}
           </Text>
+        )}
+        <Box marginTop={1}>
+          <Text color={sc.text.muted}>{QUESTION_DIALOG_HINT}</Text>
         </Box>
-      )}
-      <Box marginTop={1}>
-        <Text color={sc.text.muted}>{QUESTION_DIALOG_HINT}</Text>
+        <Box marginTop={1}>
+          <Text color={sc.text.muted}>Esc to cancel</Text>
+        </Box>
       </Box>
-      <Box>
-        <Text color={sc.text.muted}>
-          <ShortcutHint bindingId="enter-history" label="submit" />
-          <Text color={sc.text.muted}> · </Text>
-          <ShortcutHint bindingId="escape-history" label="cancel" />
-        </Text>
-      </Box>
-    </Box>
+    </PermissionDialogFrame>
   );
 });

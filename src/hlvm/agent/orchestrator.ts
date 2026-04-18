@@ -80,7 +80,6 @@ import { resolveThinkingProfile } from "./thinking-profile.ts";
 import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
 import type { LastResortFallback } from "./auto-select.ts";
-import type { TurnRouting } from "./routing.ts";
 
 // Re-exports from extracted modules (preserve external API)
 export {
@@ -127,11 +126,12 @@ import {
   processAgentResponse,
 } from "./orchestrator-response.ts";
 import {
-  clearToolProfileLayerFromTarget,
+  clearTurnScopedToolProfileLayers,
   ensureToolProfileState,
   intersectToolLists,
-  resolveCanonicalBaselineAllowlist,
   resolvePersistentToolFilter,
+  setCanonicalToolProfileBaseline,
+  syncEffectiveToolFilterToConfig,
   uniqueToolList,
   updateToolProfileLayer,
 } from "./tool-profiles.ts";
@@ -498,12 +498,15 @@ export type AgentUIEvent =
     agentType: string;
     toolUseCount: number;
     durationMs: number;
+    tokenCount?: number;
+    lastToolInfo?: string;
   }
   | {
     type: "agent_complete";
     agentId: string;
     agentType: string;
     success: boolean;
+    cancelled?: boolean;
     durationMs: number;
     toolUseCount: number;
     totalTokens?: number;
@@ -628,7 +631,6 @@ export interface OrchestratorModelConfig {
   visionCapable?: boolean;
   skipModelCompensation?: boolean;
   modelTier?: ModelTier;
-  turnRouting?: TurnRouting;
   modelId?: string;
   eagerToolCount?: number;
   discoveredDeferredToolCount?: number;
@@ -746,29 +748,20 @@ function requestImpliesEditing(query: string): boolean {
 }
 
 function applyRequestToolSurface(config: OrchestratorConfig): void {
-  const baselineLayer = ensureToolProfileState(config).layers.baseline;
-  const canonicalBaselineAllowlist = resolveCanonicalBaselineAllowlist({
-    querySource: config.querySource,
-    baseAllowlist: config.baselineToolAllowlistSeed,
-    discoveredDeferredTools: config.discoveredDeferredTools,
-    ownerId: config.toolOwnerId,
-  });
-  if (config.baselineToolAllowlistSeed !== undefined) {
-    updateToolProfileLayer(config, "baseline", {
-      profileId: baselineLayer?.profileId,
-      allowlist: cloneToolList(canonicalBaselineAllowlist),
-      denylist: cloneToolList(baselineLayer?.denylist),
-      reason: baselineLayer?.reason,
+  const hadToolProfileState = !!config.toolProfileState;
+  const profileState = ensureToolProfileState(config);
+  if (!hadToolProfileState && config.baselineToolAllowlistSeed !== undefined) {
+    setCanonicalToolProfileBaseline(profileState, {
+      querySource: config.querySource,
+      baseAllowlist: config.baselineToolAllowlistSeed,
+      discoveredDeferredTools: config.discoveredDeferredTools,
+      ownerId: config.toolOwnerId,
     });
   }
   // Routing no longer owns semantic task profiles. The model chooses browser,
   // search, delegation, and planning inside the loop from the allowed tools.
-  clearToolProfileLayerFromTarget(config, "domain");
-  // Discovery/runtime layers are turn-local. If a caller reuses a config
-  // object across runs, do not carry a prior turn's narrowing or temporary
-  // denies into the next turn.
-  clearToolProfileLayerFromTarget(config, "discovery");
-  clearToolProfileLayerFromTarget(config, "runtime");
+  clearTurnScopedToolProfileLayers(profileState);
+  syncEffectiveToolFilterToConfig(config, profileState);
 }
 
 function isBrowserToolName(toolName: string): boolean {

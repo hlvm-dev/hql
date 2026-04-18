@@ -60,6 +60,7 @@ import {
 import { preloadSourceMap } from "./transpiler/pipeline/source-map-support.ts";
 import { LRUCache } from "../common/lru-cache.ts";
 import { DEFAULT_LRU_CACHE_SIZE } from "../common/limits.ts";
+import { EMBEDDED_PACKAGES } from "./embedded-packages.ts";
 
 /**
  * Get the path to the stdlib index.js file.
@@ -75,6 +76,36 @@ function getStdlibPath(): string {
   const thisDir = pathUtil().dirname(thisFilePath);
   // stdlib is at lib/stdlib/js/index.js relative to src/
   return pathUtil().join(thisDir, "lib", "stdlib", "js", "index.js");
+}
+
+const embeddedPackageSourcePaths = new Map<string, string>();
+let embeddedPackageTempRootPromise: Promise<string> | null = null;
+
+async function getEmbeddedPackageSourcePath(
+  specifier: string,
+): Promise<string | null> {
+  const embeddedContent = EMBEDDED_PACKAGES[specifier];
+  if (!embeddedContent) return null;
+
+  const cachedPath = embeddedPackageSourcePaths.get(specifier);
+  if (cachedPath && await fsUtil().exists(cachedPath)) {
+    return cachedPath;
+  }
+
+  embeddedPackageTempRootPromise ??= createTempDir("embedded-hql-packages");
+  const tempRoot = await embeddedPackageTempRootPromise;
+  const sourcePath = pathUtil().join(
+    tempRoot,
+    "packages",
+    specifier.replace(/^@hlvm\//, ""),
+    "mod.hql",
+  );
+
+  await fsUtil().ensureDir(pathUtil().dirname(sourcePath));
+  await fsUtil().writeTextFile(sourcePath, embeddedContent);
+  embeddedPackageSourcePaths.set(specifier, sourcePath);
+  registerImportMapping(specifier, sourcePath);
+  return sourcePath;
 }
 
 // Constants
@@ -538,6 +569,16 @@ function createUnifiedBundlePlugin(options: UnifiedPluginOptions): Plugin {
         },
       );
 
+      build.onResolve(
+        { filter: /^@hlvm\// },
+        async (args: OnResolveArgs): Promise<OnResolveResult | null> => {
+          const embeddedPath = await getEmbeddedPackageSourcePath(args.path);
+          if (!embeddedPath) return null;
+          logger.debug(`Resolved embedded package: ${args.path} → ${embeddedPath}`);
+          return { path: embeddedPath, namespace: "hql" };
+        },
+      );
+
       // Handle HQL stdlib import - resolve to actual stdlib location
       build.onResolve(
         { filter: /hql-stdlib\.js$/ },
@@ -871,8 +912,8 @@ async function bundleWithEsbuild(
         ".hql": "ts" as const,
       },
       sourcemap: sourcemapOption,
-      // Enable TypeScript processing
-      tsconfig: JSON.stringify({
+      // esbuild 0.28 expects inline compiler options via tsconfigRaw, not tsconfig.
+      tsconfigRaw: JSON.stringify({
         compilerOptions: {
           target: "es2020",
           module: "esnext",

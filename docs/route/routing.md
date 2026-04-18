@@ -11,9 +11,10 @@
 > - trace DTO shape: `src/hlvm/agent/routing.ts`
 >
 > The key honesty correction from the review still stands: `TurnRouting` is
-> currently a **telemetry DTO**, not an authoritative runtime boundary. Nothing
-> reads `config.turnRouting`. The real tool-surface boundary at runtime is the
-> layered `toolProfileState` plus flat `OrchestratorConfig` fields.
+> currently a **telemetry DTO**, not an authoritative runtime boundary. The
+> orchestrator no longer carries `config.turnRouting`; the real tool-surface
+> boundary at runtime is the layered `toolProfileState` plus flat
+> `OrchestratorConfig` fields.
 
 ## 0. If You Know Nothing
 
@@ -64,7 +65,7 @@ runAgentQuery()
     v
 runReActLoop()
     |
-    +--> clear turn-local routing layers
+    +--> clear turn-scoped routing layers
     |
     `--> iterate until done
            |
@@ -100,10 +101,11 @@ agent-runner.runAgentQuery()
     |      |
     |      +--> recompute canonical baseline allowlist
     |      +--> set baseline again                         [WRITE #2]
-    |      `-- clear domain layer
+    |      `-- clear domain/discovery/runtime
     |
     +--> buildTurnRouting(...)
     |      |
+    |      +--> read persistent tool filter
     |      +--> buildToolSurface(...)
     |      +--> getDeferredToolNames()
     |      `-- produce TurnRouting DTO
@@ -114,7 +116,8 @@ agent-runner.runAgentQuery()
            |
            +--> applyRequestToolSurface(config)
            |      |
-           |      +--> set baseline again                 [WRITE #3]
+           |      +--> if toolProfileState missing:
+           |      |      seed canonical baseline          [WRITE #3 safety net]
            |      +--> clear domain layer
            |      +--> clear discovery layer
            |      `-- clear runtime layer
@@ -165,9 +168,10 @@ If you only remember five facts, remember these:
    preserve [] as []
    ```
 
-5. `discovery` and `runtime` layers are **turn-local** and must be cleared at
-   turn start. That is now done in `applyRequestToolSurface()` as a safety net
-   for non-runner callers too.
+5. `domain`, `discovery`, and `runtime` layers are **turn-scoped** and must be
+   cleared at turn start. The runner does that in
+   `resetSessionRoutingToolProfile()`, and `applyRequestToolSurface()` keeps the
+   same reset as a safety net for non-runner callers too.
 
 ### 0.3 First files to open
 
@@ -225,16 +229,17 @@ agent-runner.runAgentQuery()
     ├─ @auto? → resolveAutoModel() (may call classifyTask for tie-break)
     ├─ createAgentSession() → classifyModelTier → baseToolAllowlist
     ├─ resetSessionRoutingToolProfile(session)
-    │     └─ writes baseline layer, clears domain layer
+    │     └─ writes canonical baseline layer, clears domain/discovery/runtime
     ├─ buildTurnRouting(...) → TurnRouting DTO
+    │     └─ reads persistent filter only
     │     └─ ✗ never consumed as runtime authority
     │     └─ ✓ consumed to emit routing_decision trace
     │
     └─ runReActLoop(config)
           │
           ├─ applyRequestToolSurface(config)
-          │     └─ writes baseline layer AGAIN
-          │     └─ clears domain/discovery/runtime AGAIN
+          │     └─ seeds baseline only if caller omitted toolProfileState
+          │     └─ clears domain/discovery/runtime
           │
           └─ each iteration:
                 ├─ applyAdaptiveToolPhase(...) → runtime layer
@@ -253,7 +258,8 @@ createAgent() / agent.fork() / run-agent.ts / tests
     ├─ cloneConfigWithFreshToolProfile()
     └─ runReActLoop(config)
           └─ applyRequestToolSurface(config)
-               clears turn-local discovery/runtime layers
+               seeds canonical baseline only if needed
+               clears turn-scoped domain/discovery/runtime layers
                even if caller reused a config object
 ```
 
@@ -262,7 +268,7 @@ What is authoritative at runtime:
 - `toolProfileState.layers.baseline`
   - persistent turn-start tool seed
 - `toolProfileState.layers.domain`
-  - runtime browser escalation only
+  - turn-scoped browser escalation only
 - `toolProfileState.layers.plan`
   - plan-mode shaping
 - `toolProfileState.layers.discovery`
@@ -274,21 +280,24 @@ What is **not** authoritative at runtime:
 
 - `TurnRouting`
 - `ToolSurface`
-- `config.turnRouting`
+- any orchestrator-local `turnRouting` field
 
 Those objects are currently for trace/observability only.
 
 Why the SSOT story is still imperfect:
 
 - `session.ts` writes the baseline layer when the session is created.
-- `resetSessionRoutingToolProfile()` rewrites the baseline layer at turn start.
-- `applyRequestToolSurface()` rewrites the baseline layer again at loop start.
-- `buildTurnRouting()` computes the same baseline-ish shape again, but only for
-  traces.
+- `resetSessionRoutingToolProfile()` canonicalizes the baseline layer at turn
+  start through the shared helper.
+- `applyRequestToolSurface()` can seed the baseline for callers that arrive
+  without `toolProfileState`; on the main runner path it no longer rewrites an
+  existing baseline.
+- `buildTurnRouting()` computes a trace-only snapshot from the current
+  persistent filter.
 
-These paths currently converge, so this is not a known correctness bug on the
-main user path. But it is still duplicated authority, which is why the debt list
-below matters.
+These paths now converge through shared helpers, so the duplicated authority is
+smaller than before. The main remaining debt is conceptual: `TurnRouting`
+continues to exist even though runtime authority lives elsewhere.
 
 ### 1.5.1 `computeFallbackToolFilter` — the fallback tool-filter contract
 
@@ -318,14 +327,11 @@ Six unit tests pin every invariant in `tests/unit/agent/routing.test.ts`.
 Deferred because each is larger scope than the targeted fixes above:
 
 - **`TurnRouting` is a telemetry DTO, not an SSOT.** The P0 finding from the
-  review. Options: (a) make it authoritative by wiring `runReActLoop` to consume
-  `config.turnRouting.toolSurface` directly and deleting
-  `applyRequestToolSurface` + `baselineToolAllowlistSeed`; or (b) delete
+  review. The sharper edge is gone because the runtime-looking
+  `config.turnRouting` path has been removed, but the DTO still exists only for
+  traces. Remaining options: (a) keep it explicitly trace-only, or (b) delete
   `routing.ts`, `TurnRouting`, `buildTurnRouting` entirely and compute the trace
-  fields at emission time. Do **not** keep both.
-- **Three owners of the baseline layer seed** (`session.ts` tier bake-in,
-  `resetSessionRoutingToolProfile`, `applyRequestToolSurface`). Idempotent but
-  duplicative.
+  fields at emission time.
 - **`applyAdaptiveToolPhase` still regex-classifies the user query.** The
   result is cached per turn, but the regexes themselves remain. The rest of
   the codebase migrated to LLM classification — routing should too.
@@ -481,11 +487,12 @@ The rewrite happened in four parts.
 - selected model
 - model source (`explicit` or `auto`)
 - session tier
-- current effective tool filter
+- current persistent tool filter
 - discovered deferred tools
 
 That DTO is still **trace-only** today. The runtime enforcement boundary remains
-`toolProfileState`.
+`toolProfileState`, and the old runtime-looking `config.turnRouting` path is
+gone.
 
 #### 3.3 Orchestrator cleanup
 
@@ -581,7 +588,7 @@ USER REQUEST
                                                         classifyModelTier()
                                                                  |
                                                                  v
-                                               resolve current effective tool filter
+                                               resolve current persistent tool filter
                                                                  |
                                                                  v
                                                buildTurnRouting()  (trace DTO)
@@ -837,7 +844,7 @@ That is implemented in the orchestrator.
 So there are two related but distinct effects:
 
 ```text
-turn-local narrowing
+turn-scoped narrowing
 and
 session-persistent discovery
 ```
@@ -867,7 +874,7 @@ Those are loop behaviors, not routing outputs.
 ### 10.2 Runner integration
 
 - [`../../src/hlvm/agent/agent-runner.ts`](../../src/hlvm/agent/agent-runner.ts)
-  - resolves effective session tool filter
+  - resolves persistent session tool filter for traces
   - builds per-turn routing
   - emits `routing_decision` trace
   - **`computeFallbackToolFilter(options)`** (exported) — the fallback LLM tool
@@ -880,7 +887,7 @@ Those are loop behaviors, not routing outputs.
 - [`../../src/hlvm/agent/agent.ts`](../../src/hlvm/agent/agent.ts)
   - exported `createAgent()` wrapper
   - clones `toolProfileState` per agent and per run
-  - prevents stale turn-local routing state from leaking across `run()` /
+  - prevents stale turn-scoped routing state from leaking across `run()` /
     `fork()`
 
 - [`../../src/hlvm/agent/tools/run-agent.ts`](../../src/hlvm/agent/tools/run-agent.ts)
@@ -892,7 +899,7 @@ Those are loop behaviors, not routing outputs.
 
 - [`../../src/hlvm/agent/orchestrator.ts`](../../src/hlvm/agent/orchestrator.ts)
   - clears request-time semantic domain routing
-  - clears turn-local `discovery` / `runtime` layers at run start
+  - clears turn-scoped `domain` / `discovery` / `runtime` layers at run start
   - reactively expands browser iteration budget
 
 - [`../../src/hlvm/agent/orchestrator-response.ts`](../../src/hlvm/agent/orchestrator-response.ts)
@@ -1084,7 +1091,7 @@ deno test --allow-all --no-check \
   tests/unit/agent/auto-select.test.ts
 ```
 
-Expand the suite if you touched `agent.ts`, `orchestrator.ts`, or turn-local
+Expand the suite if you touched `agent.ts`, `orchestrator.ts`, or turn-scoped
 layer reset behavior:
 
 ```bash

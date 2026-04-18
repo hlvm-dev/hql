@@ -109,6 +109,7 @@ hlvm ask "<query>"
 | `--allowedTools <name>`          | Allow specific tool (repeatable)                               |
 | `--disallowedTools <name>`       | Deny specific tool (repeatable)                                |
 | `--dangerously-skip-permissions` | Alias for `--permission-mode bypassPermissions`                |
+| `--max-turns <N>`                | Maximum agent loop iterations (headless safety cap)            |
 | `--help, -h`                     | Show help                                                      |
 
 **Examples:**
@@ -117,27 +118,54 @@ hlvm ask "<query>"
 # Interactive (default)
 hlvm ask "list files in src/"
 
-# Non-interactive
+# Non-interactive print mode
 hlvm ask -p "analyze code quality"
 
 # Permission modes
 hlvm ask --permission-mode acceptEdits "fix the bug"
 hlvm ask --permission-mode dontAsk "analyze code"
 
-# Tool permissions
-hlvm ask --allowedTools write_file "fix bug"
+# Unlock shell execution explicitly (required in non-interactive mode)
+hlvm ask --allowedTools shell_exec --allowedTools write_file \
+  --permission-mode dontAsk \
+  "write a python script to generate a chart and run it"
+
+# Block a specific tool
 hlvm ask --disallowedTools shell_exec "analyze code"
 
-# Structured output
+# Generate a file from multiple sources
+hlvm ask --allowedTools shell_exec --allowedTools write_file \
+  --allowedTools read_file --permission-mode dontAsk \
+  "read all PDFs in ./reports/, summarize them, and write summary.md"
+
+# Generate a PPTX presentation
+hlvm ask --allowedTools shell_exec --allowedTools write_file \
+  --permission-mode dontAsk \
+  "create a 5-slide dark-themed presentation about MCP, save to ~/Desktop/mcp.pptx, then open it"
+
+# Mutate an existing PPTX in place and reload PowerPoint
+hlvm ask --allowedTools shell_exec --allowedTools read_file \
+  --permission-mode dontAsk \
+  "open ~/Desktop/mcp.pptx with python-pptx, change slide 1 title to 'New Title', save it, then run: osascript -e 'tell application \"Microsoft PowerPoint\" to quit saving no' && sleep 2 && open ~/Desktop/mcp.pptx"
+
+# Structured output for scripting
 hlvm ask --output-format stream-json "count test files"   # NDJSON events
 hlvm ask --output-format json "count test files"           # Single JSON result
 
-# Model selection and attachments
+# Model selection
 hlvm ask --model openai/gpt-4o "summarize this codebase"
-hlvm ask --attach ./screenshot.png "describe this UI issue"
+hlvm ask --model claude-code/claude-sonnet-4-6 "review this PR"
 
-# Isolated session
+# Attach files (images, PDFs, docs)
+hlvm ask --attach ./screenshot.png "describe this UI issue"
+hlvm ask --attach ./report.pdf --attach ./data.csv \
+  "summarize the report and cross-reference with the data"
+
+# Isolated session (no memory of previous conversations)
 hlvm ask --no-session-persistence "hello"
+
+# Cap agent loop iterations (useful for automation)
+hlvm ask --max-turns 5 "refactor this file"
 ```
 
 ### Output Formats

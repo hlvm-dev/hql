@@ -40,6 +40,7 @@ import {
 import type { LocalAgentEntry } from "../utils/local-agents.ts";
 import { summarizeLocalAgentFleet } from "../utils/local-agents.ts";
 import { OverlayBalancedRow, OverlayModal } from "./OverlayModal.tsx";
+import { formatDurationMs } from "../utils/formatting.ts";
 
 // ============================================================
 // Types
@@ -50,7 +51,7 @@ interface BackgroundTasksOverlayProps {
   localAgents?: LocalAgentEntry[];
   initialSelectedItemId?: string;
   initialViewMode?: ViewMode;
-  onForegroundLocalAgent?: (agent: LocalAgentEntry) => boolean;
+  onInterruptLocalAgent?: (agent: LocalAgentEntry) => boolean;
 }
 
 type ViewMode = "list" | "result";
@@ -125,6 +126,10 @@ function summarizeTaskItems(items: UnifiedTaskItem[]): TaskSummary {
   return summary;
 }
 
+function isFinishedLocalAgentStatus(status: LocalAgentEntry["status"]): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
 export function buildBackgroundTasksSummaryRows(
   items: UnifiedTaskItem[],
   {
@@ -161,16 +166,26 @@ export function buildBackgroundTasksSummaryRows(
 
   const s = summarizeTaskItems(items);
   if (s.localAgentCount > 0) {
+    const activeLocalAgentCount = s.localAgents.filter((entry) =>
+      !isFinishedLocalAgentStatus(entry.status)
+    ).length;
+    const activeLabel = activeLocalAgentCount > 0
+      ? activeLocalAgentCount === 1
+        ? "1 active agent"
+        : `${activeLocalAgentCount} active agents`
+      : s.localAgentCount === 1
+      ? "1 local agent"
+      : `${s.localAgentCount} local agents`;
     const primary = buildBalancedTextRow(
       contentWidth,
-      s.localAgentCount === 1 ? "1 local agent" : `${s.localAgentCount} local agents`,
-      summarizeLocalAgentFleet(s.localAgents),
+      activeLabel,
+      s.failed > 0 ? `Failed ${s.failed}` : "",
     );
     const secondary = buildBalancedTextRow(
       contentWidth,
       s.evalCount > 0
-        ? "Agents above \u00B7 evals below"
-        : "Task manager",
+        ? "Local agents above \u00B7 evals below"
+        : summarizeLocalAgentFleet(s.localAgents) || "Background tasks",
       s.totalReal > 0 ? `${selectedIndex + 1}/${s.totalReal}` : "empty",
     );
     return [
@@ -250,7 +265,7 @@ function buildUnifiedItems(
     items.push({
       id: "__section_local_agents__",
       kind: "section",
-      label: "Local agents",
+      label: `Local agents (${localAgents.length})`,
       status: "",
       statusText: "",
       icon: "",
@@ -267,7 +282,7 @@ function buildUnifiedItems(
       items.push({
         id: agent.id,
         kind: "local_agent",
-        label: `${agent.name} \u00B7 ${agent.label}`,
+        label: agent.name,
         status: agent.status,
         statusText: agent.statusLabel || statusText,
         icon,
@@ -305,11 +320,36 @@ function buildUnifiedItems(
 function buildLocalAgentDetailLines(
   agent: LocalAgentEntry,
 ): string[] {
-  return [
-    `Agent: ${agent.name}`,
-    `Task: ${agent.label}`,
-    `Status: ${agent.statusLabel}`,
+  const lines: string[] = [
+    `${agent.label} \u203a ${agent.name}`,
   ];
+  const metricParts: string[] = [];
+  if (agent.progress?.durationMs != null && agent.progress.durationMs >= 1000) {
+    metricParts.push(formatDurationMs(agent.progress.durationMs));
+  }
+  if (agent.progress?.tokenCount) {
+    metricParts.push(`${agent.progress.tokenCount.toLocaleString("en-US")} tokens`);
+  }
+  if (agent.progress?.toolUseCount) {
+    const toolUseCount = agent.progress.toolUseCount;
+    metricParts.push(`${toolUseCount} tool ${toolUseCount === 1 ? "use" : "uses"}`);
+  }
+  if (metricParts.length > 0) {
+    lines.push(metricParts.join(" \u00B7 "));
+  }
+  lines.push("");
+  lines.push("Progress");
+  const previewLines = agent.progress?.previewLines ?? [];
+  if (previewLines.length > 0) {
+    lines.push(...previewLines);
+  } else if (agent.progress?.activityText?.trim()) {
+    lines.push(agent.progress.activityText.trim());
+  } else if (agent.detail?.trim()) {
+    lines.push(agent.detail.trim());
+  } else {
+    lines.push(agent.statusLabel);
+  }
+  return lines;
 }
 
 
@@ -322,7 +362,7 @@ export function BackgroundTasksOverlay({
   localAgents = [],
   initialSelectedItemId,
   initialViewMode = "list",
-  onForegroundLocalAgent,
+  onInterruptLocalAgent,
 }: BackgroundTasksOverlayProps): React.ReactElement | null {
   const { theme } = useTheme();
   const sc = useSemanticColors();
@@ -477,22 +517,18 @@ export function BackgroundTasksOverlay({
   const managedTask = resolveManagedTask(
     viewMode === "list" ? selectedItem : viewingItem,
   );
-  const canInterrupt = managedTask != null && isTaskActive(managedTask);
+  const selectedLocalAgent = (viewMode === "list" ? selectedItem : viewingItem)
+    ?.localAgent;
+  const canInterrupt = selectedLocalAgent?.interruptible === true ||
+    (managedTask != null && isTaskActive(managedTask));
   const canDismiss = managedTask != null && !canInterrupt;
-  const canForeground = false;
-  const listHints = canInterrupt && canForeground
-    ? "\u2191/\u2193 select  Enter/Space view  f foreground  k interrupt  Esc close"
-    : canInterrupt
-    ? "\u2191/\u2193 select  Enter/Space view  k interrupt  Esc close"
-    : canDismiss && canForeground
-    ? "\u2191/\u2193 select  Enter/Space view  f foreground  x dismiss  Esc close"
+  const listHints = canInterrupt
+    ? "\u2191/\u2193 select  Enter/Space view  x stop  Esc close"
     : canDismiss
     ? "\u2191/\u2193 select  Enter/Space view  x dismiss  Esc close"
-    : canForeground
-    ? "\u2191/\u2193 select  Enter/Space view  f foreground  Esc close"
     : "\u2191/\u2193 select  Enter/Space view  Esc close";
   const detailHints = canInterrupt
-    ? "\u2191/\u2193 scroll  k interrupt  Enter/Space/Esc close"
+    ? "\u2191/\u2193 scroll  x stop  Enter/Space/Esc close"
     : "\u2191/\u2193 scroll  Enter/Space/Esc close";
   const footerText = truncate(
     viewMode === "list" ? listHints : detailHints,
@@ -507,18 +543,15 @@ export function BackgroundTasksOverlay({
     if (viewMode === "result") {
       const managedTask = resolveManagedTask(viewingItem);
       if (
-        input === "k" &&
-        managedTask &&
-        isTaskActive(managedTask)
+        input === "x" &&
+        viewingItem?.localAgent &&
+        viewingItem.localAgent.interruptible
       ) {
-        cancel(managedTask.id);
+        onInterruptLocalAgent?.(viewingItem.localAgent);
         return;
       }
-      if (
-        input === "f" &&
-        false &&
-        onForegroundLocalAgent?.(viewingItem.localAgent)
-      ) {
+      if (input === "x" && managedTask && isTaskActive(managedTask)) {
+        cancel(managedTask.id);
         return;
       }
       if (key.escape || key.return || input === "q" || input === " ") {
@@ -561,14 +594,6 @@ export function BackgroundTasksOverlay({
 
     if (selectableItems.length === 0) return;
 
-    if (
-      input === "f" &&
-      false &&
-      onForegroundLocalAgent?.(selectableItems[selectedIndex].localAgent)
-    ) {
-      return;
-    }
-
     if (key.upArrow) {
       setSelectedIndex((i: number) => Math.max(0, i - 1));
       return;
@@ -590,15 +615,20 @@ export function BackgroundTasksOverlay({
     }
 
     // Cancel/dismiss (only for eval tasks)
-    if ((input === "x" || input === "k") && selectableItems[selectedIndex]) {
+    if (input === "x" && selectableItems[selectedIndex]) {
       const item = selectableItems[selectedIndex];
+      if (
+        item.localAgent &&
+        item.localAgent.interruptible
+      ) {
+        onInterruptLocalAgent?.(item.localAgent);
+        return;
+      }
       const managedTask = resolveManagedTask(item);
       if (managedTask) {
         if (isTaskActive(managedTask)) {
-          if (input === "k") {
-            cancel(managedTask.id);
-          }
-        } else if (input === "x") {
+          cancel(managedTask.id);
+        } else {
           removeTask(managedTask.id);
         }
       }
@@ -614,7 +644,7 @@ export function BackgroundTasksOverlay({
 
   return (
     <OverlayModal
-      title={viewMode === "list" ? "Task Manager" : "Details"}
+      title="Background tasks"
       rightText={viewMode === "list" ? "esc close" : "esc back"}
       width={overlayFrame.width}
       minHeight={overlayFrame.height}
@@ -633,7 +663,7 @@ export function BackgroundTasksOverlay({
           <Box paddingLeft={PADDING.left} marginTop={1} flexDirection="column">
             {visibleItems.length === 0
               ? (
-                <Text color={sc.text.muted}>No tasks</Text>
+                <Text color={sc.text.muted}>No background tasks</Text>
               )
               : visibleItems.map((item: UnifiedTaskItem) => {
                 if (item.kind === "section") {

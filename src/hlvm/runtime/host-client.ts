@@ -22,6 +22,7 @@ import type {
 import type { AgentExecutionMode } from "../agent/execution-mode.ts";
 import type { InteractionOption } from "../agent/registry.ts";
 import { formatStructuredResultText } from "../agent/structured-output.ts";
+import type { BackgroundAgentSnapshot } from "../agent/tools/agent-types.ts";
 import {
   getHlvmRuntimeBaseUrl,
   HLVM_RUNTIME_PORT_SCAN_RANGE,
@@ -127,6 +128,7 @@ interface RuntimeInteractionRequest {
   mode: "permission" | "question";
   toolName?: string;
   toolArgs?: string;
+  toolInput?: unknown;
   question?: string;
   options?: InteractionOption[];
   sourceLabel?: string;
@@ -822,6 +824,8 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         agentType: event.agent_type,
         toolUseCount: event.tool_use_count,
         durationMs: event.duration_ms,
+        tokenCount: event.token_count,
+        lastToolInfo: event.last_tool_info,
       };
     case "agent_complete":
       return {
@@ -829,6 +833,7 @@ function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
         agentId: event.agent_id,
         agentType: event.agent_type,
         success: event.success,
+        cancelled: event.cancelled,
         durationMs: event.duration_ms,
         toolUseCount: event.tool_use_count,
         totalTokens: event.total_tokens,
@@ -1045,6 +1050,25 @@ export async function verifyRuntimeModelAccess(
     { requireAiReady: true, timeout: 10_000 },
   );
   return result.available === true;
+}
+
+export async function listRuntimeBackgroundAgents(): Promise<
+  BackgroundAgentSnapshot[]
+> {
+  const response = await fetchRuntimeJson<{ agents?: BackgroundAgentSnapshot[] }>(
+    "/api/background-agents",
+  );
+  return response.agents ?? [];
+}
+
+export async function cancelRuntimeBackgroundAgent(
+  agentId: string,
+): Promise<boolean> {
+  const response = await postRuntimeJson<{ cancelled?: boolean }>(
+    "/api/background-agents/cancel",
+    { agent_id: agentId },
+  );
+  return response.cancelled === true;
 }
 
 export async function getRuntimeProviderStatus(
@@ -1507,6 +1531,7 @@ async function runChatViaHostAttempt(
               mode: event.mode,
               toolName: event.tool_name,
               toolArgs: event.tool_args,
+              toolInput: event.tool_input,
               question: event.question,
               options: event.options,
               sourceLabel: event.source_label,

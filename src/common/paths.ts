@@ -348,9 +348,9 @@ export function getMcpOAuthPath(): string {
 }
 
 /**
- * Get the Claude Code external MCP plugins directory.
- * Claude Code stores installed MCP servers as subdirectories here,
- * each with a `.mcp.json` config file.
+ * Get the Claude Code MCP plugin scan root.
+ * HLVM scans marketplace plugin directories under this root for `.mcp.json`
+ * manifests and imports compatible MCP servers automatically.
  */
 export function getClaudeCodeMcpDir(): string {
   if (_claudeCodeMcpDirForTests !== null) {
@@ -362,8 +362,6 @@ export function getClaudeCodeMcpDir(): string {
     ".claude",
     "plugins",
     "marketplaces",
-    "claude-plugins-official",
-    "external_plugins",
   );
 }
 

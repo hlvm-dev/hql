@@ -137,6 +137,34 @@ Deno.test("handleTextOnlyResponse repairs a locally executable plain-text functi
   assertEquals(response.toolCalls[0]?.args.path, "README.md");
 });
 
+Deno.test("handleTextOnlyResponse repairs wrapped plain-text function-style tool-call args after retry budget is exhausted", () => {
+  const config: ToolFilterCompatConfig = {
+    workspace: "/tmp",
+    context: new ContextManager(),
+  };
+  const lc = resolveLoopConfig(config);
+  const state = initializeLoopState(config);
+  state.midLoopFormatRetries = lc.maxToolCallRetries;
+  const response: LLMResponse = {
+    content: 'read_file({"arguments":"{\\"path\\":\\"README.md\\"}"})',
+    toolCalls: [],
+  };
+
+  const result = handleTextOnlyResponse(
+    response,
+    response.content,
+    state,
+    lc,
+    config,
+  );
+
+  assertEquals(result.action, "proceed");
+  assertEquals(response.content, "");
+  assertEquals(response.toolCalls.length, 1);
+  assertEquals(response.toolCalls[0]?.toolName, "read_file");
+  assertEquals(response.toolCalls[0]?.args.path, "README.md");
+});
+
 Deno.test("handleTextOnlyResponse does not repair a denied local tool after retry budget is exhausted", () => {
   const config: ToolFilterCompatConfig = {
     workspace: "/tmp",

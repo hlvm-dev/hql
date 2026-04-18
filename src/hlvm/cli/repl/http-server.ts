@@ -30,6 +30,10 @@ import {
   handleChatInteraction,
 } from "./handlers/chat.ts";
 import {
+  handleCancelBackgroundAgent,
+  handleListBackgroundAgents,
+} from "./handlers/background-agents.ts";
+import {
   getRuntimeAiReadyReason,
   getRuntimeReady,
   isRuntimeAiReadyRetryable,
@@ -713,6 +717,10 @@ const router = createRouter();
 router.add("POST", "/api/chat", (req) => handleChat(req));
 router.add("POST", "/eval", (req) => handleEval(req));
 router.add("POST", "/api/chat/cancel", (req) => handleChatCancel(req));
+router.add("GET", "/api/background-agents", () => handleListBackgroundAgents());
+router.add("POST", "/api/background-agents/cancel", (req) =>
+  handleCancelBackgroundAgent(req)
+);
 router.add("POST", "/api/cu/escape", async () => {
   // Reverse callback from HLVM.app — user pressed Escape during CU.
   // 1. Fire the esc-hotkey callback (for non-server paths)

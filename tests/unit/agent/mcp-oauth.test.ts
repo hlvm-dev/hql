@@ -10,8 +10,8 @@ import { createSdkMcpClient } from "../../../src/hlvm/agent/mcp/sdk-client.ts";
 import { getPlatform, setPlatform } from "../../../src/platform/platform.ts";
 import {
   startOAuthServer,
-  withServePermissionGuard,
   withOAuthStorePath,
+  withServePermissionGuard,
 } from "./oauth-test-helpers.ts";
 import { withTempHlvmDir } from "../helpers.ts";
 
@@ -57,13 +57,17 @@ Deno.test({
           },
           promptInput: () => {
             const state = new URL(authUrl).searchParams.get("state") ?? "";
-            return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=abc123&state=${
-              encodeURIComponent(state)
-            }`);
+            return Promise.resolve(
+              `http://127.0.0.1:35017/hlvm/oauth/callback?code=abc123&state=${
+                encodeURIComponent(state)
+              }`,
+            );
           },
         });
 
-        const header = await getMcpOAuthAuthorizationHeader(server, { storePath });
+        const header = await getMcpOAuthAuthorizationHeader(server, {
+          storePath,
+        });
         assertEquals(header, "Bearer refreshed-token");
         assertEquals(oauth.tokenRequestBodies.length, 2);
         assertEquals(
@@ -111,9 +115,11 @@ Deno.test({
           },
           promptInput: () => {
             const state = new URL(authUrl).searchParams.get("state") ?? "";
-            return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=init-code&state=${
-              encodeURIComponent(state)
-            }`);
+            return Promise.resolve(
+              `http://127.0.0.1:35017/hlvm/oauth/callback?code=init-code&state=${
+                encodeURIComponent(state)
+              }`,
+            );
           },
         });
 
@@ -203,13 +209,17 @@ Deno.test({
           },
           promptInput: () => {
             const state = new URL(authUrl).searchParams.get("state") ?? "";
-            return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=abc123&state=${
-              encodeURIComponent(state)
-            }`);
+            return Promise.resolve(
+              `http://127.0.0.1:35017/hlvm/oauth/callback?code=abc123&state=${
+                encodeURIComponent(state)
+              }`,
+            );
           },
         });
 
-        const header = await getMcpOAuthAuthorizationHeader(server, { storePath });
+        const header = await getMcpOAuthAuthorizationHeader(server, {
+          storePath,
+        });
         assertEquals(header, "Bearer refreshed-token");
         assertEquals(oauth.tokenRequestBodies.length, 2);
 
@@ -242,13 +252,17 @@ Deno.test({
           },
           promptInput: () => {
             const state = new URL(authUrl).searchParams.get("state") ?? "";
-            return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=abc123&state=${
-              encodeURIComponent(state)
-            }`);
+            return Promise.resolve(
+              `http://127.0.0.1:35017/hlvm/oauth/callback?code=abc123&state=${
+                encodeURIComponent(state)
+              }`,
+            );
           },
         });
 
-        const header = await getMcpOAuthAuthorizationHeader(server, { storePath });
+        const header = await getMcpOAuthAuthorizationHeader(server, {
+          storePath,
+        });
         assertEquals(header, "Bearer initial-token");
         assertEquals(oauth.tokenRequestBodies.length, 1);
 
@@ -281,9 +295,11 @@ Deno.test({
           },
           promptInput: () => {
             const state = new URL(authUrl).searchParams.get("state") ?? "";
-            return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=init&state=${
-              encodeURIComponent(state)
-            }`);
+            return Promise.resolve(
+              `http://127.0.0.1:35017/hlvm/oauth/callback?code=init&state=${
+                encodeURIComponent(state)
+              }`,
+            );
           },
         });
 
@@ -304,15 +320,67 @@ Deno.test({
           },
           promptInput: () => {
             const state = new URL(reauthUrl).searchParams.get("state") ?? "";
-            return Promise.resolve(`http://127.0.0.1:35017/hlvm/oauth/callback?code=reauth&state=${
-              encodeURIComponent(state)
-            }`);
+            return Promise.resolve(
+              `http://127.0.0.1:35017/hlvm/oauth/callback?code=reauth&state=${
+                encodeURIComponent(state)
+              }`,
+            );
           },
         });
 
         assertEquals(
           new URL(reauthUrl).searchParams.get("scope"),
           "offline_access extra_scope",
+        );
+
+        await oauth.server.shutdown();
+      });
+    });
+  },
+});
+
+Deno.test({
+  name: "MCP OAuth: login honors per-server clientId and callbackPort",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    await withServePermissionGuard(async () => {
+      await withOauthStorePath(async (storePath) => {
+        const oauth = await startOAuthServer({ initialExpiresIn: 3600 });
+        const server = {
+          name: "oauth-configured-client",
+          url: `http://127.0.0.1:${oauth.port}/mcp`,
+          oauth: {
+            clientId: "configured-client-id",
+            callbackPort: 3118,
+          },
+        };
+
+        let authUrl = "";
+        await loginMcpHttpServer(server, {
+          output: () => {},
+          storePath,
+          openBrowser: (url) => {
+            authUrl = url;
+            return Promise.resolve();
+          },
+          promptInput: () => {
+            const state = new URL(authUrl).searchParams.get("state") ?? "";
+            return Promise.resolve(
+              `http://127.0.0.1:3118/hlvm/oauth/callback?code=cfg&state=${
+                encodeURIComponent(state)
+              }`,
+            );
+          },
+        });
+
+        assertEquals(
+          new URL(authUrl).searchParams.get("redirect_uri"),
+          "http://127.0.0.1:3118/hlvm/oauth/callback",
+        );
+        assertEquals(
+          new URLSearchParams(oauth.tokenRequestBodies[0]).get("client_id"),
+          "configured-client-id",
         );
 
         await oauth.server.shutdown();

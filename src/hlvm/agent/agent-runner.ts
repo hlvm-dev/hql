@@ -68,12 +68,14 @@ import {
 } from "./query-tool-routing.ts";
 import {
   clearToolProfileLayer,
+  clearTurnScopedToolProfileLayers,
   cloneToolList,
   createToolProfileState,
   ensureToolProfileState,
   resolveCanonicalBaselineAllowlist,
   resolveEffectiveToolFilterCached,
   resolvePersistentToolFilter,
+  setCanonicalToolProfileBaseline,
   setToolProfileLayer,
   syncEffectiveToolFilterToConfig,
 } from "./tool-profiles.ts";
@@ -251,7 +253,6 @@ export async function reuseSession(
     agentProfiles: options?.agentProfiles,
   });
 }
-
 
 function normalizeToolList(list?: string[]): string[] {
   return list?.length ? [...new Set(list)].sort() : [];
@@ -451,7 +452,7 @@ function buildTurnRoutingForSession(options: {
   modelSource: TurnModelSource;
   toolSearchUniverseAllowlist?: string[];
 }): TurnRouting {
-  const effectiveFilter = resolveSessionEffectiveToolFilter(options.session);
+  const effectiveFilter = resolveSessionPersistentToolFilter(options.session);
   return buildTurnRouting({
     selectedModel: options.selectedModel,
     modelSource: options.modelSource,
@@ -516,12 +517,11 @@ function updateSessionBaselineAllowlist(
     ownerId: session.toolOwnerId,
   });
   const profileState = ensureToolProfileState(session);
-  const baselineLayer = profileState.layers.baseline;
-  setToolProfileLayer(profileState, "baseline", {
-    profileId: baselineLayer?.profileId,
-    allowlist: cloneToolList(nextAllowlist),
-    denylist: cloneToolList(baselineLayer?.denylist),
-    reason: baselineLayer?.reason,
+  setCanonicalToolProfileBaseline(profileState, {
+    querySource: session.querySource,
+    baseAllowlist: toolAllowlist ?? session.baseToolAllowlist,
+    discoveredDeferredTools: session.discoveredDeferredTools,
+    ownerId: session.toolOwnerId,
   });
   syncSessionToolProfileState(session);
   if (session.llmConfig) {
@@ -533,21 +533,13 @@ function updateSessionBaselineAllowlist(
 
 function resetSessionRoutingToolProfile(session: AgentSession): void {
   const profileState = ensureToolProfileState(session);
-  const baselineLayer = profileState.layers.baseline;
-  const canonicalBaselineAllowlist = resolveCanonicalBaselineAllowlist({
+  setCanonicalToolProfileBaseline(profileState, {
     querySource: session.querySource,
     baseAllowlist: session.baseToolAllowlist,
     discoveredDeferredTools: session.discoveredDeferredTools,
     ownerId: session.toolOwnerId,
   });
-
-  setToolProfileLayer(profileState, "baseline", {
-    profileId: baselineLayer?.profileId,
-    allowlist: cloneToolList(canonicalBaselineAllowlist),
-    denylist: cloneToolList(baselineLayer?.denylist),
-    reason: baselineLayer?.reason,
-  });
-  clearToolProfileLayer(profileState, "domain");
+  clearTurnScopedToolProfileLayers(profileState);
   syncSessionToolProfileState(session);
 }
 
@@ -1259,7 +1251,6 @@ export async function runAgentQuery(
         },
         skipModelCompensation: false,
         modelTier: session.modelTier,
-        turnRouting,
         modelId: model,
         sessionId: runtimeSessionId,
         turnId,

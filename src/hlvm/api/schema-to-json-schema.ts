@@ -24,6 +24,36 @@ const PRIMITIVE_SCHEMA_BY_NAME: Record<string, JsonSchema> = {
   object: { type: "object" },
 };
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isDirectJsonSchema(descriptor: unknown): descriptor is JsonSchema {
+  if (!isObjectRecord(descriptor)) return false;
+  if (
+    typeof descriptor.$schema === "string" || typeof descriptor.$id === "string"
+  ) {
+    return true;
+  }
+  if (
+    descriptor.type === "object" &&
+    ("properties" in descriptor || "required" in descriptor ||
+      "additionalProperties" in descriptor)
+  ) {
+    return true;
+  }
+  if (
+    descriptor.type === "array" &&
+    ("items" in descriptor || "prefixItems" in descriptor ||
+      "minItems" in descriptor || "maxItems" in descriptor)
+  ) {
+    return true;
+  }
+  return "oneOf" in descriptor || "anyOf" in descriptor ||
+    "allOf" in descriptor ||
+    "not" in descriptor;
+}
+
 function splitTopLevelCommas(input: string): string[] {
   const parts: string[] = [];
   let current = "";
@@ -96,12 +126,18 @@ function parseStringArrayDescriptor(descriptor: string): JsonSchema | null {
   return {
     type: "array",
     items,
-    ...(exactItems != null ? { minItems: exactItems, maxItems: exactItems } : {}),
+    ...(exactItems != null
+      ? { minItems: exactItems, maxItems: exactItems }
+      : {}),
   };
 }
 
 /** Convert an HQL schema descriptor into a JSON Schema object. */
 export function descriptorToJsonSchema(descriptor: unknown): JsonSchema {
+  if (isDirectJsonSchema(descriptor)) {
+    return descriptor;
+  }
+
   if (typeof descriptor === "string") {
     const arraySchema = parseStringArrayDescriptor(descriptor);
     if (arraySchema) return arraySchema;
@@ -110,7 +146,10 @@ export function descriptorToJsonSchema(descriptor: unknown): JsonSchema {
     const base = normalized.split(/\s+/)[0].toLowerCase();
     if (base in PRIMITIVE_SCHEMA_BY_NAME) return PRIMITIVE_SCHEMA_BY_NAME[base];
     if (descriptor.includes("|")) {
-      return { type: "string", enum: descriptor.split("|").map((s) => s.trim()) };
+      return {
+        type: "string",
+        enum: descriptor.split("|").map((s) => s.trim()),
+      };
     }
     return { type: "string" };
   }
@@ -121,15 +160,18 @@ export function descriptorToJsonSchema(descriptor: unknown): JsonSchema {
       : { type: "array", items: descriptorToJsonSchema(descriptor[0]) };
   }
 
-  if (descriptor !== null && typeof descriptor === "object") {
+  if (isObjectRecord(descriptor)) {
     const properties: Record<string, JsonSchema> = {};
-    const keys = Object.keys(descriptor as Record<string, unknown>);
+    const keys = Object.keys(descriptor);
     for (const key of keys) {
-      properties[key] = descriptorToJsonSchema(
-        (descriptor as Record<string, unknown>)[key],
-      );
+      properties[key] = descriptorToJsonSchema(descriptor[key]);
     }
-    return { type: "object", properties, required: keys, additionalProperties: false };
+    return {
+      type: "object",
+      properties,
+      required: keys,
+      additionalProperties: false,
+    };
   }
 
   return {};

@@ -2,12 +2,14 @@ import React from "react";
 import type { ScrollBoxHandle } from "../ink/components/ScrollBox.tsx";
 import type { Key } from "../ink/events/input-event.ts";
 import useInput from "../ink/hooks/use-input.ts";
+import { useSelection } from "../ink/hooks/use-selection.ts";
 import { isXtermJs } from "../ink/terminal.ts";
 
 type Props = {
   scrollRef: React.RefObject<ScrollBoxHandle | null>;
   isActive: boolean;
   onScroll?: (sticky: boolean, handle: ScrollBoxHandle) => void;
+  onSelectionCopied?: (text: string) => void;
 };
 
 type WheelAccelState = {
@@ -129,12 +131,22 @@ function isScrollKey(key: Key): boolean {
   return key.pageUp || key.pageDown || key.wheelUp || key.wheelDown;
 }
 
+function shouldClearSelectionOnKey(key: Key): boolean {
+  if (key.wheelUp || key.wheelDown) return false;
+  const isNav = key.leftArrow || key.rightArrow || key.upArrow ||
+    key.downArrow || key.home || key.end || key.pageUp || key.pageDown;
+  if (isNav && (key.shift || key.meta || key.super)) return false;
+  return true;
+}
+
 export function ScrollKeybindingHandler({
   scrollRef,
   isActive,
   onScroll,
+  onSelectionCopied,
 }: Props): React.ReactNode {
   const wheelAccelRef = React.useRef<WheelAccelState | null>(null);
+  const selection = useSelection();
 
   useInput((input, key, event) => {
     if (!isActive) return;
@@ -190,6 +202,28 @@ export function ScrollKeybindingHandler({
     }
 
     wheelAccelRef.current = null;
+  }, { isActive });
+
+  useInput((input, key, event) => {
+    if (!isActive || !selection.hasSelection()) return;
+
+    if (key.escape) {
+      selection.clearSelection();
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    const normalizedInput = input.toLowerCase();
+    if ((key.ctrl || key.super) && normalizedInput === "c") {
+      const text = selection.copySelection();
+      if (text) onSelectionCopied?.(text);
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    if (shouldClearSelectionOnKey(key)) {
+      selection.clearSelection();
+    }
   }, { isActive });
 
   return null;

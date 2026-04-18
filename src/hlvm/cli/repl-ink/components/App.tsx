@@ -25,7 +25,11 @@ import { ModelBrowser } from "./ModelBrowser.tsx";
 import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
 import { TranscriptViewerOverlay } from "./TranscriptViewerOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
-import { buildBackgroundStatusFooterModel } from "./LocalAgentsStatusPanel.tsx";
+import {
+  buildBackgroundStatusFooterModel,
+  buildLocalAgentsManagerModel,
+  LocalAgentsManagerPanel,
+} from "./LocalAgentsStatusPanel.tsx";
 import {
   ComposerSurface,
   type ComposerSurfaceHandle,
@@ -120,6 +124,11 @@ import { TuiStatusLine } from "./TuiStatusLine.tsx";
 import { FullscreenLayout } from "../../../tui-v2/components/FullscreenLayout.tsx";
 import { ScrollKeybindingHandler } from "../../../tui-v2/components/ScrollKeybindingHandler.tsx";
 import type { ScrollBoxHandle } from "../../../tui-v2/ink/components/ScrollBox.tsx";
+import {
+  useCopyOnSelect,
+  useSelectionBgColor,
+} from "../../../tui-v2/hooks/useCopyOnSelect.ts";
+import { getClipboardPath } from "../../../tui-v2/ink/termio/osc.ts";
 
 interface CurrentEval {
   code: string;
@@ -288,20 +297,6 @@ function AppContent(
         .concat(conversation.liveItems),
     [conversation.historyItems, conversation.liveItems],
   );
-  const baseLocalAgentEntries = useMemo<LocalAgentEntry[]>(
-    () => [],
-    [],
-  );
-  useEffect(() => {
-    if (baseLocalAgentEntries.length === 0) {
-      setLocalAgentsFocused(false);
-    }
-  }, [baseLocalAgentEntries.length]);
-  useEffect(() => {
-    if (activeOverlay !== "none" || composerShellState.hasDraftInput) {
-      setLocalAgentsFocused(false);
-    }
-  }, [activeOverlay, composerShellState.hasDraftInput]);
   const hasConversationContext = usesConversationContext(surfacePanel);
   const hasActivePlanningState = Boolean(
     conversation.activePlan ||
@@ -325,6 +320,25 @@ function AppContent(
     cycleAgentMode,
     flashFooterStatus,
   } = modelConfig;
+  const handleSelectionCopied = useCallback((text: string) => {
+    const path = getClipboardPath();
+    const count = text.length.toLocaleString("en-US");
+    if (path === "native") {
+      flashFooterStatus(`copied ${count} chars to clipboard`);
+      return;
+    }
+    if (path === "tmux-buffer") {
+      flashFooterStatus(
+        `copied ${count} chars to tmux buffer · paste with prefix + ]`,
+      );
+      return;
+    }
+    flashFooterStatus(
+      `sent ${count} chars via OSC 52 · check terminal clipboard settings if paste fails`,
+    );
+  }, [flashFooterStatus]);
+  useCopyOnSelect({ onCopied: handleSelectionCopied });
+  useSelectionBgColor();
 
   useEffect(() => {
     if (!init.ready) return;
@@ -398,59 +412,6 @@ function AppContent(
     setBackgroundTasksOverlayState({ initialSelectedItemId, initialViewMode });
     setActiveOverlay("background-tasks");
   }, [setActiveOverlay]);
-  const focusLocalAgents = useCallback(() => {
-    if (baseLocalAgentEntries.length === 0) return false;
-    setLocalAgentsFocused(true);
-    return true;
-  }, [baseLocalAgentEntries.length]);
-  const foregroundLocalAgent = useCallback((_agent: LocalAgentEntry) => {
-    return false;
-  }, []);
-  const openLocalAgentsSurface = useCallback(() => {
-    if (baseLocalAgentEntries.length === 0) return false;
-    const singleAgent = baseLocalAgentEntries.length === 1
-      ? baseLocalAgentEntries[0]
-      : undefined;
-    if (!singleAgent) {
-      openBackgroundTasksOverlay(undefined, "list");
-      return true;
-    }
-    openBackgroundTasksOverlay(singleAgent.id, "result");
-    return true;
-  }, [
-    baseLocalAgentEntries,
-    openBackgroundTasksOverlay,
-  ]);
-  const handleLocalAgentsInput = useCallback((input: string, key: {
-    escape?: boolean;
-    return?: boolean;
-    space?: boolean;
-    upArrow?: boolean;
-    downArrow?: boolean;
-  }) => {
-    if (!localAgentsFocused || baseLocalAgentEntries.length === 0) {
-      return false;
-    }
-    if (key.upArrow || key.escape) {
-      setLocalAgentsFocused(false);
-      return true;
-    }
-    if (
-      key.return ||
-      input === " " ||
-      input === "\r" ||
-      input === "\n" ||
-      key.downArrow
-    ) {
-      openLocalAgentsSurface();
-      return true;
-    }
-    return false;
-  }, [
-    baseLocalAgentEntries.length,
-    localAgentsFocused,
-    openLocalAgentsSurface,
-  ]);
 
   const agentRunner = useAgentRunner({
     conversation,
@@ -473,6 +434,8 @@ function AppContent(
   const {
     interactionQueue,
     pendingInteraction,
+    localAgentEntries,
+    interruptLocalAgentEntry,
     agentControllerRef,
     expandConversationDraftText,
     prepareConversationAttachmentPayload,
@@ -482,7 +445,69 @@ function AppContent(
     interruptConversationRun,
     handleForceInterrupt,
   } = agentRunner;
-  const localAgentEntries = baseLocalAgentEntries;
+  useEffect(() => {
+    if (localAgentEntries.length === 0) {
+      setLocalAgentsFocused(false);
+    }
+  }, [localAgentEntries.length]);
+  useEffect(() => {
+    if (activeOverlay !== "none" || composerShellState.hasDraftInput) {
+      setLocalAgentsFocused(false);
+    }
+  }, [activeOverlay, composerShellState.hasDraftInput]);
+  const focusLocalAgents = useCallback(() => {
+    if (localAgentEntries.length === 0) return false;
+    setLocalAgentsFocused(true);
+    return true;
+  }, [localAgentEntries.length]);
+  const interruptLocalAgent = useCallback((agent: LocalAgentEntry) => {
+    return interruptLocalAgentEntry(agent.id);
+  }, [interruptLocalAgentEntry]);
+  const openLocalAgentsSurface = useCallback(() => {
+    if (localAgentEntries.length === 0) return false;
+    const singleAgent = localAgentEntries.length === 1
+      ? localAgentEntries[0]
+      : undefined;
+    if (!singleAgent) {
+      openBackgroundTasksOverlay(undefined, "list");
+      return true;
+    }
+    openBackgroundTasksOverlay(singleAgent.id, "result");
+    return true;
+  }, [
+    localAgentEntries,
+    openBackgroundTasksOverlay,
+  ]);
+  const handleLocalAgentsInput = useCallback((input: string, key: {
+    escape?: boolean;
+    return?: boolean;
+    space?: boolean;
+    upArrow?: boolean;
+    downArrow?: boolean;
+  }) => {
+    if (!localAgentsFocused || localAgentEntries.length === 0) {
+      return false;
+    }
+    if (key.upArrow || key.escape) {
+      setLocalAgentsFocused(false);
+      return true;
+    }
+    if (
+      key.return ||
+      input === " " ||
+      input === "\r" ||
+      input === "\n" ||
+      key.downArrow
+    ) {
+      openLocalAgentsSurface();
+      return true;
+    }
+    return false;
+  }, [
+    localAgentEntries.length,
+    localAgentsFocused,
+    openLocalAgentsSurface,
+  ]);
   const handleConversationInteractionResponse = useCallback((
     requestId: string,
     response: InteractionResponse,
@@ -1463,11 +1488,25 @@ function AppContent(
   }, [hasConversationContext, pendingInteraction]);
   const currentTurnSummary = useMemo(() => {
     if (!hasConversationContext || pendingInteraction) return undefined;
-    if (isConversationTaskRunning && footerStatusMessage?.trim()) {
-      return footerStatusMessage.trim();
+    const footerStatus = footerStatusMessage?.trim();
+    if (footerStatus) {
+      return footerStatus;
     }
-    return undefined;
+    if (!isConversationTaskRunning) return undefined;
+    const activeTool = conversation.activeTool;
+    if (activeTool) {
+      const summaryLabel = activeTool.toolTotal > 1
+        ? `${activeTool.displayName} ${activeTool.toolIndex}/${activeTool.toolTotal}`
+        : activeTool.displayName;
+      const parts = [summaryLabel];
+      if (activeTool.progressText?.trim()) {
+        parts.push(truncate(activeTool.progressText.trim(), 48));
+      }
+      return parts.join(" · ");
+    }
+    return "Working";
   }, [
+    conversation.activeTool,
     hasConversationContext,
     isConversationTaskRunning,
     footerStatusMessage,
@@ -1487,6 +1526,20 @@ function AppContent(
         recentActiveTaskLabel: localAgentEntries.length === 0
           ? recentActiveTaskLabel
           : undefined,
+      },
+    )
+    : undefined;
+  const localAgentsManagerModel = showBackgroundStatusSurface &&
+      localAgentEntries.length > 0
+    ? buildLocalAgentsManagerModel(
+      localAgentEntries,
+      shellContentWidth,
+      {
+        focused: localAgentsFocused,
+        leader: {
+          activityText: currentTurnSummary,
+          idleText: "Idle",
+        },
       },
     )
     : undefined;
@@ -1617,7 +1670,7 @@ function AppContent(
         initialSelectedItemId={backgroundTasksOverlayState
           .initialSelectedItemId}
         initialViewMode={backgroundTasksOverlayState.initialViewMode}
-        onForegroundLocalAgent={foregroundLocalAgent}
+        onInterruptLocalAgent={interruptLocalAgent}
       />
     );
   }
@@ -1640,6 +1693,7 @@ function AppContent(
         <ScrollKeybindingHandler
           scrollRef={transcriptScrollRef}
           isActive={!pendingInteraction && activeOverlay === "none"}
+          onSelectionCopied={handleSelectionCopied}
         />
 
         <FullscreenLayout
@@ -1678,6 +1732,14 @@ function AppContent(
                       items={queuedConversationDrafts}
                       editBindingLabel={queueEditBindingLabel}
                     />
+                  )}
+                  {localAgentsManagerModel && (
+                    <RenderErrorBoundary>
+                      <LocalAgentsManagerPanel
+                        model={localAgentsManagerModel}
+                        width={shellContentWidth}
+                      />
+                    </RenderErrorBoundary>
                   )}
                   <ComposerSurface
                     ref={composerRef}
@@ -1730,7 +1792,6 @@ function AppContent(
                     : undefined}
                   interactionLabel={interactionStatusLabel}
                   turnLabel={currentTurnSummary}
-                  backgroundLabel={localAgentsFooterModel?.text}
                   aiAvailable={init.aiAvailable}
                 />
               )}
@@ -1744,9 +1805,6 @@ function AppContent(
                       : undefined}
                     streamingState={hasConversationContext
                       ? conversation.streamingState
-                      : undefined}
-                    activeTool={hasConversationContext
-                      ? conversation.activeTool
                       : undefined}
                     interactionQueueLength={hasConversationContext
                       ? interactionQueue.length
@@ -1771,6 +1829,9 @@ function AppContent(
                     submitAction={composerShellState.hasSubmitText
                       ? composerShellState.submitAction
                       : undefined}
+                    backgroundLabel={localAgentsFooterModel?.text}
+                    backgroundHintLabel={localAgentsFooterModel?.hintText
+                      ?.replace(/^ · /, "")}
                   />
                 )}
             </Box>

@@ -22,10 +22,18 @@ export interface McpServerConfig {
   transport?: "stdio" | "http" | "sse";
   /** Additional headers for remote HTTP/SSE transports */
   headers?: Record<string, string>;
+  oauth?: McpOAuthConfig;
   /** Raw MCP tool names to skip (not registered) */
   disabled_tools?: string[];
   /** Per-server connection timeout in ms (default: 5000) */
   connection_timeout_ms?: number;
+}
+
+export interface McpOAuthConfig {
+  clientId?: string;
+  callbackPort?: number;
+  authServerMetadataUrl?: string;
+  xaa?: boolean;
 }
 
 export interface McpConfig {

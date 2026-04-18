@@ -28,8 +28,72 @@ import { UsageTracker } from "../usage.ts";
 import { getAgentLogger } from "../logger.ts";
 import { createAgent } from "../agent.ts";
 import { enhanceSystemPromptWithEnvDetails } from "./prompt-env.ts";
+import { truncate } from "../../../common/utils.ts";
 
 const log = getAgentLogger();
+
+function capitalizeWord(word: string): string {
+  if (word.length === 0) return word;
+  return word[0]!.toUpperCase() + word.slice(1);
+}
+
+function formatAgentToolLabel(toolName: string): string {
+  switch (toolName) {
+    case "search_web":
+      return "Web Search";
+    case "fetch_url":
+    case "web_fetch":
+      return "Fetch";
+    case "tool_search":
+      return "Tool Search";
+    case "read_file":
+      return "Read";
+    case "write_file":
+      return "Write";
+    case "edit_file":
+      return "Edit";
+    case "search_code":
+      return "Search";
+    case "shell_exec":
+    case "shell_script":
+      return "Bash";
+    default:
+      return toolName.split("_").map(capitalizeWord).join(" ");
+  }
+}
+
+function formatAgentToolInfo(
+  toolName: string,
+  text?: string,
+): string {
+  const label = formatAgentToolLabel(toolName);
+  const detail = normalizeAgentToolDetail(text);
+  if (!detail || /^[{\[(]+$/.test(detail)) {
+    return label;
+  }
+  if (
+    detail.startsWith("Large result persisted to ") ||
+    detail.startsWith("Full tool result was persisted to ")
+  ) {
+    return `${label}: Saved full result`;
+  }
+  return truncate(detail ? `${label}: ${detail}` : label, 96);
+}
+
+function normalizeAgentToolDetail(text?: string): string | undefined {
+  const detail = text?.trim();
+  if (!detail) return undefined;
+  if (detail.includes("Tool budget exceeded")) {
+    return "Tool budget exceeded";
+  }
+  if (detail.startsWith("Tool not available:")) {
+    return "Required tool unavailable";
+  }
+  if (detail.startsWith("Unknown tool:")) {
+    return "Unknown tool";
+  }
+  return detail;
+}
 
 // ============================================================
 // Types
@@ -215,7 +279,9 @@ export async function runAgent(
   // CC: Track tool uses and build transcript for expand/collapse.
   // Child events are NOT forwarded to parent TUI — only counted and recorded.
   let toolUseCount = 0;
+  let lastToolInfo: string | undefined;
   const transcriptLines: string[] = [];
+  let lastProgressTranscriptLine: string | undefined;
   const pushTranscriptLine = (line: string): void => {
     transcriptLines.push(line);
     void onTranscriptLine?.(line);
@@ -223,12 +289,45 @@ export async function runAgent(
   const childOnAgentEvent: typeof onAgentEvent = (event) => {
     if (event.type === "tool_start") {
       pushTranscriptLine(`  ${event.name} ${event.argsSummary}`);
+      lastToolInfo = formatAgentToolInfo(event.name, event.argsSummary);
+      onAgentEvent?.({
+        type: "agent_progress",
+        agentId,
+        agentType: agentDefinition.agentType,
+        toolUseCount,
+        durationMs: Date.now() - startTime,
+        tokenCount: usageTracker.snapshot().totalTokens,
+        lastToolInfo,
+      });
+    }
+    if (event.type === "tool_progress") {
+      const progressMessage = event.message.trim();
+      if (!progressMessage) {
+        return;
+      }
+      const transcriptLine = `  ⎿ ${progressMessage}`;
+      if (transcriptLine !== lastProgressTranscriptLine) {
+        pushTranscriptLine(transcriptLine);
+        lastProgressTranscriptLine = transcriptLine;
+      }
+      lastToolInfo = formatAgentToolInfo(event.name, progressMessage);
+      onAgentEvent?.({
+        type: "agent_progress",
+        agentId,
+        agentType: agentDefinition.agentType,
+        toolUseCount,
+        durationMs: Date.now() - startTime,
+        tokenCount: usageTracker.snapshot().totalTokens,
+        lastToolInfo,
+      });
     }
     if (event.type === "tool_end") {
       toolUseCount++;
       const status = event.success ? "ok" : "ERROR";
       const summary = event.summary ? ` — ${event.summary.slice(0, 100)}` : "";
       pushTranscriptLine(`  ⎿ ${status} (${event.durationMs}ms)${summary}`);
+      lastProgressTranscriptLine = undefined;
+      lastToolInfo = formatAgentToolInfo(event.name, event.summary);
       // Emit progress event to PARENT for TUI updates
       onAgentEvent?.({
         type: "agent_progress",
@@ -236,6 +335,8 @@ export async function runAgent(
         agentType: agentDefinition.agentType,
         toolUseCount,
         durationMs: Date.now() - startTime,
+        tokenCount: usageTracker.snapshot().totalTokens,
+        lastToolInfo,
       });
     }
     // Do NOT forward child tool events to parent — they would pollute the TUI.

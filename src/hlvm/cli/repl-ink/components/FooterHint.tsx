@@ -14,7 +14,7 @@ import {
   type StreamingState,
   StreamingState as ConversationStreamingState,
 } from "../types.ts";
-import { DEFAULT_TERMINAL_WIDTH, STATUS_GLYPHS } from "../ui-constants.ts";
+import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import { getShellContentWidth } from "../utils/layout-tokens.ts";
 
 import { truncate } from "../../../../common/utils.ts";
@@ -29,18 +29,9 @@ import {
   formatSubmitActionCue,
   type SubmitAction,
 } from "../utils/submit-routing.ts";
-import { useConversationSpinnerFrame } from "../hooks/useConversationMotion.ts";
 
 interface FooterProps {
   streamingState?: StreamingState;
-  activeTool?: {
-    name: string;
-    displayName: string;
-    progressText?: string;
-    progressTone?: "running" | "success" | "warning";
-    toolIndex: number;
-    toolTotal: number;
-  };
   statusMessage?: string;
   planningPhase?: PlanningPhase;
   interactionQueueLength?: number;
@@ -55,20 +46,14 @@ interface FooterProps {
   conversationQueueCount?: number;
   localEvalQueueCount?: number;
   submitAction?: SubmitAction;
+  backgroundLabel?: string;
+  backgroundHintLabel?: string;
 }
 
 interface FooterLeftStateInput {
   inConversation?: boolean;
   isEvaluating?: boolean;
   streamingState?: StreamingState;
-  activeTool?: {
-    name: string;
-    displayName: string;
-    progressText?: string;
-    progressTone?: "running" | "success" | "warning";
-    toolIndex: number;
-    toolTotal: number;
-  };
   planningPhase?: PlanningPhase;
   interactionQueueLength?: number;
   hasDraftInput?: boolean;
@@ -77,11 +62,12 @@ interface FooterLeftStateInput {
   hasPendingPlanReview?: boolean;
   hasPendingQuestion?: boolean;
   suppressInteractionHints?: boolean;
-  spinner: string;
   statusMessage?: string;
   conversationQueueCount?: number;
   localEvalQueueCount?: number;
   submitAction?: SubmitAction;
+  backgroundLabel?: string;
+  backgroundHintLabel?: string;
 }
 
 interface FooterLeftState {
@@ -104,7 +90,6 @@ export function buildFooterLeftState({
   inConversation,
   isEvaluating,
   streamingState,
-  activeTool,
   planningPhase,
   interactionQueueLength = 0,
   hasDraftInput,
@@ -113,11 +98,12 @@ export function buildFooterLeftState({
   hasPendingPlanReview,
   hasPendingQuestion,
   suppressInteractionHints,
-  spinner,
   statusMessage,
   conversationQueueCount = 0,
   localEvalQueueCount = 0,
   submitAction,
+  backgroundLabel,
+  backgroundHintLabel,
 }: FooterLeftStateInput): FooterLeftState {
   const queuedCount = Math.max(0, interactionQueueLength - 1);
 
@@ -173,7 +159,7 @@ export function buildFooterLeftState({
       text: hasPendingPlanReview
         ? "Plan review pending"
         : hasPendingQuestion
-        ? "Clarification needed"
+        ? "Reply needed"
         : "Permission needed",
       tone: "warning",
       chip: true,
@@ -184,7 +170,7 @@ export function buildFooterLeftState({
     const interactionHint = suppressInteractionHints
       ? "Use arrows or 1-9 below · Enter submit · Esc cancel"
       : hasPendingQuestion
-      ? "Type or choose below · Enter submit · Esc cancel"
+      ? "Reply below · Enter submit · Esc cancel"
       : "Review below · Enter submit · Esc cancel";
     segments.push({ text: interactionHint, tone: "muted" });
     return {
@@ -202,6 +188,12 @@ export function buildFooterLeftState({
 
   if (queuedCount > 0) {
     segments.push({ text: `+${queuedCount} queued`, tone: "active" });
+  }
+  if (backgroundLabel) {
+    segments.push({ text: backgroundLabel, tone: "active" });
+  }
+  if (backgroundHintLabel) {
+    segments.push({ text: backgroundHintLabel, tone: "muted" });
   }
   const queuedInputLabel = getQueuedInputLabel(
     conversationQueueCount,
@@ -222,23 +214,6 @@ export function buildFooterLeftState({
   }
   if (planningPhase && planningPhase !== "done") {
     segments.push({ text: getPlanPhaseLabel(planningPhase), tone: "active" });
-  }
-  if (
-    streamingState === ConversationStreamingState.Responding &&
-    activeTool &&
-    !hasDraftInput
-  ) {
-    const activeToolLabel = `${spinner} ${activeTool.displayName} ${
-      activeTool.toolIndex
-    }/${activeTool.toolTotal}`;
-    const activeToolProgress = activeTool.progressText?.trim()
-      ? ` · ${truncate(activeTool.progressText.trim(), 28)}`
-      : "";
-    segments.push({
-      text: `${activeToolLabel}${activeToolProgress}`,
-      tone: activeTool.progressTone === "warning" ? "warning" : "active",
-      chip: true,
-    });
   }
 
   const idleHint = "Ctrl+O transcript history · ? for shortcuts";
@@ -269,7 +244,6 @@ export function buildFooterLeftState({
 
 export const FooterHint = React.memo(function FooterHint({
   streamingState,
-  activeTool,
   statusMessage,
   planningPhase,
   interactionQueueLength = 0,
@@ -284,18 +258,16 @@ export const FooterHint = React.memo(function FooterHint({
   conversationQueueCount,
   localEvalQueueCount,
   submitAction,
+  backgroundLabel,
+  backgroundHintLabel,
 }: FooterProps): React.ReactElement {
   const { stdout } = useStdout();
   const sc = useSemanticColors();
-  const spinner = useConversationSpinnerFrame(
-    streamingState === ConversationStreamingState.Responding,
-  ) ?? STATUS_GLYPHS.running;
 
   const left = buildFooterLeftState({
     inConversation,
     isEvaluating,
     streamingState,
-    activeTool,
     planningPhase,
     interactionQueueLength,
     hasDraftInput,
@@ -304,11 +276,12 @@ export const FooterHint = React.memo(function FooterHint({
     hasPendingPlanReview,
     hasPendingQuestion,
     suppressInteractionHints,
-    spinner,
     statusMessage,
     conversationQueueCount,
     localEvalQueueCount,
     submitAction,
+    backgroundLabel,
+    backgroundHintLabel,
   });
 
   const rawTerminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;

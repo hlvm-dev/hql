@@ -147,7 +147,7 @@ function mapInteractionRequest(
       requestId: event.requestId,
       request: {
         kind: "question",
-        title: "Clarification needed",
+        title: "Reply needed",
         question: event.question,
         options: event.options,
         selectedIndex: 0,
@@ -1019,7 +1019,7 @@ export function TranscriptWorkbench(): React.ReactNode {
                           columns={effectiveColumns}
                           cursorOffset={interactionCursorOffset}
                           onChangeCursorOffset={setInteractionCursorOffset}
-                          placeholder="type the clarification reply here"
+                          placeholder="type your reply here"
                         />
                       </Box>
                     )}

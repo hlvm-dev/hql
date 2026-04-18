@@ -73,6 +73,7 @@ export interface InteractionRequestEvent {
   mode: "permission" | "question";
   toolName?: string;
   toolArgs?: string;
+  toolInput?: unknown;
   question?: string;
   options?: InteractionOption[];
   /** Optional label for the originating worker/session shown in UI. */
@@ -234,6 +235,8 @@ export interface ToolMetadata {
     options?: { workspace?: string; ownerId?: string },
   ) => string | Promise<string>;
   args: Record<string, string>;
+  /** Optional native JSON Schema used for validation + provider tool definitions. */
+  inputSchema?: Record<string, unknown>;
   /** Tool exposure defaults for source-specific lazy-loading policies. */
   loading?: {
     exposure: "eager" | "deferred";

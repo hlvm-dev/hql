@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useSelection } from "../ink/hooks/use-selection.ts";
+import { useTheme } from "../../cli/theme/index.ts";
 
 // Auto-copy-on-select for v2 — direct port of CC's `useCopyOnSelect`
 // (`~/dev/ClaudeCode-main/hooks/useCopyOnSelect.ts`). When the user
@@ -72,4 +73,14 @@ export function useCopyOnSelect(options: UseCopyOnSelectOptions = {}): void {
     });
     return unsubscribe;
   }, [isActive, selection]);
+}
+
+export function useSelectionBgColor(isActive = true): void {
+  const selection = useSelection();
+  const { theme } = useTheme();
+
+  useEffect(() => {
+    if (!isActive) return;
+    selection.setSelectionBgColor(theme.primary);
+  }, [isActive, selection, theme.primary]);
 }

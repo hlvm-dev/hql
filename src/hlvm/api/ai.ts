@@ -31,6 +31,7 @@ import {
   readStaleWhileRevalidateModelDiscoverySnapshot,
 } from "../providers/model-discovery-store.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
+import { ProviderErrorCode } from "../../common/error-codes.ts";
 import { collectAsyncGenerator } from "../../common/stream-utils.ts";
 
 // ============================================================================
@@ -40,7 +41,7 @@ import { collectAsyncGenerator } from "../../common/stream-utils.ts";
 /** Options for ai() callable */
 export interface AiCallableOptions {
   data?: unknown;
-  schema?: Record<string, unknown>;
+  schema?: unknown;
   model?: string;
   system?: string;
   temperature?: number;
@@ -58,15 +59,25 @@ export interface AiAgentOptions {
 /** The callable ai function type */
 export type AiApi = {
   (prompt: string, options?: AiCallableOptions): Promise<string | unknown>;
-  chat: (messages: Message[], options?: ChatOptions) => AsyncGenerator<string, void, unknown>;
-  chatStructured: (messages: Message[], options?: ChatOptions) => Promise<ChatStructuredResponse>;
+  chat: (
+    messages: Message[],
+    options?: ChatOptions,
+  ) => AsyncGenerator<string, void, unknown>;
+  chatStructured: (
+    messages: Message[],
+    options?: ChatOptions,
+  ) => Promise<ChatStructuredResponse>;
   agent: (prompt: string, options?: AiAgentOptions) => Promise<string>;
   models: {
     list: (providerName?: string) => Promise<ModelInfo[]>;
     listAll: (options?: ModelListAllOptions) => Promise<ModelInfo[]>;
     get: (name: string, providerName?: string) => Promise<ModelInfo | null>;
     catalog: (providerName?: string) => Promise<ModelInfo[]>;
-    pull: (name: string, providerName?: string, signal?: AbortSignal) => AsyncGenerator<PullProgress, void, unknown>;
+    pull: (
+      name: string,
+      providerName?: string,
+      signal?: AbortSignal,
+    ) => AsyncGenerator<PullProgress, void, unknown>;
     remove: (name: string, providerName?: string) => Promise<boolean>;
   };
   status: (providerName?: string) => Promise<ProviderStatus>;
@@ -86,24 +97,31 @@ type StructuredGenerationDeps = {
     spec: import("../providers/sdk-runtime.ts").SdkModelSpec,
     messages: Message[],
     schema: Record<string, unknown>,
-    options?: { signal?: AbortSignal; temperature?: number; maxRetries?: number },
+    options?: {
+      signal?: AbortSignal;
+      temperature?: number;
+      maxRetries?: number;
+    },
   ) => Promise<unknown>;
 };
 
-let structuredGenerationDepsForTesting: Partial<StructuredGenerationDeps> | null =
-  null;
+let structuredGenerationDepsForTesting:
+  | Partial<StructuredGenerationDeps>
+  | null = null;
 
-async function getStructuredGenerationDeps(): Promise<StructuredGenerationDeps> {
+async function getStructuredGenerationDeps(): Promise<
+  StructuredGenerationDeps
+> {
   const sdkRuntime = await import("../providers/sdk-runtime.ts");
   const promptFallback = await import(
     "../providers/structured-output-fallback.ts"
   );
   return {
     generateStructuredWithSdk: structuredGenerationDepsForTesting
-        ?.generateStructuredWithSdk ??
+      ?.generateStructuredWithSdk ??
       sdkRuntime.generateStructuredWithSdk,
     generateStructuredWithPromptFallback: structuredGenerationDepsForTesting
-        ?.generateStructuredWithPromptFallback ??
+      ?.generateStructuredWithPromptFallback ??
       promptFallback.generateStructuredWithPromptFallback,
   };
 }
@@ -122,7 +140,9 @@ export function __setStructuredGenerationDepsForTesting(
  * SSOT model resolution — shared by ALL ai() code paths.
  * Priority: explicit model arg → persisted config → undefined (use default provider).
  */
-async function resolveModelString(explicitModel?: string): Promise<string | undefined> {
+async function resolveModelString(
+  explicitModel?: string,
+): Promise<string | undefined> {
   if (explicitModel) return explicitModel;
   try {
     const { loadConfig } = await import("../../common/config/storage.ts");
@@ -183,6 +203,32 @@ function buildMessages(
   return messages;
 }
 
+function supportsNativeStructuredOutput(modelString?: string): boolean {
+  return resolveProvider(modelString).capabilities.includes(
+    "structured.output",
+  );
+}
+
+function shouldFallbackFromNativeStructuredOutputError(
+  error: unknown,
+): boolean {
+  if (!(error instanceof RuntimeError)) {
+    return false;
+  }
+  if (error.code !== ProviderErrorCode.REQUEST_REJECTED) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes("structured") ||
+    message.includes("schema") ||
+    message.includes("response format") ||
+    message.includes("response_format") ||
+    message.includes("json") ||
+    message.includes("unsupported") ||
+    message.includes("not supported");
+}
+
 // ============================================================================
 // Factory
 // ============================================================================
@@ -205,23 +251,43 @@ function createAiApi(): AiApi {
         "../agent/engine-sdk.ts"
       );
       const deps = await getStructuredGenerationDeps();
+      const messages = buildMessages(prompt, options);
       const spec = toSdkRuntimeModelSpec(resolveSdkModelSpec(modelString));
-      const jsonSchema = descriptorToJsonSchema(options.schema) as Record<string, unknown>;
-      const sdkOpts = { signal: options.signal, temperature: options.temperature };
+      const jsonSchema = descriptorToJsonSchema(options.schema) as Record<
+        string,
+        unknown
+      >;
+      const sdkOpts = {
+        signal: options.signal,
+        temperature: options.temperature,
+      };
 
-      // Tier 1: provider-native constrained decoding
-      try {
-        return await deps.generateStructuredWithSdk(
+      // Providers without native structured output should go straight to the
+      // prompt-based fallback instead of attempting the SDK path and masking
+      // real failures behind a broad catch.
+      if (!supportsNativeStructuredOutput(modelString)) {
+        return await deps.generateStructuredWithPromptFallback(
           spec,
-          buildMessages(prompt, options),
+          messages,
           jsonSchema,
           sdkOpts,
         );
-      } catch {
-        // Tier 3: hlvm-local prompt-based fallback
+      }
+
+      try {
+        return await deps.generateStructuredWithSdk(
+          spec,
+          messages,
+          jsonSchema,
+          sdkOpts,
+        );
+      } catch (error) {
+        if (!shouldFallbackFromNativeStructuredOutputError(error)) {
+          throw error;
+        }
         return await deps.generateStructuredWithPromptFallback(
           spec,
-          buildMessages(prompt, options),
+          messages,
           jsonSchema,
           sdkOpts,
         );
@@ -235,7 +301,8 @@ function createAiApi(): AiApi {
         model: localModelName(modelString),
         maxTokens: DEFAULT_AI_MAX_TOKENS,
         signal: options?.signal,
-        ...(options?.temperature != null && { raw: { temperature: options.temperature } }),
+        ...(options?.temperature != null &&
+          { raw: { temperature: options.temperature } }),
       }),
       options?.signal,
     );
@@ -247,7 +314,10 @@ function createAiApi(): AiApi {
     options?: ChatOptions,
   ): AsyncGenerator<string, void, unknown> {
     const provider = resolveProvider(options?.model);
-    yield* provider.chat(messages, { ...options, model: localModelName(options?.model) });
+    yield* provider.chat(messages, {
+      ...options,
+      model: localModelName(options?.model),
+    });
   };
 
   // ── chatStructured ────────────────────────────────────────────────
@@ -262,7 +332,10 @@ function createAiApi(): AiApi {
         "ai_chat_structured",
       );
     }
-    return provider.chatStructured(messages, { ...options, model: localModelName(options?.model) });
+    return provider.chatStructured(messages, {
+      ...options,
+      model: localModelName(options?.model),
+    });
   };
 
   // ── agent (ReAct loop) ────────────────────────────────────────────
@@ -292,27 +365,39 @@ function createAiApi(): AiApi {
 
     get(name: string, providerName?: string): Promise<ModelInfo | null> {
       const [parsed, model] = parseModelString(name);
-      const p = providerByName(providerName) ?? (parsed ? getProvider(parsed) ?? undefined : undefined);
-      return p?.models?.get?.(providerName ? name : model) ?? Promise.resolve(null);
+      const p = providerByName(providerName) ??
+        (parsed ? getProvider(parsed) ?? undefined : undefined);
+      return p?.models?.get?.(providerName ? name : model) ??
+        Promise.resolve(null);
     },
 
     async catalog(providerName?: string): Promise<ModelInfo[]> {
       const resolved = providerName ?? providerByName()?.name;
       const snapshot = await readStaleWhileRevalidateModelDiscoverySnapshot();
       if (!resolved || resolved === "ollama") return snapshot.remoteModels;
-      return snapshot.cloudModels.filter((m) => m.metadata?.provider === resolved);
+      return snapshot.cloudModels.filter((m) =>
+        m.metadata?.provider === resolved
+      );
     },
 
-    async *pull(name: string, providerName?: string, signal?: AbortSignal): AsyncGenerator<PullProgress, void, unknown> {
+    async *pull(
+      name: string,
+      providerName?: string,
+      signal?: AbortSignal,
+    ): AsyncGenerator<PullProgress, void, unknown> {
       const p = providerByName(providerName);
       if (!p?.models?.pull) {
-        throw new ValidationError("Provider does not support model pulling", "ai.models.pull");
+        throw new ValidationError(
+          "Provider does not support model pulling",
+          "ai.models.pull",
+        );
       }
       yield* p.models.pull(name, signal);
     },
 
     remove: (name: string, providerName?: string) =>
-      providerByName(providerName)?.models?.remove?.(name) ?? Promise.resolve(false),
+      providerByName(providerName)?.models?.remove?.(name) ??
+        Promise.resolve(false),
   };
 
   // ── status ────────────────────────────────────────────────────────
@@ -321,7 +406,9 @@ function createAiApi(): AiApi {
     if (!p) {
       return Promise.resolve({
         available: false,
-        error: providerName ? `Provider '${providerName}' not found` : "No default provider configured",
+        error: providerName
+          ? `Provider '${providerName}' not found`
+          : "No default provider configured",
       });
     }
     return p.status();

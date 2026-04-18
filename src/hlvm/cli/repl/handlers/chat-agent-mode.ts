@@ -290,6 +290,8 @@ export async function handleAgentMode(
               agentType: event.agentType,
               toolUseCount: event.toolUseCount,
               durationMs: event.durationMs,
+              tokenCount: event.tokenCount,
+              lastToolInfo: event.lastToolInfo,
             });
             break;
           case "agent_complete":
@@ -371,6 +373,8 @@ export async function handleAgentMode(
               agent_type: event.agentType,
               tool_use_count: event.toolUseCount,
               duration_ms: event.durationMs,
+              token_count: event.tokenCount,
+              last_tool_info: event.lastToolInfo,
             });
             break;
           case "agent_complete":
@@ -379,6 +383,7 @@ export async function handleAgentMode(
               agent_id: event.agentId,
               agent_type: event.agentType,
               success: event.success,
+              cancelled: event.cancelled,
               duration_ms: event.durationMs,
               tool_use_count: event.toolUseCount,
               total_tokens: event.totalTokens,

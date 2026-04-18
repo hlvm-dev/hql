@@ -187,9 +187,11 @@ export const InteractionPicker = React.memo(function InteractionPicker(
 
   return (
     <Box flexDirection="column" marginBottom={0}>
-      <Box>
-        <Text color={pickerColors.titleColor} bold>{title}</Text>
-      </Box>
+      {title.trim().length > 0 && (
+        <Box>
+          <Text color={pickerColors.titleColor} bold>{title}</Text>
+        </Box>
+      )}
       {subtitle && (
         <Box marginTop={1}>
           <Text color={sc.text.secondary} wrap="wrap">

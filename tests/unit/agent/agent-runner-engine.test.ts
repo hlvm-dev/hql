@@ -19,6 +19,7 @@ import type {
   TraceEvent,
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { hasTool } from "../../../src/hlvm/agent/registry.ts";
+import { resolvePersistentToolFilter } from "../../../src/hlvm/agent/tool-profiles.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { generateUUID } from "../../../src/common/utils.ts";
@@ -468,6 +469,107 @@ Deno.test({
         await platform.fs.remove(workspace, { recursive: true });
       }
     });
+  },
+});
+
+Deno.test({
+  name:
+    "agent-runner: reusable-session routing traces ignore stale turn-local tool layers",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    const platform = getPlatform();
+    const workspace = platform.path.join(
+      platform.process.cwd(),
+      ".tmp",
+      `hlvm-agent-routing-trace-${generateUUID()}`,
+    );
+    await platform.fs.mkdir(workspace, { recursive: true });
+
+    const model = "ollama/test-model";
+    const modelInfo: ModelInfo = {
+      name: "test-model",
+      capabilities: ["chat", "tools", "vision"],
+    };
+    let calls = 0;
+    const engine: AgentEngine = {
+      createLLM: () => {
+        return async () => {
+          calls += 1;
+          if (calls === 1) {
+            return {
+              content: "",
+              toolCalls: [{
+                toolName: "tool_search",
+                args: { query: "web tool", limit: 1 },
+              }],
+            };
+          }
+          if (calls === 2) {
+            return { content: "first done", toolCalls: [] };
+          }
+          return { content: "second done", toolCalls: [] };
+        };
+      },
+      createSummarizer: () => () => Promise.resolve(""),
+    };
+
+    try {
+      await withEngineOverride(engine, async () => {
+        const reusableSession = await createReusableSession(workspace, model, {
+          modelInfo,
+        });
+
+        // deno-lint-ignore no-explicit-any
+        const firstResult: any = await runAgentQuery({
+          query: "Find the web tool",
+          model,
+          modelInfo,
+          workspace,
+          querySource: "repl_main_thread",
+          reusableSession,
+          skipSessionHistory: true,
+          retainSessionForReuse: true,
+          callbacks: {},
+        });
+
+        const firstSession = firstResult.liveSession;
+        assertExists(firstSession);
+        assertExists(firstSession.toolProfileState?.layers.discovery);
+
+        const traces: TraceEvent[] = [];
+        // deno-lint-ignore no-explicit-any
+        const secondResult: any = await runAgentQuery({
+          query: "Answer without more discovery",
+          model,
+          modelInfo,
+          workspace,
+          querySource: "repl_main_thread",
+          reusableSession: firstSession,
+          skipSessionHistory: true,
+          retainSessionForReuse: true,
+          callbacks: {
+            onTrace: (event) => traces.push(event),
+          },
+        });
+
+        const secondSession = secondResult.liveSession;
+        assertExists(secondSession);
+        const routingDecision = traces.find((
+          event,
+        ): event is Extract<TraceEvent, { type: "routing_decision" }> =>
+          event.type === "routing_decision"
+        );
+        assertExists(routingDecision);
+        assertEquals(
+          routingDecision.eagerToolCount,
+          resolvePersistentToolFilter(secondSession.toolProfileState!)
+            .allowlist?.length ?? 0,
+        );
+      });
+    } finally {
+      await platform.fs.remove(workspace, { recursive: true });
+    }
   },
 });
 

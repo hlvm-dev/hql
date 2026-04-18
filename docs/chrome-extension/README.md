@@ -1,311 +1,295 @@
 # Chrome Extension Browser Bridge
 
-HLVM's Chrome Extension bridge connects the CLI to the user's real Chrome
-browser — inheriting all authenticated sessions, cookies, and extensions.
+HLVM's Chrome Extension lets the AI agent control the user's **real
+Chrome browser** — with all their authenticated sessions, cookies, and
+extensions. No re-login, no passwords, no 2FA.
 
-Architecture copied from Claude Code (CC). HLVM improves on CC by adding
-`chrome.debugger` CDP power (CC uses content scripts only) and keeping
-Playwright for headless/CI scenarios.
+Architecture copied from Claude Code (CC). Same content-script approach,
+same native messaging protocol, same user experience.
 
 ---
 
-## Architecture Overview
+## What It Does
 
 ```
-═══════════════════════════════════════════════════════════════════════
-                     HLVM Browser Architecture
-═══════════════════════════════════════════════════════════════════════
+USER: "check my Gmail for new emails"
 
-                         ┌──────────────┐
-                         │  HLVM Agent  │
-                         │  (Deno CLI)  │
-                         └──────┬───────┘
-                                │
-                 ┌──────────────┼──────────────┐
-                 │              │              │
-            ─────▼─────   ─────▼─────   ─────▼─────
-           │  pw_* tools │ │ ch_* tools│ │ cu_* tools│
-           │ (Playwright)│ │(Extension)│ │ (Desktop) │
-            ─────┬─────   ─────┬─────   ─────┬─────
-                 │              │              │
-                 │              │              │
-    ┌────────────▼──┐    ┌─────▼──────┐  ┌───▼────────────┐
-    │  Fresh        │    │   Unix     │  │  Native GUI    │
-    │  Chromium     │    │   Socket   │  │  Backend       │
-    │  (bundled)    │    │            │  │  (HLVM.app)    │
-    │               │    │ ~/.hlvm/   │  │                │
-    │  • No auth    │    │ chrome-    │  │  • AX targets  │
-    │  • Headless   │    │ bridge/    │  │  • Screenshots │
-    │  • Fast DOM   │    │ {pid}.sock │  │  • Native I/O  │
-    │  • CI/testing │    └─────┬──────┘  └────────────────┘
-    └───────────────┘          │
-                               │ stdin/stdout
-                         ┌─────▼──────────┐
-                         │  Native Host   │
-                         │  (Deno binary) │
-                         │                │
-                         │  4-byte LE len │
-                         │  + JSON payload│
-                         └─────┬──────────┘
-                               │ Chrome Native
-                               │ Messaging API
-                    ┌──────────▼───────────────┐
-                    │                          │
-                    │   HLVM Chrome Extension  │
-                    │   (user's real Chrome)   │
-                    │                          │
-                    │  ┌────────────────────┐  │
-                    │  │ chrome.debugger    │  │  ← Full CDP power
-                    │  │ • Page.screenshot  │  │    No --remote-debugging
-                    │  │ • Input.dispatch*  │  │    needed!
-                    │  │ • Runtime.evaluate │  │
-                    │  │ • DOM.*           │  │
-                    │  │ • Network.*       │  │
-                    │  └────────────────────┘  │
-                    │                          │
-                    │  ┌────────────────────┐  │
-                    │  │ Content Scripts    │  │  ← DOM access fallback
-                    │  │ • Read page       │  │
-                    │  │ • Inject JS       │  │
-                    │  └────────────────────┘  │
-                    │                          │
-                    │  ┌────────────────────┐  │
-                    │  │ User's Sessions   │  │  ← FREE auth
-                    │  │ • Cookies         │  │
-                    │  │ • localStorage    │  │
-                    │  │ • Extensions      │  │
-                    │  │ • Password mgr    │  │
-                    │  └────────────────────┘  │
-                    │                          │
-                    └──────────────────────────┘
+  HLVM agent (Haiku / gemma4)
+    → decides: "Gmail needs auth. Use ch_navigate."
+    → calls ch_navigate("https://gmail.com")
+    → YOUR Chrome navigates to Gmail (already logged in)
+    → calls ch_content() to read inbox
+    → "You have 3 new emails: ..."
+
+  No password entered. No 2FA prompt. Already logged in.
+  You WATCH it happen in your Chrome window.
 ```
 
 ---
 
-## Before vs After
+## Full Pipeline (how it works end-to-end)
 
 ```
-═══════════════════════════════════════════════════════════════════
-                          BEFORE (pw_* only)
-═══════════════════════════════════════════════════════════════════
-
-  User: "Book me a flight on United.com"
-
-  HLVM ──→ chromium.launch() ──→ Fresh Chromium (no cookies)
-                                      │
-                                      ├── pw_goto("united.com")
-                                      ├── ❌ Not logged in
-                                      ├── pw_fill(email), pw_fill(password)
-                                      ├── ❌ 2FA challenge
-                                      ├── ❌ CAPTCHA
-                                      ├── pw_promote (headless → headed)
-                                      ├── cu_observe, cu_click (manual 2FA)
-                                      └── 😩 2-5 minutes, often fails
-
-═══════════════════════════════════════════════════════════════════
-                          AFTER (ch_* via extension)
-═══════════════════════════════════════════════════════════════════
-
-  User: "Book me a flight on United.com"
-
-  HLVM ──→ Chrome Extension ──→ User's Real Chrome (logged in!)
-                                      │
-                                      ├── ch_navigate("united.com")
-                                      ├── ✅ Already logged in
-                                      ├── ch_click("Search flights")
-                                      ├── ch_fill(destination)
-                                      └── ✅ Done in 15-30 seconds
+╔══════════════════════════════════════════════════════════════════╗
+║                                                                  ║
+║  $ hlvm ask "check my Gmail"                                    ║
+║       │                                                          ║
+║       ▼                                                          ║
+║  ┌──────────────────────────────────────┐                       ║
+║  │  HLVM Agent (LLM)                    │                       ║
+║  │                                      │                       ║
+║  │  Sees 22 ch_* tools in its tool list │                       ║
+║  │  System prompt says:                 │                       ║
+║  │  "ch_* = real Chrome with auth"      │                       ║
+║  │  "pw_* = clean headless browser"     │                       ║
+║  │                                      │                       ║
+║  │  Decides: ch_navigate("gmail.com")   │                       ║
+║  └──────────────┬───────────────────────┘                       ║
+║                 │                                                ║
+║                 │ Tool call via orchestrator                     ║
+║                 ▼                                                ║
+║  ┌──────────────────────────────────────┐                       ║
+║  │  tools.ts → bridge.ts               │                       ║
+║  │                                      │                       ║
+║  │  chromeExtRequest("navigate",        │                       ║
+║  │    {url: "gmail.com"})               │                       ║
+║  │                                      │                       ║
+║  │  Connects to Unix socket:            │                       ║
+║  │  ~/.hlvm/chrome-bridge/{pid}.sock    │                       ║
+║  │                                      │                       ║
+║  │  Sends: 4-byte length + JSON         │                       ║
+║  └──────────────┬───────────────────────┘                       ║
+║                 │                                                ║
+║                 │ Unix Socket                                    ║
+║                 ▼                                                ║
+║  ┌──────────────────────────────────────┐                       ║
+║  │  native-host.ts                      │                       ║
+║  │  (standalone Deno process)           │                       ║
+║  │                                      │                       ║
+║  │  Chrome spawns this when extension   │                       ║
+║  │  loads. Relays messages between      │                       ║
+║  │  socket (CLI) and stdin/stdout       │                       ║
+║  │  (Chrome native messaging).          │                       ║
+║  └──────────────┬───────────────────────┘                       ║
+║                 │                                                ║
+║                 │ Chrome Native Messaging (stdin/stdout)         ║
+║                 ▼                                                ║
+║  ┌──────────────────────────────────────────────────────────┐   ║
+║  │  Chrome Extension (background.js)                         │   ║
+║  │                                                          │   ║
+║  │  Receives: {method: "navigate", params: {url: ...}}      │   ║
+║  │                                                          │   ║
+║  │  Dispatches via Chrome APIs:                             │   ║
+║  │    navigate    → chrome.tabs.update(tabId, {url})        │   ║
+║  │    click       → chrome.scripting.executeScript(el.click) │   ║
+║  │    content     → chrome.scripting.executeScript(innerText)│   ║
+║  │    screenshot  → chrome.tabs.captureVisibleTab()         │   ║
+║  │    tabs        → chrome.tabs.query({})                   │   ║
+║  │    evaluate    → chrome.scripting.executeScript(MAIN)     │   ║
+║  │    ... (22 methods total)                                │   ║
+║  │                                                          │   ║
+║  │  Returns: {title: "Gmail", url: "...", tabId: 42}       │   ║
+║  └──────────────────────────┬───────────────────────────────┘   ║
+║                             │                                    ║
+║                             ▼                                    ║
+║  ┌──────────────────────────────────────────────────────────┐   ║
+║  │  YOUR REAL CHROME                                         │   ║
+║  │                                                          │   ║
+║  │  [Gmail]  [GitHub]  [Slack]  ← all logged in             │   ║
+║  │                                                          │   ║
+║  │  You watch the AI navigate, click, read pages.           │   ║
+║  │  All using YOUR cookies and sessions.                    │   ║
+║  └──────────────────────────────────────────────────────────┘   ║
+║                                                                  ║
+╚══════════════════════════════════════════════════════════════════╝
 ```
 
 ---
 
-## When Each Mode is Used
+## Three Browser Systems in HLVM
 
 ```
-  User request comes in
+  User request
         │
         ▼
-  ┌─ Needs auth? ──────────────────── YES ──→  ch_* (Extension)
-  │     │                                       User's Chrome
-  │    NO                                       All sessions
+  ┌─ Needs auth? ────────────── YES ──→  ch_* (Chrome Extension)
+  │     │                                 User's real Chrome
+  │    NO                                 All sessions, cookies
   │     │
   │     ▼
-  ├─ Needs speed / CI? ────────────── YES ──→  pw_* (Playwright)
-  │     │                                       Fresh Chromium
-  │    NO                                       Headless, fast
+  ├─ Needs clean browser? ──── YES ──→  pw_* (Playwright)
+  │     │                                 Fresh headless Chromium
+  │    NO                                 No auth, fast, CI-safe
   │     │
   │     ▼
-  ├─ Visual blocker (CAPTCHA/dialog)? YES ──→  pw_promote → cu_*
-  │     │                                       Headed + Desktop AX
-  │    NO
-  │     │
-  │     ▼
-  └─ Desktop app (not browser)? ──── YES ──→  cu_* (Desktop)
-                                                Native AX targets
+  └─ Desktop app? ──────────── YES ──→  cu_* (Computer Use)
+                                          Native macOS AX targets
+                                          Full-page screenshots
 ```
 
 ---
 
-## User Setup Guide
-
-### Step 1: Install the Chrome Extension
-
-Load the unpacked extension during development:
-
-1. Open Chrome and go to `chrome://extensions/`
-2. Enable "Developer mode" (toggle in top-right)
-3. Click "Load unpacked"
-4. Select the directory: `src/hlvm/agent/chrome-ext/extension/`
-5. The HLVM Browser Bridge extension should appear
-
-### Step 2: Install the Native Messaging Host
-
-```bash
-hlvm chrome-ext setup
-```
-
-This command:
-- Creates a wrapper script at `~/.hlvm/chrome-bridge/chrome-bridge-host.sh`
-- Installs native messaging host manifests for all detected Chromium browsers
-- Manifests are placed in each browser's `NativeMessagingHosts/` directory
-
-### Step 3: Verify
-
-```bash
-hlvm chrome-ext status
-```
-
-Should show:
-- Browser detected (Chrome, Brave, Edge, etc.)
-- Native host manifest installed
-- Extension connection status
-
-### Uninstall
-
-```bash
-hlvm chrome-ext uninstall
-```
-
-Removes all native host manifests and the wrapper script.
-
----
-
-## Protocol Specification
-
-### Native Messaging Protocol (Chrome ↔ Native Host)
-
-Chrome uses a length-prefixed binary protocol on stdin/stdout:
-
-```
-┌───────────────────────────────────────┐
-│  4 bytes: UInt32 LE   │  N bytes     │
-│  (message length)     │  (UTF-8 JSON)│
-└───────────────────────────────────────┘
-```
-
-- Max message size: 1MB (host→Chrome), 64MB (Chrome→host)
-- All debug output goes to stderr (stdout is protocol-only)
-
-### Message Types (Chrome → Native Host)
-
-| Type             | Purpose                  | Response Type      |
-| ---------------- | ------------------------ | ------------------ |
-| `ping`           | Keepalive check          | `pong`             |
-| `get_status`     | Query host version       | `status_response`  |
-| `tool_response`  | Tool result from browser | Forwarded to CLI   |
-| `notification`   | Event from browser       | Forwarded to CLI   |
-
-### Message Types (Native Host → Chrome)
-
-| Type               | Purpose                    |
-| ------------------ | -------------------------- |
-| `pong`             | Ping response              |
-| `status_response`  | Version + client count     |
-| `mcp_connected`    | CLI client connected       |
-| `mcp_disconnected` | CLI client disconnected    |
-| `tool_request`     | Tool call from CLI         |
-| `error`            | Protocol/parsing error     |
-
-### Socket Protocol (CLI ↔ Native Host)
-
-Same 4-byte LE length prefix + JSON framing, over Unix domain socket.
-
-**Socket path**: `~/.hlvm/chrome-bridge/{pid}.sock`
-
-**Request format**:
-```json
-{
-  "id": "req_1_1712345678000",
-  "method": "navigate",
-  "params": { "url": "https://example.com" }
-}
-```
-
-**Response format**:
-```json
-{
-  "id": "req_1_1712345678000",
-  "result": { "title": "Example", "url": "https://example.com", "tabId": 42 }
-}
-```
-
-**Error format**:
-```json
-{
-  "id": "req_1_1712345678000",
-  "error": "Element not found: #submit-button"
-}
-```
-
----
-
-## Tool Reference
+## 22 Tools (all tested, all working)
 
 ### Navigation
-
-| Tool           | Args                        | Description                           |
-| -------------- | --------------------------- | ------------------------------------- |
-| `ch_navigate`  | `url: string`               | Navigate to URL (user's auth)         |
-| `ch_back`      | —                           | Navigate back in history              |
+| Tool | Args | What it does |
+|------|------|--------------|
+| `ch_navigate` | `url` | Go to URL in user's Chrome |
+| `ch_back` | — | Browser back button |
 
 ### Interaction
-
-| Tool              | Args                                | Description                  |
-| ----------------- | ----------------------------------- | ---------------------------- |
-| `ch_click`        | `selector?`, `x?`, `y?`            | Click by selector or coords  |
-| `ch_fill`         | `selector`, `value`                 | Fill form input (direct set) |
-| `ch_type`         | `text`, `selector?`, `pressEnter?`  | Type character by character  |
-| `ch_hover`        | `selector`                          | Hover without clicking       |
-| `ch_scroll`       | `direction?`, `amount?`             | Scroll page                  |
-| `ch_select_option`| `selector`, `value`                 | Select dropdown option       |
+| Tool | Args | What it does |
+|------|------|--------------|
+| `ch_click` | `selector?`, `x?`, `y?` | Click element or coordinates |
+| `ch_fill` | `selector`, `value` | Set form input value |
+| `ch_type` | `text`, `selector?`, `pressEnter?` | Type text (DOM events) |
+| `ch_hover` | `selector` | Hover over element |
+| `ch_scroll` | `direction?`, `amount?` | Scroll page |
+| `ch_select_option` | `selector`, `value` | Pick dropdown option |
 
 ### Content Reading
-
-| Tool           | Args                        | Description                           |
-| -------------- | --------------------------- | ------------------------------------- |
-| `ch_evaluate`  | `expression`                | Execute JS in page context            |
-| `ch_screenshot`| `fullPage?`, `format?`      | Capture screenshot (via CDP)          |
-| `ch_snapshot`  | —                           | Accessibility tree (CDP AX)           |
-| `ch_content`   | `maxChars?`                 | Extract page text                     |
-| `ch_links`     | `limit?`                    | Extract all links with hrefs          |
-| `ch_wait_for`  | `selector?`, `event?`, `timeout?` | Wait for element/network       |
+| Tool | Args | What it does |
+|------|------|--------------|
+| `ch_evaluate` | `expression` | Run JavaScript in page |
+| `ch_screenshot` | `format?` | Viewport screenshot |
+| `ch_content` | `maxChars?` | Extract page text |
+| `ch_links` | `limit?` | Extract all links |
+| `ch_find` | `query` | Search text on page (regex) |
+| `ch_wait_for` | `selector?`, `event?`, `timeout?` | Wait for element |
 
 ### Tab Management
+| Tool | Args | What it does |
+|------|------|--------------|
+| `ch_tabs` | — | List all open tabs |
+| `ch_tab_create` | `url?`, `active?` | Open new tab |
+| `ch_tab_close` | `tabId?` | Close a tab |
+| `ch_tab_select` | `tabId` | Switch to tab |
 
-| Tool            | Args                   | Description                    |
-| --------------- | ---------------------- | ------------------------------ |
-| `ch_tabs`       | —                      | List all open tabs             |
-| `ch_tab_create` | `url?`, `active?`      | Create new tab                 |
-| `ch_tab_close`  | `tabId?`               | Close a tab                    |
-| `ch_tab_select` | `tabId`                | Switch to a tab                |
+### Window
+| Tool | Args | What it does |
+|------|------|--------------|
+| `ch_resize_window` | `width`, `height` | Resize browser window |
 
 ### Monitoring
+| Tool | Args | What it does |
+|------|------|--------------|
+| `ch_enable_monitoring` | — | Start console + network capture |
+| `ch_console` | `since?` | Read console messages |
+| `ch_network` | `since?` | Read network requests |
 
-| Tool         | Args       | Description                              |
-| ------------ | ---------- | ---------------------------------------- |
-| `ch_monitor` | —          | Enable console/network monitoring        |
-| `ch_console` | `since?`   | Read buffered console messages           |
-| `ch_network` | `since?`   | Read buffered network requests           |
+### Delegated to CU (not in extension)
+| Need | Use instead |
+|------|-------------|
+| Full-page screenshot | `cu_screenshot` |
+| Accessibility tree | `cu_observe` |
+| Native mouse/keyboard | `cu_click`, `cu_type` |
+
+---
+
+## How Tools Are Exposed to the LLM
+
+```
+BUILTIN_TOOL_REGISTRY (registry.ts)
+  └── CHROME_EXT_TOOLS (22 tools from chrome-ext/tools.ts)
+        └── All added to STANDARD_EAGER_TOOLS (constants.ts)
+              └── LLM sees them in every session
+                    └── System prompt (sections.ts) adds guidance:
+                          "ch_* = auth'd Chrome, pw_* = headless"
+```
+
+The LLM decides which tool to use based on the task. No manual
+activation needed. No skill gate. Same as how CC works.
+
+When the extension is NOT connected, ch_* tools fail gracefully:
+`"No Chrome extension bridge found. Install the extension and
+run 'hlvm chrome-ext setup'."`
+
+---
+
+## Setup (Development Mode)
+
+### Quick Setup
+
+```bash
+# 1. Load extension in Chrome
+#    chrome://extensions → Developer mode ON → Load unpacked
+#    → select: src/hlvm/agent/chrome-ext/extension/
+#    → note the extension ID Chrome assigns
+
+# 2. Install native messaging host
+./src/hlvm/agent/chrome-ext/test-local.sh <extension-id>
+
+# 3. Restart Chrome
+
+# 4. Verify — extension icon should show "Connected"
+```
+
+### CLI Setup
+
+```bash
+hlvm chrome-ext setup      # Install native host manifests
+hlvm chrome-ext status     # Check connection status
+hlvm chrome-ext uninstall  # Remove native host manifests
+```
+
+### What `hlvm chrome-ext setup` Does
+
+1. Creates wrapper script: `~/.hlvm/chrome-bridge/chrome-bridge-host.sh`
+2. Installs native messaging manifest for all detected browsers:
+   - Chrome: `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`
+   - Brave: `~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/`
+   - Arc, Edge, Chromium, Vivaldi, Opera — all supported
+3. Manifest tells Chrome where the native host binary is
+
+---
+
+## Architecture Details
+
+### Extension Approach: Content Scripts (not chrome.debugger)
+
+The extension uses `chrome.scripting.executeScript()` and `chrome.tabs`
+APIs — NOT `chrome.debugger`. This means:
+
+- No yellow "debugging this browser" banner
+- No `debugger` permission needed
+- Easier Chrome Web Store approval
+- Same approach as Claude Code
+
+Heavy operations (full-page screenshots, native input, accessibility
+tree) are delegated to HLVM's computer-use module (cu_* tools) which
+has native Swift capabilities via HLVM.app.
+
+### Protocol
+
+All communication uses 4-byte little-endian length prefix + UTF-8 JSON:
+
+```
+┌──────────────────────────────────────────┐
+│  4 bytes: UInt32 LE    │  N bytes        │
+│  (message length)      │  (UTF-8 JSON)   │
+└──────────────────────────────────────────┘
+```
+
+Three layers use the same framing:
+1. **CLI ↔ Native Host**: Unix socket (`~/.hlvm/chrome-bridge/{pid}.sock`)
+2. **Native Host ↔ Chrome**: stdin/stdout (Chrome native messaging)
+3. Same JSON schema: `{id, method, params}` → `{id, result}` or `{id, error}`
+
+### SSOT Constants (common.ts)
+
+All configuration is centralized:
+
+| Constant | Value | Used by |
+|----------|-------|---------|
+| `NATIVE_HOST_IDENTIFIER` | `com.hlvm.chrome_bridge` | setup.ts, native-host.ts |
+| `CHROME_BRIDGE_DIR_NAME` | `chrome-bridge` | setup.ts, common.ts, native-host.ts |
+| `CHROME_BRIDGE_WRAPPER_NAME` | `chrome-bridge-host.sh` | setup.ts |
+| `MAX_MESSAGE_SIZE` | `1048576` (1MB) | bridge.ts, native-host.ts |
+| `EXTENSION_IDS.prod` | placeholder | setup.ts (update for Web Store) |
+| `CHROMIUM_BROWSERS` | 7 browser configs | setup.ts, common.ts |
+
+`native-host.ts` mirrors these values (documented) because it's a
+standalone binary that can't import from the HLVM module graph.
 
 ---
 
@@ -314,99 +298,188 @@ Same 4-byte LE length prefix + JSON framing, over Unix domain socket.
 ```
 src/hlvm/agent/chrome-ext/
 ├── mod.ts              # Barrel re-export
-├── bridge.ts           # Backend resolution (socket detection + communication)
-├── lock.ts             # Session lock (copied from CU lock pattern)
-├── common.ts           # Browser paths, socket paths, detection
+├── bridge.ts           # Socket connection + request/response
+├── common.ts           # Browser configs, paths, constants (SSOT)
 ├── setup.ts            # Native host manifest installation
-├── tools.ts            # ch_* tool definitions (20 tools)
-├── types.ts            # Type definitions
-├── session-state.ts    # Runtime session state
-├── prompt.ts           # System prompt fragment for LLM
-├── native-host.ts      # Standalone Deno binary for Chrome NM protocol
+├── tools.ts            # 22 ch_* tool definitions (chTool factory)
+├── types.ts            # TypeScript type definitions
+├── prompt.ts           # System prompt for LLM (ch_* vs pw_* vs cu_*)
+├── native-host.ts      # Standalone Deno binary (Chrome NM protocol)
+├── test-local.sh       # Quick local setup script
 └── extension/
-    ├── manifest.json   # Manifest V3 extension config
-    ├── background.js   # Service worker: NM connection + tool dispatch
-    ├── cdp.js          # chrome.debugger CDP wrapper
-    ├── content.js      # Content script (DOM fallback)
-    ├── popup.html      # Popup UI
-    └── popup.js        # Popup logic
+    ├── manifest.json   # MV3 manifest (no debugger permission)
+    ├── background.js   # Service worker: NM connection + dispatch
+    ├── content.js      # Console monitoring (MAIN world injection)
+    ├── popup.html      # Connection status UI
+    ├── popup.js        # Popup logic
+    └── icons/          # 16/48/128 PNG icons
+
+src/hlvm/agent/shared/
+└── session-lock.ts     # Generic lock class (used by CU, not by chrome-ext)
+
+Modified files:
+├── src/hlvm/agent/registry.ts        # CHROME_EXT_TOOLS in BUILTIN_TOOL_REGISTRY
+├── src/hlvm/agent/tool-profiles.ts   # browser_chrome profile
+├── src/hlvm/agent/constants.ts       # ch_* in STANDARD_EAGER_TOOLS
+├── src/hlvm/agent/agent-runner.ts    # Browser domain adds ch_* to allowlist
+├── src/hlvm/agent/orchestrator.ts    # Browser domain adds ch_* to allowlist
+├── src/hlvm/prompt/sections.ts       # renderChromeExtGuidance()
+├── src/hlvm/cli/cli.ts               # chrome-ext command registered
+├── src/hlvm/cli/commands/chrome-ext.ts  # setup/status/uninstall
+└── scripts/ssot-check.ts            # SSOT allowlist for extension code
 ```
 
 ---
 
-## Comparison: Claude Code vs HLVM
+## CC vs HLVM Comparison
 
 ```
-                    CC (Claude Code)          HLVM
-                    ────────────────          ────
-  Extension?        ✅ Yes                    ✅ Yes (same pattern)
-  Native Host?      ✅ Node.js                ✅ Deno
-  Auth sessions?    ✅ Yes                    ✅ Yes
-  Playwright?       ❌ No                     ✅ Yes (kept for headless/CI)
-  Headless/CI?      ❌ No                     ✅ Yes (pw_*)
-  Desktop AX?       ❌ L1 only (coords)       ✅ L1+L2+L3 (native)
-  chrome.debugger?  ❌ Content scripts only    ✅ Full CDP power
-  Native targets?   ❌ No                     ✅ Yes (HLVM.app)
+                    CC (Claude Code)       HLVM
+                    ────────────────       ────
+  Extension?        ✓ Chrome Web Store    ✓ Dev mode (store later)
+  Approach?         Content scripts        Content scripts (SAME)
+  Native Host?      Node.js (Bun)          Deno
+  Auth sessions?    ✓                      ✓
+  Debugger banner?  None                   None (SAME)
+  Playwright?       ✗                      ✓ (headless/CI)
+  Desktop AX?       L1 (coords)            L3 (native targets)
+  Tools?            17                     22
+  Screenshot?       ✗ (in extension)       ✓ captureVisibleTab
+  GIF recording?    ✓ gif_creator          ✗ (future)
+  Upload image?     ✓ upload_image         ✗ (future)
 ```
 
-| What CC Does | What HLVM Does |
-|---|---|
-| Content scripts for DOM access | `chrome.debugger` for full CDP (screenshot, AX tree, network, console) |
-| No headless browser | Playwright for clean headless automation |
-| Screenshot coordinate guessing (L1) | Native AX targets (L3) via HLVM.app |
-| Node.js native host | Deno native host |
-| MCP-proxied tools | Direct builtin tool registry |
+---
+
+## Testing
+
+### Unit Tests
+
+```bash
+deno test -A tests/unit/agent/chrome-ext.test.ts --no-check
+# 12 tests: SessionLock, tool registration, constants, bridge, prompt
+```
+
+### Socket-Level E2E
+
+```bash
+# Direct socket test (bypasses LLM, tests extension pipeline)
+# See test-local.sh for setup, then run socket tests from CLI
+# 21/21 tools pass
+```
+
+### Agent-Level E2E
+
+```bash
+# Through real HLVM agent with Haiku
+deno run -A src/hlvm/cli/cli.ts ask \
+  "use ch_tabs to list my chrome tabs" \
+  --model claude-code/claude-haiku-4-5-20251001 \
+  --permission-mode acceptEdits
+
+# Tested 10/10 tools through full agent pipeline — all pass
+```
+
+### Verified E2E Results (on real Chrome)
+
+| Tool | Agent Test | Socket Test |
+|------|-----------|-------------|
+| ch_tabs | ✓ Listed 8 tabs | ✓ |
+| ch_navigate | ✓ "Example Domain" | ✓ |
+| ch_content | ✓ Read page text | ✓ |
+| ch_links | ✓ Found links | ✓ |
+| ch_evaluate | ✓ document.title | ✓ |
+| ch_screenshot | ✓ 23KB PNG | ✓ |
+| ch_scroll | ✓ Scrolled down | ✓ |
+| ch_find | ✓ 2 matches | ✓ |
+| ch_click | ✓ Clicked link | ✓ |
+| ch_back | ✓ Went back | ✓ |
+| ch_fill | — | ✓ |
+| ch_type | — | ✓ |
+| ch_hover | — | ✓ |
+| ch_select_option | — | ✓ |
+| ch_tab_create | — | ✓ |
+| ch_tab_close | — | ✓ |
+| ch_tab_select | — | ✓ |
+| ch_resize_window | — | ✓ |
+| ch_wait_for | — | ✓ |
+| ch_enable_monitoring | — | ✓ |
+| ch_console | — | ✓ |
+| ch_network | — | ✓ |
 
 ---
 
 ## Troubleshooting
 
-### "No active Chrome extension bridge found"
+### "No Chrome extension bridge found"
 
-The native host is not running or no socket was found.
+Extension not connected or native host not installed.
 
-1. Check that the extension is installed: `chrome://extensions/`
-2. Check that the native host manifest is installed: `hlvm chrome-ext status`
-3. Try reinstalling: `hlvm chrome-ext setup`
-4. Check Chrome's native messaging log: `chrome://extensions/` → Errors
+1. Is Chrome open? Extension requires Chrome running.
+2. Is extension loaded? Check `chrome://extensions`
+3. Run `hlvm chrome-ext setup` to install native host manifest
+4. Restart Chrome after installing manifest
 
-### "Chrome extension is in use by another session"
+### Screenshot fails with "image readback failed"
 
-Another HLVM session holds the chrome-ext lock.
+Chrome must be in the **foreground** on macOS. The extension brings
+Chrome to front automatically, but if it fails:
 
-1. Wait for the other session to finish
-2. If the other session crashed, the lock will auto-recover (PID-based stale detection)
-3. Manual recovery: `rm ~/.hlvm/chrome-ext.lock`
+1. Click on Chrome window to bring it to front
+2. Retry the screenshot
 
-### Yellow "debugging this browser" banner
+### Tool says "Tool not available"
 
-This is expected when `ch_*` tools attach `chrome.debugger` to a tab.
-The banner is dismissible and reappears on next attachment. This is a
-Chrome security feature and cannot be suppressed.
+The tool isn't in the LLM's eager tool list. This shouldn't happen
+after the constants.ts update, but if it does:
 
-### Extension disconnects frequently
+1. Check `STANDARD_EAGER_TOOLS` in constants.ts includes ch_* tools
+2. Or use `tool_search` to discover: `tool_search({query:"select:ch_navigate"})`
 
-Manifest V3 service workers can be killed after 30s of inactivity.
-The native messaging port keeps the worker alive while connected.
-If disconnects persist:
+### Extension keeps disconnecting
 
-1. Check `chrome://serviceworker-internals/` for the extension's worker
-2. The extension auto-reconnects after 3s (configurable in background.js)
+MV3 service workers can be killed after 30s idle. The native messaging
+port keeps it alive, but if disconnects happen:
 
-### Tools fail with "Element not found"
-
-1. Use `ch_content` or `ch_snapshot` to inspect the current page state
-2. Verify the CSS selector is correct
-3. Use `ch_wait_for` before interacting with dynamically loaded elements
-4. Try `ch_evaluate` with custom JS for complex selectors
+1. Check `chrome://serviceworker-internals/`
+2. Extension auto-reconnects after 3s
+3. Reload extension in `chrome://extensions`
 
 ---
 
-## Security Model
+## Design Decisions
 
-- **Socket permissions**: Unix socket created with `0o600` (owner-only read/write)
-- **Socket directory**: Created with `0o700` (owner-only access)
-- **Stale socket cleanup**: Dead PIDs detected, sockets removed on startup
-- **Extension manifest**: Only registered extension IDs can connect
-- **No remote access**: Unix sockets are local-only (no network exposure)
-- **Lock isolation**: Chrome-ext lock is separate from CU lock — no cross-contamination
+### Why Content Scripts (not chrome.debugger)?
+
+- No yellow debugging banner → better UX
+- No `debugger` permission → easier Web Store approval
+- HLVM has native CU (HLVM.app) for screenshots/AX/native input
+- Same approach as Claude Code → proven at scale
+
+### Why No Lock?
+
+CC doesn't lock chrome extension access. Multiple sessions can share
+the extension. The extension handles requests sequentially. No need
+for session locking (unlike CU which controls exclusive desktop input).
+
+### Why No Session State?
+
+The extension manages its own state (active tab, debugger attachments).
+The CLI doesn't need to track this — it just sends requests and gets
+responses. Simpler, less code, fewer bugs.
+
+### Why Builtin Tools (not MCP)?
+
+CC uses MCP subprocess for chrome tools. HLVM uses direct builtin
+registration. Simpler (no subprocess), faster (no IPC), same result.
+The `chTool()` factory eliminates all boilerplate.
+
+---
+
+## Future Work
+
+- [ ] Chrome Web Store submission (needs icons, privacy policy)
+- [ ] GIF recording (CC has gif_creator)
+- [ ] Upload image (CC has upload_image)
+- [ ] Auto-detect extension on startup (CC does this)
+- [ ] Startup notification ("Chrome extension connected")

@@ -24,6 +24,7 @@ import type {
   InteractionOption,
   ToolExecutionOptions,
   ToolMetadata,
+  ToolTranscriptAdapter,
 } from "../registry.ts";
 import {
   cloneTodoItems,
@@ -36,6 +37,10 @@ import {
 // ============================================================
 // Tool 1: ask_user
 // ============================================================
+
+const ASK_USER_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
+  displayName: "Ask",
+};
 
 /**
  * Ask user for clarification or input during task execution
@@ -414,6 +419,7 @@ export const META_TOOLS: Record<string, ToolMetadata> = {
     fn: askUser,
     description: "Ask user for clarification or input during task execution",
     category: "meta",
+    transcript: ASK_USER_TRANSCRIPT_ADAPTER,
     args: {
       question: "string - Question to ask the user",
       options: "string[] (optional) - Multiple choice options",

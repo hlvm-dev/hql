@@ -101,6 +101,24 @@ function usesOnlyCitationBackedWebTools(toolUses: ToolUse[]): boolean {
     toolUses.every((toolUse) => isCurrentCitationBackedWebTool(toolUse.toolName));
 }
 
+function hasMixedCitationAndNonCitationToolUses(toolUses: ToolUse[]): boolean {
+  let sawCitationBacked = false;
+  let sawNonCitationBacked = false;
+
+  for (const toolUse of toolUses) {
+    if (isCitationBackedToolUse(toolUse)) {
+      sawCitationBacked = true;
+    } else {
+      sawNonCitationBacked = true;
+    }
+    if (sawCitationBacked && sawNonCitationBacked) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function toolUseIndicatesEmptyCitationBackedResult(toolUse: ToolUse): boolean {
   if (!isCurrentCitationBackedWebTool(toolUse.toolName)) return false;
 
@@ -175,11 +193,26 @@ export async function checkGrounding(
       const normalized = tool.toolName.replace(/_/g, " ");
       return lower.includes(normalized) || lower.includes(tool.toolName);
     });
-    const incorporatesData = await responseIncorporatesToolData(response, toolUses);
     const citationBackedOnly = usesOnlyCitationBackedWebTools(toolUses);
+    const mixedCitationProvenance = hasMixedCitationAndNonCitationToolUses(
+      toolUses,
+    );
+    const rawCitationEvidencePresent = citationSpans.length > 0 ||
+      toolUses.some(toolUseHasCitationPayload);
     const emptyCitationBackedResultsOnly = citationBackedOnly &&
       toolUses.every(toolUseIndicatesEmptyCitationBackedResult);
     const hasCitations = hasCitationData(toolUses, citationSpans);
+
+    if (
+      mixedCitationProvenance &&
+      rawCitationEvidencePresent &&
+      !mentionsBasedOn &&
+      !mentionsTool
+    ) {
+      warnings.push(
+        "Response mixes citation-backed claims with other tool results without explicit grounding. Include tool names or 'Based on ...' for the non-citation-backed evidence.",
+      );
+    }
 
     if (citationBackedOnly && !hasCitations && !emptyCitationBackedResultsOnly) {
       warnings.push(
@@ -187,16 +220,23 @@ export async function checkGrounding(
       );
     }
 
-    if (
-      !(citationBackedOnly && !hasCitations && !emptyCitationBackedResultsOnly) &&
-      !mentionsBasedOn &&
-      !mentionsTool &&
-      !incorporatesData &&
-      !hasCitations
-    ) {
-      warnings.push(
-        "Response does not cite tool sources. Include tool names or 'Based on ...'.",
+    if (warnings.length === 0) {
+      const incorporatesData = await responseIncorporatesToolData(
+        response,
+        toolUses,
       );
+
+      if (
+        !(citationBackedOnly && !hasCitations && !emptyCitationBackedResultsOnly) &&
+        !mentionsBasedOn &&
+        !mentionsTool &&
+        !incorporatesData &&
+        !hasCitations
+      ) {
+        warnings.push(
+          "Response does not cite tool sources. Include tool names or 'Based on ...'.",
+        );
+      }
     }
   }
 

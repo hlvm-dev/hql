@@ -137,6 +137,55 @@ Deno.test("Registry: web arg aliases normalize before coercion/validation and ca
   });
 });
 
+Deno.test("Registry: native inputSchema uses Ajv-backed enum and bounds validation", () => {
+  withRegisteredTool("test_native_schema_registry", {
+    fn: async () => ({ ok: true }),
+    description: "Native schema registry test tool",
+    args: { mode: "string - legacy hint" },
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        mode: {
+          type: "string",
+          enum: ["read", "write"],
+        },
+        count: {
+          type: "integer",
+          minimum: 1,
+          maximum: 5,
+        },
+      },
+      required: ["mode", "count"],
+    },
+  }, () => {
+    assertEquals(
+      validateToolArgs("test_native_schema_registry", {
+        mode: "read",
+        count: "3",
+      }).valid,
+      true,
+    );
+
+    const invalidEnum = validateToolArgs("test_native_schema_registry", {
+      mode: "delete",
+      count: 3,
+    });
+    assertEquals(invalidEnum.valid, false);
+    assertStringIncludes(
+      invalidEnum.message ?? "",
+      "invalid value",
+    );
+
+    const invalidCount = validateToolArgs("test_native_schema_registry", {
+      mode: "read",
+      count: 9,
+    });
+    assertEquals(invalidCount.valid, false);
+    assertStringIncludes(invalidCount.message ?? "", "must be <=");
+  });
+});
+
 Deno.test("Registry: name normalization and suggestions map user variants to canonical tools", () => {
   assertEquals(normalizeToolName("Read_File"), "read_file");
   assertEquals(normalizeToolName("listFiles"), "list_files");

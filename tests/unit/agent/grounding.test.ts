@@ -96,6 +96,26 @@ Deno.test("grounding: uncited non-web claims still fail even when another claim 
   assert(result.warnings.length >= 1);
 });
 
+Deno.test("grounding: mixed citation-backed and non-citation-backed claims pass when non-web evidence is explicitly grounded", async () => {
+  const toolUses: ToolUse[] = [
+    { toolName: "search_web", result: "non-json formatted result" },
+    { toolName: "list_files", result: '{"count": 270, "files": [...]}' },
+  ];
+  const result = await checkGrounding(
+    "TaskGroup cancels sibling tasks on failure. Based on list_files, I found some files in the directory.",
+    toolUses,
+    [{
+      url: "https://docs.python.org/3/library/asyncio-task.html",
+      title: "asyncio task docs",
+      startIndex: 0,
+      endIndex: 42,
+      confidence: 0.78,
+    }],
+  );
+  assertEquals(result.grounded, true);
+  assertEquals(result.warnings.length, 0);
+});
+
 Deno.test("grounding: custom web search payload citations still count without provider spans", async () => {
   const result = await checkGrounding(
     "The official docs confirm the API exists.",

@@ -16,8 +16,9 @@ import {
   setHlvmDirForTests,
 } from "../../../src/common/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
-import { DEFAULT_MODEL_ID } from "../../../src/common/config/types.ts";
 import type { AIProvider } from "../../../src/hlvm/providers/types.ts";
+import { RuntimeError } from "../../../src/common/error.ts";
+import { ProviderErrorCode } from "../../../src/common/error-codes.ts";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Mock provider — controlled responses, no real LLM needed.
@@ -149,37 +150,56 @@ Deno.test({
 
 Deno.test({
   name:
-    "ai(prompt, {schema}): falls back to prompt-based structured extraction when native generation fails",
+    "ai(prompt, {schema}): providers without structured.output skip native generation and use prompt fallback",
   sanitizeResources: false,
   async fn() {
     resetMock("should not be called");
     let sdkCalls = 0;
     let fallbackCalls = 0;
     let fallbackMessages: unknown[] = [];
+    let fallbackSchema: unknown;
+    const directSchema = {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        sentiment: {
+          type: "string",
+          enum: ["positive", "negative", "neutral"],
+        },
+        confidence: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+        },
+      },
+      required: ["sentiment", "confidence"],
+    };
 
     __setStructuredGenerationDepsForTesting({
       generateStructuredWithSdk: async () => {
         sdkCalls++;
-        throw new Error("native structured generation failed");
+        throw new Error("should not be reached");
       },
-      generateStructuredWithPromptFallback: async (_spec, messages) => {
+      generateStructuredWithPromptFallback: async (_spec, messages, schema) => {
         fallbackCalls++;
         fallbackMessages = [...messages];
+        fallbackSchema = schema;
         return { sentiment: "positive", confidence: 0.99 };
       },
     });
 
     try {
       const result = await ai("classify this sentiment", {
-        model: DEFAULT_MODEL_ID,
+        model: "ollama/test-model",
         system: "Return JSON.",
         data: { text: "I love HLVM" },
-        schema: { sentiment: "string", confidence: "number" },
+        schema: directSchema,
       });
 
       assertEquals(result, { sentiment: "positive", confidence: 0.99 });
-      assertEquals(sdkCalls, 1);
+      assertEquals(sdkCalls, 0);
       assertEquals(fallbackCalls, 1);
+      assertEquals(fallbackSchema, directSchema);
       assertEquals(lastChatMessages.length, 0);
       assertEquals((fallbackMessages as any[]).length, 2);
       assertEquals((fallbackMessages as any[])[0].role, "system");
@@ -191,6 +211,75 @@ Deno.test({
         (fallbackMessages as any[])[1].content,
         '"text": "I love HLVM"',
       );
+    } finally {
+      __setStructuredGenerationDepsForTesting(null);
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "ai(prompt, {schema}): rethrows native structured-output transport failures instead of masking them",
+  sanitizeResources: false,
+  async fn() {
+    let fallbackCalls = 0;
+
+    __setStructuredGenerationDepsForTesting({
+      generateStructuredWithSdk: async () => {
+        throw new RuntimeError("OpenAI network request failed", {
+          code: ProviderErrorCode.NETWORK_ERROR,
+        });
+      },
+      generateStructuredWithPromptFallback: async () => {
+        fallbackCalls++;
+        return { sentiment: "positive" };
+      },
+    });
+
+    try {
+      await assertRejects(
+        () =>
+          ai("classify this sentiment", {
+            model: "openai/test-model",
+            schema: { sentiment: "string" },
+          }),
+        RuntimeError,
+        "OpenAI network request failed",
+      );
+      assertEquals(fallbackCalls, 0);
+    } finally {
+      __setStructuredGenerationDepsForTesting(null);
+    }
+  },
+});
+
+Deno.test({
+  name:
+    "ai(prompt, {schema}): falls back when native structured output is explicitly rejected",
+  sanitizeResources: false,
+  async fn() {
+    let fallbackCalls = 0;
+
+    __setStructuredGenerationDepsForTesting({
+      generateStructuredWithSdk: async () => {
+        throw new RuntimeError(
+          "OpenAI request rejected: structured outputs not supported for this model",
+          { code: ProviderErrorCode.REQUEST_REJECTED },
+        );
+      },
+      generateStructuredWithPromptFallback: async () => {
+        fallbackCalls++;
+        return { sentiment: "positive" };
+      },
+    });
+
+    try {
+      const result = await ai("classify this sentiment", {
+        model: "openai/test-model",
+        schema: { sentiment: "string" },
+      });
+      assertEquals(result, { sentiment: "positive" });
+      assertEquals(fallbackCalls, 1);
     } finally {
       __setStructuredGenerationDepsForTesting(null);
     }

@@ -663,6 +663,24 @@ Deno.test("engine sdk: malformed tool-call repair unwraps wrapped JSON args", ()
   );
 });
 
+Deno.test("engine sdk: malformed tool-call repair unwraps direct arguments wrapper", () => {
+  assertEquals(
+    repairMalformedToolCallInput(
+      '{"arguments":"{\\"path\\":\\"foo.ts\\"}"}',
+    ),
+    '{"path":"foo.ts"}',
+  );
+});
+
+Deno.test("engine sdk: malformed tool-call repair parses function-style text envelope args", () => {
+  assertEquals(
+    repairMalformedToolCallInput(
+      'read_file({"arguments":"{\\"path\\":\\"foo.ts\\"}"})',
+    ),
+    '{"path":"foo.ts"}',
+  );
+});
+
 Deno.test("engine sdk: repair hook repairs invalid input but ignores unknown tools", async () => {
   const repair = buildToolCallRepairFunction();
 

@@ -424,6 +424,7 @@ async function promptUserConfirmation(
       mode: "permission",
       toolName,
       toolArgs,
+      toolInput: args,
     });
     return {
       confirmed: response.approved,

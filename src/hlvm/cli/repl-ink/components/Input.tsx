@@ -1990,12 +1990,16 @@ export function Input({
     };
   }, []);
 
-  const inputEventHandlerRef = useRef<(input: string, key: Key) => void>(
+  const inputEventHandlerRef = useRef<(
+    input: string,
+    key: Key,
+    isPasted: boolean,
+  ) => void>(
     () => {},
   );
 
   // Main input handler
-  inputEventHandlerRef.current = (input: string, key: Key) => {
+  inputEventHandlerRef.current = (input: string, key: Key, isPasted: boolean) => {
     const isPureEscPrefixEvent = isPureEscKeyEvent(input, key);
     const hasActiveEscapeSurface = resolveActiveComposerSurface({
       isHistorySearching: historySearch.state.isSearching,
@@ -3148,7 +3152,7 @@ export function Input({
       const isRapidInput = timeSinceLastInput < PASTE_CONTINUE_THRESHOLD_MS;
 
       // START buffer only on definite paste, CONTINUE only if rapid
-      const shouldStartBuffer = hasNewlines || isMultiChar;
+      const shouldStartBuffer = isPasted || hasNewlines || isMultiChar;
       const shouldContinueBuffer = isBuffering && isRapidInput;
       const shouldBuffer = shouldStartBuffer || shouldContinueBuffer;
 
@@ -3186,8 +3190,12 @@ export function Input({
     }
   };
 
-  const handleInkInput = useCallback((input: string, key: Key) => {
-    inputEventHandlerRef.current(input, key);
+  const handleInkInput = useCallback((
+    input: string,
+    key: Key,
+    event: { keypress: { isPasted?: boolean } },
+  ) => {
+    inputEventHandlerRef.current(input, key, event.keypress.isPasted === true);
   }, []);
   useInput(handleInkInput); // Note: disabled check is via disabledRef.current at top of callback (avoids stale closure)
 

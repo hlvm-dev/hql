@@ -21,7 +21,6 @@ interface TuiStatusLineProps {
   planningPhase?: PlanningPhase;
   interactionLabel?: string;
   turnLabel?: string;
-  backgroundLabel?: string;
   aiAvailable?: boolean;
   debugEnabled?: boolean;
 }
@@ -52,7 +51,6 @@ export function TuiStatusLine(
     planningPhase,
     interactionLabel,
     turnLabel,
-    backgroundLabel,
     aiAvailable = false,
     debugEnabled = false,
   }: TuiStatusLineProps,
@@ -83,17 +81,11 @@ export function TuiStatusLine(
       true,
     );
     pushStatusSegment(segments, turnLabel, "active");
-    pushStatusSegment(
-      segments,
-      !turnLabel && !interactionLabel ? backgroundLabel : undefined,
-      "muted",
-    );
     if (segments.length === 0) {
       pushStatusSegment(segments, "Conversation ready", "muted");
     }
     return segments;
   }, [
-    backgroundLabel,
     debugEnabled,
     interactionLabel,
     modeLabel,

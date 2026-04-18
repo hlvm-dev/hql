@@ -150,6 +150,7 @@ async function promptRuntimeInteraction(
     mode: "permission" | "question";
     toolName?: string;
     toolArgs?: string;
+    toolInput?: unknown;
     question?: string;
   },
   permissionMode: PermissionMode,
@@ -232,11 +233,12 @@ function formatAgentProgress(
 
 function formatAgentCompletion(options: {
   success: boolean;
+  cancelled?: boolean;
   toolUseCount: number;
   totalTokens?: number;
   durationMs?: number;
 }): string {
-  const status = options.success ? "Done" : "Failed";
+  const status = options.cancelled ? "Cancelled" : options.success ? "Done" : "Failed";
   const tools = `${options.toolUseCount} tool use${
     options.toolUseCount === 1 ? "" : "s"
   }`;
@@ -681,6 +683,7 @@ export async function askCommand(args: string[]): Promise<void> {
             `\n  ${
               formatAgentCompletion({
                 success: event.success,
+                cancelled: event.cancelled,
                 toolUseCount: event.toolUseCount,
                 totalTokens: event.totalTokens,
                 durationMs: event.durationMs,
@@ -821,6 +824,7 @@ export async function askCommand(args: string[]): Promise<void> {
           `  ${
             formatAgentCompletion({
               success: event.success,
+              cancelled: event.cancelled,
               toolUseCount: event.toolUseCount,
               totalTokens: event.totalTokens,
               durationMs: event.durationMs,

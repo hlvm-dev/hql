@@ -8,7 +8,7 @@
   "license": "MIT",
   "imports": {
     "source-map": "npm:source-map@0.6.1",
-    "typescript": "npm:typescript@5.3.3",
+    "typescript": "npm:typescript@6.0.3",
     "@db/sqlite": "jsr:@db/sqlite@0.12",
     "ai": "npm:ai@^6.0.168",
     "@ai-sdk/openai": "npm:@ai-sdk/openai@^3.0.53",
@@ -28,8 +28,8 @@
     "tldts": "npm:tldts@7",
     "react": "npm:react@19",
     "ink": "./src/hlvm/tui-v2/ink/index.ts",
-    "esbuild": "npm:esbuild@^0.17.0",
-    "esbuild-wasm": "npm:esbuild-wasm@^0.17.0",
+    "esbuild": "npm:esbuild@^0.28.0",
+    "esbuild-wasm": "npm:esbuild-wasm@^0.28.0",
     "jsdom": "npm:jsdom@29",
     "@mozilla/readability": "npm:@mozilla/readability@0.5",
     "lowlight": "npm:lowlight@3",
@@ -121,6 +121,7 @@
     "test:interop": "HLVM_DISABLE_AI_AUTOSTART=1 deno test --allow-all tests/interop/**/*.test.ts",
     "test:ci": "deno task ssot:check && deno task test:unit",
     "build:npm": "deno run -A scripts/build-npm.ts",
+    "embed-esbuild-wasm": "deno run -A tools/embed-esbuild-wasm.ts",
     "stdlib:build": "deno run -A scripts/build-stdlib.ts",
     "openapi": "deno run -A scripts/generate-openapi.ts"
   }

@@ -8,18 +8,19 @@ export const CURSOR_BLINK_MS = 530;
 /** Shared spinner cadence for conversation UI motion. */
 export const CONVERSATION_SPINNER_INTERVAL_MS = 250;
 
-/** Braille spinner frames used by the shared conversation motion store. */
+function getConversationSpinnerCharacters(): readonly string[] {
+  if (process.env.TERM === "xterm-ghostty") {
+    return ["·", "✢", "✳", "✶", "✻", "*"] as const;
+  }
+  return process.platform === "darwin"
+    ? ["·", "✢", "✳", "✶", "✻", "✽"] as const
+    : ["·", "✢", "*", "✶", "✻", "✽"] as const;
+}
+
+/** Shared spinner frames used by the conversation motion store. */
 export const SPINNER_FRAMES = [
-  "⠋",
-  "⠙",
-  "⠹",
-  "⠸",
-  "⠼",
-  "⠴",
-  "⠦",
-  "⠧",
-  "⠇",
-  "⠏",
+  ...getConversationSpinnerCharacters(),
+  ...[...getConversationSpinnerCharacters()].reverse(),
 ] as const;
 
 /** Shared status glyphs for conversation and overlay chrome. */

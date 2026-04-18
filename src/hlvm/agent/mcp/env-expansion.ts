@@ -8,14 +8,21 @@ export interface McpEnvExpansionResult<T extends McpServerConfig> {
   missingVars: string[];
 }
 
+export interface McpEnvExpansionOptions {
+  env?: Record<string, string>;
+}
+
 function expandMcpString(
   value: string,
   missingVars: Set<string>,
+  options: McpEnvExpansionOptions,
 ): string {
   return value.replace(MCP_ENV_VAR_PATTERN, (match, rawName: string) => {
     const name = rawName.trim();
     if (name.length === 0) return match;
-    const resolved = getPlatform().env.get(name);
+    const resolved = Object.hasOwn(options.env ?? {}, name)
+      ? options.env?.[name]
+      : getPlatform().env.get(name);
     if (resolved === undefined) {
       missingVars.add(name);
       return match;
@@ -27,18 +34,48 @@ function expandMcpString(
 function expandStringRecord(
   value: Record<string, string> | undefined,
   missingVars: Set<string>,
+  options: McpEnvExpansionOptions,
 ): Record<string, string> | undefined {
   if (!value) return undefined;
   return Object.fromEntries(
     Object.entries(value).map(([key, recordValue]) => [
       key,
-      expandMcpString(recordValue, missingVars),
+      expandMcpString(recordValue, missingVars, options),
     ]),
   );
 }
 
+function expandOAuthConfig(
+  server: McpServerConfig,
+  missingVars: Set<string>,
+  options: McpEnvExpansionOptions,
+): McpServerConfig["oauth"] {
+  if (!server.oauth) return undefined;
+  return {
+    ...(server.oauth.clientId
+      ? {
+        clientId: expandMcpString(server.oauth.clientId, missingVars, options),
+      }
+      : {}),
+    ...(server.oauth.callbackPort
+      ? { callbackPort: server.oauth.callbackPort }
+      : {}),
+    ...(server.oauth.authServerMetadataUrl
+      ? {
+        authServerMetadataUrl: expandMcpString(
+          server.oauth.authServerMetadataUrl,
+          missingVars,
+          options,
+        ),
+      }
+      : {}),
+    ...(server.oauth.xaa !== undefined ? { xaa: server.oauth.xaa } : {}),
+  };
+}
+
 export function expandMcpServerEnv<T extends McpServerConfig>(
   server: T,
+  options: McpEnvExpansionOptions = {},
 ): McpEnvExpansionResult<T> {
   const missingVars = new Set<string>();
   const expanded = {
@@ -46,19 +83,24 @@ export function expandMcpServerEnv<T extends McpServerConfig>(
     ...(server.command
       ? {
         command: server.command.map((entry) =>
-          expandMcpString(entry, missingVars)
+          expandMcpString(entry, missingVars, options)
         ),
       }
       : {}),
     ...(server.cwd
-      ? { cwd: expandMcpString(server.cwd, missingVars) }
+      ? { cwd: expandMcpString(server.cwd, missingVars, options) }
       : {}),
-    ...(server.url ? { url: expandMcpString(server.url, missingVars) } : {}),
+    ...(server.url
+      ? { url: expandMcpString(server.url, missingVars, options) }
+      : {}),
     ...(server.headers
-      ? { headers: expandStringRecord(server.headers, missingVars) }
+      ? { headers: expandStringRecord(server.headers, missingVars, options) }
       : {}),
     ...(server.env
-      ? { env: expandStringRecord(server.env, missingVars) }
+      ? { env: expandStringRecord(server.env, missingVars, options) }
+      : {}),
+    ...(server.oauth
+      ? { oauth: expandOAuthConfig(server, missingVars, options) }
       : {}),
   };
   return {

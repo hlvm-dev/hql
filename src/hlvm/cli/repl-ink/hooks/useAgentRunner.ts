@@ -18,7 +18,7 @@ import type {
   InteractionRequestEvent,
   InteractionResponse,
 } from "../../../agent/registry.ts";
-import type { TraceEvent } from "../../../agent/orchestrator.ts";
+import type { AgentUIEvent, TraceEvent } from "../../../agent/orchestrator.ts";
 import type {
   AssistantCitation,
   ConversationAttachmentRef,
@@ -45,7 +45,14 @@ import {
   expandTextAttachmentReferences,
   filterReferencedAttachments,
 } from "../../repl/attachment.ts";
-import { runChatViaHost } from "../../../runtime/host-client.ts";
+import {
+  type BackgroundAgentSnapshot,
+} from "../../../agent/tools/agent-types.ts";
+import {
+  cancelRuntimeBackgroundAgent,
+  listRuntimeBackgroundAgents,
+  runChatViaHost,
+} from "../../../runtime/host-client.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import type { ReplState } from "../../repl/state.ts";
 import type { OverlayPanel } from "./useOverlayPanel.ts";
@@ -56,6 +63,7 @@ import {
 } from "../../../repl-main-thread-trace.ts";
 import type { TracePresentationLine } from "../../../agent/trace-presentation.ts";
 import { presentTraceEvent } from "../../../agent/trace-presentation.ts";
+import type { LocalAgentEntry } from "../utils/local-agents.ts";
 
 type ContextPressureLevel = Extract<
   TraceEvent,
@@ -74,6 +82,313 @@ function formatContextPressureLabel(
 function withParts(...parts: Array<string | undefined | false>): string {
   return parts.filter((part): part is string => Boolean(part && part.trim()))
     .join(" · ");
+}
+
+function cleanPreviewLine(line: string): string {
+  return line.replace(/\s+/g, " ").trim();
+}
+
+function normalizeLocalAgentStatusText(text: string): string {
+  const normalized = cleanPreviewLine(text);
+  if (normalized.includes("Tool budget exceeded")) {
+    return "Tool budget exceeded";
+  }
+  if (normalized.startsWith("Tool not available:")) {
+    return "Required tool unavailable";
+  }
+  if (normalized.startsWith("Unknown tool:")) {
+    return "Unknown tool";
+  }
+  return normalized;
+}
+
+function isFinishedLocalAgentStatus(status: LocalAgentEntry["status"]): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function countActiveLocalAgents(entries: readonly LocalAgentEntry[]): number {
+  return entries.filter((entry) => !isFinishedLocalAgentStatus(entry.status))
+    .length;
+}
+
+function formatLocalAgentCompletionSummary(
+  entries: readonly LocalAgentEntry[],
+): string {
+  const total = entries.length;
+  if (total === 0) return "Local agents finished";
+  const completed = entries.filter((entry) => entry.status === "completed")
+    .length;
+  const failed = entries.filter((entry) => entry.status === "failed").length;
+  const cancelled = entries.filter((entry) => entry.status === "cancelled")
+    .length;
+  const parts: string[] = [];
+  if (completed > 0) {
+    parts.push(`${completed} done`);
+  }
+  if (failed > 0) {
+    parts.push(`${failed} failed`);
+  }
+  if (cancelled > 0) {
+    parts.push(`${cancelled} cancelled`);
+  }
+  const label = `${total} local agent${total === 1 ? "" : "s"} finished`;
+  return parts.length > 0
+    ? `${label} · ${parts.join(" · ")} · ↓ to review`
+    : `${label} · ↓ to review`;
+}
+
+function buildAgentPreviewLines(
+  resultPreview?: string,
+  transcript?: string,
+): string[] {
+  const lines = [
+    ...(transcript?.split("\n") ?? []),
+    ...(resultPreview?.split("\n") ?? []),
+  ]
+    .map(cleanPreviewLine)
+    .filter((line) => line.length > 0);
+  const uniqueLines: string[] = [];
+  for (const line of lines) {
+    if (!uniqueLines.includes(line)) {
+      uniqueLines.push(line);
+    }
+    if (uniqueLines.length >= 3) break;
+  }
+  return uniqueLines;
+}
+
+function updateLocalAgentEntry(
+  prev: LocalAgentEntry[],
+  next: LocalAgentEntry,
+): LocalAgentEntry[] {
+  const index = prev.findIndex((entry) => entry.id === next.id);
+  if (index < 0) return [...prev, next];
+  const copy = [...prev];
+  copy[index] = next;
+  return copy;
+}
+
+function reduceLocalAgentEntries(
+  prev: LocalAgentEntry[],
+  event: AgentUIEvent,
+): LocalAgentEntry[] {
+  switch (event.type) {
+    case "agent_spawn": {
+      const existing = prev.find((entry) => entry.id === event.agentId);
+      return updateLocalAgentEntry(prev, {
+        id: event.agentId,
+        kind: "agent",
+        name: event.description.trim() || `Agent (${event.agentType})`,
+        label: event.agentType,
+        status: "running",
+        statusLabel: "running",
+        detail: "Initializing...",
+        interruptible: true,
+        foregroundable: false,
+        overlayTarget: "background-tasks",
+        overlayItemId: event.agentId,
+        progress: existing?.progress ?? {
+          previewLines: [],
+        },
+      });
+    }
+    case "agent_progress": {
+      const existing = prev.find((entry) => entry.id === event.agentId);
+      if (!existing) return prev;
+      const activityText = event.lastToolInfo?.trim();
+      return updateLocalAgentEntry(prev, {
+        ...existing,
+        status: "running",
+        statusLabel: "running",
+        detail: activityText ||
+          (event.toolUseCount > 0 ? "In progress..." : "Initializing..."),
+        interruptible: true,
+        progress: {
+          previewLines: existing.progress?.previewLines ?? [],
+          activityText,
+          toolUseCount: event.toolUseCount,
+          tokenCount: event.tokenCount ?? existing.progress?.tokenCount,
+          durationMs: event.durationMs,
+        },
+      });
+    }
+    case "agent_complete": {
+      const existing = prev.find((entry) => entry.id === event.agentId);
+      if (!existing) return prev;
+      const wasCancelled = event.cancelled === true;
+      const status = wasCancelled
+        ? "cancelled"
+        : event.success
+        ? "completed"
+        : "failed";
+      return updateLocalAgentEntry(prev, {
+        ...existing,
+        status,
+        statusLabel: status === "completed"
+          ? "done"
+          : status === "cancelled"
+          ? "cancelled"
+          : "failed",
+        interruptible: false,
+        detail: wasCancelled
+          ? "Cancelled"
+          : event.success
+          ? "Done"
+          : cleanPreviewLine(event.resultPreview ?? "Failed"),
+        progress: {
+          previewLines: buildAgentPreviewLines(
+            event.resultPreview,
+            event.transcript,
+          ),
+          toolUseCount: event.toolUseCount,
+          tokenCount: event.totalTokens,
+          durationMs: event.durationMs,
+        },
+      });
+    }
+    default:
+      return prev;
+  }
+}
+
+function buildLocalAgentProgressFromBackgroundAgent(
+  agent: BackgroundAgentSnapshot,
+  existing?: LocalAgentEntry,
+): LocalAgentEntry["progress"] {
+  const existingProgress = existing?.progress;
+  const previewLines = agent.previewLines.length > 0
+    ? agent.previewLines
+    : agent.error
+    ? [normalizeLocalAgentStatusText(agent.error)]
+    : existingProgress?.previewLines ?? [];
+  const activityText = agent.status === "completed"
+    ? "Done"
+    : agent.cancelled === true
+    ? normalizeLocalAgentStatusText(agent.error ?? "Cancelled by user")
+    : agent.status === "errored"
+    ? normalizeLocalAgentStatusText(agent.error ?? agent.resultPreview ?? "Failed")
+    : agent.lastToolInfo ?? existingProgress?.activityText;
+  return {
+    previewLines,
+    activityText,
+    toolUseCount: agent.toolUseCount ?? existingProgress?.toolUseCount,
+    tokenCount: agent.tokenCount ?? existingProgress?.tokenCount,
+    durationMs: agent.durationMs,
+  };
+}
+
+function mapBackgroundAgentToLocalAgentEntry(
+  agent: BackgroundAgentSnapshot,
+  existing?: LocalAgentEntry,
+): LocalAgentEntry {
+  const status: LocalAgentEntry["status"] = agent.status === "completed"
+    ? "completed"
+    : agent.cancelled === true
+    ? "cancelled"
+    : agent.status === "errored"
+    ? "failed"
+    : "running";
+  return {
+    id: agent.agentId,
+    kind: "agent",
+    name: agent.description.trim() || `Agent (${agent.agentType})`,
+    label: agent.agentType,
+    status,
+    statusLabel: status === "completed"
+      ? "done"
+      : status === "cancelled"
+      ? "cancelled"
+      : status === "failed"
+      ? "failed"
+      : "running",
+    detail: status === "completed"
+      ? "Done"
+      : status === "cancelled"
+      ? normalizeLocalAgentStatusText(agent.error ?? "Cancelled by user")
+      : status === "failed"
+      ? normalizeLocalAgentStatusText(agent.error ?? agent.resultPreview ?? "Failed")
+      : existing?.detail ?? "Initializing...",
+    interruptible: status === "running",
+    foregroundable: false,
+    overlayTarget: "background-tasks",
+    overlayItemId: agent.agentId,
+    progress: buildLocalAgentProgressFromBackgroundAgent(agent, existing),
+  };
+}
+
+function syncLocalAgentEntriesFromSnapshots(
+  prev: LocalAgentEntry[],
+  runtimeAgents: BackgroundAgentSnapshot[],
+): LocalAgentEntry[] {
+  if (prev.length === 0) return prev;
+  const runtimeById = new Map(
+    runtimeAgents.map((agent) => [agent.agentId, agent] as const),
+  );
+  return prev.map((entry) => {
+    const runtimeAgent = runtimeById.get(entry.id);
+    if (!runtimeAgent) return entry;
+    return mapBackgroundAgentToLocalAgentEntry(runtimeAgent, entry);
+  });
+}
+
+function tickLocalAgentDurations(
+  prev: LocalAgentEntry[],
+): LocalAgentEntry[] {
+  let changed = false;
+  const next = prev.map((entry) => {
+    if (
+      entry.status !== "running" && entry.status !== "waiting" &&
+      entry.status !== "blocked" && entry.status !== "idle"
+    ) {
+      return entry;
+    }
+    const currentDuration = entry.progress?.durationMs;
+    if (currentDuration == null) return entry;
+    changed = true;
+    return {
+      ...entry,
+      progress: {
+        previewLines: entry.progress?.previewLines ?? [],
+        ...entry.progress,
+        durationMs: currentDuration + 1000,
+      },
+    };
+  });
+  return changed ? next : prev;
+}
+
+function cancelActiveLocalAgents(
+  prev: LocalAgentEntry[],
+): LocalAgentEntry[] {
+  return prev.map((entry) =>
+    entry.status === "running" || entry.status === "waiting" ||
+        entry.status === "blocked" || entry.status === "idle"
+      ? {
+        ...entry,
+        status: "cancelled",
+        statusLabel: "cancelled",
+        detail: "Cancelled",
+        interruptible: false,
+      }
+      : entry
+  );
+}
+
+function markLocalAgentCancelled(
+  prev: LocalAgentEntry[],
+  agentId: string,
+): LocalAgentEntry[] {
+  return prev.map((entry) =>
+    entry.id === agentId
+      ? {
+        ...entry,
+        status: "cancelled",
+        statusLabel: "cancelled",
+        detail: "Cancelled",
+        interruptible: false,
+      }
+      : entry
+  );
 }
 
 export function getConversationToolDenylist(
@@ -109,6 +424,8 @@ export interface UseAgentRunnerResult {
   interactionQueue: InteractionRequestEvent[];
   setInteractionQueue: Dispatch<SetStateAction<InteractionRequestEvent[]>>;
   pendingInteraction: InteractionRequestEvent | undefined;
+  localAgentEntries: LocalAgentEntry[];
+  interruptLocalAgentEntry: (agentId: string) => boolean;
   agentControllerRef: MutableRefObject<AbortController | null>;
   interactionResolversRef: MutableRefObject<
     Map<string, (response: InteractionResponse) => void>
@@ -178,6 +495,14 @@ export function useAgentRunner(
   const [interactionQueue, setInteractionQueue] = useState<
     InteractionRequestEvent[]
   >([]);
+  const [localAgentEntries, setLocalAgentEntries] = useState<LocalAgentEntry[]>(
+    [],
+  );
+  const previousLocalAgentEntriesRef = useRef<LocalAgentEntry[]>([]);
+  const hasActiveLocalAgents = localAgentEntries.some((entry: LocalAgentEntry) =>
+    entry.status === "running" || entry.status === "waiting" ||
+      entry.status === "blocked" || entry.status === "idle"
+  );
   const pendingInteraction = interactionQueue[0];
 
   // Stable ref for conversation — avoids recreating callbacks on every event
@@ -193,6 +518,80 @@ export function useAgentRunner(
   );
   const activeRunTurnIdRef = useRef<string | undefined>(undefined);
   const contextPressureLevelRef = useRef<ContextPressureLevel>("normal");
+
+  useEffect(() => {
+    if (localAgentEntries.length === 0) return;
+    let disposed = false;
+    let syncInFlight = false;
+    const sync = async () => {
+      if (syncInFlight) return;
+      syncInFlight = true;
+      try {
+        const runtimeAgents = await listRuntimeBackgroundAgents();
+        if (disposed) return;
+        setLocalAgentEntries((prev: LocalAgentEntry[]) =>
+          syncLocalAgentEntriesFromSnapshots(prev, runtimeAgents)
+        );
+      } catch {
+        // Best-effort sync only.
+      } finally {
+        syncInFlight = false;
+      }
+    };
+    void sync();
+    const syncInterval = setInterval(() => {
+      void sync();
+    }, 400);
+    const tickInterval = setInterval(() => {
+      if (disposed) return;
+      setLocalAgentEntries((prev: LocalAgentEntry[]) =>
+        tickLocalAgentDurations(prev)
+      );
+    }, 1000);
+    return () => {
+      disposed = true;
+      clearInterval(syncInterval);
+      clearInterval(tickInterval);
+    };
+  }, [localAgentEntries.length]);
+
+  useEffect(() => {
+    const previous = previousLocalAgentEntriesRef.current;
+    const previousActiveCount = countActiveLocalAgents(previous);
+    const nextActiveCount = countActiveLocalAgents(localAgentEntries);
+    if (
+      previousActiveCount > 0 &&
+      nextActiveCount === 0 &&
+      localAgentEntries.length > 0
+    ) {
+      conversationRef.current.addInfo(
+        formatLocalAgentCompletionSummary(localAgentEntries),
+        {
+          turnId: activeRunTurnIdRef.current,
+        },
+      );
+    }
+    previousLocalAgentEntriesRef.current = localAgentEntries;
+  }, [localAgentEntries]);
+
+  const interruptLocalAgentEntry = useCallback((agentId: string) => {
+    const hasEntry = localAgentEntries.some((entry: LocalAgentEntry) =>
+      entry.id === agentId
+    );
+    if (!hasEntry) return false;
+    setLocalAgentEntries((prev: LocalAgentEntry[]) =>
+      markLocalAgentCancelled(prev, agentId)
+    );
+    void cancelRuntimeBackgroundAgent(agentId).then((cancelled) => {
+      if (cancelled) return;
+      void listRuntimeBackgroundAgents().then((runtimeAgents) => {
+        setLocalAgentEntries((prev: LocalAgentEntry[]) =>
+          syncLocalAgentEntriesFromSnapshots(prev, runtimeAgents)
+        );
+      }).catch(() => {});
+    }).catch(() => {});
+    return true;
+  }, [localAgentEntries]);
 
   // Cleanup orphaned stream timer on unmount
   useEffect(() => () => {
@@ -258,6 +657,7 @@ export function useAgentRunner(
     agentControllerRef.current = controller;
     const isActiveConversationRun = () =>
       agentControllerRef.current === controller;
+    setLocalAgentEntries([]);
 
     setSurfacePanel("conversation");
     setFooterContextUsageLabel("");
@@ -426,6 +826,14 @@ export function useAgentRunner(
             if (controller.signal.aborted || !isActiveConversationRun()) {
               return;
             }
+            if (
+              event.type === "agent_spawn" ||
+              event.type === "agent_progress" ||
+              event.type === "agent_complete"
+            ) {
+              setLocalAgentEntries((prev: LocalAgentEntry[]) => reduceLocalAgentEntries(prev, event));
+              return;
+            }
             if (event.type === "plan_phase_changed") {
               suppressPlanningTokens = event.phase !== "done";
               // Don't clear textBuffer or cancel timers — let any
@@ -543,6 +951,7 @@ export function useAgentRunner(
             mode: event.mode,
             toolName: event.toolName,
             toolArgs: event.toolArgs,
+            toolInput: event.toolInput,
             question: event.question,
             options: event.options,
             sourceLabel: event.sourceLabel,
@@ -809,6 +1218,7 @@ export function useAgentRunner(
       contextPressureLevelRef.current = "normal";
       setActiveOverlay("none");
       setSurfacePanel("none");
+      setLocalAgentEntries([]);
     },
     [interactionQueue],
   );
@@ -849,6 +1259,7 @@ export function useAgentRunner(
     controller.abort();
     interactionResolversRef.current.clear();
     setInteractionQueue([]);
+    setLocalAgentEntries((prev: LocalAgentEntry[]) => cancelActiveLocalAgents(prev));
     setIsEvaluating(false);
     setFooterContextUsageLabel("");
     contextPressureLevelRef.current = "normal";
@@ -908,6 +1319,8 @@ export function useAgentRunner(
     interactionQueue,
     setInteractionQueue,
     pendingInteraction,
+    localAgentEntries,
+    interruptLocalAgentEntry,
     agentControllerRef,
     interactionResolversRef,
     prepareConversationAttachmentPayload,

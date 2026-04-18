@@ -144,6 +144,7 @@ export function TimelineItemRenderer(
   if (item.type === "assistant") {
     return (
       <AssistantMessage
+        id={item.id}
         text={item.text}
         citations={item.citations}
         isPending={item.isPending}
@@ -155,6 +156,7 @@ export function TimelineItemRenderer(
   if (item.type === "thinking") {
     return (
       <ThinkingIndicator
+        id={item.id}
         kind={item.kind}
         summary={item.summary}
         iteration={item.iteration}
@@ -175,6 +177,7 @@ export function TimelineItemRenderer(
   if (item.type === "turn_stats") {
     return (
       <TurnStats
+        id={item.id}
         toolCount={item.toolCount}
         durationMs={item.durationMs}
         inputTokens={item.inputTokens}

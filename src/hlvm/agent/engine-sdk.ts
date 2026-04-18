@@ -35,6 +35,7 @@ import { buildToolDefinitions } from "./llm-integration.ts";
 import { canonicalizeForSignature } from "./orchestrator-tool-formatting.ts";
 import { getToolRegistryGeneration } from "./registry.ts";
 import { normalizeToolArgs } from "./validation.ts";
+import { parseToolCallTextEnvelope } from "./model-compat.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
 import { getAgentLogger } from "./logger.ts";
@@ -629,6 +630,11 @@ function tryParseJsonObject(text: string): unknown {
 }
 
 export function repairMalformedToolCallInput(input: string): string | null {
+  const textEnvelope = parseToolCallTextEnvelope(input);
+  if (textEnvelope) {
+    return JSON.stringify(normalizeToolArgs(textEnvelope.args));
+  }
+
   let candidate: unknown = input;
   for (let depth = 0; depth < 3 && typeof candidate === "string"; depth++) {
     const parsed = tryParseJsonObject(candidate.trim());

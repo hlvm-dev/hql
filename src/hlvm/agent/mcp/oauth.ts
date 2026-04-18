@@ -21,7 +21,10 @@ import { sha256HexSync } from "../../../common/sha256.ts";
 import { normalizeServerName } from "./config.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
-import { DEFAULT_LOCALHOST, DEFAULT_MCP_OAUTH_PORT } from "../../../common/config/types.ts";
+import {
+  DEFAULT_LOCALHOST,
+  DEFAULT_MCP_OAUTH_PORT,
+} from "../../../common/config/types.ts";
 import { getAgentLogger } from "../logger.ts";
 import type { McpServerConfig } from "./types.ts";
 
@@ -48,7 +51,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 const MCP_OAUTH_STORE_VERSION = 1;
-const MCP_OAUTH_REDIRECT_URI = `http://${DEFAULT_LOCALHOST}:${DEFAULT_MCP_OAUTH_PORT}/hlvm/oauth/callback`;
+const MCP_OAUTH_CALLBACK_PATH = "/hlvm/oauth/callback";
 const ACCESS_TOKEN_SKEW_MS = 300_000;
 const OAUTH_CALLBACK_WAIT_TIMEOUT_MS = 120_000;
 const MCP_OAUTH_REFRESH_LOCK_STALE_MS = 30_000;
@@ -70,13 +73,12 @@ const ssotFetch: FetchLike = (url, init?) =>
  * SDK's OAuthClientMetadata (zod v4) infers `redirect_uris` as `string[]`
  * so a direct type annotation works without casts.
  */
-const HLVM_CLIENT_METADATA: OAuthClientMetadata = {
+const HLVM_CLIENT_METADATA_BASE = {
   client_name: "HLVM MCP Client",
   grant_types: ["authorization_code", "refresh_token"],
   response_types: ["code"],
-  redirect_uris: [MCP_OAUTH_REDIRECT_URI],
   token_endpoint_auth_method: "none",
-};
+} as const satisfies Omit<OAuthClientMetadata, "redirect_uris">;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -146,7 +148,8 @@ function recordToClientInfo(
 function recordToMetadata(record: McpOAuthRecord): AuthorizationServerMetadata {
   return {
     issuer: record.authorizationServer,
-    authorization_endpoint: record.authorizationEndpoint ?? record.authorizationServer,
+    authorization_endpoint: record.authorizationEndpoint ??
+      record.authorizationServer,
     token_endpoint: record.tokenEndpoint,
     ...(record.registrationEndpoint
       ? { registration_endpoint: record.registrationEndpoint }
@@ -230,6 +233,74 @@ function getRefreshLockPath(key: string, storePath?: string): string {
     storeDir,
     `.mcp-oauth-refresh-${sha256HexSync(key)}.lock`,
   );
+}
+
+function getMcpOAuthCallbackPort(server: McpServerConfig): number {
+  return server.oauth?.callbackPort ?? DEFAULT_MCP_OAUTH_PORT;
+}
+
+function getMcpOAuthRedirectUri(server: McpServerConfig): string {
+  return `http://${DEFAULT_LOCALHOST}:${
+    getMcpOAuthCallbackPort(server)
+  }${MCP_OAUTH_CALLBACK_PATH}`;
+}
+
+function getMcpOAuthClientMetadata(
+  server: McpServerConfig,
+): OAuthClientMetadata {
+  return {
+    ...HLVM_CLIENT_METADATA_BASE,
+    redirect_uris: [getMcpOAuthRedirectUri(server)],
+  };
+}
+
+function getMcpOAuthStaticClientId(
+  server: McpServerConfig,
+): string | undefined {
+  return server.oauth?.clientId ??
+    getPlatform().env.get("HLVM_MCP_OAUTH_CLIENT_ID");
+}
+
+async function fetchConfiguredAuthorizationServerMetadata(
+  metadataUrl: string,
+): Promise<AuthorizationServerMetadata> {
+  if (!metadataUrl.startsWith("https://")) {
+    throw new ValidationError(
+      `authServerMetadataUrl must use https:// (got: ${metadataUrl})`,
+      "mcp_oauth",
+    );
+  }
+  const response = await http.fetchRaw(metadataUrl, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new ValidationError(
+      `HTTP ${response.status} fetching configured auth server metadata from ${metadataUrl}`,
+      "mcp_oauth",
+    );
+  }
+  return await response.json() as AuthorizationServerMetadata;
+}
+
+async function discoverMcpOAuthServerInfo(
+  server: McpServerConfig & { url: string },
+): Promise<OAuthDiscoveryState> {
+  const serverInfo = await discoverOAuthServerInfo(server.url, {
+    fetchFn: ssotFetch,
+  });
+  if (!server.oauth?.authServerMetadataUrl) {
+    return serverInfo;
+  }
+  const authorizationServerMetadata =
+    await fetchConfiguredAuthorizationServerMetadata(
+      server.oauth.authServerMetadataUrl,
+    );
+  return {
+    ...serverInfo,
+    authorizationServerUrl: authorizationServerMetadata.issuer ??
+      serverInfo.authorizationServerUrl,
+    authorizationServerMetadata,
+  };
 }
 
 function redactSensitiveOAuthText(value: string): string {
@@ -674,9 +745,9 @@ async function refreshAccessToken(
     const isTerminal = status === 401 || status === 403 ||
       msg.includes("invalid_grant") || msg.includes("invalid_client");
     getAgentLogger().warn(
-      `MCP OAuth refresh ${isTerminal ? "terminal" : "transient"} failure (${record.serverName}): ${
-        redactSensitiveOAuthText(msg)
-      }`,
+      `MCP OAuth refresh ${
+        isTerminal ? "terminal" : "transient"
+      } failure (${record.serverName}): ${redactSensitiveOAuthText(msg)}`,
     );
     return { ok: false, terminal: isTerminal, reason: msg };
   }
@@ -707,8 +778,6 @@ async function getActiveRecord(
 }
 
 export class McpOAuthTransportAuthProvider implements OAuthClientProvider {
-  readonly redirectUrl = MCP_OAUTH_REDIRECT_URI;
-  readonly clientMetadata = HLVM_CLIENT_METADATA;
   private pendingAuthorizationUrl: URL | null = null;
   private pendingState: string | undefined;
   private pendingCodeVerifier: string | null = null;
@@ -727,6 +796,14 @@ export class McpOAuthTransportAuthProvider implements OAuthClientProvider {
     this.promptInput = options.promptInput ?? defaultPromptInput;
     this.openBrowser = options.openBrowser ??
       ((url: string) => getPlatform().openUrl(url));
+  }
+
+  get redirectUrl(): string {
+    return getMcpOAuthRedirectUri(this.server);
+  }
+
+  get clientMetadata(): OAuthClientMetadata {
+    return getMcpOAuthClientMetadata(this.server);
   }
 
   private async loadExistingRecord(): Promise<McpOAuthRecord | null> {
@@ -791,7 +868,10 @@ export class McpOAuthTransportAuthProvider implements OAuthClientProvider {
 
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
     const record = await this.loadExistingRecord();
-    return record ? recordToClientInfo(record) : this.pendingClientInformation;
+    if (record) return recordToClientInfo(record);
+    if (this.pendingClientInformation) return this.pendingClientInformation;
+    const staticClientId = getMcpOAuthStaticClientId(this.server);
+    return staticClientId ? { client_id: staticClientId } : undefined;
   }
 
   async saveClientInformation(
@@ -821,7 +901,10 @@ export class McpOAuthTransportAuthProvider implements OAuthClientProvider {
       this.pendingDiscoveryState ?? existing?.discoveryState,
       existing,
     );
-    await upsertRecord(tokensToRecord(tokens, baseRecord), this.options.storePath);
+    await upsertRecord(
+      tokensToRecord(tokens, baseRecord),
+      this.options.storePath,
+    );
     this.pendingAuthorizationUrl = null;
     this.pendingState = undefined;
     this.pendingCodeVerifier = null;
@@ -885,7 +968,15 @@ export class McpOAuthTransportAuthProvider implements OAuthClientProvider {
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
     if (this.pendingDiscoveryState) return this.pendingDiscoveryState;
     const store = await loadStore(this.options.storePath);
-    return findRecord(store, this.server)?.discoveryState;
+    const existing = findRecord(store, this.server)?.discoveryState;
+    if (existing) return existing;
+    if (!this.server.oauth?.authServerMetadataUrl) return undefined;
+    const serverInfo = await discoverMcpOAuthServerInfo(this.server);
+    return {
+      authorizationServerUrl: serverInfo.authorizationServerUrl,
+      resourceMetadata: serverInfo.resourceMetadata,
+      authorizationServerMetadata: serverInfo.authorizationServerMetadata,
+    };
   }
 
   async invalidateCredentials(
@@ -912,7 +1003,10 @@ export class McpOAuthTransportAuthProvider implements OAuthClientProvider {
       return;
     }
 
-    const next: McpOAuthRecord = { ...existing, updatedAt: new Date().toISOString() };
+    const next: McpOAuthRecord = {
+      ...existing,
+      updatedAt: new Date().toISOString(),
+    };
     if (scope === "tokens") {
       next.accessToken = "";
       next.refreshToken = undefined;
@@ -981,9 +1075,7 @@ export async function loginMcpHttpServer(
     ((url: string) => getPlatform().openUrl(url));
 
   // 1. Discover authorization server via SDK
-  const serverInfo = await discoverOAuthServerInfo(server.url, {
-    fetchFn: ssotFetch,
-  });
+  const serverInfo = await discoverMcpOAuthServerInfo(server);
   const authServerUrl = serverInfo.authorizationServerUrl;
   const metadata = serverInfo.authorizationServerMetadata;
   const resourceMetadata = serverInfo.resourceMetadata;
@@ -1007,20 +1099,20 @@ export async function loginMcpHttpServer(
     ? recordToClientInfo(existing)
     : null;
 
-  const staticClientId = getPlatform().env.get("HLVM_MCP_OAUTH_CLIENT_ID");
+  const staticClientId = getMcpOAuthStaticClientId(server);
   let clientInfo: OAuthClientInformationMixed;
 
   if (reusableClient) {
     clientInfo = reusableClient;
+  } else if (staticClientId) {
+    clientInfo = { client_id: staticClientId };
   } else if (metadata?.registration_endpoint) {
     const fullInfo = await registerClient(authServerUrl, {
       metadata,
-      clientMetadata: HLVM_CLIENT_METADATA,
+      clientMetadata: getMcpOAuthClientMetadata(server),
       fetchFn: ssotFetch,
     });
     clientInfo = fullInfo;
-  } else if (staticClientId) {
-    clientInfo = { client_id: staticClientId };
   } else {
     throw new ValidationError(
       "OAuth login requires either dynamic client registration support or HLVM_MCP_OAUTH_CLIENT_ID",
@@ -1055,7 +1147,7 @@ export async function loginMcpHttpServer(
     {
       metadata,
       clientInformation: clientInfo,
-      redirectUrl: MCP_OAUTH_REDIRECT_URI,
+      redirectUrl: getMcpOAuthRedirectUri(server),
       scope,
       resource: resourceUrl,
     },
@@ -1071,7 +1163,7 @@ export async function loginMcpHttpServer(
   let callbackInput = "";
   if (!options.promptInput) {
     const receivedCallbackUrl = await waitForOAuthCallback(
-      MCP_OAUTH_REDIRECT_URI,
+      getMcpOAuthRedirectUri(server),
       state,
       output,
     );
@@ -1093,7 +1185,7 @@ export async function loginMcpHttpServer(
     clientInformation: clientInfo,
     authorizationCode: code,
     codeVerifier,
-    redirectUri: MCP_OAUTH_REDIRECT_URI,
+    redirectUri: getMcpOAuthRedirectUri(server),
     resource: resourceUrl,
     fetchFn: ssotFetch,
   });
@@ -1172,13 +1264,21 @@ export async function recoverMcpOAuthFromUnauthorized(
   if (!record.refreshToken) {
     return false;
   }
-  const result = await withRefreshLock(record.key, options.storePath, async () => {
-    const latest = findRecord(await loadStore(options.storePath), server);
-    if (!latest?.refreshToken) {
-      return { ok: false, terminal: true, reason: "no refresh token" } satisfies RefreshResult;
-    }
-    return await refreshAccessToken(latest, options.storePath);
-  });
+  const result = await withRefreshLock(
+    record.key,
+    options.storePath,
+    async () => {
+      const latest = findRecord(await loadStore(options.storePath), server);
+      if (!latest?.refreshToken) {
+        return {
+          ok: false,
+          terminal: true,
+          reason: "no refresh token",
+        } satisfies RefreshResult;
+      }
+      return await refreshAccessToken(latest, options.storePath);
+    },
+  );
   if (!result.ok) {
     // Only delete token on terminal failure — preserve on transient errors
     if (result.terminal) {

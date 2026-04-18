@@ -76,10 +76,14 @@ export function useSelection(): {
       subscribe: (cb: () => void) => ink.subscribeToSelectionChange(cb),
       shiftAnchor: (dRow: number, minRow: number, maxRow: number) =>
         shiftAnchor(ink.selection, dRow, minRow, maxRow),
-      shiftSelection: (dRow, minRow, maxRow) =>
+      shiftSelection: (dRow: number, minRow: number, maxRow: number) =>
         ink.shiftSelectionForScroll(dRow, minRow, maxRow),
       moveFocus: (move: FocusMove) => ink.moveSelectionFocus(move),
-      captureScrolledRows: (firstRow, lastRow, side) =>
+      captureScrolledRows: (
+        firstRow: number,
+        lastRow: number,
+        side: 'above' | 'below',
+      ) =>
         ink.captureScrolledRows(firstRow, lastRow, side),
       setSelectionBgColor: (color: string) => ink.setSelectionBgColor(color),
     }

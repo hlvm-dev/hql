@@ -21,13 +21,17 @@ import {
   parseShellCommand,
 } from "../../../common/shell-parser.ts";
 import { classifyShellPipeline } from "../security/shell-classifier.ts";
-import type { ToolExecutionOptions } from "../registry.ts";
+import type {
+  ToolExecutionOptions,
+  ToolTranscriptAdapter,
+} from "../registry.ts";
 import {
   failTool,
   failToolDetailed,
   formatToolError,
   okTool,
 } from "../tool-results.ts";
+import { truncate } from "../../../common/utils.ts";
 
 // ============================================================
 // Types
@@ -82,6 +86,18 @@ type LocalCodeLanguage =
   | "shell"
   | "powershell"
   | "cmd";
+
+const SHELL_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
+  displayName: "Bash",
+  formatProgress: (event) => {
+    const message = event.message.trim();
+    if (message) return { message, tone: event.tone };
+    if (event.phase === "start") {
+      return { message: "Running...", tone: "running" };
+    }
+    return null;
+  },
+};
 
 function normalizeLocalCodeLanguage(
   language?: string,
@@ -146,6 +162,72 @@ export function classifyShellCommand(command: string): "L0" | "L1" | "L2" {
 }
 
 const DETACHED_LAUNCH_GRACE_MS = 75;
+const MAX_SHELL_PROGRESS_CHARS = 160;
+
+function emitShellProgress(
+  options: ToolExecutionOptions | undefined,
+  message: string,
+  phase: string,
+  tone: "running" | "warning" = "running",
+): void {
+  const trimmed = message.trim();
+  if (!trimmed) return;
+  options?.onAgentEvent?.({
+    type: "tool_progress",
+    name: options?.toolName ?? "shell_exec",
+    toolCallId: options?.toolCallId,
+    argsSummary: options?.argsSummary ?? "",
+    message: truncate(trimmed, MAX_SHELL_PROGRESS_CHARS),
+    tone,
+    phase,
+  });
+}
+
+function createShellStreamProgressReporter(
+  options: ToolExecutionOptions | undefined,
+  streamName: "stdout" | "stderr",
+): {
+  onChunk: (chunk: Uint8Array) => void;
+  flush: () => void;
+} {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let lastEmitted = "";
+
+  const emitLine = (line: string): void => {
+    const normalized = line.replace(/\s+/g, " ").trim();
+    if (!normalized || normalized === lastEmitted) return;
+    lastEmitted = normalized;
+    emitShellProgress(
+      options,
+      streamName === "stderr" ? `stderr: ${normalized}` : normalized,
+      streamName,
+      streamName === "stderr" ? "warning" : "running",
+    );
+  };
+
+  const drainBuffer = (): void => {
+    const normalizedBuffer = buffer.replace(/\r/g, "\n");
+    const parts = normalizedBuffer.split("\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      emitLine(part);
+    }
+  };
+
+  return {
+    onChunk: (chunk: Uint8Array) => {
+      buffer += decoder.decode(chunk, { stream: true });
+      drainBuffer();
+    },
+    flush: () => {
+      buffer += decoder.decode();
+      drainBuffer();
+      emitLine(buffer);
+      buffer = "";
+    },
+  };
+}
 
 function isAbortLikeError(error: unknown, signal?: AbortSignal): boolean {
   if (signal?.aborted) return true;
@@ -341,12 +423,33 @@ export async function shellExec(
       options.signal.addEventListener("abort", onAbort, { once: true });
     }
 
+    const stdoutProgress = createShellStreamProgressReporter(
+      options,
+      "stdout",
+    );
+    const stderrProgress = createShellStreamProgressReporter(
+      options,
+      "stderr",
+    );
+
     try {
       const [stdoutBytes, stderrBytes, status] = await Promise.all([
-        readProcessStream(process.stdout, options?.signal),
-        readProcessStream(process.stderr, options?.signal),
+        readProcessStream(
+          process.stdout,
+          options?.signal,
+          undefined,
+          stdoutProgress.onChunk,
+        ),
+        readProcessStream(
+          process.stderr,
+          options?.signal,
+          undefined,
+          stderrProgress.onChunk,
+        ),
         process.status,
       ]);
+      stdoutProgress.flush();
+      stderrProgress.flush();
 
       if (aborted) {
         throw createAbortError("Shell command aborted");
@@ -375,6 +478,8 @@ export async function shellExec(
         safetyLevel,
       });
     } finally {
+      stdoutProgress.flush();
+      stderrProgress.flush();
       if (options?.signal) {
         options.signal.removeEventListener("abort", onAbort);
       }
@@ -491,12 +596,33 @@ export async function shellScript(
       options.signal.addEventListener("abort", onAbort, { once: true });
     }
 
+    const stdoutProgress = createShellStreamProgressReporter(
+      options,
+      "stdout",
+    );
+    const stderrProgress = createShellStreamProgressReporter(
+      options,
+      "stderr",
+    );
+
     try {
       const [stdoutBytes, stderrBytes, status] = await Promise.all([
-        readProcessStream(process.stdout, options?.signal),
-        readProcessStream(process.stderr, options?.signal),
+        readProcessStream(
+          process.stdout,
+          options?.signal,
+          undefined,
+          stdoutProgress.onChunk,
+        ),
+        readProcessStream(
+          process.stderr,
+          options?.signal,
+          undefined,
+          stderrProgress.onChunk,
+        ),
         process.status,
       ]);
+      stdoutProgress.flush();
+      stderrProgress.flush();
 
       if (aborted) {
         throw createAbortError("Shell script aborted");
@@ -523,6 +649,8 @@ export async function shellScript(
         exitCode: status.code,
       });
     } finally {
+      stdoutProgress.flush();
+      stderrProgress.flush();
       if (options?.signal) {
         options.signal.removeEventListener("abort", onAbort);
       }
@@ -609,6 +737,7 @@ export const SHELL_TOOLS = {
     description:
       "Execute shell command. ONLY use when no dedicated tool exists for the task.",
     category: "shell",
+    transcript: SHELL_TRANSCRIPT_ADAPTER,
     safetyLevel: "L2",
     args: {
       command: "string - Shell command to execute",
@@ -634,6 +763,7 @@ export const SHELL_TOOLS = {
     description:
       "Execute multi-line shell script. ONLY use when no dedicated tool exists for the task.",
     category: "shell",
+    transcript: SHELL_TRANSCRIPT_ADAPTER,
     safetyLevel: "L2",
     args: {
       script: "string - Shell script content",

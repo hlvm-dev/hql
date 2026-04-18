@@ -32,8 +32,9 @@ import type {
   AgentToolResult,
   AgentToolUsage,
   BackgroundAgent,
+  BackgroundAgentSnapshot,
 } from "./agent-types.ts";
-import { makeAgentTextBlocks } from "./agent-types.ts";
+import { getAgentToolResultText, makeAgentTextBlocks } from "./agent-types.ts";
 import { loadAgentDefinitions } from "./agent-definitions.ts";
 import { loadMcpTools } from "../mcp/tools.ts";
 import type { McpLoadResult, McpServerConfig } from "../mcp/types.ts";
@@ -75,10 +76,15 @@ function getAgentToolRuntimeState(): AgentToolRuntimeState {
 }
 
 function buildAgentToolUsage(
-  result: { promptTokens?: number; completionTokens?: number; totalTokens: number },
+  result: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens: number;
+  },
 ): AgentToolUsage {
   const input = result.promptTokens ?? 0;
-  const output = result.completionTokens ?? Math.max(0, result.totalTokens - input);
+  const output = result.completionTokens ??
+    Math.max(0, result.totalTokens - input);
   return {
     input_tokens: input,
     output_tokens: output,
@@ -170,25 +176,68 @@ async function prepareAgentMcpRuntime(opts: {
   };
 }
 
-/** Get a background agent by ID */
+export function getBackgroundAgentSnapshots(): BackgroundAgentSnapshot[] {
+  return Array.from(getAgentToolRuntimeState().backgroundAgents.values()).map(
+    (agent) => {
+      const durationMs = agent.result?.totalDurationMs ??
+        Math.max(0, Date.now() - agent.startTime);
+      const previewLines = agent.result
+        ? getAgentToolResultText(agent.result)
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+          .slice(0, 3)
+        : agent.transcriptTail ?? [];
+      return {
+        agentId: agent.agentId,
+        agentType: agent.agentType,
+        description: agent.description,
+        status: agent.status,
+        cancelled: agent.cancelled,
+        durationMs,
+        toolUseCount: agent.result?.totalToolUseCount ?? agent.toolUseCount,
+        tokenCount: agent.result?.totalTokens ?? agent.tokenCount,
+        lastToolInfo: agent.lastToolInfo,
+        previewLines,
+        resultPreview: agent.result
+          ? getAgentToolResultText(agent.result).slice(0, 200)
+          : undefined,
+        error: agent.error,
+      };
+    },
+  );
+}
+
+export function getAllBackgroundAgents(): BackgroundAgent[] {
+  return Array.from(getAgentToolRuntimeState().backgroundAgents.values());
+}
+
 export function getBackgroundAgent(
   agentId: string,
 ): BackgroundAgent | undefined {
   return getAgentToolRuntimeState().backgroundAgents.get(agentId);
 }
 
-/** Get all background agents */
-export function getAllBackgroundAgents(): BackgroundAgent[] {
-  return Array.from(getAgentToolRuntimeState().backgroundAgents.values());
-}
-
 /** Cancel a background agent */
 export function cancelBackgroundAgent(agentId: string): boolean {
   const agent = getAgentToolRuntimeState().backgroundAgents.get(agentId);
   if (!agent || agent.status !== "running") return false;
+  agent.cancelled = true;
+  agent.lastToolInfo = "Cancelled by user";
+  agent.transcriptTail = ["Cancelled by user"];
   agent.abortController.abort();
   agent.status = "errored";
   agent.error = "Cancelled by user";
+  agent.onAgentEvent?.({
+    type: "agent_complete",
+    agentId,
+    agentType: agent.agentType,
+    success: false,
+    cancelled: true,
+    durationMs: Math.max(0, Date.now() - agent.startTime),
+    toolUseCount: 0,
+    resultPreview: "Cancelled by user",
+  });
   return true;
 }
 
@@ -630,6 +679,31 @@ async function runAsyncAgent(opts: {
     resolvePromise = resolve;
     rejectPromise = reject;
   });
+  const emitAgentEvent = (event: unknown): void => {
+    const bg = getAgentToolRuntimeState().backgroundAgents.get(agentId);
+    if (bg && typeof event === "object" && event !== null && "type" in event) {
+      const typedEvent = event as {
+        type: string;
+        toolUseCount?: number;
+        tokenCount?: number;
+        lastToolInfo?: string;
+      };
+      if (typedEvent.type === "agent_progress") {
+        bg.toolUseCount = typedEvent.toolUseCount;
+        bg.tokenCount = typedEvent.tokenCount;
+        bg.lastToolInfo = typedEvent.lastToolInfo;
+      }
+    }
+    options?.onAgentEvent?.(event);
+  };
+  const appendTranscriptLine = (line: string): void => {
+    appendOutput(`${line}\n`);
+    const bg = getAgentToolRuntimeState().backgroundAgents.get(agentId);
+    if (!bg) return;
+    bg.transcriptTail = [...(bg.transcriptTail ?? []), line.trim()]
+      .filter((entry) => entry.length > 0)
+      .slice(-3);
+  };
 
   const executeBackgroundAgent = async (): Promise<void> => {
     try {
@@ -643,14 +717,14 @@ async function runAsyncAgent(opts: {
         modelOverride,
         agentId,
         signal: abortController.signal,
-        onAgentEvent: options?.onAgentEvent,
+        onAgentEvent: emitAgentEvent,
         inheritedConfig,
         onTranscriptLine: (line) => {
-          appendOutput(`${line}\n`);
+          appendTranscriptLine(line);
         },
       });
 
-      options?.onAgentEvent?.({
+      emitAgentEvent({
         type: "agent_complete",
         agentId,
         agentType: result.agentType,
@@ -698,24 +772,31 @@ async function runAsyncAgent(opts: {
 
       resolvePromise(completedResult);
     } catch (err) {
-      options?.onAgentEvent?.({
-        type: "agent_complete",
-        agentId,
-        agentType: selectedAgent.agentType,
-        success: false,
-        durationMs: 0,
-        toolUseCount: 0,
-        resultPreview: err instanceof Error ? err.message : String(err),
-      });
+      const bg = getAgentToolRuntimeState().backgroundAgents.get(agentId);
+      const wasCancelled = bg?.cancelled === true;
+      if (!wasCancelled) {
+        emitAgentEvent({
+          type: "agent_complete",
+          agentId,
+          agentType: selectedAgent.agentType,
+          success: false,
+          durationMs: 0,
+          toolUseCount: 0,
+          resultPreview: err instanceof Error ? err.message : String(err),
+        });
+      }
       appendOutput(
-        `\nAgent failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        wasCancelled
+          ? "\nAgent stopped by user.\n"
+          : `\nAgent failed: ${
+            err instanceof Error ? err.message : String(err)
+          }\n`,
       );
       await outputWriteChain;
       await cleanupWorktree(worktreeInfo ?? null);
       await agentMcpCleanup?.();
 
       const errMsg = err instanceof Error ? err.message : String(err);
-      const bg = getAgentToolRuntimeState().backgroundAgents.get(agentId);
       if (bg) {
         bg.status = "errored";
         bg.error = errMsg;
@@ -726,9 +807,9 @@ async function runAsyncAgent(opts: {
           agentId,
           selectedAgent.agentType,
           description,
-          "failed",
+          wasCancelled ? "killed" : "failed",
           undefined,
-          errMsg,
+          wasCancelled ? "Cancelled by user" : errMsg,
         ),
         options?.sessionId,
       );
@@ -747,6 +828,9 @@ async function runAsyncAgent(opts: {
     startTime: Date.now(),
     promise,
     abortController,
+    transcriptTail: [],
+    cancelled: false,
+    onAgentEvent: emitAgentEvent,
   });
   // Mark the promise as observed so failures don't become unhandled rejections
   // when the caller launches and moves on.

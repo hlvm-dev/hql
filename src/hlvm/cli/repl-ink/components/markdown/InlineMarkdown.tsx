@@ -40,7 +40,7 @@ export const InlineTokens = memo(function InlineTokens(
           case "codespan":
             return (
               <React.Fragment key={index}>
-                <Text color={sc.syntax.string}>
+                <Text color={sc.syntax.keyword}>
                   {(token as Tokens.Codespan).text}
                 </Text>
               </React.Fragment>
@@ -48,7 +48,7 @@ export const InlineTokens = memo(function InlineTokens(
           case "link":
             return (
               <React.Fragment key={index}>
-                <Text color={sc.status.success}>
+                <Text color={sc.syntax.keyword} underline>
                   {(token as Tokens.Link).text}
                 </Text>
               </React.Fragment>

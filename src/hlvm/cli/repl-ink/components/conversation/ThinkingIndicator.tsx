@@ -13,9 +13,10 @@ import { STATUS_GLYPHS } from "../../ui-constants.ts";
 import { getThinkingLabel } from "./conversation-chrome.ts";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 import { useConversationSpinnerFrame } from "../../hooks/useConversationMotion.ts";
-import { truncate } from "../../../../../common/utils.ts";
+import { getCcSpinnerVerb } from "./cc-turn-copy.ts";
 
 interface ThinkingIndicatorProps {
+  id: string;
   kind: "reasoning" | "planning";
   summary: string;
   iteration: number;
@@ -25,6 +26,7 @@ interface ThinkingIndicatorProps {
 }
 
 export const ThinkingIndicator = React.memo(function ThinkingIndicator({
+  id,
   kind,
   summary,
   iteration,
@@ -35,19 +37,13 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
   const spinner = useConversationSpinnerFrame(isAnimating);
   const marker = isAnimating ? spinner ?? STATUS_GLYPHS.running : "\u00B7";
   const lines = summary ? summary.split("\n") : [];
-  const previewLine = truncate(
-    lines.find((line) => line.trim().length > 0)?.trim() ?? "",
-    76,
-    "…",
-  );
-  const maxBodyLines = expanded ? lines.length : 0;
-  const visibleBodyLines = lines.slice(0, maxBodyLines);
-  const hiddenBodyLineCount = Math.max(
-    0,
-    lines.length - visibleBodyLines.length,
-  );
-  const body = visibleBodyLines.join("\n").trim();
+  const body = expanded ? lines.join("\n").trim() : "";
   const title = getThinkingLabel(kind);
+  const verb = React.useMemo(
+    () => getCcSpinnerVerb(`${id}:${kind}:${iteration}`),
+    [id, iteration, kind],
+  );
+  const label = isAnimating ? `${marker} ${verb}…` : `· ${title}`;
 
   return (
     <Box
@@ -56,31 +52,16 @@ export const ThinkingIndicator = React.memo(function ThinkingIndicator({
     >
       <Box>
         <Text color={isAnimating ? sc.text.primary : sc.text.muted}>
-          {isAnimating ? `${marker} ${title}...` : `\u00B7 ${title}`}
+          {label}
         </Text>
         {iteration > 1 && (
           <Text color={sc.text.muted}>{` (pass ${iteration})`}</Text>
-        )}
-        {!expanded && previewLine && (
-          <Text color={sc.text.secondary}>{` · ${previewLine}`}</Text>
-        )}
-        {!expanded && hiddenBodyLineCount > 1 && (
-          <Text color={sc.text.muted}>
-            {` · ${hiddenBodyLineCount - 1} more lines`}
-          </Text>
         )}
       </Box>
       {body && (
         <Box paddingLeft={TRANSCRIPT_LAYOUT.detailIndent}>
           <Text color={sc.text.secondary} italic wrap="wrap">
             {body}
-          </Text>
-        </Box>
-      )}
-      {expanded && hiddenBodyLineCount > 0 && (
-        <Box marginLeft={TRANSCRIPT_LAYOUT.detailIndent}>
-          <Text color={sc.text.muted}>
-            ... ({hiddenBodyLineCount} more lines)
           </Text>
         </Box>
       )}

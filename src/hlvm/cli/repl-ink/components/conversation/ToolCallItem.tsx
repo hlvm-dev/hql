@@ -15,51 +15,14 @@ import type { ToolCallDisplay } from "../../types.ts";
 import { buildToolCallTextLayout } from "./layout.ts";
 import { getToolDurationTone } from "./conversation-chrome.ts";
 import { isProminentToolName } from "./turn-activity.ts";
-import type { ToolPresentationKind } from "../../../../agent/registry.ts";
-import { ChromeChip } from "../ChromeChip.tsx";
+import { buildToolTranscriptInvocationLabel } from "./tool-transcript.ts";
+import { truncate } from "../../../../../common/utils.ts";
 
 interface ToolCallItemProps {
   tool: ToolCallDisplay;
   width: number;
   expanded?: boolean;
   animateStatusIcon?: boolean;
-}
-
-function getPresentationBadge(
-  kind: ToolPresentationKind | undefined,
-): string | null {
-  switch (kind) {
-    case "read":
-      return "READ";
-    case "search":
-      return "SEARCH";
-    case "web":
-      return "WEB";
-    case "shell":
-      return "SHELL";
-    case "edit":
-      return "EDIT";
-    case "diff":
-      return "DIFF";
-    default:
-      return null;
-  }
-}
-
-function getToolStatusChip(
-  status: ToolCallDisplay["status"],
-): { text: string; tone: "active" | "warning" | "success" | "error" | "neutral" } {
-  switch (status) {
-    case "running":
-      return { text: "RUNNING", tone: "active" };
-    case "pending":
-      return { text: "QUEUED", tone: "warning" };
-    case "error":
-      return { text: "ERROR", tone: "error" };
-    case "success":
-    default:
-      return { text: "DONE", tone: "success" };
-  }
 }
 
 export function resolveToolResultText(
@@ -83,25 +46,21 @@ export const ToolCallItem = React.memo(function ToolCallItem(
 ): React.ReactElement {
   const sc = useSemanticColors();
   const presentationKind = tool.resultMeta?.presentation?.kind;
-  const presentationBadge = getPresentationBadge(presentationKind);
   const displayName = tool.displayName ?? tool.name;
-  const invocationArgsSummary =
-    (tool.name === "search_web" ||
-      tool.name === "web_fetch" ||
-      tool.name === "fetch_url") &&
-      tool.argsSummary.trim().length > 0
-      ? `("${tool.argsSummary.trim().replaceAll('"', "'")}")`
-      : tool.argsSummary;
+  const invocationLabel = buildToolTranscriptInvocationLabel({
+    name: tool.name,
+    displayName,
+    argsSummary: tool.argsSummary,
+  });
   const layout = buildToolCallTextLayout(
     Math.max(0, width - 2),
-    displayName,
-    invocationArgsSummary,
+    invocationLabel,
     tool.durationMs,
   );
 
-  const nameColor = tool.status === "error"
+  const labelColor = tool.status === "error"
     ? sc.status.error
-    : isProminentToolName(tool.name)
+    : presentationKind === "shell" || isProminentToolName(tool.name)
     ? sc.text.primary
     : sc.text.secondary;
   const durationTone = getToolDurationTone(tool.durationMs);
@@ -127,48 +86,42 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     : presentationKind === "edit" || presentationKind === "diff"
     ? 2
     : 1;
-  const statusChip = getToolStatusChip(tool.status);
+  const detailTextWidth = Math.max(12, width - 5);
+  const runningProgressText = tool.progressText?.trim()
+    ? truncate(tool.progressText.trim(), detailTextWidth)
+    : undefined;
+  const queuedText = tool.queuedText?.trim()
+    ? truncate(tool.queuedText.trim(), detailTextWidth)
+    : undefined;
 
   return (
     <Box flexDirection="column">
       <Box>
         <ToolStatusIcon status={tool.status} animate={animateStatusIcon} />
         <Text></Text>
-        <ChromeChip text={statusChip.text} tone={statusChip.tone} />
-        <Text color={sc.text.muted}> </Text>
-        {presentationBadge && (
-          <>
-            <Text color={sc.chrome.sectionLabel}>{presentationBadge}</Text>
-            <Text color={sc.text.muted}> </Text>
-          </>
-        )}
-        <Text color={nameColor}>{displayName}</Text>
-        {layout.argsText && (
-          <Text color={sc.text.secondary}>
-            {" "}
-            {layout.argsText}
-          </Text>
-        )}
+        <Text color={labelColor} bold wrap="truncate-end">
+          {layout.labelText}
+        </Text>
         {layout.gapWidth > 0 && <Text>{" ".repeat(layout.gapWidth)}</Text>}
         {layout.durationText && (
           <Text color={durationColor}>{layout.durationText}</Text>
         )}
       </Box>
 
-      {tool.status === "running" && tool.progressText && (
+      {tool.status === "running" && runningProgressText && (
         <Box marginLeft={2} flexDirection="row">
           <Text color={resultGutterColor}>{"⎿  "}</Text>
-          <Text color={progressColor} wrap="wrap">
-            {tool.progressText}
+          <Text color={progressColor} wrap="truncate-end">
+            {runningProgressText}
           </Text>
         </Box>
       )}
 
-      {tool.status === "pending" && tool.queuedText && (
+      {tool.status === "pending" && queuedText && (
         <Box marginLeft={2} flexDirection="row">
           <Text color={resultGutterColor}>{"⎿  "}</Text>
-          <Text color={queuedColor} wrap="wrap">
-            {tool.queuedText}
+          <Text color={queuedColor} wrap="truncate-end">
+            {queuedText}
           </Text>
         </Box>
       )}

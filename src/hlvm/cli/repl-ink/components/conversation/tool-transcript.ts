@@ -24,6 +24,24 @@ const FALLBACK_TRANSCRIPT_ADAPTERS = new Map<string, ToolTranscriptAdapter>([
   ["search_web", WEB_SEARCH_TRANSCRIPT_ADAPTER],
   ["web_fetch", WEB_FETCH_TRANSCRIPT_ADAPTER],
   ["fetch_url", FETCH_URL_TRANSCRIPT_ADAPTER],
+  ["pw_goto", { displayName: "Browser" }],
+  ["pw_back", { displayName: "Browser Back" }],
+  ["pw_click", { displayName: "Browser Click" }],
+  ["pw_fill", { displayName: "Browser Fill" }],
+  ["pw_type", { displayName: "Browser Type" }],
+  ["pw_content", { displayName: "Browser Read" }],
+  ["pw_hover", { displayName: "Browser Hover" }],
+  ["pw_links", { displayName: "Browser Links" }],
+  ["pw_wait_for", { displayName: "Browser Wait" }],
+  ["pw_screenshot", { displayName: "Browser Screenshot" }],
+  ["pw_evaluate", { displayName: "Browser Eval" }],
+  ["pw_scroll", { displayName: "Browser Scroll" }],
+  ["pw_snapshot", { displayName: "Browser Snapshot" }],
+  ["pw_download", { displayName: "Browser Download" }],
+  ["pw_select_option", { displayName: "Browser Select" }],
+  ["pw_upload_file", { displayName: "Browser Upload" }],
+  ["pw_tabs", { displayName: "Browser Tabs" }],
+  ["pw_promote", { displayName: "Browser Promote" }],
 ]);
 
 function getTranscriptAdapter(
@@ -31,7 +49,8 @@ function getTranscriptAdapter(
   ownerId?: string,
 ): ToolTranscriptAdapter | undefined {
   if (hasTool(toolName, ownerId)) {
-    return getTool(toolName, ownerId).transcript;
+    return getTool(toolName, ownerId).transcript ??
+      FALLBACK_TRANSCRIPT_ADAPTERS.get(toolName);
   }
   return FALLBACK_TRANSCRIPT_ADAPTERS.get(toolName);
 }
@@ -49,6 +68,10 @@ function resolveAdapterDisplayName(
 
 function sanitizeQuotedArg(value: string): string {
   return value.replaceAll('"', "'");
+}
+
+function sanitizeParenthesizedArg(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 export function resolveToolTranscriptDisplayName(
@@ -69,9 +92,19 @@ export function buildToolTranscriptInvocationLabel(
   if (
     tool.name === "search_web" ||
     tool.name === "web_fetch" ||
-    tool.name === "fetch_url"
+    tool.name === "fetch_url" ||
+    tool.name === "ask_user" ||
+    tool.name === "pw_goto" ||
+    tool.name === "pw_download"
   ) {
     return `${displayName}("${sanitizeQuotedArg(argsSummary)}")`;
+  }
+
+  if (
+    tool.name === "shell_exec" || tool.name === "shell_script" ||
+    tool.name.startsWith("pw_")
+  ) {
+    return `${displayName}(${sanitizeParenthesizedArg(argsSummary)})`;
   }
 
   return `${displayName} ${argsSummary}`;

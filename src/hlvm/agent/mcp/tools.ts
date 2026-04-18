@@ -11,14 +11,12 @@ import {
   getErrorMessage,
   isObjectValue,
 } from "../../../common/utils.ts";
-import {
-  getAttachmentDisplayName,
-} from "../../attachments/metadata.ts";
+import { getAttachmentDisplayName } from "../../attachments/metadata.ts";
 import { registerUploadedAttachment } from "../../attachments/service.ts";
 import { getAgentLogger } from "../logger.ts";
 import {
-  registerTools,
   type FormattedToolResult,
+  registerTools,
   type ToolExecutionOptions,
   type ToolMetadata,
   type ToolPresentationKind,
@@ -158,7 +156,9 @@ function isRepresentableMcpPropertySchema(
   return false;
 }
 
-function supportsStrictMcpValidation(schema?: Record<string, unknown>): boolean {
+function supportsStrictMcpValidation(
+  schema?: Record<string, unknown>,
+): boolean {
   if (!schema || !isObjectValue(schema)) return false;
   if (
     schema.type !== "object" ||
@@ -188,7 +188,10 @@ function inferMcpPresentationKind(
     .toLowerCase()
     .replace(/[_/.-]+/g, " ");
   if (/\b(diff|patch)\b/.test(text)) return "diff";
-  if (/\b(edit|write|create|update|delete|remove|modify|click|type|press|submit)\b/.test(text)) {
+  if (
+    /\b(edit|write|create|update|delete|remove|modify|click|type|press|submit)\b/
+      .test(text)
+  ) {
     return "edit";
   }
   if (/\b(shell|terminal|command|exec|run)\b/.test(text)) {
@@ -423,9 +426,13 @@ function formatMcpContentPreview(
 }
 
 async function materializeResourceContents(
-  contents: Array<{ uri: string; mimeType?: string; text?: string; blob?: string }>,
+  contents: Array<
+    { uri: string; mimeType?: string; text?: string; blob?: string }
+  >,
 ): Promise<{
-  contents: Array<{ uri: string; mimeType?: string; text?: string; blob?: string }>;
+  contents: Array<
+    { uri: string; mimeType?: string; text?: string; blob?: string }
+  >;
   attachments?: McpAttachmentRef[];
 }> {
   const attachments: McpAttachmentRef[] = [];
@@ -532,7 +539,10 @@ function formatPromptMessages(
 }
 
 /** Truncate MCP output to stay within token budget (heuristic: 1 token ≈ 4 chars) */
-function truncateMcpOutput(text: string, maxTokens = MCP_OUTPUT_MAX_TOKENS): string {
+function truncateMcpOutput(
+  text: string,
+  maxTokens = MCP_OUTPUT_MAX_TOKENS,
+): string {
   const estimatedTokens = Math.ceil(text.length / 4);
   if (estimatedTokens <= maxTokens) return text;
   const maxChars = maxTokens * 4;
@@ -566,7 +576,12 @@ async function callMcpToolWithTimeout(
       client.callTool(toolName, args, signal),
       new Promise<never>((_, reject) =>
         setTimeout(
-          () => reject(new Error(`MCP tool "${toolName}" timed out after ${timeoutMs}ms`)),
+          () =>
+            reject(
+              new Error(
+                `MCP tool "${toolName}" timed out after ${timeoutMs}ms`,
+              ),
+            ),
           timeoutMs,
         )
       ),
@@ -589,11 +604,15 @@ async function callMcpToolWithTimeout(
   }
 }
 
-function extractMcpAttachments(result: unknown): McpAttachmentRef[] | undefined {
+function extractMcpAttachments(
+  result: unknown,
+): McpAttachmentRef[] | undefined {
   if (!isObjectValue(result) || !Array.isArray(result.attachments)) {
     return undefined;
   }
-  return result.attachments.filter((attachment): attachment is McpAttachmentRef =>
+  return result.attachments.filter((
+    attachment,
+  ): attachment is McpAttachmentRef =>
     isObjectValue(attachment) &&
     typeof attachment.attachmentId === "string" &&
     typeof attachment.fileName === "string" &&
@@ -648,7 +667,9 @@ function formatMcpReadResourceResult(
         ? sanitizeMcpText(content.text)
         : "";
       if (typeof content.blob === "string") {
-        const ref = attachments?.find((attachment) => attachment.resourceUri === uri);
+        const ref = attachments?.find((attachment) =>
+          attachment.resourceUri === uri
+        );
         return ref
           ? `[resource: ${uri}] ${formatAttachmentSummary(ref)}${
             text ? ` ${text}` : ""
@@ -722,6 +743,7 @@ function buildToolEntry(
     },
     description: capMcpDescription(tool.description) ?? `MCP tool ${tool.name}`,
     args: argsSchema,
+    inputSchema: tool.inputSchema,
     skipValidation,
     execution: safetyLevel === "L0" ? { concurrencySafe: true } : undefined,
     presentation: { kind: presentationKind },
@@ -852,7 +874,9 @@ function listEnabledMcpTools(
   const tools = allTools.filter((tool) => !disabledSet.has(tool.name));
   if (allTools.length !== tools.length) {
     getAgentLogger().debug(
-      `MCP '${server.name}': filtered ${allTools.length - tools.length} disabled tool(s)`,
+      `MCP '${server.name}': filtered ${
+        allTools.length - tools.length
+      } disabled tool(s)`,
     );
   }
   return tools;
@@ -957,7 +981,8 @@ async function connectWithTimeout(
   });
   const abortPromise = new Promise<never>((_, reject) => {
     if (!signal) return;
-    const onAbort = () => reject(signal.reason ?? new Error("MCP connect aborted"));
+    const onAbort = () =>
+      reject(signal.reason ?? new Error("MCP connect aborted"));
     if (signal.aborted) {
       onAbort();
       return;

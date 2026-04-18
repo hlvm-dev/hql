@@ -20,24 +20,32 @@ import { createIncrementalSanitizer } from "../../utils/sanitize-ansi.ts";
 import { getLiveConversationSpacing } from "./message-spacing.ts";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 import { truncateTranscriptBlock } from "../../utils/transcript-truncation.ts";
+import { useConversationSpinnerFrame } from "../../hooks/useConversationMotion.ts";
+import { getCcSpinnerVerb } from "./cc-turn-copy.ts";
 
 /** Shown while waiting for the first token from the model.
  *  Uses static marker — no spinner avoids terminal redraws that break text selection.
  */
 function WorkingIndicator(
-  { compactSpacing, width: _width }: { width: number; compactSpacing: boolean },
+  {
+    id,
+    compactSpacing,
+    width: _width,
+  }: { id: string; width: number; compactSpacing: boolean },
 ): React.ReactElement {
   const sc = useSemanticColors();
   const spacing = getLiveConversationSpacing(compactSpacing);
+  const spinner = useConversationSpinnerFrame(true);
+  const verb = useMemo(() => getCcSpinnerVerb(id), [id]);
   return (
     <Box
       flexDirection="row"
       marginBottom={spacing.waitingIndicatorMarginBottom}
     >
       <Box width={TRANSCRIPT_LAYOUT.assistantBulletWidth} flexShrink={0}>
-        <Text color={sc.text.muted}>○</Text>
+        <Text color={sc.text.primary}>{spinner ?? "·"}</Text>
       </Box>
-      <Text color={sc.text.muted}>Thinking</Text>
+      <Text color={sc.text.primary}>{`${verb}…`}</Text>
     </Box>
   );
 }
@@ -45,6 +53,7 @@ function WorkingIndicator(
 const MAX_DISPLAY_CHARS = 50_000;
 
 interface AssistantMessageProps {
+  id: string;
   text: string;
   citations?: AssistantCitation[];
   isPending: boolean;
@@ -183,7 +192,7 @@ export function buildCitationRenderView(
 }
 
 export const AssistantMessage = React.memo(function AssistantMessage(
-  { text, citations, isPending, width, compactSpacing = false }:
+  { id, text, citations, isPending, width, compactSpacing = false }:
     AssistantMessageProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
@@ -229,7 +238,13 @@ export const AssistantMessage = React.memo(function AssistantMessage(
   }, [text, citations]);
 
   if (isPending && !text) {
-    return <WorkingIndicator width={width} compactSpacing={compactSpacing} />;
+    return (
+      <WorkingIndicator
+        id={id}
+        width={width}
+        compactSpacing={compactSpacing}
+      />
+    );
   }
 
   return (

@@ -228,6 +228,34 @@ export function resolveCanonicalBaselineAllowlist(options: {
   ]);
 }
 
+export function setCanonicalToolProfileBaseline(
+  state: ToolProfileState,
+  options: {
+    querySource?: string;
+    baseAllowlist?: readonly string[];
+    discoveredDeferredTools?: Iterable<string>;
+    ownerId?: string;
+  },
+): ToolProfileState {
+  const baselineLayer = state.layers.baseline;
+  const canonicalBaselineAllowlist = resolveCanonicalBaselineAllowlist(options);
+  return setToolProfileLayer(state, "baseline", {
+    profileId: baselineLayer?.profileId,
+    allowlist: cloneToolList(canonicalBaselineAllowlist),
+    denylist: cloneToolList(baselineLayer?.denylist),
+    reason: baselineLayer?.reason,
+  });
+}
+
+export function clearTurnScopedToolProfileLayers(
+  state: ToolProfileState,
+): ToolProfileState {
+  clearToolProfileLayer(state, "domain");
+  clearToolProfileLayer(state, "discovery");
+  clearToolProfileLayer(state, "runtime");
+  return state;
+}
+
 export function setToolProfileLayer(
   state: ToolProfileState,
   slot: ToolProfileSlot,
