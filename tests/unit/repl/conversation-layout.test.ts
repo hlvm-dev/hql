@@ -7,23 +7,20 @@ import {
 Deno.test("buildToolCallTextLayout reserves the duration as a fixed suffix slot", () => {
   const layout = buildToolCallTextLayout(
     32,
-    "search_web",
-    "query=refine overlay chrome alignment",
+    "search_web query=refine overlay chrome alignment",
     1500,
   );
-  const totalWidth = "search_web".length +
-    (layout.argsText ? 1 + layout.argsText.length : 0) +
+  const totalWidth = layout.labelText.length +
     layout.gapWidth + layout.durationText.length;
 
-  assertEquals(layout.durationText, "· (1.5s)");
+  assertEquals(layout.durationText, "· 1.5s");
   assertEquals(totalWidth, 32);
 });
 
 Deno.test("buildToolCallTextLayout omits the duration slot when there is no room", () => {
   const layout = buildToolCallTextLayout(
-    12,
-    "search_web",
-    "query=abc",
+    7,
+    "search_web query=abc",
     1500,
   );
 
@@ -34,8 +31,7 @@ Deno.test("buildToolCallTextLayout omits the duration slot when there is no room
 Deno.test("buildToolCallTextLayout hides sub-second durations to keep the row quiet", () => {
   const layout = buildToolCallTextLayout(
     40,
-    "TaskCreate",
-    "Remove screenshots from ~/Desktop",
+    "TaskCreate Remove screenshots from ~/Desktop",
     15,
   );
 
@@ -48,11 +44,13 @@ Deno.test("resolveCollapsedToolList returns null for small groups", () => {
   assertEquals(resolveCollapsedToolList(tools), null);
 });
 
-Deno.test("resolveCollapsedToolList returns null for running groups", () => {
+Deno.test("resolveCollapsedToolList keeps running tools visible when collapsing groups", () => {
   const tools = Array.from({ length: 8 }, (_, i) => ({
     status: i === 3 ? "running" : "success",
   }));
-  assertEquals(resolveCollapsedToolList(tools), null);
+  const result = resolveCollapsedToolList(tools);
+  assertEquals(result !== null, true);
+  assertEquals(result!.visibleTools.includes(3), true);
 });
 
 Deno.test("resolveCollapsedToolList collapses large completed groups", () => {

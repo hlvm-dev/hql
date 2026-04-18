@@ -41,6 +41,7 @@ import {
 } from "../utils/submit-routing.ts";
 
 export interface ComposerSurfaceUiState {
+  draftTextLength: number;
   hasDraftInput: boolean;
   hasSubmitText: boolean;
   queuedDraftCount: number;
@@ -257,6 +258,7 @@ export const ComposerSurface = forwardRef<
   }), [clearDraft, getCurrentDraft, restoreDraft]);
 
   const uiState = useMemo<ComposerSurfaceUiState>(() => ({
+    draftTextLength: input.length,
     hasDraftInput: input.trim().length > 0 ||
       attachmentState.attachments.length > 0,
     hasSubmitText: input.trim().length > 0,
@@ -277,6 +279,7 @@ export const ComposerSurface = forwardRef<
     const lastState = lastUiStateRef.current;
     if (
       lastState &&
+      lastState.draftTextLength === uiState.draftTextLength &&
       lastState.hasDraftInput === uiState.hasDraftInput &&
       lastState.hasSubmitText === uiState.hasSubmitText &&
       lastState.queuedDraftCount === uiState.queuedDraftCount &&

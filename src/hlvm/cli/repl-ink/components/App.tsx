@@ -153,6 +153,7 @@ const GLOBAL_KEYBINDING_CATEGORIES = ["Global"] as const;
 const DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE: BackgroundTasksOverlayState = {
   initialViewMode: "list",
 };
+const RECENT_SCROLL_REPIN_WINDOW_MS = 3000;
 
 function usesConversationContext(surfacePanel: string): boolean {
   return surfacePanel === "conversation";
@@ -215,6 +216,7 @@ function AppContent(
   const [composerShellState, setComposerShellState] = useState<
     ComposerShellState
   >({
+    draftTextLength: 0,
     hasDraftInput: false,
     hasSubmitText: false,
     queuedDraftCount: 0,
@@ -222,6 +224,8 @@ function AppContent(
     submitAction: "send-agent",
     version: 0,
   });
+  const lastUserScrollTsRef = useRef(0);
+  const lastComposerUiStateRef = useRef<ComposerSurfaceUiState | null>(null);
 
   // Task manager for background evaluation
   const {
@@ -362,6 +366,20 @@ function AppContent(
 
   const handleComposerUiStateChange = useCallback(
     (nextState: ComposerSurfaceUiState) => {
+      const previousState = lastComposerUiStateRef.current;
+      lastComposerUiStateRef.current = nextState;
+      if (
+        previousState &&
+        previousState.draftTextLength === 0 &&
+        nextState.draftTextLength > 0 &&
+        Date.now() - lastUserScrollTsRef.current >=
+          RECENT_SCROLL_REPIN_WINDOW_MS
+      ) {
+        const handle = transcriptScrollRef.current;
+        if (handle && !handle.isSticky()) {
+          handle.scrollToBottom();
+        }
+      }
       setComposerShellState((prev: ComposerShellState) =>
         advanceComposerShellState(prev, nextState)
       );
@@ -1693,6 +1711,9 @@ function AppContent(
         <ScrollKeybindingHandler
           scrollRef={transcriptScrollRef}
           isActive={!pendingInteraction && activeOverlay === "none"}
+          onScroll={() => {
+            lastUserScrollTsRef.current = Date.now();
+          }}
           onSelectionCopied={handleSelectionCopied}
         />
 

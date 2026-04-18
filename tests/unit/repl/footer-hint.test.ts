@@ -8,7 +8,6 @@ Deno.test("buildFooterLeftState shows esc cancel when responding without draft",
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Responding,
-    spinner: "x",
   });
 
   assertEquals(state.mode, "segments");
@@ -16,29 +15,22 @@ Deno.test("buildFooterLeftState shows esc cancel when responding without draft",
   assertEquals(state.tone, "muted");
 });
 
-Deno.test("buildFooterLeftState shows tool status when responding with active tool", () => {
+Deno.test("buildFooterLeftState shows background activity when responding with an active summary", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Responding,
-    activeTool: {
-      name: "search_web",
-      displayName: "Web Search",
-      progressText: "Found 10 results",
-      toolIndex: 1,
-      toolTotal: 2,
-    },
-    spinner: "x",
+    backgroundLabel: "Web Search 1/2 · Found 10 results",
   });
 
   assertEquals(state.mode, "segments");
   assertEquals(
     state.text,
-    "x Web Search 1/2 \u00B7 Found 10 results \u00B7 Esc cancels",
+    "Web Search 1/2 \u00B7 Found 10 results \u00B7 Esc cancels",
   );
   assertEquals(
     state.segments.map((segment) => [segment.text, segment.chip, segment.tone]),
     [
-      ["x Web Search 1/2 · Found 10 results", true, "active"],
+      ["Web Search 1/2 · Found 10 results", undefined, "active"],
       ["Esc cancels", undefined, "muted"],
     ],
   );
@@ -49,7 +41,6 @@ Deno.test("buildFooterLeftState shows Ctrl+O hint when idle in conversation", ()
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
-    spinner: "x",
   });
 
   assertEquals(state.text, "Ctrl+O transcript history \u00B7 ? for shortcuts");
@@ -62,7 +53,6 @@ Deno.test("buildFooterLeftState shows plan review chip when picker owns focus", 
     hasPendingPermission: true,
     hasPendingPlanReview: true,
     suppressInteractionHints: true,
-    spinner: "x",
   });
 
   assertEquals(state.mode, "segments");
@@ -75,7 +65,6 @@ Deno.test("buildFooterLeftState shows plan review chip when picker owns focus", 
 Deno.test("buildFooterLeftState shows empty text outside conversation", () => {
   const state = buildFooterLeftState({
     inConversation: false,
-    spinner: "x",
   });
 
   assertEquals(state.text, "? for shortcuts");
@@ -87,7 +76,6 @@ Deno.test("buildFooterLeftState shows submit cue outside conversation when draft
     inConversation: false,
     hasSubmitText: true,
     submitAction: "evaluate-local",
-    spinner: "x",
   });
 
   assertEquals(state.mode, "segments");
@@ -98,7 +86,6 @@ Deno.test("buildFooterLeftState shows Ctrl+B hint when evaluating outside conver
   const state = buildFooterLeftState({
     inConversation: false,
     isEvaluating: true,
-    spinner: "x",
   });
 
   assertEquals(state.text, "Ctrl+B background \u00B7 Esc cancels");
@@ -109,7 +96,6 @@ Deno.test("buildFooterLeftState surfaces transient status messages when idle", (
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Idle,
-    spinner: "x",
     statusMessage: "Plan mode enabled",
   });
 
@@ -122,7 +108,6 @@ Deno.test("buildFooterLeftState shows queue/force hints when draft exists during
     inConversation: true,
     streamingState: StreamingState.Responding,
     hasDraftInput: true,
-    spinner: "x",
   });
 
   assertEquals(state.text, "Tab queues \u00B7 Ctrl+Enter forces");
@@ -134,7 +119,6 @@ Deno.test("buildFooterLeftState includes queued interaction count", () => {
     inConversation: true,
     streamingState: StreamingState.Idle,
     interactionQueueLength: 3,
-    spinner: "x",
   });
 
   assertEquals(state.text, "+2 queued");
@@ -146,7 +130,6 @@ Deno.test("buildFooterLeftState collapses mixed chat/eval queue counts into one 
     streamingState: StreamingState.Idle,
     conversationQueueCount: 1,
     localEvalQueueCount: 4,
-    spinner: "x",
   });
 
   assertEquals(state.text, "+5 next");
@@ -157,7 +140,6 @@ Deno.test("buildFooterLeftState keeps one total queue segment even for eval-only
     inConversation: true,
     streamingState: StreamingState.Idle,
     localEvalQueueCount: 2,
-    spinner: "x",
   });
 
   assertEquals(state.text, "+2 next");
@@ -169,7 +151,6 @@ Deno.test("buildFooterLeftState shows conversation submit cue when idle with dra
     streamingState: StreamingState.Idle,
     hasSubmitText: true,
     submitAction: "send-agent",
-    spinner: "x",
   });
 
   assertEquals(state.mode, "segments");
@@ -181,7 +162,6 @@ Deno.test("buildFooterLeftState uses review-specific wording for reviewing phase
     inConversation: true,
     streamingState: StreamingState.Responding,
     planningPhase: "reviewing",
-    spinner: "x",
   });
 
   assertEquals(state.text, "Plan review \u00B7 Esc cancels");
@@ -192,7 +172,6 @@ Deno.test("buildFooterLeftState uses human plan labels instead of raw phase name
     inConversation: true,
     streamingState: StreamingState.Responding,
     planningPhase: "researching",
-    spinner: "x",
   });
 
   assertEquals(state.text, "Plan research \u00B7 Esc cancels");
@@ -203,7 +182,6 @@ Deno.test("buildFooterLeftState suppresses the duplicate generic plan-mode segme
     inConversation: true,
     streamingState: StreamingState.Responding,
     planningPhase: "researching",
-    spinner: "x",
   });
 
   assertEquals(state.text, "Plan research \u00B7 Esc cancels");
@@ -214,46 +192,33 @@ Deno.test("buildFooterLeftState exposes an idle escape hatch for lingering plan 
     inConversation: true,
     streamingState: StreamingState.Idle,
     planningPhase: "executing",
-    spinner: "x",
   });
 
   assertEquals(state.text, "Plan executing \u00B7 Esc clears plan");
 });
 
-Deno.test("buildFooterLeftState prefers queue/force hints over tool status when draft exists", () => {
+Deno.test("buildFooterLeftState keeps background activity visible when draft hints appear", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Responding,
-    activeTool: {
-      name: "search_web",
-      displayName: "Web Search",
-      toolIndex: 1,
-      toolTotal: 2,
-    },
+    backgroundLabel: "Web Search 1/2",
     hasDraftInput: true,
-    spinner: "x",
   });
 
-  assertEquals(state.text, "Tab queues \u00B7 Ctrl+Enter forces");
+  assertEquals(state.text, "Web Search 1/2 \u00B7 Tab queues \u00B7 Ctrl+Enter forces");
 });
 
-Deno.test("buildFooterLeftState orders shell segments as queue, active tool, then hint", () => {
+Deno.test("buildFooterLeftState orders shell segments as queue, background activity, then hint", () => {
   const state = buildFooterLeftState({
     inConversation: true,
     streamingState: StreamingState.Responding,
     interactionQueueLength: 3,
-    activeTool: {
-      name: "search_web",
-      displayName: "Web Search",
-      toolIndex: 1,
-      toolTotal: 2,
-    },
-    spinner: "x",
+    backgroundLabel: "Web Search 1/2",
   });
 
   assertEquals(
     state.segments.map((segment) => segment.text),
-    ["+2 queued", "x Web Search 1/2", "Esc cancels"],
+    ["+2 queued", "Web Search 1/2", "Esc cancels"],
   );
 });
 
@@ -261,7 +226,6 @@ Deno.test("buildFooterLeftState stays quiet while prompt dialogs own the bottom 
   const state = buildFooterLeftState({
     inConversation: true,
     hasPendingPermission: true,
-    spinner: "x",
   });
 
   assertEquals(state.mode, "segments");

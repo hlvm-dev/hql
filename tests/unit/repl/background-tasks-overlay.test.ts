@@ -135,8 +135,7 @@ Deno.test("buildBackgroundTasksSummaryRows prioritizes local agent counts when p
     64,
   );
 
-  assertEquals(primary.includes("2 local agents"), true);
-  assertEquals(primary.includes("1 working"), true);
-  assertEquals(secondary.includes("Task manager"), true);
+  assertEquals(primary.includes("2 active agents"), true);
+  assertEquals(secondary.includes("1 working"), true);
+  assertEquals(secondary.includes("1 idle"), true);
 });
-

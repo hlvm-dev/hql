@@ -21,7 +21,7 @@ Deno.test("deriveLiveTurnStatus surfaces waiting clarification state", () => {
   });
 
   assertEquals(status, {
-    label: "Clarification needed",
+    label: "Reply needed",
     tone: "warning",
     recentLabels: [],
   });

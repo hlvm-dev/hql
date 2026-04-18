@@ -6,6 +6,7 @@ import { advanceComposerShellState } from "../../../src/hlvm/cli/repl-ink/utils/
 
 Deno.test("repl latency: composer shell state stays stable during ordinary typing", () => {
   const initialState = {
+    draftTextLength: 0,
     hasDraftInput: false,
     hasSubmitText: false,
     queuedDraftCount: 0,
@@ -15,6 +16,7 @@ Deno.test("repl latency: composer shell state stays stable during ordinary typin
   };
 
   const becameDirty = advanceComposerShellState(initialState, {
+    draftTextLength: 1,
     hasDraftInput: true,
     hasSubmitText: true,
     queuedDraftCount: 0,
@@ -24,6 +26,7 @@ Deno.test("repl latency: composer shell state stays stable during ordinary typin
   assertEquals(becameDirty.version, 1);
 
   const ordinaryTyping = advanceComposerShellState(becameDirty, {
+    draftTextLength: 2,
     hasDraftInput: true,
     hasSubmitText: true,
     queuedDraftCount: 0,
@@ -33,6 +36,7 @@ Deno.test("repl latency: composer shell state stays stable during ordinary typin
   assertStrictEquals(ordinaryTyping, becameDirty);
 
   const queueChanged = advanceComposerShellState(ordinaryTyping, {
+    draftTextLength: 2,
     hasDraftInput: true,
     hasSubmitText: true,
     queuedDraftCount: 1,
@@ -42,6 +46,7 @@ Deno.test("repl latency: composer shell state stays stable during ordinary typin
   assertEquals(queueChanged.version, 2);
 
   const draftCleared = advanceComposerShellState(queueChanged, {
+    draftTextLength: 0,
     hasDraftInput: false,
     hasSubmitText: false,
     queuedDraftCount: 0,
