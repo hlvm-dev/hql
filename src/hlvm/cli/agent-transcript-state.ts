@@ -12,8 +12,9 @@ import {
   type AssistantItem,
   type ConversationAttachmentRef,
   type ConversationItem,
-  type HqlEvalItem,
+  type DebugTraceItem,
   type ErrorItem,
+  type HqlEvalItem,
   type InfoItem,
   type MemoryActivityDetail,
   type MemoryActivityItem,
@@ -25,6 +26,7 @@ import {
   type TurnCompletionStatus,
   type TurnStatsItem,
 } from "./repl-ink/types.ts";
+import type { TracePresentationLine } from "../agent/trace-presentation.ts";
 import {
   getRecentTurnActivityTrail,
   summarizeTurnCompletion,
@@ -88,6 +90,11 @@ export type TranscriptInput =
   }
   | { type: "error"; text: string; turnId?: string }
   | { type: "info"; text: string; isTransient?: boolean; turnId?: string }
+  | {
+    type: "debug_trace";
+    lines: readonly TracePresentationLine[];
+    turnId?: string;
+  }
   | { type: "replace_items"; items: ConversationItem[] }
   | { type: "hql_eval"; input: string; result: EvalResult }
   | { type: "reset_status" }
@@ -141,7 +148,6 @@ function findPendingAssistantIndex(
 export function findCurrentTurnStartIndex(items: ConversationItem[]): number {
   return items.findLastIndex((item) => item.type === "user");
 }
-
 
 function removeCurrentTurnTurnStats(
   items: ConversationItem[],
@@ -255,9 +261,10 @@ function resolveFinalTurnDurationMs(state: TranscriptState): number {
   const wallClockDuration = typeof state.currentTurnStartedAt === "number"
     ? Math.max(0, Date.now() - state.currentTurnStartedAt)
     : 0;
-  const reportedDuration = typeof state.pendingTurnStats?.durationMs === "number"
-    ? Math.max(0, state.pendingTurnStats.durationMs)
-    : 0;
+  const reportedDuration =
+    typeof state.pendingTurnStats?.durationMs === "number"
+      ? Math.max(0, state.pendingTurnStats.durationMs)
+      : 0;
   return Math.max(reportedDuration, wallClockDuration);
 }
 
@@ -317,6 +324,39 @@ function appendInfoItem(
       turnId ?? state.currentTurnId,
     ),
   };
+}
+
+function appendDebugTraceItems(
+  state: TranscriptState,
+  lines: readonly TracePresentationLine[],
+  turnId?: string,
+): TranscriptState {
+  const targetTurnId = turnId ?? state.currentTurnId;
+  const normalizedLines = lines.filter((line) => line.text.trim().length > 0);
+  if (normalizedLines.length === 0) return state;
+
+  let nextState = state;
+  let nextItems = state.items;
+  for (const line of normalizedLines) {
+    let id: string;
+    [nextState, id] = nextItemId({ ...nextState, items: nextItems });
+    const item: DebugTraceItem = {
+      type: "debug_trace",
+      id,
+      text: line.text,
+      depth: line.depth,
+      tone: line.tone,
+      ts: Date.now(),
+      turnId: targetTurnId,
+    };
+    nextItems = insertBeforePendingAssistant(
+      nextState.items,
+      item,
+      targetTurnId,
+    );
+    nextState = { ...nextState, items: nextItems };
+  }
+  return nextState;
 }
 
 function upsertThinkingItem(
@@ -384,11 +424,11 @@ function resolveToolInGroup(
   const groupIdx = items.findLastIndex((item) =>
     item.type === "tool_group" &&
     findMatchingRunningToolIndex(
-      item.tools,
-      event.toolCallId,
-      event.name,
-      event.argsSummary,
-    ) >= 0
+        item.tools,
+        event.toolCallId,
+        event.name,
+        event.argsSummary,
+      ) >= 0
   );
   if (groupIdx < 0) return null;
   const groupItem = items[groupIdx];
@@ -406,13 +446,18 @@ function resolveToolInGroup(
 function buildActiveToolDisplay(
   tool: Pick<
     ToolCallDisplay,
-    "name" | "displayName" | "progressText" | "progressTone" | "toolIndex" |
-      "toolTotal"
+    | "name"
+    | "displayName"
+    | "progressText"
+    | "progressTone"
+    | "toolIndex"
+    | "toolTotal"
   >,
 ): NonNullable<TranscriptState["activeTool"]> {
   return {
     name: tool.name,
-    displayName: tool.displayName ?? resolveToolTranscriptDisplayName(tool.name),
+    displayName: tool.displayName ??
+      resolveToolTranscriptDisplayName(tool.name),
     progressText: tool.progressText,
     progressTone: tool.progressTone,
     toolIndex: tool.toolIndex,
@@ -693,11 +738,19 @@ export function reduceTranscriptState(
           const nextTools = [...groupItem.tools];
           const toolSummary = `${event.toolUseCount} tool use${
             event.toolUseCount === 1 ? "" : "s"
-          }${event.totalTokens != null ? ` · ${event.totalTokens.toLocaleString()} tokens` : ""}${
-            event.durationMs > 0 ? ` · ${(event.durationMs / 1000).toFixed(1)}s` : ""
+          }${
+            event.totalTokens != null
+              ? ` · ${event.totalTokens.toLocaleString()} tokens`
+              : ""
+          }${
+            event.durationMs > 0
+              ? ` · ${(event.durationMs / 1000).toFixed(1)}s`
+              : ""
           }`;
           const resultDetail = event.transcript
-            ? `${event.resultPreview ?? ""}\n\nAgent Transcript\n${event.transcript}`.trim()
+            ? `${
+              event.resultPreview ?? ""
+            }\n\nAgent Transcript\n${event.transcript}`.trim()
             : event.resultPreview;
           nextTools[resolvedIdx] = {
             ...nextTools[resolvedIdx],
@@ -1144,6 +1197,8 @@ export function reduceTranscriptState(
       }
       return appendInfoItem(state, input.text, input.turnId);
     }
+    case "debug_trace":
+      return appendDebugTraceItems(state, input.lines, input.turnId);
     case "hql_eval": {
       let nextState = state;
       let turnId = state.currentTurnId;

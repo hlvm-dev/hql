@@ -13,10 +13,7 @@ import {
   showUninstallHelp,
   uninstall as uninstallCommand,
 } from "./commands/uninstall.ts";
-import {
-  showUpgradeHelp,
-  upgrade as upgradeCommand,
-} from "./commands/upgrade.ts";
+import { showUpdateHelp, update as updateCommand } from "./commands/upgrade.ts";
 import { aiCommand, showAiHelp } from "./commands/ai.ts";
 import { askCommand, showAskHelp } from "./commands/ask.ts";
 import { chatCommand, showChatHelp } from "./commands/chat.ts";
@@ -26,16 +23,52 @@ import { serveCommand, showServeHelp } from "./commands/serve.ts";
 import { mcpCommand, showMcpHelp } from "./commands/mcp.ts";
 import { modelCommand, showModelHelp } from "./commands/model.ts";
 import { bootstrapCommand, showBootstrapHelp } from "./commands/bootstrap.ts";
-import {
-  chromeExtCommand,
-  showChromeExtHelp,
-} from "./commands/chrome-ext.ts";
+import { chromeExtCommand, showChromeExtHelp } from "./commands/chrome-ext.ts";
 
 import { run as runCommand } from "./run.ts";
-const loadOldRepl = () => import("./repl-ink/index.tsx").then((m) => m.startInkRepl);
+const loadOldRepl = () =>
+  import("./repl-ink/index.tsx").then((m) => m.startInkRepl);
 import { VERSION } from "../../common/version.ts";
 import { HLVM_RUNTIME_DEFAULT_PORT } from "../runtime/host-config.ts";
 import { ensureDenoAvailable } from "./utils/toolchain.ts";
+import { ValidationError } from "../../common/error.ts";
+
+interface ParsedReplArgs {
+  debug: boolean;
+  showBanner: boolean;
+  useNewTui: boolean;
+}
+
+function parseReplArgs(args: string[]): ParsedReplArgs {
+  const parsed: ParsedReplArgs = {
+    debug: false,
+    showBanner: true,
+    useNewTui: false,
+  };
+
+  for (const arg of args) {
+    switch (arg) {
+      case "--debug":
+        parsed.debug = true;
+        break;
+      case "--ink":
+        break;
+      case "--new":
+        parsed.useNewTui = true;
+        break;
+      case "--no-banner":
+        parsed.showBanner = false;
+        break;
+      default:
+        if (arg.startsWith("-")) {
+          throw new ValidationError(`Unknown option: ${arg}`, "repl");
+        }
+        throw new ValidationError(`Unexpected argument: ${arg}`, "repl");
+    }
+  }
+
+  return parsed;
+}
 
 /**
  * Handle `hlvm repl` command
@@ -52,6 +85,7 @@ USAGE:
 OPTIONS:
   --new             Use TUI v2 (experimental)
   --ink             Force Ink REPL (interactive terminal only)
+  --debug           Show internal agent trace rows in the REPL transcript
   --no-banner       Skip the startup banner
   --help, -h        Show this help
   --version         Show version
@@ -64,6 +98,7 @@ INPUT ROUTING:
 
 EXAMPLES:
   hlvm repl              Start REPL
+  hlvm repl --debug      Start REPL with internal trace rows
 `);
     return 0;
   }
@@ -74,14 +109,25 @@ EXAMPLES:
     return 0;
   }
 
-  if (args.includes("--new")) {
+  const parsedArgs = parseReplArgs(args);
+
+  if (parsedArgs.useNewTui && parsedArgs.debug) {
+    throw new ValidationError(
+      "--debug is currently supported in the default Ink REPL only; remove --new.",
+      "repl",
+    );
+  }
+
+  if (parsedArgs.useNewTui) {
     return await launchTuiV2Baseline(args);
   }
 
-  const showBanner = !args.includes("--no-banner");
   const startInkRepl = await loadOldRepl();
 
-  return await startInkRepl({ showBanner });
+  return await startInkRepl({
+    showBanner: parsedArgs.showBanner,
+    debug: parsedArgs.debug,
+  });
 }
 
 async function launchTuiV2Baseline(args: string[]): Promise<number> {
@@ -158,7 +204,7 @@ Commands:
   ai                 Setup and manage AI models
   ollama serve       Explicit compatibility bridge to system Ollama
   mcp                Manage MCP tool servers
-  upgrade            Upgrade HLVM to the latest version
+  update             Update HLVM to the latest version
   uninstall          Uninstall HLVM
 
 Options:
@@ -197,7 +243,7 @@ const COMMANDS: Record<string, CommandEntry> = {
   ask: { run: askCommand, help: showAskHelp },
   chat: { run: chatCommand, help: showChatHelp },
   classify: { run: classifyCommand, help: showClassifyHelp },
-  upgrade: { run: upgradeCommand, help: showUpgradeHelp },
+  update: { run: updateCommand, help: showUpdateHelp },
   uninstall: { run: uninstallCommand, help: showUninstallHelp },
   ollama: { run: ollamaCommand, help: showOllamaHelp },
   serve: { run: serveCommand, help: showServeHelp },
@@ -241,6 +287,12 @@ async function main(): Promise<void> {
   if (command === "__runtime-default-port") {
     log.raw.log(String(HLVM_RUNTIME_DEFAULT_PORT));
     return;
+  }
+
+  if (command === "upgrade") {
+    log.raw.error("Unknown command: upgrade");
+    log.raw.log("Use `hlvm update`.");
+    getPlatform().process.exit(1);
   }
 
   const entry = COMMANDS[command];

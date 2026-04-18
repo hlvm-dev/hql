@@ -10,9 +10,9 @@
  * the cursor is now). The rendered highlight normalizes to start ≤ end.
  */
 
-import { clamp } from './layout/geometry.js'
-import type { Screen, StylePool } from './screen.js'
-import { CellWidth, cellAt, cellAtIndex, setCellStyleId } from './screen.js'
+import { clamp } from './layout/geometry.ts'
+import type { Screen, StylePool } from './screen.ts'
+import { CellWidth, cellAt, cellAtIndex, setCellStyleId } from './screen.ts'
 
 type Point = { col: number; row: number }
 

@@ -14,6 +14,7 @@ const PLAYWRIGHT_ERROR_MARKERS = [
   "executable doesn't exist",
   "install chromium",
   "please run the following command to download new browsers",
+  "chromium not available",
 ];
 
 /** Check if an error message indicates missing Playwright browser */

@@ -5,9 +5,9 @@
  * Uses existing ProgressBar and TaskManager infrastructure.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { useInput, useStdout } from "ink";
-import { useTheme } from "../../theme/index.ts";
+import React, { useEffect, useMemo, useRef } from "react";
+import { Box, Text, useInput, useStdout } from "ink";
+import { useSemanticColors } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import { formatBytes } from "../../../../common/limits.ts";
 import { isModelPullTask } from "../../repl/task-manager/types.ts";
@@ -20,15 +20,10 @@ import { getConfiguredModelReadiness } from "../../../runtime/configured-model-r
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
 import { truncate } from "../../../../common/utils.ts";
 import {
-  clearOverlay,
-  createModalOverlayScaffold,
   resolveOverlayFrame,
-  shouldClearOverlay,
-  themeToOverlayColors,
-  writeToTerminal,
 } from "../overlay/index.ts";
-import { buildBalancedTextRow } from "../utils/display-chrome.ts";
 import { formatProgressBar } from "../utils/formatting.ts";
+import { OverlayBalancedRow, OverlayModal } from "./OverlayModal.tsx";
 
 // ============================================================
 // Types
@@ -55,7 +50,7 @@ export function ModelSetupOverlay({
   onCancel,
   endpoint = DEFAULT_OLLAMA_ENDPOINT,
 }: ModelSetupOverlayProps): React.ReactElement {
-  const { theme } = useTheme();
+  const sc = useSemanticColors();
   const { stdout } = useStdout();
   const { tasks, cancel } = useTaskManager();
   const manager = useMemo(() => getTaskManager(endpoint), [endpoint]);
@@ -71,8 +66,6 @@ export function ModelSetupOverlay({
     [terminalHeight, terminalWidth],
   );
   const contentWidth = Math.max(20, overlayFrame.width - 6);
-  const colors = useMemo(() => themeToOverlayColors(theme), [theme]);
-  const previousFrameRef = useRef<typeof overlayFrame | null>(null);
 
   // Prevent multiple onComplete/onCancel calls
   const handledRef = useRef(false);
@@ -141,148 +134,99 @@ export function ModelSetupOverlay({
     task?.status === "pending";
   const isFailed = task?.status === "failed";
   const isCancelled = task?.status === "cancelled";
-  const drawOverlay = useCallback(() => {
-    if (shouldClearOverlay(previousFrameRef.current, overlayFrame)) {
-      clearOverlay(previousFrameRef.current);
-    }
-    previousFrameRef.current = overlayFrame;
-
-    const surface = createModalOverlayScaffold({
-      frame: overlayFrame,
-      colors,
-      title: "AI setup",
-      rightText: "esc cancel",
-    });
-    surface.blankRows(overlayFrame.y, overlayFrame.height);
-    const headerY = overlayFrame.y + 1;
-    const progressText = buildBalancedTextRow(
-      contentWidth,
-      "First-time model download",
-      isDownloading
-        ? percentLabel
-        : isFailed
-        ? "failed"
-        : isCancelled
-        ? "cancelled"
-        : "ready",
-    );
-
-    surface.blankRows(overlayFrame.y, 1);
-    surface.balancedRow(
-      headerY,
-      progressText.leftText,
-      progressText.rightText,
-      contentWidth,
-      {
-        paddingLeft: 3,
-        leftColor: colors.title,
-        rightColor: isFailed
-          ? colors.error
-          : isCancelled
-          ? colors.warning
-          : colors.meta,
-        leftBold: true,
-      },
-    );
-    surface.textRow(
-      headerY + 1,
-      truncate(`Model · ${modelName}`, contentWidth, "…"),
-      { paddingLeft: 3, color: colors.section },
-    );
-    surface.textRow(
-      headerY + 2,
-      truncate(`Endpoint · ${endpoint}`, contentWidth, "…"),
-      { paddingLeft: 3, color: colors.meta },
-    );
-    surface.blankRow(headerY + 3);
-
-    if (isDownloading) {
-      const progressBar = formatProgressBar(
-        percent,
-        Math.max(10, contentWidth - 14),
-      );
-      surface.balancedRow(
-        headerY + 4,
-        `[${progressBar}]`,
-        percentLabel,
-        contentWidth,
-        {
-          paddingLeft: 3,
-          leftColor: colors.warning,
-          rightColor: colors.meta,
-        },
-      );
-      surface.textRow(
-        headerY + 5,
-        total > 0
-          ? truncate(
-            `${status} · ${formatBytes(completed)} / ${formatBytes(total)}`,
-            contentWidth,
-            "…",
-          )
-          : truncate(status, contentWidth, "…"),
-        { paddingLeft: 3, color: colors.meta },
-      );
-    } else if (isFailed) {
-      surface.textRow(
-        headerY + 4,
-        "Download failed. Check that Ollama is running and try again.",
-        { paddingLeft: 3, color: colors.error },
-      );
-    } else if (isCancelled) {
-      surface.textRow(
-        headerY + 4,
-        "Download cancelled. Reopen setup when you are ready.",
-        { paddingLeft: 3, color: colors.warning },
-      );
-    } else {
-      surface.textRow(
-        headerY + 4,
-        truncate(status, contentWidth, "…"),
-        { paddingLeft: 3, color: colors.meta },
-      );
-    }
-
-    surface.blankRow(headerY + 6);
-    surface.textRow(
-      headerY + 7,
-      "One-time download · initial setup may download around 2GB once.",
-      { paddingLeft: 3, color: colors.meta },
-    );
-    surface.textRow(
-      headerY + 8,
-      "Esc cancels · background shell stays visible while setup is open.",
-      { paddingLeft: 3, color: colors.footer },
-    );
-
-    writeToTerminal(surface.finish());
-  }, [
-    colors,
-    completed,
-    contentWidth,
-    endpoint,
-    isCancelled,
-    isDownloading,
-    isFailed,
-    modelName,
-    overlayFrame,
+  const progressBar = formatProgressBar(
     percent,
-    percentLabel,
-    status,
-    total,
-  ]);
+    Math.max(10, contentWidth - 14),
+  );
 
-  useEffect(() => {
-    drawOverlay();
-  }, [drawOverlay]);
+  return (
+    <OverlayModal
+      title="AI setup"
+      rightText="esc cancel"
+      width={overlayFrame.width}
+      minHeight={overlayFrame.height}
+      tone={isFailed ? "error" : isCancelled ? "warning" : "active"}
+    >
+      <Box paddingLeft={3} flexDirection="column">
+        <OverlayBalancedRow
+          leftText="First-time model download"
+          rightText={isDownloading
+            ? percentLabel
+            : isFailed
+            ? "failed"
+            : isCancelled
+            ? "cancelled"
+            : "ready"}
+          width={contentWidth}
+          leftColor={sc.text.primary}
+          rightColor={isFailed
+            ? sc.status.error
+            : isCancelled
+            ? sc.status.warning
+            : sc.text.muted}
+          leftBold
+        />
+        <Text color={sc.chrome.sectionLabel} wrap="truncate-end">
+          {truncate(`Model · ${modelName}`, contentWidth, "…")}
+        </Text>
+        <Text color={sc.text.muted} wrap="truncate-end">
+          {truncate(`Endpoint · ${endpoint}`, contentWidth, "…")}
+        </Text>
+      </Box>
 
-  useEffect(() => () => {
-    if (previousFrameRef.current) {
-      clearOverlay(previousFrameRef.current);
-    }
-  }, []);
+      <Box paddingLeft={3} marginTop={1} flexDirection="column">
+        {isDownloading
+          ? (
+            <>
+              <OverlayBalancedRow
+                leftText={`[${progressBar}]`}
+                rightText={percentLabel}
+                width={contentWidth}
+                leftColor={sc.status.warning}
+                rightColor={sc.text.muted}
+              />
+              <Text color={sc.text.muted} wrap="truncate-end">
+                {total > 0
+                  ? truncate(
+                    `${status} · ${formatBytes(completed)} / ${
+                      formatBytes(total)
+                    }`,
+                    contentWidth,
+                    "…",
+                  )
+                  : truncate(status, contentWidth, "…")}
+              </Text>
+            </>
+          )
+          : isFailed
+          ? (
+            <Text color={sc.status.error} wrap="wrap">
+              Download failed. Check that Ollama is running and try again.
+            </Text>
+          )
+          : isCancelled
+          ? (
+            <Text color={sc.status.warning} wrap="wrap">
+              Download cancelled. Reopen setup when you are ready.
+            </Text>
+          )
+          : (
+            <Text color={sc.text.muted} wrap="truncate-end">
+              {truncate(status, contentWidth, "…")}
+            </Text>
+          )}
+      </Box>
 
-  return null;
+      <Box paddingLeft={3} marginTop={1} flexDirection="column">
+        <Text color={sc.text.muted} wrap="wrap">
+          One-time download · initial setup may download around 2GB once.
+        </Text>
+        <Text color={sc.footer.status.active} wrap="wrap">
+          Esc cancels · background shell stays visible while setup is open.
+        </Text>
+      </Box>
+    </OverlayModal>
+  );
 }
 
 // ============================================================

@@ -1,4 +1,4 @@
-import { type EventTarget, TerminalEvent } from './terminal-event.js'
+import { type EventTarget, TerminalEvent } from './terminal-event.ts'
 
 /**
  * Focus event for component focus changes.

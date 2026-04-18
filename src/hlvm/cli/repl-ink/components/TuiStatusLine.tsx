@@ -1,7 +1,13 @@
 import React, { useMemo } from "react";
 import { Box, Text, useStdout } from "ink";
 import { useSemanticColors } from "../../theme/index.ts";
-import { buildContextUsageMiniBar, fitShellFooterSegments, type ShellFooterSegment, SHELL_SEGMENT_SEPARATOR, summarizeModeLabel } from "../utils/shell-chrome.ts";
+import {
+  buildContextUsageMiniBar,
+  fitShellFooterSegments,
+  SHELL_SEGMENT_SEPARATOR,
+  type ShellFooterSegment,
+  summarizeModeLabel,
+} from "../utils/shell-chrome.ts";
 import { getShellContentWidth } from "../utils/layout-tokens.ts";
 import { DEFAULT_TERMINAL_WIDTH, STATUS_GLYPHS } from "../ui-constants.ts";
 import type { PlanningPhase } from "../../../agent/planning.ts";
@@ -17,6 +23,7 @@ interface TuiStatusLineProps {
   turnLabel?: string;
   backgroundLabel?: string;
   aiAvailable?: boolean;
+  debugEnabled?: boolean;
 }
 
 function pushStatusSegment(
@@ -47,6 +54,7 @@ export function TuiStatusLine(
     turnLabel,
     backgroundLabel,
     aiAvailable = false,
+    debugEnabled = false,
   }: TuiStatusLineProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
@@ -59,13 +67,21 @@ export function TuiStatusLine(
     const summarizedMode = summarizeModeLabel(modeLabel);
     pushStatusSegment(
       segments,
-      summarizedMode && summarizedMode !== "Default mode" ? summarizedMode : undefined,
+      summarizedMode && summarizedMode !== "Default mode"
+        ? summarizedMode
+        : undefined,
       "muted",
     );
     if (planningPhase && planningPhase !== "done") {
       pushStatusSegment(segments, getPlanPhaseLabel(planningPhase), "active");
     }
     pushStatusSegment(segments, interactionLabel, "warning", true);
+    pushStatusSegment(
+      segments,
+      debugEnabled ? "debug" : undefined,
+      "active",
+      true,
+    );
     pushStatusSegment(segments, turnLabel, "active");
     pushStatusSegment(
       segments,
@@ -76,14 +92,23 @@ export function TuiStatusLine(
       pushStatusSegment(segments, "Conversation ready", "muted");
     }
     return segments;
-  }, [backgroundLabel, interactionLabel, modeLabel, planningPhase, turnLabel]);
+  }, [
+    backgroundLabel,
+    debugEnabled,
+    interactionLabel,
+    modeLabel,
+    planningPhase,
+    turnLabel,
+  ]);
 
   // Build right-side parts: [ctxBar, modelName]
   // Model name is truncated dynamically to fill remaining terminal width.
   const { rightText, rightWidth, fittedLeft } = useMemo(() => {
     // Fixed parts (ctx bar) — never truncated
     const fixedParts = [
-      contextUsageLabel ? buildContextUsageMiniBar(contextUsageLabel) : undefined,
+      contextUsageLabel
+        ? buildContextUsageMiniBar(contextUsageLabel)
+        : undefined,
     ].filter((part): part is string => Boolean(part && part.trim()));
 
     // Measure fixed parts width (including "● " prefix and separators)
@@ -142,7 +167,9 @@ export function TuiStatusLine(
           return (
             <React.Fragment key={`${segment.text}-${index}`}>
               {index > 0 && (
-                <Text color={sc.shell.separator}>{SHELL_SEGMENT_SEPARATOR}</Text>
+                <Text color={sc.shell.separator}>
+                  {SHELL_SEGMENT_SEPARATOR}
+                </Text>
               )}
               {segment.chip
                 ? (
@@ -162,7 +189,11 @@ export function TuiStatusLine(
       </Box>
       {rightWidth > 0 && (
         <Box>
-          <Text color={aiAvailable ? sc.footer.status.ready : sc.footer.status.error}>
+          <Text
+            color={aiAvailable
+              ? sc.footer.status.ready
+              : sc.footer.status.error}
+          >
             {STATUS_GLYPHS.running}
             {" "}
           </Text>

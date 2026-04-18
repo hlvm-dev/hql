@@ -3,6 +3,7 @@ import { getPlatform } from "../../src/platform/platform.ts";
 import {
   createSerializedQueue,
   normalizeCliOutput,
+  withExclusiveTestResource,
 } from "../shared/light-helpers.ts";
 import {
   createMonotonicPortAllocator,
@@ -58,38 +59,40 @@ async function runLocalAsk(
   code: number;
   lifecycle?: RuntimeHostLifecycleDiagnostics;
 }> {
-  return await withSerializedLocalAsk(async () => {
-    const baseUrl = `http://127.0.0.1:${port}`;
-    const cmd = ["deno", "run", "-A", CLI_PATH, "ask", ...args];
-    const output = await platform.command.output({
-      cmd,
-      cwd,
-      env: {
-        ...platform.env.toObject(),
-        HLVM_REPL_PORT: String(port),
-        ...env,
-      },
-      stdout: "piped",
-      stderr: "piped",
-    });
-    const shutdownObserved = await waitForRuntimeHostShutdown(baseUrl, 5_000);
-    if (shutdownObserved) {
-      runtimeProbe?.noteShutdownObserved();
-      await new Promise((resolve) =>
-        setTimeout(resolve, LOCAL_ASK_AUTO_SHUTDOWN_GRACE_MS)
-      );
-    }
-    return {
-      success: output.success,
-      code: output.code,
-      stdout: new TextDecoder().decode(output.stdout),
-      stderr: new TextDecoder().decode(output.stderr),
-      lifecycle: runtimeProbe?.snapshot(
-        new TextDecoder().decode(output.stdout) +
-          new TextDecoder().decode(output.stderr),
-      ),
-    };
-  });
+  return await withExclusiveTestResource("local-llm-runtime", async () =>
+    await withSerializedLocalAsk(async () => {
+      const baseUrl = `http://127.0.0.1:${port}`;
+      const cmd = ["deno", "run", "-A", CLI_PATH, "ask", ...args];
+      const output = await platform.command.output({
+        cmd,
+        cwd,
+        env: {
+          ...platform.env.toObject(),
+          HLVM_REPL_PORT: String(port),
+          ...env,
+        },
+        stdout: "piped",
+        stderr: "piped",
+      });
+      const shutdownObserved = await waitForRuntimeHostShutdown(baseUrl, 5_000);
+      if (shutdownObserved) {
+        runtimeProbe?.noteShutdownObserved();
+        await new Promise((resolve) =>
+          setTimeout(resolve, LOCAL_ASK_AUTO_SHUTDOWN_GRACE_MS)
+        );
+      }
+      return {
+        success: output.success,
+        code: output.code,
+        stdout: new TextDecoder().decode(output.stdout),
+        stderr: new TextDecoder().decode(output.stderr),
+        lifecycle: runtimeProbe?.snapshot(
+          new TextDecoder().decode(output.stdout) +
+            new TextDecoder().decode(output.stderr),
+        ),
+      };
+    })
+  );
 }
 
 function describeLocalAskResult(
@@ -598,20 +601,13 @@ async function createBrowserCliHybridFixture(
             }],
           },
           {
-            expect: { contains: ["pw_click_intercepted"] },
-            toolCalls: [{
-              id: "pw_click_2",
-              toolName: "pw_click",
-              args: { selector: "#submit-btn" },
-            }],
-          },
-          {
             expect: {
               contains: [
+                "Playwright confirmed a visible/native blocker intercepted the click.",
+                "Call pw_promote now on the next step.",
                 "pw_promote",
-                "cu_screenshot",
-                "cu_mouse_move",
                 "Do not switch to cu_* before pw_promote",
+                "pw_click is temporarily blocked",
               ],
             },
             toolCalls: [{
@@ -633,6 +629,12 @@ async function createBrowserCliHybridFixture(
             }],
           },
           {
+            expect: {
+              contains: [
+                "cu_screenshot",
+                "Browser promoted to visible",
+              ],
+            },
             toolCalls: [{
               id: "cu_mouse_move_1",
               toolName: "cu_mouse_move",
@@ -778,53 +780,54 @@ localAskTest({
   },
 });
 
-localAskTest({
-  name:
-    "local ask command deterministically promotes from browser_safe to hybrid before interactive cu_* actions",
-  ignore: platform.build.os !== "darwin",
-  fn: async () => {
-    const port = await allocateRuntimeShellPort();
-    const hlvmDir = await platform.fs.makeTempDir({
-      prefix: "hlvm-browser-cli-hybrid-",
-    });
-    const baseUrl = `http://127.0.0.1:${port}`;
-    const runtimeProbe = createRuntimeHostLifecycleProbe(baseUrl, port);
-    const browserFixture = startBrowserFixtureServer();
+if (platform.build.os === "darwin") {
+  localAskTest({
+    name:
+      "local ask command deterministically promotes from browser_safe to hybrid before interactive cu_* actions",
+    fn: async () => {
+      const port = await allocateRuntimeShellPort();
+      const hlvmDir = await platform.fs.makeTempDir({
+        prefix: "hlvm-browser-cli-hybrid-",
+      });
+      const baseUrl = `http://127.0.0.1:${port}`;
+      const runtimeProbe = createRuntimeHostLifecycleProbe(baseUrl, port);
+      const browserFixture = startBrowserFixtureServer();
 
-    try {
-      const fixturePath = await createBrowserCliHybridFixture(
-        hlvmDir,
-        browserFixture.baseUrl,
-      );
-      const result = await runLocalAsk(
-        port,
-        [
-          "--no-session-persistence",
-          "--verbose",
-          "--permission-mode",
-          "bypassPermissions",
-          "--model",
-          "ollama/test-fixture",
-          "browser cli hybrid smoke: promote after repeated blocked pw_click failures",
-        ],
-        {
-          HLVM_ASK_FIXTURE_PATH: fixturePath,
-        },
-        hlvmDir,
-        runtimeProbe,
-      );
+      try {
+        const fixturePath = await createBrowserCliHybridFixture(
+          hlvmDir,
+          browserFixture.baseUrl,
+        );
+        const result = await runLocalAsk(
+          port,
+          [
+            "--no-session-persistence",
+            "--verbose",
+            "--permission-mode",
+            "bypassPermissions",
+            "--model",
+            "ollama/test-fixture",
+            "browser cli hybrid smoke: promote after repeated blocked pw_click failures",
+          ],
+          {
+            HLVM_ASK_FIXTURE_PATH: fixturePath,
+          },
+          hlvmDir,
+          runtimeProbe,
+        );
 
-      const output = describeLocalAskResult(result);
-      assertEquals(result.success, true, output);
-      assertStringIncludes(output, "Browser CLI hybrid smoke complete");
-    } finally {
-      await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
-      await runtimeProbe.stop();
-      await browserFixture.server.shutdown();
-      await platform.fs.remove(hlvmDir, { recursive: true });
-    }
-  },
-});
+        const output = describeLocalAskResult(result);
+        assertEquals(result.success, true, output);
+        assertStringIncludes(output, "Browser CLI hybrid smoke complete");
+      } finally {
+        await shutdownRuntimeHostIfPresent(baseUrl, { probe: runtimeProbe });
+        await runtimeProbe.stop();
+        await browserFixture.server.shutdown();
+        await platform.fs.remove(hlvmDir, { recursive: true });
+      }
+    },
+  });
+}
 
 localAskTest({
   name:
@@ -1297,11 +1300,19 @@ localAskTest({
         assertEquals(result.success, true, output);
         assertStringIncludes(
           output,
-          "[TRACE] Thinking profile: iteration=1 phase=editing openai=low",
+          "[TRACE] Iteration 1/20",
         );
         assertStringIncludes(
           output,
-          "[TRACE] Thinking profile: iteration=2 phase=editing openai=medium",
+          "[TRACE]     - Thinking profile · phase=editing · tools=0 · failures=0",
+        );
+        assertStringIncludes(
+          output,
+          "[TRACE] Iteration 2/20",
+        );
+        assertStringIncludes(
+          output,
+          "[TRACE]     - Thinking profile · phase=editing · tools=2 · failures=0",
         );
         assertStringIncludes(
           output,
@@ -1385,4 +1396,3 @@ localAskTest({
     );
   },
 });
-

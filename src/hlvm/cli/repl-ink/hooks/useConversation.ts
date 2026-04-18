@@ -26,6 +26,7 @@ import type {
   StreamingState,
   TurnCompletionStatus,
 } from "../types.ts";
+import type { TracePresentationLine } from "../../../agent/trace-presentation.ts";
 
 export interface UseConversationResult {
   items: ConversationItem[];
@@ -68,6 +69,10 @@ export interface UseConversationResult {
     text: string,
     options?: { isTransient?: boolean; turnId?: string },
   ) => void;
+  addDebugTrace: (
+    lines: readonly TracePresentationLine[],
+    options?: { turnId?: string },
+  ) => void;
   replaceItems: (items: ConversationItem[]) => void;
   resetStatus: () => void;
   cancelPlanning: () => void;
@@ -91,7 +96,9 @@ function updateState(
 
 export function useConversation(): UseConversationResult {
   const initialStateRef = useRef<TranscriptState>(createTranscriptState());
-  const [state, setState] = useState<TranscriptState>(() => initialStateRef.current);
+  const [state, setState] = useState<TranscriptState>(() =>
+    initialStateRef.current
+  );
   const stateRef = useRef<TranscriptState>(state);
   stateRef.current = state;
   const [activeTurnId, setActiveTurnId] = useState<string | undefined>(
@@ -151,13 +158,16 @@ export function useConversation(): UseConversationResult {
     updateState(stateRef, setState, { type: "hql_eval", input, result });
   }, []);
 
-  const addError = useCallback((text: string, options?: { turnId?: string }) => {
-    updateState(stateRef, setState, {
-      type: "error",
-      text,
-      turnId: options?.turnId,
-    });
-  }, []);
+  const addError = useCallback(
+    (text: string, options?: { turnId?: string }) => {
+      updateState(stateRef, setState, {
+        type: "error",
+        text,
+        turnId: options?.turnId,
+      });
+    },
+    [],
+  );
 
   const addInfo = useCallback((
     text: string,
@@ -167,6 +177,17 @@ export function useConversation(): UseConversationResult {
       type: "info",
       text,
       isTransient: options?.isTransient,
+      turnId: options?.turnId,
+    });
+  }, []);
+
+  const addDebugTrace = useCallback((
+    lines: readonly TracePresentationLine[],
+    options?: { turnId?: string },
+  ) => {
+    updateState(stateRef, setState, {
+      type: "debug_trace",
+      lines,
       turnId: options?.turnId,
     });
   }, []);
@@ -217,6 +238,7 @@ export function useConversation(): UseConversationResult {
 
     addError,
     addInfo,
+    addDebugTrace,
     replaceItems,
     resetStatus,
     cancelPlanning,
@@ -231,6 +253,7 @@ export function useConversation(): UseConversationResult {
 
     addError,
     addInfo,
+    addDebugTrace,
     replaceItems,
     resetStatus,
     cancelPlanning,

@@ -1,10 +1,10 @@
 import { c as _c } from '../../stubs/compiler-runtime.ts';
 import React, { type PropsWithChildren, useContext, useInsertionEffect } from 'react';
-import instances from '../instances.js';
-import { DISABLE_MOUSE_TRACKING, ENABLE_MOUSE_TRACKING, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN } from '../termio/dec.js';
-import { TerminalWriteContext } from '../useTerminalNotification.js';
-import Box from './Box.js';
-import { TerminalSizeContext } from './TerminalSizeContext.js';
+import instances from '../instances.ts';
+import { DISABLE_MOUSE_TRACKING, ENABLE_MOUSE_TRACKING, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN } from '../termio/dec.ts';
+import { TerminalWriteContext } from '../useTerminalNotification.ts';
+import Box from './Box.tsx';
+import { TerminalSizeContext } from './TerminalSizeContext.tsx';
 type Props = PropsWithChildren<{
   /** Enable SGR mouse tracking (wheel + click/drag). Default true. */
   mouseTracking?: boolean;
@@ -30,7 +30,7 @@ type Props = PropsWithChildren<{
  * from scrolling content) and so signal-exit cleanup can exit the alt
  * screen if the component's own unmount doesn't run.
  */
-export function AlternateScreen(t0) {
+export function AlternateScreen(t0: Props) {
   const $ = _c(7);
   const {
     children,

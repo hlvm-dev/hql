@@ -7,8 +7,8 @@ import {
 import { logForDebugging } from '../stubs/debug.ts'
 import { getGraphemeSegmenter } from '../stubs/intl.ts'
 import sliceAnsi from '../stubs/sliceAnsi.ts'
-import { reorderBidi } from './bidi.js'
-import { type Rectangle, unionRect } from './layout/geometry.js'
+import { reorderBidi } from './bidi.ts'
+import { type Rectangle, unionRect } from './layout/geometry.ts'
 import {
   blitRegion,
   CellWidth,
@@ -21,9 +21,9 @@ import {
   type StylePool,
   setCellAt,
   shiftRows,
-} from './screen.js'
-import { stringWidth } from './stringWidth.js'
-import { widestLine } from './widest-line.js'
+} from './screen.ts'
+import { stringWidth } from './stringWidth.ts'
+import { widestLine } from './widest-line.ts'
 
 /**
  * A grapheme cluster with precomputed terminal width, styleId, and hyperlink.

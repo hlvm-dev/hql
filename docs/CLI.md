@@ -4,22 +4,22 @@ Complete reference for the `hlvm` command-line interface.
 
 ## Quick Reference
 
-| Command            | Description                                    |
-| ------------------ | ---------------------------------------------- |
-| `hlvm run`         | Execute HQL or JavaScript code                 |
-| `hlvm repl`        | Interactive shell (REPL)                       |
-| `hlvm ask`         | AI agent task execution                        |
-| `hlvm chat`        | Plain one-turn AI chat                         |
-| `hlvm model`       | Model management (list, set, show, pull, rm)   |
-| `hlvm ai`          | AI model setup (prefer `hlvm model`)           |
-| `hlvm serve`       | HTTP runtime host                              |
-| `hlvm hql init`    | Initialize an HQL project                      |
-| `hlvm hql compile` | Compile HQL to JS or native binary             |
-| `hlvm hql publish` | Publish an HQL package                         |
-| `hlvm mcp`         | MCP server management                          |
-| `hlvm ollama`      | Explicit compatibility bridge to system Ollama |
-| `hlvm upgrade`     | Check for updates                              |
-| `hlvm uninstall`   | Remove HLVM from system                        |
+| Command            | Description                                      |
+| ------------------ | ------------------------------------------------ |
+| `hlvm run`         | Execute HQL or JavaScript code                   |
+| `hlvm repl`        | Interactive shell (REPL)                         |
+| `hlvm ask`         | AI agent task execution                          |
+| `hlvm chat`        | Plain one-turn AI chat                           |
+| `hlvm model`       | Model management (list, set, show, pull, rm)     |
+| `hlvm ai`          | AI model setup (prefer `hlvm model`)             |
+| `hlvm serve`       | HTTP runtime host                                |
+| `hlvm hql init`    | Initialize an HQL project                        |
+| `hlvm hql compile` | Compile HQL to JS or native binary               |
+| `hlvm hql publish` | Publish an HQL package                           |
+| `hlvm mcp`         | MCP server management                            |
+| `hlvm ollama`      | Explicit compatibility bridge to system Ollama   |
+| `hlvm update`      | Check for updates and install the latest release |
+| `hlvm uninstall`   | Remove HLVM from system                          |
 
 ---
 
@@ -216,14 +216,14 @@ hlvm model [command]
 
 **Subcommands:**
 
-| Command       | Description                                            |
-| ------------- | ------------------------------------------------------ |
-| _(none)_      | Show current default model and availability            |
-| `list`        | List all available models (grouped by provider)        |
+| Command       | Description                                              |
+| ------------- | -------------------------------------------------------- |
+| _(none)_      | Show current default model and availability              |
+| `list`        | List all available models (grouped by provider)          |
 | `set <name>`  | Set default model (persisted to `~/.hlvm/settings.json`) |
-| `show <name>` | Show model details (params, capabilities, size)        |
-| `pull <name>` | Download a model (Ollama only)                         |
-| `rm <name>`   | Remove a model (Ollama only)                           |
+| `show <name>` | Show model details (params, capabilities, size)          |
+| `pull <name>` | Download a model (Ollama only)                           |
+| `rm <name>`   | Remove a model (Ollama only)                             |
 
 **Examples:**
 
@@ -490,12 +490,12 @@ Download from [ollama.ai](https://ollama.ai).
 
 ---
 
-## hlvm upgrade
+## hlvm update
 
-Check for updates and show upgrade instructions.
+Check for updates and install the latest release.
 
 ```
-hlvm upgrade [options]
+hlvm update [options]
 ```
 
 **Options:**
@@ -547,24 +547,27 @@ google/gemini-2.0-flash    # Google
 
 ## Environment Variables
 
-| Variable                    | Description                                         |
-| --------------------------- | --------------------------------------------------- |
-| `HLVM_DIR`                  | Override HLVM config directory (default: `~/.hlvm`) |
-| `HLVM_AGENT_ENGINE`         | Select agent engine: `sdk` or `legacy`              |
-| `HLVM_DISABLE_AI_AUTOSTART` | Skip default model download                         |
-| `HLVM_FORCE_SETUP`          | Force first-run setup                               |
-| `HLVM_ASK_FIXTURE_PATH`     | Testing fixture path (internal)                     |
-| `HLVM_REPL_PORT`            | Override REPL server port                           |
+Supported user-facing environment variables:
+
+| Variable               | Description                                         |
+| ---------------------- | --------------------------------------------------- |
+| `HLVM_DIR`             | Override HLVM config directory (default: `~/.hlvm`) |
+| `HLVM_FORCE_SETUP`     | Force first-run setup                               |
+| `HLVM_REPL_PORT`       | Override REPL server port                           |
+| `HLVM_NO_UPDATE_CHECK` | Disable the startup update check                    |
+
+Internal test and diagnostics hooks exist, but they are not part of the stable
+CLI surface.
 
 ---
 
 ## Configuration Files
 
-| File                    | Description                                           |
-| ----------------------- | ----------------------------------------------------- |
-| `~/.hlvm/settings.json` | Unified config: model, theme, permission mode, etc.   |
-| `~/.hlvm/`              | Global config and cache directory                     |
-| `hql.json`              | HQL package metadata (name, version, exports)         |
+| File                    | Description                                         |
+| ----------------------- | --------------------------------------------------- |
+| `~/.hlvm/settings.json` | Unified config: model, theme, permission mode, etc. |
+| `~/.hlvm/`              | Global config and cache directory                   |
+| `hql.json`              | HQL package metadata (name, version, exports)       |
 
 ---
 

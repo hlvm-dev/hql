@@ -11,11 +11,10 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
-import { useInput, useStdout } from "ink";
-import { useTheme } from "../../theme/index.ts";
+import { Box, Text, useInput, useStdout } from "ink";
+import { useSemanticColors, useTheme } from "../../theme/index.ts";
 import { useTaskManager } from "../hooks/useTaskManager.ts";
 import {
   type EvalTask,
@@ -26,20 +25,13 @@ import {
 import { calculateScrollWindow } from "../completion/navigation.ts";
 import { formatEvalTaskResultLines } from "../utils/eval-task-results.ts";
 import {
-  ansi,
   BACKGROUND_TASKS_OVERLAY_SPEC,
-  clearOverlay,
-  drawOverlayFrame,
-  fg,
   resolveOverlayChromeLayout,
   resolveOverlayFrame,
   type RGB,
-  shouldClearOverlay,
   themeToOverlayColors,
-  writeToTerminal,
 } from "../overlay/index.ts";
 import { truncate } from "../../../../common/utils.ts";
-import { padTo } from "../utils/formatting.ts";
 import { STATUS_GLYPHS } from "../ui-constants.ts";
 import {
   buildBalancedTextRow,
@@ -47,6 +39,7 @@ import {
 } from "../utils/display-chrome.ts";
 import type { LocalAgentEntry } from "../utils/local-agents.ts";
 import { summarizeLocalAgentFleet } from "../utils/local-agents.ts";
+import { OverlayBalancedRow, OverlayModal } from "./OverlayModal.tsx";
 
 // ============================================================
 // Types
@@ -332,6 +325,7 @@ export function BackgroundTasksOverlay({
   onForegroundLocalAgent,
 }: BackgroundTasksOverlayProps): React.ReactElement | null {
   const { theme } = useTheme();
+  const sc = useSemanticColors();
   const { stdout } = useStdout();
   const { tasks, cancel, clearCompleted, removeTask } = useTaskManager();
 
@@ -365,13 +359,12 @@ export function BackgroundTasksOverlay({
   );
   const contentWidth = Math.max(
     16,
-    overlayFrame.width - PADDING.left - PADDING.right,
+    overlayFrame.width - PADDING.left - PADDING.right - 2,
   );
   const visibleRows = Math.max(
     3,
     chromeLayout.visibleRows,
   );
-  const previousFrameRef = useRef<typeof overlayFrame | null>(null);
 
   // Theme colors
   const colors = useMemo(() => themeToOverlayColors(theme), [theme]);
@@ -449,271 +442,65 @@ export function BackgroundTasksOverlay({
     const target = selectableItems[selectedIndex];
     return target ? unifiedItems.indexOf(target) : -1;
   }, [selectedIndex, selectableItems, unifiedItems]);
-
-  // Draw the overlay
-  const drawOverlay = useCallback(() => {
-    if (shouldClearOverlay(previousFrameRef.current, overlayFrame)) {
-      clearOverlay(previousFrameRef.current!);
-    }
-    previousFrameRef.current = overlayFrame;
-
-    const bgStyle = colors.bgStyle;
-    let output = ansi.cursorSave + ansi.cursorHide;
-
-    const drawRow = (y: number, renderContent: () => number) => {
-      output += ansi.cursorTo(overlayFrame.x, y) + bgStyle;
-      const visibleLen = renderContent();
-      const remaining = overlayFrame.width - visibleLen;
-      if (remaining > 0) {
-        output += " ".repeat(remaining);
-      }
-    };
-
-    const drawEmptyRow = (y: number) => {
-      drawRow(y, () => 0);
-    };
-
-    // === Top padding ===
-    for (let i = 0; i < PADDING.top; i++) {
-      drawEmptyRow(overlayFrame.y + i);
-    }
-
-    const headerY = overlayFrame.y + PADDING.top;
-    const title = viewMode === "list" ? "Task Manager" : "Details";
-    const escHint = viewMode === "list" ? "esc close" : "esc back";
-
-    const [summaryText, hintText] = buildBackgroundTasksSummaryRows(
-      unifiedItems,
-      {
-        viewMode,
-        selectedIndex,
-        viewingItem,
-        resultLines,
-      },
-      contentWidth,
-    );
-
-    drawRow(headerY, () => {
-      output += " ".repeat(PADDING.left);
-      output += fg(colors.primary) + summaryText + ansi.reset + bgStyle;
-      return PADDING.left + summaryText.length;
-    });
-
-    drawRow(headerY + 1, () => {
-      output += " ".repeat(PADDING.left);
-      output += fg(colors.muted) + hintText + ansi.reset + bgStyle;
-      return PADDING.left + hintText.length;
-    });
-
-    // === Content rows ===
-    if (viewMode === "list") {
-      const window = calculateScrollWindow(
-        selectedUnifiedIndex >= 0 ? selectedUnifiedIndex : 0,
-        unifiedItems.length,
-        visibleRows,
-      );
-      const visibleItems = unifiedItems.slice(window.start, window.end);
-
-      for (let row = 0; row < visibleRows; row++) {
-        const rowY = overlayFrame.y + chromeLayout.contentStart + row;
-        const item = visibleItems[row];
-
-        drawRow(rowY, () => {
-          if (!item) {
-            if (row === 0 && unifiedItems.length === 0) {
-              output += " ".repeat(PADDING.left);
-              output += fg(colors.muted) + "No tasks" + ansi.reset + bgStyle;
-              return PADDING.left + 8;
-            }
-            return 0;
-          }
-
-          // Section headers
-          if (item.kind === "section") {
-            const sectionLabel = buildSectionLabelText(item.label, contentWidth);
-            output += " ".repeat(PADDING.left);
-            output += fg(colors.primary) + sectionLabel + ansi.reset + bgStyle;
-            return PADDING.left + sectionLabel.length;
-          }
-
-          const isSelected = item === selectableItems[selectedIndex];
-
-          if (isSelected) {
-            output += colors.selectedBgStyle + fg(colors.primary);
-          }
-
-          let len = 0;
-
-          output += " ".repeat(PADDING.left);
-          len += PADDING.left;
-          output += isSelected ? "\u25B8 " : "  ";
-          len += 2;
-          output += fg(item.iconColor) + item.icon + ansi.reset;
-          if (isSelected) output += colors.selectedBgStyle + fg(colors.primary);
-          else output += bgStyle;
-          output += " ";
-          len += 2;
-
-          const statusCol = item.statusText;
-          const rowLayout = buildBalancedTextRow(
-            Math.max(8, contentWidth - 4),
-            item.label,
-            statusCol,
-            { maxRightWidth: 12 },
-          );
-          output += rowLayout.leftText;
-          output += " ".repeat(rowLayout.gapWidth);
-          if (!isSelected) output += fg(colors.muted);
-          output += padTo(rowLayout.rightText, 12);
-          output += ansi.reset + bgStyle;
-          len += rowLayout.leftText.length + rowLayout.gapWidth + 12;
-
-          return len;
-        });
-      }
-    } else {
-      // Result view
-      const maxResultRows = visibleRows;
-      const visibleLines = resultLines.slice(
-        resultScrollOffset,
-        resultScrollOffset + maxResultRows,
-      );
-
-      for (let row = 0; row < visibleRows; row++) {
-        const rowY = overlayFrame.y + chromeLayout.contentStart + row;
-        const line = visibleLines[row];
-
-        drawRow(rowY, () => {
-          if (row === 0 && resultScrollOffset > 0) {
-            const text = "\u2191 more above...";
-            output += " ".repeat(PADDING.left);
-            output += fg(colors.muted) + text + ansi.reset + bgStyle;
-            return PADDING.left + text.length;
-          }
-          if (
-            row === visibleRows - 1 &&
-            resultScrollOffset + maxResultRows < resultLines.length
-          ) {
-            const text = "\u2193 more below...";
-            output += " ".repeat(PADDING.left);
-            output += fg(colors.muted) + text + ansi.reset + bgStyle;
-            return PADDING.left + text.length;
-          }
-          if (line !== undefined) {
-            output += " ".repeat(PADDING.left);
-            const truncatedLine = formatBackgroundTaskResultLine(
-              line,
-              contentWidth,
-            );
-            output += truncatedLine;
-            return PADDING.left + truncatedLine.length;
-          }
-          return 0;
-        });
-      }
-    }
-
-    // === Footer row ===
-    const footerY = overlayFrame.y + chromeLayout.footerY;
-    const selectedItem = selectableItems[selectedIndex];
-    const managedTask = resolveManagedTask(selectedItem);
-    const canInterrupt = managedTask != null && isTaskActive(managedTask);
-    const canDismiss = managedTask != null && !canInterrupt;
-    const canForeground = Boolean(
-      onForegroundLocalAgent &&
-        false,
-    );
-    const listHints = canInterrupt && canForeground
-      ? "\u2191/\u2193 select  Enter/Space view  f foreground  k interrupt  Esc close"
-      : canInterrupt
-      ? "\u2191/\u2193 select  Enter/Space view  k interrupt  Esc close"
-      : canDismiss && canForeground
-      ? "\u2191/\u2193 select  Enter/Space view  f foreground  x dismiss  Esc close"
-      : canDismiss
-      ? "\u2191/\u2193 select  Enter/Space view  x dismiss  Esc close"
-      : canForeground
-      ? "\u2191/\u2193 select  Enter/Space view  f foreground  Esc close"
-      : "\u2191/\u2193 select  Enter/Space view  Esc close";
-    const detailManagedTask = resolveManagedTask(viewingItem);
-    const detailCanForeground = Boolean(
-      onForegroundLocalAgent &&
-        false,
-    );
-    const detailHints = (detailManagedTask && isTaskActive(detailManagedTask))
-      ? detailCanForeground
-        ? "\u2191/\u2193 scroll  f foreground  k interrupt  Enter/Space/Esc close"
-        : "\u2191/\u2193 scroll  k interrupt  Enter/Space/Esc close"
-      : detailCanForeground
-      ? "\u2191/\u2193 scroll  f foreground  Enter/Space/Esc close"
-      : "\u2191/\u2193 scroll  Enter/Space/Esc close";
-    const footerText = truncate(
-      viewMode === "list" ? listHints : detailHints,
-      contentWidth,
-    );
-    const countText = viewMode === "list" && selectableItems.length > 0
-      ? `${selectedIndex + 1}/${selectableItems.length}`
-      : "";
-
-    drawRow(footerY, () => {
-      output += " ".repeat(PADDING.left);
-      const footerLayout = buildBalancedTextRow(
+  const [summaryText, hintText] = useMemo(
+    () =>
+      buildBackgroundTasksSummaryRows(
+        unifiedItems,
+        {
+          viewMode,
+          selectedIndex,
+          viewingItem,
+          resultLines,
+        },
         contentWidth,
-        footerText,
-        countText,
-      );
-      output += fg(colors.muted) + footerLayout.leftText + ansi.reset + bgStyle;
-      output += " ".repeat(footerLayout.gapWidth);
-      output += fg(colors.muted) + footerLayout.rightText + ansi.reset +
-        bgStyle;
-      return PADDING.left + footerLayout.leftText.length +
-        footerLayout.gapWidth +
-        footerLayout.rightText.length;
-    });
-
-    // === Bottom padding ===
-    for (let i = 0; i < PADDING.bottom; i++) {
-      drawEmptyRow(overlayFrame.y + overlayFrame.height - PADDING.bottom + i);
-    }
-
-    output += drawOverlayFrame(overlayFrame, {
-      borderColor: colors.primary,
-      backgroundColor: colors.background,
-      title,
-      rightText: escHint,
-    });
-    output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
-
-    writeToTerminal(output);
-  }, [
-    colors,
-    unifiedItems,
-    selectableItems,
-    selectedIndex,
-    selectedUnifiedIndex,
-    viewMode,
-    viewingItem,
-    resultLines,
-    resultScrollOffset,
-    resolveManagedTask,
+      ),
+    [contentWidth, resultLines, selectedIndex, unifiedItems, viewMode, viewingItem],
+  );
+  const visibleItems = useMemo(() => {
+    if (viewMode !== "list") return [];
+    const window = calculateScrollWindow(
+      selectedUnifiedIndex >= 0 ? selectedUnifiedIndex : 0,
+      unifiedItems.length,
+      visibleRows,
+    );
+    return unifiedItems.slice(window.start, window.end);
+  }, [selectedUnifiedIndex, unifiedItems, viewMode, visibleRows]);
+  const visibleResultLines = useMemo(
+    () =>
+      resultLines.slice(
+        resultScrollOffset,
+        resultScrollOffset + visibleRows,
+      ),
+    [resultLines, resultScrollOffset, visibleRows],
+  );
+  const selectedItem = selectableItems[selectedIndex];
+  const managedTask = resolveManagedTask(
+    viewMode === "list" ? selectedItem : viewingItem,
+  );
+  const canInterrupt = managedTask != null && isTaskActive(managedTask);
+  const canDismiss = managedTask != null && !canInterrupt;
+  const canForeground = false;
+  const listHints = canInterrupt && canForeground
+    ? "\u2191/\u2193 select  Enter/Space view  f foreground  k interrupt  Esc close"
+    : canInterrupt
+    ? "\u2191/\u2193 select  Enter/Space view  k interrupt  Esc close"
+    : canDismiss && canForeground
+    ? "\u2191/\u2193 select  Enter/Space view  f foreground  x dismiss  Esc close"
+    : canDismiss
+    ? "\u2191/\u2193 select  Enter/Space view  x dismiss  Esc close"
+    : canForeground
+    ? "\u2191/\u2193 select  Enter/Space view  f foreground  Esc close"
+    : "\u2191/\u2193 select  Enter/Space view  Esc close";
+  const detailHints = canInterrupt
+    ? "\u2191/\u2193 scroll  k interrupt  Enter/Space/Esc close"
+    : "\u2191/\u2193 scroll  Enter/Space/Esc close";
+  const footerText = truncate(
+    viewMode === "list" ? listHints : detailHints,
     contentWidth,
-    chromeLayout.contentStart,
-    chromeLayout.footerY,
-    overlayFrame,
-    visibleRows,
-  ]);
-
-  // Draw overlay on changes
-  useEffect(() => {
-    drawOverlay();
-    const timer = setTimeout(drawOverlay, 0);
-    return () => clearTimeout(timer);
-  }, [drawOverlay]);
-
-  useEffect(() => () => {
-    if (previousFrameRef.current) {
-      clearOverlay(previousFrameRef.current);
-    }
-  }, []);
+  );
+  const countText = viewMode === "list" && selectableItems.length > 0
+    ? `${selectedIndex + 1}/${selectableItems.length}`
+    : "";
 
   // Keyboard handling
   useInput((input, key) => {
@@ -825,5 +612,108 @@ export function BackgroundTasksOverlay({
     }
   });
 
-  return null;
+  return (
+    <OverlayModal
+      title={viewMode === "list" ? "Task Manager" : "Details"}
+      rightText={viewMode === "list" ? "esc close" : "esc back"}
+      width={overlayFrame.width}
+      minHeight={overlayFrame.height}
+    >
+      <Box paddingLeft={PADDING.left} flexDirection="column">
+        <Text color={sc.text.primary} wrap="truncate-end">
+          {summaryText}
+        </Text>
+        <Text color={sc.text.muted} wrap="truncate-end">
+          {hintText}
+        </Text>
+      </Box>
+
+      {viewMode === "list"
+        ? (
+          <Box paddingLeft={PADDING.left} marginTop={1} flexDirection="column">
+            {visibleItems.length === 0
+              ? (
+                <Text color={sc.text.muted}>No tasks</Text>
+              )
+              : visibleItems.map((item: UnifiedTaskItem) => {
+                if (item.kind === "section") {
+                  return (
+                    <Box key={item.id}>
+                      <Text color={sc.chrome.sectionLabel}>
+                        {buildSectionLabelText(item.label, contentWidth)}
+                      </Text>
+                    </Box>
+                  );
+                }
+
+                const isSelected = item === selectableItems[selectedIndex];
+                const rowLayout = buildBalancedTextRow(
+                  Math.max(8, contentWidth - 4),
+                  item.label,
+                  item.statusText,
+                  { maxRightWidth: 12 },
+                );
+
+                return (
+                  <Box key={item.id}>
+                    <Text color={isSelected ? sc.footer.status.active : sc.text.muted}>
+                      {isSelected ? "\u25B8 " : "  "}
+                    </Text>
+                    <Text color={rgbToHex(item.iconColor)}>{item.icon}</Text>
+                    <Text> </Text>
+                    <Text color={isSelected ? sc.text.primary : sc.text.primary}>
+                      {rowLayout.leftText}
+                    </Text>
+                    {rowLayout.gapWidth > 0 && (
+                      <Text>{" ".repeat(rowLayout.gapWidth)}</Text>
+                    )}
+                    <Text color={sc.text.muted}>{rowLayout.rightText}</Text>
+                  </Box>
+                );
+              })}
+          </Box>
+        )
+        : (
+          <Box paddingLeft={PADDING.left} marginTop={1} flexDirection="column">
+            {resultScrollOffset > 0 && (
+              <Text color={sc.text.muted} wrap="truncate-end">
+                {"\u2191 more above..."}
+              </Text>
+            )}
+            {visibleResultLines.map((line: string, index: number) => {
+              const isSection = /^---\s+(.+?)\s+---$/.test(line.trim());
+              return (
+                <Box key={`${index}:${line}`}>
+                  <Text
+                    color={isSection ? sc.chrome.sectionLabel : sc.text.primary}
+                    wrap="truncate-end"
+                  >
+                    {formatBackgroundTaskResultLine(line, contentWidth)}
+                  </Text>
+                </Box>
+              );
+            })}
+            {resultScrollOffset + visibleRows < resultLines.length && (
+              <Text color={sc.text.muted} wrap="truncate-end">
+                {"\u2193 more below..."}
+              </Text>
+            )}
+          </Box>
+        )}
+
+      <Box paddingLeft={PADDING.left} marginTop={1}>
+        <OverlayBalancedRow
+          leftText={footerText}
+          rightText={countText}
+          width={contentWidth}
+          leftColor={sc.text.muted}
+          rightColor={sc.text.muted}
+        />
+      </Box>
+    </OverlayModal>
+  );
+}
+
+function rgbToHex([r, g, b]: RGB): string {
+  return `#${[r, g, b].map((part) => part.toString(16).padStart(2, "0")).join("")}`;
 }

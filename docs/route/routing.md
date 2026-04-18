@@ -342,9 +342,11 @@ changes):
 - `tests/e2e/agent-runtime-shell.test.ts` hybrid promotion cases — caused by the
   concurrent commit
   `a26a06fa nuke(agent): remove entire legacy delegation and team system`.
-- `tests/e2e/local-llm-classification-e2e.test.ts` `classifyBrowserAutomation` —
-  LLM semantic judgment flake in `src/hlvm/runtime/local-llm.ts`; not routing
-  code.
+  Separately, the `browser_safe` path hung launching stale Chromium after
+  playwright-core was bumped to 1.59.1 — fixed by making
+  `resolveChromiumExecutablePath` version-aware (it now uses the installed
+  playwright-core's registry, rejecting stale revisions so auto-install pulls
+  the matching one).
 
 ### 1.5.5 Testing rule — user path only
 

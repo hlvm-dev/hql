@@ -9,7 +9,6 @@ import { delay } from "@std/async";
 import React, {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -61,12 +60,7 @@ import {
   MODEL_BROWSER_MAX_WIDTH,
 } from "../ui-constants.ts";
 import {
-  clearOverlay,
-  createModalOverlayScaffold,
   resolveOverlayFrame,
-  shouldClearOverlay,
-  themeToOverlayColors,
-  writeToTerminal,
 } from "../overlay/index.ts";
 import {
   getModelStatusLabel,
@@ -82,7 +76,7 @@ import {
   buildModelBrowserScopeText,
   buildModelBrowserViewLayout,
 } from "./model-browser-chrome.ts";
-import { buildFieldDisplayState } from "../utils/field-display.ts";
+import { OverlayModal } from "./OverlayModal.tsx";
 
 const platform = getPlatform();
 const openUrl = (url: string) => platform.openUrl(url);
@@ -420,9 +414,13 @@ function getModelStatusKind(
 }
 
 function getModelMetadataText(model: DisplayModel): string {
+  const supplementalCapabilities = (model.capabilities ?? []).filter((
+    capability,
+  ) => capability !== "text");
+
   return [
     model.provider ? `[${model.provider}]` : "",
-    ...(model.capabilities?.map((capability) => `[${capability}]`) ?? []),
+    ...supplementalCapabilities.map((capability) => `[${capability}]`),
   ].filter(Boolean).join(" ");
 }
 
@@ -649,9 +647,6 @@ export function ModelBrowser({
       ),
     [availableHeight, overlayVisibleRowCount, panelWidth, terminalWidth],
   );
-  const overlayContentWidth = Math.max(20, overlayFrame.width - 6);
-  const overlayColors = useMemo(() => themeToOverlayColors(theme), [theme]);
-  const previousOverlayFrameRef = useRef<typeof overlayFrame | null>(null);
   const defaultModelWidth = Math.max(
     22,
     Math.min(48, Math.floor(contentWidth * 0.34)),
@@ -1345,384 +1340,41 @@ export function ModelBrowser({
     : color("muted");
 
   const overlayListRows = Math.max(4, overlayFrame.height - 16);
-  const overlayVisibleWindow = calculateScrollWindow(
-    selection.index,
-    displayModels.length,
-    overlayListRows,
-  );
-  const overlayVisibleModels = displayModels.slice(
-    overlayVisibleWindow.start,
-    overlayVisibleWindow.end,
-  );
-  const overlayDefaultModelWidth = Math.max(
-    22,
-    Math.min(48, Math.floor(overlayContentWidth * 0.34)),
-  );
-  const overlayScopeText = buildModelBrowserScopeText(
-    selectionScopeTitle,
-    currentModel,
-    overlayDefaultModelWidth,
-  );
-  const overlayViewLayout = buildModelBrowserViewLayout(
-    overlayContentWidth,
-    FILTER_LABELS[activeFilterMode],
-    modelCountLabel,
-    nextFilter,
-  );
-  const overlayFocusLayout = buildModelBrowserFocusLayout(
-    overlayContentWidth,
-    selectedModel?.name,
-    selectedStatusLabel,
-  );
-  const overlaySelectedMetadataDisplay = truncate(
-    selectedMetadata,
-    Math.max(0, overlayContentWidth - 2),
-    "…",
-  );
 
-  const drawOverlay = useCallback(() => {
-    if (presentation !== "overlay") return;
-    const previousFrame = previousOverlayFrameRef.current;
-    if (previousFrame && shouldClearOverlay(previousFrame, overlayFrame)) {
-      clearOverlay(previousFrame);
-    }
-    previousOverlayFrameRef.current = overlayFrame;
-
-    const surface = createModalOverlayScaffold({
-      frame: overlayFrame,
-      colors: overlayColors,
-      title: "Model catalog",
-      rightText: "esc back",
-    });
-    surface.blankRows(overlayFrame.y, overlayFrame.height);
-    const statusRgb = selectedStatusKind === "pending-delete" ||
-        selectedStatusKind === "cancelled" || selectedStatusKind === "failed" ||
-        selectedStatusKind === "needs-key"
-      ? overlayColors.error
-      : selectedStatusKind === "active" || selectedStatusKind === "installed"
-      ? overlayColors.success
-      : selectedStatusKind === "downloading"
-      ? overlayColors.warning
-      : selectedStatusKind === "cloud"
-      ? overlayColors.accent
-      : overlayColors.meta;
-    const headerY = overlayFrame.y + 1;
-    const searchDisplay = buildFieldDisplayState(
-      searchQuery,
-      searchCursor,
-      overlayContentWidth,
-      "Filter by model, provider, capability, or description",
-    );
-
-    surface.balancedRow(
-      headerY,
-      overlayViewLayout.leftText,
-      overlayViewLayout.rightText,
-      overlayContentWidth,
-      {
-        paddingLeft: 3,
-        leftColor: overlayColors.fieldText,
-        rightColor: overlayColors.meta,
-      },
-    );
-    surface.textRow(
-      headerY + 1,
-      truncate(overlayScopeText, overlayContentWidth, "…"),
-      { paddingLeft: 3, color: overlayColors.meta },
-    );
-    surface.sectionRow(headerY + 3, "Search", overlayContentWidth, {
-      paddingLeft: 3,
-    });
-    surface.row(headerY + 4, (ctx) => {
-      ctx.pad(3);
-      if (searchDisplay.isPlaceholder) {
-        ctx.write(searchDisplay.cursorChar, { inverse: true });
-        ctx.write(searchDisplay.placeholderText, {
-          color: overlayColors.fieldPlaceholder,
-        });
-      } else {
-        ctx.write(searchDisplay.beforeCursor, {
-          color: overlayColors.fieldText,
-        });
-        ctx.write(searchDisplay.cursorChar, { inverse: true });
-        ctx.write(searchDisplay.afterCursor, {
-          color: overlayColors.fieldText,
-        });
-        ctx.pad(Math.max(0, overlayContentWidth - searchDisplay.renderWidth));
-      }
-    });
-    surface.sectionRow(headerY + 6, "Focused model", overlayContentWidth, {
-      paddingLeft: 3,
-    });
-    surface.balancedRow(
-      headerY + 7,
-      overlayFocusLayout.leftText,
-      overlayFocusLayout.rightText,
-      overlayContentWidth,
-      {
-        paddingLeft: 3,
-        leftColor: selectedModel ? overlayColors.fieldText : overlayColors.meta,
-        rightColor: statusRgb,
-        leftBold: Boolean(selectedModel),
-      },
-    );
-    if (selectedMetadata) {
-      surface.textRow(
-        headerY + 8,
-        overlaySelectedMetadataDisplay,
-        { paddingLeft: 4, color: overlayColors.meta },
-      );
-    } else {
-      surface.blankRow(headerY + 8);
-    }
-    surface.sectionRow(headerY + 10, "Catalog", overlayContentWidth, {
-      paddingLeft: 3,
-    });
-
-    const listStartY = headerY + 11;
-    if (loading) {
-      surface.textRow(
-        listStartY,
-        `${loadingSpinner} Loading installed models...`,
-        { paddingLeft: 3, color: overlayColors.meta },
-      );
-    } else if (discoveryLoading) {
-      surface.textRow(
-        listStartY,
-        `${loadingSpinner} Loading model catalog...`,
-        { paddingLeft: 3, color: overlayColors.meta },
-      );
-    } else if (discoveryRefreshing && !hasDiscoveryResults) {
-      surface.textRow(
-        listStartY,
-        `${loadingSpinner} Refreshing model catalog...`,
-        { paddingLeft: 3, color: overlayColors.meta },
-      );
-    } else if (displayModels.length === 0) {
-      surface.textRow(
-        listStartY,
-        truncate(emptyStateMessage, overlayContentWidth, "…"),
-        { paddingLeft: 3, color: overlayColors.meta },
-      );
-    } else {
-      for (let row = 0; row < overlayListRows; row++) {
-        const model = overlayVisibleModels[row];
-        const rowY = listStartY + row;
-        if (!model) {
-          surface.blankRow(rowY);
-          continue;
-        }
-        const actualIndex = overlayVisibleWindow.start + row;
-        const isSelected = actualIndex === selection.index;
-        const isActive = isSelectedModelActive(model.name, currentModel);
-        const modelStatusKind = getModelStatusKind(
-          model,
-          isActive,
-          pendingDelete === model.name,
-        );
-        const indicatorColor = modelStatusKind === "pending-delete" ||
-            modelStatusKind === "cancelled" || modelStatusKind === "failed" ||
-            modelStatusKind === "needs-key"
-          ? overlayColors.error
-          : modelStatusKind === "active" || modelStatusKind === "installed"
-          ? overlayColors.success
-          : modelStatusKind === "downloading"
-          ? overlayColors.warning
-          : modelStatusKind === "cloud"
-          ? overlayColors.accent
-          : overlayColors.meta;
-        const statusTag = `[${getModelStatusLabel(modelStatusKind)}]`;
-        const sizeLabel =
-          model.downloadStatus === "downloading" && model.progress
-            ? model.progress.total && model.progress.completed
-              ? `${Math.round(model.progress.percent || 0)}% ${
-                formatBytes(model.progress.completed)
-              }/${formatBytes(model.progress.total)}`
-              : model.progress.status || "..."
-            : model.downloadStatus === "cancelled" && model.progress
-            ? model.progress.total && model.progress.completed
-              ? `cancelled ${Math.round(model.progress.percent || 0)}%`
-              : "cancelled"
-            : model.downloadStatus === "failed"
-            ? "failed"
-            : model.size
-            ? formatBytes(model.size)
-            : model.sizeStr ?? "";
-        const providerTag = getModelProviderTagText(model);
-        const sizeWidth = Math.max(
-          10,
-          Math.min(18, Math.floor(overlayContentWidth * 0.18)),
-        );
-        const statusWidth = Math.max(
-          12,
-          Math.min(16, Math.floor(overlayContentWidth * 0.18)),
-        );
-        const providerWidth = Math.max(
-          10,
-          Math.min(24, Math.floor(overlayContentWidth * 0.2)),
-        );
-        const nameWidth = Math.max(
-          18,
-          Math.min(
-            60,
-            overlayContentWidth - providerWidth - sizeWidth - statusWidth - 8,
-          ),
-        );
-        const displayName = truncate(model.name, nameWidth, "…").padEnd(
-          nameWidth,
-        );
-        const inlineSizeLabel = truncate(sizeLabel, sizeWidth, "…").padStart(
-          sizeWidth,
-        );
-        const statusDisplay = truncate(statusTag, statusWidth, "…").padEnd(
-          statusWidth,
-        );
-        const providerDisplay = truncate(
-          providerTag,
-          providerWidth,
-          "…",
-        ).padEnd(providerWidth);
-        const nameColor = pendingDelete === model.name
-          ? overlayColors.error
-          : model.isLocal
-          ? overlayColors.success
-          : model.downloadStatus === "downloading"
-          ? overlayColors.warning
-          : model.downloadStatus === "cancelled" ||
-              model.downloadStatus === "failed"
-          ? overlayColors.error
-          : overlayColors.fieldText;
-
-        surface.row(rowY, (ctx) => {
-          ctx.pad(3);
-          ctx.write(isSelected ? "› " : "  ", {
-            color: isSelected ? overlayColors.section : overlayColors.meta,
-          });
-          ctx.write(getStatusIndicator(modelStatusKind), {
-            color: indicatorColor,
-          });
-          ctx.write(`${displayName} `, {
-            color: nameColor,
-            bold: isSelected || isActive,
-          });
-          ctx.write(`${inlineSizeLabel} `, { color: overlayColors.meta });
-          ctx.write(statusDisplay, { color: indicatorColor });
-          if (providerTag) {
-            ctx.write(" ", { color: overlayColors.meta });
-            ctx.write(providerDisplay, { color: overlayColors.section });
-          }
-        }, { selected: isSelected });
-      }
-    }
-
-    const footerHint = pendingDelete
-      ? `Press Ctrl+D again to delete "${
-        truncate(pendingDelete, Math.max(0, overlayContentWidth - 30), "…")
-      }", Esc to cancel`
-      : statusMessage
-      ? truncate(statusMessage, overlayContentWidth, "…")
-      : `↑↓ move · Tab ${nextFilter} · ↵ ${MODEL_BROWSER_SELECT_ACTION_LABEL}`;
-    const footerMeta = pendingDelete || statusMessage
-      ? "Ctrl+O info · Ctrl+X cancel · Ctrl+B tasks"
-      : "Type to filter · Ctrl+O info · Ctrl+D delete · Ctrl+X cancel · Ctrl+B tasks";
-    const footerY = overlayFrame.y + overlayFrame.height - 3;
-    surface.textRow(footerY, footerHint, {
-      paddingLeft: 3,
-      color: pendingDelete
-        ? overlayColors.error
-        : statusMessage
-        ? overlayColors.warning
-        : overlayColors.meta,
-    });
-    surface.balancedRow(
-      footerY + 1,
-      truncate(footerMeta, overlayContentWidth, "…"),
-      displayModels.length > 0
-        ? `${selection.index + 1}/${displayModels.length}`
-        : "",
-      overlayContentWidth,
-      {
-        paddingLeft: 3,
-        leftColor: overlayColors.footer,
-        rightColor: overlayColors.footer,
-      },
-    );
-
-    writeToTerminal(surface.finish());
-  }, [
-    activeFilterMode,
-    currentModel,
-    discoveryLoading,
-    discoveryRefreshing,
-    displayModels,
-    emptyStateMessage,
-    hasDiscoveryResults,
-    loading,
-    loadingSpinner,
-    modelCountLabel,
-    nextFilter,
-    overlayColors,
-    overlayContentWidth,
-    overlayFocusLayout,
-    overlayFrame,
-    overlayListRows,
-    overlayScopeText,
-    overlaySelectedMetadataDisplay,
-    overlayViewLayout,
-    overlayVisibleModels,
-    overlayVisibleWindow.start,
-    pendingDelete,
-    presentation,
-    searchCursor,
-    searchQuery,
-    selectedMetadata,
-    selectedModel,
-    selectedStatusKind,
-    selection.index,
-    statusMessage,
-  ]);
-
-  useLayoutEffect(() => {
-    if (presentation !== "overlay") return;
-    drawOverlay();
-  }, [drawOverlay, presentation]);
-
-  useEffect(() => {
-    if (presentation !== "overlay") return;
-    return () => {
-      if (previousOverlayFrameRef.current) {
-        clearOverlay(previousOverlayFrameRef.current);
-      }
-    };
-  }, [presentation]);
-
-  if (presentation === "overlay") {
-    return null;
-  }
-
-  return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={color("primary")}
-      paddingX={1}
-      paddingY={1}
-      width={panelWidth}
-      alignSelf="center"
-    >
-      <Box justifyContent="space-between">
-        <ChromeChip text="Model catalog" tone="active" />
-        <Text dimColor wrap="truncate-end">
-          {scopeText}
-        </Text>
-      </Box>
-      <Box>
-        <Text color={sc.text.primary}>{viewLayout.leftText}</Text>
-        {viewLayout.gapWidth > 0 && (
-          <Text>{" ".repeat(viewLayout.gapWidth)}</Text>
+  const browserContent = (
+    <>
+      {presentation === "inline"
+        ? (
+          <>
+            <Box justifyContent="space-between">
+              <ChromeChip text="Model catalog" tone="active" />
+              <Text dimColor wrap="truncate-end">
+                {scopeText}
+              </Text>
+            </Box>
+            <Box>
+              <Text color={sc.text.primary}>{viewLayout.leftText}</Text>
+              {viewLayout.gapWidth > 0 && (
+                <Text>{" ".repeat(viewLayout.gapWidth)}</Text>
+              )}
+              <Text color={sc.text.muted}>{viewLayout.rightText}</Text>
+            </Box>
+          </>
+        )
+        : (
+          <>
+            <Text color={sc.text.muted} wrap="truncate-end">
+              {scopeText}
+            </Text>
+            <Box>
+              <Text color={sc.text.primary}>{viewLayout.leftText}</Text>
+              {viewLayout.gapWidth > 0 && (
+                <Text>{" ".repeat(viewLayout.gapWidth)}</Text>
+              )}
+              <Text color={sc.text.muted}>{viewLayout.rightText}</Text>
+            </Box>
+          </>
         )}
-        <Text color={sc.text.muted}>{viewLayout.rightText}</Text>
-      </Box>
 
       <Box marginTop={1}>
         <Text color={sc.chrome.sectionLabel}>
@@ -1772,7 +1424,6 @@ export function ModelBrowser({
         </Text>
       </Box>
 
-      {/* Loading */}
       {loading && (
         <Box marginTop={0}>
           <Text dimColor>{loadingSpinner} Loading installed models...</Text>
@@ -1790,7 +1441,6 @@ export function ModelBrowser({
         </Box>
       )}
 
-      {/* Model list */}
       {!loading && !discoveryLoading && !discoveryRefreshing &&
         displayModels.length === 0 && (
         <Box marginTop={0}>
@@ -1866,6 +1516,35 @@ export function ModelBrowser({
             </>
           )}
       </Box>
+    </>
+  );
+
+  if (presentation === "overlay") {
+    return (
+      <OverlayModal
+        title="Model catalog"
+        rightText="esc back"
+        width={overlayFrame.width}
+        minHeight={overlayFrame.height}
+      >
+        <Box width={panelWidth} flexDirection="column" alignSelf="center">
+          {browserContent}
+        </Box>
+      </OverlayModal>
+    );
+  }
+
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={color("primary")}
+      paddingX={1}
+      paddingY={1}
+      width={panelWidth}
+      alignSelf="center"
+    >
+      {browserContent}
     </Box>
   );
 }

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { EventEmitter as NodeEventEmitter } from 'node:events'
-import { Event } from './event.js'
+import { Event } from './event.ts'
 
 // Similar to node's builtin EventEmitter, but is also aware of our `Event`
 // class, and so `emit` respects `stopImmediatePropagation()`.

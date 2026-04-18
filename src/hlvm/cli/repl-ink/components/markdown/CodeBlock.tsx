@@ -205,7 +205,13 @@ export const CodeBlock = memo(function CodeBlock(
   const badge = language || "code";
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={sc.border.dim} paddingX={1}>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={sc.border.dim}
+      paddingX={1}
+      width={width}
+    >
       <Text color={sc.text.muted}>{badge}</Text>
       {hiddenCount > 0 && (
         <Text color={sc.text.muted}>

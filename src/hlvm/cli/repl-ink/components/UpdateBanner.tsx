@@ -38,7 +38,7 @@ export function UpdateBanner(
       </Text>
       <Text color={sc.text.primary}>
         {truncate(
-          `Run \`${update.upgradeCommand}\` to update.`,
+          `Run \`${update.updateCommand}\` to update.`,
           innerWidth,
           "…",
         )}

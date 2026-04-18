@@ -1,14 +1,13 @@
 // @ts-nocheck
 import { c as _c } from '../../stubs/compiler-runtime.ts';
-import '../global.d.ts';
 import React, { type PropsWithChildren, type Ref } from 'react';
 import type { Except } from 'type-fest';
-import type { DOMElement } from '../dom.js';
-import type { ClickEvent } from '../events/click-event.js';
-import type { FocusEvent } from '../events/focus-event.js';
-import type { KeyboardEvent } from '../events/keyboard-event.js';
-import type { Styles } from '../styles.js';
-import * as warn from '../warn.js';
+import type { DOMElement } from '../dom.ts';
+import type { ClickEvent } from '../events/click-event.ts';
+import type { FocusEvent } from '../events/focus-event.ts';
+import type { KeyboardEvent } from '../events/keyboard-event.ts';
+import type { Styles } from '../styles.ts';
+import * as warn from '../warn.ts';
 export type Props = Except<Styles, 'textWrap'> & {
   ref?: Ref<DOMElement>;
   /**

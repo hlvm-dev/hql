@@ -45,6 +45,37 @@ function withSerializedEnvKey<T>(
   return getEnvKeyQueue(key)(fn);
 }
 
+export async function withExclusiveTestResource<T>(
+  name: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withSerializedEnvKey(`resource:${name}`, async () => {
+    const platform = getPlatform();
+    const lockDir = platform.path.join(
+      platform.env.get("TMPDIR") ?? "/tmp",
+      "hlvm-test-locks",
+    );
+    await platform.fs.mkdir(lockDir, { recursive: true });
+    const lockPath = platform.path.join(lockDir, `${name}.lock`);
+    const file = await Deno.open(lockPath, {
+      create: true,
+      read: true,
+      write: true,
+    });
+    await file.lock();
+    try {
+      return await fn();
+    } finally {
+      try {
+        file.unlock();
+      } catch {
+        // best-effort unlock
+      }
+      file.close();
+    }
+  });
+}
+
 export function withEnv<T>(
   key: string,
   value: string,

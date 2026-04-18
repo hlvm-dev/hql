@@ -4,9 +4,9 @@ import {
   supportsTabStatus,
   tabStatus,
   wrapForMultiplexer,
-} from '../termio/osc.js'
-import type { Color } from '../termio/types.js'
-import { TerminalWriteContext } from '../useTerminalNotification.js'
+} from '../termio/osc.ts'
+import type { Color } from '../termio/types.ts'
+import { TerminalWriteContext } from '../useTerminalNotification.ts'
 
 export type TabStatusKind = 'idle' | 'busy' | 'waiting'
 

@@ -118,7 +118,7 @@ export function formatToken(
     }
     case "list":
       return token.items
-        .map((item, index) =>
+        .map((item: Tokens.ListItem, index: number) =>
           formatToken(
             item,
             listDepth,

@@ -12,13 +12,12 @@
  */
 
 import React, {
-  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { useInput, useStdout } from "ink";
+import { Box, Text, useInput, useStdout } from "ink";
 import {
   CATEGORY_ORDER,
   getDisplay,
@@ -28,17 +27,11 @@ import {
   registry,
 } from "../keybindings/index.ts";
 import {
-  ansi,
-  clearOverlay,
   COMMAND_PALETTE_OVERLAY_SPEC,
-  createModalOverlayScaffold,
   resolveOverlayChromeLayout,
   resolveOverlayFrame,
-  shouldClearOverlay,
-  themeToOverlayColors,
-  writeToTerminal,
 } from "../overlay/index.ts";
-import { useTheme } from "../../theme/index.ts";
+import { useSemanticColors } from "../../theme/index.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import { CURSOR_BLINK_MS } from "../ui-constants.ts";
 import { buildFieldDisplayState } from "../utils/field-display.ts";
@@ -47,6 +40,7 @@ import {
   buildPaletteHeaderLayout,
   buildPaletteItemLayout,
 } from "../utils/palette-layout.ts";
+import { OverlayBalancedRow, OverlayModal } from "./OverlayModal.tsx";
 
 // ============================================================
 // Types
@@ -153,6 +147,81 @@ function buildPaletteListData(results: KeybindingMatch[]): PaletteListData {
   };
 }
 
+function PaletteSearchField(
+  {
+    query,
+    cursor,
+    width,
+    placeholder,
+    cursorVisible,
+    active,
+  }: {
+    query: string;
+    cursor: number;
+    width: number;
+    placeholder: string;
+    cursorVisible: boolean;
+    active: boolean;
+  },
+): React.ReactElement {
+  const sc = useSemanticColors();
+  const contentWidth = Math.max(8, width - 4);
+  const display = buildFieldDisplayState(query, cursor, contentWidth, placeholder);
+
+  return (
+    <Box
+      borderStyle="single"
+      borderColor={active ? sc.surface.field.borderActive : sc.surface.field.border}
+      backgroundColor={sc.surface.field.background}
+      paddingX={1}
+      width={width}
+    >
+      {display.isPlaceholder
+        ? (
+          <>
+            <Text
+              inverse={cursorVisible}
+              backgroundColor={sc.surface.field.background}
+              color={sc.surface.field.cursor}
+            >
+              {display.cursorChar}
+            </Text>
+            <Text
+              color={sc.surface.field.placeholder}
+              backgroundColor={sc.surface.field.background}
+              wrap="truncate-end"
+            >
+              {display.placeholderText}
+            </Text>
+          </>
+        )
+        : (
+          <>
+            <Text
+              color={active ? sc.status.warning : sc.surface.field.text}
+              backgroundColor={sc.surface.field.background}
+            >
+              {display.beforeCursor}
+            </Text>
+            <Text
+              inverse={cursorVisible}
+              backgroundColor={sc.surface.field.background}
+              color={sc.surface.field.cursor}
+            >
+              {display.cursorChar}
+            </Text>
+            <Text
+              color={active ? sc.status.warning : sc.surface.field.text}
+              backgroundColor={sc.surface.field.background}
+            >
+              {display.afterCursor}
+            </Text>
+          </>
+        )}
+    </Box>
+  );
+}
+
 // ============================================================
 // Component
 // ============================================================
@@ -164,7 +233,7 @@ export function CommandPaletteOverlay({
   onStateChange,
   onRebind,
 }: CommandPaletteOverlayProps): React.ReactElement | null {
-  const { theme } = useTheme();
+  const sc = useSemanticColors();
   const { stdout } = useStdout();
   // Initialize state from props (persistent across open/close)
   const [query, setQuery] = useState(initialState?.query ?? "");
@@ -206,30 +275,12 @@ export function CommandPaletteOverlay({
     3,
     chromeLayout.visibleRows,
   );
-  const overlayFrameRef = useRef(overlayFrame);
-  const previousFrameRef = useRef<typeof overlayFrame | null>(null);
-  const isFirstRender = useRef(true);
   const hasInitialized = useRef(false);
   const prevQueryRef = useRef(query);
 
   // Rebind mode: waiting for user to press new key combo
   const [rebindMode, setRebindMode] = useState(false);
   const [rebindingId, setRebindingId] = useState<string | null>(null);
-
-  // Theme colors (memoized)
-  const colors = useMemo(() => {
-    const c = themeToOverlayColors(theme);
-    return {
-      highlight: c.warning,
-      category: c.section,
-      primary: c.primary,
-      muted: c.meta,
-      fieldText: c.fieldText,
-      placeholder: c.fieldPlaceholder,
-      bgStyle: c.bgStyle,
-      selectedBgStyle: c.selectedBgStyle,
-    };
-  }, [theme]);
 
   // Search results and derived data
   const results = useMemo(() => registry.search(query), [query]);
@@ -282,195 +333,6 @@ export function CommandPaletteOverlay({
     }
   }, [selectedIndex, selectablePositions, flatList, scrollOffset, visibleRows]);
 
-  // Draw cursor only (optimized for blink)
-  const drawCursor = useCallback(() => {
-    const frame = overlayFrameRef.current;
-    if (frame.width <= 0 || frame.height <= 0) return;
-
-    const searchY = frame.y + PADDING.top + 1;
-    const display = buildFieldDisplayState(
-      rebindMode ? "Press new key combo..." : query,
-      rebindMode ? 0 : cursorPos,
-      contentWidth,
-      "Search",
-    );
-    const cursorX = frame.x + PADDING.left + display.beforeCursor.length;
-
-    const cursorStyle = cursorVisible
-      ? ansi.inverse + display.cursorChar + ansi.reset
-      : display.cursorChar;
-
-    const output = ansi.cursorSave + ansi.cursorHide +
-      ansi.cursorTo(cursorX, searchY) +
-      colors.bgStyle + cursorStyle +
-      ansi.cursorRestore + ansi.cursorShow;
-
-    writeToTerminal(output);
-  }, [query, cursorPos, cursorVisible, colors.bgStyle, contentWidth, rebindMode]);
-
-  // Draw full palette
-  const drawPalette = useCallback(() => {
-    overlayFrameRef.current = overlayFrame;
-    if (shouldClearOverlay(previousFrameRef.current, overlayFrame)) {
-      clearOverlay(previousFrameRef.current!);
-    }
-    previousFrameRef.current = overlayFrame;
-
-    const surface = createModalOverlayScaffold({
-      frame: overlayFrame,
-      colors: themeToOverlayColors(theme),
-      title: "Commands",
-      rightText: "esc",
-    });
-    surface.blankRows(overlayFrame.y, overlayFrame.height);
-
-    const headerY = overlayFrame.y + PADDING.top;
-    const headerLayout = buildPaletteHeaderLayout({
-      query,
-      resultCount: selectableItems.length,
-      selectedCount: selectedIndex >= 0 ? selectedIndex + 1 : 0,
-      rebindMode,
-    }, contentWidth);
-    surface.balancedRow(
-      headerY,
-      headerLayout.leftText,
-      headerLayout.rightText,
-      contentWidth,
-      {
-        paddingLeft: PADDING.left,
-        leftColor: colors.muted,
-        rightColor: colors.category,
-      },
-    );
-
-    // === Search input row ===
-    const searchY = headerY + 1;
-    surface.row(searchY, (ctx) => {
-      const display = buildFieldDisplayState(
-        rebindMode ? "Press new key combo..." : query,
-        rebindMode ? 0 : cursorPos,
-        contentWidth,
-        "Search",
-      );
-      ctx.pad(PADDING.left);
-      if (rebindMode) {
-        ctx.write(display.beforeCursor, { color: colors.highlight });
-        ctx.write(display.cursorChar, { inverse: cursorVisible });
-        ctx.write(display.afterCursor, { color: colors.highlight });
-        ctx.pad(Math.max(0, contentWidth - display.renderWidth));
-      } else if (display.isPlaceholder) {
-        ctx.write(display.cursorChar, { inverse: cursorVisible });
-        ctx.write(display.placeholderText, { color: colors.placeholder });
-      } else {
-        ctx.write(display.beforeCursor, { color: colors.fieldText });
-        ctx.write(display.cursorChar, { inverse: cursorVisible });
-        ctx.write(display.afterCursor, { color: colors.fieldText });
-        ctx.pad(Math.max(0, contentWidth - display.renderWidth));
-      }
-      ctx.pad(PADDING.right);
-    });
-
-    // === Empty row after search ===
-    surface.blankRow(searchY + 1);
-
-    // === Content rows ===
-    const visibleList = flatList.slice(
-      scrollOffset,
-      scrollOffset + visibleRows,
-    );
-    const selectedItem = selectableItems[selectedIndex];
-
-    for (let row = 0; row < visibleRows; row++) {
-      const rowY = overlayFrame.y + chromeLayout.contentStart + row;
-      const item = visibleList[row];
-      if (!item || item.type === "spacer") {
-        surface.blankRow(rowY);
-        continue;
-      }
-      if (item.type === "category") {
-        surface.row(rowY, (ctx) => {
-          ctx.pad(PADDING.left);
-          ctx.write(
-            buildPaletteCategoryLabel(item.category, contentWidth),
-            { color: colors.category, bold: true },
-          );
-        });
-        continue;
-      }
-
-      const { match } = item;
-      const isSelected = item === selectedItem;
-      const kb = match.keybinding;
-      const display = getDisplay(kb);
-      const isInfoOnly = kb.action.type === "INFO";
-      const itemLayout = buildPaletteItemLayout(
-        kb.label,
-        display,
-        Math.max(0, contentWidth - 2),
-      );
-      surface.row(rowY, (ctx) => {
-        ctx.pad(PADDING.left - 2);
-        ctx.write(
-          isInfoOnly ? "⌨ " : isSelected ? "▸ " : "  ",
-          { color: isSelected ? colors.primary : colors.muted },
-        );
-        ctx.write(itemLayout.leftText, {
-          color: isSelected ? colors.fieldText : isInfoOnly ? colors.muted : undefined,
-          dim: isInfoOnly && !isSelected,
-        });
-        ctx.pad(itemLayout.gapWidth);
-        ctx.write(itemLayout.rightText, {
-          color: isSelected ? colors.fieldText : colors.muted,
-        });
-        ctx.pad(PADDING.right);
-      }, { selected: isSelected });
-    }
-
-    // === Bottom padding ===
-    const footerY = overlayFrame.y + chromeLayout.footerY;
-    surface.blankRows(
-      footerY + 1,
-      overlayFrame.y + overlayFrame.height - (footerY + 1),
-    );
-
-    // === Footer row ===
-    // Show different hints based on mode
-    const hintText = rebindMode
-      ? "esc=cancel"
-      : onRebind
-      ? "tab=rebind ⌨=shortcut"
-      : "⌨=shortcut only";
-    const posText = selectableItems.length > 0
-      ? `${selectedIndex + 1}/${selectableItems.length}`
-      : "";
-
-    surface.balancedRow(footerY, hintText, posText, contentWidth, {
-      paddingLeft: PADDING.left,
-      paddingRight: PADDING.right,
-      leftColor: colors.muted,
-      rightColor: colors.muted,
-    });
-
-    writeToTerminal(surface.finish());
-  }, [
-    query,
-    cursorPos,
-    cursorVisible,
-    flatList,
-    selectableItems,
-    selectedIndex,
-    scrollOffset,
-    colors,
-    rebindMode,
-    onRebind,
-    contentWidth,
-    chromeLayout.contentStart,
-    chromeLayout.footerY,
-    overlayFrame,
-    visibleRows,
-    theme,
-  ]);
-
   // Cursor blink effect
   useEffect(() => {
     const interval = setInterval(() => {
@@ -479,30 +341,30 @@ export function CommandPaletteOverlay({
     return () => clearInterval(interval);
   }, []);
 
-  // Cursor-only redraw on blink
-  useEffect(() => {
-    if (isFirstRender.current) return;
-    drawCursor();
-  }, [cursorVisible, drawCursor]);
-
-  // Full palette draw on content changes
-  useEffect(() => {
-    drawPalette();
-    isFirstRender.current = false;
-  }, [
-    query,
-    cursorPos,
-    selectedIndex,
-    scrollOffset,
-    flatList,
-    drawPalette,
-    rebindMode,
-  ]);
-
   // Reset cursor visibility when typing
   useEffect(() => {
     setCursorVisible(true);
   }, [query]);
+
+  const headerLayout = buildPaletteHeaderLayout({
+    query,
+    resultCount: selectableItems.length,
+    selectedCount: selectedIndex >= 0 ? selectedIndex + 1 : 0,
+    rebindMode,
+  }, contentWidth);
+  const visibleList = flatList.slice(
+    scrollOffset,
+    scrollOffset + visibleRows,
+  );
+  const selectedItem = selectableItems[selectedIndex];
+  const hintText = rebindMode
+    ? "esc=cancel"
+    : onRebind
+    ? "tab=rebind ⌨=shortcut"
+    : "⌨=shortcut only";
+  const posText = selectableItems.length > 0
+    ? `${selectedIndex + 1}/${selectableItems.length}`
+    : "";
 
   // Keyboard handling
   useInput((input, key) => {
@@ -628,5 +490,91 @@ export function CommandPaletteOverlay({
     }
   });
 
-  return null;
+  return (
+    <OverlayModal
+      title="Commands"
+      rightText="esc"
+      width={overlayFrame.width}
+      minHeight={overlayFrame.height}
+    >
+      <Box paddingLeft={PADDING.left} flexDirection="column">
+        <OverlayBalancedRow
+          leftText={headerLayout.leftText}
+          rightText={headerLayout.rightText}
+          width={contentWidth}
+          leftColor={sc.text.muted}
+          rightColor={sc.chrome.sectionLabel}
+        />
+      </Box>
+
+      <Box paddingLeft={PADDING.left} marginTop={1}>
+        <PaletteSearchField
+          query={rebindMode ? "Press new key combo..." : query}
+          cursor={rebindMode ? 0 : cursorPos}
+          width={contentWidth}
+          placeholder="Search"
+          cursorVisible={cursorVisible}
+          active={rebindMode}
+        />
+      </Box>
+
+      <Box paddingLeft={PADDING.left} marginTop={1} flexDirection="column">
+        {visibleList.map((item: FlatItem, index: number) => {
+          if (item.type === "spacer") {
+            return <Box key={`spacer:${scrollOffset + index}`} />;
+          }
+          if (item.type === "category") {
+            return (
+              <Box key={`category:${item.category}`}>
+                <Text color={sc.chrome.sectionLabel} bold>
+                  {buildPaletteCategoryLabel(item.category, contentWidth)}
+                </Text>
+              </Box>
+            );
+          }
+
+          const { match } = item;
+          const isSelected = item === selectedItem;
+          const kb = match.keybinding;
+          const display = getDisplay(kb);
+          const isInfoOnly = kb.action.type === "INFO";
+          const itemLayout = buildPaletteItemLayout(
+            kb.label,
+            display,
+            Math.max(0, contentWidth - 2),
+          );
+
+          return (
+            <Box key={`item:${kb.id}`}>
+              <Text color={isSelected ? sc.footer.status.active : sc.text.muted}>
+                {isInfoOnly ? "⌨ " : isSelected ? "▸ " : "  "}
+              </Text>
+              <Text
+                color={isSelected ? sc.text.primary : isInfoOnly ? sc.text.muted : sc.text.primary}
+                dimColor={isInfoOnly && !isSelected}
+              >
+                {itemLayout.leftText}
+              </Text>
+              {itemLayout.gapWidth > 0 && (
+                <Text>{" ".repeat(itemLayout.gapWidth)}</Text>
+              )}
+              <Text color={isSelected ? sc.text.primary : sc.text.muted}>
+                {itemLayout.rightText}
+              </Text>
+            </Box>
+          );
+        })}
+      </Box>
+
+      <Box paddingLeft={PADDING.left} marginTop={1}>
+        <OverlayBalancedRow
+          leftText={hintText}
+          rightText={posText}
+          width={contentWidth}
+          leftColor={sc.text.muted}
+          rightColor={sc.text.muted}
+        />
+      </Box>
+    </OverlayModal>
+  );
 }

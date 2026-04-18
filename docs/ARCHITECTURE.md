@@ -727,7 +727,7 @@ GUI                          Server                    Ollama
 
 ```
 createAgentSession(options)
-  ├── resolveEngine()         → Legacy or SDK (HLVM_AGENT_ENGINE env)
+  ├── getAgentEngine()        → SDK engine
   ├── engine.createLLM()      → Provider instance
   ├── resolveContextBudget()  → 3-layer token budget pipeline
   ├── loadMemoryContext()     → SQLite FTS5 search, budget-aware
@@ -774,8 +774,7 @@ createAgentSession(options)
 
 ```
 AgentEngine interface
-  ├── LegacyAgentEngine → direct provider HTTP calls (default)
-  └── SdkAgentEngine    → Vercel AI SDK v6 (HLVM_AGENT_ENGINE=sdk)
+  └── SdkAgentEngine    → Vercel AI SDK v6
        ├── @ai-sdk/openai
        ├── @ai-sdk/anthropic
        ├── @ai-sdk/google
@@ -1198,9 +1197,8 @@ module tools?) │ │ │ │ │
 └────────────────────────────────────────────────────────────────────────────────────┘
 │ │ │ │ │ │ │ │ ┌─ Engine Abstraction (engine.ts)
 ─────────────────────────────────────────────────┐ │ │ │ │ │ │ │ │ │ │ │
-AgentEngine interface: │ │ │ │ │ │ ├── LegacyAgentEngine → direct provider HTTP
-calls (current default) │ │ │ │ │ │ └── SdkAgentEngine → Vercel AI SDK v6
-(HLVM_AGENT_ENGINE=sdk) │ │ │ │ │ │ ├── @ai-sdk/openai │ │ │ │ │ │ ├──
+AgentEngine interface: │ │ │ │ │ │ └── SdkAgentEngine → Vercel AI SDK v6
+│ │ │ │ │ │ ├── @ai-sdk/openai │ │ │ │ │ │ ├──
 @ai-sdk/anthropic │ │ │ │ │ │ ├── @ai-sdk/google │ │ │ │ │ │ └──
 ollama-ai-provider-v2 │ │ │ │ │
 └────────────────────────────────────────────────────────────────────────────────────┘

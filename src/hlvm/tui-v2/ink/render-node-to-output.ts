@@ -1,21 +1,21 @@
 import indentString from 'indent-string'
-import { applyTextStyles } from './colorize.js'
-import type { DOMElement } from './dom.js'
-import getMaxWidth from './get-max-width.js'
-import type { Rectangle } from './layout/geometry.js'
-import { LayoutDisplay, LayoutEdge, type LayoutNode } from './layout/node.js'
-import { nodeCache, pendingClears } from './node-cache.js'
-import type Output from './output.js'
-import renderBorder from './render-border.js'
-import type { Screen } from './screen.js'
+import { applyTextStyles } from './colorize.ts'
+import type { DOMElement } from './dom.ts'
+import getMaxWidth from './get-max-width.ts'
+import type { Rectangle } from './layout/geometry.ts'
+import { LayoutDisplay, LayoutEdge, type LayoutNode } from './layout/node.ts'
+import { nodeCache, pendingClears } from './node-cache.ts'
+import type Output from './output.ts'
+import renderBorder from './render-border.ts'
+import type { Screen } from './screen.ts'
 import {
   type StyledSegment,
   squashTextNodesToSegments,
-} from './squash-text-nodes.js'
-import type { Color } from './styles.js'
-import { isXtermJs } from './terminal.js'
-import { widestLine } from './widest-line.js'
-import wrapText from './wrap-text.js'
+} from './squash-text-nodes.ts'
+import type { Color } from './styles.ts'
+import { isXtermJs } from './terminal.ts'
+import { widestLine } from './widest-line.ts'
+import wrapText from './wrap-text.ts'
 
 // Matches detectXtermJsWheel() in ScrollKeybindingHandler.tsx — the curve
 // and drain must agree on terminal detection. TERM_PROGRAM check is the sync

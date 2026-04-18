@@ -1,13 +1,13 @@
-import type { FocusManager } from './focus.js'
-import { createLayoutNode } from './layout/engine.js'
-import type { LayoutNode } from './layout/node.js'
-import { LayoutDisplay, LayoutMeasureMode } from './layout/node.js'
-import measureText from './measure-text.js'
-import { addPendingClear, nodeCache } from './node-cache.js'
-import squashTextNodes from './squash-text-nodes.js'
-import type { Styles, TextStyles } from './styles.js'
-import { expandTabs } from './tabstops.js'
-import wrapText from './wrap-text.js'
+import type { FocusManager } from './focus.ts'
+import { createLayoutNode } from './layout/engine.ts'
+import type { LayoutNode } from './layout/node.ts'
+import { LayoutDisplay, LayoutMeasureMode } from './layout/node.ts'
+import measureText from './measure-text.ts'
+import { addPendingClear, nodeCache } from './node-cache.ts'
+import squashTextNodes from './squash-text-nodes.ts'
+import type { Styles, TextStyles } from './styles.ts'
+import { expandTabs } from './tabstops.ts'
+import wrapText from './wrap-text.ts'
 
 type InkNode = {
   parentNode: DOMElement | undefined

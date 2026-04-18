@@ -1,7 +1,7 @@
 # HQL Language Manual
 
-
-This manual covers installation, CLI usage, and key workflows. For complete syntax, see [HQL-SYNTAX.md](./HQL-SYNTAX.md).
+This manual covers installation, CLI usage, and key workflows. For complete
+syntax, see [HQL-SYNTAX.md](./HQL-SYNTAX.md).
 
 ---
 
@@ -19,7 +19,8 @@ This manual covers installation, CLI usage, and key workflows. For complete synt
 
 ### Build from Source
 
-See the [build guide](./BUILD.md) for build and install steps. If you do not install system-wide, use `./hlvm` in the examples below.
+See the [build guide](./BUILD.md) for build and install steps. If you do not
+install system-wide, use `./hlvm` in the examples below.
 
 ---
 
@@ -28,11 +29,13 @@ See the [build guide](./BUILD.md) for build and install steps. If you do not ins
 ### Hello World
 
 Create `hello.hql`:
+
 ```clojure
 (print "Hello, World!")
 ```
 
 Run it:
+
 ```bash
 ./hlvm run hello.hql
 ```
@@ -88,14 +91,14 @@ See [HQL-SYNTAX.md](./HQL-SYNTAX.md) for complete syntax reference.
 
 ### Commands
 
-| Command | Description |
-|---------|-------------|
-| `hlvm run <file>` | Execute HQL file |
-| `hlvm run '<expr>'` | Evaluate expression |
-| `hlvm repl` | Start interactive REPL |
-| `hlvm compile <file>` | Compile to JavaScript |
-| `hlvm init` | Initialize new project |
-| `hlvm upgrade` | Show upgrade instructions |
+| Command               | Description            |
+| --------------------- | ---------------------- |
+| `hlvm run <file>`     | Execute HQL file       |
+| `hlvm run '<expr>'`   | Evaluate expression    |
+| `hlvm repl`           | Start interactive REPL |
+| `hlvm compile <file>` | Compile to JavaScript  |
+| `hlvm init`           | Initialize new project |
+| `hlvm update`         | Update HLVM            |
 
 ### Compile Options
 
@@ -108,12 +111,12 @@ hlvm compile app.hql -o myapp.js         # Custom output
 
 ### Global Options
 
-| Option | Description |
-|--------|-------------|
-| `--help` | Show help |
-| `--version` | Show version |
-| `--verbose` | Detailed logging |
-| `--debug` | Debug information |
+| Option      | Description       |
+| ----------- | ----------------- |
+| `--help`    | Show help         |
+| `--version` | Show version      |
+| `--verbose` | Detailed logging  |
+| `--debug`   | Debug information |
 
 ---
 
@@ -169,11 +172,10 @@ See [Standard Library Reference](./api/stdlib.md) for complete documentation.
 
 ## Further Reading
 
-| Document | Description |
-|----------|-------------|
-| [HQL-SYNTAX.md](./HQL-SYNTAX.md) | Complete syntax reference (definitive) |
-| [TYPE-SYSTEM.md](./TYPE-SYSTEM.md) | TypeScript type system coverage |
-| [api/](./api/) | Complete API documentation |
-| [api/stdlib.md](./api/stdlib.md) | Built-in functions |
-| [GUIDE.md](./GUIDE.md) | Learning guide from beginner to advanced |
-
+| Document                           | Description                              |
+| ---------------------------------- | ---------------------------------------- |
+| [HQL-SYNTAX.md](./HQL-SYNTAX.md)   | Complete syntax reference (definitive)   |
+| [TYPE-SYSTEM.md](./TYPE-SYSTEM.md) | TypeScript type system coverage          |
+| [api/](./api/)                     | Complete API documentation               |
+| [api/stdlib.md](./api/stdlib.md)   | Built-in functions                       |
+| [GUIDE.md](./GUIDE.md)             | Learning guide from beginner to advanced |

@@ -839,10 +839,9 @@ deno task ssot:check
 
 ### Environment Variables
 
-| Variable     | Purpose             | Default             |
-| ------------ | ------------------- | ------------------- |
-| `HLVM_DIR`   | HLVM data directory | `~/.hlvm`           |
-| `HLVM_MODEL` | Default model       | `ollama/gemma4:e4b` |
+| Variable   | Purpose             | Default   |
+| ---------- | ------------------- | --------- |
+| `HLVM_DIR` | HLVM data directory | `~/.hlvm` |
 
 ### Key File Paths
 

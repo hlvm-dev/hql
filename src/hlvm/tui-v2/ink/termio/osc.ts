@@ -6,8 +6,8 @@
 import { Buffer } from 'node:buffer'
 import { env } from '../../stubs/utils.ts'
 import { execFileNoThrow } from '../../stubs/utils.ts'
-import { BEL, ESC, ESC_TYPE, SEP } from './ansi.js'
-import type { Action, Color, TabStatusAction } from './types.js'
+import { BEL, ESC, ESC_TYPE, SEP } from './ansi.ts'
+import type { Action, Color, TabStatusAction } from './types.ts'
 
 export const OSC_PREFIX = ESC + String.fromCharCode(ESC_TYPE.OSC)
 

@@ -8,9 +8,13 @@ import React, { useMemo, useRef } from "react";
 import { Box, Text } from "ink";
 import { truncate } from "../../../../../common/utils.ts";
 import { useSemanticColors } from "../../../theme/index.ts";
-import { MarkdownDisplay } from "../markdown/index.ts";
 import type { AssistantCitation } from "../../types.ts";
 import { OPEN_LATEST_SOURCE_HINT } from "../../ui-constants.ts";
+import {
+  Markdown as DonorMarkdown,
+  StreamingMarkdown as DonorStreamingMarkdown,
+} from "../../../../tui-v2/markdown/Markdown.tsx";
+import { Ratchet } from "../../../../tui-v2/components/design-system/Ratchet.tsx";
 
 import { createIncrementalSanitizer } from "../../utils/sanitize-ansi.ts";
 import { getLiveConversationSpacing } from "./message-spacing.ts";
@@ -185,6 +189,10 @@ export const AssistantMessage = React.memo(function AssistantMessage(
   const sc = useSemanticColors();
 
   const contentWidth = Math.max(10, width - 3);
+  const bodyWidth = Math.max(
+    10,
+    width - TRANSCRIPT_LAYOUT.assistantBulletWidth,
+  );
   const sanitizeRef = useRef(createIncrementalSanitizer());
 
   const citationMemo = useMemo<{
@@ -235,35 +243,35 @@ export const AssistantMessage = React.memo(function AssistantMessage(
       <Box width={TRANSCRIPT_LAYOUT.assistantBulletWidth} flexShrink={0}>
         <Text color={sc.banner.bullet}>●</Text>
       </Box>
-      <Box
-        flexDirection="column"
-        flexGrow={1}
-      >
-        <MarkdownDisplay
-          text={citationMemo.citationView.text}
-          width={Math.max(
-            10,
-            width - TRANSCRIPT_LAYOUT.assistantBulletWidth,
-          )}
-          isPending={isPending}
-        />
-        {!isPending && citationMemo.sources.length > 0 && (
-          <Box flexDirection="column" marginTop={1}>
-            {citationMemo.compactSourceLines.map((
-              line: string,
-              index: number,
-            ) => (
-              <Box key={`${index}:${line}`}>
-                <Text
-                  color={index === 0 ? sc.text.secondary : sc.text.muted}
-                  wrap="wrap"
-                >
-                  {truncate(line, contentWidth, "…")}
-                </Text>
+      <Box flexGrow={1} flexShrink={1}>
+        <Ratchet lock="offscreen">
+          <Box flexDirection="column" width={bodyWidth}>
+            {isPending
+              ? (
+                <DonorStreamingMarkdown
+                  children={citationMemo.citationView.text}
+                />
+              )
+              : <DonorMarkdown children={citationMemo.citationView.text} />}
+            {!isPending && citationMemo.sources.length > 0 && (
+              <Box flexDirection="column" marginTop={1}>
+                {citationMemo.compactSourceLines.map((
+                  line: string,
+                  index: number,
+                ) => (
+                  <Box key={`${index}:${line}`}>
+                    <Text
+                      color={index === 0 ? sc.text.secondary : sc.text.muted}
+                      wrap="wrap"
+                    >
+                      {truncate(line, contentWidth, "…")}
+                    </Text>
+                  </Box>
+                ))}
               </Box>
-            ))}
+            )}
           </Box>
-        )}
+        </Ratchet>
       </Box>
     </Box>
   );

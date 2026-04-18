@@ -11,17 +11,11 @@ import { log } from "../../api/log.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { setCurrentThemeName } from "../theme/state.ts";
 import { setCustomKeybindingsSnapshot } from "./keybindings/custom-bindings.ts";
-import {
-  disableKittyKeyboardProtocol,
-  enableKittyKeyboardProtocol,
-  enterAlternateScreen,
-  exitAlternateScreen,
-  resetTerminalViewport,
-} from "../ansi.ts";
 import { REPL_RENDER_OPTIONS } from "./render-options.ts";
 
 export interface InkReplOptions {
   showBanner?: boolean;
+  debug?: boolean;
 }
 
 export async function startInkRepl(
@@ -32,38 +26,30 @@ export async function startInkRepl(
     return 1;
   }
 
-  const { showBanner = true } = options;
+  const { showBanner = true, debug = false } = options;
   const runtimeConfig = await createRuntimeConfigManager();
   const runtimeSnapshot = await runtimeConfig.sync();
   const initialTheme = setCurrentThemeName(runtimeConfig.getTheme());
   setCustomKeybindingsSnapshot(runtimeSnapshot.keybindings);
-  resetTerminalViewport();
-  enableKittyKeyboardProtocol();
-  enterAlternateScreen();
-  try {
-    const { waitUntilExit } = render(
-      <ThemeProvider initialTheme={initialTheme}>
-        <App
-          showBanner={showBanner}
-          initialConfig={runtimeSnapshot}
-        />
-      </ThemeProvider>,
-      REPL_RENDER_OPTIONS,
-    );
-    await waitUntilExit();
-    return 0;
-  } finally {
-    // Each cleanup is independent — one failing must not block the other,
-    // or the terminal is left in a broken state (alt screen or kitty mode).
-    try { exitAlternateScreen(); } catch { /* best-effort */ }
-    try { disableKittyKeyboardProtocol(); } catch { /* best-effort */ }
-  }
+  const { waitUntilExit } = render(
+    <ThemeProvider initialTheme={initialTheme}>
+      <App
+        debug={debug}
+        showBanner={showBanner}
+        initialConfig={runtimeSnapshot}
+      />
+    </ThemeProvider>,
+    REPL_RENDER_OPTIONS,
+  );
+  await waitUntilExit();
+  return 0;
 }
 
 if (import.meta.main) {
   const args = getPlatform().process.args();
 
   startInkRepl({
+    debug: args.includes("--debug"),
     showBanner: !args.includes("--no-banner"),
   }).then((code) => getPlatform().process.exit(code));
 }

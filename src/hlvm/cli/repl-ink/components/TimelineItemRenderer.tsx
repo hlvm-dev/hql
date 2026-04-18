@@ -7,11 +7,10 @@ import type {
   ShellHistoryEntry,
   StreamingState,
 } from "../types.ts";
-import {
-  StreamingState as ConversationStreamingState,
-} from "../types.ts";
+import { StreamingState as ConversationStreamingState } from "../types.ts";
 import {
   AssistantMessage,
+  DebugTraceLine,
   ErrorMessage,
   HqlEvalDisplay,
   InfoMessage,
@@ -207,6 +206,15 @@ export function TimelineItemRenderer(
   }
   if (item.type === "info") {
     return <InfoMessage text={item.text} />;
+  }
+  if (item.type === "debug_trace") {
+    return (
+      <DebugTraceLine
+        text={item.text}
+        depth={item.depth}
+        tone={item.tone}
+      />
+    );
   }
   if ((item as HqlEvalItem).type === "hql_eval") {
     const evalItem = item as HqlEvalItem;

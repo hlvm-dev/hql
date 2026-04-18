@@ -2,7 +2,7 @@
 import { c as _c } from '../../stubs/compiler-runtime.ts';
 import type { ReactNode } from 'react';
 import React from 'react';
-import type { Color, Styles, TextStyles } from '../styles.js';
+import type { Color, Styles, TextStyles } from '../styles.ts';
 type BaseProps = {
   /**
    * Change text color. Accepts a raw color value (rgb, hex, ansi).

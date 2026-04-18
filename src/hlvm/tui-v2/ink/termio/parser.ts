@@ -12,15 +12,15 @@
  */
 
 import { getGraphemeSegmenter } from '../../stubs/intl.ts'
-import { C0 } from './ansi.js'
-import { CSI, CURSOR_STYLES, ERASE_DISPLAY, ERASE_LINE_REGION } from './csi.js'
-import { DEC } from './dec.js'
-import { parseEsc } from './esc.js'
-import { parseOSC } from './osc.js'
-import { applySGR } from './sgr.js'
-import { createTokenizer, type Token, type Tokenizer } from './tokenize.js'
-import type { Action, Grapheme, TextStyle } from './types.js'
-import { defaultStyle } from './types.js'
+import { C0 } from './ansi.ts'
+import { CSI, CURSOR_STYLES, ERASE_DISPLAY, ERASE_LINE_REGION } from './csi.ts'
+import { DEC } from './dec.ts'
+import { parseEsc } from './esc.ts'
+import { parseOSC } from './osc.ts'
+import { applySGR } from './sgr.ts'
+import { createTokenizer, type Token, type Tokenizer } from './tokenize.ts'
+import type { Action, Grapheme, TextStyle } from './types.ts'
+import { defaultStyle } from './types.ts'
 
 // =============================================================================
 // Grapheme Utilities

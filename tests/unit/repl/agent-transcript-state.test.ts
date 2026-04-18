@@ -108,6 +108,37 @@ Deno.test("agent transcript state streams into the existing pending assistant it
   }
 });
 
+Deno.test("agent transcript state inserts debug trace lines before the pending assistant", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "user_message",
+    text: "trace this",
+    startTurn: true,
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "debug_trace",
+    lines: [
+      { depth: 0, text: "Run started", tone: "active" },
+      { depth: 1, text: "LLM call (12 messages)", tone: "muted" },
+    ],
+  });
+
+  assertEquals(
+    state.items.map((item) => item.type),
+    ["user", "debug_trace", "debug_trace", "assistant"],
+  );
+  assertEquals(state.items[1]?.type, "debug_trace");
+  if (state.items[1]?.type === "debug_trace") {
+    assertEquals(state.items[1].text, "Run started");
+    assertEquals(state.items[1].depth, 0);
+  }
+  assertEquals(state.items[2]?.type, "debug_trace");
+  if (state.items[2]?.type === "debug_trace") {
+    assertEquals(state.items[2].text, "LLM call (12 messages)");
+    assertEquals(state.items[2].depth, 1);
+  }
+});
+
 Deno.test("agent transcript state targets assistant streaming to the requested turn", () => {
   const state = {
     ...createTranscriptState(),
@@ -190,7 +221,9 @@ Deno.test("agent transcript state keeps one pending assistant per targeted turn"
   );
 
   assertEquals(
-    next.items.filter((item) => item.type === "assistant" && item.turnId === turnId).length,
+    next.items.filter((item) =>
+      item.type === "assistant" && item.turnId === turnId
+    ).length,
     1,
   );
   assertEquals(next.items.at(-1)?.type, "assistant");
@@ -1302,7 +1335,10 @@ Deno.test("agent transcript state tracks web-search progress and transcript summ
   });
 
   assertEquals(state.activeTool?.displayName, "Web Search");
-  assertEquals(state.activeTool?.progressText, "Searching: react 19 release notes");
+  assertEquals(
+    state.activeTool?.progressText,
+    "Searching: react 19 release notes",
+  );
 
   const startedGroup = state.items.find((item) => item.type === "tool_group");
   assertEquals(startedGroup?.type, "tool_group");

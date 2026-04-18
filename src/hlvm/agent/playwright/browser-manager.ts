@@ -14,6 +14,11 @@
  *   Layer 3: cu_* only          → native desktop, no browser
  */
 
+import { spawn } from "node:child_process";
+import type { ChildProcessByStdio } from "node:child_process";
+import type { Readable } from "node:stream";
+
+type ChromiumChildProcess = ChildProcessByStdio<null, Readable, Readable>;
 import { log } from "../../api/log.ts";
 import {
   resolveChromiumExecutablePath,
@@ -35,6 +40,7 @@ interface BrowserTraceState {
 
 interface BrowserSessionState {
   browser?: Browser;
+  browserProcess?: ChromiumChildProcess;
   context?: BrowserContext;
   page?: Page;
   isHeaded: boolean;
@@ -131,11 +137,149 @@ function _onDisconnected(sessionKey: string): void {
   clearSnapshotRefs(state);
   state.activeTrace = undefined;
   state.browser = undefined;
+  if (state.browserProcess) {
+    try {
+      state.browserProcess.kill("SIGTERM");
+    } catch { /* already dead */ }
+    state.browserProcess = undefined;
+  }
   state.context = undefined;
   state.page = undefined;
   state.launching = undefined;
   state.isHeaded = false;
   clearBrowserSessionState(sessionKey);
+}
+
+/**
+ * Launch Chromium ourselves and attach via `chromium.connectOverCDP()` instead
+ * of `chromium.launch()`. Playwright's default pipe transport (stdio FDs 3+4)
+ * deadlocks in Deno's `node:child_process` — the CDP response stream fires
+ * "data" events only after the pipe is closed, so the browser launch times out
+ * even though Chromium is running and responding. The WebSocket-based CDP
+ * transport does not have that problem.
+ */
+async function launchChromiumViaCdp(
+  chromiumPath: string,
+  options: {
+    headless: boolean;
+    extraArgs?: readonly string[];
+    readyTimeoutMs?: number;
+  },
+): Promise<{ browser: Browser; process: ChromiumChildProcess }> {
+  const userDataDir = await getPlatform().fs.makeTempDir({
+    prefix: "hlvm-chromium-",
+  });
+
+  // Mirror Playwright's own default Chromium switches so behaviour (hover/
+  // pointer semantics, sandbox posture, disabled crash features, etc.) matches
+  // what pw_* code expects — e.g. the `elementFromPoint`-based actionability
+  // check in src/hlvm/agent/playwright/actionability.ts relies on the hover/
+  // pointer blink-settings below.
+  const args = [
+    "--disable-field-trial-config",
+    "--disable-background-networking",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-back-forward-cache",
+    "--disable-breakpad",
+    "--disable-client-side-phishing-detection",
+    "--disable-component-extensions-with-background-pages",
+    "--disable-component-update",
+    "--no-default-browser-check",
+    "--disable-default-apps",
+    "--disable-dev-shm-usage",
+    "--disable-extensions",
+    "--disable-features=Translate,BackForwardCache,AcceptCHFrame,MediaRouter,OptimizationHints",
+    "--enable-features=CDPScreenshotNewSurface",
+    "--allow-pre-commit-input",
+    "--disable-hang-monitor",
+    "--disable-ipc-flooding-protection",
+    "--disable-popup-blocking",
+    "--disable-prompt-on-repost",
+    "--disable-renderer-backgrounding",
+    "--force-color-profile=srgb",
+    "--metrics-recording-only",
+    "--no-first-run",
+    "--password-store=basic",
+    "--use-mock-keychain",
+    "--no-service-autorun",
+    "--export-tagged-pdf",
+    "--disable-search-engine-choice-screen",
+    "--unsafely-disable-devtools-self-xss-warnings",
+    "--edge-skip-compat-layer-relaunch",
+    "--enable-automation",
+    "--disable-infobars",
+    "--disable-sync",
+    "--enable-unsafe-swiftshader",
+    "--no-sandbox",
+    "--remote-debugging-port=0",
+    `--user-data-dir=${userDataDir}`,
+    ...(options.headless
+      ? [
+        "--headless",
+        "--hide-scrollbars",
+        "--mute-audio",
+        "--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4",
+      ]
+      : []),
+    ...(options.extraArgs ?? []),
+  ];
+
+  const child = spawn(chromiumPath, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  const readyTimeoutMs = options.readyTimeoutMs ?? 30_000;
+  let wsEndpoint: string;
+  try {
+    wsEndpoint = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(
+          new Error(
+            `Chromium did not report a DevTools endpoint within ${readyTimeoutMs}ms`,
+          ),
+        );
+      }, readyTimeoutMs);
+
+      let stderrBuf = "";
+      child.stderr?.on("data", (data: Uint8Array) => {
+        stderrBuf += new TextDecoder().decode(data);
+        const match = stderrBuf.match(/DevTools listening on (ws:\/\/\S+)/);
+        if (match) {
+          clearTimeout(timer);
+          resolve(match[1]);
+        }
+      });
+      child.once("exit", (code, signal) => {
+        clearTimeout(timer);
+        reject(
+          new Error(
+            `Chromium exited before DevTools ready (code=${code}, signal=${signal}). Stderr: ${
+              stderrBuf.slice(0, 500)
+            }`,
+          ),
+        );
+      });
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+    });
+  } catch (error) {
+    try {
+      child.kill("SIGKILL");
+    } catch { /* best-effort */ }
+    throw error;
+  }
+
+  const { chromium } = await import("playwright-core");
+  const browser = await chromium.connectOverCDP(wsEndpoint);
+  browser.on("disconnected", () => {
+    try {
+      child.kill("SIGTERM");
+    } catch { /* already dead */ }
+  });
+  return { browser, process: child };
 }
 
 /**
@@ -209,18 +353,11 @@ async function _launchOrRecover(
     );
   }
 
-  const { chromium } = await import("playwright-core");
-
-  state.browser = await chromium.launch({
+  const { browser, process } = await launchChromiumViaCdp(chromiumPath, {
     headless: true,
-    executablePath: chromiumPath,
-    args: [
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--disable-background-networking",
-      "--disable-sync",
-    ],
   });
+  state.browser = browser;
+  state.browserProcess = process;
 
   state.context = await state.browser.newContext({
     viewport: { width: 1280, height: 720 },
@@ -296,6 +433,12 @@ export async function promoteToHeaded(
       await state.browser?.close();
     } catch { /* best-effort */ }
   }
+  if (state.browserProcess) {
+    try {
+      state.browserProcess.kill("SIGTERM");
+    } catch { /* already dead */ }
+    state.browserProcess = undefined;
+  }
   state.browser = undefined;
   state.context = undefined;
   state.page = undefined;
@@ -309,18 +452,11 @@ export async function promoteToHeaded(
     );
   }
 
-  const { chromium } = await import("playwright-core");
-
-  state.browser = await chromium.launch({
+  const promoted = await launchChromiumViaCdp(chromiumPath, {
     headless: false,
-    executablePath: chromiumPath,
-    args: [
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--disable-background-networking",
-      "--disable-sync",
-    ],
   });
+  state.browser = promoted.browser;
+  state.browserProcess = promoted.process;
 
   state.context = await state.browser.newContext(
     createBrowserContextOptions(storageState),
@@ -535,6 +671,12 @@ async function closeBrowserSession(
       }`,
     );
   }
+  if (state.browserProcess) {
+    try {
+      state.browserProcess.kill("SIGTERM");
+    } catch { /* already dead */ }
+    state.browserProcess = undefined;
+  }
   state.browser = undefined;
   state.context = undefined;
   state.page = undefined;
@@ -583,6 +725,11 @@ try {
   globalThis.addEventListener("unload", () => {
     for (const state of browserSessions.values()) {
       state.browser?.close().catch(() => {});
+      if (state.browserProcess) {
+        try {
+          state.browserProcess.kill("SIGKILL");
+        } catch { /* already dead */ }
+      }
     }
   });
 } catch { /* globalThis.addEventListener not available */ }

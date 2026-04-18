@@ -9,8 +9,8 @@ import {
   LayoutOverflow,
   LayoutPositionType,
   LayoutWrap,
-} from './layout/node.js'
-import type { BorderStyle, BorderTextOptions } from './render-border.js'
+} from './layout/node.ts'
+import type { BorderStyle, BorderTextOptions } from './render-border.ts'
 
 export type RGBColor = `rgb(${number},${number},${number})`
 export type HexColor = `#${string}`

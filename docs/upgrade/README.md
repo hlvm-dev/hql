@@ -2,7 +2,8 @@
 
 ## How It Works
 
-HLVM checks for new versions by querying the GitHub Releases API at startup. If a newer version exists, a notification banner is displayed in the TUI.
+HLVM checks for new versions by querying the GitHub Releases API at startup. If
+a newer version exists, a notification banner is displayed in the TUI.
 
 ```
 ╭──────────────────────────────────────────────╮
@@ -20,7 +21,8 @@ HLVM checks for new versions by querying the GitHub Releases API at startup. If 
 - Runs in the background during TUI initialization (non-blocking)
 - Never delays startup — if the check is slow or fails, nothing is shown
 - Results cached for 24 hours at `~/.hlvm/update-check.json`
-- Cache invalidated automatically when the local version changes (i.e., after upgrading)
+- Cache invalidated automatically when the local version changes (i.e., after
+  upgrading)
 
 ### API Endpoint
 
@@ -57,8 +59,8 @@ make build
 ### Manual Check
 
 ```sh
-hlvm upgrade --check   # Check only
-hlvm upgrade           # Check + show instructions
+hlvm update --check   # Check only
+hlvm update           # Check + install
 ```
 
 ## Opting Out
@@ -69,17 +71,18 @@ Set the environment variable to disable the startup check entirely:
 export HLVM_NO_UPDATE_CHECK=1
 ```
 
-No network requests will be made. The `hlvm upgrade` command still works independently.
+No network requests will be made. The `hlvm update` command still works
+independently.
 
 ## Cutting a New Release (Maintainers)
 
 ### 1. Bump version in 3 files
 
-| File | Field |
-|------|-------|
+| File                    | Field                            |
+| ----------------------- | -------------------------------- |
 | `src/common/version.ts` | `export const VERSION = "X.Y.Z"` |
-| `deno.json` | `"version": "X.Y.Z"` |
-| `Makefile` | `VERSION := X.Y.Z` |
+| `deno.json`             | `"version": "X.Y.Z"`             |
+| `Makefile`              | `VERSION := X.Y.Z`               |
 
 ### 2. Commit and tag
 
@@ -104,22 +107,23 @@ This triggers `.github/workflows/release.yml` which:
 5. Publishes the release (draft → live)
 6. Runs final public smoke tests
 
-After publication, every user's next HLVM launch (post cache expiry) shows the update banner.
+After publication, every user's next HLVM launch (post cache expiry) shows the
+update banner.
 
 ## Architecture
 
 ```
 update-check.ts          Core logic: cache, fetch, compare, build UpdateInfo
   ├─ checkForUpdate()    Main entry — cached, non-blocking, never-throw
-  ├─ fetchLatestRelease()  Shared by checkForUpdate() and `hlvm upgrade`
+  ├─ fetchLatestRelease()  Shared by checkForUpdate() and `hlvm update`
   ├─ isNewer()           Semver comparison via @std/semver
-  └─ getUpgradeCommand() Platform detection (curl vs irm)
+  └─ getInstallerCommand() Platform detection (curl vs irm)
 
 UpdateBanner.tsx         Ink component — bordered box with version diff
 useInitialization.ts     Fires checkForUpdate() in parallel with other init
 App.tsx                  Renders <UpdateBanner> between logo and conversation
 
-upgrade.ts               CLI command `hlvm upgrade` — reuses fetchLatestRelease()
+upgrade.ts               CLI command `hlvm update` — reuses fetchLatestRelease()
 ```
 
 ### Cache Format
@@ -136,5 +140,6 @@ upgrade.ts               CLI command `hlvm upgrade` — reuses fetchLatestReleas
 ```
 
 Cache is valid when:
+
 - `current` matches the running binary's `VERSION`
 - `checked_at` is within 24 hours

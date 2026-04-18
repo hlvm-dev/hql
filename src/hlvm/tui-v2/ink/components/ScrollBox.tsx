@@ -2,12 +2,11 @@
 import React, { type PropsWithChildren, type Ref, useImperativeHandle, useRef, useState } from 'react';
 import type { Except } from 'type-fest';
 import { markScrollActivity } from '../../stubs/state.ts';
-import type { DOMElement } from '../dom.js';
-import { markDirty, scheduleRenderFrom } from '../dom.js';
-import { markCommitStart } from '../reconciler.js';
-import type { Styles } from '../styles.js';
-import '../global.d.ts';
-import Box from './Box.js';
+import type { DOMElement } from '../dom.ts';
+import { markDirty, scheduleRenderFrom } from '../dom.ts';
+import { markCommitStart } from '../reconciler.ts';
+import type { Styles } from '../styles.ts';
+import Box from './Box.tsx';
 export type ScrollBoxHandle = {
   scrollTo: (y: number) => void;
   scrollBy: (dy: number) => void;

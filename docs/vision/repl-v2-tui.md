@@ -337,10 +337,9 @@ sleep 1
 pbpaste   # must print the 11-char slice, not SENTINEL
 ```
 
-For deeper diagnostic runs, set `HLVM_COPY_DEBUG=/tmp/copy.log` before
-launching — the hook used to write per-notification trace lines there.
-That instrumentation has since been removed from the production hook;
-re-add locally if further investigation is needed, don't ship it.
+For deeper diagnostic runs, re-add local copy trace instrumentation if needed;
+that hook has been removed from the production path and should stay out of
+shipped builds.
 
 Note on the visible beep: macOS Terminal still beeps on Cmd+C when it
 has no *native* selection (mouse tracking ate the drag). CC exhibits

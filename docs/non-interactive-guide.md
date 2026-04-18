@@ -145,14 +145,14 @@ pipeline {
   agent any
 
   environment {
-    HLVM_MODEL = 'anthropic/claude-sonnet-4-5-20250929'
+    MODEL = 'anthropic/claude-sonnet-4-5-20250929'
   }
 
   stages {
     stage('Code Analysis') {
       steps {
         sh '''
-          hlvm ask -p --model $HLVM_MODEL \
+          hlvm ask -p --model $MODEL \
             "analyze changes for potential bugs" \
             > analysis.txt
           cat analysis.txt

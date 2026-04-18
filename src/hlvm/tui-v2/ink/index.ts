@@ -9,9 +9,17 @@ export { default as Box } from "./components/Box.tsx";
 export type { Props as BoxProps } from "./components/Box.tsx";
 export { default as Text } from "./components/Text.tsx";
 export type { Props as TextProps } from "./components/Text.tsx";
-export type { Key } from "./events/input-event.js";
+export {
+  renderSync as render,
+  type Instance,
+  type RenderOptions,
+  type Root,
+} from "./root.ts";
+export type { Key } from "./events/input-event.ts";
 export { default as useInput } from "./hooks/use-input.ts";
 export { default as useApp } from "./hooks/use-app.ts";
+export type { DOMElement } from "./dom.ts";
+export { default as measureElement } from "./measure-element.ts";
 // Minimal `useStdout` shim compatible with v1 components reused via this
 // barrel (e.g. `repl-ink/components/Banner.tsx` reads columns/rows).
 // The shim returns the v2 terminal-size context augmented with a

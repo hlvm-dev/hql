@@ -10,7 +10,7 @@
  */
 
 import { log } from "../api/log.ts";
-import { ensureRuntimeDir, getRuntimeDir } from "../../common/paths.ts";
+import { getRuntimeDir } from "../../common/paths.ts";
 import { getPlatform } from "../../platform/platform.ts";
 
 // ── Paths ────────────────────────────────────────────────────────────────
@@ -22,15 +22,17 @@ export function getChromiumDir(): string {
   return getPlatform().path.join(getRuntimeDir(), CHROMIUM_DIR_NAME);
 }
 
+// playwright-core reads PLAYWRIGHT_BROWSERS_PATH once on module load, so it
+// must be set before any `import "playwright-core"` runs. Every code path that
+// touches Playwright (browser-manager, playwright-support, bootstrap) imports
+// this module first, so keying it here keeps the managed directory authoritative.
+getPlatform().env.set("PLAYWRIGHT_BROWSERS_PATH", getChromiumDir());
+
 /**
- * Find the Chromium executable inside the managed directory.
- *
- * Playwright's layout (as of v1.50+):
- *   macOS:   chromium-<rev>/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing
- *   Linux:   chromium-<rev>/chrome-linux/chrome
- *   Windows: chromium-<rev>/chrome-win/chrome.exe
- *
- * Recursively searches for known executable names.
+ * Resolve the Chromium executable for the revision expected by the installed
+ * playwright-core. Returns null when the expected revision is missing — which
+ * forces a fresh download instead of launching a stale binary against a newer
+ * Playwright (that mismatch hangs browser launch indefinitely).
  */
 export async function resolveChromiumExecutablePath(
   platform = getPlatform(),
@@ -38,63 +40,21 @@ export async function resolveChromiumExecutablePath(
   const chromiumDir = getChromiumDir();
   if (!await platform.fs.exists(chromiumDir)) return null;
 
-  const os = platform.build.os;
-
-  // Use `find` to locate the executable — Playwright's directory structure
-  // varies by version and platform, so scanning is more reliable than hardcoding.
-  if (os === "darwin") {
-    // Look for the .app bundle's main executable
-    try {
-      const result = await platform.command.output({
-        cmd: [
-          "find", chromiumDir,
-          "-path", "*/Contents/MacOS/Google Chrome for Testing",
-          "-type", "f",
-        ],
-        stdin: "null",
-        stdout: "piped",
-        stderr: "piped",
-      });
-      const stdout = new TextDecoder().decode(result.stdout).trim();
-      if (stdout) return stdout.split("\n")[0];
-    } catch { /* fall through */ }
-
-    // Legacy: Chromium.app (older Playwright versions)
-    try {
-      const result = await platform.command.output({
-        cmd: [
-          "find", chromiumDir,
-          "-path", "*/Contents/MacOS/Chromium",
-          "-type", "f",
-        ],
-        stdin: "null",
-        stdout: "piped",
-        stderr: "piped",
-      });
-      const stdout = new TextDecoder().decode(result.stdout).trim();
-      if (stdout) return stdout.split("\n")[0];
-    } catch { /* fall through */ }
-  } else {
-    // Linux/Windows: look for chrome or chrome.exe
-    const binName = os === "windows" ? "chrome.exe" : "chrome";
-    try {
-      const result = await platform.command.output({
-        cmd: ["find", chromiumDir, "-name", binName, "-type", "f"],
-        stdin: "null",
-        stdout: "piped",
-        stderr: "piped",
-      });
-      const stdout = new TextDecoder().decode(result.stdout).trim();
-      if (stdout) {
-        // Pick the shortest path (main binary, not helpers)
-        const paths = stdout.split("\n").filter(Boolean);
-        paths.sort((a, b) => a.length - b.length);
-        return paths[0];
-      }
-    } catch { /* fall through */ }
+  try {
+    const { registry } = await import("playwright-core/lib/server");
+    const entry = registry.findExecutable("chromium");
+    const execPath = entry?.executablePath?.();
+    if (!execPath) return null;
+    if (!await platform.fs.exists(execPath)) return null;
+    return execPath;
+  } catch (error) {
+    log.debug?.(
+      `Failed to resolve Chromium via playwright-core registry: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return null;
   }
-
-  return null;
 }
 
 /** Quick check: is a usable Chromium binary available? */

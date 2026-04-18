@@ -11,10 +11,10 @@ import { http } from "../../../common/http-client.ts";
 import { getHlvmDir } from "../../../common/paths.ts";
 import {
   join,
-  readTextFile,
-  writeTextFile,
   platformGetEnv,
   platformOs,
+  readTextFile,
+  writeTextFile,
 } from "./platform-helpers.ts";
 import { DEFAULT_GITHUB_RELEASES_URL } from "../../../common/config/types.ts";
 
@@ -28,7 +28,7 @@ export interface UpdateInfo {
   current: string;
   latest: string;
   releaseUrl: string;
-  upgradeCommand: string;
+  updateCommand: string;
 }
 
 interface UpdateCache {
@@ -43,12 +43,15 @@ export function isNewer(latest: string, current: string): boolean {
   return compareVersions(latest, current) > 0;
 }
 
-/** Platform-appropriate upgrade command. */
-export function getUpgradeCommand(): string {
+export function getUpdateCommand(): string {
+  return "hlvm update";
+}
+
+export function getInstallerCommand(): string {
   const os = platformOs();
   return os === "windows"
-    ? "irm hlvm.dev/install.ps1 | iex"
-    : "curl -fsSL hlvm.dev/install.sh | sh";
+    ? "irm https://hlvm.dev/install.ps1 | iex"
+    : "curl -fsSL https://hlvm.dev/install.sh | sh";
 }
 
 /** Fetch the latest release version and URL from GitHub. */
@@ -92,7 +95,12 @@ async function writeCache(cache: UpdateCache): Promise<void> {
 }
 
 function buildUpdateInfo(latest: string, releaseUrl: string): UpdateInfo {
-  return { current: VERSION, latest, releaseUrl, upgradeCommand: getUpgradeCommand() };
+  return {
+    current: VERSION,
+    latest,
+    releaseUrl,
+    updateCommand: getUpdateCommand(),
+  };
 }
 
 /**

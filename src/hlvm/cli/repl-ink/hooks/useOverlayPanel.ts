@@ -7,14 +7,12 @@ import {
   type MutableRefObject,
   type SetStateAction,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import type { PaletteState } from "../components/CommandPaletteOverlay.tsx";
 import type { ConfigOverlayState } from "../components/ConfigOverlay.tsx";
-import { resetTerminalViewport } from "../../ansi.ts";
 
 export type SurfacePanel =
   | "none"
@@ -159,17 +157,6 @@ export function useOverlayPanel(
   >({
     selectedIndex: 0,
   });
-
-  // Reset terminal viewport when overlay changes
-  const previousOverlayRef = useRef<OverlayPanel>("none");
-  useLayoutEffect(() => {
-    if (previousOverlayRef.current === activeOverlay) return;
-    // Raw ANSI overlays draw in passive effects. Reset the viewport during the
-    // layout phase so the first overlay frame is not immediately wiped and left
-    // waiting for a later keypress-driven redraw.
-    resetTerminalViewport();
-    previousOverlayRef.current = activeOverlay;
-  }, [activeOverlay]);
 
   // Show model setup overlay if default model needs to be downloaded (only once)
   useEffect(() => {

@@ -18,6 +18,7 @@ import { callLLMWithModelFallback } from "../../src/hlvm/agent/auto-select.ts";
 import type { LLMFunction } from "../../src/hlvm/agent/orchestrator-llm.ts";
 import { collectChat } from "../../src/hlvm/runtime/local-llm.ts";
 import type { LLMResponse } from "../../src/hlvm/agent/tool-call.ts";
+import { withExclusiveTestResource } from "../shared/light-helpers.ts";
 
 // ---------------------------------------------------------------------------
 // Availability gate — auto-skip if gemma4 is not running
@@ -51,13 +52,15 @@ function e2e(name: string, fn: () => Promise<void>) {
     sanitizeOps: false,
     sanitizeResources: false,
     fn: async () => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TIMEOUT);
-      try {
-        await fn();
-      } finally {
-        clearTimeout(timer);
-      }
+      await withExclusiveTestResource("local-llm-runtime", async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TIMEOUT);
+        try {
+          await fn();
+        } finally {
+          clearTimeout(timer);
+        }
+      });
     },
   });
 }

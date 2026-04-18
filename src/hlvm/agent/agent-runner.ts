@@ -1348,6 +1348,7 @@ export async function runAgentQuery(
           model: await resolveLocalFallbackModelId(),
           isAvailable: isLocalFallbackReady,
         },
+        fixtureBacked: !!options.fixturePath,
       } satisfies OrchestratorConfig;
       loopResult = await runReActLoop(
         query,

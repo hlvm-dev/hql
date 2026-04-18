@@ -1,4 +1,4 @@
-import { TerminalEvent } from "./terminal-event.js";
+import { TerminalEvent } from "./terminal-event.ts";
 
 export class PasteEvent extends TerminalEvent {
   readonly text: string;

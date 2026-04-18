@@ -1,24 +1,16 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { useInput, useStdout } from "ink";
+import React, { useEffect, useMemo, useState } from "react";
+import { Box, Text, useInput, useStdout } from "ink";
 import { truncate } from "../../../../common/utils.ts";
-import { useTheme } from "../../theme/index.ts";
+import { useSemanticColors, useTheme } from "../../theme/index.ts";
 import {
-  clearOverlay,
-  createModalOverlayScaffold,
   resolveOverlayFrame,
   type RGB,
-  shouldClearOverlay,
   themeToOverlayColors,
-  writeToTerminal,
 } from "../overlay/index.ts";
 import type { HqlEvalItem, ShellHistoryEntry } from "../types.ts";
 import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
+import { OverlayBalancedRow, OverlayModal } from "./OverlayModal.tsx";
+import { buildSectionLabelText } from "../utils/display-chrome.ts";
 
 interface TranscriptViewerOverlayProps {
   historyItems: ShellHistoryEntry[];
@@ -350,6 +342,7 @@ export function TranscriptViewerOverlay(
 ): React.ReactElement | null {
   const { stdout } = useStdout();
   const { theme } = useTheme();
+  const sc = useSemanticColors();
   const [showAll, setShowAll] = useState(false);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [isSearching, setIsSearching] = useState(initialSearchActive);
@@ -366,9 +359,8 @@ export function TranscriptViewerOverlay(
       }),
     [requestedWidth, terminalHeight, terminalWidth],
   );
-  const contentWidth = Math.max(24, overlayFrame.width - 6);
+  const contentWidth = Math.max(24, overlayFrame.width - 8);
   const colors = useMemo(() => themeToOverlayColors(theme), [theme]);
-  const previousFrameRef = useRef<typeof overlayFrame | null>(null);
   const items = useMemo(
     () => filterRenderableTimelineItems([...historyItems, ...liveItems]),
     [historyItems, liveItems],
@@ -420,141 +412,6 @@ export function TranscriptViewerOverlay(
   useEffect(() => {
     setScrollOffset(0);
   }, [searchQuery]);
-
-  const drawOverlay = useCallback(() => {
-    if (shouldClearOverlay(previousFrameRef.current, overlayFrame)) {
-      clearOverlay(previousFrameRef.current);
-    }
-    previousFrameRef.current = overlayFrame;
-
-    const surface = createModalOverlayScaffold({
-      frame: overlayFrame,
-      colors,
-      title: "Conversation history",
-      rightText: "esc close",
-    });
-    surface.blankRows(overlayFrame.y, overlayFrame.height);
-
-    const headerMode = showAll ? "expanded" : "compact";
-    surface.balancedRow(
-      overlayFrame.y + 1,
-      `Entries ${items.length} · ${headerMode}`,
-      showAll ? "Ctrl+E compact" : "Ctrl+E expand",
-      contentWidth,
-      {
-        paddingLeft: 3,
-        leftColor: colors.fieldText,
-        rightColor: colors.meta,
-        leftBold: true,
-      },
-    );
-    if (isSearching) {
-      const searchLabel = searchQuery
-        ? `Search: ${truncate(searchQuery, contentWidth - 20, "…")}`
-        : "Search: type to filter";
-      surface.textRow(
-        overlayFrame.y + 2,
-        truncate(searchLabel, contentWidth, "…"),
-        { paddingLeft: 3, color: searchQuery ? colors.accent : colors.meta },
-      );
-      surface.textRow(
-        overlayFrame.y + 3,
-        truncate("Esc cancel search · Enter close search", contentWidth, "…"),
-        { paddingLeft: 3, color: colors.meta },
-      );
-    } else {
-      surface.textRow(
-        overlayFrame.y + 2,
-        items.length > 0
-          ? truncate(
-            `Showing ${
-              Math.min(displayLines.length, visibleRows)
-            } of ${displayLines.length} visible transcript lines`,
-            contentWidth,
-            "…",
-          )
-          : "No transcript entries yet.",
-        { paddingLeft: 3, color: colors.meta },
-      );
-    }
-    surface.sectionRow(overlayFrame.y + 4, "Transcript", contentWidth, {
-      paddingLeft: 3,
-    });
-
-    const visibleLines = displayLines.slice(
-      scrollOffset,
-      scrollOffset + visibleRows,
-    );
-    for (let index = 0; index < visibleRows; index++) {
-      const line = visibleLines[index];
-      const rowY = contentStartY + index;
-      if (!line) {
-        surface.blankRow(rowY);
-        continue;
-      }
-      surface.textRow(
-        rowY,
-        truncate(line.text, contentWidth, "…"),
-        {
-          paddingLeft: 3,
-          color: line.color,
-          bold: line.bold,
-        },
-      );
-    }
-
-    const footerHint = isSearching
-      ? "Esc cancel search · Enter close search"
-      : displayLines.length > visibleRows
-      ? "↑/↓ scroll · Ctrl+R search · Ctrl+E toggle"
-      : "Ctrl+R search · Ctrl+E toggle detail density";
-    surface.textRow(
-      footerY,
-      truncate(footerHint, contentWidth, "…"),
-      { paddingLeft: 3, color: colors.footer },
-    );
-    surface.balancedRow(
-      footerY + 1,
-      scrollOffset > 0 ? `${scrollOffset} lines above` : "",
-      displayLines.length > 0
-        ? `${scrollOffset + 1}-${
-          Math.min(displayLines.length, scrollOffset + visibleRows)
-        }/${displayLines.length}`
-        : "empty",
-      contentWidth,
-      {
-        paddingLeft: 3,
-        leftColor: colors.meta,
-        rightColor: colors.footer,
-      },
-    );
-
-    writeToTerminal(surface.finish());
-  }, [
-    colors,
-    contentLines,
-    contentStartY,
-    contentWidth,
-    displayLines,
-    footerY,
-    isSearching,
-    items.length,
-    overlayFrame,
-    scrollOffset,
-    searchQuery,
-    showAll,
-    visibleRows,
-  ]);
-
-  useEffect(() => {
-    drawOverlay();
-  }, [drawOverlay]);
-
-  useEffect(() => () => {
-    if (previousFrameRef.current) {
-      clearOverlay(previousFrameRef.current);
-    }
-  }, []);
 
   useInput((input, key) => {
     const lowerInput = input.toLowerCase();
@@ -624,5 +481,109 @@ export function TranscriptViewerOverlay(
     }
   });
 
-  return null;
+  const headerMode = showAll ? "expanded" : "compact";
+  const visibleLines = displayLines.slice(
+    scrollOffset,
+    scrollOffset + visibleRows,
+  );
+  const footerHint = isSearching
+    ? "Esc cancel search · Enter close search"
+    : displayLines.length > visibleRows
+    ? "↑/↓ scroll · Ctrl+R search · Ctrl+E toggle"
+    : "Ctrl+R search · Ctrl+E toggle detail density";
+
+  return (
+    <OverlayModal
+      title="Conversation history"
+      rightText="esc close"
+      width={overlayFrame.width}
+      minHeight={overlayFrame.height}
+    >
+      <Box paddingLeft={3} flexDirection="column">
+        <OverlayBalancedRow
+          leftText={`Entries ${items.length} · ${headerMode}`}
+          rightText={showAll ? "Ctrl+E compact" : "Ctrl+E expand"}
+          width={contentWidth}
+          leftColor={sc.text.primary}
+          rightColor={sc.text.muted}
+          leftBold
+        />
+        {isSearching
+          ? (
+            <>
+              <Text
+                color={searchQuery ? sc.footer.status.active : sc.text.muted}
+                wrap="truncate-end"
+              >
+                {truncate(
+                  searchQuery
+                    ? `Search: ${searchQuery}`
+                    : "Search: type to filter",
+                  contentWidth,
+                  "…",
+                )}
+              </Text>
+              <Text color={sc.text.muted} wrap="truncate-end">
+                {truncate(
+                  "Esc cancel search · Enter close search",
+                  contentWidth,
+                  "…",
+                )}
+              </Text>
+            </>
+          )
+          : (
+            <Text color={sc.text.muted} wrap="truncate-end">
+              {items.length > 0
+                ? truncate(
+                  `Showing ${Math.min(displayLines.length, visibleRows)} of ${
+                    displayLines.length
+                  } visible transcript lines`,
+                  contentWidth,
+                  "…",
+                )
+                : "No transcript entries yet."}
+            </Text>
+          )}
+        <Text color={sc.chrome.sectionLabel}>
+          {buildSectionLabelText("Transcript", contentWidth)}
+        </Text>
+      </Box>
+
+      <Box paddingLeft={3} flexDirection="column">
+        {visibleLines.map((line: TranscriptOverlayLine, index: number) => (
+          <Box key={`${index}:${line.text}`}>
+            <Text
+              color={rgbToHex(line.color)}
+              bold={line.bold}
+              wrap="truncate-end"
+            >
+              {truncate(line.text, contentWidth, "…")}
+            </Text>
+          </Box>
+        ))}
+      </Box>
+
+      <Box paddingLeft={3} flexDirection="column">
+        <Text color={sc.footer.status.active} wrap="truncate-end">
+          {truncate(footerHint, contentWidth, "…")}
+        </Text>
+        <OverlayBalancedRow
+          leftText={scrollOffset > 0 ? `${scrollOffset} lines above` : ""}
+          rightText={displayLines.length > 0
+            ? `${scrollOffset + 1}-${
+              Math.min(displayLines.length, scrollOffset + visibleRows)
+            }/${displayLines.length}`
+            : "empty"}
+          width={contentWidth}
+          leftColor={sc.text.muted}
+          rightColor={sc.footer.status.active}
+        />
+      </Box>
+    </OverlayModal>
+  );
+}
+
+function rgbToHex([r, g, b]: RGB): string {
+  return `#${[r, g, b].map((part) => part.toString(16).padStart(2, "0")).join("")}`;
 }

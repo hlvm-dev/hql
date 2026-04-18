@@ -4,21 +4,46 @@
 
 ## Preface
 
-HQL -- the High-Level Query Language -- is a programming language inspired by Swift and Clojure, compiling down to the JavaScript ecosystem.
+HQL -- the High-Level Query Language -- is a programming language inspired by
+Swift and Clojure, compiling down to the JavaScript ecosystem.
 
-HQL uses S-expression syntax -- the parenthesized notation that has powered Lisps for over sixty years -- but compiles to standard JavaScript that runs anywhere. It brings the functional elegance of Clojure -- lazy sequences, immutable-by-default data, a rich standard library built on the sequence abstraction -- together with Swift's emphasis on clarity and safety, all targeting the pragmatic JavaScript ecosystem. TypeScript types are first-class citizens, not an afterthought.
+HQL uses S-expression syntax -- the parenthesized notation that has powered
+Lisps for over sixty years -- but compiles to standard JavaScript that runs
+anywhere. It brings the functional elegance of Clojure -- lazy sequences,
+immutable-by-default data, a rich standard library built on the sequence
+abstraction -- together with Swift's emphasis on clarity and safety, all
+targeting the pragmatic JavaScript ecosystem. TypeScript types are first-class
+citizens, not an afterthought.
 
-The core principle is homoiconicity: code is data, and data is code. Every HQL program is a data structure -- a nested list of symbols, numbers, strings, and other lists. This property, shared by all Lisps, enables macros that transform code as naturally as functions transform data. It makes metaprogramming not a special feature but a natural consequence of the language's design.
+The core principle is homoiconicity: code is data, and data is code. Every HQL
+program is a data structure -- a nested list of symbols, numbers, strings, and
+other lists. This property, shared by all Lisps, enables macros that transform
+code as naturally as functions transform data. It makes metaprogramming not a
+special feature but a natural consequence of the language's design.
 
-HQL is not a walled garden. It interoperates freely with JavaScript: you can call any JavaScript function, use any npm package, access browser APIs, or run on Deno and Node.js. The boundary between HQL and JavaScript is thin and permeable by design.
+HQL is not a walled garden. It interoperates freely with JavaScript: you can
+call any JavaScript function, use any npm package, access browser APIs, or run
+on Deno and Node.js. The boundary between HQL and JavaScript is thin and
+permeable by design.
 
-This book follows the tradition of Kernighan and Ritchie's *The C Programming Language*: it teaches by example, progresses from simple to complex, and respects the reader's intelligence. Part I is a tutorial introduction that covers the essential features through working programs. Parts II through IV cover the language in full detail: advanced features, the type system, macros, modules, JavaScript interop, and the standard library.
+This book follows the tradition of Kernighan and Ritchie's _The C Programming
+Language_: it teaches by example, progresses from simple to complex, and
+respects the reader's intelligence. Part I is a tutorial introduction that
+covers the essential features through working programs. Parts II through IV
+cover the language in full detail: advanced features, the type system, macros,
+modules, JavaScript interop, and the standard library.
 
 ### Who This Book Is For
 
-This book assumes you know how to program. Familiarity with JavaScript is helpful but not required -- HQL syntax is different enough that prior JavaScript knowledge is a convenience, not a prerequisite. If you know any programming language, you can learn HQL from this book.
+This book assumes you know how to program. Familiarity with JavaScript is
+helpful but not required -- HQL syntax is different enough that prior JavaScript
+knowledge is a convenience, not a prerequisite. If you know any programming
+language, you can learn HQL from this book.
 
-If you have experience with Lisp, Clojure, or Scheme, much of the syntax will feel natural. If you come from Python, Ruby, or Java, the parenthesized notation may take a few hours to get used to. Either way, by the end of Chapter 3, the syntax will be second nature.
+If you have experience with Lisp, Clojure, or Scheme, much of the syntax will
+feel natural. If you come from Python, Ruby, or Java, the parenthesized notation
+may take a few hours to get used to. Either way, by the end of Chapter 3, the
+syntax will be second nature.
 
 ### Conventions
 
@@ -39,7 +64,8 @@ function add(a, b) {
 }
 ```
 
-The REPL prompt appears as `hlvm>` for interactive examples. Shell commands use `$` as the prompt.
+The REPL prompt appears as `hlvm>` for interactive examples. Shell commands use
+`$` as the prompt.
 
 ---
 
@@ -57,7 +83,9 @@ The first program in any language prints a greeting. In HQL:
 (print "Hello, World!")
 ```
 
-This is a complete program. The outer parentheses delimit a function call. `print` is the function name. `"Hello, World!"` is the argument. In HQL, as in all Lisps, the operator always comes first, followed by its arguments.
+This is a complete program. The outer parentheses delimit a function call.
+`print` is the function name. `"Hello, World!"` is the argument. In HQL, as in
+all Lisps, the operator always comes first, followed by its arguments.
 
 To run this program, save it as `hello.hql` and execute:
 
@@ -73,9 +101,12 @@ $ hlvm run -e '(print "Hello, World!")'
 Hello, World!
 ```
 
-The `print` function prints its argument followed by a newline -- it is shorthand for `console.log` in JavaScript. HQL also provides `print`, which behaves identically. Both are available globally without imports.
+The `print` function prints its argument followed by a newline -- it is
+shorthand for `console.log` in JavaScript. HQL also provides `print`, which
+behaves identically. Both are available globally without imports.
 
-Let us look at a slightly more interesting program. This one converts a temperature from Fahrenheit to Celsius:
+Let us look at a slightly more interesting program. This one converts a
+temperature from Fahrenheit to Celsius:
 
 ```lisp
 ;; fahrenheit.hql -- print Fahrenheit-Celsius table
@@ -84,9 +115,19 @@ Let us look at a slightly more interesting program. This one converts a temperat
   (print fahr "\t" celsius))
 ```
 
-This introduces several features at once. The `for` loop iterates `fahr` from 0 to 300 in steps of 20. Inside the loop, `let` binds the name `celsius` to a computed value. The arithmetic operators `*`, `-`, and `/` follow prefix notation: `(- fahr 32)` means `fahr - 32`. The `print` call prints both values separated by a tab.
+This introduces several features at once. The `for` loop iterates `fahr` from 0
+to 300 in steps of 20. Inside the loop, `let` binds the name `celsius` to a
+computed value. The arithmetic operators `*`, `-`, and `/` follow prefix
+notation: `(- fahr 32)` means `fahr - 32`. The `print` call prints both values
+separated by a tab.
 
-Several points about this program are worth noting. In HQL, all code lives inside S-expressions -- forms delimited by parentheses where the first element is the operator or function name. There are no infix operators: `a + b` is written `(+ a b)`. There are no curly braces for blocks: the structure of the code is defined by the parentheses themselves. And there is no statement/expression distinction: everything is an expression that returns a value.
+Several points about this program are worth noting. In HQL, all code lives
+inside S-expressions -- forms delimited by parentheses where the first element
+is the operator or function name. There are no infix operators: `a + b` is
+written `(+ a b)`. There are no curly braces for blocks: the structure of the
+code is defined by the parentheses themselves. And there is no
+statement/expression distinction: everything is an expression that returns a
+value.
 
 #### 1.2 The REPL
 
@@ -109,7 +150,8 @@ hlvm> (print "Hello from the REPL!")
 Hello from the REPL!
 ```
 
-The REPL is the fastest way to experiment with the language. You can define functions, build data structures, and test ideas interactively:
+The REPL is the fastest way to experiment with the language. You can define
+functions, build data structures, and test ideas interactively:
 
 ```lisp
 hlvm> (fn square [x] (* x x))
@@ -121,11 +163,13 @@ hlvm> (map square [1 2 3 4 5])
 (1 4 9 16 25)
 ```
 
-Notice that `map` returns a lazy sequence, printed in parentheses rather than brackets. We will return to this distinction in Chapter 10.
+Notice that `map` returns a lazy sequence, printed in parentheses rather than
+brackets. We will return to this distinction in Chapter 10.
 
 #### 1.3 Running Programs
 
-HQL programs are stored in files with the `.hql` extension. There are three ways to work with them:
+HQL programs are stored in files with the `.hql` extension. There are three ways
+to work with them:
 
 **Run directly:**
 
@@ -141,7 +185,8 @@ This transpiles the program to JavaScript and executes it immediately.
 $ hlvm compile program.hql
 ```
 
-This produces a `.js` file that can be run with any JavaScript runtime. For production builds, add the `--release` flag:
+This produces a `.js` file that can be run with any JavaScript runtime. For
+production builds, add the `--release` flag:
 
 ```
 $ hlvm compile program.hql --release
@@ -158,7 +203,8 @@ This is convenient for one-liners and testing.
 
 #### 1.4 Your First Functions
 
-Functions are the primary building blocks of HQL programs. Here is a function that greets a person by name:
+Functions are the primary building blocks of HQL programs. Here is a function
+that greets a person by name:
 
 ```lisp
 (fn greet [name]
@@ -168,7 +214,11 @@ Functions are the primary building blocks of HQL programs. Here is a function th
 (print (greet "Alice"))     ;; Hello, Alice!
 ```
 
-The `fn` form declares a function. `greet` is the function name. `[name]` is the parameter list -- square brackets hold positional parameters. The body is `(str "Hello, " name "!")`, which concatenates three strings. The function implicitly returns the value of its last expression; no explicit `return` is needed.
+The `fn` form declares a function. `greet` is the function name. `[name]` is the
+parameter list -- square brackets hold positional parameters. The body is
+`(str "Hello, " name "!")`, which concatenates three strings. The function
+implicitly returns the value of its last expression; no explicit `return` is
+needed.
 
 Functions with multiple parameters work as you would expect:
 
@@ -179,7 +229,8 @@ Functions with multiple parameters work as you would expect:
 (print (add 3 4))    ;; 7
 ```
 
-You can write anonymous functions -- functions without names -- for use as arguments to higher-order functions:
+You can write anonymous functions -- functions without names -- for use as
+arguments to higher-order functions:
 
 ```lisp
 (map (fn [x] (* x x)) [1 2 3 4 5])
@@ -193,11 +244,14 @@ And HQL provides a shorthand for the most common case -- a terse arrow lambda:
 ;; => (1 4 9 16 25)
 ```
 
-The `=>` form creates a compact anonymous function. `$0` refers to the first argument, `$1` to the second, and so on. This is especially useful in `map`, `filter`, and `reduce` pipelines.
+The `=>` form creates a compact anonymous function. `$0` refers to the first
+argument, `$1` to the second, and so on. This is especially useful in `map`,
+`filter`, and `reduce` pipelines.
 
 #### 1.5 A Taste of Collections
 
-HQL has three primary collection types, all expressed as literals in the source code.
+HQL has three primary collection types, all expressed as literals in the source
+code.
 
 **Vectors** (arrays) use square brackets:
 
@@ -207,7 +261,8 @@ HQL has three primary collection types, all expressed as literals in the source 
 [true false nil]
 ```
 
-Elements are separated by whitespace. Commas are optional and treated as whitespace:
+Elements are separated by whitespace. Commas are optional and treated as
+whitespace:
 
 ```lisp
 [1, 2, 3]    ;; same as [1 2 3]
@@ -219,7 +274,8 @@ Elements are separated by whitespace. Commas are optional and treated as whitesp
 {name: "Alice" age: 30 city: "Seoul"}
 ```
 
-The colon-style keys are the preferred HQL idiom. JSON-style quoted keys with commas are also supported:
+The colon-style keys are the preferred HQL idiom. JSON-style quoted keys with
+commas are also supported:
 
 ```lisp
 {"name": "Alice", "age": 30, "city": "Seoul"}
@@ -232,7 +288,9 @@ The colon-style keys are the preferred HQL idiom. JSON-style quoted keys with co
 #["red" "green" "blue"]  ;; set of strings
 ```
 
-These three collection types, along with the sequence abstraction that unifies them, form the backbone of data manipulation in HQL. We will explore them thoroughly in Chapters 9 and 10.
+These three collection types, along with the sequence abstraction that unifies
+them, form the backbone of data manipulation in HQL. We will explore them
+thoroughly in Chapters 9 and 10.
 
 ---
 
@@ -240,7 +298,9 @@ These three collection types, along with the sequence abstraction that unifies t
 
 #### 2.1 Character Set and Encoding
 
-HQL source files are UTF-8 encoded text. Identifiers, strings, and comments may contain any Unicode character. The language itself uses only ASCII for its syntax: parentheses, brackets, braces, and a small set of special characters.
+HQL source files are UTF-8 encoded text. Identifiers, strings, and comments may
+contain any Unicode character. The language itself uses only ASCII for its
+syntax: parentheses, brackets, braces, and a small set of special characters.
 
 #### 2.2 Comments
 
@@ -255,9 +315,13 @@ HQL supports three comment styles:
 ;; Lisp-style comment (idiomatic in HQL)
 ```
 
-All three forms are equivalent. The `//` and `/* */` styles will be familiar to JavaScript and C programmers. The `;;` style follows Lisp convention and is preferred in idiomatic HQL code.
+All three forms are equivalent. The `//` and `/* */` styles will be familiar to
+JavaScript and C programmers. The `;;` style follows Lisp convention and is
+preferred in idiomatic HQL code.
 
-Comments extend from the comment marker to the end of the line (for `//` and `;;`) or to the closing `*/` (for block comments). They are stripped during parsing and have no effect on program execution.
+Comments extend from the comment marker to the end of the line (for `//` and
+`;;`) or to the closing `*/` (for block comments). They are stripped during
+parsing and have no effect on program execution.
 
 ```lisp
 (+ 1 2)    ;; this adds one and two
@@ -266,7 +330,8 @@ Comments extend from the comment marker to the end of the line (for `//` and `;;
 
 #### 2.3 Identifiers
 
-Identifiers in HQL follow Lisp conventions, which are broader than most languages. An identifier may contain:
+Identifiers in HQL follow Lisp conventions, which are broader than most
+languages. An identifier may contain:
 
 - Letters (a-z, A-Z)
 - Digits (0-9), but not as the first character
@@ -298,11 +363,14 @@ _internal-helper
 _private-state
 ```
 
-Unlike most languages, hyphens in identifiers are not subtraction. The expression `my-function` is a single identifier; `(- my function)` is subtraction.
+Unlike most languages, hyphens in identifiers are not subtraction. The
+expression `my-function` is a single identifier; `(- my function)` is
+subtraction.
 
 #### 2.4 Reserved Words
 
-The following symbols have special meaning in HQL and cannot be used as variable names:
+The following symbols have special meaning in HQL and cannot be used as variable
+names:
 
 ```
 fn let var const def if cond when unless do
@@ -316,7 +384,9 @@ type deftype interface abstract-class namespace
 const-enum declare fn-overload
 ```
 
-Most of these will be familiar from JavaScript. The additions -- `fn`, `def`, `cond`, `loop`, `recur`, `macro`, `match`, `repeat`, `fn*` -- come from HQL's Lisp heritage.
+Most of these will be familiar from JavaScript. The additions -- `fn`, `def`,
+`cond`, `loop`, `recur`, `macro`, `match`, `repeat`, `fn*` -- come from HQL's
+Lisp heritage.
 
 #### 2.5 Literals
 
@@ -335,7 +405,8 @@ HQL supports the following literal types:
 123n            ;; BigInt (arbitrary precision)
 ```
 
-All numbers are IEEE 754 double-precision floating point, as in JavaScript. BigInt literals end with `n` and support arbitrary precision integer arithmetic.
+All numbers are IEEE 754 double-precision floating point, as in JavaScript.
+BigInt literals end with `n` and support arbitrary precision integer arithmetic.
 
 **Strings:**
 
@@ -346,7 +417,8 @@ All numbers are IEEE 754 double-precision floating point, as in JavaScript. BigI
 "quote: \""         ;; escaped double quote
 ```
 
-Strings are always double-quoted. Single quotes are reserved for the `quote` form (see Chapter 10, on macros).
+Strings are always double-quoted. Single quotes are reserved for the `quote`
+form (see Chapter 10, on macros).
 
 **Template literals:**
 
@@ -357,7 +429,8 @@ Strings are always double-quoted. Single quotes are reserved for the `quote` for
 template literal`
 ```
 
-Template literals use backticks and support embedded expressions with `${}`, just as in JavaScript. Any HQL expression can appear inside the interpolation.
+Template literals use backticks and support embedded expressions with `${}`,
+just as in JavaScript. Any HQL expression can appear inside the interpolation.
 
 **Booleans:**
 
@@ -372,11 +445,13 @@ false
 nil       ;; equivalent to JavaScript's null
 ```
 
-HQL uses `nil` where JavaScript uses `null`. The JavaScript value `undefined` is also available when needed for interop.
+HQL uses `nil` where JavaScript uses `null`. The JavaScript value `undefined` is
+also available when needed for interop.
 
 #### 2.6 Template Literals
 
-Template literals deserve special attention because they bridge HQL expressions and string interpolation:
+Template literals deserve special attention because they bridge HQL expressions
+and string interpolation:
 
 ```lisp
 (let name "World")
@@ -389,7 +464,9 @@ Template literals deserve special attention because they bridge HQL expressions 
 (print `${x} + ${y} = ${(+ x y)}`)    ;; 10 + 20 = 30
 ```
 
-Any valid HQL expression can appear inside `${}`. The expression is evaluated, converted to a string, and inserted into the template. Template literals compile directly to JavaScript template literals.
+Any valid HQL expression can appear inside `${}`. The expression is evaluated,
+converted to a string, and inserted into the template. Template literals compile
+directly to JavaScript template literals.
 
 ---
 
@@ -397,26 +474,29 @@ Any valid HQL expression can appear inside `${}`. The expression is evaluated, c
 
 #### 3.1 Data Types
 
-HQL is dynamically typed -- variables can hold values of any type without declaration. The fundamental data types are:
+HQL is dynamically typed -- variables can hold values of any type without
+declaration. The fundamental data types are:
 
-| Type | Examples | JavaScript Equivalent |
-|------|----------|----------------------|
-| Number | `42`, `3.14`, `1e10` | `number` |
-| BigInt | `123n`, `9999999999999999n` | `bigint` |
-| String | `"hello"`, `` `template` `` | `string` |
-| Boolean | `true`, `false` | `boolean` |
-| Nil | `nil` | `null` |
-| Undefined | `undefined` | `undefined` |
-| Vector | `[1 2 3]` | `Array` |
-| Hash-map | `{a: 1 b: 2}` | `Object` |
-| Set | `#[1 2 3]` | `Set` |
-| Function | `(fn [x] x)` | `Function` |
+| Type      | Examples                    | JavaScript Equivalent |
+| --------- | --------------------------- | --------------------- |
+| Number    | `42`, `3.14`, `1e10`        | `number`              |
+| BigInt    | `123n`, `9999999999999999n` | `bigint`              |
+| String    | `"hello"`, `` `template` `` | `string`              |
+| Boolean   | `true`, `false`             | `boolean`             |
+| Nil       | `nil`                       | `null`                |
+| Undefined | `undefined`                 | `undefined`           |
+| Vector    | `[1 2 3]`                   | `Array`               |
+| Hash-map  | `{a: 1 b: 2}`               | `Object`              |
+| Set       | `#[1 2 3]`                  | `Set`                 |
+| Function  | `(fn [x] x)`                | `Function`            |
 
-HQL also supports optional TypeScript type annotations for static checking (see Part III), but types are never required.
+HQL also supports optional TypeScript type annotations for static checking (see
+Part III), but types are never required.
 
 #### 3.2 Arithmetic Operators
 
-All operators in HQL use prefix notation. The operator comes first, inside parentheses, followed by its operands:
+All operators in HQL use prefix notation. The operator comes first, inside
+parentheses, followed by its operands:
 
 ```lisp
 (+ 1 2)        ;; => 3        addition
@@ -435,7 +515,8 @@ Arithmetic operators are **variadic** -- they accept any number of arguments:
 (- 10 3 2)     ;; => 5        ((10-3)-2)
 ```
 
-With zero arguments, `+` returns the additive identity and `*` the multiplicative identity:
+With zero arguments, `+` returns the additive identity and `*` the
+multiplicative identity:
 
 ```lisp
 (+)     ;; => 0
@@ -468,14 +549,16 @@ Comparison operators return boolean values:
 (>= 10 3)       ;; => true    greater than or equal
 ```
 
-HQL also supports loose equality for JavaScript interop, though strict equality is strongly preferred:
+HQL also supports loose equality for JavaScript interop, though strict equality
+is strongly preferred:
 
 ```lisp
 (== 1 "1")      ;; => true    loose equality (type coercion)
 (!= 1 "2")      ;; => true    loose inequality
 ```
 
-A critical distinction: `=` is **assignment** in HQL, not comparison. Use `===` for equality testing.
+A critical distinction: `=` is **assignment** in HQL, not comparison. Use `===`
+for equality testing.
 
 ```lisp
 (= x 10)        ;; assignment: x = 10
@@ -503,7 +586,9 @@ The JavaScript-style aliases `&&`, `||`, and `!` are also available:
 (! true)            ;; => false
 ```
 
-Short-circuit evaluation means `and` stops at the first falsy value and `or` stops at the first truthy value, returning that value (not necessarily `true` or `false`):
+Short-circuit evaluation means `and` stops at the first falsy value and `or`
+stops at the first truthy value, returning that value (not necessarily `true` or
+`false`):
 
 ```lisp
 (and "hello" 42)        ;; => 42 (both truthy, returns last)
@@ -512,7 +597,8 @@ Short-circuit evaluation means `and` stops at the first falsy value and `or` sto
 (or "found" "default")  ;; => "found" (first is truthy, returns it)
 ```
 
-This behavior is identical to JavaScript's `&&` and `||` and is commonly used for default values and conditional execution.
+This behavior is identical to JavaScript's `&&` and `||` and is commonly used
+for default values and conditional execution.
 
 #### 3.5 Bitwise Operators
 
@@ -559,14 +645,16 @@ These compile directly to their JavaScript equivalents (`??=`, `||=`, `&&=`).
 
 #### 3.8 Nullish Coalescing and Optional Chaining
 
-The nullish coalescing operator provides a default when a value is `null` or `undefined`:
+The nullish coalescing operator provides a default when a value is `null` or
+`undefined`:
 
 ```lisp
 (?? name "Anonymous")        ;; name if not null/undefined, else "Anonymous"
 (?? config.timeout 5000)     ;; config.timeout if set, else 5000
 ```
 
-Optional chaining prevents errors when accessing properties of potentially null values:
+Optional chaining prevents errors when accessing properties of potentially null
+values:
 
 ```lisp
 user?.name              ;; undefined if user is null, otherwise user.name
@@ -588,7 +676,8 @@ HQL provides operators for runtime type checking:
 
 #### 3.10 Operator Precedence and First-Class Operators
 
-In HQL, there is no operator precedence to memorize. Because every operation is a function call in prefix notation, evaluation order is always explicit:
+In HQL, there is no operator precedence to memorize. Because every operation is
+a function call in prefix notation, evaluation order is always explicit:
 
 ```lisp
 ;; In JavaScript: 2 + 3 * 4 = 14 (multiplication first)
@@ -597,7 +686,8 @@ In HQL, there is no operator precedence to memorize. Because every operation is 
 (* (+ 2 3) 4)     ;; => 20
 ```
 
-The parentheses remove all ambiguity. This is one of the fundamental advantages of S-expression syntax: what you see is exactly what gets evaluated.
+The parentheses remove all ambiguity. This is one of the fundamental advantages
+of S-expression syntax: what you see is exactly what gets evaluated.
 
 Operators are functions in HQL and can be used as values:
 
@@ -611,7 +701,9 @@ Operators are functions in HQL and can be used as values:
 
 ### Chapter 4: Bindings and Scope
 
-A **binding** associates a name with a value. HQL provides three binding forms with different scope and mutability characteristics, mirroring JavaScript's `let`, `const`, and `var`.
+A **binding** associates a name with a value. HQL provides three binding forms
+with different scope and mutability characteristics, mirroring JavaScript's
+`let`, `const`, and `var`.
 
 #### 4.1 let -- Block-Scoped Mutable Binding
 
@@ -624,7 +716,8 @@ A **binding** associates a name with a value. HQL provides three binding forms w
 (print x)       ;; 20
 ```
 
-`let` can also create a binding scope with a body -- the bindings exist only within the body, and the body's last expression is returned:
+`let` can also create a binding scope with a body -- the bindings exist only
+within the body, and the body's last expression is returned:
 
 ```lisp
 ;; Parenthesized binding pairs
@@ -636,9 +729,12 @@ A **binding** associates a name with a value. HQL provides three binding forms w
   (+ x y))        ;; => 30
 ```
 
-Both forms bind `x` to 10 and `y` to 20, then evaluate `(+ x y)`. The bindings are not visible outside the body. This scoped form compiles to a JavaScript IIFE (immediately invoked function expression), ensuring proper lexical scoping.
+Both forms bind `x` to 10 and `y` to 20, then evaluate `(+ x y)`. The bindings
+are not visible outside the body. This scoped form compiles to a JavaScript IIFE
+(immediately invoked function expression), ensuring proper lexical scoping.
 
-When `let` appears without a body, it compiles to a plain JavaScript `let` declaration:
+When `let` appears without a body, it compiles to a plain JavaScript `let`
+declaration:
 
 ```lisp
 (let x 10)    ;; compiles to: let x = 10;
@@ -655,7 +751,9 @@ When `let` appears without a body, it compiles to a plain JavaScript `let` decla
 ;; (= PI 3.0)    ;; ERROR: cannot reassign const
 ```
 
-In HQL, `const` goes further than JavaScript's `const`. Objects and arrays bound with `const` are **deep-frozen** using `Object.freeze`, making them truly immutable:
+In HQL, `const` goes further than JavaScript's `const`. Objects and arrays bound
+with `const` are **deep-frozen** using `Object.freeze`, making them truly
+immutable:
 
 ```lisp
 (const config {host: "localhost" port: 8080})
@@ -665,11 +763,14 @@ In HQL, `const` goes further than JavaScript's `const`. Objects and arrays bound
 ;; (numbers.push 4)         ;; ERROR: cannot mutate frozen array
 ```
 
-This deep immutability is enforced by a runtime helper `__hql_deepFreeze()` that recursively freezes all nested objects and arrays. It is a deliberate design choice: when you declare something constant, it should be truly constant.
+This deep immutability is enforced by a runtime helper `__hql_deepFreeze()` that
+recursively freezes all nested objects and arrays. It is a deliberate design
+choice: when you declare something constant, it should be truly constant.
 
 #### 4.3 var -- Function-Scoped Mutable Binding
 
-`var` creates a function-scoped, mutable binding with hoisting semantics, exactly like JavaScript's `var`:
+`var` creates a function-scoped, mutable binding with hoisting semantics,
+exactly like JavaScript's `var`:
 
 ```lisp
 (var count 0)
@@ -685,11 +786,14 @@ Like `let`, `var` can take multiple binding pairs with a body:
   (+ x y))          ;; => 120
 ```
 
-In practice, prefer `let` or `const` over `var`. The `var` form exists for JavaScript compatibility and specific use cases where function-scoped hoisting is needed.
+In practice, prefer `let` or `const` over `var`. The `var` form exists for
+JavaScript compatibility and specific use cases where function-scoped hoisting
+is needed.
 
 #### 4.4 Destructuring
 
-Destructuring extracts values from collections into individual bindings. HQL supports both array and object destructuring.
+Destructuring extracts values from collections into individual bindings. HQL
+supports both array and object destructuring.
 
 **Array destructuring:**
 
@@ -741,14 +845,16 @@ Destructuring extracts values from collections into individual bindings. HQL sup
 (print c)    ;; 3
 ```
 
-Destructuring works everywhere bindings appear: in `let`, `const`, `var`, function parameters, and `for` loops.
+Destructuring works everywhere bindings appear: in `let`, `const`, `var`,
+function parameters, and `for` loops.
 
 #### 4.5 Scope Rules
 
 HQL follows JavaScript's scoping rules:
 
 - `let` and `const` are block-scoped: visible only within their enclosing block
-- `var` is function-scoped: visible throughout the enclosing function, hoisted to the top
+- `var` is function-scoped: visible throughout the enclosing function, hoisted
+  to the top
 - Closures capture variables from enclosing scopes
 - Inner scopes can shadow outer bindings
 
@@ -777,7 +883,8 @@ Closures capture variables by reference:
 (counter)    ;; => 3
 ```
 
-When `let` or `var` appears with a body expression, HQL generates an IIFE to create the proper scope:
+When `let` or `var` appears with a body expression, HQL generates an IIFE to
+create the proper scope:
 
 ```lisp
 (let (x 10 y 20) (+ x y))
@@ -790,7 +897,9 @@ When `let` or `var` appears with a body expression, HQL generates an IIFE to cre
 
 ### Chapter 5: Control Flow
 
-Every control flow construct in HQL is an **expression** -- it returns a value. There are no statements in HQL, only expressions. This fundamental property means you can use `if`, `cond`, and `match` anywhere a value is expected.
+Every control flow construct in HQL is an **expression** -- it returns a value.
+There are no statements in HQL, only expressions. This fundamental property
+means you can use `if`, `cond`, and `match` anywhere a value is expected.
 
 #### 5.1 if Expression
 
@@ -802,7 +911,8 @@ The `if` expression is the most basic conditional:
   else-expr)
 ```
 
-It evaluates `condition`. If truthy, it evaluates and returns `then-expr`; otherwise, it evaluates and returns `else-expr`:
+It evaluates `condition`. If truthy, it evaluates and returns `then-expr`;
+otherwise, it evaluates and returns `else-expr`:
 
 ```lisp
 (if (> x 0)
@@ -814,7 +924,8 @@ It evaluates `condition`. If truthy, it evaluates and returns `then-expr`; other
 (print label)
 ```
 
-Because `if` is an expression, it compiles to JavaScript's ternary operator `? :` when used in expression position:
+Because `if` is an expression, it compiles to JavaScript's ternary operator
+`? :` when used in expression position:
 
 ```javascript
 // Compiled JavaScript
@@ -830,7 +941,8 @@ The else branch is optional. Without it, a falsy condition returns `undefined`:
 
 #### 5.2 Ternary Operator
 
-The `?` form is an alias for `if`, useful when you want to emphasize the expression nature:
+The `?` form is an alias for `if`, useful when you want to emphasize the
+expression nature:
 
 ```lisp
 (? (> age 18) "adult" "minor")
@@ -840,7 +952,8 @@ This is identical to `(if (> age 18) "adult" "minor")`.
 
 #### 5.3 cond -- Multi-Way Conditional
 
-When you need to test multiple conditions, `cond` is cleaner than nested `if` expressions:
+When you need to test multiple conditions, `cond` is cleaner than nested `if`
+expressions:
 
 ```lisp
 (cond
@@ -850,7 +963,10 @@ When you need to test multiple conditions, `cond` is cleaner than nested `if` ex
   (else "unknown"))
 ```
 
-Each clause is a pair: a test expression in the first position and a result in the second. The clauses are evaluated top to bottom. The first clause whose test is truthy has its result returned. The `else` clause (if present) matches anything and serves as the default.
+Each clause is a pair: a test expression in the first position and a result in
+the second. The clauses are evaluated top to bottom. The first clause whose test
+is truthy has its result returned. The `else` clause (if present) matches
+anything and serves as the default.
 
 ```lisp
 (fn classify-temperature [temp]
@@ -874,7 +990,9 @@ Each clause is a pair: a test expression in the first position and a result in t
   (process x))
 ```
 
-It accepts multiple body expressions -- all are executed when the condition holds. It returns the value of the last expression, or `undefined` if the condition is false.
+It accepts multiple body expressions -- all are executed when the condition
+holds. It returns the value of the last expression, or `undefined` if the
+condition is false.
 
 `unless` is the opposite -- it executes when the condition is false:
 
@@ -885,7 +1003,8 @@ It accepts multiple body expressions -- all are executed when the condition hold
 
 #### 5.5 when-let and if-let
 
-`when-let` combines a binding with a condition check. It binds a value and executes the body only if the value is truthy:
+`when-let` combines a binding with a condition check. It binds a value and
+executes the body only if the value is truthy:
 
 ```lisp
 (when-let [result (findUser id)]
@@ -939,7 +1058,10 @@ The `switch` statement matches a value against specific cases:
   (default (error "Unknown status")))
 ```
 
-Each `case` matches using strict equality (`===`). The `default` clause handles unmatched values. Unlike JavaScript, there is no fall-through between cases -- each case is independent. To opt into fall-through, use the `:fallthrough` keyword:
+Each `case` matches using strict equality (`===`). The `default` clause handles
+unmatched values. Unlike JavaScript, there is no fall-through between cases --
+each case is independent. To opt into fall-through, use the `:fallthrough`
+keyword:
 
 ```lisp
 (switch grade
@@ -950,7 +1072,8 @@ Each `case` matches using strict equality (`===`). The `default` clause handles 
 
 #### 5.8 case -- Clojure-Style Switch
 
-The `case` form is a Clojure-inspired expression switch that matches a value and returns a result:
+The `case` form is a Clojure-inspired expression switch that matches a value and
+returns a result:
 
 ```lisp
 (case day
@@ -959,11 +1082,13 @@ The `case` form is a Clojure-inspired expression switch that matches a value and
   "Default day")                ;; last value without a test is default
 ```
 
-This is more concise than `switch` for simple value matching and works well in expression position.
+This is more concise than `switch` for simple value matching and works well in
+expression position.
 
 #### 5.9 do Block
 
-The `do` block evaluates multiple expressions in sequence and returns the value of the last one:
+The `do` block evaluates multiple expressions in sequence and returns the value
+of the last one:
 
 ```lisp
 (do
@@ -972,7 +1097,8 @@ The `do` block evaluates multiple expressions in sequence and returns the value 
   (+ 1 2))               ;; => 3
 ```
 
-`do` is useful anywhere a single expression is expected but you need to perform multiple actions:
+`do` is useful anywhere a single expression is expected but you need to perform
+multiple actions:
 
 ```lisp
 (if (> x 0)
@@ -988,7 +1114,9 @@ The `do` block evaluates multiple expressions in sequence and returns the value 
 
 ### Chapter 6: Pattern Matching
 
-Pattern matching is one of HQL's most powerful features. The `match` expression lets you destructure values and branch on their shape, combining the power of `switch`, `if`, and destructuring into a single, readable construct.
+Pattern matching is one of HQL's most powerful features. The `match` expression
+lets you destructure values and branch on their shape, combining the power of
+`switch`, `if`, and destructuring into a single, readable construct.
 
 #### 6.1 The match Expression
 
@@ -1001,7 +1129,9 @@ The basic form:
   (default fallback))
 ```
 
-The value is evaluated once, then tested against each pattern in order. The first matching pattern has its result evaluated and returned. If no pattern matches and there is no `default`, an error is thrown.
+The value is evaluated once, then tested against each pattern in order. The
+first matching pattern has its result evaluated and returned. If no pattern
+matches and there is no `default`, an error is thrown.
 
 #### 6.2 Literal Patterns
 
@@ -1043,7 +1173,8 @@ A symbol pattern also matches any value but **binds** it to a variable:
   (case n (str "got: " n)))     ;; n is bound to x's value
 ```
 
-Here, if `x` is 0, the result is `"zero"`. Otherwise, `n` is bound to whatever `x` is, and the body `(str "got: " n)` is evaluated with that binding.
+Here, if `x` is 0, the result is `"zero"`. Otherwise, `n` is bound to whatever
+`x` is, and the body `(str "got: " n)` is evaluated with that binding.
 
 #### 6.4 Array Patterns
 
@@ -1057,7 +1188,9 @@ Array patterns match arrays by shape and bind their elements:
   (case [x, y] (str "at (" x ", " y ")")))
 ```
 
-The array pattern `[0, 0]` matches a two-element array where both elements are 0. The pattern `[x, 0]` matches a two-element array where the second element is 0, binding the first to `x`.
+The array pattern `[0, 0]` matches a two-element array where both elements
+are 0. The pattern `[x, 0]` matches a two-element array where the second element
+is 0, binding the first to `x`.
 
 **Rest patterns** capture remaining elements:
 
@@ -1068,7 +1201,8 @@ The array pattern `[0, 0]` matches a two-element array where both elements are 0
   (case [first, & rest] (str first " and " (count rest) " more")))
 ```
 
-The `& rest` in `[first, & rest]` captures all elements after the first into a `rest` array.
+The `& rest` in `[first, & rest]` captures all elements after the first into a
+`rest` array.
 
 #### 6.5 Object Patterns
 
@@ -1080,7 +1214,8 @@ Object patterns match objects by their keys:
   (default "Unknown user"))
 ```
 
-The pattern `{name: n, age: a}` matches any object that has both `name` and `age` properties, binding their values to `n` and `a`.
+The pattern `{name: n, age: a}` matches any object that has both `name` and
+`age` properties, binding their values to `n` and `a`.
 
 #### 6.6 Or-Patterns
 
@@ -1094,7 +1229,9 @@ Or-patterns match any of several values:
   (default "unknown"))
 ```
 
-The `(| ...)` pattern matches if the value equals any of the listed alternatives. This is much more concise than writing separate cases for each value.
+The `(| ...)` pattern matches if the value equals any of the listed
+alternatives. This is much more concise than writing separate cases for each
+value.
 
 #### 6.7 Guard Clauses
 
@@ -1107,7 +1244,8 @@ Guards add an additional condition to a pattern:
   (default "zero"))
 ```
 
-The guard `(if (> x 0))` is checked after the pattern matches. If the guard fails, the match continues to the next clause.
+The guard `(if (> x 0))` is checked after the pattern matches. If the guard
+fails, the match continues to the next clause.
 
 Guards are useful for refining pattern matches:
 
@@ -1121,26 +1259,31 @@ Guards are useful for refining pattern matches:
 
 #### 6.8 How Pattern Matching Compiles
 
-Pattern matching compiles to an efficient chain of `if/else` statements with runtime type checks. The value is evaluated once and bound to a temporary variable. Each pattern generates appropriate checks:
+Pattern matching compiles to an efficient chain of `if/else` statements with
+runtime type checks. The value is evaluated once and bound to a temporary
+variable. Each pattern generates appropriate checks:
 
-| Pattern | Runtime Check |
-|---------|--------------|
-| Literal | `=== literal` |
-| `null` | `=== null` |
-| `_` | (always matches) |
-| Symbol | (always matches, creates binding) |
-| `[...]` | `Array.isArray(v) && v.length === n` |
-| `[... & r]` | `Array.isArray(v) && v.length >= k` |
-| `{...}` | `typeof v === "object" && v !== null && keys exist` |
-| `(| ...)` | `v === p1 || v === p2 || ...` |
+| Pattern     | Runtime Check                                       |
+| ----------- | --------------------------------------------------- |
+| Literal     | `=== literal`                                       |
+| `null`      | `=== null`                                          |
+| `_`         | (always matches)                                    |
+| Symbol      | (always matches, creates binding)                   |
+| `[...]`     | `Array.isArray(v) && v.length === n`                |
+| `[... & r]` | `Array.isArray(v) && v.length >= k`                 |
+| `{...}`     | `typeof v === "object" && v !== null && keys exist` |
+| `(          | ...)`                                               |
 
-This compilation strategy means pattern matching has no runtime overhead beyond the equivalent hand-written conditionals.
+This compilation strategy means pattern matching has no runtime overhead beyond
+the equivalent hand-written conditionals.
 
 ---
 
 ### Chapter 7: Functions
 
-Functions are the heart of HQL. Like all Lisps, HQL treats functions as first-class values: they can be passed as arguments, returned from other functions, stored in data structures, and created dynamically.
+Functions are the heart of HQL. Like all Lisps, HQL treats functions as
+first-class values: they can be passed as arguments, returned from other
+functions, stored in data structures, and created dynamically.
 
 #### 7.1 Named Functions
 
@@ -1153,7 +1296,8 @@ A named function is declared with `fn`:
 (add 3 4)    ;; => 7
 ```
 
-The general form is `(fn name [params] body)`. The function body may contain multiple expressions; the value of the last expression is implicitly returned:
+The general form is `(fn name [params] body)`. The function body may contain
+multiple expressions; the value of the last expression is implicitly returned:
 
 ```lisp
 (fn describe [name age]
@@ -1196,11 +1340,13 @@ The `=>` form creates concise anonymous functions for common patterns:
 ((=> [x y] (+ x y)) 5 7)           ;; => 12
 ```
 
-The arrow lambda automatically determines the arity from the highest `$N` parameter used. `(=> (* $0 2))` takes one argument. `(=> (+ $0 $1))` takes two.
+The arrow lambda automatically determines the arity from the highest `$N`
+parameter used. `(=> (* $0 2))` takes one argument. `(=> (+ $0 $1))` takes two.
 
 #### 7.4 Multi-Arity Functions
 
-A function can have multiple implementations that dispatch based on argument count:
+A function can have multiple implementations that dispatch based on argument
+count:
 
 ```lisp
 (fn greet
@@ -1213,7 +1359,9 @@ A function can have multiple implementations that dispatch based on argument cou
 (greet "Alice" "Smith") ;; => "Hello, Alice Smith!"
 ```
 
-Each clause is `([params] body)`. The runtime dispatches based on `arguments.length`. This is a powerful alternative to optional parameters when different arities require genuinely different logic.
+Each clause is `([params] body)`. The runtime dispatches based on
+`arguments.length`. This is a powerful alternative to optional parameters when
+different arities require genuinely different logic.
 
 Multi-arity works with all function types:
 
@@ -1248,7 +1396,8 @@ The standard parameter style uses square brackets for ordered parameters:
 
 #### 7.6 Map Parameters
 
-For functions with many optional parameters, use map parameters with default values:
+For functions with many optional parameters, use map parameters with default
+values:
 
 ```lisp
 (fn connect {host: "localhost" port: 8080 ssl: false}
@@ -1260,7 +1409,8 @@ For functions with many optional parameters, use map parameters with default val
 (connect {host: "api.com" ssl: true})  ;; => "https://api.com:8080"
 ```
 
-All map parameters must have defaults. The caller passes a map to override specific values.
+All map parameters must have defaults. The caller passes a map to override
+specific values.
 
 #### 7.7 Rest Parameters
 
@@ -1346,11 +1496,13 @@ Functions can have TypeScript type annotations for parameters and return values:
   (parseInt s 10))
 ```
 
-Type annotations are optional and compile to TypeScript type annotations. They are checked at compile time but do not affect runtime behavior.
+Type annotations are optional and compile to TypeScript type annotations. They
+are checked at compile time but do not affect runtime behavior.
 
 #### 7.11 defn
 
-`defn` is an alias for `fn`, provided as a convenience for the REPL where it ensures the function is registered in the session:
+`defn` is an alias for `fn`, provided as a convenience for the REPL where it
+ensures the function is registered in the session:
 
 ```lisp
 (defn add [a b]
@@ -1374,7 +1526,9 @@ The `fx` form declares a function as pure, with compile-time enforcement:
   x)
 ```
 
-Pure functions cannot perform I/O, mutate state, throw exceptions, or call impure functions. The compiler statically verifies these constraints. Pure functions enable safe optimizations like memoization and parallel execution.
+Pure functions cannot perform I/O, mutate state, throw exceptions, or call
+impure functions. The compiler statically verifies these constraints. Pure
+functions enable safe optimizations like memoization and parallel execution.
 
 Parameters can be annotated with `:pure` to require pure callbacks:
 
@@ -1390,11 +1544,15 @@ Parameters can be annotated with `:pure` to require pure callbacks:
 
 ### Chapter 8: Loops and Recursion
 
-HQL provides both imperative loops (familiar to JavaScript programmers) and functional recursion (from its Lisp heritage). The two styles can be mixed freely.
+HQL provides both imperative loops (familiar to JavaScript programmers) and
+functional recursion (from its Lisp heritage). The two styles can be mixed
+freely.
 
 #### 8.1 loop/recur -- Tail-Call Optimized Recursion
 
-The `loop`/`recur` construct is HQL's primary recursion mechanism, directly inspired by Clojure. It provides a way to write recursive algorithms that compile to efficient iterative loops:
+The `loop`/`recur` construct is HQL's primary recursion mechanism, directly
+inspired by Clojure. It provides a way to write recursive algorithms that
+compile to efficient iterative loops:
 
 ```lisp
 ;; Sum numbers from 0 to n
@@ -1405,7 +1563,10 @@ The `loop`/`recur` construct is HQL's primary recursion mechanism, directly insp
 ;; => 55
 ```
 
-`loop` establishes named bindings (here, `i` starts at 0 and `sum` starts at 0). `recur` jumps back to the top of the loop with new values for those bindings. This compiles to a `while(true)` loop with destructuring assignment -- no stack frames are consumed.
+`loop` establishes named bindings (here, `i` starts at 0 and `sum` starts at 0).
+`recur` jumps back to the top of the loop with new values for those bindings.
+This compiles to a `while(true)` loop with destructuring assignment -- no stack
+frames are consumed.
 
 Here is factorial using `loop`/`recur`:
 
@@ -1427,7 +1588,9 @@ while (true) {
 }
 ```
 
-You can also use tail recursion in named functions. When HQL detects that all recursive calls are in tail position, it automatically optimizes them to a while loop:
+You can also use tail recursion in named functions. When HQL detects that all
+recursive calls are in tail position, it automatically optimizes them to a while
+loop:
 
 ```lisp
 (fn factorial [n acc]
@@ -1436,11 +1599,13 @@ You can also use tail recursion in named functions. When HQL detects that all re
     (factorial (- n 1) (* n acc))))
 ```
 
-This compiles to the same efficient while loop. No explicit `loop`/`recur` is needed.
+This compiles to the same efficient while loop. No explicit `loop`/`recur` is
+needed.
 
 #### 8.2 Mutual Tail-Call Optimization
 
-HQL can optimize mutually recursive functions -- functions that call each other in tail position. It uses a trampoline transformation:
+HQL can optimize mutually recursive functions -- functions that call each other
+in tail position. It uses a trampoline transformation:
 
 ```lisp
 (fn is-even [n]
@@ -1452,7 +1617,10 @@ HQL can optimize mutually recursive functions -- functions that call each other 
 (is-even 10000)    ;; => true (no stack overflow)
 ```
 
-Without optimization, this would overflow the stack for large `n`. HQL detects the mutual recursion using Tarjan's algorithm to find strongly connected components in the call graph, then transforms the functions to return thunks that are unwound by a trampoline at the call site.
+Without optimization, this would overflow the stack for large `n`. HQL detects
+the mutual recursion using Tarjan's algorithm to find strongly connected
+components in the call graph, then transforms the functions to return thunks
+that are unwound by a trampoline at the call site.
 
 #### 8.3 while
 
@@ -1548,7 +1716,9 @@ Without a label, `break` and `continue` affect the innermost loop:
 
 ### Chapter 9: Collections and Data Structures
 
-HQL has three primary collection types that cover the vast majority of data modeling needs: vectors, hash-maps, and sets. All three have literal syntax and work uniformly with the standard library functions.
+HQL has three primary collection types that cover the vast majority of data
+modeling needs: vectors, hash-maps, and sets. All three have literal syntax and
+work uniformly with the standard library functions.
 
 #### 9.1 Vectors (Arrays)
 
@@ -1567,7 +1737,8 @@ Vectors are ordered, indexed collections -- JavaScript arrays with HQL syntax:
 [[1 2] [3 4] [5 6]]
 ```
 
-Elements are separated by whitespace. Commas are optional and treated as whitespace:
+Elements are separated by whitespace. Commas are optional and treated as
+whitespace:
 
 ```lisp
 [1, 2, 3]    ;; same as [1 2 3]
@@ -1597,11 +1768,14 @@ Elements are separated by whitespace. Commas are optional and treated as whitesp
 (vec (range 5))         ;; => [0 1 2 3 4] (realize to vector)
 ```
 
-Note that `rest` and `concat` return lazy sequences (shown in parentheses), not vectors. Use `vec` to convert back to a vector when needed. This laziness is by design -- see Chapter 10.
+Note that `rest` and `concat` return lazy sequences (shown in parentheses), not
+vectors. Use `vec` to convert back to a vector when needed. This laziness is by
+design -- see Chapter 10.
 
 #### 9.2 Hash-Maps (Objects)
 
-Hash-maps are unordered key-value collections -- JavaScript objects with HQL syntax:
+Hash-maps are unordered key-value collections -- JavaScript objects with HQL
+syntax:
 
 ```lisp
 ;; Lisp-style (preferred)
@@ -1671,7 +1845,8 @@ Sets are unordered collections of unique values:
 #[1 1 2 2 3 3]    ;; => #[1 2 3]
 ```
 
-Sets support standard set operations and are useful for membership testing, deduplication, and set algebra.
+Sets support standard set operations and are useful for membership testing,
+deduplication, and set algebra.
 
 ```lisp
 (let colors #["red" "green" "blue"])
@@ -1742,7 +1917,10 @@ HQL supports the spread operator for merging and copying collections:
 
 ### Chapter 10: The Sequence Abstraction
 
-The sequence abstraction is the most powerful idea in HQL -- and one of the most powerful in all of programming. Borrowed from Clojure, which in turn borrowed it from the deep tradition of Lisp, it unifies all collections under a single interface and enables lazy, composable data processing pipelines.
+The sequence abstraction is the most powerful idea in HQL -- and one of the most
+powerful in all of programming. Borrowed from Clojure, which in turn borrowed it
+from the deep tradition of Lisp, it unifies all collections under a single
+interface and enables lazy, composable data processing pipelines.
 
 #### 10.1 The Lisp Trinity
 
@@ -1754,7 +1932,10 @@ Three operations form the foundation of all sequence processing:
 (cons 0 [1 2 3])       ;; => (0 1 2 3)  construct a new sequence
 ```
 
-With just `first`, `rest`, and `cons`, you can build every sequence operation: `map`, `filter`, `reduce`, `take`, `drop`, `concat`, `flatten`, `distinct`, `partition`, and dozens more. This is not an exaggeration -- HQL's standard library is built this way, with most functions implemented in HQL itself.
+With just `first`, `rest`, and `cons`, you can build every sequence operation:
+`map`, `filter`, `reduce`, `take`, `drop`, `concat`, `flatten`, `distinct`,
+`partition`, and dozens more. This is not an exaggeration -- HQL's standard
+library is built this way, with most functions implemented in HQL itself.
 
 Here is `map` expressed in terms of the trinity:
 
@@ -1776,11 +1957,14 @@ And `filter`:
         (my-filter pred (rest s))))))
 ```
 
-Both are recursive, both are lazy, and both work on any collection type. This is the power of the abstraction.
+Both are recursive, both are lazy, and both work on any collection type. This is
+the power of the abstraction.
 
 #### 10.2 The seq Protocol
 
-Any collection can become a sequence by implementing the seq protocol. The `seq` function converts a collection to a sequence, or returns `nil` for empty collections (this behavior is called **nil-punning**):
+Any collection can become a sequence by implementing the seq protocol. The `seq`
+function converts a collection to a sequence, or returns `nil` for empty
+collections (this behavior is called **nil-punning**):
 
 ```lisp
 (seq [1 2 3])         ;; => sequence of 1, 2, 3
@@ -1790,7 +1974,8 @@ Any collection can become a sequence by implementing the seq protocol. The `seq`
 (seq nil)             ;; => nil
 ```
 
-Nil-punning is a crucial idiom: when a sequence is exhausted, `seq` returns `nil`, which is falsy. This allows elegant termination conditions:
+Nil-punning is a crucial idiom: when a sequence is exhausted, `seq` returns
+`nil`, which is falsy. This allows elegant termination conditions:
 
 ```lisp
 (when-let [s (seq coll)]
@@ -1801,7 +1986,9 @@ Nil-punning is a crucial idiom: when a sequence is exhausted, `seq` returns `nil
 
 #### 10.3 Lazy Sequences
 
-Most sequence operations in HQL return lazy sequences -- sequences whose elements are computed on demand, not all at once. The `lazy-seq` form creates a lazy sequence:
+Most sequence operations in HQL return lazy sequences -- sequences whose
+elements are computed on demand, not all at once. The `lazy-seq` form creates a
+lazy sequence:
 
 ```lisp
 (lazy-seq
@@ -1811,7 +1998,8 @@ Most sequence operations in HQL return lazy sequences -- sequences whose element
 ;; => (1 2 3) -- but each element computed only when needed
 ```
 
-Laziness is what makes infinite sequences possible and what makes operations like `map` and `filter` efficient when combined with `take`:
+Laziness is what makes infinite sequences possible and what makes operations
+like `map` and `filter` efficient when combined with `take`:
 
 ```lisp
 ;; Without laziness, this would be infinite:
@@ -1821,11 +2009,13 @@ Laziness is what makes infinite sequences possible and what makes operations lik
 ;; Only 5 elements are actually computed
 ```
 
-Lazy sequences are memoized: once an element is computed, the result is cached. Subsequent access returns the cached value without re-computation.
+Lazy sequences are memoized: once an element is computed, the result is cached.
+Subsequent access returns the cached value without re-computation.
 
 #### 10.4 Delay and Force
 
-`delay` wraps a computation that will be evaluated at most once, when `force` is called:
+`delay` wraps a computation that will be evaluated at most once, when `force` is
+called:
 
 ```lisp
 (def expensive-result
@@ -1844,7 +2034,8 @@ Lazy sequences are memoized: once an element is computed, the result is cached. 
 ;; => 1764
 ```
 
-`delay` is the building block of lazy sequences. Each thunk in a lazy sequence is essentially a delayed computation.
+`delay` is the building block of lazy sequences. Each thunk in a lazy sequence
+is essentially a delayed computation.
 
 #### 10.5 map, filter, and reduce
 
@@ -1873,7 +2064,9 @@ These three higher-order functions are the workhorses of data transformation:
 (reduce str "" ["a" "b" "c"]) ;; => "abc"
 ```
 
-`reduce` takes an initial accumulator value, a combining function, and a collection. The function is called with the accumulator and each element in turn:
+`reduce` takes an initial accumulator value, a combining function, and a
+collection. The function is called with the accumulator and each element in
+turn:
 
 ```lisp
 (reduce
@@ -1883,7 +2076,8 @@ These three higher-order functions are the workhorses of data transformation:
 ;; => {1: 1, 2: 4, 3: 9, 4: 16}
 ```
 
-Both `map` and `filter` return lazy sequences. `reduce` is eager -- it consumes the entire sequence.
+Both `map` and `filter` return lazy sequences. `reduce` is eager -- it consumes
+the entire sequence.
 
 #### 10.6 take, drop, concat, and flatten
 
@@ -1948,11 +2142,17 @@ These are building blocks for elegant algorithms:
 ;; => (1 2 4 8 16 32 64 128 256 512)
 ```
 
-The key insight is that lazy sequences let you **separate the description of data from the consumption of data**. You define what the sequence looks like (potentially infinite), then use `take`, `filter`, or other operations to consume only what you need. This separation makes programs clearer and often faster.
+The key insight is that lazy sequences let you **separate the description of
+data from the consumption of data**. You define what the sequence looks like
+(potentially infinite), then use `take`, `filter`, or other operations to
+consume only what you need. This separation makes programs clearer and often
+faster.
 
 #### 10.8 Transducers
 
-Transducers are composable algorithmic transformations that are independent of the context of their input and output. They compose directly, without creating intermediate sequences:
+Transducers are composable algorithmic transformations that are independent of
+the context of their input and output. They compose directly, without creating
+intermediate sequences:
 
 ```lisp
 ;; Without transducers: creates intermediate lazy sequences
@@ -1971,7 +2171,9 @@ Transducers are composable algorithmic transformations that are independent of t
 ;; => [2 4 6]
 ```
 
-The `comp` function composes transducers left-to-right (opposite to normal function composition). Each transducer is a function that transforms a reducing function into another reducing function.
+The `comp` function composes transducers left-to-right (opposite to normal
+function composition). Each transducer is a function that transforms a reducing
+function into another reducing function.
 
 ```lisp
 ;; Transducers are reusable
@@ -1981,35 +2183,40 @@ The `comp` function composes transducers left-to-right (opposite to normal funct
 (transduce xform conj [] [1 2 3 4 5])    ;; => [2 4 6]
 ```
 
-Transducers are an advanced topic. For most programs, the lazy sequence operations (`map`, `filter`, `take`, etc.) are sufficient and more readable. Transducers become valuable in performance-critical code where you need to eliminate intermediate sequence allocations.
+Transducers are an advanced topic. For most programs, the lazy sequence
+operations (`map`, `filter`, `take`, etc.) are sufficient and more readable.
+Transducers become valuable in performance-critical code where you need to
+eliminate intermediate sequence allocations.
 
-The standard library provides many more sequence operations beyond those shown here. A selection:
+The standard library provides many more sequence operations beyond those shown
+here. A selection:
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `map` | Transform each element | `(map inc [1 2 3])` => `(2 3 4)` |
-| `filter` | Keep matching elements | `(filter even? [1 2 3 4])` => `(2 4)` |
-| `reduce` | Fold into single value | `(reduce + 0 [1 2 3])` => `6` |
-| `take` | First n elements | `(take 3 (range))` => `(0 1 2)` |
-| `drop` | Skip first n elements | `(drop 2 [1 2 3 4])` => `(3 4)` |
-| `take-while` | Take while predicate holds | `(take-while odd? [1 3 5 4 6])` => `(1 3 5)` |
-| `drop-while` | Drop while predicate holds | `(drop-while odd? [1 3 5 4 6])` => `(4 6)` |
-| `concat` | Join sequences | `(concat [1 2] [3 4])` => `(1 2 3 4)` |
-| `flatten` | Remove nesting | `(flatten [[1] [2 3]])` => `(1 2 3)` |
-| `distinct` | Remove duplicates | `(distinct [1 1 2 2 3])` => `(1 2 3)` |
-| `interpose` | Insert between elements | `(interpose ", " ["a" "b" "c"])` => `("a" ", " "b" ", " "c")` |
-| `interleave` | Interleave two sequences | `(interleave [1 2 3] ["a" "b" "c"])` => `(1 "a" 2 "b" 3 "c")` |
-| `partition` | Group into fixed-size chunks | `(partition 2 [1 2 3 4])` => `((1 2) (3 4))` |
-| `partition-by` | Group by predicate changes | `(partition-by even? [1 3 2 4 5])` => `((1 3) (2 4) (5))` |
-| `mapcat` | Map then concatenate | `(mapcat (=> [$0 (* $0 $0)]) [1 2 3])` => `(1 1 2 4 3 9)` |
-| `some` | First truthy predicate result | `(some even? [1 3 4 5])` => `true` |
-| `every` | All elements match | `(every even? [2 4 6])` => `true` |
-| `zipmap` | Combine keys and values | `(zipmap ["a" "b"] [1 2])` => `{a: 1, b: 2}` |
-| `group-by` | Group by key function | `(group-by even? [1 2 3 4])` => `{false: [1 3], true: [2 4]}` |
-| `sort-by` | Sort by key function | `(sort-by count ["bb" "a" "ccc"])` => `("a" "bb" "ccc")` |
-| `reverse` | Reverse a sequence | `(reverse [1 2 3])` => `(3 2 1)` |
+| Function       | Description                   | Example                                                       |
+| -------------- | ----------------------------- | ------------------------------------------------------------- |
+| `map`          | Transform each element        | `(map inc [1 2 3])` => `(2 3 4)`                              |
+| `filter`       | Keep matching elements        | `(filter even? [1 2 3 4])` => `(2 4)`                         |
+| `reduce`       | Fold into single value        | `(reduce + 0 [1 2 3])` => `6`                                 |
+| `take`         | First n elements              | `(take 3 (range))` => `(0 1 2)`                               |
+| `drop`         | Skip first n elements         | `(drop 2 [1 2 3 4])` => `(3 4)`                               |
+| `take-while`   | Take while predicate holds    | `(take-while odd? [1 3 5 4 6])` => `(1 3 5)`                  |
+| `drop-while`   | Drop while predicate holds    | `(drop-while odd? [1 3 5 4 6])` => `(4 6)`                    |
+| `concat`       | Join sequences                | `(concat [1 2] [3 4])` => `(1 2 3 4)`                         |
+| `flatten`      | Remove nesting                | `(flatten [[1] [2 3]])` => `(1 2 3)`                          |
+| `distinct`     | Remove duplicates             | `(distinct [1 1 2 2 3])` => `(1 2 3)`                         |
+| `interpose`    | Insert between elements       | `(interpose ", " ["a" "b" "c"])` => `("a" ", " "b" ", " "c")` |
+| `interleave`   | Interleave two sequences      | `(interleave [1 2 3] ["a" "b" "c"])` => `(1 "a" 2 "b" 3 "c")` |
+| `partition`    | Group into fixed-size chunks  | `(partition 2 [1 2 3 4])` => `((1 2) (3 4))`                  |
+| `partition-by` | Group by predicate changes    | `(partition-by even? [1 3 2 4 5])` => `((1 3) (2 4) (5))`     |
+| `mapcat`       | Map then concatenate          | `(mapcat (=> [$0 (* $0 $0)]) [1 2 3])` => `(1 1 2 4 3 9)`     |
+| `some`         | First truthy predicate result | `(some even? [1 3 4 5])` => `true`                            |
+| `every`        | All elements match            | `(every even? [2 4 6])` => `true`                             |
+| `zipmap`       | Combine keys and values       | `(zipmap ["a" "b"] [1 2])` => `{a: 1, b: 2}`                  |
+| `group-by`     | Group by key function         | `(group-by even? [1 2 3 4])` => `{false: [1 3], true: [2 4]}` |
+| `sort-by`      | Sort by key function          | `(sort-by count ["bb" "a" "ccc"])` => `("a" "bb" "ccc")`      |
+| `reverse`      | Reverse a sequence            | `(reverse [1 2 3])` => `(3 2 1)`                              |
 
-The power of the sequence abstraction lies in composition. Because every function takes a sequence and returns a sequence, they chain naturally:
+The power of the sequence abstraction lies in composition. Because every
+function takes a sequence and returns a sequence, they chain naturally:
 
 ```lisp
 ;; Find the top 3 most expensive items under $100
@@ -2021,23 +2228,32 @@ The power of the sequence abstraction lies in composition. Because every functio
      (map (=> $0.name)))
 ```
 
-The threading macro `->>` pipes the result of each expression into the last argument of the next. This reads top-to-bottom, left-to-right -- a natural data processing pipeline.
+The threading macro `->>` pipes the result of each expression into the last
+argument of the next. This reads top-to-bottom, left-to-right -- a natural data
+processing pipeline.
 
-Each step is lazy (except `sort-by`), meaning the pipeline processes elements on demand. If the inventory has ten thousand items but we only need three, the pipeline stops early. This lazy, composable approach to data processing is one of the most important lessons from functional programming, and it is available in every HQL program.
+Each step is lazy (except `sort-by`), meaning the pipeline processes elements on
+demand. If the inventory has ten thousand items but we only need three, the
+pipeline stops early. This lazy, composable approach to data processing is one
+of the most important lessons from functional programming, and it is available
+in every HQL program.
 
 ---
 
-*End of Part I.*
+_End of Part I._
 
 ## Part II: Advanced Features
 
 ### Chapter 11: Classes and Object-Oriented Programming
 
-HQL supports object-oriented programming through classes that compile directly to JavaScript ES6 class syntax. Classes provide constructors, methods, fields, static members, private fields, getters/setters, and single inheritance.
+HQL supports object-oriented programming through classes that compile directly
+to JavaScript ES6 class syntax. Classes provide constructors, methods, fields,
+static members, private fields, getters/setters, and single inheritance.
 
 #### 11.1 Class Definition
 
-A class is defined with the `class` form. The body contains field declarations, a constructor, and methods:
+A class is defined with the `class` form. The body contains field declarations,
+a constructor, and methods:
 
 ```clojure
 (class Person
@@ -2071,7 +2287,8 @@ class Person {
 
 #### 11.2 Fields and Constructors
 
-Fields are declared with `var`, `let`, or `const` inside the class body. They may include default values:
+Fields are declared with `var`, `let`, or `const` inside the class body. They
+may include default values:
 
 ```clojure
 (class Config
@@ -2085,11 +2302,15 @@ Fields are declared with `var`, `let`, or `const` inside the class body. They ma
       (= this.port port))))
 ```
 
-Both `var` and `let` produce mutable fields. `const` produces a field tracked as immutable in the IR. The constructor uses `this.field` assignment to initialize fields, and its body may be a single expression, a `(do ...)` block, or multiple expressions.
+Both `var` and `let` produce mutable fields. `const` produces a field tracked as
+immutable in the IR. The constructor uses `this.field` assignment to initialize
+fields, and its body may be a single expression, a `(do ...)` block, or multiple
+expressions.
 
 #### 11.3 Methods
 
-Methods are defined with `(fn name [params] body)` inside the class body. They have implicit return -- the last expression is the return value:
+Methods are defined with `(fn name [params] body)` inside the class body. They
+have implicit return -- the last expression is the return value:
 
 ```clojure
 (class Calculator
@@ -2112,7 +2333,8 @@ Methods are defined with `(fn name [params] body)` inside the class body. They h
 (calc.result)  ;; => 7
 ```
 
-Methods support default parameter values and all parameter styles available to regular functions.
+Methods support default parameter values and all parameter styles available to
+regular functions.
 
 #### 11.4 Static Members
 
@@ -2159,11 +2381,13 @@ c.radius          ;; => 5 (calls getter)
 (= c.radius 10)   ;; calls setter
 ```
 
-Getters take zero parameters and have implicit return. Setters take exactly one parameter.
+Getters take zero parameters and have implicit return. Setters take exactly one
+parameter.
 
 #### 11.6 Private Fields
 
-Private fields use the `#` prefix shorthand. They are always mutable and compile to JavaScript `#`-prefixed private class fields:
+Private fields use the `#` prefix shorthand. They are always mutable and compile
+to JavaScript `#`-prefixed private class fields:
 
 ```clojure
 (class BankAccount
@@ -2186,7 +2410,8 @@ Private fields use the `#` prefix shorthand. They are always mutable and compile
 
 #### 11.7 Inheritance
 
-Classes support single inheritance with `extends`. The child constructor must call `(super args...)` to invoke the parent constructor:
+Classes support single inheritance with `extends`. The child constructor must
+call `(super args...)` to invoke the parent constructor:
 
 ```clojure
 (class Animal
@@ -2209,7 +2434,9 @@ Classes support single inheritance with `extends`. The child constructor must ca
 (d.bark)      ;; => "Woof!"
 ```
 
-Method overriding works by redefining a method in the child class. Note that `super.method()` calls for delegating to parent methods are not yet supported -- only constructor delegation via `(super args...)`.
+Method overriding works by redefining a method in the child class. Note that
+`super.method()` calls for delegating to parent methods are not yet supported --
+only constructor delegation via `(super args...)`.
 
 #### 11.8 Abstract Classes
 
@@ -2228,13 +2455,15 @@ Abstract classes are available via the `abstract-class` form:
     (* this.width this.height)))
 ```
 
-Abstract classes compile to TypeScript `abstract class` declarations and are primarily useful for type system integration.
+Abstract classes compile to TypeScript `abstract class` declarations and are
+primarily useful for type system integration.
 
 ---
 
 ### Chapter 12: Modules
 
-HQL provides a comprehensive module system that supports importing from HQL files, JavaScript, TypeScript, npm packages, JSR modules, and HTTP URLs.
+HQL provides a comprehensive module system that supports importing from HQL
+files, JavaScript, TypeScript, npm packages, JSR modules, and HTTP URLs.
 
 #### 12.1 Import
 
@@ -2266,7 +2495,8 @@ The `import` form supports several styles:
 ;; Compiles to: import "reflect-metadata";
 ```
 
-The `from` keyword is required for all named and namespace imports. Commas between symbols are optional (treated as whitespace by the parser).
+The `from` keyword is required for all named and namespace imports. Commas
+between symbols are optional (treated as whitespace by the parser).
 
 #### 12.2 Dynamic Import
 
@@ -2308,29 +2538,34 @@ This compiles to JavaScript's `import()` expression.
 (export default (fn [x] (* x x)))
 ```
 
-Macros are automatically filtered from both import and export declarations. If all symbols in an import or export are macros, the entire declaration is omitted from the output.
+Macros are automatically filtered from both import and export declarations. If
+all symbols in an import or export are macros, the entire declaration is omitted
+from the output.
 
 #### 12.4 Module Resolution
 
 HQL resolves modules from several sources:
 
-| Source | Format | Example |
-|--------|--------|---------|
-| HQL files | `.hql` | `"./utils.hql"` |
-| JavaScript | `.js`, `.mjs` | `"./lib.js"` |
-| TypeScript | `.ts`, `.tsx` | `"./types.ts"` |
-| NPM | `npm:package` | `"npm:lodash"` |
-| JSR | `jsr:@scope/pkg` | `"jsr:@std/path"` |
-| HTTP | URL | `"https://esm.sh/zod"` |
-| Stdlib | `@hlvm/*` | `"@hlvm/stdlib"` |
+| Source     | Format           | Example                |
+| ---------- | ---------------- | ---------------------- |
+| HQL files  | `.hql`           | `"./utils.hql"`        |
+| JavaScript | `.js`, `.mjs`    | `"./lib.js"`           |
+| TypeScript | `.ts`, `.tsx`    | `"./types.ts"`         |
+| NPM        | `npm:package`    | `"npm:lodash"`         |
+| JSR        | `jsr:@scope/pkg` | `"jsr:@std/path"`      |
+| HTTP       | URL              | `"https://esm.sh/zod"` |
+| Stdlib     | `@hlvm/*`        | `"@hlvm/stdlib"`       |
 
-Local paths are resolved relative to the importing file's directory. Path traversal is validated against the project base directory for security.
+Local paths are resolved relative to the importing file's directory. Path
+traversal is validated against the project base directory for security.
 
 ---
 
 ### Chapter 13: Error Handling
 
-HQL provides structured error handling via `try`/`catch`/`finally`/`throw`. A distinctive feature is that `try` is an **expression** that returns a value, achieved through automatic IIFE wrapping.
+HQL provides structured error handling via `try`/`catch`/`finally`/`throw`. A
+distinctive feature is that `try` is an **expression** that returns a value,
+achieved through automatic IIFE wrapping.
 
 #### 13.1 Try/Catch/Finally
 
@@ -2364,7 +2599,8 @@ The basic form supports all combinations of `catch` and `finally`:
     (close-connection)))
 ```
 
-Since `try` is an expression, it always returns a value. The IIFE wrapping is automatic:
+Since `try` is an expression, it always returns a value. The IIFE wrapping is
+automatic:
 
 ```clojure
 (let safe-value (try
@@ -2384,7 +2620,8 @@ const safeValue = (() => {
 })();
 ```
 
-The `catch` clause supports an optional parameter binding. Without a parameter, the error is simply discarded:
+The `catch` clause supports an optional parameter binding. Without a parameter,
+the error is simply discarded:
 
 ```clojure
 (try
@@ -2393,9 +2630,12 @@ The `catch` clause supports an optional parameter binding. Without a parameter, 
     (fallback-value)))
 ```
 
-Only one `catch` and one `finally` clause are allowed per `try` block. The `finally` block does not contribute to the return value (standard JavaScript semantics).
+Only one `catch` and one `finally` clause are allowed per `try` block. The
+`finally` block does not contribute to the return value (standard JavaScript
+semantics).
 
-**Async detection:** When the body contains `await`, the IIFE is automatically made `async`:
+**Async detection:** When the body contains `await`, the IIFE is automatically
+made `async`:
 
 ```clojure
 (try
@@ -2404,7 +2644,8 @@ Only one `catch` and one `finally` clause are allowed per `try` block. The `fina
     (await (log-error e))))
 ```
 
-**Generator detection:** When the body contains `yield`, the IIFE becomes a generator with `yield*`:
+**Generator detection:** When the body contains `yield`, the IIFE becomes a
+generator with `yield*`:
 
 ```clojure
 (fn* producer [items]
@@ -2465,7 +2706,8 @@ For validation, throw early:
     (process.exit 1)))
 ```
 
-Because `try` is an expression, nested try blocks compose naturally. Each level handles its own failure independently.
+Because `try` is an expression, nested try blocks compose naturally. Each level
+handles its own failure independently.
 
 #### 13.5 Error Types
 
@@ -2522,7 +2764,8 @@ The expression nature of `try` enables several idiomatic patterns:
 
 ### Chapter 14: Asynchronous Programming
 
-HQL provides first-class support for asynchronous programming, mapping directly to JavaScript's `async`/`await`, generators, and async generators.
+HQL provides first-class support for asynchronous programming, mapping directly
+to JavaScript's `async`/`await`, generators, and async generators.
 
 #### 14.1 Async Functions
 
@@ -2543,7 +2786,8 @@ The `async` keyword prefixes `fn` to create an async function:
   (await (establish-connection host port)))
 ```
 
-Async functions support all parameter styles: positional, map, multi-arity, destructuring, and type annotations.
+Async functions support all parameter styles: positional, map, multi-arity,
+destructuring, and type annotations.
 
 #### 14.2 Await
 
@@ -2553,7 +2797,9 @@ The `await` form suspends execution until a Promise resolves:
 (let data (await (fetch-data "https://api.example.com")))
 ```
 
-A special feature: `await` wraps its argument in `__hql_consume_async_iter()`, a runtime helper that automatically consumes async iterators if the awaited value is one. This means awaiting an async generator collects its values.
+A special feature: `await` wraps its argument in `__hql_consume_async_iter()`, a
+runtime helper that automatically consumes async iterators if the awaited value
+is one. This means awaiting an async generator collects its values.
 
 `await` requires exactly one argument.
 
@@ -2578,7 +2824,8 @@ Generator functions compile to JavaScript `function*` declarations.
 
 #### 14.4 Yield and Yield*
 
-`yield` produces a value from a generator. Without an argument, it yields `undefined`:
+`yield` produces a value from a generator. Without an argument, it yields
+`undefined`:
 
 ```clojure
 (fn* simple []
@@ -2702,11 +2949,14 @@ JavaScript's Promise static methods are available through standard interop:
 
 ### Chapter 15: Macros
 
-Macros are HQL's most powerful metaprogramming feature. They transform code at compile time, operating on S-expressions before they are transpiled to JavaScript.
+Macros are HQL's most powerful metaprogramming feature. They transform code at
+compile time, operating on S-expressions before they are transpiled to
+JavaScript.
 
 #### 15.1 Macro Definition
 
-A macro is defined with the `macro` form. Unlike functions, macros receive their arguments as unevaluated code (S-expressions) and return new code:
+A macro is defined with the `macro` form. Unlike functions, macros receive their
+arguments as unevaluated code (S-expressions) and return new code:
 
 ```clojure
 (macro my-if [test then else]
@@ -2715,7 +2965,8 @@ A macro is defined with the `macro` form. Unlike functions, macros receive their
      (else ~else)))
 ```
 
-The last expression in the macro body becomes the expansion result. Macros support rest parameters with `&`:
+The last expression in the macro body becomes the expansion result. Macros
+support rest parameters with `&`:
 
 ```clojure
 (macro my-log [level & messages]
@@ -2733,7 +2984,8 @@ Quoting is the mechanism for treating code as data:
 (quote foo)          ;; => "foo"
 ```
 
-**Syntax-quote** (backtick) creates a hygienic template with selective evaluation:
+**Syntax-quote** (backtick) creates a hygienic template with selective
+evaluation:
 
 ```clojure
 `(+ 1 ~x)           ;; x is evaluated, rest is quoted
@@ -2741,11 +2993,14 @@ Quoting is the mechanism for treating code as data:
 ```
 
 Within a template quote:
+
 - `~expr` (unquote) evaluates the expression
-- `~@expr` (unquote-splicing) evaluates and splices elements into the enclosing list
+- `~@expr` (unquote-splicing) evaluates and splices elements into the enclosing
+  list
 - Everything else is quoted (preserved as data)
 
-`quasiquote` remains available as the raw non-resolving template form. Outside template quote context, `~` is the bitwise NOT operator.
+`quasiquote` remains available as the raw non-resolving template form. Outside
+template quote context, `~` is the bitwise NOT operator.
 
 #### 15.3 Threading Macros
 
@@ -2790,27 +3045,29 @@ The `doto` macro executes side-effects on a value and returns it:
 ;; Returns the Map with all three entries
 ```
 
-Method calls (`.method`) are transformed to `(js-call obj method args...)`. The value is evaluated once and bound to a temporary variable.
+Method calls (`.method`) are transformed to `(js-call obj method args...)`. The
+value is evaluated once and bound to a temporary variable.
 
 #### 15.5 Built-in Utility Macros
 
-HQL provides many built-in macros in three embedded libraries (`core.hql`, `utils.hql`, `loop.hql`):
+HQL provides many built-in macros in three embedded libraries (`core.hql`,
+`utils.hql`, `loop.hql`):
 
-| Macro | Expansion | Description |
-|-------|-----------|-------------|
-| `(inc x)` | `(+ x 1)` | Increment |
-| `(dec x)` | `(- x 1)` | Decrement |
-| `(str a b ...)` | String concatenation | Convert and join |
-| `(print args...)` | `(js/console.log ...)` | Print to console |
-| `(when test body...)` | `(if test (do body...) nil)` | Single-branch conditional |
-| `(unless test body...)` | `(if test nil (do body...))` | Inverted when |
-| `(if-let [x expr] then else)` | Bind and test | Conditional binding |
-| `(when-let [x expr] body...)` | Bind and test | Single-branch conditional binding |
-| `(if-not test then else)` | `(if test else then)` | Inverted if |
-| `(when-not test body...)` | `(when (not test) body...)` | Inverted when |
-| `(xor a b)` | Logical XOR | Exclusive or |
-| `(min a b ...)` | `(Math.min ...)` | Minimum |
-| `(max a b ...)` | `(Math.max ...)` | Maximum |
+| Macro                         | Expansion                    | Description                       |
+| ----------------------------- | ---------------------------- | --------------------------------- |
+| `(inc x)`                     | `(+ x 1)`                    | Increment                         |
+| `(dec x)`                     | `(- x 1)`                    | Decrement                         |
+| `(str a b ...)`               | String concatenation         | Convert and join                  |
+| `(print args...)`             | `(js/console.log ...)`       | Print to console                  |
+| `(when test body...)`         | `(if test (do body...) nil)` | Single-branch conditional         |
+| `(unless test body...)`       | `(if test nil (do body...))` | Inverted when                     |
+| `(if-let [x expr] then else)` | Bind and test                | Conditional binding               |
+| `(when-let [x expr] body...)` | Bind and test                | Single-branch conditional binding |
+| `(if-not test then else)`     | `(if test else then)`        | Inverted if                       |
+| `(when-not test body...)`     | `(when (not test) body...)`  | Inverted when                     |
+| `(xor a b)`                   | Logical XOR                  | Exclusive or                      |
+| `(min a b ...)`               | `(Math.min ...)`             | Minimum                           |
+| `(max a b ...)`               | `(Math.max ...)`             | Maximum                           |
 
 #### 15.6 Type Predicates
 
@@ -2826,11 +3083,13 @@ Type predicate macros expand to `typeof` or `instanceof` checks:
 (isObject x)    ;; complex check (not null, not array, typeof "object")
 ```
 
-These are macros, not functions -- they expand inline at compile time for zero overhead.
+These are macros, not functions -- they expand inline at compile time for zero
+overhead.
 
 #### 15.7 Macro Hygiene
 
-HQL does not have automatic Scheme-style hygiene. Macro authors must manually avoid variable capture using `gensym` or auto-gensym:
+HQL does not have automatic Scheme-style hygiene. Macro authors must manually
+avoid variable capture using `gensym` or auto-gensym:
 
 **Manual gensym:**
 
@@ -2842,7 +3101,8 @@ HQL does not have automatic Scheme-style hygiene. Macro authors must manually av
        (= ~b ~tmp))))
 ```
 
-**Auto-gensym** -- symbols ending with `#` inside `syntax-quote` or `quasiquote` automatically get unique names:
+**Auto-gensym** -- symbols ending with `#` inside `syntax-quote` or `quasiquote`
+automatically get unique names:
 
 ```clojure
 (macro swap [a b]
@@ -2862,15 +3122,16 @@ HQL does not have automatic Scheme-style hygiene. Macro authors must manually av
 
 #### 15.8 Macro Primitives
 
-During macro expansion, special `%`-prefixed primitives are available for operating on code:
+During macro expansion, special `%`-prefixed primitives are available for
+operating on code:
 
-| Primitive | Description |
-|-----------|-------------|
-| `(%first coll)` | First element of a list |
-| `(%rest coll)` | All but first element |
-| `(%nth coll n)` | Element at index n |
-| `(%length coll)` | Number of elements |
-| `(%empty? coll)` | True if empty or null |
+| Primitive        | Description             |
+| ---------------- | ----------------------- |
+| `(%first coll)`  | First element of a list |
+| `(%rest coll)`   | All but first element   |
+| `(%nth coll n)`  | Element at index n      |
+| `(%length coll)` | Number of elements      |
+| `(%empty? coll)` | True if empty or null   |
 
 Additionally, `list?`, `symbol?`, and `name` are available for introspection.
 
@@ -2893,7 +3154,8 @@ Here is a step-by-step guide to writing a macro:
   `(if ~test nil (do ~@body)))
 ```
 
-**Step 3: Test expansion.** The macro transforms `(unless (isEmpty x) (process x))` into `(if (isEmpty x) nil (do (process x)))`.
+**Step 3: Test expansion.** The macro transforms
+`(unless (isEmpty x) (process x))` into `(if (isEmpty x) nil (do (process x)))`.
 
 **Step 4: Handle edge cases.** Use `%`-primitives for conditional logic:
 
@@ -2905,17 +3167,23 @@ Here is a step-by-step guide to writing a macro:
        result#)))
 ```
 
-Macros are expanded iteratively until a fixed point (no changes) or a maximum depth of 100 recursive expansions.
+Macros are expanded iteratively until a fixed point (no changes) or a maximum
+depth of 100 recursive expansions.
 
 ---
 
 ### Chapter 16: The Type System
 
-HQL implements a complete TypeScript type system with two approaches: native S-expression syntax for common type operators, and string passthrough for 100% TypeScript coverage. Types are optional -- type errors produce warnings but code always compiles and runs.
+HQL implements a complete TypeScript type system with two approaches: native
+S-expression syntax for common type operators, and string passthrough for 100%
+TypeScript coverage. Types are optional -- type errors produce warnings but code
+always compiles and runs.
 
 #### 16.1 Type Annotations
 
-**Critical rule: NO SPACE after the colon.** HQL's parser uses whitespace as a token delimiter, so `a:number` is one token but `a: number` is two separate tokens and breaks parsing.
+**Critical rule: NO SPACE after the colon.** HQL's parser uses whitespace as a
+token delimiter, so `a:number` is one token but `a: number` is two separate
+tokens and breaks parsing.
 
 ```clojure
 ;; CORRECT
@@ -2943,7 +3211,9 @@ Return type annotations (three equivalent forms):
 (fn add:number [a b] (+ a b))      ;; on the function name
 ```
 
-Inline type syntax supports unions (`x:number|string`), nullable (`x:?number`), arrays (`x:string[]`), generics (`x:Array<number>`), object types, tuple types, and function types.
+Inline type syntax supports unions (`x:number|string`), nullable (`x:?number`),
+arrays (`x:string[]`), generics (`x:Array<number>`), object types, tuple types,
+and function types.
 
 #### 16.2 Type Aliases
 
@@ -3024,7 +3294,8 @@ The backward-compatible `deftype` form also works:
 ;; => type ConfigType = typeof config;
 ```
 
-The `infer` keyword is used within conditional types to introduce a type variable:
+The `infer` keyword is used within conditional types to introduce a type
+variable:
 
 ```clojure
 (type ElementType<T> (if-extends T (array (infer E)) E never))
@@ -3079,11 +3350,11 @@ HQL supports Swift-inspired shorthand for common collection types:
 (let scores:[string: number] {})  ;; Dictionary: Record<string, number>
 ```
 
-| Shorthand | TypeScript Output |
-|-----------|-------------------|
-| `[Int]` | `Int[]` |
+| Shorthand       | TypeScript Output        |
+| --------------- | ------------------------ |
+| `[Int]`         | `Int[]`                  |
 | `[String: Int]` | `Record<string, number>` |
-| `(Int, String)` | `[Int, String]` |
+| `(Int, String)` | `[Int, String]`          |
 
 #### 16.13 Interfaces
 
@@ -3154,7 +3425,8 @@ Ambient declarations for external code:
 
 #### 16.18 String Passthrough
 
-For any TypeScript type expression not directly supported by native syntax, use string passthrough. This guarantees 100% TypeScript coverage:
+For any TypeScript type expression not directly supported by native syntax, use
+string passthrough. This guarantees 100% TypeScript coverage:
 
 ```clojure
 (deftype EventName "`on${string}`")
@@ -3162,13 +3434,15 @@ For any TypeScript type expression not directly supported by native syntax, use 
 (deftype "Mutable<T>" "{ -readonly [K in keyof T]: T[K] }")
 ```
 
-The compiler automatically handles operator precedence, adding parentheses where needed (e.g., intersection inside union, union inside array).
+The compiler automatically handles operator precedence, adding parentheses where
+needed (e.g., intersection inside union, union inside array).
 
 ---
 
 ### Chapter 17: JavaScript Interop
 
-HQL compiles to JavaScript and provides seamless interoperability at every level.
+HQL compiles to JavaScript and provides seamless interoperability at every
+level.
 
 #### 17.1 The js/ Global Prefix
 
@@ -3182,11 +3456,13 @@ Access any JavaScript global with the `js/` prefix:
 (js/setTimeout callback 1000)      ;; setTimeout(callback, 1000)
 ```
 
-The `js/` prefix is preserved during compilation -- it is not treated as dot notation.
+The `js/` prefix is preserved during compilation -- it is not treated as dot
+notation.
 
 #### 17.2 Method Calls
 
-The dot-method syntax calls methods on objects. HQL supports two equivalent styles:
+The dot-method syntax calls methods on objects. HQL supports two equivalent
+styles:
 
 **Spaced dot notation** (method chaining):
 
@@ -3265,7 +3541,8 @@ For advanced scenarios, HQL provides explicit interop forms:
 (js-new Date (2023 11 25))        ;; new Date(2023, 11, 25)
 ```
 
-When the method name string is a valid JavaScript identifier, dot notation is used in the output. Otherwise bracket notation is used.
+When the method name string is a valid JavaScript identifier, dot notation is
+used in the output. Otherwise bracket notation is used.
 
 #### 17.6 Constructor Calls
 
@@ -3358,11 +3635,14 @@ The spread operator `...` works in function calls and array/object literals:
 
 ### Chapter 18: The Effect System
 
-HQL includes a compile-time effect system that enforces function purity. This enables safe optimizations like memoization and parallelization while catching side-effect bugs early.
+HQL includes a compile-time effect system that enforces function purity. This
+enables safe optimizations like memoization and parallelization while catching
+side-effect bugs early.
 
 #### 18.1 Pure Functions (fx)
 
-The `fx` form declares a function as pure. The compiler statically verifies that its body contains no impure operations:
+The `fx` form declares a function as pure. The compiler statically verifies that
+its body contains no impure operations:
 
 ```clojure
 (fx add [a:number b:number]
@@ -3380,24 +3660,29 @@ The `fx` form declares a function as pure. The compiler statically verifies that
 
 HQL uses binary effect classification: **Pure** or **Impure**.
 
-- **Pure** functions have no observable side effects -- they always return the same output for the same input, perform no I/O, and mutate no state.
-- **Impure** functions may have side effects -- I/O, network calls, DOM manipulation, mutation, console output, etc.
+- **Pure** functions have no observable side effects -- they always return the
+  same output for the same input, perform no I/O, and mutate no state.
+- **Impure** functions may have side effects -- I/O, network calls, DOM
+  manipulation, mutation, console output, etc.
 
-The default for `fn` is untracked (no purity enforcement). Only `fx` triggers compile-time checking.
+The default for `fn` is untracked (no purity enforcement). Only `fx` triggers
+compile-time checking.
 
 #### 18.3 ValueKind and Method Purity
 
-Method purity depends on the receiver type. HQL tracks `ValueKind` for common types:
+Method purity depends on the receiver type. HQL tracks `ValueKind` for common
+types:
 
-| ValueKind | Pure Methods | Impure Methods |
-|-----------|-------------|----------------|
-| Array | `.length`, `.includes()`, `.indexOf()`, `.slice()` | `.push()`, `.pop()`, `.splice()` |
-| String | `.length`, `.charAt()`, `.includes()`, `.slice()` | (none -- strings are immutable) |
-| Number | `.toFixed()`, `.toString()` | (none) |
-| Map | `.size`, `.has()`, `.get()` | `.set()`, `.delete()`, `.clear()` |
-| Set | `.size`, `.has()` | `.add()`, `.delete()`, `.clear()` |
+| ValueKind | Pure Methods                                       | Impure Methods                    |
+| --------- | -------------------------------------------------- | --------------------------------- |
+| Array     | `.length`, `.includes()`, `.indexOf()`, `.slice()` | `.push()`, `.pop()`, `.splice()`  |
+| String    | `.length`, `.charAt()`, `.includes()`, `.slice()`  | (none -- strings are immutable)   |
+| Number    | `.toFixed()`, `.toString()`                        | (none)                            |
+| Map       | `.size`, `.has()`, `.get()`                        | `.set()`, `.delete()`, `.clear()` |
+| Set       | `.size`, `.has()`                                  | `.add()`, `.delete()`, `.clear()` |
 
-This means calling `.push()` on an array inside an `fx` function is a compile-time error, while calling `.length` is allowed.
+This means calling `.push()` on an array inside an `fx` function is a
+compile-time error, while calling `.length` is allowed.
 
 #### 18.4 Compile-Time Enforcement
 
@@ -3493,15 +3778,21 @@ The effect system classifies static methods and constructors:
 
 The effect checker maintains tables of known function effects:
 
-**Known pure functions:** `parseInt`, `parseFloat`, `isNaN`, `isFinite`, `encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent`, `String`, `Number`, `Boolean`
+**Known pure functions:** `parseInt`, `parseFloat`, `isNaN`, `isFinite`,
+`encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent`, `String`,
+`Number`, `Boolean`
 
-**Known impure functions:** `fetch`, `alert`, `confirm`, `prompt`, `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval`, `requestAnimationFrame`, `queueMicrotask`
+**Known impure functions:** `fetch`, `alert`, `confirm`, `prompt`, `setTimeout`,
+`setInterval`, `clearTimeout`, `clearInterval`, `requestAnimationFrame`,
+`queueMicrotask`
 
-Unknown functions (not in any table) default to **impure** -- the system is conservative. A pure function calling an unknown function is always an error.
+Unknown functions (not in any table) default to **impure** -- the system is
+conservative. A pure function calling an unknown function is always an error.
 
 #### 18.7 Compilation Output
 
-`fx` compiles identically to `fn` in the output JavaScript. Purity is enforced entirely at compile time with zero runtime overhead:
+`fx` compiles identically to `fn` in the output JavaScript. Purity is enforced
+entirely at compile time with zero runtime overhead:
 
 ```clojure
 (fx add [x y] (+ x y))
@@ -3515,7 +3806,8 @@ function add(x, y) {
 }
 ```
 
-There is no wrapper, no annotation, no runtime check. The `fx` keyword is purely a compile-time contract.
+There is no wrapper, no annotation, no runtime check. The `fx` keyword is purely
+a compile-time contract.
 
 ---
 
@@ -3523,11 +3815,15 @@ There is no wrapper, no annotation, no runtime check. The `fx` keyword is purely
 
 ### Chapter 19: Standard Library Reference
 
-HQL's standard library provides functional programming utilities inspired by Clojure. All sequence operations are lazy by default and support both arrays and lazy sequences. Approximately 96% of the standard library is self-hosted -- written in HQL itself.
+HQL's standard library provides functional programming utilities inspired by
+Clojure. All sequence operations are lazy by default and support both arrays and
+lazy sequences. Approximately 96% of the standard library is self-hosted --
+written in HQL itself.
 
 #### 19.1 Sequence Primitives
 
-The fundamental building blocks of sequence processing, borrowed from Lisp's trinity:
+The fundamental building blocks of sequence processing, borrowed from Lisp's
+trinity:
 
 ```clojure
 (first [1 2 3])          ;; => 1
@@ -3636,7 +3932,9 @@ Deferred computation allows values to be computed only when needed:
 (realized d)  ;; => true
 ```
 
-`delay` wraps an expression in a thunk. `force` evaluates the thunk once and caches the result. Subsequent `force` calls return the cached value. This is the foundation for lazy evaluation in HQL.
+`delay` wraps an expression in a thunk. `force` evaluates the thunk once and
+caches the result. Subsequent `force` calls return the cached value. This is the
+foundation for lazy evaluation in HQL.
 
 #### 19.6 Collection Conversion
 
@@ -3771,12 +4069,12 @@ All map operations are immutable -- they return new maps:
 
 (groupBy isEven [1 2 3 4 5])
 ;; => {true: [2 4], false: [1 3 5]}
-
 ```
 
 #### 19.12 Transducers
 
-Transducers are composable algorithmic transformations that are independent of their input and output sources:
+Transducers are composable algorithmic transformations that are independent of
+their input and output sources:
 
 ```clojure
 ;; Basic transducer composition
@@ -3809,14 +4107,18 @@ The `reduced` sentinel allows early termination:
 
 #### 19.13 Self-Hosting Architecture
 
-Approximately 96% of the standard library is written in HQL itself (the `stdlib.hql` file). Only true primitives that require direct JavaScript interop remain in JavaScript:
+Approximately 96% of the standard library is written in HQL itself (the
+`stdlib.hql` file). Only true primitives that require direct JavaScript interop
+remain in JavaScript:
 
 - `first`, `rest`, `cons` -- fundamental sequence protocol
 - `seq`, `lazy-seq` -- lazy sequence creation
 - `reduce` -- requires direct iteration control
 - Operator functions via `__hql_get_op` -- runtime operator wrapping
 
-Self-hosted functions are transpiled to JavaScript at build time via `scripts/build-stdlib.ts`. The resulting `self-hosted.js` is merged with `core.js` into the final `index.js` bundle.
+Self-hosted functions are transpiled to JavaScript at build time via
+`scripts/build-stdlib.ts`. The resulting `self-hosted.js` is merged with
+`core.js` into the final `index.js` bundle.
 
 ---
 
@@ -3824,159 +4126,161 @@ Self-hosted functions are transpiled to JavaScript at build time via `scripts/bu
 
 ### Appendix A: Complete Syntax Table
 
-| Form | Category | Example |
-|------|----------|---------|
-| `fn` | Function | `(fn add [a b] (+ a b))` |
-| `defn` | Function | `(defn add [a b] (+ a b))` |
-| `fx` | Function (pure) | `(fx pure [x] (* x x))` |
-| `=>` | Function (arrow) | `(=> (* $0 2))` |
-| `fn*` | Generator | `(fn* gen [] (yield 1))` |
-| `async fn` | Async | `(async fn f [] (await x))` |
-| `async fn*` | Async generator | `(async fn* g [] (yield (await x)))` |
-| `let` | Binding | `(let x 10)` |
-| `const` | Binding (frozen) | `(const PI 3.14)` |
-| `def` | Binding (frozen) | `(def PI 3.14)` |
-| `var` | Binding (fn-scope) | `(var x 10)` |
-| `=` | Assignment | `(= x 20)` |
-| `+=` `-=` `*=` `/=` `%=` `**=` | Compound assign | `(+= x 5)` |
-| `&=` `\|=` `^=` `<<=` `>>=` `>>>=` | Bitwise assign | `(&= flags 0xFF)` |
-| `??=` `&&=` `\|\|=` | Logical assign | `(??= x "default")` |
-| `if` | Control flow | `(if cond then else)` |
-| `cond` | Control flow | `(cond ((test1) r1) (else r2))` |
-| `when` | Control flow | `(when cond body...)` |
-| `unless` | Control flow | `(unless cond body...)` |
-| `when-let` | Control flow | `(when-let [x expr] body...)` |
-| `if-let` | Control flow | `(if-let [x expr] then else)` |
-| `when-not` | Control flow | `(when-not cond body...)` |
-| `if-not` | Control flow | `(if-not cond then else)` |
-| `?` | Ternary | `(? cond then else)` |
-| `switch` | Control flow | `(switch x (case 1 a) (default b))` |
-| `case` | Control flow | `(case x v1 r1 v2 r2 default)` |
-| `match` | Pattern match | `(match v (case p r) (default d))` |
-| `do` | Sequencing | `(do expr1 expr2 expr3)` |
-| `loop` | Iteration | `(loop [i 0] (recur (+ i 1)))` |
-| `recur` | Iteration | `(recur new-bindings...)` |
-| `while` | Iteration | `(while cond body...)` |
-| `for` | Iteration | `(for [i 10] body)` |
-| `for-of` | Iteration | `(for-of [x arr] body)` |
-| `for-await-of` | Iteration | `(for-await-of [x iter] body)` |
-| `repeat` | Iteration | `(repeat n body...)` |
-| `break` | Loop control | `(break)` or `(break label)` |
-| `continue` | Loop control | `(continue)` or `(continue label)` |
-| `label` | Loop control | `(label name body)` |
-| `class` | OOP | `(class Name body...)` |
-| `abstract-class` | OOP | `(abstract-class Name body...)` |
-| `constructor` | OOP | `(constructor [params] body)` |
-| `super` | OOP | `(super args...)` |
-| `extends` | OOP | `(class Child extends Parent ...)` |
-| `static` | OOP modifier | `(static fn name [] ...)` |
-| `getter` | OOP | `(getter name [] body)` |
-| `setter` | OOP | `(setter name [v] body)` |
-| `new` | Constructor | `(new ClassName args...)` |
-| `js-new` | Constructor | `(js-new Class (args...))` |
-| `import` | Module | `(import [a b] from "mod")` |
-| `import-dynamic` | Module | `(import-dynamic "mod")` |
-| `export` | Module | `(export (fn f [] ...))` |
-| `export default` | Module | `(export default expr)` |
-| `try` | Error | `(try body (catch e handler))` |
-| `catch` | Error | `(catch e body...)` |
-| `finally` | Error | `(finally body...)` |
-| `throw` | Error | `(throw (new Error "msg"))` |
-| `return` | Control | `(return expr)` |
-| `await` | Async | `(await promise)` |
-| `yield` | Generator | `(yield value)` |
-| `yield*` | Generator | `(yield* iterable)` |
-| `macro` | Metaprog | `(macro name [params] body)` |
-| `quote` | Metaprog | `(quote expr)` |
-| `syntax-quote` | Metaprog | `` `(expr ~val ~@list) `` |
-| `quasiquote` | Metaprog | `(quasiquote expr)` |
-| `unquote` | Metaprog | `~expr` |
-| `unquote-splicing` | Metaprog | `~@expr` |
-| `gensym` | Metaprog | `(gensym "prefix")` |
-| `with-gensyms` | Metaprog | `(with-gensyms [names] body)` |
-| `->` | Threading | `(-> x (f a) (g b))` |
-| `->>` | Threading | `(->> x (f a) (g b))` |
-| `as->` | Threading | `(as-> x $ (f $ a))` |
-| `doto` | Threading | `(doto x (.m1) (.m2))` |
-| `type` | Type system | `(type Name TypeExpr)` |
-| `deftype` | Type system | `(deftype Name "TS type")` |
-| `\|` | Type (union) | `(\| A B C)` |
-| `&` | Type (intersect) | `(& A B)` |
-| `keyof` | Type | `(keyof T)` |
-| `indexed` | Type | `(indexed T K)` |
-| `if-extends` | Type | `(if-extends T U X Y)` |
-| `mapped` | Type | `(mapped K Keys V)` |
-| `tuple` | Type | `(tuple A B)` |
-| `array` | Type | `(array T)` |
-| `readonly` | Type | `(readonly T)` |
-| `typeof` | Type/operator | `(typeof x)` |
-| `infer` | Type | `(infer T)` |
-| `interface` | Type | `(interface Name "body")` |
-| `namespace` | Type | `(namespace Name [...])` |
-| `enum` | Type | `(enum Color Red Green Blue)` |
-| `const-enum` | Type | `(const-enum Dir [...])` |
-| `fn-overload` | Type | `(fn-overload f "params" :ret)` |
-| `declare` | Type | `(declare var "x: number")` |
-| `instanceof` | Operator | `(instanceof x Type)` |
-| `in` | Operator | `(in "key" obj)` |
-| `delete` | Operator | `(delete obj.prop)` |
-| `void` | Operator | `(void 0)` |
-| `+` `-` `*` `/` `%` `**` | Arithmetic | `(+ 1 2 3)` |
-| `<` `>` `<=` `>=` | Comparison | `(< a b)` |
-| `===` `==` `!==` `!=` | Equality | `(=== a b)` |
-| `and` `or` `not` | Logical (macro) | `(and a b)` |
-| `&&` `\|\|` `!` | Logical (direct) | `(&& a b)` |
-| `??` | Nullish coalesce | `(?? a "default")` |
-| `&` `\|` `^` `~` | Bitwise | `(& 5 3)` |
-| `<<` `>>` `>>>` | Shift | `(<< 5 2)` |
-| `js-get` | JS interop | `(js-get obj "prop")` |
-| `js-set` | JS interop | `(js-set obj "key" val)` |
-| `js-call` | JS interop | `(js-call obj "method" arg)` |
-| `.method` | JS interop | `(obj .method arg)` |
-| `.?method` | JS interop | `(obj .?method arg)` |
-| `lazy-seq` | Lazy evaluation | `(lazy-seq (cons 1 more))` |
-| `delay` | Lazy evaluation | `(delay expensive-expr)` |
-| `decorator` | TypeScript | `(decorator @Name)` |
-| `str` | Utility (macro) | `(str a b c)` |
-| `print` | Utility (macro) | `(print "hello")` |
-| `inc` | Utility (macro) | `(inc x)` |
-| `dec` | Utility (macro) | `(dec x)` |
+| Form                               | Category           | Example                              |
+| ---------------------------------- | ------------------ | ------------------------------------ |
+| `fn`                               | Function           | `(fn add [a b] (+ a b))`             |
+| `defn`                             | Function           | `(defn add [a b] (+ a b))`           |
+| `fx`                               | Function (pure)    | `(fx pure [x] (* x x))`              |
+| `=>`                               | Function (arrow)   | `(=> (* $0 2))`                      |
+| `fn*`                              | Generator          | `(fn* gen [] (yield 1))`             |
+| `async fn`                         | Async              | `(async fn f [] (await x))`          |
+| `async fn*`                        | Async generator    | `(async fn* g [] (yield (await x)))` |
+| `let`                              | Binding            | `(let x 10)`                         |
+| `const`                            | Binding (frozen)   | `(const PI 3.14)`                    |
+| `def`                              | Binding (frozen)   | `(def PI 3.14)`                      |
+| `var`                              | Binding (fn-scope) | `(var x 10)`                         |
+| `=`                                | Assignment         | `(= x 20)`                           |
+| `+=` `-=` `*=` `/=` `%=` `**=`     | Compound assign    | `(+= x 5)`                           |
+| `&=` `\|=` `^=` `<<=` `>>=` `>>>=` | Bitwise assign     | `(&= flags 0xFF)`                    |
+| `??=` `&&=` `\|\|=`                | Logical assign     | `(??= x "default")`                  |
+| `if`                               | Control flow       | `(if cond then else)`                |
+| `cond`                             | Control flow       | `(cond ((test1) r1) (else r2))`      |
+| `when`                             | Control flow       | `(when cond body...)`                |
+| `unless`                           | Control flow       | `(unless cond body...)`              |
+| `when-let`                         | Control flow       | `(when-let [x expr] body...)`        |
+| `if-let`                           | Control flow       | `(if-let [x expr] then else)`        |
+| `when-not`                         | Control flow       | `(when-not cond body...)`            |
+| `if-not`                           | Control flow       | `(if-not cond then else)`            |
+| `?`                                | Ternary            | `(? cond then else)`                 |
+| `switch`                           | Control flow       | `(switch x (case 1 a) (default b))`  |
+| `case`                             | Control flow       | `(case x v1 r1 v2 r2 default)`       |
+| `match`                            | Pattern match      | `(match v (case p r) (default d))`   |
+| `do`                               | Sequencing         | `(do expr1 expr2 expr3)`             |
+| `loop`                             | Iteration          | `(loop [i 0] (recur (+ i 1)))`       |
+| `recur`                            | Iteration          | `(recur new-bindings...)`            |
+| `while`                            | Iteration          | `(while cond body...)`               |
+| `for`                              | Iteration          | `(for [i 10] body)`                  |
+| `for-of`                           | Iteration          | `(for-of [x arr] body)`              |
+| `for-await-of`                     | Iteration          | `(for-await-of [x iter] body)`       |
+| `repeat`                           | Iteration          | `(repeat n body...)`                 |
+| `break`                            | Loop control       | `(break)` or `(break label)`         |
+| `continue`                         | Loop control       | `(continue)` or `(continue label)`   |
+| `label`                            | Loop control       | `(label name body)`                  |
+| `class`                            | OOP                | `(class Name body...)`               |
+| `abstract-class`                   | OOP                | `(abstract-class Name body...)`      |
+| `constructor`                      | OOP                | `(constructor [params] body)`        |
+| `super`                            | OOP                | `(super args...)`                    |
+| `extends`                          | OOP                | `(class Child extends Parent ...)`   |
+| `static`                           | OOP modifier       | `(static fn name [] ...)`            |
+| `getter`                           | OOP                | `(getter name [] body)`              |
+| `setter`                           | OOP                | `(setter name [v] body)`             |
+| `new`                              | Constructor        | `(new ClassName args...)`            |
+| `js-new`                           | Constructor        | `(js-new Class (args...))`           |
+| `import`                           | Module             | `(import [a b] from "mod")`          |
+| `import-dynamic`                   | Module             | `(import-dynamic "mod")`             |
+| `export`                           | Module             | `(export (fn f [] ...))`             |
+| `export default`                   | Module             | `(export default expr)`              |
+| `try`                              | Error              | `(try body (catch e handler))`       |
+| `catch`                            | Error              | `(catch e body...)`                  |
+| `finally`                          | Error              | `(finally body...)`                  |
+| `throw`                            | Error              | `(throw (new Error "msg"))`          |
+| `return`                           | Control            | `(return expr)`                      |
+| `await`                            | Async              | `(await promise)`                    |
+| `yield`                            | Generator          | `(yield value)`                      |
+| `yield*`                           | Generator          | `(yield* iterable)`                  |
+| `macro`                            | Metaprog           | `(macro name [params] body)`         |
+| `quote`                            | Metaprog           | `(quote expr)`                       |
+| `syntax-quote`                     | Metaprog           | `` `(expr ~val ~@list) ``            |
+| `quasiquote`                       | Metaprog           | `(quasiquote expr)`                  |
+| `unquote`                          | Metaprog           | `~expr`                              |
+| `unquote-splicing`                 | Metaprog           | `~@expr`                             |
+| `gensym`                           | Metaprog           | `(gensym "prefix")`                  |
+| `with-gensyms`                     | Metaprog           | `(with-gensyms [names] body)`        |
+| `->`                               | Threading          | `(-> x (f a) (g b))`                 |
+| `->>`                              | Threading          | `(->> x (f a) (g b))`                |
+| `as->`                             | Threading          | `(as-> x $ (f $ a))`                 |
+| `doto`                             | Threading          | `(doto x (.m1) (.m2))`               |
+| `type`                             | Type system        | `(type Name TypeExpr)`               |
+| `deftype`                          | Type system        | `(deftype Name "TS type")`           |
+| `\|`                               | Type (union)       | `(\| A B C)`                         |
+| `&`                                | Type (intersect)   | `(& A B)`                            |
+| `keyof`                            | Type               | `(keyof T)`                          |
+| `indexed`                          | Type               | `(indexed T K)`                      |
+| `if-extends`                       | Type               | `(if-extends T U X Y)`               |
+| `mapped`                           | Type               | `(mapped K Keys V)`                  |
+| `tuple`                            | Type               | `(tuple A B)`                        |
+| `array`                            | Type               | `(array T)`                          |
+| `readonly`                         | Type               | `(readonly T)`                       |
+| `typeof`                           | Type/operator      | `(typeof x)`                         |
+| `infer`                            | Type               | `(infer T)`                          |
+| `interface`                        | Type               | `(interface Name "body")`            |
+| `namespace`                        | Type               | `(namespace Name [...])`             |
+| `enum`                             | Type               | `(enum Color Red Green Blue)`        |
+| `const-enum`                       | Type               | `(const-enum Dir [...])`             |
+| `fn-overload`                      | Type               | `(fn-overload f "params" :ret)`      |
+| `declare`                          | Type               | `(declare var "x: number")`          |
+| `instanceof`                       | Operator           | `(instanceof x Type)`                |
+| `in`                               | Operator           | `(in "key" obj)`                     |
+| `delete`                           | Operator           | `(delete obj.prop)`                  |
+| `void`                             | Operator           | `(void 0)`                           |
+| `+` `-` `*` `/` `%` `**`           | Arithmetic         | `(+ 1 2 3)`                          |
+| `<` `>` `<=` `>=`                  | Comparison         | `(< a b)`                            |
+| `===` `==` `!==` `!=`              | Equality           | `(=== a b)`                          |
+| `and` `or` `not`                   | Logical (macro)    | `(and a b)`                          |
+| `&&` `\|\|` `!`                    | Logical (direct)   | `(&& a b)`                           |
+| `??`                               | Nullish coalesce   | `(?? a "default")`                   |
+| `&` `\|` `^` `~`                   | Bitwise            | `(& 5 3)`                            |
+| `<<` `>>` `>>>`                    | Shift              | `(<< 5 2)`                           |
+| `js-get`                           | JS interop         | `(js-get obj "prop")`                |
+| `js-set`                           | JS interop         | `(js-set obj "key" val)`             |
+| `js-call`                          | JS interop         | `(js-call obj "method" arg)`         |
+| `.method`                          | JS interop         | `(obj .method arg)`                  |
+| `.?method`                         | JS interop         | `(obj .?method arg)`                 |
+| `lazy-seq`                         | Lazy evaluation    | `(lazy-seq (cons 1 more))`           |
+| `delay`                            | Lazy evaluation    | `(delay expensive-expr)`             |
+| `decorator`                        | TypeScript         | `(decorator @Name)`                  |
+| `str`                              | Utility (macro)    | `(str a b c)`                        |
+| `print`                            | Utility (macro)    | `(print "hello")`                    |
+| `inc`                              | Utility (macro)    | `(inc x)`                            |
+| `dec`                              | Utility (macro)    | `(dec x)`                            |
 
 ---
 
 ### Appendix B: Operator Precedence
 
-HQL uses explicit prefix notation -- there is no implicit operator precedence since parentheses make grouping unambiguous:
+HQL uses explicit prefix notation -- there is no implicit operator precedence
+since parentheses make grouping unambiguous:
 
 ```clojure
 (+ 2 (* 3 4))  ;; 2 + (3 * 4) = 14, explicit
 (* (+ 2 3) 4)  ;; (2 + 3) * 4 = 20, explicit
 ```
 
-However, the compiler uses an internal precedence table for correct JavaScript parenthesization in the output. From highest to lowest:
+However, the compiler uses an internal precedence table for correct JavaScript
+parenthesization in the output. From highest to lowest:
 
-| Precedence | Operators |
-|-----------|-----------|
-| 20 | Grouping `()` |
-| 19 | Member access `.`, computed `[]`, `new` with args, function call `()` |
-| 18 | `new` without args |
-| 17 | Postfix `++` `--` |
-| 16 | Prefix `!` `~` `+` `-` `typeof` `void` `delete` `await` |
-| 15 | `**` (right-associative) |
-| 14 | `*` `/` `%` |
-| 13 | `+` `-` |
-| 12 | `<<` `>>` `>>>` |
-| 11 | `<` `<=` `>` `>=` `in` `instanceof` |
-| 10 | `==` `!=` `===` `!==` |
-| 9 | `&` (bitwise AND) |
-| 8 | `^` (bitwise XOR) |
-| 7 | `\|` (bitwise OR) |
-| 6 | `&&` |
-| 5 | `\|\|` |
-| 4 | `??` |
-| 3 | `? :` (ternary) |
-| 2 | `=` `+=` `-=` etc. (assignment) |
-| 1 | `,` (comma/sequence) |
+| Precedence | Operators                                                             |
+| ---------- | --------------------------------------------------------------------- |
+| 20         | Grouping `()`                                                         |
+| 19         | Member access `.`, computed `[]`, `new` with args, function call `()` |
+| 18         | `new` without args                                                    |
+| 17         | Postfix `++` `--`                                                     |
+| 16         | Prefix `!` `~` `+` `-` `typeof` `void` `delete` `await`               |
+| 15         | `**` (right-associative)                                              |
+| 14         | `*` `/` `%`                                                           |
+| 13         | `+` `-`                                                               |
+| 12         | `<<` `>>` `>>>`                                                       |
+| 11         | `<` `<=` `>` `>=` `in` `instanceof`                                   |
+| 10         | `==` `!=` `===` `!==`                                                 |
+| 9          | `&` (bitwise AND)                                                     |
+| 8          | `^` (bitwise XOR)                                                     |
+| 7          | `\|` (bitwise OR)                                                     |
+| 6          | `&&`                                                                  |
+| 5          | `\|\|`                                                                |
+| 4          | `??`                                                                  |
+| 3          | `? :` (ternary)                                                       |
+| 2          | `=` `+=` `-=` etc. (assignment)                                       |
+| 1          | `,` (comma/sequence)                                                  |
 
 In HQL, you never need to memorize this table. Parentheses are always explicit.
 
@@ -3986,14 +4290,21 @@ In HQL, you never need to memorize this table. Parentheses are always explicit.
 
 The following identifiers are reserved and cannot be used as variable names:
 
-**JavaScript reserved words:**
-`break`, `case`, `catch`, `continue`, `debugger`, `default`, `delete`, `do`, `else`, `finally`, `for`, `function`, `if`, `in`, `instanceof`, `new`, `return`, `switch`, `this`, `throw`, `try`, `typeof`, `var`, `void`, `while`, `with`
+**JavaScript reserved words:** `break`, `case`, `catch`, `continue`, `debugger`,
+`default`, `delete`, `do`, `else`, `finally`, `for`, `function`, `if`, `in`,
+`instanceof`, `new`, `return`, `switch`, `this`, `throw`, `try`, `typeof`,
+`var`, `void`, `while`, `with`
 
-**JavaScript strict mode reserved words:**
-`class`, `const`, `enum`, `export`, `extends`, `import`, `super`, `implements`, `interface`, `let`, `package`, `private`, `protected`, `public`, `static`, `yield`
+**JavaScript strict mode reserved words:** `class`, `const`, `enum`, `export`,
+`extends`, `import`, `super`, `implements`, `interface`, `let`, `package`,
+`private`, `protected`, `public`, `static`, `yield`
 
-**HQL-specific keywords:**
-`fn`, `defn`, `fx`, `def`, `loop`, `recur`, `macro`, `quote`, `quasiquote`, `unquote`, `unquote-splicing`, `async`, `await`, `fn*`, `yield*`, `cond`, `when`, `unless`, `match`, `and`, `or`, `not`, `repeat`, `for-of`, `for-await-of`, `label`, `import-dynamic`, `export`, `type`, `deftype`, `interface`, `namespace`, `enum`, `const-enum`, `declare`, `fn-overload`, `abstract-class`, `getter`, `setter`, `constructor`
+**HQL-specific keywords:** `fn`, `defn`, `fx`, `def`, `loop`, `recur`, `macro`,
+`quote`, `quasiquote`, `unquote`, `unquote-splicing`, `async`, `await`, `fn*`,
+`yield*`, `cond`, `when`, `unless`, `match`, `and`, `or`, `not`, `repeat`,
+`for-of`, `for-await-of`, `label`, `import-dynamic`, `export`, `type`,
+`deftype`, `interface`, `namespace`, `enum`, `const-enum`, `declare`,
+`fn-overload`, `abstract-class`, `getter`, `setter`, `constructor`
 
 ---
 
@@ -4029,6 +4340,7 @@ hlvm repl
 ```
 
 The REPL supports:
+
 - Persistent definitions across expressions (`def`, `defn`)
 - Tab completion for symbols
 - Paredit structural editing (see Appendix E)
@@ -4045,55 +4357,58 @@ cd my-project
 hlvm run src/main.hql
 ```
 
-Creates a project skeleton with `src/main.hql`, configuration files, and directory structure.
+Creates a project skeleton with `src/main.hql`, configuration files, and
+directory structure.
 
-#### hlvm upgrade
+#### hlvm update
 
 Upgrade the HQL toolchain to the latest version:
 
 ```bash
-hlvm upgrade
+hlvm update
 ```
 
-This downloads and installs the latest release, preserving your existing projects and configuration.
+This downloads and installs the latest release, preserving your existing
+projects and configuration.
 
 #### Global Options
 
-| Option | Description |
-|--------|-------------|
-| `--help`, `-h` | Show help for a command |
-| `--version`, `-V` | Print version information |
-| `--verbose` | Enable verbose output |
-| `--debug` | Enable debug-level logging |
+| Option            | Description                |
+| ----------------- | -------------------------- |
+| `--help`, `-h`    | Show help for a command    |
+| `--version`, `-V` | Print version information  |
+| `--verbose`       | Enable verbose output      |
+| `--debug`         | Enable debug-level logging |
 
 #### Compile Options
 
-| Option | Description |
-|--------|-------------|
-| `-o <file>` | Output file path |
-| `--ts` | Emit TypeScript instead of JavaScript |
-| `--release` | Enable optimizations (minification, tree-shaking) |
-| `--target native` | Compile to native executable via Deno |
+| Option            | Description                                       |
+| ----------------- | ------------------------------------------------- |
+| `-o <file>`       | Output file path                                  |
+| `--ts`            | Emit TypeScript instead of JavaScript             |
+| `--release`       | Enable optimizations (minification, tree-shaking) |
+| `--target native` | Compile to native executable via Deno             |
 
 ---
 
 ### Appendix E: Structural Editing (Paredit)
 
-HQL's REPL includes paredit-style structural editing that operates on S-expressions as complete units, ensuring parentheses always remain balanced.
+HQL's REPL includes paredit-style structural editing that operates on
+S-expressions as complete units, ensuring parentheses always remain balanced.
 
 **Key operations:**
 
-| Operation | Shortcut | Effect |
-|-----------|----------|--------|
-| Slurp Forward | `Ctrl+]` | Pull next sexp into list |
-| Slurp Backward | `Ctrl+O` | Pull previous sexp into list |
-| Barf Forward | `Ctrl+\` | Push last sexp out of list |
-| Barf Backward | `Ctrl+P` | Push first sexp out of list |
-| Wrap | `Ctrl+Y` | Surround with parentheses |
-| Splice | `Ctrl+G` | Remove enclosing parentheses |
-| Raise | `Ctrl+^` | Replace parent with current sexp |
-| Kill Sexp | `Ctrl+X` | Delete sexp at cursor |
-| Transpose | `Ctrl+T` | Swap with previous sexp |
+| Operation      | Shortcut | Effect                           |
+| -------------- | -------- | -------------------------------- |
+| Slurp Forward  | `Ctrl+]` | Pull next sexp into list         |
+| Slurp Backward | `Ctrl+O` | Pull previous sexp into list     |
+| Barf Forward   | `Ctrl+\` | Push last sexp out of list       |
+| Barf Backward  | `Ctrl+P` | Push first sexp out of list      |
+| Wrap           | `Ctrl+Y` | Surround with parentheses        |
+| Splice         | `Ctrl+G` | Remove enclosing parentheses     |
+| Raise          | `Ctrl+^` | Replace parent with current sexp |
+| Kill Sexp      | `Ctrl+X` | Delete sexp at cursor            |
+| Transpose      | `Ctrl+T` | Swap with previous sexp          |
 
 **Example workflow** -- building an expression:
 
@@ -4108,41 +4423,45 @@ HQL's REPL includes paredit-style structural editing that operates on S-expressi
 (+ 1 2 3)    ;; Done!
 ```
 
-Paredit never leaves you with unbalanced delimiters -- operations that would break structure are silently ignored.
+Paredit never leaves you with unbalanced delimiters -- operations that would
+break structure are silently ignored.
 
 ---
 
 ### Appendix F: Comparison -- HQL vs Clojure vs JavaScript
 
-| Operation | HQL | Clojure | JavaScript |
-|-----------|-----|---------|------------|
-| Variable | `(let x 10)` | `(let [x 10] ...)` | `let x = 10` |
-| Constant | `(const x 10)` | `(def x 10)` | `const x = Object.freeze(10)` |
-| Function | `(fn add [a b] (+ a b))` | `(defn add [a b] (+ a b))` | `function add(a, b) { return a + b }` |
-| Lambda | `(=> (* $0 2))` | `#(* % 2)` | `x => x * 2` |
-| If | `(if cond t e)` | `(if cond t e)` | `cond ? t : e` |
-| Cond | `(cond ...)` | `(cond ...)` | `if/else if/else` |
-| Loop | `(loop [i 0] (recur ...))` | `(loop [i 0] (recur ...))` | `while (true) { ... }` |
-| For-each | `(for-of [x arr] ...)` | `(doseq [x arr] ...)` | `for (const x of arr)` |
-| Map | `(map f coll)` | `(map f coll)` | `arr.map(f)` |
-| Filter | `(filter pred coll)` | `(filter pred coll)` | `arr.filter(pred)` |
-| Reduce | `(reduce f init coll)` | `(reduce f init coll)` | `arr.reduce(f, init)` |
-| Class | `(class Name ...)` | `(defrecord Name ...)` | `class Name { ... }` |
-| Import | `(import [a] from "m")` | `(require '[m :as a])` | `import { a } from "m"` |
-| Interop | `(.method obj arg)` | `(.method obj arg)` | `obj.method(arg)` |
-| Pipeline | `(-> x (f) (g))` | `(-> x (f) (g))` | `g(f(x))` (or pipeline `\|>`) |
-| Pattern Match | `(match v (case p r))` | `(match v p r)` | `switch` (limited) |
-| Macro | `(macro name [p] ...)` | `(defmacro name [p] ...)` | N/A |
-| Async | `(async fn f [] ...)` | `(go ...)` | `async function f() { ... }` |
-| Generator | `(fn* g [] (yield v))` | N/A (lazy-seq) | `function* g() { yield v }` |
+| Operation     | HQL                        | Clojure                    | JavaScript                            |
+| ------------- | -------------------------- | -------------------------- | ------------------------------------- |
+| Variable      | `(let x 10)`               | `(let [x 10] ...)`         | `let x = 10`                          |
+| Constant      | `(const x 10)`             | `(def x 10)`               | `const x = Object.freeze(10)`         |
+| Function      | `(fn add [a b] (+ a b))`   | `(defn add [a b] (+ a b))` | `function add(a, b) { return a + b }` |
+| Lambda        | `(=> (* $0 2))`            | `#(* % 2)`                 | `x => x * 2`                          |
+| If            | `(if cond t e)`            | `(if cond t e)`            | `cond ? t : e`                        |
+| Cond          | `(cond ...)`               | `(cond ...)`               | `if/else if/else`                     |
+| Loop          | `(loop [i 0] (recur ...))` | `(loop [i 0] (recur ...))` | `while (true) { ... }`                |
+| For-each      | `(for-of [x arr] ...)`     | `(doseq [x arr] ...)`      | `for (const x of arr)`                |
+| Map           | `(map f coll)`             | `(map f coll)`             | `arr.map(f)`                          |
+| Filter        | `(filter pred coll)`       | `(filter pred coll)`       | `arr.filter(pred)`                    |
+| Reduce        | `(reduce f init coll)`     | `(reduce f init coll)`     | `arr.reduce(f, init)`                 |
+| Class         | `(class Name ...)`         | `(defrecord Name ...)`     | `class Name { ... }`                  |
+| Import        | `(import [a] from "m")`    | `(require '[m :as a])`     | `import { a } from "m"`               |
+| Interop       | `(.method obj arg)`        | `(.method obj arg)`        | `obj.method(arg)`                     |
+| Pipeline      | `(-> x (f) (g))`           | `(-> x (f) (g))`           | `g(f(x))` (or pipeline `\|>`)         |
+| Pattern Match | `(match v (case p r))`     | `(match v p r)`            | `switch` (limited)                    |
+| Macro         | `(macro name [p] ...)`     | `(defmacro name [p] ...)`  | N/A                                   |
+| Async         | `(async fn f [] ...)`      | `(go ...)`                 | `async function f() { ... }`          |
+| Generator     | `(fn* g [] (yield v))`     | N/A (lazy-seq)             | `function* g() { yield v }`           |
 
 Key differences from Clojure:
+
 - HQL's `let` is mutable (JavaScript `let`); use `const`/`def` for immutability
 - HQL compiles to JavaScript, not JVM bytecode
 - HQL supports TypeScript types natively
-- HQL uses `fn` where Clojure uses `defn`, and `fn*` for generators (Clojure uses `fn*` differently)
+- HQL uses `fn` where Clojure uses `defn`, and `fn*` for generators (Clojure
+  uses `fn*` differently)
 
 Key differences from JavaScript:
+
 - S-expression syntax with prefix notation
 - Expressions everywhere (no statement/expression distinction)
 - Compile-time macro system
@@ -4223,7 +4542,9 @@ type-expr       ::= simple-type | generic-type | inline-union
                    | inline-object | inline-tuple | inline-function
 ```
 
-This grammar is intentionally informal and simplified. The actual parser handles additional edge cases including:
+This grammar is intentionally informal and simplified. The actual parser handles
+additional edge cases including:
+
 - Type annotations with no spaces after colons
 - Optional chaining with `?.`
 - Spread operator `...`

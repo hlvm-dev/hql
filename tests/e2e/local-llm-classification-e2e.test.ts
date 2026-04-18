@@ -6,12 +6,10 @@
  */
 
 import { assertEquals } from "jsr:@std/assert@1";
-import {
-  classifyBrowserAutomation,
-  classifyTask,
-} from "../../src/hlvm/runtime/local-llm.ts";
+import { classifyTask } from "../../src/hlvm/runtime/local-llm.ts";
 import { LOCAL_FALLBACK_MODEL_ID } from "../../src/hlvm/runtime/local-fallback.ts";
 import { buildTaskProfile } from "../../src/hlvm/agent/auto-select.ts";
+import { withExclusiveTestResource } from "../shared/light-helpers.ts";
 
 const OLLAMA_PORT = 11439;
 const modelName = LOCAL_FALLBACK_MODEL_ID.split("/").pop() ?? "";
@@ -34,7 +32,7 @@ function e2e(name: string, fn: () => Promise<void>) {
     ignore: !localModelAvailable,
     sanitizeOps: false,
     sanitizeResources: false,
-    fn,
+    fn: () => withExclusiveTestResource("local-llm-runtime", fn),
   });
 }
 
@@ -55,13 +53,6 @@ e2e("classifyTask: JSON query needs structured output", async () => {
     "list the top 5 programming languages and output as JSON",
   );
   assertEquals(result.needsStructuredOutput, true);
-});
-
-e2e("classifyBrowserAutomation: installer download request is browser automation", async () => {
-  const result = await classifyBrowserAutomation(
-    "download the Python installer",
-  );
-  assertEquals(result.isBrowserTask, true);
 });
 
 e2e("buildTaskProfile: casual chat has no special flags", async () => {

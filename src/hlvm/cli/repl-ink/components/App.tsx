@@ -25,20 +25,16 @@ import { ModelBrowser } from "./ModelBrowser.tsx";
 import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
 import { TranscriptViewerOverlay } from "./TranscriptViewerOverlay.tsx";
 import { FooterHint } from "./FooterHint.tsx";
-import {
-  buildBackgroundStatusFooterModel,
-} from "./LocalAgentsStatusPanel.tsx";
+import { buildBackgroundStatusFooterModel } from "./LocalAgentsStatusPanel.tsx";
 import {
   ComposerSurface,
   type ComposerSurfaceHandle,
   type ComposerSurfaceUiState,
 } from "./ComposerSurface.tsx";
 import { QueuePreview } from "./QueuePreview.tsx";
-import { MIN_RESERVED_ROWS, VirtualTranscript, type ScrollReadyPayload } from "./VirtualTranscript.tsx";
+import { VirtualTranscript } from "./VirtualTranscript.tsx";
 import { FullscreenViewport } from "./FullscreenViewport.tsx";
-import {
-  getLatestCitation,
-} from "./TimelineItemRenderer.tsx";
+import { getLatestCitation } from "./TimelineItemRenderer.tsx";
 import { compactPlanTranscriptItems } from "./conversation/plan-flow.ts";
 import { DialogStack } from "./DialogStack.tsx";
 import { RenderErrorBoundary } from "./ErrorBoundary.tsx";
@@ -118,11 +114,12 @@ import {
   shouldRenderShellLanes,
 } from "../utils/app-surface.ts";
 import { getShellContentWidth, SHELL_LAYOUT } from "../utils/layout-tokens.ts";
-import {
-  type LocalAgentEntry,
-} from "../utils/local-agents.ts";
+import { type LocalAgentEntry } from "../utils/local-agents.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { TuiStatusLine } from "./TuiStatusLine.tsx";
+import { FullscreenLayout } from "../../../tui-v2/components/FullscreenLayout.tsx";
+import { ScrollKeybindingHandler } from "../../../tui-v2/components/ScrollKeybindingHandler.tsx";
+import type { ScrollBoxHandle } from "../../../tui-v2/ink/components/ScrollBox.tsx";
 
 interface CurrentEval {
   code: string;
@@ -135,6 +132,7 @@ interface CurrentEval {
 interface AppProps {
   showBanner?: boolean;
   initialConfig?: HlvmConfig;
+  debug?: boolean;
 }
 
 interface BackgroundTasksOverlayState {
@@ -162,13 +160,14 @@ function isAsyncIterable(
  * App wrapper - provides ReplContext for FRP state management
  */
 export function App(
-  { showBanner = true, initialConfig }: AppProps,
+  { showBanner = true, initialConfig, debug = false }: AppProps,
 ): React.ReactElement {
   const stateRef = useRef<ReplState>(new ReplState());
 
   return (
     <ReplProvider replState={stateRef.current}>
       <AppContent
+        debug={debug}
         showBanner={showBanner}
         initialConfig={initialConfig}
         replState={stateRef.current}
@@ -185,7 +184,8 @@ interface AppContentProps extends AppProps {
  * AppContent - main REPL UI (uses ReplContext for reactive state)
  */
 function AppContent(
-  { showBanner = true, initialConfig, replState }: AppContentProps,
+  { showBanner = true, initialConfig, replState, debug = false }:
+    AppContentProps,
 ): React.ReactElement {
   const { exit } = useApp();
 
@@ -266,6 +266,7 @@ function AppContent(
   const { stdout } = useStdout();
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const shellContentWidth = getShellContentWidth(terminalWidth);
+  const transcriptScrollRef = useRef<ScrollBoxHandle | null>(null);
 
   // Conversation state for agent mode
   const conversation = useConversation();
@@ -274,16 +275,17 @@ function AppContent(
   const transcriptItemCount = conversation.historyItems.length +
     conversation.liveItems.length;
   const committedHistoryCount = conversation.historyItems.length;
-  const [transcriptOverlaySearchActive, setTranscriptOverlaySearchActive] = useState(false);
-  const [scrollPayload, setScrollPayload] = useState<ScrollReadyPayload | null>(null);
+  const [transcriptOverlaySearchActive, setTranscriptOverlaySearchActive] =
+    useState(false);
   const [localAgentsFocused, setLocalAgentsFocused] = useState(false);
   const [backgroundTasksOverlayState, setBackgroundTasksOverlayState] =
     useState<BackgroundTasksOverlayState>(
       DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE,
     );
   const allDisplayItems = useMemo(
-    () => compactPlanTranscriptItems(conversation.historyItems)
-      .concat(conversation.liveItems),
+    () =>
+      compactPlanTranscriptItems(conversation.historyItems)
+        .concat(conversation.liveItems),
     [conversation.historyItems, conversation.liveItems],
   );
   const baseLocalAgentEntries = useMemo<LocalAgentEntry[]>(
@@ -452,6 +454,7 @@ function AppContent(
 
   const agentRunner = useAgentRunner({
     conversation,
+    debugEnabled: debug,
     activeModelId: modelSelection.activeModelId,
     agentExecutionMode,
     configuredContextWindow,
@@ -1304,18 +1307,6 @@ function AppContent(
     if (activeOverlay !== "none") {
       return;
     }
-    // Viewport scroll keybindings (PageUp/PageDown)
-    if (scrollPayload && !pendingInteraction) {
-      const pageSize = Math.max(1, scrollPayload.visibleCount - 2);
-      if (key.pageUp) {
-        scrollPayload.actions.scrollUp(pageSize);
-        return;
-      }
-      if (key.pageDown) {
-        scrollPayload.actions.scrollDown(pageSize);
-        return;
-      }
-    }
     if (globalBinding.kind === "handler") {
       void executeHandler(globalBinding.id);
       return;
@@ -1428,7 +1419,8 @@ function AppContent(
     Boolean(pendingInteraction);
   const blockingInteractionActive = interactionPromptActive &&
     (pendingInteraction?.mode === "permission" || pickerInteractionActive);
-  const showBackgroundStatusSurface = !interactionPromptActive && !isOverlayOpen;
+  const showBackgroundStatusSurface = !interactionPromptActive &&
+    !isOverlayOpen;
   const showBottomDialog = interactionPromptActive && !isOverlayOpen;
   const isConversationInputVisible = hasConversationContext && !isOverlayOpen;
   const isInputVisible = !isOverlayOpen &&
@@ -1509,8 +1501,6 @@ function AppContent(
     ? composerRef.current?.getPendingQueue() ?? []
     : [];
 
-  // Compute reserved rows from actual chrome visibility for accurate viewport sizing.
-  // MIN_RESERVED_ROWS (5) is the baseline; banner adds its measured height when visible.
   const bannerVisible = shouldRenderMainBanner({
     showBanner,
     hasBeenCleared,
@@ -1523,270 +1513,288 @@ function AppContent(
     hasPendingInteraction: Boolean(pendingInteraction),
     hasLocalAgents: localAgentEntries.length > 0,
   });
-  const transcriptReservedRows = MIN_RESERVED_ROWS + (bannerVisible
-    ? getBannerRowCount(init.errors.length, terminalWidth)
-    : 0);
+  let overlayNode: React.ReactNode = null;
+
+  if (activeOverlay === "palette") {
+    overlayNode = (
+      <CommandPaletteOverlay
+        onClose={() => setActiveOverlay("none")}
+        onExecute={handlePaletteAction}
+        onRebind={handleRebind}
+        initialState={paletteState}
+        onStateChange={setPaletteState}
+      />
+    );
+  } else if (activeOverlay === "models") {
+    overlayNode = (
+      <ModelBrowser
+        currentModel={modelSelection.activeModelId}
+        isCurrentModelConfigured={modelSelection.modelConfigured}
+        onClose={() => {
+          setSurfacePanel(modelBrowserParentSurface);
+          setActiveOverlay(modelBrowserParentOverlay);
+          setModelBrowserParentSurface("none");
+          setModelBrowserParentOverlay("none");
+        }}
+        onModelSet={(modelName: string) => {
+          const normalizedModel = normalizeModelId(modelName) ?? modelName;
+          conversation.addHqlEval("", {
+            success: true,
+            value: `✓ Default model: ${normalizedModel}`,
+            isCommandOutput: true,
+          });
+        }}
+        onSelectModel={handleModelSelectionChange}
+      />
+    );
+  } else if (activeOverlay === "model-setup" && init.modelToSetup) {
+    overlayNode = (
+      <ModelSetupOverlay
+        modelName={init.modelToSetup}
+        onComplete={() => {
+          refreshAiReadiness(modelSelection.activeModelId, {
+            force: true,
+          }).catch(() => {});
+          setModelSetupHandled(true);
+          setActiveOverlay("none");
+          conversation.addHqlEval("", {
+            success: true,
+            value: `✓ AI model installed: ${init.modelToSetup}`,
+            isCommandOutput: true,
+          });
+        }}
+        onCancel={() => {
+          setModelSetupHandled(true);
+          setActiveOverlay("none");
+          conversation.addHqlEval("", {
+            success: true,
+            value:
+              `AI model setup cancelled. Run "hlvm ai pull ${init.modelToSetup}" to download later.`,
+            isCommandOutput: true,
+          });
+        }}
+      />
+    );
+  } else if (activeOverlay === "config-overlay") {
+    overlayNode = (
+      <ConfigOverlay
+        onClose={() => setActiveOverlay("none")}
+        onOpenModelBrowser={() => {
+          setModelBrowserParentSurface(surfacePanel);
+          setModelBrowserParentOverlay("config-overlay");
+          setActiveOverlay("models");
+        }}
+        onConfigChange={(cfg) =>
+          applyRuntimeConfigState(
+            cfg as unknown as Record<string, unknown>,
+          )}
+        initialState={configOverlayState}
+        onStateChange={setConfigOverlayState}
+      />
+    );
+  } else if (activeOverlay === "shortcuts-overlay") {
+    overlayNode = (
+      <ShortcutsOverlay onClose={() => setActiveOverlay("none")} />
+    );
+  } else if (activeOverlay === "transcript-history") {
+    overlayNode = (
+      <TranscriptViewerOverlay
+        historyItems={conversation.historyItems}
+        liveItems={conversation.liveItems}
+        width={shellContentWidth}
+        initialSearchActive={transcriptOverlaySearchActive}
+        onClose={() => {
+          setActiveOverlay("none");
+          setTranscriptOverlaySearchActive(false);
+        }}
+      />
+    );
+  } else if (activeOverlay === "background-tasks") {
+    overlayNode = (
+      <BackgroundTasksOverlay
+        onClose={closeBackgroundTasksOverlay}
+        localAgents={localAgentEntries}
+        initialSelectedItemId={backgroundTasksOverlayState
+          .initialSelectedItemId}
+        initialViewMode={backgroundTasksOverlayState.initialViewMode}
+        onForegroundLocalAgent={foregroundLocalAgent}
+      />
+    );
+  }
 
   return (
     <FullscreenViewport>
-    <Box
-      flexDirection="column"
-      flexGrow={1}
-      paddingX={SHELL_LAYOUT.gutterX}
-    >
-      {bannerVisible && (
-        <>
-          <Banner errors={init.errors} />
-          {init.updateInfo && <UpdateBanner update={init.updateInfo} />}
-          {!init.ready && <LoadingScreen progress={init.progress} />}
-        </>
-      )}
-
-      {/* Overlays rendered as siblings (not ternary) to preserve Ink's live area tracking */}
-      {activeOverlay === "palette" && (
-        <CommandPaletteOverlay
-          onClose={() => setActiveOverlay("none")}
-          onExecute={handlePaletteAction}
-          onRebind={handleRebind}
-          initialState={paletteState}
-          onStateChange={setPaletteState}
-        />
-      )}
-      {activeOverlay === "models" && (
-        <ModelBrowser
-          currentModel={modelSelection.activeModelId}
-          isCurrentModelConfigured={modelSelection.modelConfigured}
-          onClose={() => {
-            setSurfacePanel(modelBrowserParentSurface);
-            setActiveOverlay(modelBrowserParentOverlay);
-            setModelBrowserParentSurface("none");
-            setModelBrowserParentOverlay("none");
-          }}
-          onModelSet={(modelName: string) => {
-            const normalizedModel = normalizeModelId(modelName) ?? modelName;
-            conversation.addHqlEval("", {
-              success: true,
-              value: `✓ Default model: ${normalizedModel}`,
-              isCommandOutput: true,
-            });
-          }}
-          onSelectModel={handleModelSelectionChange}
-        />
-      )}
-      {activeOverlay === "model-setup" && init.modelToSetup && (
-        <ModelSetupOverlay
-          modelName={init.modelToSetup}
-          onComplete={() => {
-            refreshAiReadiness(modelSelection.activeModelId, {
-              force: true,
-            }).catch(() => {});
-            setModelSetupHandled(true);
-            setActiveOverlay("none");
-            conversation.addHqlEval("", {
-              success: true,
-              value: `✓ AI model installed: ${init.modelToSetup}`,
-              isCommandOutput: true,
-            });
-          }}
-          onCancel={() => {
-            setModelSetupHandled(true);
-            setActiveOverlay("none");
-            conversation.addHqlEval("", {
-              success: true,
-              value:
-                `AI model setup cancelled. Run "hlvm ai pull ${init.modelToSetup}" to download later.`,
-              isCommandOutput: true,
-            });
-          }}
-        />
-      )}
-      {activeOverlay === "config-overlay" && (
-        <ConfigOverlay
-          onClose={() => setActiveOverlay("none")}
-          onOpenModelBrowser={() => {
-            setModelBrowserParentSurface(surfacePanel);
-            setModelBrowserParentOverlay("config-overlay");
-            setActiveOverlay("models");
-          }}
-          onConfigChange={(cfg) =>
-            applyRuntimeConfigState(
-              cfg as unknown as Record<string, unknown>,
-            )}
-          initialState={configOverlayState}
-          onStateChange={setConfigOverlayState}
-        />
-      )}
-      {activeOverlay === "shortcuts-overlay" && (
-        <ShortcutsOverlay onClose={() => setActiveOverlay("none")} />
-      )}
-      {activeOverlay === "transcript-history" && (
-        <TranscriptViewerOverlay
-          historyItems={conversation.historyItems}
-          liveItems={conversation.liveItems}
-          width={shellContentWidth}
-          initialSearchActive={transcriptOverlaySearchActive}
-          onClose={() => {
-            setActiveOverlay("none");
-            setTranscriptOverlaySearchActive(false);
-          }}
-        />
-      )}
-      {activeOverlay === "background-tasks" && (
-        <BackgroundTasksOverlay
-          onClose={closeBackgroundTasksOverlay}
-          localAgents={localAgentEntries}
-          initialSelectedItemId={backgroundTasksOverlayState
-            .initialSelectedItemId}
-          initialViewMode={backgroundTasksOverlayState.initialViewMode}
-          onForegroundLocalAgent={foregroundLocalAgent}
-        />
-      )}
-
-      {/* Shell lanes: unified transcript and dialogs */}
-      {!hasStandaloneSurface && renderShellLanes && (
-        <Box
-          flexDirection="column"
-          flexGrow={1}
-          marginBottom={SHELL_LAYOUT.transcriptToComposerGap}
-        >
-          <RenderErrorBoundary>
-            <VirtualTranscript
-              items={hasConversationContext ? allDisplayItems : []}
-              width={shellContentWidth}
-              compactSpacing
-              reservedRows={transcriptReservedRows}
-              streamingState={hasConversationContext
-                ? conversation.streamingState
-                : undefined}
-              planningPhase={hasConversationContext
-                ? conversation.planningPhase
-                : undefined}
-              todoState={hasConversationContext
-                ? (conversation.planTodoState ?? conversation.todoState)
-                : undefined}
-              showPlanChecklist={hasConversationContext}
-              showLeadingDivider={composerShellState.queuedDraftCount > 0}
-              onScrollReady={setScrollPayload}
-            />
-          </RenderErrorBoundary>
-        </Box>
-      )}
-
-      {showBottomDialog && (
-        <RenderErrorBoundary>
-          <DialogStack
-            interactionRequest={pendingInteraction}
-            interactionQueueLength={interactionQueue.length}
-            onInteractionResponse={handleConversationInteractionResponse}
-            onQuestionInterrupt={pendingInteraction?.mode === "question"
-              ? handleQuestionInterrupt
-              : undefined}
-          />
-        </RenderErrorBoundary>
-      )}
-
-      {/* Input line */}
-      {!blockingInteractionActive && !isOverlayOpen && isInputVisible &&
-        (
+      <Box
+        flexDirection="column"
+        flexGrow={1}
+        paddingX={SHELL_LAYOUT.gutterX}
+      >
+        {bannerVisible && (
           <>
-            {queuedConversationDrafts.length > 0 && (
-              <QueuePreview
-                items={queuedConversationDrafts}
-                editBindingLabel={queueEditBindingLabel}
-              />
-            )}
-            <ComposerSurface
-              ref={composerRef}
-              replState={replState}
-              onUiStateChange={handleComposerUiStateChange}
-              onSubmit={handleSubmit}
-              onEmptySubmit={undefined}
-              onFocusLocalAgents={localAgentEntries.length > 0 &&
-                  !composerShellState.hasDraftInput
-                ? focusLocalAgents
-                : undefined}
-              onLocalAgentsInput={localAgentsFocused
-                ? handleLocalAgentsInput
-                : undefined}
-              localAgentsFocused={localAgentsFocused}
-              onForceSubmit={hasConversationContext
-                ? handleForceInterrupt
-                : undefined}
-              onInterruptRunningTask={hasConversationContext
-                ? () =>
-                  interruptConversationRun({
-                    clearPlanning: hasActivePlanningState,
-                  })
-                : undefined}
-              queueEnabled={isForegroundTaskRunning}
-              isConversationTaskRunning={isConversationTaskRunning}
-              onCycleMode={cycleAgentMode}
-              disabled={isInputDisabled}
-              isConversationContext={hasConversationContext}
-              composerLanguage={hasConversationContext ? "chat" : "hql"}
-              promptLabel=">"
-              interactionMode={pickerInteractionActive
-                ? pendingInteraction?.mode
-                : undefined}
-              showQueuePreview={false}
-            />
+            <Banner errors={init.errors} />
+            {init.updateInfo && <UpdateBanner update={init.updateInfo} />}
+            {!init.ready && <LoadingScreen progress={init.progress} />}
           </>
-      )}
-
-      {(isInputVisible || hasConversationContext) && (
-        <TuiStatusLine
-          modelName={modelSelection.displayLabel}
-          contextUsageLabel={modelConfig.footerContextUsageLabel}
-          modeLabel={getPersistentAgentExecutionModeLabel(agentExecutionMode)}
-          planningPhase={hasConversationContext
-            ? conversation.planningPhase
-            : undefined}
-          interactionLabel={interactionStatusLabel}
-          turnLabel={currentTurnSummary}
-          backgroundLabel={localAgentsFooterModel?.text}
-          aiAvailable={init.aiAvailable}
-        />
-      )}
-
-      {/* Footer hint (directly under status line, transient only) */}
-      {(isInputVisible || hasConversationContext) &&
-        (
-          <FooterHint
-            statusMessage={footerStatusMessage}
-            planningPhase={hasConversationContext
-              ? conversation.planningPhase
-              : undefined}
-            streamingState={hasConversationContext
-              ? conversation.streamingState
-              : undefined}
-            activeTool={hasConversationContext
-              ? conversation.activeTool
-              : undefined}
-            interactionQueueLength={hasConversationContext
-              ? interactionQueue.length
-              : 0}
-            hasDraftInput={composerShellState.hasDraftInput}
-            hasSubmitText={composerShellState.hasSubmitText}
-            inConversation={hasConversationContext}
-            isEvaluating={isEvaluating && !hasConversationContext}
-            hasPendingPermission={hasConversationContext &&
-              pendingInteraction?.mode === "permission"}
-            hasPendingPlanReview={hasConversationContext &&
-              pendingInteraction?.mode === "permission" &&
-              pendingInteraction.toolName === "plan_review"}
-            hasPendingQuestion={hasConversationContext &&
-              pendingInteraction?.mode === "question"}
-            suppressInteractionHints={hasConversationContext &&
-              pickerInteractionActive}
-            conversationQueueCount={composerShellState.queuePreviewRows > 0
-              ? 0
-              : composerShellState.queuedDraftCount}
-            submitAction={composerShellState.hasSubmitText
-              ? composerShellState.submitAction
-              : undefined}
-          />
         )}
-    </Box>
+
+        <ScrollKeybindingHandler
+          scrollRef={transcriptScrollRef}
+          isActive={!pendingInteraction && activeOverlay === "none"}
+        />
+
+        <FullscreenLayout
+          scrollRef={transcriptScrollRef}
+          scrollable={(
+            <Box flexDirection="column">
+              {!hasStandaloneSurface && renderShellLanes && (
+                <RenderErrorBoundary>
+                  <VirtualTranscript
+                    items={hasConversationContext ? allDisplayItems : []}
+                    scrollRef={transcriptScrollRef}
+                    width={shellContentWidth}
+                    compactSpacing
+                    streamingState={hasConversationContext
+                      ? conversation.streamingState
+                      : undefined}
+                    planningPhase={hasConversationContext
+                      ? conversation.planningPhase
+                      : undefined}
+                    todoState={hasConversationContext
+                      ? (conversation.planTodoState ?? conversation.todoState)
+                      : undefined}
+                    showPlanChecklist={hasConversationContext}
+                    showLeadingDivider={composerShellState.queuedDraftCount > 0}
+                  />
+                </RenderErrorBoundary>
+              )}
+
+              {(!blockingInteractionActive && !isOverlayOpen && isInputVisible) && (
+                <Box
+                  flexDirection="column"
+                  marginTop={SHELL_LAYOUT.transcriptToComposerGap}
+                >
+                  {queuedConversationDrafts.length > 0 && (
+                    <QueuePreview
+                      items={queuedConversationDrafts}
+                      editBindingLabel={queueEditBindingLabel}
+                    />
+                  )}
+                  <ComposerSurface
+                    ref={composerRef}
+                    replState={replState}
+                    onUiStateChange={handleComposerUiStateChange}
+                    onSubmit={handleSubmit}
+                    onEmptySubmit={undefined}
+                    onFocusLocalAgents={localAgentEntries.length > 0 &&
+                        !composerShellState.hasDraftInput
+                      ? focusLocalAgents
+                      : undefined}
+                    onLocalAgentsInput={localAgentsFocused
+                      ? handleLocalAgentsInput
+                      : undefined}
+                    localAgentsFocused={localAgentsFocused}
+                    onForceSubmit={hasConversationContext
+                      ? handleForceInterrupt
+                      : undefined}
+                    onInterruptRunningTask={hasConversationContext
+                      ? () =>
+                        interruptConversationRun({
+                          clearPlanning: hasActivePlanningState,
+                        })
+                      : undefined}
+                    queueEnabled={isForegroundTaskRunning}
+                    isConversationTaskRunning={isConversationTaskRunning}
+                    onCycleMode={cycleAgentMode}
+                    disabled={isInputDisabled}
+                    isConversationContext={hasConversationContext}
+                    composerLanguage={hasConversationContext ? "chat" : "hql"}
+                    promptLabel=">"
+                    interactionMode={pickerInteractionActive
+                      ? pendingInteraction?.mode
+                      : undefined}
+                    showQueuePreview={false}
+                  />
+                </Box>
+              )}
+
+              {(isInputVisible || hasConversationContext) && (
+                <TuiStatusLine
+                  modelName={modelSelection.displayLabel}
+                  contextUsageLabel={modelConfig.footerContextUsageLabel}
+                  modeLabel={getPersistentAgentExecutionModeLabel(
+                    agentExecutionMode,
+                  )}
+                  debugEnabled={debug}
+                  planningPhase={hasConversationContext
+                    ? conversation.planningPhase
+                    : undefined}
+                  interactionLabel={interactionStatusLabel}
+                  turnLabel={currentTurnSummary}
+                  backgroundLabel={localAgentsFooterModel?.text}
+                  aiAvailable={init.aiAvailable}
+                />
+              )}
+
+              {(isInputVisible || hasConversationContext) &&
+                (
+                  <FooterHint
+                    statusMessage={footerStatusMessage}
+                    planningPhase={hasConversationContext
+                      ? conversation.planningPhase
+                      : undefined}
+                    streamingState={hasConversationContext
+                      ? conversation.streamingState
+                      : undefined}
+                    activeTool={hasConversationContext
+                      ? conversation.activeTool
+                      : undefined}
+                    interactionQueueLength={hasConversationContext
+                      ? interactionQueue.length
+                      : 0}
+                    hasDraftInput={composerShellState.hasDraftInput}
+                    hasSubmitText={composerShellState.hasSubmitText}
+                    inConversation={hasConversationContext}
+                    isEvaluating={isEvaluating && !hasConversationContext}
+                    hasPendingPermission={hasConversationContext &&
+                      pendingInteraction?.mode === "permission"}
+                    hasPendingPlanReview={hasConversationContext &&
+                      pendingInteraction?.mode === "permission" &&
+                      pendingInteraction.toolName === "plan_review"}
+                    hasPendingQuestion={hasConversationContext &&
+                      pendingInteraction?.mode === "question"}
+                    suppressInteractionHints={hasConversationContext &&
+                      pickerInteractionActive}
+                    conversationQueueCount={composerShellState.queuePreviewRows >
+                        0
+                      ? 0
+                      : composerShellState.queuedDraftCount}
+                    submitAction={composerShellState.hasSubmitText
+                      ? composerShellState.submitAction
+                      : undefined}
+                  />
+                )}
+            </Box>
+          )}
+          bottom={(
+            <Box flexDirection="column">
+              {showBottomDialog && (
+                <RenderErrorBoundary>
+                  <DialogStack
+                    interactionRequest={pendingInteraction}
+                    interactionQueueLength={interactionQueue.length}
+                    onInteractionResponse={handleConversationInteractionResponse}
+                    onQuestionInterrupt={pendingInteraction?.mode === "question"
+                      ? handleQuestionInterrupt
+                      : undefined}
+                  />
+                </RenderErrorBoundary>
+              )}
+            </Box>
+          )}
+        />
+
+        {overlayNode}
+      </Box>
     </FullscreenViewport>
   );
 }

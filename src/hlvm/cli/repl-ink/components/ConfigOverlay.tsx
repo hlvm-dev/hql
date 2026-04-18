@@ -19,10 +19,9 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
-import { useInput, useStdout } from "ink";
+import { Box, Text, useInput, useStdout } from "ink";
 import { calculateScrollWindow } from "../completion/navigation.ts";
 import { handleTextEditingKey } from "../utils/text-editing.ts";
 import {
@@ -37,7 +36,12 @@ import {
   buildSelectedModelConfigUpdates,
   persistSelectedModelConfig,
 } from "../../../../common/config/model-selection.ts";
-import { THEME_NAMES, type ThemeName, useTheme } from "../../theme/index.ts";
+import {
+  THEME_NAMES,
+  type ThemeName,
+  useSemanticColors,
+  useTheme,
+} from "../../theme/index.ts";
 import {
   fetchModelInfo,
   formatCapabilityTags,
@@ -49,22 +53,15 @@ import {
   type RuntimeConfigApi,
 } from "../../../runtime/host-client.ts";
 import {
-  ansi,
-  clearOverlay,
   CONFIG_OVERLAY_SPEC,
-  drawOverlayFrame,
-  fg,
   resolveOverlayChromeLayout,
   resolveOverlayFrame,
-  type RGB,
-  shouldClearOverlay,
-  themeToOverlayColors,
-  writeToTerminal,
 } from "../overlay/index.ts";
 import { CURSOR_BLINK_MS } from "../ui-constants.ts";
 import { buildCursorWindowDisplay } from "../utils/cursor-window.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { buildBalancedTextRow } from "../utils/display-chrome.ts";
+import { OverlayBalancedRow, OverlayModal } from "./OverlayModal.tsx";
 
 // ============================================================
 // Types
@@ -189,6 +186,15 @@ function parseOptionValue(key: EditableConfigKey, value: string): unknown {
   return value;
 }
 
+function formatSupplementalCapabilityTags(modelInfo: ModelInfo | null): string {
+  if (!modelInfo) return "";
+
+  return formatCapabilityTags(modelInfo.capabilities)
+    .split(" ")
+    .filter((tag) => tag && tag !== "[text]")
+    .join(" ");
+}
+
 // ============================================================
 // Helpers
 // ============================================================
@@ -234,7 +240,8 @@ export function ConfigOverlay({
   initialState,
   onStateChange,
 }: ConfigOverlayProps): React.ReactElement | null {
-  const { theme, setTheme } = useTheme();
+  const { setTheme } = useTheme();
+  const sc = useSemanticColors();
   const { stdout } = useStdout();
 
   // Config state
@@ -249,17 +256,6 @@ export function ConfigOverlay({
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
   const [cursorVisible, setCursorVisible] = useState(true);
-
-  // Refs for overlay management
-  const previousFrameRef = useRef<
-    {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    } | null
-  >(null);
-  const isFirstRender = useRef(true);
   const terminalColumns = stdout?.columns ?? 0;
   const terminalRows = stdout?.rows ?? 0;
   const overlayFrame = useMemo(
@@ -276,7 +272,7 @@ export function ConfigOverlay({
   );
   const contentWidth = Math.max(
     18,
-    overlayFrame.width - PADDING.left - PADDING.right,
+    overlayFrame.width - PADDING.left - PADDING.right - 2,
   );
   const visibleFieldCount = Math.max(
     2,
@@ -291,20 +287,6 @@ export function ConfigOverlay({
       ),
     [selectedIndex, visibleFieldCount],
   );
-
-  // Theme colors (memoized)
-  const colors = useMemo(() => {
-    const c = themeToOverlayColors(theme);
-    return {
-      highlight: c.warning,
-      accent: c.accent,
-      primary: c.primary,
-      muted: c.muted,
-      error: c.error,
-      bgStyle: c.bgStyle,
-      selectedBgStyle: c.selectedBgStyle,
-    };
-  }, [theme]);
 
   // Current field info
   const selectedKey = OVERLAY_CONFIG_KEYS[selectedIndex];
@@ -475,292 +457,6 @@ export function ConfigOverlay({
       setError(getErrorMessage(e));
     }
   }, [selectedKey, editValue, config]);
-
-  // Draw full overlay
-  const drawOverlay = useCallback(() => {
-    if (shouldClearOverlay(previousFrameRef.current, overlayFrame)) {
-      clearOverlay(previousFrameRef.current!);
-    }
-    previousFrameRef.current = overlayFrame;
-    const bgStyle = colors.bgStyle;
-    let output = ansi.cursorSave + ansi.cursorHide;
-
-    // Helper: draw a full-width row with content left-aligned
-    // content is the visible text (without ANSI codes for length calculation)
-    // styledContent is the actual output with ANSI styling
-    // rowBgStyle is optional - uses default bgStyle if not provided
-    const drawRow = (
-      y: number,
-      styledContent: string,
-      visibleLen: number,
-      rowBgStyle?: string,
-    ) => {
-      const bg = rowBgStyle || bgStyle;
-      output += ansi.cursorTo(overlayFrame.x, y) + bg;
-      output += styledContent;
-      // Pad to full width
-      const padding = overlayFrame.width - visibleLen;
-      if (padding > 0) {
-        output += " ".repeat(padding);
-      }
-    };
-
-    // Helper: draw empty row
-    const drawEmptyRow = (y: number) => {
-      output += ansi.cursorTo(overlayFrame.x, y) + bgStyle +
-        " ".repeat(overlayFrame.width);
-    };
-
-    // === Top padding ===
-    for (let i = 0; i < PADDING.top; i++) {
-      drawEmptyRow(overlayFrame.y + i);
-    }
-
-    const headerY = overlayFrame.y + PADDING.top;
-    const summaryText = buildConfigSummaryRow(
-      {
-        description: fieldMeta.description,
-        mode,
-        selectedIndex,
-        total: OVERLAY_CONFIG_KEYS.length,
-        isDefaultValue: isDefault(selectedKey),
-      },
-      contentWidth,
-    );
-    drawRow(
-      headerY,
-      " ".repeat(PADDING.left) + fg(colors.muted) + summaryText +
-        ansi.reset + bgStyle,
-      PADDING.left + summaryText.length,
-    );
-
-    // === Config field rows ===
-    for (let i = 0; i < visibleFieldCount; i++) {
-      const rowY = overlayFrame.y + chromeLayout.contentStart + i;
-      const key = OVERLAY_CONFIG_KEYS[visibleWindow.start + i];
-      if (!key) {
-        drawEmptyRow(rowY);
-        continue;
-      }
-      const meta = FIELD_META[key];
-      const value = config[key as keyof HlvmConfig];
-      const actualIndex = visibleWindow.start + i;
-      const isSelected = actualIndex === selectedIndex;
-      const isEditing = isSelected && mode === "edit";
-      const defaultMark = isDefault(key) ? " (default)" : "";
-      const isSelectType = meta.type === "select";
-      const isModelField = key === "model";
-      const capabilityTags = isModelField && modelInfo
-        ? formatCapabilityTags(modelInfo.capabilities)
-        : "";
-
-      // Use selected background for highlighted row
-      const rowBg = isSelected ? colors.selectedBgStyle : bgStyle;
-
-      let rowContent = "";
-      let visibleLen = 0;
-
-      // Left padding + selection indicator (PADDING.left chars total)
-      rowContent += " ".repeat(PADDING.left - 2);
-      visibleLen += PADDING.left - 2;
-
-      if (isSelected) {
-        rowContent += fg(colors.accent) + "\u203a " + ansi.reset + rowBg;
-      } else {
-        rowContent += "  ";
-      }
-      visibleLen += 2;
-
-      // Label (14 chars fixed width)
-      const label = meta.label.padEnd(14).slice(0, 14);
-      if (isSelected) {
-        rowContent += ansi.bold + label + ansi.reset + rowBg;
-      } else {
-        rowContent += label;
-      }
-      visibleLen += 14;
-
-      // Value area
-      if (isEditing) {
-        // Edit mode: show editable value with cursor
-        const maxEditWidth = contentWidth - 14 - 2; // Remaining space after label
-        const display = buildCursorWindowDisplay(
-          editValue,
-          editCursor,
-          maxEditWidth,
-        );
-
-        rowContent += display.beforeCursor;
-        rowContent += cursorVisible
-          ? ansi.inverse + display.cursorChar + ansi.reset + rowBg
-          : display.cursorChar;
-        rowContent += display.afterCursor;
-        visibleLen += display.renderWidth;
-      } else {
-        // Navigate mode
-        const formattedValue = formatValue(key, value);
-
-        // Left arrow for select fields
-        if (isSelected && isSelectType) {
-          rowContent += fg(colors.accent) + "\u25c0 " + ansi.reset + rowBg;
-          visibleLen += 2;
-        }
-
-        // Value + default mark
-        const maxValueLen = isSelectType ? 24 : 26;
-        const displayValue = formattedValue.slice(0, maxValueLen);
-        rowContent += displayValue;
-        visibleLen += displayValue.length;
-
-        const displayDefault = defaultMark.slice(0, 10);
-        rowContent += fg(colors.muted) + displayDefault + ansi.reset + rowBg;
-        visibleLen += displayDefault.length;
-
-        // Right arrow for select fields
-        if (isSelected && isSelectType) {
-          rowContent += fg(colors.accent) + " \u25b6" + ansi.reset + rowBg;
-          visibleLen += 2;
-        }
-
-        // Capability tags for model field (if there's room)
-        if (isModelField && capabilityTags) {
-          const usedWidth = PADDING.left + 14 + (isSelectType ? 4 : 0) +
-            displayValue.length + displayDefault.length;
-          const remainingSpace = overlayFrame.width - usedWidth -
-            PADDING.right - 1;
-          if (remainingSpace >= capabilityTags.length + 1) {
-            rowContent += " " + fg(colors.muted) + capabilityTags + ansi.reset +
-              rowBg;
-            visibleLen += 1 + capabilityTags.length;
-          }
-        }
-      }
-
-      // Right padding
-      rowContent += " ".repeat(PADDING.right);
-      visibleLen += PADDING.right;
-
-      drawRow(rowY, rowContent, visibleLen, rowBg);
-    }
-
-    // === Empty row before footer ===
-    const preFooterY = overlayFrame.y + chromeLayout.contentStart +
-      visibleFieldCount;
-    drawEmptyRow(preFooterY);
-
-    // === Footer row (shows error if any, otherwise hints) ===
-    const footerY = preFooterY + 1;
-    let footerText: string;
-    let footerColor: RGB;
-
-    if (error) {
-      footerText = error.slice(0, contentWidth);
-      footerColor = colors.error;
-    } else if (mode === "edit") {
-      footerText = "Type value  Enter Save  Esc Cancel";
-      footerColor = colors.muted;
-    } else if (fieldMeta.type === "select") {
-      footerText =
-        "\u2191\u2193 Navigate  Tab/\u2190\u2192 Cycle  d Default  r Reset";
-      footerColor = colors.muted;
-    } else {
-      footerText = "\u2191\u2193 Navigate  Enter Edit  d Default  r Reset";
-      footerColor = colors.muted;
-    }
-    const footerCount = OVERLAY_CONFIG_KEYS.length > visibleFieldCount
-      ? `${selectedIndex + 1}/${OVERLAY_CONFIG_KEYS.length}`
-      : "";
-    const footerLayout = buildBalancedTextRow(
-      contentWidth,
-      footerText,
-      footerCount,
-    );
-    const footerDisplay = footerLayout.leftText +
-      " ".repeat(footerLayout.gapWidth) + footerLayout.rightText;
-    const footerContent = " ".repeat(PADDING.left) + fg(footerColor) +
-      footerDisplay + ansi.reset + bgStyle + " ".repeat(PADDING.right);
-    drawRow(
-      footerY,
-      footerContent,
-      PADDING.left + footerDisplay.length + PADDING.right,
-    );
-
-    // === Bottom padding ===
-    for (let i = 1; i <= PADDING.bottom; i++) {
-      drawEmptyRow(footerY + i);
-    }
-
-    output += drawOverlayFrame(overlayFrame, {
-      borderColor: colors.primary,
-      backgroundColor: colors.background,
-      title: "Configuration",
-      rightText: "esc close",
-    });
-    output += ansi.reset + ansi.cursorRestore + ansi.cursorShow;
-
-    writeToTerminal(output);
-  }, [
-    config,
-    selectedIndex,
-    mode,
-    editValue,
-    editCursor,
-    cursorVisible,
-    error,
-    colors,
-    formatValue,
-    isDefault,
-    modelInfo,
-    fieldMeta.type,
-    contentWidth,
-    chromeLayout.contentStart,
-    overlayFrame,
-    selectedIndex,
-    visibleFieldCount,
-    visibleWindow.start,
-  ]);
-
-  // Draw cursor only (optimized for blink in edit mode)
-  // Uses selectedBgStyle since edit mode is always on the selected row
-  const drawCursor = useCallback(() => {
-    if (mode !== "edit") return;
-    const selectedRow = selectedIndex - visibleWindow.start;
-    if (selectedRow < 0 || selectedRow >= visibleFieldCount) return;
-    const rowY = overlayFrame.y + chromeLayout.contentStart + selectedRow;
-    const maxEditWidth = contentWidth - 14 - 2; // label + selection indicator
-    const display = buildCursorWindowDisplay(
-      editValue,
-      editCursor,
-      maxEditWidth,
-    );
-    const cursorX = overlayFrame.x + PADDING.left + 14 +
-      display.beforeCursor.length;
-
-    const cursorStyle = cursorVisible
-      ? ansi.inverse + display.cursorChar + ansi.reset
-      : display.cursorChar;
-
-    // Use selectedBgStyle - edit mode is always on the selected row
-    const output = ansi.cursorSave + ansi.cursorHide +
-      ansi.cursorTo(cursorX, rowY) +
-      colors.selectedBgStyle + cursorStyle +
-      ansi.cursorRestore + ansi.cursorShow;
-
-    writeToTerminal(output);
-  }, [
-    mode,
-    selectedIndex,
-    editValue,
-    editCursor,
-    cursorVisible,
-    colors.selectedBgStyle,
-    contentWidth,
-    chromeLayout.contentStart,
-    overlayFrame,
-    visibleFieldCount,
-    visibleWindow.start,
-  ]);
-
   // Cursor blink effect
   useEffect(() => {
     const interval = setInterval(() => {
@@ -769,24 +465,35 @@ export function ConfigOverlay({
     return () => clearInterval(interval);
   }, []);
 
-  // Cursor-only redraw on blink (edit mode only)
-  useEffect(() => {
-    if (isFirstRender.current) return;
-    if (mode === "edit") {
-      drawCursor();
-    }
-  }, [cursorVisible, drawCursor, mode]);
-
-  // Full overlay draw on content changes
-  useEffect(() => {
-    drawOverlay();
-    isFirstRender.current = false;
-  }, [drawOverlay]);
-
   // Reset cursor visibility when typing
   useEffect(() => {
     setCursorVisible(true);
   }, [editValue]);
+
+  const summaryText = buildConfigSummaryRow(
+    {
+      description: fieldMeta.description,
+      mode,
+      selectedIndex,
+      total: OVERLAY_CONFIG_KEYS.length,
+      isDefaultValue: isDefault(selectedKey),
+    },
+    contentWidth,
+  );
+  const visibleKeys = OVERLAY_CONFIG_KEYS.slice(
+    visibleWindow.start,
+    visibleWindow.start + visibleFieldCount,
+  );
+  const footerText = error
+    ? error.slice(0, contentWidth)
+    : mode === "edit"
+    ? "Type value  Enter Save  Esc Cancel"
+    : fieldMeta.type === "select"
+    ? "\u2191\u2193 Navigate  Tab/\u2190\u2192 Cycle  d Default  r Reset"
+    : "\u2191\u2193 Navigate  Enter Edit  d Default  r Reset";
+  const footerCount = OVERLAY_CONFIG_KEYS.length > visibleFieldCount
+    ? `${selectedIndex + 1}/${OVERLAY_CONFIG_KEYS.length}`
+    : "";
 
   // Keyboard handling
   useInput((input, key) => {
@@ -939,5 +646,105 @@ export function ConfigOverlay({
     }
   });
 
-  return null;
+  return (
+    <OverlayModal
+      title="Configuration"
+      rightText="esc close"
+      width={overlayFrame.width}
+      minHeight={overlayFrame.height}
+      tone={error ? "error" : "active"}
+    >
+      <Box paddingLeft={PADDING.left} flexDirection="column">
+        <Text color={sc.text.muted} wrap="truncate-end">
+          {summaryText}
+        </Text>
+      </Box>
+
+      <Box paddingLeft={PADDING.left} marginTop={1} flexDirection="column">
+        {visibleKeys.map((key: EditableConfigKey, index: number) => {
+          const meta = FIELD_META[key];
+          const value = config[key as keyof HlvmConfig];
+          const actualIndex = visibleWindow.start + index;
+          const isSelected = actualIndex === selectedIndex;
+          const isEditing = isSelected && mode === "edit";
+          const isSelectType = meta.type === "select";
+          const defaultMark = isDefault(key) ? " (default)" : "";
+          const label = meta.label.padEnd(14).slice(0, 14);
+          const capabilityTags = key === "model"
+            ? formatSupplementalCapabilityTags(modelInfo)
+            : "";
+
+          return (
+            <Box key={key} flexDirection="column">
+              <Box>
+                <Text color={isSelected ? sc.footer.status.active : sc.text.muted}>
+                  {isSelected ? "\u203a " : "  "}
+                </Text>
+                <Text bold={isSelected}>{label}</Text>
+                {isEditing
+                  ? (
+                    <>
+                      {(() => {
+                        const display = buildCursorWindowDisplay(
+                          editValue,
+                          editCursor,
+                          Math.max(8, contentWidth - 16),
+                        );
+                        return (
+                          <>
+                            <Text color={sc.text.primary}>{display.beforeCursor}</Text>
+                            <Text inverse={cursorVisible} color={sc.footer.status.active}>
+                              {display.cursorChar}
+                            </Text>
+                            <Text color={sc.text.primary}>{display.afterCursor}</Text>
+                          </>
+                        );
+                      })()}
+                    </>
+                  )
+                  : (
+                    <>
+                      {isSelected && isSelectType && (
+                        <Text color={sc.footer.status.active}>◀ </Text>
+                      )}
+                      <Text color={sc.text.primary}>
+                        {formatValue(
+                          key,
+                          value,
+                        ).slice(0, isSelectType ? 24 : 26)}
+                      </Text>
+                      {defaultMark && (
+                        <Text color={sc.text.muted}>
+                          {defaultMark.slice(0, 10)}
+                        </Text>
+                      )}
+                      {isSelected && isSelectType && (
+                        <Text color={sc.footer.status.active}> ▶</Text>
+                      )}
+                    </>
+                  )}
+              </Box>
+              {capabilityTags && (
+                <Box paddingLeft={4}>
+                  <Text color={sc.text.muted} wrap="truncate-end">
+                    {capabilityTags}
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+
+      <Box paddingLeft={PADDING.left} marginTop={1}>
+        <OverlayBalancedRow
+          leftText={footerText}
+          rightText={footerCount}
+          width={contentWidth}
+          leftColor={error ? sc.status.error : sc.text.muted}
+          rightColor={sc.text.muted}
+        />
+      </Box>
+    </OverlayModal>
+  );
 }

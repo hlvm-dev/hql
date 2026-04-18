@@ -8,9 +8,9 @@ import {
   type Rectangle,
   type Size,
   unionRect,
-} from './layout/geometry.js'
-import { BEL, ESC, SEP } from './termio/ansi.js'
-import * as warn from './warn.js'
+} from './layout/geometry.ts'
+import { BEL, ESC, SEP } from './termio/ansi.ts'
+import * as warn from './warn.ts'
 
 // --- Shared Pools (interning for memory efficiency) ---
 

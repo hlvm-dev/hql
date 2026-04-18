@@ -42,6 +42,7 @@ import {
 import {
   AssistantMessage,
   ConfirmationDialog,
+  DebugTraceLine,
   ErrorMessage,
   HqlEvalDisplay,
   InfoMessage,
@@ -309,6 +310,14 @@ function renderItem(
       return <ErrorMessage text={item.text} />;
     case "info":
       return <InfoMessage text={item.text} />;
+    case "debug_trace":
+      return (
+        <DebugTraceLine
+          text={item.text}
+          depth={item.depth}
+          tone={item.tone}
+        />
+      );
     default:
       return null;
   }

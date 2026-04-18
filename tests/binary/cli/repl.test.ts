@@ -9,13 +9,35 @@ import { binaryTest, runRawCLI } from "../_shared/binary-helpers.ts";
 binaryTest("CLI repl: --version flag", async () => {
   const result = await runRawCLI(["--version"]);
   const combined = result.stdout + result.stderr;
-  const hasVersion = combined.includes("0.") || combined.includes("1.") || combined.includes("version");
+  const hasVersion = combined.includes("0.") || combined.includes("1.") ||
+    combined.includes("version");
   assertEquals(hasVersion, true, `Expected version output, got: ${combined}`);
 });
 
 binaryTest("CLI repl: --help flag shows global help", async () => {
   const result = await runRawCLI(["--help"]);
-  assertEquals(result.stdout.includes("repl"), true, `Expected 'repl' in help output`);
-  assertEquals(result.stdout.includes("run"), true, `Expected 'run' in help output`);
-  assertEquals(result.stdout.includes("compile"), true, `Expected 'compile' in help output`);
+  assertEquals(
+    result.stdout.includes("repl"),
+    true,
+    `Expected 'repl' in help output`,
+  );
+  assertEquals(
+    result.stdout.includes("run"),
+    true,
+    `Expected 'run' in help output`,
+  );
+  assertEquals(
+    result.stdout.includes("compile"),
+    true,
+    `Expected 'compile' in help output`,
+  );
+});
+
+binaryTest("CLI repl: command help includes debug flag", async () => {
+  const result = await runRawCLI(["repl", "--help"]);
+  assertEquals(
+    result.stdout.includes("--debug"),
+    true,
+    `Expected '--debug' in repl help output, got: ${result.stdout}`,
+  );
 });

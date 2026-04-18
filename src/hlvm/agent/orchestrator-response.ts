@@ -1059,6 +1059,7 @@ function shouldRunBrowserFinalAnswerGate(
   state: LoopState,
   config: OrchestratorConfig,
 ): boolean {
+  if (config.fixtureBacked) return false;
   return state.toolUses.some((toolUse) =>
     toolUse.toolName.startsWith("pw_") || toolUse.toolName.startsWith("ch_")
   ) &&

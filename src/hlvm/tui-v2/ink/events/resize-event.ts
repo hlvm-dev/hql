@@ -1,4 +1,4 @@
-import { TerminalEvent } from "./terminal-event.js";
+import { TerminalEvent } from "./terminal-event.ts";
 
 export class ResizeEvent extends TerminalEvent {
   readonly columns: number;

@@ -59,9 +59,17 @@ fast: build-fast
 repl-new: REPL_ARGS += --new
 repl-new: repl
 
+# Build and launch REPL with internal trace rows
+repl-debug: REPL_ARGS += --debug
+repl-debug: repl
+
 # Fast REPL v2 — cached build, no clean
 fast-new: REPL_ARGS += --new
 fast-new: fast
+
+# Fast REPL with internal trace rows
+fast-debug: REPL_ARGS += --debug
+fast-debug: fast
 
 # Build and launch Ink REPL (experimental - better AI streaming)
 ink: build
@@ -129,8 +137,10 @@ help:
 	@echo "  make              - Build for current computer"
 	@echo "  make fast         - Build + REPL using cached deps"
 	@echo "  make repl         - Build + REPL from clean slate"
+	@echo "  make repl-debug   - Build + REPL with --debug"
 	@echo "  make repl-new     - Build + REPL v2 (--new) from clean slate"
 	@echo "  make fast-new     - Build + REPL v2 (--new) using cached deps"
+	@echo "  make fast-debug   - Cached build + REPL with --debug"
 	@echo "  make ink          - Build + Ink REPL (experimental)"
 	@echo "  make install      - Install system-wide"
 	@echo "  make test         - Build and test"
@@ -146,6 +156,7 @@ help:
 	@echo ""
 	@echo "Note: Ollama is downloaded at runtime (hlvm bootstrap),"
 	@echo "      not embedded in the binary at build time."
+	@echo "      Use 'make repl-debug' or 'make repl REPL_ARGS=--debug' for trace mode."
 
-.PHONY: stdlib embed-packages openapi build build-fast install repl repl-new fast fast-new ink test all clean help
+.PHONY: stdlib embed-packages openapi build build-fast install repl repl-new repl-debug fast fast-new fast-debug ink test all clean help
 .PHONY: build-mac-intel build-mac-arm build-linux build-windows test-ai

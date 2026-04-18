@@ -13,6 +13,7 @@ import {
   SOURCE_AUTHORITY_FIXTURES,
   type SourceAuthorityFixture,
 } from "../unit/agent/source-authority-fixtures.ts";
+import { withExclusiveTestResource } from "../shared/light-helpers.ts";
 
 type ClassStats = {
   count: number;
@@ -81,49 +82,52 @@ Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
   fn: async () => {
-    const heuristicClasses = SOURCE_AUTHORITY_FIXTURES.map((fixture) =>
-      classifySearchResultSource(fixture.result).sourceClass
-    );
-    const llmResult = await classifySourceAuthorities(
-      SOURCE_AUTHORITY_FIXTURES.map((fixture) => ({
-        url: fixture.result.url ?? "",
-        title: fixture.result.title,
-        snippet: fixture.result.snippet ?? "",
-      })),
-    );
-    const llmClasses = SOURCE_AUTHORITY_FIXTURES.map((_fixture, index) =>
-      llmResult.results.find((result) => result.index === index)?.sourceClass ?? "other"
-    );
+    await withExclusiveTestResource("local-llm-runtime", async () => {
+      const heuristicClasses = SOURCE_AUTHORITY_FIXTURES.map((fixture) =>
+        classifySearchResultSource(fixture.result).sourceClass
+      );
+      const llmResult = await classifySourceAuthorities(
+        SOURCE_AUTHORITY_FIXTURES.map((fixture) => ({
+          url: fixture.result.url ?? "",
+          title: fixture.result.title,
+          snippet: fixture.result.snippet ?? "",
+        })),
+      );
+      const llmClasses = SOURCE_AUTHORITY_FIXTURES.map((_fixture, index) =>
+        llmResult.results.find((result) => result.index === index)?.sourceClass ??
+          "other"
+      );
 
-    const heuristicCorrect = heuristicClasses.filter((sourceClass, index) =>
-      sourceClass === SOURCE_AUTHORITY_FIXTURES[index].expectedClass
-    ).length;
-    const llmCorrect = llmClasses.filter((sourceClass, index) =>
-      sourceClass === SOURCE_AUTHORITY_FIXTURES[index].expectedClass
-    ).length;
-    const agreementCount = heuristicClasses.filter((sourceClass, index) =>
-      sourceClass === llmClasses[index]
-    ).length;
+      const heuristicCorrect = heuristicClasses.filter((sourceClass, index) =>
+        sourceClass === SOURCE_AUTHORITY_FIXTURES[index].expectedClass
+      ).length;
+      const llmCorrect = llmClasses.filter((sourceClass, index) =>
+        sourceClass === SOURCE_AUTHORITY_FIXTURES[index].expectedClass
+      ).length;
+      const agreementCount = heuristicClasses.filter((sourceClass, index) =>
+        sourceClass === llmClasses[index]
+      ).length;
 
-    const report = {
-      caseCount: SOURCE_AUTHORITY_FIXTURES.length,
-      overallAgreement: agreementCount / SOURCE_AUTHORITY_FIXTURES.length,
-      heuristicAccuracy: heuristicCorrect / SOURCE_AUTHORITY_FIXTURES.length,
-      llmAccuracy: llmCorrect / SOURCE_AUTHORITY_FIXTURES.length,
-      byClass: summarizeByClass(
-        SOURCE_AUTHORITY_FIXTURES,
-        heuristicClasses,
-        llmClasses,
-      ),
-      cases: SOURCE_AUTHORITY_FIXTURES.map((fixture, index) => ({
-        name: fixture.name,
-        expected: fixture.expectedClass,
-        heuristic: heuristicClasses[index],
-        llm: llmClasses[index],
-      })),
-    };
+      const report = {
+        caseCount: SOURCE_AUTHORITY_FIXTURES.length,
+        overallAgreement: agreementCount / SOURCE_AUTHORITY_FIXTURES.length,
+        heuristicAccuracy: heuristicCorrect / SOURCE_AUTHORITY_FIXTURES.length,
+        llmAccuracy: llmCorrect / SOURCE_AUTHORITY_FIXTURES.length,
+        byClass: summarizeByClass(
+          SOURCE_AUTHORITY_FIXTURES,
+          heuristicClasses,
+          llmClasses,
+        ),
+        cases: SOURCE_AUTHORITY_FIXTURES.map((fixture, index) => ({
+          name: fixture.name,
+          expected: fixture.expectedClass,
+          heuristic: heuristicClasses[index],
+          llm: llmClasses[index],
+        })),
+      };
 
-    console.log(JSON.stringify(report, null, 2));
-    assertEquals(report.caseCount, SOURCE_AUTHORITY_FIXTURES.length);
+      console.log(JSON.stringify(report, null, 2));
+      assertEquals(report.caseCount, SOURCE_AUTHORITY_FIXTURES.length);
+    });
   },
 });

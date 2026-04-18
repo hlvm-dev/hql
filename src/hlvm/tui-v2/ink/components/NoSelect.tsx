@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { c as _c } from '../../stubs/compiler-runtime.ts';
 import React, { type PropsWithChildren } from 'react';
-import Box, { type Props as BoxProps } from './Box.js';
+import Box, { type Props as BoxProps } from './Box.tsx';
 type Props = Omit<BoxProps, 'noSelect'> & {
   /**
    * Extend the exclusion zone from column 0 to this box's right edge,

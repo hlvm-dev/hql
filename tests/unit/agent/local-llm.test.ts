@@ -1,6 +1,5 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
-  classifyBrowserAutomation,
   classifyBrowserFinalAnswer,
   classifyFactConflicts,
   classifyGroundedness,
@@ -184,11 +183,6 @@ Deno.test("classifyGroundedness: whitespace-only returns defaults", async () => 
 Deno.test("classifySourceAuthorities: empty results returns defaults", async () => {
   const result = await classifySourceAuthorities([]);
   assertEquals(result.results.length, 0);
-});
-
-Deno.test("classifyBrowserAutomation: empty request returns defaults", async () => {
-  const result = await classifyBrowserAutomation("");
-  assertEquals(result.isBrowserTask, false);
 });
 
 Deno.test("classifyBrowserFinalAnswer: empty response returns incomplete", async () => {

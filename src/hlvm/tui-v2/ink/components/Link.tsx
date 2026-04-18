@@ -2,8 +2,8 @@
 import { c as _c } from '../../stubs/compiler-runtime.ts';
 import type { ReactNode } from 'react';
 import React from 'react';
-import { supportsHyperlinks } from '../supports-hyperlinks.js';
-import Text from './Text.js';
+import { supportsHyperlinks } from '../supports-hyperlinks.ts';
+import Text from './Text.tsx';
 export type Props = {
   readonly children?: ReactNode;
   readonly url: string;

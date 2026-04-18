@@ -5,8 +5,8 @@ import {
   NoEventPriority,
 } from 'react-reconciler/constants.js'
 import { logError } from '../../stubs/log.ts'
-import { HANDLER_FOR_EVENT } from './event-handlers.js'
-import type { EventTarget, TerminalEvent } from './terminal-event.js'
+import { HANDLER_FOR_EVENT } from './event-handlers.ts'
+import type { EventTarget, TerminalEvent } from './terminal-event.ts'
 
 // --
 

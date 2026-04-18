@@ -64,6 +64,10 @@ import {
   resolveToolTranscriptResult,
 } from "../repl-ink/components/conversation/tool-transcript.ts";
 import { AGENT_TOOL_NAME } from "../../agent/tools/agent-constants.ts";
+import {
+  formatTraceLineForTerminal,
+  presentTraceEvent,
+} from "../../agent/trace-presentation.ts";
 
 const { DIM, RESET, GREEN, RED } = ANSI_COLORS;
 const CLEAR_LINE = "\r\x1b[K";
@@ -201,111 +205,12 @@ function createTraceCallback(
 ): ((event: TraceEvent) => void) | undefined {
   if (!verbose) return undefined;
   return (event: TraceEvent) => {
-    switch (event.type) {
-      case "iteration":
-        log.raw.log(`\n[TRACE] Iteration ${event.current}/${event.max}`);
-        break;
-      case "llm_call":
-        log.raw.log(`[TRACE] Calling LLM with ${event.messageCount} messages`);
-        break;
-      case "thinking_profile":
-        log.raw.log(
-          `[TRACE] Thinking profile: iteration=${event.iteration} phase=${event.phase} openai=${event.openaiReasoningEffort} google=${event.googleThinkingLevel} anthropic=${event.anthropicBudgetTokens} recent_tools=${event.recentToolCalls} failures=${event.consecutiveFailures}`,
-        );
-        break;
-      case "llm_response":
-        log.raw.log(
-          `[TRACE] LLM responded (${event.length} chars): "${event.truncated}..."`,
-        );
-        break;
-      case "tool_call":
-        log.raw.log(`[TRACE] Tool call: ${event.toolName}`);
-        log.raw.log(`[TRACE] Args: ${JSON.stringify(event.args, null, 2)}`);
-        break;
-      case "tool_result":
-        if (event.success) {
-          const raw = typeof event.result === "string"
-            ? event.result
-            : JSON.stringify(event.result);
-          log.raw.log(`[TRACE] Result: SUCCESS`);
-          log.raw.log(`[TRACE] ${truncate(raw, 200)}`);
-        } else {
-          log.raw.log(`[TRACE] Result: FAILED - ${event.error}`);
-        }
-        break;
-      case "playwright_trace":
-        log.raw.log(
-          `[TRACE] Playwright trace ${event.status}: ${event.reason} -> ${event.path}`,
-        );
-        break;
-      case "llm_retry":
-        log.raw.log(
-          `[TRACE] LLM retry ${event.attempt}/${event.max} (${event.class})${
-            event.retryable ? "" : " [non-retryable]"
-          }: ${event.error}`,
-        );
-        break;
-      case "grounding_check":
-        log.raw.log(
-          `[TRACE] Grounding ${
-            event.grounded ? "ok" : "warn"
-          } mode=${event.mode} retry=${event.retry}/${event.maxRetry}`,
-        );
-        if (event.warnings.length > 0) {
-          for (const warning of event.warnings) {
-            log.raw.log(`[TRACE] Grounding warning: ${warning}`);
-          }
-        }
-        break;
-      case "rate_limit":
-        log.raw.log(
-          `[TRACE] Rate limit (${event.target}): ${event.used}/${event.maxCalls} per ${event.windowMs}ms (reset ${event.resetMs}ms)`,
-        );
-        break;
-      case "resource_limit":
-        log.raw.log(
-          `[TRACE] Resource limit (${event.kind}): ${event.used} > ${event.limit}`,
-        );
-        break;
-      case "llm_usage":
-        log.raw.log(
-          `[TRACE] LLM usage: ${event.usage.totalTokens} tokens (${event.usage.source})`,
-        );
-        break;
-      case "llm_performance": {
-        const firstToken = event.firstTokenLatencyMs !== undefined
-          ? ` first-token=${event.firstTokenLatencyMs}ms`
-          : "";
-        const tokens = event.inputTokens !== undefined ||
-            event.outputTokens !== undefined
-          ? ` tokens=${event.inputTokens ?? 0}/${event.outputTokens ?? 0}`
-          : "";
-        const cache = event.cacheReadInputTokens !== undefined ||
-            event.cacheCreationInputTokens !== undefined
-          ? ` cache=read:${event.cacheReadInputTokens ?? 0},create:${
-            event.cacheCreationInputTokens ?? 0
-          }`
-          : "";
-        log.raw.log(
-          `[TRACE] LLM perf: ${event.providerName}/${event.modelId} latency=${event.latencyMs}ms${firstToken}${tokens} stable=${event.stableCacheSignatureHash ?? "none"} segments=${event.stableSegmentCount ?? 0}${cache}`,
-        );
-        break;
-      }
-      case "plan_created":
-        log.raw.log(
-          `[TRACE] Plan created with ${event.plan.steps.length} steps`,
-        );
-        break;
-      case "plan_step":
-        log.raw.log(
-          `[TRACE] Plan step complete: ${event.stepId} (index ${event.index})`,
-        );
-        break;
-      case "context_overflow":
-        log.raw.log(
-          `[TRACE] Context overflow: ${event.estimatedTokens} > ${event.maxTokens}`,
-        );
-        break;
+    const lines = presentTraceEvent(event);
+    if (lines.length === 0) {
+      return;
+    }
+    for (const line of lines) {
+      log.raw.log(`[TRACE] ${formatTraceLineForTerminal(line)}`);
     }
   };
 }
@@ -639,7 +544,10 @@ export async function askCommand(args: string[]): Promise<void> {
   }
 
   const attachmentIds = await resolveAskAttachmentIds(attachmentArgs);
-  if (!fixturePath && attachmentIds?.length && modelOverride && !isAutoModel(modelOverride)) {
+  if (
+    !fixturePath && attachmentIds?.length && modelOverride &&
+    !isAutoModel(modelOverride)
+  ) {
     await ensureModelAttachmentSupport(modelOverride, attachmentIds);
   }
 
@@ -752,13 +660,11 @@ export async function askCommand(args: string[]): Promise<void> {
       switch (event.type) {
         case "agent_spawn":
           flushStream();
-          log.raw.log(`\n${formatAgentHeader(event.agentType, event.description)}`);
           log.raw.log(
-            `  ${
-              event.isAsync
-                ? "⎿ Backgrounded"
-                : "⎿ In progress…"
-            }\n`,
+            `\n${formatAgentHeader(event.agentType, event.description)}`,
+          );
+          log.raw.log(
+            `  ${event.isAsync ? "⎿ Backgrounded" : "⎿ In progress…"}\n`,
           );
           break;
         case "agent_progress":
@@ -811,9 +717,9 @@ export async function askCommand(args: string[]): Promise<void> {
           if (!progress?.message) return;
           flushStream();
           log.raw.log(
-            `\n[Tool] ${resolveToolTranscriptDisplayName(event.name)}\n${
-              progress.message
-            }\n`,
+            `\n[Tool] ${
+              resolveToolTranscriptDisplayName(event.name)
+            }\n${progress.message}\n`,
           );
           break;
         }
@@ -898,17 +804,15 @@ export async function askCommand(args: string[]): Promise<void> {
         flushStream();
         log.raw.log(formatAgentHeader(event.agentType, event.description));
         log.raw.log(
-          `  ${
-            event.isAsync
-              ? "⎿ Backgrounded"
-              : "⎿ In progress…"
-          }`,
+          `  ${event.isAsync ? "⎿ Backgrounded" : "⎿ In progress…"}`,
         );
         break;
       case "agent_progress":
         clearThinking();
         flushStream();
-        log.raw.log(`  ${formatAgentProgress(event.toolUseCount, event.durationMs)}`);
+        log.raw.log(
+          `  ${formatAgentProgress(event.toolUseCount, event.durationMs)}`,
+        );
         break;
       case "agent_complete":
         clearThinking();
@@ -993,7 +897,9 @@ export async function askCommand(args: string[]): Promise<void> {
             );
           if (!event.success) {
             log.raw.log(
-              `[${resolveToolTranscriptDisplayName(event.name)}] Error: ${summary}\n`,
+              `[${
+                resolveToolTranscriptDisplayName(event.name)
+              }] Error: ${summary}\n`,
             );
           } else if (summary) {
             log.raw.log(`${summary}\n`);

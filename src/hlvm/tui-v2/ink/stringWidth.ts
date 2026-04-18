@@ -6,6 +6,15 @@ import { getGraphemeSegmenter } from '../stubs/intl.ts'
 
 const EMOJI_REGEX = emojiRegex()
 
+type BunStringWidth = {
+  stringWidth?: (
+    str: string,
+    options?: { ambiguousIsNarrow?: boolean },
+  ) => number
+}
+
+const bunCompat = globalThis as typeof globalThis & { Bun?: BunStringWidth }
+
 /**
  * Fallback JavaScript implementation of stringWidth when Bun.stringWidth is not available.
  *
@@ -212,8 +221,8 @@ function isZeroWidth(codePoint: number): boolean {
 // Bun.stringWidth is resolved once at module scope rather than checked on every
 // call — typeof guards deopt property access and this is a hot path (~100k calls/frame).
 const bunStringWidth =
-  typeof Bun !== 'undefined' && typeof Bun.stringWidth === 'function'
-    ? Bun.stringWidth
+  typeof bunCompat.Bun?.stringWidth === 'function'
+    ? bunCompat.Bun.stringWidth
     : null
 
 const BUN_STRING_WIDTH_OPTS = { ambiguousIsNarrow: true } as const

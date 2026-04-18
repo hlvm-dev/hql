@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
 import { logForDebugging } from '../stubs/debug.ts'
 import { Stream } from 'node:stream'
-import type { FrameEvent } from './frame.js'
-import Ink, { type Options as InkOptions } from './ink.js'
-import instances from './instances.js'
+import type { FrameEvent } from './frame.ts'
+import Ink, { type Options as InkOptions } from './ink.tsx'
+import instances from './instances.ts'
 
 export type RenderOptions = {
   /**

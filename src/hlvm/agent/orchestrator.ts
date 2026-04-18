@@ -663,6 +663,13 @@ export interface OrchestratorDiagnosticsConfig {
   fileStateCache?: FileStateCache;
   /** Session-scoped LSP diagnostics runtime for post-write verification. */
   lspDiagnostics?: LspDiagnosticsRuntime;
+  /**
+   * True when the LLM is backed by a scripted test fixture. Fixture runs are
+   * deterministic by design, so post-response classifiers (browser final-answer
+   * adequacy, etc.) that consult the local model must be skipped — otherwise
+   * the fixture gets retried and falls through to the real local model.
+   */
+  fixtureBacked?: boolean;
 }
 
 /** Orchestrator configuration */

@@ -1,7 +1,7 @@
-import type { DOMElement } from './dom.js'
-import { ClickEvent } from './events/click-event.js'
-import type { EventHandlerProps } from './events/event-handlers.js'
-import { nodeCache } from './node-cache.js'
+import type { DOMElement } from './dom.ts'
+import { ClickEvent } from './events/click-event.ts'
+import type { EventHandlerProps } from './events/event-handlers.ts'
+import { nodeCache } from './node-cache.ts'
 
 /**
  * Find the deepest DOM element whose rendered rect contains (col, row).

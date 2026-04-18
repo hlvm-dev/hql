@@ -1,12 +1,12 @@
 import { c as _c } from '../../stubs/compiler-runtime.ts';
 import React, { type Ref, useCallback, useEffect, useRef, useState } from 'react';
 import type { Except } from 'type-fest';
-import type { DOMElement } from '../dom.js';
-import type { ClickEvent } from '../events/click-event.js';
-import type { FocusEvent } from '../events/focus-event.js';
-import type { KeyboardEvent } from '../events/keyboard-event.js';
-import type { Styles } from '../styles.js';
-import Box from './Box.js';
+import type { DOMElement } from '../dom.ts';
+import type { ClickEvent } from '../events/click-event.ts';
+import type { FocusEvent } from '../events/focus-event.ts';
+import type { KeyboardEvent } from '../events/keyboard-event.ts';
+import type { Styles } from '../styles.ts';
+import Box from './Box.tsx';
 type ButtonState = {
   focused: boolean;
   hovered: boolean;

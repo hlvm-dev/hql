@@ -55,7 +55,7 @@ import {
   PositionType,
   Unit,
   Wrap,
-} from './enums.js'
+} from './enums.ts'
 
 export {
   Align,
@@ -329,6 +329,7 @@ function leadingEdge(dir: FlexDirection): number {
     case FlexDirection.ColumnReverse:
       return EDGE_BOTTOM
   }
+  return EDGE_LEFT
 }
 function trailingEdge(dir: FlexDirection): number {
   switch (dir) {
@@ -341,6 +342,7 @@ function trailingEdge(dir: FlexDirection): number {
     case FlexDirection.ColumnReverse:
       return EDGE_TOP
   }
+  return EDGE_RIGHT
 }
 
 // --

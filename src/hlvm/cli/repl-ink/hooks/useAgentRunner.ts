@@ -41,12 +41,11 @@ import {
   describeConversationAttachmentMimeTypeError,
 } from "../../attachment-policy.ts";
 import {
+  type Attachment,
   expandTextAttachmentReferences,
   filterReferencedAttachments,
-  type Attachment,
 } from "../../repl/attachment.ts";
 import { runChatViaHost } from "../../../runtime/host-client.ts";
-import { getTaskManager } from "../../repl/task-manager/index.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import type { ReplState } from "../../repl/state.ts";
 import type { OverlayPanel } from "./useOverlayPanel.ts";
@@ -55,10 +54,13 @@ import {
   buildTraceTextPreview,
   traceReplMainThread,
 } from "../../../repl-main-thread-trace.ts";
+import type { TracePresentationLine } from "../../../agent/trace-presentation.ts";
+import { presentTraceEvent } from "../../../agent/trace-presentation.ts";
 
-
-type ContextPressureLevel =
-  Extract<TraceEvent, { type: "context_pressure" }>["level"];
+type ContextPressureLevel = Extract<
+  TraceEvent,
+  { type: "context_pressure" }
+>["level"];
 
 function formatContextPressureLabel(
   percent: number,
@@ -69,6 +71,11 @@ function formatContextPressureLabel(
   return `ctx ${percent}%`;
 }
 
+function withParts(...parts: Array<string | undefined | false>): string {
+  return parts.filter((part): part is string => Boolean(part && part.trim()))
+    .join(" · ");
+}
+
 export function getConversationToolDenylist(
   agentExecutionMode: AgentExecutionMode,
 ): string[] {
@@ -77,6 +84,7 @@ export function getConversationToolDenylist(
 
 interface UseAgentRunnerInput {
   conversation: UseConversationResult;
+  debugEnabled?: boolean;
   activeModelId: string | null;
   agentExecutionMode: AgentExecutionMode;
   configuredContextWindow: number | undefined;
@@ -150,6 +158,7 @@ export interface UseAgentRunnerResult {
 export function useAgentRunner(
   {
     conversation,
+    debugEnabled = false,
     activeModelId,
     agentExecutionMode,
     configuredContextWindow,
@@ -225,6 +234,16 @@ export function useAgentRunner(
     return expandTextAttachmentReferences(text, attachments ?? []);
   }, []);
 
+  const appendDebugTrace = useCallback((
+    lines: readonly TracePresentationLine[],
+    turnId = activeRunTurnIdRef.current,
+  ) => {
+    if (!debugEnabled || lines.length === 0) return;
+    conversationRef.current.addDebugTrace(lines, {
+      turnId,
+    });
+  }, [debugEnabled]);
+
   const runConversation = useCallback(async (
     query: string,
     attachments?: ConversationAttachmentRef[],
@@ -275,6 +294,19 @@ export function useAgentRunner(
       queryPreview: buildTraceTextPreview(query),
       attachmentCount: attachments?.length ?? 0,
     });
+    appendDebugTrace([{
+      depth: 0,
+      text: `Run started (${agentExecutionMode})`,
+      tone: "active",
+    }, {
+      depth: 1,
+      text: withParts(
+        activeModelId ? `requested model ${activeModelId}` : undefined,
+        attachments?.length ? `${attachments.length} attachments` : undefined,
+        buildTraceTextPreview(query, 84),
+      ),
+      tone: "muted",
+    }]);
 
     try {
       const attachmentIds = attachments
@@ -291,6 +323,14 @@ export function useAgentRunner(
         model: model ?? null,
         usedActiveModelId: !!activeModelId,
       });
+      appendDebugTrace([{
+        depth: 1,
+        text: withParts(
+          `Model resolved -> ${model ?? "none"}`,
+          `in ${Date.now() - modelResolutionStartedAt}ms`,
+        ),
+        tone: model ? "muted" : "warning",
+      }]);
       if (!model) {
         throw new ConfigError(
           "No configured model available for conversation mode.",
@@ -328,9 +368,14 @@ export function useAgentRunner(
       const flushStreamBuffer = () => {
         pendingStreamTimerRef.current = null;
         if (!controller.signal.aborted && isActiveConversationRun()) {
-          conversationRef.current.addAssistantText(textBuffer, true, undefined, {
-            turnId: activeRunTurnIdRef.current,
-          });
+          conversationRef.current.addAssistantText(
+            textBuffer,
+            true,
+            undefined,
+            {
+              turnId: activeRunTurnIdRef.current,
+            },
+          );
           lastStreamRender = Date.now();
         }
       };
@@ -396,9 +441,14 @@ export function useAgentRunner(
                 clearTimeout(pendingStreamTimerRef.current);
                 pendingStreamTimerRef.current = null;
               }
-              conversationRef.current.addAssistantText(textBuffer, false, undefined, {
-                turnId: activeRunTurnIdRef.current,
-              });
+              conversationRef.current.addAssistantText(
+                textBuffer,
+                false,
+                undefined,
+                {
+                  turnId: activeRunTurnIdRef.current,
+                },
+              );
               textBuffer = "";
               lastStreamRender = 0;
             }
@@ -414,6 +464,7 @@ export function useAgentRunner(
             if (controller.signal.aborted || !isActiveConversationRun()) {
               return;
             }
+            appendDebugTrace(presentTraceEvent(event));
             if (event.type === "context_pressure") {
               setFooterContextUsageLabel(
                 formatContextPressureLabel(event.percent, event.level),
@@ -551,6 +602,20 @@ export function useAgentRunner(
         estimatedTokens: result.stats.estimatedTokens,
         toolMessages: result.stats.toolMessages,
       });
+      appendDebugTrace([{
+        depth: 1,
+        text: withParts(
+          `Host completed`,
+          `in ${Date.now() - runStartedAt}ms`,
+          result.stats.toolMessages > 0
+            ? `${result.stats.toolMessages} tool messages`
+            : undefined,
+          typeof result.stats.estimatedTokens === "number"
+            ? `${result.stats.estimatedTokens} est. tokens`
+            : undefined,
+        ),
+        tone: "active",
+      }]);
       // Clear any pending streaming render timer
       if (pendingStreamTimerRef.current) {
         clearTimeout(pendingStreamTimerRef.current);
@@ -618,6 +683,14 @@ export function useAgentRunner(
         durationMs: Date.now() - runStartedAt,
         error: ensureError(error).message,
       });
+      appendDebugTrace([{
+        depth: 1,
+        text: withParts(
+          `Run error`,
+          ensureError(error).message,
+        ),
+        tone: "error",
+      }]);
       if (controller.signal.aborted) {
         finalizeStatus = "cancelled";
         if (isActiveConversationRun()) {
@@ -634,6 +707,19 @@ export function useAgentRunner(
         }
       }
     } finally {
+      const finalizedTurnId = activeRunTurnIdRef.current;
+      appendDebugTrace([{
+        depth: 0,
+        text: withParts(
+          `Run ${finalizeStatus}`,
+          `in ${Date.now() - runStartedAt}ms`,
+        ),
+        tone: finalizeStatus === "completed"
+          ? "active"
+          : finalizeStatus === "cancelled"
+          ? "warning"
+          : "error",
+      }], finalizedTurnId);
       if (isActiveConversationRun()) {
         agentControllerRef.current = null;
         interactionResolversRef.current.clear();
@@ -652,6 +738,7 @@ export function useAgentRunner(
       });
     }
   }, [
+    appendDebugTrace,
     activeModelId,
     agentExecutionMode,
     configuredContextWindow,
@@ -781,7 +868,13 @@ export function useAgentRunner(
   const handleForceInterrupt = useCallback(
     (code: string, attachments?: AnyAttachment[]) => {
       if (!code.trim()) return;
-      recordPromptHistory(replState, code, "conversation", undefined, attachments);
+      recordPromptHistory(
+        replState,
+        code,
+        "conversation",
+        undefined,
+        attachments,
+      );
       clearComposerDraft();
       const draft = createConversationComposerDraft(code.trim(), attachments);
 

@@ -10,6 +10,7 @@ export type { EvalResult } from "../repl/evaluator.ts";
 import type { EvalResult } from "../repl/evaluator.ts";
 import type { Citation } from "../../agent/tools/web/search-provider.ts";
 import type { ToolEventMeta } from "../../agent/orchestrator.ts";
+import type { TracePresentationTone } from "../../agent/trace-presentation.ts";
 
 // ============================================================
 // Tool Call Display
@@ -139,6 +140,16 @@ export interface InfoItem {
   turnId?: string;
 }
 
+export interface DebugTraceItem {
+  type: "debug_trace";
+  id: string;
+  text: string;
+  depth: number;
+  tone: TracePresentationTone;
+  ts: number;
+  turnId?: string;
+}
+
 export interface MemoryActivityDetail {
   action: "recalled" | "wrote" | "searched";
   text: string;
@@ -176,6 +187,7 @@ export type ConversationItem =
   | TurnStatsItem
   | ErrorItem
   | InfoItem
+  | DebugTraceItem
   | MemoryActivityItem
   | HqlEvalItem;
 

@@ -1,5 +1,5 @@
-import type { DOMElement } from './dom.js'
-import type { Rectangle } from './layout/geometry.js'
+import type { DOMElement } from './dom.ts'
+import type { Rectangle } from './layout/geometry.ts'
 
 /**
  * Cached layout bounds for each rendered node (used for blit + clearing).

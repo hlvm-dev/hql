@@ -1,23 +1,57 @@
 /**
- * HLVM Upgrade Command
+ * HLVM Update Command
  *
- * Checks for and shows instructions to update to the latest GitHub release.
+ * Checks for and installs the latest GitHub release.
  */
 
 import { VERSION } from "../../../common/version.ts";
+import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { platformExit } from "../utils/platform-helpers.ts";
 import {
-  isNewer,
   fetchLatestRelease,
-  getUpgradeCommand,
+  getInstallerCommand,
+  isNewer,
 } from "../utils/update-check.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 
-/**
- * Main upgrade command handler.
- */
-export async function upgrade(args: string[]): Promise<void> {
+function getInstallerArgs(): string[] {
+  const installerCommand = getInstallerCommand();
+  return getPlatform().build.os === "windows"
+    ? [
+      "powershell",
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      installerCommand,
+    ]
+    : ["sh", "-c", installerCommand];
+}
+
+function getPinnedInstallVersion(version: string): string {
+  return version.startsWith("v") ? version : `v${version}`;
+}
+
+async function runInstaller(version: string): Promise<void> {
+  const platform = getPlatform();
+  const process = platform.command.run({
+    cmd: getInstallerArgs(),
+    env: {
+      ...platform.env.toObject(),
+      HLVM_INSTALL_VERSION: getPinnedInstallVersion(version),
+    },
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const status = await process.status;
+  if (!status.success) {
+    throw new Error(`Installer exited with code ${status.code}`);
+  }
+}
+
+export async function update(args: string[]): Promise<void> {
   const checkOnly = args.includes("--check") || args.includes("-c");
 
   log.raw.log(`Current version: ${VERSION}`);
@@ -51,32 +85,35 @@ export async function upgrade(args: string[]): Promise<void> {
   log.raw.log(`\nNew version available: ${release.version}`);
 
   if (checkOnly) {
-    log.raw.log("\nRun 'hlvm upgrade' to see update instructions.");
+    log.raw.log("\nRun 'hlvm update' to install it.");
     return;
   }
 
-  const cmd = getUpgradeCommand();
-  log.raw.log(`\nTo upgrade, run:\n  ${cmd}`);
-  log.raw.log("\nOr rebuild from source:\n  make build\n  ./hlvm --version");
+  log.raw.log(`\nUpdating to ${release.version}...`);
+
+  try {
+    await runInstaller(release.version);
+  } catch (error) {
+    log.raw.error(`Failed to update: ${getErrorMessage(error)}`);
+    log.raw.log(`\nRetry manually:\n  ${getInstallerCommand()}`);
+    return platformExit(1);
+  }
 }
 
-/**
- * Display help for upgrade command.
- */
-export function showUpgradeHelp(): void {
+export function showUpdateHelp(): void {
   log.raw.log(`
-HLVM Upgrade - Show upgrade instructions
+HLVM Update - Install the latest HLVM release
 
 USAGE:
-  hlvm upgrade           Show upgrade instructions
-  hlvm upgrade --check   Check for updates only
+  hlvm update            Install the latest release
+  hlvm update --check    Check for updates only
 
 OPTIONS:
   -c, --check   Check for updates without installing
   -h, --help    Show this help message
 
 EXAMPLES:
-  hlvm upgrade           # Show upgrade instructions
-  hlvm upgrade --check   # Just check
+  hlvm update            # Install the latest release
+  hlvm update --check    # Just check
 `);
 }

@@ -6,9 +6,15 @@ type WrapAnsiOptions = {
   trim?: boolean
 }
 
+type BunWrapAnsi = {
+  wrapAnsi?: (str: string, width: number, options?: WrapAnsiOptions) => string
+}
+
+const bunCompat = globalThis as typeof globalThis & { Bun?: BunWrapAnsi }
+
 const wrapAnsiBun =
-  typeof Bun !== 'undefined' && typeof Bun.wrapAnsi === 'function'
-    ? Bun.wrapAnsi
+  typeof bunCompat.Bun?.wrapAnsi === 'function'
+    ? bunCompat.Bun.wrapAnsi
     : null
 
 const wrapAnsi: (

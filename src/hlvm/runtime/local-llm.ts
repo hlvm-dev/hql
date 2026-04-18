@@ -36,6 +36,22 @@ interface LocalChatFailure {
 
 type LocalChatResult = LocalChatSuccess | LocalChatFailure;
 
+let localChatQueue: Promise<void> = Promise.resolve();
+
+async function withSerializedLocalChat<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = localChatQueue;
+  let release!: () => void;
+  localChatQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
 function logLocalChatFailure(
   context: string,
   failure: LocalChatFailure,
@@ -57,43 +73,48 @@ async function collectChatResult(
   prompt: string,
   opts: { temperature?: number; maxTokens?: number },
 ): Promise<LocalChatResult> {
-  try {
-    const { getPlatform } = await import("../../platform/platform.ts");
-    if (getPlatform().env.get("HLVM_DISABLE_AI_AUTOSTART")) {
+  // The embedded local runtime is a single shared process. Parallel streaming
+  // calls can race each other into empty or partial responses, so treat this
+  // entry point as single-flight.
+  return await withSerializedLocalChat(async () => {
+    try {
+      const { getPlatform } = await import("../../platform/platform.ts");
+      if (getPlatform().env.get("HLVM_DISABLE_AI_AUTOSTART")) {
+        return {
+          ok: false,
+          failureKind: "disabled",
+          errorMessage: "HLVM_DISABLE_AI_AUTOSTART is set",
+        };
+      }
+      const { ai } = await import("../api/ai.ts");
+      const messages = [{ role: "user" as const, content: prompt }];
+      const localFallbackModelId = await resolveLocalFallbackModelId();
+      let result = "";
+      for await (
+        const token of ai.chat(messages, {
+          model: localFallbackModelId,
+          temperature: opts.temperature ?? 0,
+          maxTokens: opts.maxTokens ?? 64,
+        })
+      ) {
+        result += token;
+      }
+      if (!result.trim()) {
+        return {
+          ok: false,
+          failureKind: "empty_response",
+          errorMessage: "Local model returned no text",
+        };
+      }
+      return { ok: true, text: result };
+    } catch (error) {
       return {
         ok: false,
-        failureKind: "disabled",
-        errorMessage: "HLVM_DISABLE_AI_AUTOSTART is set",
+        failureKind: "runtime_error",
+        errorMessage: getErrorMessage(error),
       };
     }
-    const { ai } = await import("../api/ai.ts");
-    const messages = [{ role: "user" as const, content: prompt }];
-    const localFallbackModelId = await resolveLocalFallbackModelId();
-    let result = "";
-    for await (
-      const token of ai.chat(messages, {
-        model: localFallbackModelId,
-        temperature: opts.temperature ?? 0,
-        maxTokens: opts.maxTokens ?? 64,
-      })
-    ) {
-      result += token;
-    }
-    if (!result.trim()) {
-      return {
-        ok: false,
-        failureKind: "empty_response",
-        errorMessage: "Local model returned no text",
-      };
-    }
-    return { ok: true, text: result };
-  } catch (error) {
-    return {
-      ok: false,
-      failureKind: "runtime_error",
-      errorMessage: getErrorMessage(error),
-    };
-  }
+  });
 }
 
 async function collectClassificationJson(
@@ -343,35 +364,6 @@ export async function classifySourceAuthorities(
       }))
     : [];
   return { results: classified };
-}
-
-// ---- Step 17: Browser Automation Classification ----
-
-export interface BrowserAutomationClassification {
-  isBrowserTask: boolean;
-}
-
-const CLASSIFY_BROWSER_AUTOMATION_PROMPT =
-  `Is this user request asking to interact with a web browser, website, or web page? Reply ONLY with JSON, no other text.
-{"browser":true/false}
-
-- true: wants to navigate, click, fill forms, scrape, download from a site, visit a URL, use a browser
-- false: code task, file task, general question, system task not involving a browser
-
-Request: `;
-
-export async function classifyBrowserAutomation(
-  request: string,
-): Promise<BrowserAutomationClassification> {
-  const defaults: BrowserAutomationClassification = { isBrowserTask: false };
-  if (!request.trim()) return defaults;
-  const parsed = await collectClassificationJson(
-    "classifyBrowserAutomation",
-    CLASSIFY_BROWSER_AUTOMATION_PROMPT + request.slice(0, 500),
-    { temperature: 0, maxTokens: 64 },
-  );
-  if (!parsed) return defaults;
-  return { isBrowserTask: parsed.browser === true };
 }
 
 // ---- Step 18: Browser Final Answer Adequacy ----

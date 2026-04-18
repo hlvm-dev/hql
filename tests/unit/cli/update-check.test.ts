@@ -6,7 +6,8 @@ import { http } from "../../../src/common/http-client.ts";
 import {
   checkForUpdate,
   fetchLatestRelease,
-  getUpgradeCommand,
+  getInstallerCommand,
+  getUpdateCommand,
   isNewer,
 } from "../../../src/hlvm/cli/utils/update-check.ts";
 import { VERSION } from "../../../src/common/version.ts";
@@ -30,12 +31,16 @@ Deno.test("isNewer returns false when latest <= current", () => {
   assertEquals(isNewer("0.1.0", "0.2.0"), false);
 });
 
-Deno.test("getUpgradeCommand returns platform-appropriate command", () => {
-  const cmd = getUpgradeCommand();
+Deno.test("getUpdateCommand returns the CLI update command", () => {
+  assertEquals(getUpdateCommand(), "hlvm update");
+});
+
+Deno.test("getInstallerCommand returns platform-appropriate command", () => {
+  const cmd = getInstallerCommand();
   if (Deno.build.os === "windows") {
-    assertEquals(cmd, "irm hlvm.dev/install.ps1 | iex");
+    assertEquals(cmd, "irm https://hlvm.dev/install.ps1 | iex");
   } else {
-    assertEquals(cmd, "curl -fsSL hlvm.dev/install.sh | sh");
+    assertEquals(cmd, "curl -fsSL https://hlvm.dev/install.sh | sh");
   }
 });
 
@@ -106,7 +111,7 @@ Deno.test("e2e: checkForUpdate returns UpdateInfo when newer version exists", as
         assertNotEquals(info, null);
         assertEquals(info!.current, VERSION);
         assertEquals(info!.latest, "99.0.0");
-        assertEquals(info!.upgradeCommand, getUpgradeCommand());
+        assertEquals(info!.updateCommand, getUpdateCommand());
         assertEquals(
           info!.releaseUrl,
           "https://github.com/hlvm-dev/hql/releases/tag/v99.0.0",

@@ -1,10 +1,10 @@
 // @ts-nocheck
 import { c as _c } from '../stubs/compiler-runtime.ts';
 import React from 'react';
-import Link from './components/Link.js';
-import Text from './components/Text.js';
-import type { Color } from './styles.js';
-import { type NamedColor, Parser, type Color as TermioColor, type TextStyle } from './termio.js';
+import Link from './components/Link.tsx';
+import Text from './components/Text.tsx';
+import type { Color } from './styles.ts';
+import { type NamedColor, Parser, type Color as TermioColor, type TextStyle } from './termio.ts';
 type Props = {
   children: string;
   /** When true, force all text to be rendered with dim styling */

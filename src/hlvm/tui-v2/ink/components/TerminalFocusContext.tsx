@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { c as _c } from '../../stubs/compiler-runtime.ts';
 import React, { createContext, useMemo, useSyncExternalStore } from 'react';
-import { getTerminalFocused, getTerminalFocusState, subscribeTerminalFocus, type TerminalFocusState } from '../terminal-focus-state.js';
+import { getTerminalFocused, getTerminalFocusState, subscribeTerminalFocus, type TerminalFocusState } from '../terminal-focus-state.ts';
 export type { TerminalFocusState };
 export type TerminalFocusContextProps = {
   readonly isTerminalFocused: boolean;
