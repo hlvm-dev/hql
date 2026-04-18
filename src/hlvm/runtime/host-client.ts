@@ -1142,7 +1142,7 @@ export async function uploadRuntimeAttachment(
     sourcePath?: string;
   },
 ): Promise<AttachmentRecord> {
-  const file = new File([bytes], fileName, {
+  const file = new File([bytes as Uint8Array<ArrayBuffer>], fileName, {
     type: options?.mimeType ?? "application/octet-stream",
   });
   const form = new FormData();

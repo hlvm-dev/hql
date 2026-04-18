@@ -886,29 +886,39 @@ gated by CC-internal feature flags or depend on CC-internal runtime
 **Rule for additions:** if a CC feature lives behind `feature(...)` in CC
 source or depends on CC-internal infra, it is out of scope by default.
 
-## A.2 Verdict — CC-faithful on the applicable surface
+## A.2 Parity status
 
 **Side-by-side observed outcome (2026-04-18):** same prompt through real
-CC 2.1.112 and HLVM both returned byte-identical answer. Agent tool
+CC 2.1.112 and HLVM both return the same absolute path. Agent tool
 interface, built-in agent types (`Explore`/`Plan`/`general-purpose`), and
-flow shape (parent → Agent → child → tools → result → parent) match.
+flow shape (parent → Agent → child → tools → result → parent) match. The
+final text may differ cosmetically (e.g., backtick wrapping) — this is
+child-LLM styling, not a system divergence.
+
+**Status key:** `same` = outcome-equivalent on inspected path;
+`diverge (intentional)` = HLVM ships a different contract on purpose and
+will not be changed without explicit ask; `diverge (open)` = known gap we
+have not yet fixed.
 
 | Dimension | Status |
 |---|---|
 | Tool name + schema (`description`/`prompt`/`subagent_type`/`model`/`run_in_background`/`isolation`/`cwd`) | same |
 | Agent discovery (user + project `.md`, built-in priority) | same |
 | Spawn flow (validate → resolve def → resolve tools → build system prompt → isolate context → run → result) | same |
-| Child system prompt (`[agentPrompt, notes, envInfo]` with verbatim CC `Notes:` text and `<env>` block) | same |
-| Tool filtering (MCP → universal disallow → custom disallow → async allowlist → wildcard/explicit) | same |
+| Child system prompt (`[agentPrompt, notes, envInfo]` with verbatim CC `Notes:` text and `<env>` block, **child's effective cwd under worktree / cwd-override**) | same |
+| Tool filtering (MCP → universal disallow → custom disallow → async allowlist → **parent `toolAllowlist`/`toolDenylist` intersection** → wildcard/explicit) | same |
 | `disallowedTools` + `tools` spec parsing (`"Tool"` / `"Tool(pattern)"` / `"Tool(*)"` / escaped parens) | same |
 | Worktree isolation (`.hlvm/worktrees/{slug}`, branch `worktree-{slug}`, cleanup-on-clean) | same |
-| Sync result shape (`status`, `agentId`, `agentType`, `prompt`, `content`, `totalDurationMs`, `totalToolUseCount`, `totalTokens`, `worktreePath?`, `worktreeBranch?`) | same |
+| **Sync result raw shape** — HLVM: `content: string` + single `totalTokens: number`. CC: `content: Array<{type:'text', text:string}>` + detailed `usage` object (input/output/cache/tier). | **diverge (intentional)** — HLVM ships a simplified projection; internal HLVM consumers rely on the flat-string shape. Flip to CC's block shape only if an explicit external-compatibility requirement appears. |
 | Async result shape (`status: "async_launched"`, `agentId`, `description`, `prompt`, `outputFile`, `canReadOutputFile`) | same |
 | ONE_SHOT trailer stripping for Explore/Plan | same |
 | Error handling (wrapped into `AgentLoopResult` with `stopReason`, not thrown to parent) | same |
-| Observer event stream wire format | different (CC: per-message JSON events; HLVM: aggregated `agent_spawn/progress/complete` events). Same semantic information; parent LLM sees only final result in both. |
+| Observer event stream wire format | **diverge (intentional)** — CC: per-message JSON events; HLVM: aggregated `agent_spawn/progress/complete` events. Same semantic information available; parent LLM sees only final result in both. Matching CC would require rewriting HLVM's orchestrator around an async generator. |
 
-**Score on applicable surface: outcome-equivalent to CC.**
+**Overall:** outcome-equivalent to CC on the happy path; two intentional
+divergences remain (raw result shape; observer stream format). Not a
+final CC-contract sign-off — a documented parity surface with explicit
+known deltas.
 
 ## A.3 File inventory
 

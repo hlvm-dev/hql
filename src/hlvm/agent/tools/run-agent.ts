@@ -190,8 +190,10 @@ export async function runAgent(
   const enhanced = await enhanceSystemPromptWithEnvDetails(
     [systemPrompt],
     effectiveModel ?? inheritedConfig?.modelId ?? "unknown",
-    undefined,
-    new Set(resolvedTools.keys()),
+    {
+      cwd: workspace,
+      enabledToolNames: new Set(resolvedTools.keys()),
+    },
   );
   for (const msg of enhanced) {
     context.addMessage({ role: "system", content: msg });

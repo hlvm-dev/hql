@@ -42,6 +42,7 @@ import {
 
 // Tool utils
 import {
+  applyParentPermissions,
   filterToolsForAgent,
   resolveAgentTools,
 } from "../../../src/hlvm/agent/tools/agent-tool-utils.ts";
@@ -249,6 +250,71 @@ Deno.test("resolveAgentTools: invalid tools tracked", () => {
 
   assertEquals(result.validTools, ["read_file"]);
   assertEquals(result.invalidTools, ["nonexistent"]);
+});
+
+Deno.test("applyParentPermissions: parent allowlist restricts child pool", () => {
+  const tools = mockToolRegistry("read_file", "write_file", "shell_exec");
+  const filtered = applyParentPermissions(tools, ["read_file"], undefined);
+  assertEquals(Object.keys(filtered).sort(), ["read_file"]);
+});
+
+Deno.test("applyParentPermissions: parent denylist removes tools from child pool", () => {
+  const tools = mockToolRegistry("read_file", "write_file", "shell_exec");
+  const filtered = applyParentPermissions(tools, undefined, ["shell_exec"]);
+  assertEquals(Object.keys(filtered).sort(), ["read_file", "write_file"]);
+});
+
+Deno.test("applyParentPermissions: no-op when neither list present", () => {
+  const tools = mockToolRegistry("read_file", "write_file");
+  const filtered = applyParentPermissions(tools, undefined, undefined);
+  assertEquals(Object.keys(filtered).sort(), ["read_file", "write_file"]);
+});
+
+Deno.test("applyParentPermissions: MCP tools always pass through", () => {
+  const tools = {
+    ...mockToolRegistry("read_file"),
+    "mcp__server__tool": { name: "mcp__server__tool" } as never,
+  };
+  const filtered = applyParentPermissions(tools, ["read_file"], undefined);
+  assertEquals(Object.keys(filtered).sort(), ["mcp__server__tool", "read_file"]);
+});
+
+Deno.test("applyParentPermissions: allowlist accepts Tool(pattern) specs via CC parser", () => {
+  const tools = mockToolRegistry("shell_exec", "read_file");
+  const filtered = applyParentPermissions(
+    tools,
+    ["shell_exec(git status)"],
+    undefined,
+  );
+  assertEquals(Object.keys(filtered).sort(), ["shell_exec"]);
+});
+
+Deno.test("computeEnvInfo: cwd override is reflected in <env> block", async () => {
+  const { computeEnvInfo } = await import(
+    "../../../src/hlvm/agent/tools/prompt-env.ts"
+  );
+  const tmp = await Deno.makeTempDir({ prefix: "env-cwd-override-" });
+  try {
+    const info = await computeEnvInfo("test-model", { cwd: tmp });
+    if (!info.includes(`Working directory: ${tmp}`)) {
+      throw new Error(`env block missing override cwd: ${info}`);
+    }
+    if (info.includes(`Working directory: ${Deno.cwd()}\n`)) {
+      throw new Error(`env block leaked parent cwd: ${info}`);
+    }
+  } finally {
+    await Deno.remove(tmp, { recursive: true });
+  }
+});
+
+Deno.test("computeEnvInfo: falls back to process cwd when no override", async () => {
+  const { computeEnvInfo } = await import(
+    "../../../src/hlvm/agent/tools/prompt-env.ts"
+  );
+  const info = await computeEnvInfo("test-model");
+  if (!info.includes(`Working directory: ${Deno.cwd()}`)) {
+    throw new Error(`env block missing parent cwd fallback: ${info}`);
+  }
 });
 
 Deno.test("permissionRuleValueFromString: plain tool name", () => {

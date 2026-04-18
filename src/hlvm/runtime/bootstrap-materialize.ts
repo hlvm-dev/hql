@@ -47,7 +47,10 @@ export interface MaterializeOptions {
 
 async function hashFile(path: string): Promise<string> {
   const bytes = await getPlatform().fs.readFile(path);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    bytes as Uint8Array<ArrayBuffer>,
+  );
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");

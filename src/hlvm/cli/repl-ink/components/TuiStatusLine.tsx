@@ -126,7 +126,7 @@ export function TuiStatusLine(
   return (
     <Box paddingLeft={1} paddingRight={1} justifyContent="space-between">
       <Box>
-        {fittedLeft.map((segment, index) => {
+        {fittedLeft.map((segment: ShellFooterSegment, index: number) => {
           const color = segment.tone === "warning"
             ? sc.status.warning
             : segment.tone === "active"

@@ -80,6 +80,35 @@ export function filterToolsForAgent(opts: {
   return filtered;
 }
 
+export function applyParentPermissions(
+  allTools: Record<string, ToolMetadata>,
+  parentAllowlist?: readonly string[],
+  parentDenylist?: readonly string[],
+): Record<string, ToolMetadata> {
+  const hasAllow = parentAllowlist && parentAllowlist.length > 0;
+  const hasDeny = parentDenylist && parentDenylist.length > 0;
+  if (!hasAllow && !hasDeny) return allTools;
+
+  const allowSet = hasAllow
+    ? new Set(parentAllowlist!.map((s) => permissionRuleValueFromString(s).toolName))
+    : null;
+  const denySet = hasDeny
+    ? new Set(parentDenylist!.map((s) => permissionRuleValueFromString(s).toolName))
+    : null;
+
+  const filtered: Record<string, ToolMetadata> = {};
+  for (const [name, meta] of Object.entries(allTools)) {
+    if (name.startsWith("mcp__")) {
+      filtered[name] = meta;
+      continue;
+    }
+    if (denySet?.has(name)) continue;
+    if (allowSet && !allowSet.has(name)) continue;
+    filtered[name] = meta;
+  }
+  return filtered;
+}
+
 // ============================================================
 // resolveAgentTools (CC: agentToolUtils.ts lines 122-225)
 // ============================================================

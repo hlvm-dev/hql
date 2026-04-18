@@ -1,17 +1,24 @@
 import { getPlatform } from "../../../platform/platform.ts";
 
+export interface EnvInfoOptions {
+  cwd?: string;
+  additionalWorkingDirectories?: string[];
+}
+
 export async function computeEnvInfo(
   modelId: string,
-  additionalWorkingDirectories?: string[],
+  options: EnvInfoOptions = {},
 ): Promise<string> {
   const platform = getPlatform();
+  const effectiveCwd = options.cwd ?? platform.process.cwd();
   const [isGit, unameSR] = await Promise.all([
-    getIsGit(platform),
+    getIsGit(platform, effectiveCwd),
     getUnameSR(platform),
   ]);
   const additionalDirsInfo =
-    additionalWorkingDirectories && additionalWorkingDirectories.length > 0
-      ? `Additional working directories: ${additionalWorkingDirectories.join(", ")}\n`
+    options.additionalWorkingDirectories &&
+      options.additionalWorkingDirectories.length > 0
+      ? `Additional working directories: ${options.additionalWorkingDirectories.join(", ")}\n`
       : "";
 
   const cutoff = getKnowledgeCutoff(modelId);
@@ -23,7 +30,7 @@ export async function computeEnvInfo(
 
   return `Here is useful information about the environment you are running in:
 <env>
-Working directory: ${platform.process.cwd()}
+Working directory: ${effectiveCwd}
 Is directory a git repo: ${isGit ? "Yes" : "No"}
 ${additionalDirsInfo}Platform: ${platform.build.os}
 ${getShellInfoLine(platform)}
@@ -32,18 +39,26 @@ OS Version: ${unameSR}
 ${modelDescription}${knowledgeCutoffMessage}`;
 }
 
+export interface EnhanceEnvOptions {
+  cwd?: string;
+  additionalWorkingDirectories?: string[];
+  enabledToolNames?: ReadonlySet<string>;
+}
+
 export async function enhanceSystemPromptWithEnvDetails(
   existingSystemPrompt: string[],
   model: string,
-  additionalWorkingDirectories?: string[],
-  _enabledToolNames?: ReadonlySet<string>,
+  options: EnhanceEnvOptions = {},
 ): Promise<string[]> {
   const notes = `Notes:
 - Agent threads always have their cwd reset between bash calls, as a result please only use absolute file paths.
 - In your final response, share file paths (always absolute, never relative) that are relevant to the task. Include code snippets only when the exact text is load-bearing (e.g., a bug you found, a function signature the caller asked for) — do not recap code you merely read.
 - For clear communication with the user the assistant MUST avoid using emojis.
 - Do not use a colon before tool calls. Text like "Let me read the file:" followed by a read tool call should just be "Let me read the file." with a period.`;
-  const envInfo = await computeEnvInfo(model, additionalWorkingDirectories);
+  const envInfo = await computeEnvInfo(model, {
+    cwd: options.cwd,
+    additionalWorkingDirectories: options.additionalWorkingDirectories,
+  });
   return [
     ...existingSystemPrompt,
     notes,
@@ -53,10 +68,14 @@ export async function enhanceSystemPromptWithEnvDetails(
 
 type PlatformHandle = ReturnType<typeof getPlatform>;
 
-async function getIsGit(platform: PlatformHandle): Promise<boolean> {
+async function getIsGit(
+  platform: PlatformHandle,
+  cwd?: string,
+): Promise<boolean> {
   try {
     const result = await platform.command.output({
       cmd: ["git", "rev-parse", "--is-inside-work-tree"],
+      cwd,
       stdout: "null",
       stderr: "null",
     });

@@ -36,6 +36,7 @@ import { loadAgentDefinitions } from "./agent-definitions.ts";
 import { loadMcpTools } from "../mcp/tools.ts";
 import type { McpLoadResult, McpServerConfig } from "../mcp/types.ts";
 import { type InheritedAgentConfig, runAgent } from "./run-agent.ts";
+import { applyParentPermissions } from "./agent-tool-utils.ts";
 import { insertMessage } from "../../store/conversation-store.ts";
 import { pushSSEEvent } from "../../store/sse-store.ts";
 import {
@@ -361,7 +362,6 @@ const agentToolFn: ToolFunction = async (
   const effectiveWorkspace = worktreeInfo?.worktreePath ?? trimmedCwd ??
     workspace;
 
-  // Step 5: Get all tools for the child agent
   let allTools: Record<string, ToolMetadata> = {};
   let inheritedConfig: InheritedAgentConfig = baseInheritedConfig;
   let agentMcpCleanup: () => Promise<void> = async () => {};
@@ -381,6 +381,12 @@ const agentToolFn: ToolFunction = async (
     await cleanupWorktree(worktreeInfo);
     throw error;
   }
+
+  allTools = applyParentPermissions(
+    allTools,
+    options?.toolAllowlist,
+    options?.toolDenylist,
+  );
 
   // Step 6: Route sync vs async (CC: shouldRunAsync logic)
   const shouldRunAsync = run_in_background === true ||

@@ -101,7 +101,6 @@ function createAgentSession(context: ContextManager): AgentSession {
         toolCalls: [],
         usage: { inputTokens: 0, outputTokens: 0 },
       }),
-    policy: null,
     l1Confirmations: new Map(),
     toolOwnerId: "test",
     dispose: () => Promise.resolve(),

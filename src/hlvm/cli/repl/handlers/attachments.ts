@@ -302,7 +302,7 @@ export async function handleGetAttachmentContent(
 ): Promise<Response> {
   try {
     const { record, bytes } = await readAttachmentContent(params.id);
-    return new Response(bytes, {
+    return new Response(bytes as Uint8Array<ArrayBuffer>, {
       status: 200,
       headers: {
         "Content-Type": record.mimeType || "application/octet-stream",

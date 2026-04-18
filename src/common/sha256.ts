@@ -9,7 +9,10 @@ function toSha256Input(value: string | Uint8Array): Uint8Array {
 export async function sha256Hex(
   value: string | Uint8Array,
 ): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", toSha256Input(value));
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    toSha256Input(value) as Uint8Array<ArrayBuffer>,
+  );
   return bytesToHex(new Uint8Array(digest));
 }
 
