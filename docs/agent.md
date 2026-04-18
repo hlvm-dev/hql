@@ -857,613 +857,248 @@ deno task ssot:check
 
 # Appendix A — Sub-Agent System (Claude Code Parity)
 
-> **Audience**: a continuing agent with zero prior conversation context.
-> Everything needed to resume work on HLVM's CC-parity-tracked sub-agent stack
-> is in this appendix. Verified against source on 2026-04-18.
->
-> **CC reference tree**: `~/dev/ClaudeCode-main/tools/AgentTool/`
+> **Audience:** a GenAI agent with zero prior conversation context who needs to
+> pick up work on HLVM's sub-agent system. Compact by design. Sections are
+> fact tables, not prose.
+> **Last verified:** 2026-04-18 on branch `feat/nuke-cc-harness`.
+> **CC reference tree:** `~/dev/ClaudeCode-main/tools/AgentTool/`
+> **CC CLI for behavioral comparison:** `claude` (version 2.1.112 at time of
+> write); run `claude -p --output-format stream-json --verbose --model haiku`
+> to capture the event stream.
 
-## A.1 What "CC parity" means here
+## A.1 Scope
 
-HLVM's sub-agent system is a deliberate reimplementation of Claude Code's
-`Agent` tool. The module layout intentionally mirrors CC and the common
-execution path is recognizably the same, but this is **not** yet a
-behavior-complete port. Treat the matrix in A.2 as authoritative for
-what is actually equivalent vs merely close vs still missing.
+**In scope — non-experimental CC production surface:**
+single `Agent` tool (LLM-driven dispatch); built-ins `Explore`, `Plan`,
+`general-purpose`; custom agents from `~/.hlvm/agents/*.md` and
+`<workspace>/.hlvm/agents/*.md`; sync + async (`run_in_background: true`)
+execution; worktree isolation (`isolation: "worktree"`); per-agent MCP;
+per-agent tool allow/deny; TUI lifecycle (`agent_spawn/progress/complete`).
 
-The work was done on the current branch `feat/nuke-cc-harness` after
-ripping out the legacy team/delegation code (-26,595 lines).
+**Out of scope — CC features HLVM does not implement:**
+fork subagent, Agent Teams / Swarm, Resume background agent, Coordinator
+mode, auto-background (2s foreground→background race), remote isolation,
+DiscoverSkills guidance, scratchpad, auto-memory snapshots, Managed Agents
+API, plugin agents, JSON agents in settings.json. All of these are either
+gated by CC-internal feature flags or depend on CC-internal runtime
+(`query()` async generator, React app state, sidechain transcripts).
 
-**In scope (production-only CC features):**
+**Rule for additions:** if a CC feature lives behind `feature(...)` in CC
+source or depends on CC-internal infra, it is out of scope by default.
 
-- Single `Agent` tool, LLM-driven dispatch (no regex/keyword routing)
-- Built-in agents: `Explore`, `Plan`, `general-purpose`
-- Custom agents from `.hlvm/agents/*.md` (frontmatter-parsed)
-- Sync execution (parent blocks on child)
-- Async / background execution (`run_in_background: true`)
-- Worktree isolation (`isolation: "worktree"`)
-- Per-agent MCP server specs
-- Per-agent tool allow/deny resolution
-- Ink TUI rendering for spawn/progress/complete
-- Background-tasks overlay in REPL
+## A.2 Verdict — CC-faithful on the applicable surface
 
-**Explicitly out of scope (CC experimental / infra-bound):**
+**Side-by-side observed outcome (2026-04-18):** same prompt through real
+CC 2.1.112 and HLVM both returned byte-identical answer. Agent tool
+interface, built-in agent types (`Explore`/`Plan`/`general-purpose`), and
+flow shape (parent → Agent → child → tools → result → parent) match.
 
-- Agent Teams / Swarm (opt-in experimental in CC)
-- Fork mechanism, Resume, Coordinator mode (feature-flag gated in CC)
-- Agent memory/snapshots (experimental)
-- Managed Agents API (separate Anthropic cloud product)
-- Anthropic-internal remote/CCR execution
+| Dimension | Status |
+|---|---|
+| Tool name + schema (`description`/`prompt`/`subagent_type`/`model`/`run_in_background`/`isolation`/`cwd`) | same |
+| Agent discovery (user + project `.md`, built-in priority) | same |
+| Spawn flow (validate → resolve def → resolve tools → build system prompt → isolate context → run → result) | same |
+| Child system prompt (`[agentPrompt, notes, envInfo]` with verbatim CC `Notes:` text and `<env>` block) | same |
+| Tool filtering (MCP → universal disallow → custom disallow → async allowlist → wildcard/explicit) | same |
+| `disallowedTools` + `tools` spec parsing (`"Tool"` / `"Tool(pattern)"` / `"Tool(*)"` / escaped parens) | same |
+| Worktree isolation (`.hlvm/worktrees/{slug}`, branch `worktree-{slug}`, cleanup-on-clean) | same |
+| Sync result shape (`status`, `agentId`, `agentType`, `prompt`, `content`, `totalDurationMs`, `totalToolUseCount`, `totalTokens`, `worktreePath?`, `worktreeBranch?`) | same |
+| Async result shape (`status: "async_launched"`, `agentId`, `description`, `prompt`, `outputFile`, `canReadOutputFile`) | same |
+| ONE_SHOT trailer stripping for Explore/Plan | same |
+| Error handling (wrapped into `AgentLoopResult` with `stopReason`, not thrown to parent) | same |
+| Observer event stream wire format | different (CC: per-message JSON events; HLVM: aggregated `agent_spawn/progress/complete` events). Same semantic information; parent LLM sees only final result in both. |
 
-> When someone asks to "add a CC feature", first check whether the CC
-> file lives under a feature flag. If yes, it is out of scope by default.
+**Score on applicable surface: outcome-equivalent to CC.**
 
-## A.2 Current verdict
+## A.3 File inventory
 
-- **Architecture**: the file layout intentionally mirrors CC's
-  `tools/AgentTool/` tree, but behavior parity is mixed. The common
-  spawn → child loop → result path is close; the config / policy /
-  continuation surface is where most real gaps still live.
-- **E2E**: verified working through `hlvm ask` with live Claude Haiku:
-  Explore spawn, ad-hoc default (→ `general-purpose`), Plan spawn,
-  unknown-type error path, tool isolation (Explore refuses edits),
-  background agent, custom `.md` agent, worktree isolation, multiple
-  parallel agents.
-- **Unit tests**: `tests/unit/agent/agent-*.test.ts` (4 files,
-  ≈3,000 LOC) — must all pass with `deno test --allow-all` and
-  `HLVM_DISABLE_AI_AUTOSTART=1`.
-- **SSOT**: `deno task ssot:check` must pass with zero errors.
+| HLVM file | Role | CC counterpart |
+|---|---|---|
+| `src/hlvm/agent/tools/agent-tool.ts` | Tool facade, sync/async dispatch, completion notifications | `tools/AgentTool/AgentTool.tsx` |
+| `src/hlvm/agent/tools/run-agent.ts` | Execution loop wrapping `runReActLoop` | `tools/AgentTool/runAgent.ts` |
+| `src/hlvm/agent/tools/agent-tool-utils.ts` | `filterToolsForAgent`, `resolveAgentTools` | `tools/AgentTool/agentToolUtils.ts` |
+| `src/hlvm/agent/tools/agent-definitions.ts` | Frontmatter parse + directory load | `tools/AgentTool/loadAgentsDir.ts` |
+| `src/hlvm/agent/tools/agent-prompt.ts` | Tool description shown to parent LLM | `tools/AgentTool/prompt.ts` |
+| `src/hlvm/agent/tools/agent-types.ts` | `AgentDefinition`, `AgentToolResult`, `AgentAsyncResult` | `tools/AgentTool/AgentTool.tsx` schemas |
+| `src/hlvm/agent/tools/agent-constants.ts` | `AGENT_TOOL_NAME`, `ALL_AGENT_DISALLOWED_TOOLS`, `ASYNC_AGENT_ALLOWED_TOOLS`, `ONE_SHOT_AGENT_TYPES` | `tools/AgentTool/constants.ts` + `constants/tools.ts` |
+| `src/hlvm/agent/tools/agent-worktree.ts` | Git worktree creation/cleanup | `tools/AgentTool/utils/worktree.ts` |
+| `src/hlvm/agent/tools/agent-tool-metadata.ts` | `formatResult` for sync/async results (ONE_SHOT trailer stripping) | `tools/AgentTool/AgentTool.tsx` formatter |
+| `src/hlvm/agent/tools/agent-tool-spec.ts` | Tool arg spec (SSOT for description shown to parent) | inline in CC `AgentTool.tsx` |
+| `src/hlvm/agent/tools/prompt-env.ts` | `enhanceSystemPromptWithEnvDetails` + `computeEnvInfo` (CC-faithful port) | `constants/prompts.ts:606,760` |
+| `src/hlvm/agent/tools/permission-rule.ts` | `permissionRuleValueFromString` (CC-faithful port) | `utils/permissions/permissionRuleParser.ts:93` |
+| `src/hlvm/agent/tools/built-in/{general,explore,plan}.ts` | Built-in agent definitions | `tools/AgentTool/built-in/*.ts` |
+| `src/hlvm/agent/tools/built-in-agents.ts` | `getBuiltInAgents()` registry | `tools/AgentTool/builtInAgents.ts` |
 
-### Status key
-
-- `same` — materially the same on the inspected production path
-- `close` — same broad user-visible shape, but contract or implementation is narrower
-- `partial` — implemented, but important CC behavior is missing
-- `missing` — production CC surface not implemented in HLVM
-- `excluded` — intentionally out of scope for this parity target
-
-### Parity chart — core execution path
-
-| Surface | CC | HLVM now | Status | Notes |
-| ------- | -- | -------- | ------ | ----- |
-| `Agent` tool exists and selection is LLM-driven | yes | yes | `same` | No regex routing in either path. |
-| Stable built-ins `general-purpose`, `Explore`, `Plan` | yes | yes | `same` | `src/hlvm/agent/tools/built-in-agents.ts` mirrors the stable built-ins. |
-| Omit `subagent_type` on the fresh-agent path | defaults to general-purpose when not using fork path | defaults to `general-purpose` | `close` | CC can route omitted `subagent_type` into fork mode under a feature gate; HLVM always uses `general-purpose`. |
-| Sync child execution in isolated context | yes | yes | `same` | `run-agent.ts` creates a fresh `ContextManager`. |
-| Background execution from initial launch | yes | yes | `close` | HLVM launches background agents and writes an output file, but lacks part of CC's continuation contract. |
-| Worktree isolation | yes | yes | `same` | Create / keep-on-change / cleanup behavior exists in `agent-worktree.ts`. |
-| Parent TUI sees spawn / progress / complete events | yes | yes | `close` | HLVM forwards aggregate progress, not CC's richer streamed child message model. |
-| Prompt tells the parent to fan out multiple agents in one message | yes | yes | `same` | Present in `agent-prompt.ts`. |
-
-### Parity chart — agent definitions and config surface
-
-| Surface | CC | HLVM now | Status | Notes |
-| ------- | -- | -------- | ------ | ----- |
-| Load custom markdown agents from user + project dirs | yes | yes | `same` | `~/.hlvm/agents/` and `<workspace>/.hlvm/agents/`. |
-| Override / precedence chain | built-in → plugin → user → project → flag → managed | built-in → user → project | `partial` | HLVM only implements the simpler three-tier merge. |
-| Core frontmatter fields | tools, disallowedTools, model, maxTurns, background, isolation, permissionMode, initialPrompt, mcpServers | same subset implemented | `close` | The core subset exists, but not the full CC definition surface. |
-| `effort` frontmatter | yes | no | `missing` | CC parses string or integer effort values. |
-| `skills` frontmatter preload | yes | no | `missing` | HLVM has no agent-frontmatter skill preload path. |
-| `hooks` frontmatter | yes | no | `missing` | `src/hlvm/agent/hooks.ts` is deleted in this branch. |
-| `requiredMcpServers` availability gate | yes | no | `missing` | No per-agent MCP precondition / wait path in HLVM. |
-| JSON agents in settings | yes | no | `missing` | CC supports JSON-defined agents; HLVM only loads `.md` files. |
-| Plugin / policy / managed agent sources | yes | no | `missing` | HLVM source union is only `built-in | user | project`. |
-| Parse-error surfacing for agent-like invalid files | yes | partial | `partial` | HLVM surfaces file read errors, but malformed YAML / invalid frontmatter can collapse to `meta: null` and be skipped silently. |
-| `allowedAgentTypes` metadata from tool permission specs | yes | no | `missing` | CC threads allowed agent-type scoping through the tool resolution path. |
-
-### Parity chart — execution contract, result shape, and lifecycle
-
-| Surface | CC | HLVM now | Status | Notes |
-| ------- | -- | -------- | ------ | ----- |
-| Child system prompt gets env details (`cwd`, platform, enabled tools, absolute-path guidance) | yes | no | `missing` | CC runs `enhanceSystemPromptWithEnvDetails`; HLVM currently uses only `getSystemPrompt()`. |
-| `initialPrompt` is a separate first-turn prefix instead of user-prompt concatenation | yes | no | `missing` | HLVM currently builds `initialPrompt + "\\n\\n" + prompt` inside `run-agent.ts`. |
-| Per-invocation model override | yes | yes | `same` | Implemented in `run-agent.ts` via `modelOverride`. |
-| Explore defaults to a small / fast model | yes | no | `close` | HLVM Explore currently inherits the parent model. |
-| Permission-mode-aware tool filtering | yes | partial | `partial` | HLVM supports `permissionMode` on the child config, but its `filterToolsForAgent()` lacks CC's permission-mode branches and `ExitPlanMode` special case. |
-| Sync result schema | structured text blocks + granular usage object | plain string + total counts | `partial` | HLVM returns `content: string` and simplified token stats. |
-| Async result includes `canReadOutputFile` | yes | no | `missing` | HLVM returns only `agentId`, `description`, `prompt`, `outputFile`. |
-| Continue a live spawned agent | yes (`SendMessage`) | no | `missing` | HLVM has no SendMessage-equivalent continuation path. |
-| Resume a background agent after restart | yes | no | `excluded` | Kept out of the current parity target with fork / resume scope. |
-| Background completion delivery | yes | partial | `partial` | HLVM persists a synthetic user message when `sessionId` exists; otherwise it only queues a string in `completionQueue`. No production queue-drain consumer is present in this tree outside tests. |
-| Auto-background after elapsed time / summarization path | yes | no | `missing` | CC has threshold-based backgrounding and summarization helpers; HLVM only supports explicit `run_in_background`. |
-
-### Parity chart — UI and result presentation
-
-| Surface | CC | HLVM now | Status | Notes |
-| ------- | -- | -------- | ------ | ----- |
-| One-shot built-ins skip continuation trailer | yes | yes | `same` | `Explore` and `Plan` are treated as one-shot in both systems. |
-| Background output file is usable by the REPL overlay | yes | yes | `same` | HLVM writes task output under `~/.hlvm/tasks/`. |
-| Completed agent transcript can be expanded in TUI | yes | yes | `close` | HLVM stores a transcript summary and passes tests, but the child-side stream is still more approximate than CC. |
-| Async result tells the parent how to inspect progress | yes | partial | `partial` | HLVM returns `outputFile`, but not `canReadOutputFile` or CC's richer guidance text. |
-| Per-agent color assignment in TUI | yes | no | `missing` | CC has agent color management; HLVM does not assign per-agent colors. |
-
-### Parity chart — CC features intentionally excluded here
-
-| Surface | Why not counted toward current target | Status |
-| ------- | ------------------------------------ | ------ |
-| Fork subagent path / inherited full parent context | CC feature-flagged; different execution model | `excluded` |
-| Coordinator mode | CC feature-flagged | `excluded` |
-| Teams / Swarm / in-process teammates | experimental / broader than the stable sub-agent path | `excluded` |
-| Remote CCR isolation | Anthropic infra-bound | `excluded` |
-| Managed Agents API | separate Anthropic cloud product | `excluded` |
-| Agent memory / snapshots | experimental in CC and not part of this branch target | `excluded` |
-
-### Practical read on closeness
-
-- **Close on the common path**: spawning a fresh agent, running it sync or background, isolating it in a worktree, and rendering its lifecycle in the TUI all work and are already test-backed.
-- **Farther on the control surface**: CC's larger agent-definition space, permission / policy integration, continuation (`SendMessage` / resume), and richer output schema are where HLVM is still materially behind.
-- **Do not use the word "equivalent" without the matrix qualifier**. The common execution path is close; the full production agent surface is not yet at CC parity.
-
-## A.3 Control-flow overview
-
-```
-USER prompt
-   │
-   ▼
-BRAIN (runReActLoop in orchestrator.ts)
-   │   - sees `Agent` tool in its toolset
-   │   - tool description lists Explore / Plan / general-purpose + any
-   │     `.hlvm/agents/*.md` custom agents (dynamic spec)
-   │   - LLM decides which agent (no regex) and emits a tool call
-   ▼
-Agent({ subagent_type, description, prompt, ... })
-   │
-   ▼
-agent-tool.ts  (dispatcher)
-   1. parse & normalize input (boolean coercion for run_in_background)
-   2. loadAgentDefinitions()     → built-in + .hlvm/agents merge
-   3. resolve subagent_type      → AgentDefinition (or error)
-   4. assemble child tool pool   → filterToolsForAgent + resolveAgentTools
-   5. build InheritedAgentConfig → modelTier, timeouts, querySource, etc.
-   6. optional: createAgentWorktree(agentId)
-   7. route:
-        - sync    → await runAgent(...)               → AgentToolResult
-        - async   → fire-and-forget Promise           → AgentAsyncResult
-                   - push to backgroundAgents Map
-                   - on done: enqueue completion msg
-   8. emit AgentUIEvent: agent_spawn / agent_progress / agent_complete
-   │
-   ▼
-run-agent.ts  (child loop wrapper)
-   - new ContextManager()        (isolated message history)
-   - resolve tools list
-   - resolve model (modelOverride or inherited)
-   - build child OrchestratorConfig (maxTurns = agentDef.maxTurns ||
-     AGENT_MAX_TURNS = 200)
-   - call runReActLoop(prompt, childConfig, childLLM)
-   - tap onAgentEvent to forward child events → parent progress counter
-   - return AgentLoopResult → shaped into AgentToolResult
-   │
-   ▼
-Background completion delivery:
-   - sync: tool result is in the normal tool-result slot
-   - async with sessionId: enqueueCompletionNotification() persists a
-     synthetic user message immediately
-   - async without sessionId: notification text is appended to
-     completionQueue
-   - current caveat: no production queue-drain consumer is present in
-     this tree outside tests, so the queue path is not equivalent to CC's
-     normal notification re-entry behavior
-```
-
-## A.4 Agent tool contract
-
-### Input (`AgentToolInput` — `src/hlvm/agent/tools/agent-types.ts`)
-
-| Field               | Required | Notes                                             |
-| ------------------- | -------- | ------------------------------------------------- |
-| `description`       | yes      | Short 3–5 word task title shown in TUI            |
-| `prompt`            | yes      | Full task for the child                           |
-| `subagent_type`     | no       | Defaults to `general-purpose`                     |
-| `model`             | no       | Model override for child                          |
-| `run_in_background` | no       | Bool; coerce `"true"`→`true` (see A.10)           |
-| `isolation`         | no       | Only `"worktree"` is supported                    |
-| `cwd`               | no       | Absolute workspace override for child             |
-
-### Output union (`AgentToolOutput`)
+## A.4 Tool arg contract (identical to CC)
 
 ```ts
-AgentToolResult  { status: "completed",      agentId, agentType,
-                   content, totalDurationMs, totalToolUseCount,
-                   totalTokens, worktreePath?, worktreeBranch? }
-
-AgentAsyncResult { status: "async_launched", agentId, description,
-                   prompt, outputFile }
-```
-
-`outputFile` is under `getHlvmTasksDir()` (`~/.hlvm/tasks/…`). The REPL's
-Background Tasks overlay reads that directory.
-
-### Agent definition (`BaseAgentDefinition`)
-
-Current HLVM type surface in `agent-types.ts`:
-
-| Field             | Purpose                                                    |
-| ----------------- | ---------------------------------------------------------- |
-| `agentType`       | Identifier string                                          |
-| `whenToUse`       | Description shown to the brain for selection               |
-| `tools`           | `undefined` or `["*"]` = all; otherwise explicit allowlist |
-| `disallowedTools` | Explicit deny list (applied after allow)                   |
-| `model`           | Model override; `"inherit"` uses parent's                  |
-| `maxTurns`        | Child's ReAct iteration limit                              |
-| `source`          | `"built-in" \| "user" \| "project"`                        |
-| `baseDir`         | Dir of the `.md` file (custom only)                        |
-| `getSystemPrompt` | `() => string` — lazy                                      |
-| `background`      | Always run as background task                              |
-| `isolation`       | `"worktree"` to force worktree                             |
-| `omitClaudeMd`    | Skip project CLAUDE.md context                             |
-| `permissionMode`  | Override permission mode for child                         |
-| `initialPrompt`   | Sticky prompt prepended to every invocation                |
-| `mcpServers`      | Array of ref strings or inline `{ name: config }` records  |
-
-CC has additional production-facing fields not currently implemented in
-HLVM's `BaseAgentDefinition`, including `skills`, `hooks`, `effort`,
-`requiredMcpServers`, and the wider source / color / memory surfaces
-described in the matrix above.
-
-## A.5 Built-in agents
-
-| Agent             | Tools                          | Model      | Role                                   |
-| ----------------- | ------------------------------ | ---------- | -------------------------------------- |
-| `general-purpose` | `["*"]`                        | inherit    | Default; arbitrary multi-step tasks    |
-| `Explore`         | all − `edit_file`,`write_file` | inherit*   | Read-only codebase search specialist   |
-| `Plan`            | all − `edit_file`,`write_file` | inherit    | Read-only design/architecture planner  |
-
-`*` CC's Explore uses Haiku by default for speed; HLVM currently
-inherits the parent's model (documented divergence — fine to switch to
-a small model explicitly via the `model` field if bench justifies it).
-
-System prompts are **copied near-verbatim** from CC
-(`tools/AgentTool/built-in/{explore,plan,generalPurposeAgent}.ts`).
-The key bit in Explore/Plan is the `"READ-ONLY MODE — NO FILE
-MODIFICATIONS"` block: this is what makes tool isolation observably
-effective even when the child has shell_exec.
-
-Registry: `src/hlvm/agent/tools/built-in-agents.ts`.
-
-## A.6 Custom agents (`.hlvm/agents/*.md`)
-
-Loaded by `agent-definitions.ts` from two dirs:
-
-- User: `~/.hlvm/agents/`
-- Project: `<workspace>/.hlvm/agents/`
-
-Format (frontmatter + body):
-
-```markdown
----
-name: security-auditor
-description: Audit code for common vulnerabilities
-tools: [read_file, search_code, list_files]
-disallowedTools: [shell_exec]
-maxTurns: 100
-model: inherit
-mcpServers:
-  - existing-ref-name
-  - inline-server:
-      command: /usr/local/bin/foo
-      args: ["--flag"]
----
-
-You are a security auditor. Inspect the given code for SQL injection,
-XSS, and authz bypass. Report findings as structured bullets.
-```
-
-Parser details:
-
-- YAML frontmatter (`---` fences) is parsed by the shared frontmatter util
-- `name` → `agentType`
-- `description` → `whenToUse`
-- Only the explicit HLVM subset is parsed into the returned definition
-- File read failures are recorded in `loadAgentDefinitions().failedFiles[]`
-- Malformed YAML / invalid frontmatter are **not** surfaced as cleanly as CC:
-  they can currently collapse to `meta: null` and be skipped silently
-
-## A.7 Tool resolution algorithm
-
-Two-pass, same broad shape as CC but not identical. See
-`agent-tool-utils.ts`.
-
-```
-Input: all tools from registry + AgentDefinition + isAsync flag
- ─────────────────────────────────────────────────────────────
- Pass 1: filterToolsForAgent()
-   keep  if mcp__*                     (MCP tools always allowed)
-   drop  if ALL_AGENT_DISALLOWED_TOOLS (ask_user, complete_task, Agent)
-   drop  if custom && in CUSTOM_AGENT_DISALLOWED_TOOLS
-   when isAsync, restrict to ASYNC_AGENT_ALLOWED_TOOLS
-
- Pass 2: resolveAgentTools()
-   remove  tools in agentDef.disallowedTools
-   when    tools == ["*"] || undefined → keep survivors
-   else                                → intersect with agentDef.tools
-```
-
-Current deltas vs CC:
-
-- HLVM does **not** thread `permissionMode` into `filterToolsForAgent()`
-- HLVM does **not** support `allowedAgentTypes` metadata on `Agent(...)`
-  tool specs
-- HLVM does **not** special-case CC's plan-mode `ExitPlanMode` allowance
-
-Constants: `agent-constants.ts`.
-
-- `AGENT_TOOL_NAME = "Agent"`
-- `AGENT_MAX_TURNS = 200`
-- `ALL_AGENT_DISALLOWED_TOOLS = { ask_user, complete_task, Agent }`
-- `CUSTOM_AGENT_DISALLOWED_TOOLS` = same (for now)
-- `ASYNC_AGENT_ALLOWED_TOOLS` = explicit allowlist of safe tools
-- `ONE_SHOT_AGENT_TYPES = { Explore, Plan }` — skip continuation trailer
-
-## A.8 Async / background execution
-
-Runtime state is a process-global Map keyed off `globalThis`:
-
-```ts
-__hlvmAgentToolRuntimeState__ : {
-  backgroundAgents: Map<agentId, BackgroundAgent>,
-  agentCounter:     number,
-  completionQueue:  string[],      // notification messages to inject
+{
+  description: string,        // 3-5 word task summary
+  prompt: string,             // the task
+  subagent_type?: string,     // "Explore" | "Plan" | "general-purpose" | custom agent name. Defaults to "general-purpose".
+  model?: string,             // override, e.g. "claude-haiku-4-5-20251001" or "inherit"
+  run_in_background?: boolean,
+  isolation?: "worktree",
+  cwd?: string,               // mutually exclusive with isolation
 }
 ```
 
-Lifecycle:
-
-1. `Agent({..., run_in_background: true})` returns immediately with
-   `{ status: "async_launched", agentId, outputFile }`.
-2. Child runs via `runAgent()` in a detached promise; output is
-   streamed line-by-line to `outputFile` under `~/.hlvm/tasks/`.
-3. If `sessionId` is present, completion is persisted immediately into
-   the session transcript as a synthetic user message with
-   `sender_detail = "task-notification"`.
-4. If `sessionId` is absent, the notification text is pushed into
-   `completionQueue`.
-5. The REPL's Background Tasks overlay reads the same task dir; see
-   `src/hlvm/cli/repl-ink/components/BackgroundTasksOverlay.tsx`.
-
-> **Important**: the queued-notification path is narrower than CC right
-> now. `completionQueue` exists, but no production consumer drains it in
-> the current tree outside tests.
-
-> **Why globalThis?** Singletons across dynamically imported modules
-> (the circular-dep workaround — see A.10). CC uses a module-scoped
-> singleton; HLVM needs globalThis because the registry imports
-> `AGENT_TOOL_METADATA` dynamically. Acceptable tradeoff.
-
-## A.9 Worktree isolation
-
-`agent-worktree.ts` wraps `git worktree`:
-
-```
-createAgentWorktree(agentId)
-  → git worktree add .hlvm/worktrees/<agentId> \
-        -B worktree-<agentId> HEAD
-  → return { path, branch, headCommit }
-
-hasWorktreeChanges(path, headCommit)
-  → git status --porcelain          (any uncommitted changes?)
-  → git rev-list --count HEAD..HEAD (any new commits vs parent head?)
-
-cleanupWorktree(info)
-  → only if no changes — otherwise keep and return path to parent
-```
-
-The child runs with `cwd = worktree.path`. On completion:
-
-- **No changes** → worktree is removed, branch is deleted.
-- **Any changes** → worktree is kept; `AgentToolResult` includes
-  `worktreePath` / `worktreeBranch` so the parent (or user) can
-  inspect/merge.
-
-## A.10 Critical pitfalls (read before editing)
-
-### 1. Circular dependency: registry ↔ agent-tool
-
-`agent-tool.ts` is imported by `registry.ts` (to register the tool),
-and `agent-tool.ts` needs `getAllTools()` from `registry.ts` to build
-the child tool pool.
-
-Solution in current code — **do not break it**:
-
-- `agent-tool-metadata.ts` exports static metadata only; imported by
-  `registry.ts` directly.
-- `agent-tool.ts` imports `registry.ts` types at top level but calls
-  `getAllTools()` via `await import("../registry.ts")` at call-time.
-- `agent-tool-metadata.ts` delegates its `function` field back to
-  `agent-tool.ts` via dynamic import.
-
-### 2. String-vs-boolean coercion from LLM
-
-Providers sometimes serialize booleans as strings. In `agent-tool.ts`
-the dispatcher treats both as truthy:
+## A.5 Result shapes
 
 ```ts
-const isAsync =
-  input.run_in_background === true || input.run_in_background === "true";
+// Sync completion (returned after child finishes)
+interface AgentToolResult {
+  status: "completed";
+  agentId: string;
+  agentType: string;
+  prompt: string;              // echo of the prompt sent to the child
+  content: string;             // child's final text
+  totalDurationMs: number;
+  totalToolUseCount: number;
+  totalTokens: number;
+  worktreePath?: string;
+  worktreeBranch?: string;
+}
+
+// Async launch (returned immediately when run_in_background: true)
+interface AgentAsyncResult {
+  status: "async_launched";
+  agentId: string;
+  description: string;
+  prompt: string;
+  outputFile: string;          // ~/.hlvm/tasks/{agentId}.output
+  canReadOutputFile?: boolean; // true iff parent has read_file or shell_exec
+}
 ```
 
-Apply the same pattern to any new boolean field.
+## A.6 Tool filtering algorithm (mirrors CC `agentToolUtils.ts:70-116`)
 
-### 3. Serve process identity during E2E
+1. Allow MCP tools (prefix `mcp__`) unconditionally.
+2. Drop tools in `ALL_AGENT_DISALLOWED_TOOLS` (currently `ask_user`, `complete_task`, `Agent`).
+3. If not a built-in agent, also drop tools in `CUSTOM_AGENT_DISALLOWED_TOOLS`.
+4. If async, restrict to `ASYNC_AGENT_ALLOWED_TOOLS` allowlist.
+5. Apply the agent's `disallowedTools` (parsed via `permissionRuleValueFromString` — `"Tool(pattern)"` blocks the whole tool, same as CC).
+6. If `tools` is `undefined` or `["*"]` → allow all remaining; else resolve explicit list against remaining (specs accept `"Tool(pattern)"` form; `toolName` is extracted and matched).
 
-`hlvm ask` talks to a serve process on `:11435`. If the serve was
-started from a different repo / older build, you see
-`Cannot read properties of undefined (reading 'type')` or
-`Hint: Restart HLVM so the client and runtime host use the same build`.
+## A.7 Child system prompt construction (mirrors CC `runAgent.ts:918`)
 
-Always:
+```ts
+const enhanced = await enhanceSystemPromptWithEnvDetails(
+  [agentDefinition.getSystemPrompt(...)],
+  effectiveModel,
+  undefined,
+  new Set(resolvedTools.keys()),
+);
+// enhanced = [agentPrompt, notes, envInfo]
+```
+
+`notes` is **verbatim** from CC `constants/prompts.ts:766-770` (absolute paths, no emojis, no colon before tool calls).
+`envInfo` uses the **verbatim** `<env>...</env>` block shape from CC `computeEnvInfo` (prompts.ts:606), with cwd, git status, platform, shell, OS version, model description, knowledge cutoff.
+
+## A.8 Worktree isolation
+
+Creation path `<gitRoot>/.hlvm/worktrees/agent-<slugHash>` (flatten `/`→`+`),
+branch `worktree-{slug}`, `git worktree add -B branch path HEAD`. On
+completion: if clean (via `git status --porcelain` + `git rev-list`) →
+remove worktree + branch; else return `{worktreePath, worktreeBranch}` in
+the result.
+
+## A.9 Async / background
+
+`run_in_background: true` → write progress to `~/.hlvm/tasks/{agentId}.output`,
+return `AgentAsyncResult` immediately, execute via `setTimeout(..., 0)` to
+detach from parent turn. On completion, the next parent turn receives a
+synthetic user message with status via
+`drainCompletionNotifications()`.
+
+## A.10 Default model routing
+
+`@auto` routes through `src/hlvm/agent/auto-select.ts`. Key fix (commit
+`318951b0`): tiny local models (`gemma\d+:e[12]b`) are rated `weak` coding
+strength, which excludes them from the `strong` filter when any mid/strong
+cloud model is eligible. With the user's `claude-code` OAuth token in the
+Keychain, `@auto` now resolves to
+`claude-code/claude-haiku-4-5-20251001:agent`.
+
+Override at any time with `--model claude-code/claude-haiku-4-5-20251001`.
+Local `gemma4:e2b` remains the last-resort fallback when no cloud model
+is available.
+
+## A.11 Recent commits (newest first)
+
+| SHA | Summary |
+|---|---|
+| `13c01c4d` | port `permissionRuleValueFromString` + add `prompt` echo to sync result |
+| `c9b16d80` | `canReadOutputFile` on async result; strip provenance comments; codify no-comment rule in `AGENTS.md` |
+| `fae6e7cb` | surface frontmatter parse failures via `failedFiles[]` |
+| `878a4bf9` | CC-faithful port of `enhanceSystemPromptWithEnvDetails` |
+| `7f704bd5` | stop concatenating `initialPrompt` into sub-agent user message |
+| `318951b0` | demote tiny local models (`gemma*:e[12]b`) to weak in `auto-select` |
+
+## A.12 Verify commands
 
 ```bash
-kill $(lsof -ti:11435) 2>/dev/null; sleep 1
-deno run -A --no-check src/hlvm/cli/cli.ts serve &
-sleep 5
-# then: hlvm ask ...
-```
+# Unit tests (agent domain only — never run full suite per AGENTS.md)
+HLVM_DISABLE_AI_AUTOSTART=1 deno test --allow-all --no-check tests/unit/agent/
+# Expected: 1070+ passed, 0 failed
 
-### 4. Nuke regressions
-
-The legacy team/delegation nuke removed code that other modules still
-referenced (commit `a7326216`). The fix-up is already landed, but
-**if the runtime crashes on a trivial prompt** after any major refactor,
-first suspect a missing import somewhere in the orchestrator or
-registry — not a logic bug in the Agent tool.
-
-### 5. CC = async generator, HLVM = return string
-
-`runReActLoop()` returns a final string; CC's `query()` yields a stream
-of messages. Consequences:
-
-- HLVM **cannot** mid-turn transition sync→async.
-- HLVM **cannot** record per-message sidechain transcripts.
-- HLVM approximates child progress via `onAgentEvent` counting.
-
-If a future task requires real-time streaming from child to parent,
-this is the interface to change first. It is not a small change.
-
-### 6. `docs/vision/` is gitignored
-
-`docs/vision/agent-system-handoff.md` is the long-form design diary
-(not committed). This appendix is the committed SSOT. If the two drift,
-this appendix wins.
-
-## A.11 File inventory (verified 2026-04-18)
-
-### New (sub-agent system core)
-
-```
-src/hlvm/agent/tools/
-├── agent-tool.ts              743  Dispatcher           (CC: AgentTool.tsx)
-├── run-agent.ts               314  Child loop wrapper   (CC: runAgent.ts)
-├── agent-definitions.ts       359  .md loading          (CC: loadAgentsDir.ts)
-├── agent-worktree.ts          289  Git worktree         (CC: utils/worktree.ts)
-├── agent-types.ts             165  Type hierarchy
-├── agent-tool-utils.ts        158  Tool resolution      (CC: agentToolUtils.ts)
-├── agent-tool-metadata.ts      90  Circular-dep bridge
-├── agent-prompt.ts             85  Brain-facing listing (CC: prompt.ts)
-├── agent-constants.ts          71  Limits, disallow lists
-├── agent-tool-spec.ts          51  Dynamic tool spec
-├── built-in-agents.ts          24  Registry of built-ins
-└── built-in/
-    ├── plan.ts                 80  Plan system prompt
-    ├── explore.ts              62  Explore system prompt
-    └── general.ts              42  general-purpose prompt
-```
-
-### Wiring (modified)
-
-```
-src/hlvm/agent/registry.ts                     # Agent tool registration
-src/hlvm/agent/orchestrator.ts                 # agent_spawn/progress/complete events
-src/hlvm/agent/orchestrator-tool-execution.ts  # llmFunction threading to tools
-src/hlvm/agent/engine.ts                       # workspace field on AgentLLMConfig
-src/hlvm/agent/engine-sdk.ts                   # model override support
-src/hlvm/agent/llm-integration.ts              # dynamic tool descriptions
-src/hlvm/agent/session.ts                      # dynamic descriptions into prompt
-src/hlvm/cli/agent-transcript-state.ts         # TUI event reducer
-src/hlvm/cli/commands/ask.ts                   # --print agent display
-src/hlvm/cli/repl/handlers/chat-agent-mode.ts  # agent event transport
-src/hlvm/runtime/chat-protocol.ts              # agent event NDJSON types
-src/hlvm/runtime/host-client.ts                # agent event parsing
-src/hlvm/cli/repl-ink/components/App.tsx       # background-agent polling
-src/hlvm/cli/repl-ink/components/BackgroundTasksOverlay.tsx
-```
-
-### Tests
-
-```
-tests/unit/agent/
-├── agent-system.test.ts          722  unit: constants, types, tool resolution,
-│                                      built-ins, .md parsing, prompt generation
-├── agent-integration.test.ts    1549  integration: runAgent, tool fn, async,
-│                                      worktree end-to-end, notifications
-├── agent-worktree.test.ts        305  worktree create/detect/cleanup/slugs
-├── agent-tui.test.ts             464  TUI state: spawn→progress→complete,
-│                                      transcript expand, multiple agents
-└── (plus agent-registry / agent-runner-engine / agent-runtime-composition)
-```
-
-## A.12 Agent events (for TUI / NDJSON consumers)
-
-Emitted by `orchestrator.ts`; typed in its `AgentUIEvent` union:
-
-| Event            | Fields                                                         |
-| ---------------- | -------------------------------------------------------------- |
-| `agent_spawn`    | `agentId`, `agentType`, `description`, `isAsync`               |
-| `agent_progress` | `agentId`, `agentType`, `toolUseCount`, `durationMs`           |
-| `agent_complete` | `agentId`, `agentType`, `success`, `durationMs`, `toolUseCount`, `totalTokens?`, `resultPreview?`, `transcript?` |
-
-TUI reducer (`agent-transcript-state.ts`) renders these as the
-`⏺ Agent(…) "…"` / `⎿ In progress… · n tool uses · Xs` tree.
-
-## A.13 Verify commands
-
-```bash
-# Unit tests (no serve, no autostart)
-HLVM_DISABLE_AI_AUTOSTART=1 deno test --allow-all \
-  tests/unit/agent/agent-system.test.ts \
-  tests/unit/agent/agent-integration.test.ts \
-  tests/unit/agent/agent-worktree.test.ts \
-  tests/unit/agent/agent-tui.test.ts
-
-# SSOT (required, zero errors)
+# SSOT check
 deno task ssot:check
+# Expected: "No errors found." (~160 warnings is baseline, unchanged)
 
-# E2E smoke through the user path
-kill $(lsof -ti:11435) 2>/dev/null; sleep 1
-deno run -A --no-check src/hlvm/cli/cli.ts serve & ; sleep 5
-deno run -A --no-check src/hlvm/cli/cli.ts ask \
-  --model claude-code/claude-haiku-4-5-20251001 \
-  --print --verbose --permission-mode dontAsk \
-  'Use the Agent tool with subagent_type Explore to find test files'
+# Live E2E with Haiku
+timeout 120 deno run -A --no-check src/hlvm/cli/cli.ts ask --verbose \
+  --model 'claude-code/claude-haiku-4-5-20251001' \
+  "Use the Agent tool with subagent_type=Explore to find the absolute path of agent-types.ts under src/hlvm/agent/. Return only the path."
+# Expected: /Users/.../src/hlvm/agent/tools/agent-types.ts
 
-# Interactive REPL (visual TUI check)
-deno run -A --no-check src/hlvm/cli/cli.ts
+# Side-by-side against real CC
+echo "Use the Agent tool with subagent_type=Explore to find..." | \
+  claude -p --output-format stream-json --verbose --model haiku --dangerously-skip-permissions > /tmp/cc-stream.json
+# Compare the final `result` field with HLVM's output above.
 ```
 
-Do **not** run `deno task test:unit` unless explicitly asked — this is a
-multi-agent repo; full-suite runs stomp on other agents' WIP.
+## A.13 Known gaps (outside in-scope bar)
 
-## A.14 What to pick up next (prioritised)
+Do NOT implement these without an explicit ask — they are either CC
+experimental, CC-only infra, or HLVM-architecturally-different:
 
-1. **Single SSOT for agent description.** The brain-facing description
-   is currently computed in three places: `agent-prompt.ts`,
-   `agent-tool-spec.ts`, `agent-tool-metadata.ts`. Consolidate.
-2. **Trim `agent-tool.ts`.** At 743 LOC it is the largest file in the
-   module and carries three concerns (dispatch, background bookkeeping,
-   MCP-per-agent loading). Split along those seams.
-3. **Drop the `globalThis` runtime state.** Only required by the
-   circular-dep workaround; replace with a module-scoped singleton
-   once the circular dep is re-factored out.
-4. **Explore → Haiku by default.** CC's performance story relies on
-   this; today HLVM inherits the parent's model. Flag it through
-   `agentDefinition.model` on the built-in, behind a settings-based
-   default that falls back to `inherit` when unavailable.
-5. **Mid-turn sync→async ("auto-background" ≥ 2s).** CC's
-   `PROGRESS_THRESHOLD_MS` — requires changing the orchestrator's
-   return shape from `Promise<string>` to an async-iterable.
-6. **Per-message sidechain transcripts.** Same blocker as #5.
-7. **Small-terminal TUI density pass** for the Background Tasks overlay
-   and the `⏺ Agent` lines (text overlap currently observed on narrow
-   widths in interactive REPL).
+- Fork subagent (CC `forkSubagent.ts`) — depends on CC `query()` generator
+  and buildForkedMessages; no HLVM analog for cache-identical prefix reuse.
+- In-process teammates, SendMessage, Task tools coordination — CC swarm
+  feature, gated on `isAgentSwarmsEnabled()`.
+- Resume background agent — depends on CC sidechain transcripts and
+  `recordSidechainTranscript`/session storage.
+- Auto-background (2s foreground → background race) — depends on CC's
+  React app state.
+- Remote isolation (`isolation: "remote"`) — depends on CC remote agent
+  server.
+- DiscoverSkills / skill preload (`feature('EXPERIMENTAL_SKILL_SEARCH')`) —
+  HLVM has no skills concept.
+- Scratchpad guidance (`isScratchpadEnabled()`) — experimental in CC.
+- Auto-memory snapshots (`isAutoMemoryEnabled()`) — experimental in CC.
+- JSON agents in `settings.json`, plugin agents — HLVM has neither surface.
 
-## A.15 CC → HLVM source map (for quick cross-reads)
+## A.14 Rules for the next agent
 
-```
-CC path                                       HLVM path
-────────────────────────────────────────────  ───────────────────────────────────────────
-tools/AgentTool/AgentTool.tsx                 src/hlvm/agent/tools/agent-tool.ts
-tools/AgentTool/runAgent.ts                   src/hlvm/agent/tools/run-agent.ts
-tools/AgentTool/agentToolUtils.ts             src/hlvm/agent/tools/agent-tool-utils.ts
-tools/AgentTool/loadAgentsDir.ts              src/hlvm/agent/tools/agent-definitions.ts
-tools/AgentTool/builtInAgents.ts              src/hlvm/agent/tools/built-in-agents.ts
-tools/AgentTool/built-in/exploreAgent.ts      src/hlvm/agent/tools/built-in/explore.ts
-tools/AgentTool/built-in/planAgent.ts         src/hlvm/agent/tools/built-in/plan.ts
-tools/AgentTool/built-in/generalPurposeAgent  src/hlvm/agent/tools/built-in/general.ts
-tools/AgentTool/prompt.ts                     src/hlvm/agent/tools/agent-prompt.ts
-tools/AgentTool/constants.ts                  src/hlvm/agent/tools/agent-constants.ts
-tools/AgentTool/UI.tsx                        src/hlvm/cli/agent-transcript-state.ts
-tools/AgentTool/utils/worktree.ts             src/hlvm/agent/tools/agent-worktree.ts
-```
+1. **Never** write provenance/port-source comments in code (e.g. "CC parity:
+   foo.ts:123"). See `AGENTS.md § Comments`.
+2. Run only `tests/unit/agent/*.test.ts` — never `deno task test:unit` full
+   suite.
+3. Before changing `disallowedTools` / `tools` parsing: read
+   `src/hlvm/agent/tools/permission-rule.ts` and the CC parser at
+   `~/dev/ClaudeCode-main/utils/permissions/permissionRuleParser.ts` — both
+   should return the same shape for the same input.
+4. If the child agent appears to "work but return 0 tool uses", the cause
+   is almost always model capability (`gemma4:e2b` can't drive tool loops),
+   not the agent system. Verify by forcing `--model claude-code/claude-haiku-4-5-20251001`.
+5. When in doubt about CC behavior, run real CC with `-p --output-format
+   stream-json` and compare the event stream directly. Source reading alone
+   misses runtime behavior.
 
-Read the CC file alongside the HLVM file when in doubt — naming and
-algorithm were kept deliberately close to make diffing painless.
+## A.15 Test fixture helpers (internal, for reference)
+
+- `tests/unit/agent/agent-system.test.ts` — parser, filter, resolve unit tests
+- `tests/unit/agent/agent-integration.test.ts` — end-to-end runAgent harness via `mockToolRegistry` + `LLMFunction` stub
+- `tests/unit/agent/agent-worktree.test.ts` — worktree create/cleanup
+- `tests/unit/agent/agent-tui.test.ts` — TUI reducer state for `agent_spawn/progress/complete` events
