@@ -170,6 +170,10 @@ const MODEL_OVERRIDES: readonly ModelOverride[] = [
     pattern: /llama3\.[\d]/i,
     caps: { codingStrength: "mid", costTier: "free" },
   },
+  // Tiny effective-size local models (1-2B params) — too weak for reliable tool-calling.
+  // Demoted to "weak" so the strong filter (auto-select.ts ~L332) excludes them
+  // when any mid/strong model is eligible; they still serve as last-resort fallback.
+  { pattern: /gemma\d+:e[12]b\b/i, caps: { codingStrength: "weak", costTier: "free" } },
   { pattern: /gemma/i, caps: { codingStrength: "mid", costTier: "free" } },
   { pattern: /mistral/i, caps: { codingStrength: "mid", costTier: "free" } },
   { pattern: /phi-?[34]/i, caps: { codingStrength: "mid", costTier: "free" } },
