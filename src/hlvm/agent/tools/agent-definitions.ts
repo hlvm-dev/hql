@@ -119,23 +119,39 @@ function normalizeAgentMcpServerSpec(
  * Optional: tools, disallowedTools, model, maxTurns, background, isolation,
  * initialPrompt, permissionMode, mcpServers
  */
-export function parseAgentFromMarkdown(
+export type ParseAgentResult =
+  | { ok: true; agent: CustomAgentDefinition }
+  | { ok: false; reason: string };
+
+/**
+ * Detailed variant that surfaces parse-failure reasons to callers.
+ * Preferred for directory loaders that want to report failedFiles[].
+ */
+export function parseAgentFromMarkdownDetailed(
   filePath: string,
   content: string,
   source: "user" | "project",
-): CustomAgentDefinition | null {
+): ParseAgentResult {
   try {
     const { meta, body } = parseFrontmatter<Record<string, unknown>>(content);
-    if (!meta) return null;
+    if (!meta) {
+      return { ok: false, reason: "frontmatter YAML failed to parse" };
+    }
 
     const agentType = meta["name"];
     const whenToUse = meta["description"];
 
-    // Validate required fields — silently skip non-agent .md files
-    if (!agentType || typeof agentType !== "string") return null;
+    if (!agentType || typeof agentType !== "string") {
+      return {
+        ok: false,
+        reason: "missing or non-string 'name' in frontmatter",
+      };
+    }
     if (!whenToUse || typeof whenToUse !== "string") {
-      log.debug(`Agent file ${filePath} missing 'description' in frontmatter`);
-      return null;
+      return {
+        ok: false,
+        reason: "missing or non-string 'description' in frontmatter",
+      };
     }
 
     // Parse optional fields (CC pattern: validate and log, don't throw)
@@ -222,28 +238,44 @@ export function parseAgentFromMarkdown(
     const systemPrompt = body.trim();
 
     return {
-      agentType,
-      whenToUse,
-      ...(tools !== undefined ? { tools } : {}),
-      ...(disallowedTools !== undefined ? { disallowedTools } : {}),
-      ...(model !== undefined ? { model } : {}),
-      ...(maxTurns !== undefined ? { maxTurns } : {}),
-      ...(background ? { background } : {}),
-      ...(isolation ? { isolation } : {}),
-      ...(omitClaudeMd ? { omitClaudeMd } : {}),
-      ...(permissionMode ? { permissionMode } : {}),
-      ...(initialPrompt ? { initialPrompt } : {}),
-      ...(mcpServers ? { mcpServers } : {}),
-      getSystemPrompt: () => systemPrompt,
-      source,
-      baseDir: filePath.substring(0, filePath.lastIndexOf("/")),
-      filename,
+      ok: true,
+      agent: {
+        agentType,
+        whenToUse,
+        ...(tools !== undefined ? { tools } : {}),
+        ...(disallowedTools !== undefined ? { disallowedTools } : {}),
+        ...(model !== undefined ? { model } : {}),
+        ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(background ? { background } : {}),
+        ...(isolation ? { isolation } : {}),
+        ...(omitClaudeMd ? { omitClaudeMd } : {}),
+        ...(permissionMode ? { permissionMode } : {}),
+        ...(initialPrompt ? { initialPrompt } : {}),
+        ...(mcpServers ? { mcpServers } : {}),
+        getSystemPrompt: () => systemPrompt,
+        source,
+        baseDir: filePath.substring(0, filePath.lastIndexOf("/")),
+        filename,
+      },
     };
   } catch (error) {
     const msg = getErrorMessage(error);
     log.debug(`Error parsing agent from ${filePath}: ${msg}`);
-    return null;
+    return { ok: false, reason: msg };
   }
+}
+
+/**
+ * Back-compat wrapper. Returns the parsed agent or null. Prefer
+ * parseAgentFromMarkdownDetailed() if you need to surface reasons.
+ */
+export function parseAgentFromMarkdown(
+  filePath: string,
+  content: string,
+  source: "user" | "project",
+): CustomAgentDefinition | null {
+  const result = parseAgentFromMarkdownDetailed(filePath, content, source);
+  return result.ok ? result.agent : null;
 }
 
 // ============================================================
@@ -315,9 +347,15 @@ async function loadAgentsFromDir(
       const filePath = `${dir}/${entry.name}`;
       try {
         const content = await fs.readTextFile(filePath);
-        const agent = parseAgentFromMarkdown(filePath, content, source);
-        if (agent) {
-          agents.push(agent);
+        const result = parseAgentFromMarkdownDetailed(
+          filePath,
+          content,
+          source,
+        );
+        if (result.ok) {
+          agents.push(result.agent);
+        } else {
+          failedFiles.push({ path: filePath, error: result.reason });
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

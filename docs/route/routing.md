@@ -40,6 +40,113 @@ Concretely:
   - whether to search
   - whether to answer directly
 
+#### Bird's-eye overview
+
+```text
+ROUTING SYSTEM - BIRD'S-EYE VIEW
+--------------------------------
+
+USER REQUEST
+    |
+    v
+runAgentQuery()
+    |
+    +--> choose model
+    |      |
+    |      `-- @auto may call resolveAutoModel()
+    |
+    +--> seed turn-start tool surface
+    |
+    +--> emit routing trace
+    |      |
+    |      `-- TurnRouting DTO is for trace/logging only
+    |
+    v
+runReActLoop()
+    |
+    +--> clear turn-local routing layers
+    |
+    `--> iterate until done
+           |
+           +--> runtime phase shaping
+           +--> tool_search narrowing
+           +--> browser recovery
+           `--> fallback tool filtering on provider failure
+```
+
+#### Detailed pipeline
+
+```text
+ROUTING SYSTEM - DETAILED PIPELINE
+----------------------------------
+
+USER REQUEST
+    |
+    v
+agent-runner.runAgentQuery()
+    |
+    +--> if model == @auto
+    |      |
+    |      `-- resolveAutoModel()
+    |             `-- may call classifyTask() to break ties
+    |
+    +--> createAgentSession()
+    |      |
+    |      +--> classifyModelTier()
+    |      +--> computeTierToolFilter()
+    |      `-- set toolProfileState.layers.baseline        [WRITE #1]
+    |
+    +--> resetSessionRoutingToolProfile(session)
+    |      |
+    |      +--> recompute canonical baseline allowlist
+    |      +--> set baseline again                         [WRITE #2]
+    |      `-- clear domain layer
+    |
+    +--> buildTurnRouting(...)
+    |      |
+    |      +--> buildToolSurface(...)
+    |      +--> getDeferredToolNames()
+    |      `-- produce TurnRouting DTO
+    |             |
+    |             `-- used to emit routing_decision trace only
+    |
+    `--> runReActLoop(config)
+           |
+           +--> applyRequestToolSurface(config)
+           |      |
+           |      +--> set baseline again                 [WRITE #3]
+           |      +--> clear domain layer
+           |      +--> clear discovery layer
+           |      `-- clear runtime layer
+           |
+           `--> each loop iteration
+                  |
+                  +--> applyAdaptiveToolPhase(...)
+                  |      `-- updates runtime layer
+                  |
+                  +--> tool_search discovery/narrowing
+                  |      `-- updates discovery layer
+                  |
+                  +--> browser recovery / hybrid promotion
+                  |      `-- updates domain layer
+                  |
+                  `--> provider fallback path
+                         `-- computeFallbackToolFilter(...)
+
+RUNTIME AUTHORITY
+-----------------
+
+toolProfileState
+    +-- baseline   (persistent starting tool surface)
+    +-- domain     (browser recovery / hybrid promotion)
+    +-- plan       (plan-mode shaping)
+    +-- discovery  (tool_search narrowing for this turn)
+    `-- runtime    (adaptive phase shaping for this turn)
+
+effective tool filter = intersection of the active layers
+TurnRouting DTO       = trace/logging only, not runtime authority
+```
+
 ### 0.2 What is actually authoritative today
 
 If you only remember five facts, remember these:

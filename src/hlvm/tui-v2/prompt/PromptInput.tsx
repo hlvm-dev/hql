@@ -1,5 +1,9 @@
 import React from "react";
-import type { HistoryEntry } from "../../cli/repl/history-storage.ts";
+import {
+  getHistoryStorage,
+  type HistoryEntry,
+  type HistoryStorage,
+} from "../../cli/repl/history-storage.ts";
 import {
   type AnyAttachment,
   type Attachment,
@@ -213,6 +217,7 @@ export function PromptInput({
     null,
   );
   const attachmentState = useAttachments();
+  const historyStorageRef = React.useRef<HistoryStorage | null>(null);
   const tempHistoryDraftRef = React.useRef<QueuedCommand | null>(null);
   const drainingQueuedCommandIdRef = React.useRef<string | null>(null);
   const pendingAttachmentOpsRef = React.useRef(0);
@@ -250,6 +255,25 @@ export function PromptInput({
   const completionRef = React.useRef(completion);
   completionRef.current = completion;
   const historySearch = useHistorySearch(historyEntries);
+
+  // Cross-process SSOT: load + persist via HistoryStorage singleton
+  // (~/.hlvm/history.jsonl). v1 REPL uses the same singleton through
+  // ReplState.initHistory() / addHistory(); the HLVM macOS GUI reads/writes
+  // the same file via PromptHistoryFileStore.swift. v2 must NOT keep an
+  // isolated in-memory list — that would scatter the truth and break
+  // cross-session + cross-process visibility.
+  React.useEffect(() => {
+    let cancelled = false;
+    const storage = getHistoryStorage();
+    void storage.init().then(() => {
+      if (cancelled) return;
+      historyStorageRef.current = storage;
+      setHistoryEntries(storage.getEntries());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   React.useEffect(() => {
     onStateChange?.({
@@ -796,18 +820,34 @@ export function PromptInput({
     }
 
     const serialized = prependModeCharacterToInput(trimmed, nextMode);
-    setHistoryEntries((current) => {
-      const last = current.at(-1);
-      if (
-        last?.cmd === serialized &&
-        attachmentSignature(last.attachments) ===
-          attachmentSignature(attachments)
-      ) {
-        return current;
-      }
-      const next = [...current, buildHistoryEntry(serialized, attachments)];
-      return next.slice(-MAX_HISTORY_ENTRIES);
-    });
+    const storage = historyStorageRef.current;
+    if (storage) {
+      // Storage owns dedup + persistence (and is shared with v1 + GUI via
+      // ~/.hlvm/history.jsonl). Mirror its view to local React state so
+      // useHistorySearch + Up/Down navigation see new entries immediately.
+      storage.append(serialized, {
+        source: "conversation",
+        language: "chat",
+        attachments,
+      });
+      setHistoryEntries(storage.getEntries());
+    } else {
+      // Pre-init fallback (small window before storage.init() resolves):
+      // fall back to in-memory dedup so the first submit isn't lost. The
+      // next submit after init will re-sync from storage.
+      setHistoryEntries((current) => {
+        const last = current.at(-1);
+        if (
+          last?.cmd === serialized &&
+          attachmentSignature(last.attachments) ===
+            attachmentSignature(attachments)
+        ) {
+          return current;
+        }
+        const next = [...current, buildHistoryEntry(serialized, attachments)];
+        return next.slice(-MAX_HISTORY_ENTRIES);
+      });
+    }
     setSubmitCount((current) => current + 1);
     // Only clear the editor when the caller's draft IS what's in the
     // editor. The queue-drain effect calls submitDraft with a DIFFERENT
