@@ -45,6 +45,7 @@ import {
   filterToolsForAgent,
   resolveAgentTools,
 } from "../../../src/hlvm/agent/tools/agent-tool-utils.ts";
+import { permissionRuleValueFromString } from "../../../src/hlvm/agent/tools/permission-rule.ts";
 
 // Built-in agents
 import { GENERAL_PURPOSE_AGENT } from "../../../src/hlvm/agent/tools/built-in/general.ts";
@@ -250,6 +251,41 @@ Deno.test("resolveAgentTools: invalid tools tracked", () => {
   assertEquals(result.invalidTools, ["nonexistent"]);
 });
 
+Deno.test("permissionRuleValueFromString: plain tool name", () => {
+  const r = permissionRuleValueFromString("Bash");
+  assertEquals(r.toolName, "Bash");
+  assertEquals(r.ruleContent, undefined);
+});
+
+Deno.test("permissionRuleValueFromString: tool with pattern content", () => {
+  const r = permissionRuleValueFromString("Bash(npm install)");
+  assertEquals(r.toolName, "Bash");
+  assertEquals(r.ruleContent, "npm install");
+});
+
+Deno.test("permissionRuleValueFromString: wildcard content -> tool-wide", () => {
+  const r = permissionRuleValueFromString("Bash(*)");
+  assertEquals(r.toolName, "Bash");
+  assertEquals(r.ruleContent, undefined);
+});
+
+Deno.test("permissionRuleValueFromString: empty content -> tool-wide", () => {
+  const r = permissionRuleValueFromString("Bash()");
+  assertEquals(r.toolName, "Bash");
+  assertEquals(r.ruleContent, undefined);
+});
+
+Deno.test("permissionRuleValueFromString: escaped parens in content", () => {
+  const r = permissionRuleValueFromString("Bash(python -c \"print\\(1\\)\")");
+  assertEquals(r.toolName, "Bash");
+  assertEquals(r.ruleContent, "python -c \"print(1)\"");
+});
+
+Deno.test("permissionRuleValueFromString: malformed returns whole string as toolName", () => {
+  const r = permissionRuleValueFromString("Bash(unclosed");
+  assertEquals(r.toolName, "Bash(unclosed");
+});
+
 Deno.test("resolveAgentTools: disallowedTools removed", () => {
   const tools = mockToolRegistry("read_file", "write_file", "edit_file");
   const result = resolveAgentTools(
@@ -261,6 +297,47 @@ Deno.test("resolveAgentTools: disallowedTools removed", () => {
   assertEquals(result.resolvedTools.has("read_file"), true);
   assertEquals(result.resolvedTools.has("write_file"), false);
   assertEquals(result.resolvedTools.has("edit_file"), true);
+});
+
+Deno.test("resolveAgentTools: disallowedTools pattern spec 'shell_exec(rm -rf)' blocks whole tool", () => {
+  const tools = mockToolRegistry("shell_exec", "read_file");
+  const result = resolveAgentTools(
+    {
+      tools: undefined,
+      disallowedTools: ["shell_exec(rm -rf)"],
+      source: "built-in",
+    },
+    tools,
+  );
+
+  assertEquals(result.resolvedTools.has("shell_exec"), false);
+  assertEquals(result.resolvedTools.has("read_file"), true);
+});
+
+Deno.test("resolveAgentTools: tools allow-list accepts 'shell_exec(pattern)' spec and resolves toolName", () => {
+  const tools = mockToolRegistry("shell_exec", "read_file");
+  const result = resolveAgentTools(
+    {
+      tools: ["shell_exec(git status)", "read_file"],
+      source: "built-in",
+    },
+    tools,
+  );
+
+  assertEquals(result.validTools.includes("shell_exec"), true);
+  assertEquals(result.validTools.includes("read_file"), true);
+  assertEquals(result.resolvedTools.has("shell_exec"), true);
+});
+
+Deno.test("resolveAgentTools: tools allow-list 'Tool(*)' is treated as tool-wide", () => {
+  const tools = mockToolRegistry("shell_exec");
+  const result = resolveAgentTools(
+    { tools: ["shell_exec(*)"], source: "built-in" },
+    tools,
+  );
+
+  assertEquals(result.validTools.includes("shell_exec"), true);
+  assertEquals(result.resolvedTools.has("shell_exec"), true);
 });
 
 // ============================================================

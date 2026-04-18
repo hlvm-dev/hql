@@ -17,6 +17,7 @@ import {
   CUSTOM_AGENT_DISALLOWED_TOOLS,
 } from "./agent-constants.ts";
 import { isBuiltInAgent } from "./agent-types.ts";
+import { permissionRuleValueFromString } from "./permission-rule.ts";
 
 // ============================================================
 // Types
@@ -109,8 +110,11 @@ export function resolveAgentTools(
     isAsync,
   });
 
-  // Step 2: Remove explicitly disallowed tools
-  const disallowedSet = new Set(disallowedTools ?? []);
+  const disallowedSet = new Set(
+    (disallowedTools ?? []).map((spec) =>
+      permissionRuleValueFromString(spec).toolName
+    ),
+  );
   const allowedTools: Record<string, ToolMetadata> = {};
   for (const [name, meta] of Object.entries(filteredTools)) {
     if (!disallowedSet.has(name)) {
@@ -118,7 +122,6 @@ export function resolveAgentTools(
     }
   }
 
-  // Step 3: Handle wildcard
   const hasWildcard = agentTools === undefined ||
     (agentTools.length === 1 && agentTools[0] === "*");
 
@@ -131,12 +134,12 @@ export function resolveAgentTools(
     };
   }
 
-  // Step 4: Resolve explicit tool list
   const validTools: string[] = [];
   const invalidTools: string[] = [];
   const resolved = new Map<string, ToolMetadata>();
 
-  for (const toolName of agentTools) {
+  for (const toolSpec of agentTools) {
+    const { toolName } = permissionRuleValueFromString(toolSpec);
     const tool = allowedTools[toolName];
     if (tool) {
       validTools.push(toolName);
@@ -144,7 +147,7 @@ export function resolveAgentTools(
         resolved.set(toolName, tool);
       }
     } else {
-      invalidTools.push(toolName);
+      invalidTools.push(toolSpec);
     }
   }
 

@@ -94,18 +94,16 @@ export interface AgentToolInput {
   cwd?: string;
 }
 
-/** Result from a completed sync agent. CC: AgentToolResult */
 export interface AgentToolResult {
   status: "completed";
   agentId: string;
   agentType: string;
+  prompt: string;
   content: string;
   totalDurationMs: number;
   totalToolUseCount: number;
   totalTokens: number;
-  /** Worktree path if agent ran in isolation and made changes */
   worktreePath?: string;
-  /** Worktree branch if agent ran in isolation and made changes */
   worktreeBranch?: string;
 }
 
