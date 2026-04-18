@@ -27,6 +27,7 @@ import { resolveAgentTools } from "./agent-tool-utils.ts";
 import { UsageTracker } from "../usage.ts";
 import { getAgentLogger } from "../logger.ts";
 import { createAgent } from "../agent.ts";
+import { enhanceSystemPromptWithEnvDetails } from "./prompt-env.ts";
 
 const log = getAgentLogger();
 
@@ -186,11 +187,17 @@ export async function runAgent(
     maxTokens: inheritedConfig?.contextBudget ?? 128_000,
   });
 
-  // Add system prompt as first message
-  context.addMessage({
-    role: "system",
-    content: systemPrompt,
-  });
+  // CC-faithful: enrich child system prompt with notes + <env> block
+  // (constants/prompts.ts:760 enhanceSystemPromptWithEnvDetails).
+  const enhanced = await enhanceSystemPromptWithEnvDetails(
+    [systemPrompt],
+    effectiveModel ?? inheritedConfig?.modelId ?? "unknown",
+    undefined,
+    new Set(resolvedTools.keys()),
+  );
+  for (const msg of enhanced) {
+    context.addMessage({ role: "system", content: msg });
+  }
 
   // Step 4: Build isolated OrchestratorConfig (CC: agentOptions + query params)
   const effectiveMaxTurns = maxTurns ?? agentDefinition.maxTurns ??
