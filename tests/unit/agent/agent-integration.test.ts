@@ -196,7 +196,8 @@ Deno.test({
 });
 
 Deno.test({
-  name: "runAgent: prepends initialPrompt ahead of the user prompt",
+  name:
+    "runAgent: sub-agent user message is the raw prompt (CC parity AgentTool.tsx:538 — initialPrompt is main-thread-only)",
   async fn() {
     let capturedPrompt = "";
     const inspectLLM: LLMFunction = async (messages) => {
@@ -219,10 +220,7 @@ Deno.test({
         agentId: "test-initial-prompt",
       });
 
-      assertEquals(
-        capturedPrompt,
-        "Always begin with ACK:\n\nList one file",
-      );
+      assertEquals(capturedPrompt, "List one file");
     } finally {
       await cleanDir(TEST_WORKSPACE);
     }

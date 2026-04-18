@@ -270,13 +270,10 @@ export async function runAgent(
 
   let loopResult: AgentLoopResult | undefined;
   try {
-    const effectivePrompt = agentDefinition.initialPrompt
-      ? `${agentDefinition.initialPrompt}\n\n${prompt}`
-      : prompt;
     loopResult = await createAgent({
       config: childConfig,
       llmFunction: childLlmFunction,
-    }).run(effectivePrompt);
+    }).run(prompt);
   } catch (err) {
     if (signal?.aborted) {
       throw err; // Propagate abort
