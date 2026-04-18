@@ -270,12 +270,47 @@ Deno.test("applyParentPermissions: no-op when neither list present", () => {
   assertEquals(Object.keys(filtered).sort(), ["read_file", "write_file"]);
 });
 
-Deno.test("applyParentPermissions: MCP tools always pass through", () => {
+Deno.test("applyParentPermissions: MCP tools respect parent allowlist (not bypassed)", () => {
   const tools = {
     ...mockToolRegistry("read_file"),
     "mcp__server__tool": { name: "mcp__server__tool" } as never,
   };
   const filtered = applyParentPermissions(tools, ["read_file"], undefined);
+  assertEquals(Object.keys(filtered).sort(), ["read_file"]);
+});
+
+Deno.test("applyParentPermissions: MCP tools respect parent denylist", () => {
+  const tools = {
+    ...mockToolRegistry("read_file"),
+    "mcp__server__tool": { name: "mcp__server__tool" } as never,
+  };
+  const filtered = applyParentPermissions(
+    tools,
+    undefined,
+    ["mcp__server__tool"],
+  );
+  assertEquals(Object.keys(filtered).sort(), ["read_file"]);
+});
+
+Deno.test("applyParentPermissions: MCP tools pass through when no lists are set", () => {
+  const tools = {
+    ...mockToolRegistry("read_file"),
+    "mcp__server__tool": { name: "mcp__server__tool" } as never,
+  };
+  const filtered = applyParentPermissions(tools, undefined, undefined);
+  assertEquals(Object.keys(filtered).sort(), ["mcp__server__tool", "read_file"]);
+});
+
+Deno.test("applyParentPermissions: MCP tools pass when explicitly allowed", () => {
+  const tools = {
+    ...mockToolRegistry("read_file"),
+    "mcp__server__tool": { name: "mcp__server__tool" } as never,
+  };
+  const filtered = applyParentPermissions(
+    tools,
+    ["read_file", "mcp__server__tool"],
+    undefined,
+  );
   assertEquals(Object.keys(filtered).sort(), ["mcp__server__tool", "read_file"]);
 });
 

@@ -98,10 +98,6 @@ export function applyParentPermissions(
 
   const filtered: Record<string, ToolMetadata> = {};
   for (const [name, meta] of Object.entries(allTools)) {
-    if (name.startsWith("mcp__")) {
-      filtered[name] = meta;
-      continue;
-    }
     if (denySet?.has(name)) continue;
     if (allowSet && !allowSet.has(name)) continue;
     filtered[name] = meta;
