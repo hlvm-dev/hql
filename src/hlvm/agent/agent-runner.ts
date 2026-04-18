@@ -37,7 +37,11 @@ import { getAgentEngine } from "./engine.ts";
 import { loadAgentProfiles } from "./agent-registry.ts";
 import { runtimeDirective } from "./runtime-messages.ts";
 import { resolveExistingMentionedFiles } from "./request-paths.ts";
-import { hasTool, resolveTools } from "./registry.ts";
+import {
+  getDeferredToolNames,
+  hasTool,
+  resolveTools,
+} from "./registry.ts";
 import {
   type AgentLoopResult,
   type AgentStopReason,
@@ -68,7 +72,6 @@ import {
 } from "./query-tool-routing.ts";
 import {
   clearToolProfileLayer,
-  clearTurnScopedToolProfileLayers,
   cloneToolList,
   createToolProfileState,
   ensureToolProfileState,
@@ -121,11 +124,6 @@ import {
   type PlanningPhase,
   restorePlanState,
 } from "./planning.ts";
-import {
-  buildTurnRouting,
-  type TurnModelSource,
-  type TurnRouting,
-} from "./routing.ts";
 import {
   effectiveToolSurfaceIncludesMutation,
   isMutatingTool,
@@ -446,24 +444,6 @@ export function computeFallbackToolFilter(
   };
 }
 
-function buildTurnRoutingForSession(options: {
-  session: AgentSession;
-  selectedModel: string;
-  modelSource: TurnModelSource;
-  toolSearchUniverseAllowlist?: string[];
-}): TurnRouting {
-  const effectiveFilter = resolveSessionPersistentToolFilter(options.session);
-  return buildTurnRouting({
-    selectedModel: options.selectedModel,
-    modelSource: options.modelSource,
-    modelTier: options.session.modelTier,
-    eagerTools: effectiveFilter.allowlist,
-    deniedTools: effectiveFilter.denylist,
-    toolOwnerId: options.session.toolOwnerId,
-    toolSearchUniverseAllowlist: options.toolSearchUniverseAllowlist,
-  });
-}
-
 interface AgentRunnerOptions {
   query: string;
   model?: string;
@@ -529,18 +509,6 @@ function updateSessionBaselineAllowlist(
       session.discoveredDeferredTools.size;
   }
   return nextAllowlist;
-}
-
-function resetSessionRoutingToolProfile(session: AgentSession): void {
-  const profileState = ensureToolProfileState(session);
-  setCanonicalToolProfileBaseline(profileState, {
-    querySource: session.querySource,
-    baseAllowlist: session.baseToolAllowlist,
-    discoveredDeferredTools: session.discoveredDeferredTools,
-    ownerId: session.toolOwnerId,
-  });
-  clearTurnScopedToolProfileLayers(profileState);
-  syncSessionToolProfileState(session);
 }
 
 function syncSessionToolProfileState(session: AgentSession): void {
@@ -744,7 +712,6 @@ export async function runAgentQuery(
       );
     }
   }
-  const modelSource: TurnModelSource = autoDecision ? "auto" : "explicit";
   const workspace = options.workspace ?? getPlatform().process.cwd();
   const profile = ENGINE_PROFILES.normal;
   const turnId = crypto.randomUUID();
@@ -831,7 +798,7 @@ export async function runAgentQuery(
   const engine = isReusableSession ? undefined : getAgentEngine();
   let session: AgentSession;
   if (matchingReusableSession) {
-    resetSessionRoutingToolProfile(matchingReusableSession);
+    matchingReusableSession.resetToolFilter?.();
     session = await reuseSession(matchingReusableSession, effectiveOnToken, {
       disablePersistentMemory,
       querySource,
@@ -860,34 +827,56 @@ export async function runAgentQuery(
       engine,
       agentProfiles,
     });
-    resetSessionRoutingToolProfile(session);
   }
-  const turnRouting = buildTurnRoutingForSession({
-    session,
-    selectedModel: model,
-    modelSource,
-    toolSearchUniverseAllowlist: requestedToolAllowlist,
-  });
+  const modelSource: "explicit" | "auto" = autoDecision ? "auto" : "explicit";
+  const persistentFilter = resolveSessionPersistentToolFilter(session);
+  const eagerAllowlist = persistentFilter.allowlist ?? [];
+  const deniedAllowlist = persistentFilter.denylist ?? [];
+  const discovery: "tool_search" | "none" =
+    session.modelTier !== "constrained" &&
+      eagerAllowlist.includes("tool_search")
+      ? "tool_search"
+      : "none";
+  let deferredToolCount = 0;
+  if (discovery === "tool_search") {
+    const eagerSet = new Set(eagerAllowlist);
+    const deniedSet = new Set(deniedAllowlist);
+    const universeSet = requestedToolAllowlist
+      ? new Set(requestedToolAllowlist)
+      : null;
+    const deferred = getDeferredToolNames(session.toolOwnerId).filter((name) =>
+      (!universeSet || universeSet.has(name)) &&
+      !eagerSet.has(name) &&
+      !deniedSet.has(name)
+    );
+    deferredToolCount = deferred.length;
+  }
+  const routingReason =
+    `Model-driven routing: ${modelSource} model, ${session.modelTier} tier, ${eagerAllowlist.length} eager tools, ${
+      discovery === "tool_search"
+        ? `${deferredToolCount} deferred tools via tool_search`
+        : "no tool discovery"
+    }`;
   callbacks.onTrace?.({
     type: "routing_decision",
-    selectedModel: turnRouting.selectedModel,
-    modelSource: turnRouting.modelSource,
-    modelTier: turnRouting.modelTier,
-    eagerToolCount: turnRouting.toolSurface.eagerTools.length,
-    deferredToolCount: turnRouting.toolSurface.deferredTools.length,
-    deniedToolCount: turnRouting.toolSurface.deniedTools.length,
-    discovery: turnRouting.toolSurface.discovery,
-    reason: turnRouting.reason,
+    selectedModel: model,
+    modelSource,
+    modelTier: session.modelTier,
+    eagerToolCount: eagerAllowlist.length,
+    deferredToolCount,
+    deniedToolCount: deniedAllowlist.length,
+    discovery,
+    reason: routingReason,
   });
   traceReplMainThreadForSource(querySource, "agent.routing", {
-    selectedModel: turnRouting.selectedModel,
-    modelSource: turnRouting.modelSource,
-    modelTier: turnRouting.modelTier,
-    eagerToolCount: turnRouting.toolSurface.eagerTools.length,
-    deferredToolCount: turnRouting.toolSurface.deferredTools.length,
-    deniedToolCount: turnRouting.toolSurface.deniedTools.length,
-    discovery: turnRouting.toolSurface.discovery,
-    reason: turnRouting.reason,
+    selectedModel: model,
+    modelSource,
+    modelTier: session.modelTier,
+    eagerToolCount: eagerAllowlist.length,
+    deferredToolCount,
+    deniedToolCount: deniedAllowlist.length,
+    discovery,
+    reason: routingReason,
   });
   traceReplMainThreadForSource(querySource, "agent.session.ready", {
     requestId: options.requestId ?? null,
@@ -1274,7 +1263,6 @@ export async function runAgentQuery(
         planReview,
         permissionToolAllowlist: explicitPermissionToolAllowlist,
         permissionToolDenylist: explicitPermissionToolDenylist,
-        baselineToolAllowlistSeed: session.baseToolAllowlist,
         discoveredDeferredTools: session.discoveredDeferredTools,
         toolProfileState: session.toolProfileState,
         toolDenylist: effectiveToolDenylist,

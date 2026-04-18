@@ -29,6 +29,11 @@ import { getAgentLogger } from "../logger.ts";
 import { createAgent } from "../agent.ts";
 import { enhanceSystemPromptWithEnvDetails } from "./prompt-env.ts";
 import { truncate } from "../../../common/utils.ts";
+import {
+  normalizeToolFailureMessageForDisplay,
+  summarizeToolFailureForDisplay,
+} from "../tool-results.ts";
+import { normalizeSearchProgressMessageForDisplay } from "./web-tools.ts";
 
 const log = getAgentLogger();
 
@@ -62,12 +67,49 @@ function formatAgentToolLabel(toolName: string): string {
   }
 }
 
+function sanitizeQuotedArg(value: string): string {
+  return value.replaceAll('"', "'");
+}
+
+function sanitizeParenthesizedArg(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function buildAgentToolInvocationLabel(
+  toolName: string,
+  label: string,
+  text?: string,
+): string {
+  const detail = text?.trim();
+  if (!detail) return label;
+
+  if (
+    toolName === "search_web" ||
+    toolName === "web_fetch" ||
+    toolName === "fetch_url" ||
+    toolName === "ask_user" ||
+    toolName === "pw_goto" ||
+    toolName === "pw_download"
+  ) {
+    return `${label}("${sanitizeQuotedArg(detail)}")`;
+  }
+
+  if (
+    toolName === "shell_exec" || toolName === "shell_script" ||
+    toolName.startsWith("pw_")
+  ) {
+    return `${label}(${sanitizeParenthesizedArg(detail)})`;
+  }
+
+  return `${label} ${detail}`;
+}
+
 function formatAgentToolInfo(
   toolName: string,
   text?: string,
 ): string {
   const label = formatAgentToolLabel(toolName);
-  const detail = normalizeAgentToolDetail(text);
+  const detail = normalizeAgentToolDetail(toolName, text);
   if (!detail || /^[{\[(]+$/.test(detail)) {
     return label;
   }
@@ -77,22 +119,26 @@ function formatAgentToolInfo(
   ) {
     return `${label}: Saved full result`;
   }
+  if (detail.startsWith(label)) {
+    return truncate(detail, 96);
+  }
   return truncate(detail ? `${label}: ${detail}` : label, 96);
 }
 
-function normalizeAgentToolDetail(text?: string): string | undefined {
+function normalizeAgentToolDetail(
+  toolName: string,
+  text?: string,
+): string | undefined {
   const detail = text?.trim();
   if (!detail) return undefined;
-  if (detail.includes("Tool budget exceeded")) {
-    return "Tool budget exceeded";
+  if (toolName === "search_web") {
+    const normalizedSearch = normalizeSearchProgressMessageForDisplay(detail);
+    if (normalizedSearch?.message?.trim()) {
+      return normalizedSearch.message.trim();
+    }
   }
-  if (detail.startsWith("Tool not available:")) {
-    return "Required tool unavailable";
-  }
-  if (detail.startsWith("Unknown tool:")) {
-    return "Unknown tool";
-  }
-  return detail;
+  const normalized = normalizeToolFailureMessageForDisplay(detail);
+  return summarizeToolFailureForDisplay(normalized, toolName);
 }
 
 // ============================================================
@@ -289,7 +335,14 @@ export async function runAgent(
   const childOnAgentEvent: typeof onAgentEvent = (event) => {
     if (event.type === "tool_start") {
       pushTranscriptLine(`  ${event.name} ${event.argsSummary}`);
-      lastToolInfo = formatAgentToolInfo(event.name, event.argsSummary);
+      lastToolInfo = truncate(
+        buildAgentToolInvocationLabel(
+          event.name,
+          formatAgentToolLabel(event.name),
+          event.argsSummary,
+        ),
+        96,
+      );
       onAgentEvent?.({
         type: "agent_progress",
         agentId,

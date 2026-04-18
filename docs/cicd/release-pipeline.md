@@ -3,8 +3,16 @@
 ## Overview
 
 The HLVM release pipeline builds, tests, and ships a self-bootstrapping binary
-to four platforms. One user command installs the binary, which then downloads
-the AI engine and model during bootstrap. Returns only when HLVM is ready.
+to four platforms. One user command installs the binary, which then performs
+all runtime heavy lifting during `hlvm bootstrap`. Install completes only after
+HLVM has:
+
+- downloaded the pinned Ollama engine
+- pulled the pinned local fallback model
+- downloaded managed Chromium for browser automation
+- installed a HLVM-owned `uv` binary
+- installed a HLVM-owned CPython runtime and isolated Python sidecar pack
+- verified the resulting runtime manifest
 
 ```
 THE USER EXPERIENCE
@@ -13,17 +21,20 @@ THE USER EXPERIENCE
   $ curl -fsSL https://hlvm.dev/install.sh | sh
 
     > Platform: darwin/aarch64 → hlvm-mac-arm
-    > Version:  v0.2.0
+    > Version:  vX.Y.Z
     > Downloading hlvm-mac-arm... (363 MB)
     ✓ Checksum verified.
     ✓ Installed to /usr/local/bin/hlvm
     > Bootstrapping...
-      Downloading Ollama v0.20.1...               ✓
-      Starting AI engine...                        ✓
-      Pulling gemma4:e4b... ████████████████ 100%
+      Downloading Ollama v0.21.0...               ✓
       Downloading Chromium...                      ✓
+      Installing uv 0.11.7...                     ✓
+      Installing Python 3.13.13...                ✓
+      Installing default Python sidecar pack...   ✓
+      Starting AI engine...                        ✓
+      Pulling gemma4:e2b... ████████████████ 100%
       Verifying readiness...                       ✓
-    ✓ HLVM v0.2.0 is ready!
+    ✓ HLVM vX.Y.Z is ready!
 
   $ hlvm ask "hello"
   Hello! How can I help you today?
@@ -33,14 +44,14 @@ THE USER EXPERIENCE
 
 ## Pipeline Architecture
 
-One tag push triggers the entire pipeline. No manual steps.
+One tag push triggers the entire pipeline. No manual release steps.
 
 ```
 ══════════════════════════════════════════════════════════════════════
  RELEASE PIPELINE — ONE TAG, ONE WORKFLOW
 ══════════════════════════════════════════════════════════════════════
 
- $ git tag v0.2.0 && git push origin v0.2.0
+ $ git tag vX.Y.Z && git push origin vX.Y.Z
           │
           │  .github/workflows/release.yml
           ▼
@@ -51,16 +62,11 @@ One tag push triggers the entire pipeline. No manual steps.
  └──────────────────────────────┬──────────────────────────────────┘
                                 │
  ┌──────────────────────────────▼──────────────────────────────────┐
- │  PHASE 2: BUILD (4 platforms in parallel, ~3-5 min)             │
+ │  PHASE 2: BUILD (4 platforms in parallel)                       │
  │                                                                 │
  │  ALL PLATFORMS BUILD IDENTICALLY:                               │
- │    checkout → setup Deno → build stdlib → embed packages        │
+ │    checkout → setup Deno → build stdlib → embed runtime pins    │
  │    → deno compile → upload ~363 MB artifact                     │
- │                                                                 │
- │  ┌───────────────┐ ┌───────────────┐ ┌────────┐ ┌────────────┐ │
- │  │ macOS ARM     │ │ macOS Intel   │ │ Linux  │ │ Windows    │ │
- │  │ ~363 MB       │ │ ~363 MB       │ │ ~363 MB│ │ ~363 MB    │ │
- │  └───────────────┘ └───────────────┘ └────────┘ └────────────┘ │
  └──────────────────────────────┬──────────────────────────────────┘
                                 │ artifacts uploaded (~1.5 GB total)
  ┌──────────────────────────────▼──────────────────────────────────┐
@@ -75,7 +81,7 @@ One tag push triggers the entire pipeline. No manual steps.
  │  Download draft → install → bootstrap → hlvm ask "hello"        │
  │                                                                 │
  │  macOS Intel = MUST PASS (gate)                                 │
- │  Others = continue-on-error (model load patience)               │
+ │  Others = continue-on-error (bootstrap warmup patience)         │
  └──────────────────────────────┬──────────────────────────────────┘
                                 │ Intel passed?
  ┌──────────────────────────────▼──────────────────────────────────┐
@@ -94,33 +100,45 @@ One tag push triggers the entire pipeline. No manual steps.
 
 ## Build Matrix
 
-All four platforms build identically. No special cases.
+All four platforms build identically.
 
-| Platform    | Runner           | Binary Name      | Size    |
-| ----------- | ---------------- | ---------------- | ------- |
-| macOS ARM   | `macos-latest`   | `hlvm-mac-arm`   | ~363 MB |
-| macOS Intel | `macos-15-intel` | `hlvm-mac-intel` | ~363 MB |
-| Linux x64   | `macos-latest`   | `hlvm-linux`     | ~363 MB |
+| Platform    | Runner           | Binary Name        | Size    |
+| ----------- | ---------------- | ------------------ | ------- |
+| macOS ARM   | `macos-latest`   | `hlvm-mac-arm`     | ~363 MB |
+| macOS Intel | `macos-15-intel` | `hlvm-mac-intel`   | ~363 MB |
+| Linux x64   | `macos-latest`   | `hlvm-linux`       | ~363 MB |
 | Windows x64 | `macos-latest`   | `hlvm-windows.exe` | ~363 MB |
 
-Linux and Windows are cross-compiled on macOS via Deno's built-in cross-compile.
+Linux and Windows are cross-compiled on macOS via Deno's built-in
+cross-compilation.
 
-### Build Steps (per platform, identical)
+### Build Steps
 
 ```
 1. Checkout code
 2. Setup Deno v2.x
 3. Build stdlib (scripts/build-stdlib.ts)
 4. Embed HLVM packages (scripts/embed-packages.ts)
-5. Compile: deno compile --target <target> --output <name>
+5. Compile:
+   deno compile --target <target> --output <name>
 6. Upload as GitHub Actions artifact (~363 MB)
 ```
 
-No Ollama download. No engine embedding. No file splitting. No zip packaging.
+The compiled binary includes the pin files that drive bootstrap:
+
+- `embedded-ollama-version.txt`
+- `embedded-uv-version.txt`
+- `embedded-python-version.txt`
+- `embedded-python-sidecar-requirements.txt`
+
+No Ollama binary, model blobs, Chromium archive, or Python distribution is
+embedded in the compiled artifact.
 
 ---
 
-## Release Assets (7 total, ~1.5 GB)
+## Release Assets
+
+Seven assets are published per release:
 
 ```
 hlvm-mac-arm         ~363 MB
@@ -132,225 +150,220 @@ install.sh           ~5 KB
 install.ps1          ~5 KB
 ```
 
-Compare to previous approach: 10 assets, 8.5 GB, with file splitting.
+---
+
+## Runtime Pins
+
+Bootstrap is driven by the following pinned defaults in the repo:
+
+| Component              | Pin / Default |
+| ---------------------- | ------------- |
+| Ollama engine          | `v0.21.0`     |
+| Local fallback model   | `gemma4:e2b`  |
+| Managed `uv`           | `0.11.7`      |
+| Managed CPython        | `3.13.13`     |
+
+The default Python sidecar pack is pinned in
+`embedded-python-sidecar-requirements.txt` and currently installs:
+
+- `pypdf`
+- `pdfplumber`
+- `python-pptx`
+- `python-docx`
+- `openpyxl`
+- `defusedxml`
+- `Pillow`
+- `icalendar`
+- `vobject`
+- `beautifulsoup4`
+- `Jinja2`
+- `striprtf`
+- `fastmcp`
+- `pydantic`
+- `PyYAML`
+
+This pack is installed into an isolated HLVM-owned virtual environment. System
+Python is never required.
 
 ---
 
 ## Staged Smoke Test
 
-Downloads draft assets locally and tests the full install flow.
+Draft smoke tests download staged assets locally and exercise the full install
+contract.
 
-### Unix (staged-unix job)
+### Unix staged path
 
 ```
 1. Download draft assets via gh release download
 2. Run install.sh with local file:// overrides
-3. Installer downloads binary, runs bootstrap
-4. Bootstrap downloads Ollama, pulls model, verifies
+3. Installer downloads binary and runs bootstrap
+4. Bootstrap installs Ollama + model + Chromium + Python sidecar
 5. hlvm ask "hello"
 6. Cleanup
 ```
 
 ### continue-on-error Strategy
 
-The 9.6 GB model download + first-boot warmup exceeds CI runner patience on
-some platforms.
+The fallback model download still dominates first-run wall-clock time, so staged
+CI keeps one hard gate and lets the other platforms continue on error.
 
 ```
 Platform       │ Must Pass? │ Why
-───────────────┼────────────┼──────────────────────────────────
-macOS Intel    │ YES (gate) │ Consistently passes; blocks publish
-macOS ARM      │ No         │ Model warmup exceeds runner patience
-Linux x86_64   │ No         │ Model load exceeds runner patience
-Windows x86_64 │ No         │ Model load exceeds runner patience
+───────────────┼────────────┼────────────────────────────────────────────
+macOS Intel    │ YES (gate) │ Most stable bootstrap signal; blocks publish
+macOS ARM      │ No         │ Warmup and downloads may exceed runner patience
+Linux x86_64   │ No         │ Warmup and downloads may exceed runner patience
+Windows x86_64 │ No         │ Warmup and downloads may exceed runner patience
 ```
 
 ---
 
-## Publish
-
-```
-1. Validate draft release has all required assets
-2. Validate hlvm.dev/install.sh is reachable
-3. Validate hlvm.dev/install.ps1 is reachable
-4. gh release edit <tag> --draft=false
-```
-
----
-
-## Public Smoke Test
-
-After publish, tests the EXACT path a real user takes. No draft tokens, no
-file:// overrides. Real public URLs end to end.
-
-```
-1. Validate api.github.com/.../releases/latest = our tag
-2. curl -fsSL https://hlvm.dev/install.sh | sh
-3. hlvm ask "hello"
-```
-
----
-
-## How The Install Chain Connects
+## Public Install Chain
 
 ```
 Firebase Hosting (hlvm.dev)           GitHub Releases (hlvm-dev/hql)
-───────────────────────────           ────────────────────────────
+───────────────────────────           ──────────────────────────────
 install.sh   (~5 KB)                  hlvm-mac-arm      ~363 MB
 install.ps1  (~5 KB)                  hlvm-mac-intel    ~363 MB
                                       hlvm-linux        ~363 MB
 These scripts tell the user's         hlvm-windows.exe  ~363 MB
-computer WHAT to download             checksums.sha256  ~1 KB
-and WHERE from.                       install.sh        ~5 KB (backup)
+computer what to download             checksums.sha256  ~1 KB
+and where from.                       install.sh        ~5 KB (backup)
                                       install.ps1       ~5 KB (backup)
+```
 
+```
+$ curl -fsSL https://hlvm.dev/install.sh | sh
 
-THE FULL DOWNLOAD CHAIN
-───────────────────────
-
-  $ curl -fsSL https://hlvm.dev/install.sh | sh
-
-  ┌──────────────────────────────────────────────────────────┐
-  │  Step 1: curl contacts hlvm.dev (Firebase)                │
-  │  Step 2: Firebase returns install.sh (5 KB)               │
-  │  Step 3: Script detects platform                          │
-  │  Step 4: Script asks GitHub API for latest version        │
-  │  Step 5: Script downloads binary from GitHub Releases     │
-  │  Step 6: Verify SHA-256 checksum                          │
-  │  Step 7: Install to /usr/local/bin/hlvm                   │
-  │  Step 8: hlvm bootstrap                                   │
-  │          ├─ download Ollama from ollama/ollama releases   │
-  │          ├─ extract to ~/.hlvm/.runtime/engine/           │
-  │          ├─ start Ollama on :11439                        │
-  │          ├─ pull model from Ollama registry               │
-  │          ├─ download Chromium from CDN                    │
-  │          ├─ verify model + engine + Chromium              │
-  │          ├─ write manifest.json { state: "verified" }     │
-  │          └─ keep Ollama running (warm model for hlvm ask) │
-  │  Step 9: ✓ HLVM vX.Y.Z is ready!                         │
-  └──────────────────────────────────────────────────────────┘
+  Step 1: curl contacts hlvm.dev (Firebase)
+  Step 2: Firebase returns install.sh
+  Step 3: Script detects platform
+  Step 4: Script asks GitHub API for the latest release
+  Step 5: Script downloads the platform binary from GitHub Releases
+  Step 6: Script verifies SHA-256
+  Step 7: Script installs hlvm
+  Step 8: Script runs hlvm bootstrap
+          ├─ download Ollama from official releases
+          ├─ extract to ~/.hlvm/.runtime/engine/
+          ├─ install uv to ~/.hlvm/.runtime/python/uv/
+          ├─ install CPython to ~/.hlvm/.runtime/python/cpython/
+          ├─ create ~/.hlvm/.runtime/python/venv/
+          ├─ install the default Python sidecar pack
+          ├─ start Ollama on 127.0.0.1:11439
+          ├─ pull gemma4:e2b into ~/.hlvm/.runtime/models/
+          ├─ download Chromium into ~/.hlvm/.runtime/chromium/
+          ├─ verify engine + model + Python sidecar
+          ├─ write ~/.hlvm/.runtime/manifest.json
+          └─ keep Ollama warm for the first hlvm ask
+  Step 9: install exits only after HLVM is ready
 ```
 
 ---
 
-## Ollama Version Pinning
+## Manifest Contract
 
-The Ollama version is pinned in `embedded-ollama-version.txt` at the repo root.
-This file is baked into the binary at compile time. At bootstrap, the binary
-reads it to know which Ollama version to download.
+Bootstrap writes `~/.hlvm/.runtime/manifest.json` only after verification.
+Current manifest shape includes:
 
-**Current version**: `v0.20.1`
+- `engine`
+- `models`
+- optional `browsers`
+- required `python`
+- `buildId`
+- `createdAt`
+- `lastVerifiedAt`
 
-To upgrade:
-```bash
-echo "v0.21.0" > embedded-ollama-version.txt
-# Test: make build && ./hlvm bootstrap
-```
+The `python` record captures:
+
+- pinned CPython version
+- pinned `uv` version and path
+- HLVM-owned install root
+- isolated virtualenv path
+- interpreter hash
+- copied requirements path and hash
+- top-level provisioned package list
+
+`hlvm bootstrap --verify` fails closed if the Python sidecar record is missing
+or no longer matches the on-disk runtime.
 
 ---
 
 ## Warm Model Reuse
 
-After `hlvm bootstrap`, Ollama keeps running with the model loaded in RAM.
-The subsequent `hlvm ask` reuses this warm process for fast inference.
+After `hlvm bootstrap`, Ollama keeps running with the model loaded in RAM. The
+first `hlvm ask` reuses that warm process.
 
 ```
 install.sh runs:
   hlvm bootstrap
     └─ starts Ollama on :11439
     └─ pulls model
-    └─ keeps Ollama RUNNING with model in RAM  ← critical
+    └─ keeps Ollama running with the model warm
 
   hlvm ask "hello"
     └─ connects to warm Ollama on :11439
-    └─ model already loaded → fast response
+    └─ model already loaded → faster first response
 ```
 
-Do NOT kill the Ollama process between bootstrap and ask.
-
----
-
-## Secrets and Environment
-
-### GitHub Actions Secrets
-
-| Secret                   | Purpose                                           |
-| ------------------------ | ------------------------------------------------- |
-| `PUBLIC_RELEASE_TOKEN`   | GitHub PAT for creating/editing releases           |
-| `FIREBASE_SERVICE_ACCOUNT` | Firebase service account for hlvm.dev deploy     |
-
-### Workflow Environment Variables
-
-| Variable               | Value           | Purpose                    |
-| ---------------------- | --------------- | -------------------------- |
-| `PUBLIC_RELEASE_REPO`  | `hlvm-dev/hql`  | Target repo for releases   |
-| `SMOKE_PROMPT`         | `hello`         | Prompt for smoke tests     |
+Do not kill Ollama between bootstrap and the first `hlvm ask`.
 
 ---
 
 ## Workflow Files
 
-| File                                  | Purpose                                 |
-| ------------------------------------- | --------------------------------------- |
-| `.github/workflows/release.yml`       | Build + proof + publish + public proof  |
-| `.github/workflows/ci.yml`            | Test/lint on push to main               |
-| `.github/workflows/deploy-website.yml`| Website + install scripts to Firebase   |
+| File                                   | Purpose                                 |
+| -------------------------------------- | --------------------------------------- |
+| `.github/workflows/release.yml`        | Build + staged proof + publish + smoke  |
+| `.github/workflows/ci.yml`             | Test/lint on push to main               |
+| `.github/workflows/deploy-website.yml` | Website + install scripts to Firebase   |
 
 ---
 
 ## Operational Runbook
 
-### Full Release
+### Full release
 
 ```bash
-# 1. Bump version, tag, push
-git tag v0.2.0 && git push origin v0.2.0
-
-# 2. Monitor (~10-15 min total)
+git tag vX.Y.Z && git push origin vX.Y.Z
 gh run list --repo hlvm-dev/hql --workflow release.yml --limit 5
 
-# 3. After pipeline completes, verify manually
 curl -fsSL https://hlvm.dev/install.sh | sh
 hlvm ask "hello"
 ```
 
-### Re-run Proof Without Rebuilding
+### Re-run proof without rebuilding
 
 ```bash
-gh workflow run release.yml --repo hlvm-dev/hql -f tag=v0.2.0
+gh workflow run release.yml --repo hlvm-dev/hql -f tag=vX.Y.Z
 ```
 
-### Rebuild After a Fix
+### Rebuild after a fix
 
 ```bash
-gh release delete v0.2.0 --repo hlvm-dev/hql --yes
-git push origin --delete v0.2.0
-git tag -d v0.2.0
-git tag v0.2.0
-git push origin main v0.2.0
+gh release delete vX.Y.Z --repo hlvm-dev/hql --yes
+git push origin --delete vX.Y.Z
+git tag -d vX.Y.Z
+git tag vX.Y.Z
+git push origin main vX.Y.Z
 ```
 
 ---
 
 ## What Changed From v0.1.0
 
-v0.1.0 used an "embedded Ollama" approach where the AI engine was baked into
-the binary at compile time. This caused:
+`v0.1.0` embedded Ollama into the binary. The current pipeline keeps the HLVM
+binary lean and moves runtime provisioning to bootstrap.
 
-- 587 MB - 5.2 GB binary sizes (Ollama + GPU libraries inside)
-- GitHub Release assets totaling 8.5 GB
-- File splitting for Linux (3 parts) and Windows (2 parts)
-- Windows needed special zip+sidecar packaging (PE32+ 2 GB limit)
-- Complex CI builds (~20 min, downloading/embedding Ollama per platform)
+| Dimension           | v0.1.0 (embedded) | Current pipeline                    |
+| ------------------- | ----------------- | ----------------------------------- |
+| Binary size         | 587 MB - 5.2 GB   | ~363 MB                             |
+| Release assets      | 8.5 GB, 10 files  | ~1.5 GB, 7 files                    |
+| File splitting      | Required          | None                                |
+| Windows packaging   | Zip + sidecar     | Same binary pattern as other builds |
+| Bootstrap work      | Smaller           | Ollama + model + Chromium + Python  |
+| First binary fetch  | Huge              | ~363 MB                             |
 
-The new approach downloads Ollama at bootstrap instead of embedding it:
-
-| Dimension           | v0.1.0 (embedded)      | v0.2.0+ (lean binary)    |
-| ------------------- | ---------------------- | ------------------------ |
-| Binary size         | 587 MB - 5.2 GB        | ~363 MB (all platforms)  |
-| GitHub Release      | 8.5 GB, 10 files       | ~1.5 GB, 7 files         |
-| File splitting      | Required               | None                     |
-| Windows packaging   | Zip + sidecar          | Same as all platforms    |
-| CI build time       | ~20 min                | ~5 min                   |
-| User total download | 10-15 GB               | ~10 GB (same)            |
-| First download      | 587 MB - 5.2 GB        | ~363 MB                  |
+The main user-facing tradeoff is explicit: the binary stays lean, while
+bootstrap performs all heavy lifting up front so `hlvm ask` works immediately
+after install.

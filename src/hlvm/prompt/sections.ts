@@ -104,7 +104,24 @@ function renderCriticalRules(
     ? `\nAdditional tools available via tool_search: ${deferredNames.join(", ")}`
     : "";
   const toolDiscoveryRule = hasToolSearch
-    ? `\nOnly the core local and project tools are preloaded. Use tool_search to discover and enable additional tools. Use "select:" prefix for exact match (e.g. tool_search({query:"select:search_web"})).${deferredToolList}`
+    ? `
+
+# MANDATORY: Unknown tool names trigger tool_search FIRST
+You have **tool_search** — a meta-tool that finds and loads additional tools on demand. Many tools (all MCP integrations like context7, playwright, firebase, serena, slack, github, linear, etc.) are NOT in your preloaded list — they load only when you search for them.
+
+RULE — when the user mentions a tool, service, or integration by name that is not in your loaded tools:
+1. CALL tool_search({query: "<that name>"}) immediately
+2. DO NOT reply "I don't have that tool"
+3. DO NOT ask the user to clarify
+4. DO NOT assume the tool doesn't exist
+5. Only after tool_search returns empty results may you tell the user the tool was not found
+
+Examples:
+- User: "use context7 to get React docs" → tool_search({query:"context7"}) → then call mcp_context7_resolve-library-id
+- User: "screenshot this page with playwright" → tool_search({query:"playwright screenshot"}) → then call the tool
+- User: "list my Firebase projects" → tool_search({query:"firebase list projects"}) → then call the tool
+
+Use "select:" prefix for exact-name match: tool_search({query:"select:mcp_context7_resolve-library-id"}).${deferredToolList}`
     : "";
   return {
     id: "critical_rules",

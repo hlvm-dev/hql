@@ -52,6 +52,12 @@ cmd+=(
   --include
   embedded-ollama-version.txt
   --include
+  embedded-python-version.txt
+  --include
+  embedded-uv-version.txt
+  --include
+  embedded-python-sidecar-requirements.txt
+  --include
   src/hql/lib/stdlib/js/index.js
   --output
   "$OUTPUT"

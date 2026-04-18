@@ -1,6 +1,6 @@
 /**
- * Bootstrap materialization — pulls the fallback model into the HLVM-owned
- * model store and writes a verified manifest.
+ * Bootstrap materialization — prepares the HLVM-owned engine, fallback model,
+ * Python sidecar runtime, and runtime manifest.
  *
  * During install / `hlvm bootstrap`, the HLVM runtime host may not be running,
  * so this module talks directly to the embedded Ollama engine via HTTP.
@@ -30,7 +30,13 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface MaterializeProgress {
-  phase: "extract" | "start_engine" | "pull_model" | "hash" | "done";
+  phase:
+    | "extract"
+    | "install_python"
+    | "start_engine"
+    | "pull_model"
+    | "hash"
+    | "done";
   message: string;
   /** 0-100 for pull_model phase, undefined otherwise. */
   percent?: number;
@@ -258,6 +264,7 @@ async function ensurePinnedFallbackModel(
  * Full bootstrap materialization:
  * 1.   Download AI engine (if not already present)
  * 1.5. Download Chromium (if not already present)
+ * 1.6. Install the managed Python sidecar runtime and default package pack
  * 2.   Start engine with HLVM-owned model dir
  * 3.   Adopt existing pinned fallback or pull it once
  * 4.   Hash engine + model blobs
@@ -274,6 +281,7 @@ export async function materializeBootstrap(
   // 1.5. Chromium: download via playwright-core
   let chromiumPath: string | null = null;
   let chromiumHash: string | null = null;
+  let python: BootstrapManifest["python"];
   try {
     const {
       downloadChromium,
@@ -300,6 +308,16 @@ export async function materializeBootstrap(
       `[bootstrap] Chromium setup failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+
+  options?.onProgress?.({
+    phase: "install_python",
+    message: "Installing managed Python runtime...",
+  });
+  python = await (await import("./python-runtime.ts")).ensureManagedPythonEnvironment(
+    (message) => {
+      options?.onProgress?.({ phase: "install_python", message });
+    },
+  );
 
   // 2. Start engine
   let proc: PlatformCommandProcess | null = null;
@@ -337,6 +355,7 @@ export async function materializeBootstrap(
           revision: "playwright-core-1.59.1",
         }],
       } : {}),
+      ...(python ? { python } : {}),
       buildId: VERSION ?? "dev",
       createdAt: now,
       lastVerifiedAt: now,

@@ -46,6 +46,7 @@ import {
   isPickerInteractionRequest,
   parsePlanReviewToolArgs,
 } from "./conversation/interaction-dialog-layout.ts";
+import { deriveLiveTurnStatus } from "./conversation/turn-activity.ts";
 import {
   executeHandler,
   inspectHandlerKeybinding,
@@ -1506,11 +1507,15 @@ function AppContent(
   }, [hasConversationContext, pendingInteraction]);
   const currentTurnSummary = useMemo(() => {
     if (!hasConversationContext || pendingInteraction) return undefined;
-    const footerStatus = footerStatusMessage?.trim();
-    if (footerStatus) {
-      return footerStatus;
-    }
     if (!isConversationTaskRunning) return undefined;
+    const liveStatus = deriveLiveTurnStatus({
+      items: conversation.liveItems,
+      streamingState: conversation.streamingState,
+      planningPhase: conversation.planningPhase,
+    });
+    if (liveStatus?.label) {
+      return liveStatus.label;
+    }
     const activeTool = conversation.activeTool;
     if (activeTool) {
       const summaryLabel = activeTool.toolTotal > 1
@@ -1525,9 +1530,28 @@ function AppContent(
     return "Working";
   }, [
     conversation.activeTool,
+    conversation.liveItems,
+    conversation.planningPhase,
+    conversation.streamingState,
     hasConversationContext,
     isConversationTaskRunning,
-    footerStatusMessage,
+    pendingInteraction,
+  ]);
+  const currentTurnTone = useMemo(() => {
+    if (!hasConversationContext || pendingInteraction || !isConversationTaskRunning) {
+      return undefined;
+    }
+    return deriveLiveTurnStatus({
+      items: conversation.liveItems,
+      streamingState: conversation.streamingState,
+      planningPhase: conversation.planningPhase,
+    })?.tone ?? "active";
+  }, [
+    conversation.liveItems,
+    conversation.planningPhase,
+    conversation.streamingState,
+    hasConversationContext,
+    isConversationTaskRunning,
     pendingInteraction,
   ]);
   const localAgentsFooterModel = showBackgroundStatusSurface
@@ -1807,12 +1831,12 @@ function AppContent(
                   modeLabel={getPersistentAgentExecutionModeLabel(
                     agentExecutionMode,
                   )}
-                  debugEnabled={debug}
                   planningPhase={hasConversationContext
                     ? conversation.planningPhase
                     : undefined}
                   interactionLabel={interactionStatusLabel}
                   turnLabel={currentTurnSummary}
+                  turnTone={currentTurnTone}
                   aiAvailable={init.aiAvailable}
                 />
               )}

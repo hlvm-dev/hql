@@ -2,7 +2,7 @@
  * Bootstrap Command — materializes the local AI substrate.
  *
  * Usage:
- *   hlvm bootstrap            Full materialization (engine + fallback model)
+ *   hlvm bootstrap            Full materialization (engine + model + Python sidecar)
  *   hlvm bootstrap --verify   Check existing installation integrity
  *   hlvm bootstrap --repair   Re-materialize missing/corrupt assets
  *   hlvm bootstrap --status   Print manifest as JSON
@@ -26,10 +26,10 @@ const BOOTSTRAP_MODEL_READY_LOG_INTERVAL_MS = 30_000;
 
 function showBootstrapHelp(): void {
   log.info(`
-hlvm bootstrap — Prepare local AI substrate
+hlvm bootstrap — Prepare HLVM-managed local runtimes
 
 Usage:
-  hlvm bootstrap              Pull AI engine + fallback model
+  hlvm bootstrap              Pull AI engine + fallback model + Python sidecar
   hlvm bootstrap --verify     Check integrity of existing installation
   hlvm bootstrap --repair     Re-materialize missing/corrupt assets
   hlvm bootstrap --status     Print bootstrap manifest as JSON
@@ -73,6 +73,7 @@ export async function bootstrapCommand(args: string[]): Promise<number> {
     log.info(`State: ${result.state}`);
     log.info(`Engine: ${result.engineOk ? "OK" : "MISSING/CORRUPT"}`);
     log.info(`Model:  ${result.modelOk ? "OK" : "MISSING/CORRUPT"}`);
+    log.info(`Python: ${result.pythonOk ? "OK" : "MISSING/CORRUPT"}`);
     log.info(result.message);
     return result.state === "verified" ? 0 : 1;
   }
@@ -96,7 +97,7 @@ export async function bootstrapCommand(args: string[]): Promise<number> {
   }
 
   // Default: full materialization
-  log.info("Bootstrapping HLVM local AI substrate...");
+  log.info("Bootstrapping HLVM managed local runtimes...");
   try {
     const manifest = await materializeBootstrap({ onProgress: logProgress });
     const verification = await verifyBootstrap();
@@ -145,6 +146,11 @@ export async function bootstrapCommand(args: string[]): Promise<number> {
     log.info(`Engine:  ${manifest.engine.adapter} (${manifest.engine.path})`);
     for (const m of manifest.models) {
       log.info(`Model:   ${m.modelId}`);
+    }
+    if (manifest.python) {
+      log.info(
+        `Python:  ${manifest.python.runtime} ${manifest.python.version} (${manifest.python.interpreterPath})`,
+      );
     }
     return 0;
   } catch (error) {

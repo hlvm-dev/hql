@@ -3,6 +3,7 @@
  * Extracted from orchestrator.ts for modularity.
  */
 
+import { basename } from "node:path";
 import {
   getTool,
   getToolPresentationKind,
@@ -33,7 +34,9 @@ import { parseShellCommand } from "../../common/shell-parser.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import {
   buildToolFailureMetadata,
+  normalizeToolFailureMessageForDisplay,
   normalizeToolFailureText,
+  summarizeToolFailureForDisplay,
   type ToolFailureMetadata,
 } from "./tool-results.ts";
 import { persistToolResultSidecar } from "./tool-result-storage.ts";
@@ -232,7 +235,7 @@ async function maybePersistOversizedToolResult(options: {
     return {
       llmContent: options.config.context.truncateResult(persistedBody),
       summaryDisplay: truncate(
-        `Large result persisted to ${sidecar.path} (${sizeLabel}).`,
+        `Large result persisted to ${basename(sidecar.path)} (${sizeLabel}).`,
         limits.summaryChars,
       ),
       returnDisplay: persistedBody,
@@ -856,6 +859,8 @@ export function buildToolErrorResult(
 ): ToolExecutionResult {
   const normalizedError = normalizeToolFailureText({ message: error });
   const normalizedFailure = buildToolFailureMetadata(normalizedError, failure);
+  const displayError = normalizeToolFailureMessageForDisplay(normalizedError);
+  const summaryError = summarizeToolFailureForDisplay(normalizedError, toolName);
   const presentationKind = getToolPresentationKind(
     toolName,
     config.toolOwnerId,
@@ -865,8 +870,8 @@ export function buildToolErrorResult(
     error: normalizedError,
     failure: normalizedFailure,
     llmContent: normalizedError,
-    summaryDisplay: normalizedError,
-    returnDisplay: normalizedError,
+    summaryDisplay: summaryError,
+    returnDisplay: displayError,
     presentationKind,
     truncatedForLlm: false,
     truncatedForTranscript: false,
@@ -882,15 +887,15 @@ export function buildToolErrorResult(
     toolCallId,
     success: false,
     error: normalizedError,
-    display: normalizedError,
+    display: summaryError,
   });
   config.onAgentEvent?.({
     type: "tool_end",
     name: toolName,
     toolCallId,
     success: false,
-    content: normalizedError,
-    summary: normalizedError,
+    content: displayError,
+    summary: summaryError,
     durationMs: Date.now() - startedAt,
     argsSummary: "",
     meta,

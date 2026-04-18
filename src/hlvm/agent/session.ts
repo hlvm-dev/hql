@@ -66,6 +66,7 @@ import {
   createToolProfileState,
   resolveEffectiveToolFilterCached,
   resolvePersistentToolFilter,
+  setCanonicalToolProfileBaseline,
   setToolProfileLayer,
   type ToolProfileState,
 } from "./tool-profiles.ts";
@@ -598,6 +599,13 @@ export async function createAgentSession(
   };
   syncSessionToolProfileState();
   const resetToolFilter = () => {
+    setCanonicalToolProfileBaseline(toolProfileState, {
+      querySource: options.querySource,
+      baseAllowlist: tierFilter.allowlist,
+      discoveredDeferredTools,
+      ownerId: toolOwnerId,
+    });
+    clearToolProfileLayer(toolProfileState, "domain");
     clearToolProfileLayer(toolProfileState, "discovery");
     clearToolProfileLayer(toolProfileState, "runtime");
     syncSessionToolProfileState();

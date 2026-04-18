@@ -21,8 +21,8 @@ interface TuiStatusLineProps {
   planningPhase?: PlanningPhase;
   interactionLabel?: string;
   turnLabel?: string;
+  turnTone?: "active" | "warning";
   aiAvailable?: boolean;
-  debugEnabled?: boolean;
 }
 
 function pushStatusSegment(
@@ -51,8 +51,8 @@ export function TuiStatusLine(
     planningPhase,
     interactionLabel,
     turnLabel,
+    turnTone = "active",
     aiAvailable = false,
-    debugEnabled = false,
   }: TuiStatusLineProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
@@ -74,23 +74,17 @@ export function TuiStatusLine(
       pushStatusSegment(segments, getPlanPhaseLabel(planningPhase), "active");
     }
     pushStatusSegment(segments, interactionLabel, "warning", true);
-    pushStatusSegment(
-      segments,
-      debugEnabled ? "debug" : undefined,
-      "active",
-      true,
-    );
-    pushStatusSegment(segments, turnLabel, "active");
+    pushStatusSegment(segments, turnLabel, turnTone);
     if (segments.length === 0) {
       pushStatusSegment(segments, "Conversation ready", "muted");
     }
     return segments;
   }, [
-    debugEnabled,
     interactionLabel,
     modeLabel,
     planningPhase,
     turnLabel,
+    turnTone,
   ]);
 
   // Build right-side parts: [ctxBar, modelName]

@@ -133,13 +133,14 @@ function buildManagerSummary(
 ): { text: string; hintText?: string } {
   const activeCount = entries.filter((entry) => !isFinishedStatus(entry.status))
     .length;
+  const reviewHint = activeCount === 0 ? " · ↓ to review" : ` · ${LOCAL_AGENT_SELECT_HINT}`;
   return {
     text: formatLocalAgentCount(entries),
     hintText: focused
       ? activeCount === 0
         ? " · Enter to view results · Esc back"
         : " · Enter to view tasks · Esc back"
-      : ` · ${LOCAL_AGENT_SELECT_HINT}`,
+      : reviewHint,
   };
 }
 
@@ -179,9 +180,15 @@ export function buildLocalAgentsCompactFooterModel(
   } = {},
 ): LocalAgentsCompactFooterModel | null {
   if (entries.length === 0) return null;
+  const activeCount = entries.filter((entry) => !isFinishedStatus(entry.status))
+    .length;
   const highlighted = options.focused === true;
   const hintText = highlighted
-    ? " · Enter to view tasks · Esc back"
+    ? activeCount === 0
+      ? " · Enter to view results · Esc back"
+      : " · Enter to view tasks · Esc back"
+    : activeCount === 0
+    ? " · ↓ to review"
     : ` · ${LOCAL_AGENT_SELECT_HINT}`;
   const text = truncate(
     formatLocalAgentCount(entries),
@@ -261,9 +268,13 @@ export function buildLocalAgentsManagerModel(
     (count, agent) => count + agent.previewLines.length,
     0,
   );
+  const activeCount = entries.filter((entry) => !isFinishedStatus(entry.status))
+    .length;
   const overflow = hasOverflow
     ? truncate(
-      `└─ ${overflowCount} more agents · ${LOCAL_AGENT_SELECT_HINT}`,
+      `└─ ${overflowCount} more agents · ${
+        activeCount === 0 ? "↓ to review" : LOCAL_AGENT_SELECT_HINT
+      }`,
       Math.max(18, width),
     )
     : undefined;

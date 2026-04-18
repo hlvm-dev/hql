@@ -241,15 +241,86 @@ function emitSearchResponseProgress(
   }
 }
 
+export function normalizeSearchProgressMessageForDisplay(
+  message: string,
+): { message: string; tone?: ToolProgressTone } | null {
+  const trimmed = message.trim();
+  if (!trimmed) return null;
+
+  const topSourcesMatch = trimmed.match(
+    /^Top sources for "(.+)" \((\d+) results(?:, [^)]+)?\)$/i,
+  );
+  if (topSourcesMatch) {
+    const [, query, countText] = topSourcesMatch;
+    const count = Number.parseInt(countText, 10);
+    if (Number.isFinite(count) && count <= 0) {
+      return {
+        message: `No results for "${query}"`,
+        tone: "warning",
+      };
+    }
+    return {
+      message: Number.isFinite(count) && count > 0
+        ? `Reviewing ${count} source${count === 1 ? "" : "s"}`
+        : "Reviewing sources",
+      tone: "running",
+    };
+  }
+
+  const searchSummaryMatch = trimmed.match(
+    /^Search: "(.+)" \((\d+) results(?:, [^)]+)?\)$/i,
+  );
+  if (searchSummaryMatch) {
+    const [, query, countText] = searchSummaryMatch;
+    const count = Number.parseInt(countText, 10);
+    if (!Number.isFinite(count) || count <= 0) {
+      return {
+        message: `No results for "${query}"`,
+        tone: "warning",
+      };
+    }
+    return {
+      message: `${count} result${count === 1 ? "" : "s"}`,
+      tone: "running",
+    };
+  }
+
+  const foundResultsMatch = trimmed.match(/^Found (\d+) results? for "(.+)"$/i);
+  if (foundResultsMatch) {
+    const [, countText, query] = foundResultsMatch;
+    const count = Number.parseInt(countText, 10);
+    if (!Number.isFinite(count) || count <= 0) {
+      return {
+        message: `No results for "${query}"`,
+        tone: "warning",
+      };
+    }
+    return {
+      message: `${count} result${count === 1 ? "" : "s"}`,
+      tone: "running",
+    };
+  }
+
+  if (/^Reading top sources$/i.test(trimmed)) {
+    return { message: "Reviewing sources", tone: "running" };
+  }
+
+  return null;
+}
+
 export const WEB_SEARCH_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
   displayName: "Web Search",
   formatProgress: (event) => {
     const message = event.message.trim();
-    if (message) return { message, tone: event.tone };
-    const query = event.argsSummary.trim();
+    if (message) {
+      const normalized = normalizeSearchProgressMessageForDisplay(message);
+      return normalized
+        ? { message: normalized.message, tone: normalized.tone ?? event.tone }
+        : { message, tone: event.tone };
+    }
     if (event.phase === "start") {
       return {
-        message: query ? `Searching: ${query}` : "Searching the web",
+        message: "Searching the web",
         tone: "running",
       };
     }

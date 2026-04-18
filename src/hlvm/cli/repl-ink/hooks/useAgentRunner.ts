@@ -53,6 +53,7 @@ import {
   listRuntimeBackgroundAgents,
   runChatViaHost,
 } from "../../../runtime/host-client.ts";
+import { summarizeToolFailureForDisplay } from "../../../agent/tool-results.ts";
 import { recordPromptHistory } from "../../repl/prompt-history.ts";
 import type { ReplState } from "../../repl/state.ts";
 import type { OverlayPanel } from "./useOverlayPanel.ts";
@@ -89,17 +90,7 @@ function cleanPreviewLine(line: string): string {
 }
 
 function normalizeLocalAgentStatusText(text: string): string {
-  const normalized = cleanPreviewLine(text);
-  if (normalized.includes("Tool budget exceeded")) {
-    return "Tool budget exceeded";
-  }
-  if (normalized.startsWith("Tool not available:")) {
-    return "Required tool unavailable";
-  }
-  if (normalized.startsWith("Unknown tool:")) {
-    return "Unknown tool";
-  }
-  return normalized;
+  return summarizeToolFailureForDisplay(cleanPreviewLine(text));
 }
 
 function isFinishedLocalAgentStatus(status: LocalAgentEntry["status"]): boolean {
@@ -520,7 +511,9 @@ export function useAgentRunner(
   const contextPressureLevelRef = useRef<ContextPressureLevel>("normal");
 
   useEffect(() => {
-    if (localAgentEntries.length === 0) return;
+    // Finished agent rows can stay visible for review without continuing the
+    // 400ms runtime polling loop forever in every old REPL session.
+    if (!hasActiveLocalAgents) return;
     let disposed = false;
     let syncInFlight = false;
     const sync = async () => {
@@ -553,7 +546,7 @@ export function useAgentRunner(
       clearInterval(syncInterval);
       clearInterval(tickInterval);
     };
-  }, [localAgentEntries.length]);
+  }, [hasActiveLocalAgents]);
 
   useEffect(() => {
     const previous = previousLocalAgentEntriesRef.current;

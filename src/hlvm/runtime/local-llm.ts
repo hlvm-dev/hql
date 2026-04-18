@@ -214,6 +214,62 @@ export async function classifyPlanNeed(
   return { needsPlan: parsed.plan === true };
 }
 
+export interface RequestPhaseClassification {
+  phase: "editing" | "verifying" | "researching" | "completing";
+}
+
+const CLASSIFY_REQUEST_PHASE_PROMPT =
+  `Classify the user's request by the agent's most likely first working phase. Reply ONLY with JSON.
+{"phase":"editing"|"verifying"|"researching"|"completing"}
+- "editing": modify or create files, code, config, docs, or content
+- "verifying": test, validate, check, build, compile, or confirm results
+- "researching": inspect, read, search, explain, browse, compare, or investigate
+- "completing": operational wrap-up, shell/git execution, listing, status, or finalization
+Pick exactly one phase.
+Request: `;
+
+function fallbackRequestPhase(
+  query: string,
+): RequestPhaseClassification["phase"] {
+  if (
+    /\b(fix|edit|write|change|implement|refactor|rename|update|patch|add|remove)\b/i
+      .test(query)
+  ) {
+    return "editing";
+  }
+  if (
+    /\b(test|verify|validation|validate|check|build|compile|run)\b/i.test(
+      query,
+    )
+  ) {
+    return "verifying";
+  }
+  return "researching";
+}
+
+export async function classifyRequestPhase(
+  query: string,
+): Promise<RequestPhaseClassification> {
+  const defaults: RequestPhaseClassification = {
+    phase: fallbackRequestPhase(query),
+  };
+  if (!query.trim()) return defaults;
+  const parsed = await collectClassificationJson(
+    "classifyRequestPhase",
+    CLASSIFY_REQUEST_PHASE_PROMPT + query.slice(0, 500),
+    { temperature: 0, maxTokens: 64 },
+  );
+  if (!parsed) return defaults;
+  const phase = parsed.phase;
+  return {
+    phase:
+      phase === "editing" || phase === "verifying" ||
+        phase === "researching" || phase === "completing"
+        ? phase
+        : defaults.phase,
+  };
+}
+
 // ---- Step 2: Delegation Detection ----
 
 export interface DelegationClassification {

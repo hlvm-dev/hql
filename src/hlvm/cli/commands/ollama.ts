@@ -1,6 +1,6 @@
 /**
  * Ollama command - explicit compatibility bridge to a system Ollama installation.
- * GUI calls: hlvm ollama serve
+ * The default GUI/runtime path uses `hlvm serve`, not this command.
  */
 
 import { log } from "../../api/log.ts";

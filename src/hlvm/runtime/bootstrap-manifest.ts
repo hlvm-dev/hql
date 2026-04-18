@@ -14,7 +14,7 @@ import { log } from "../api/log.ts";
 // ---------------------------------------------------------------------------
 
 /** The default local fallback model pulled during bootstrap. */
-export const LOCAL_FALLBACK_MODEL = "gemma4:e2b";
+export const LOCAL_FALLBACK_MODEL = "qwen3:8b";
 
 /**
  * Pinned public identity for the bundled fallback model.
@@ -25,12 +25,18 @@ export const LOCAL_FALLBACK_MODEL = "gemma4:e2b";
  */
 export const LOCAL_FALLBACK_IDENTITY = {
   modelId: LOCAL_FALLBACK_MODEL,
-  modelDigestPrefix: "sha256:4e30e2665218",
-  publishedTotalSizeBytes: 7_162_394_016,
+  modelDigestPrefix: "sha256:a3de86cd1c13",
+  publishedTotalSizeBytes: 5_225_387_677,
   sizeToleranceBytes: 512_000_000,
 } as const;
 
 export const LEGACY_LOCAL_FALLBACK_IDENTITIES = [
+  {
+    modelId: "gemma4:e2b",
+    modelDigestPrefix: "sha256:4e30e2665218",
+    publishedTotalSizeBytes: 7_162_394_016,
+    sizeToleranceBytes: 512_000_000,
+  },
   {
     modelId: "gemma4:e4b",
     modelDigestPrefix: "sha256:4c27e0f5b5ad",
@@ -90,6 +96,32 @@ export interface BootstrapBrowserRecord {
   revision: string;
 }
 
+/** Metadata for the HLVM-managed Python sidecar runtime. */
+export interface BootstrapPythonRecord {
+  /** Managed runtime kind. */
+  runtime: "cpython";
+  /** Pinned CPython version installed under HLVM ownership. */
+  version: string;
+  /** Pinned uv version used to provision the Python runtime. */
+  uvVersion: string;
+  /** Absolute path to the uv binary. */
+  uvPath: string;
+  /** Root directory where uv stores managed Python installations. */
+  installDir: string;
+  /** Absolute path to the isolated virtual environment root. */
+  environmentPath: string;
+  /** Absolute path to the Python interpreter used by HLVM. */
+  interpreterPath: string;
+  /** SHA-256 hex digest of the managed interpreter binary. */
+  hash: string;
+  /** Absolute path to the runtime requirements file copied under HLVM storage. */
+  requirementsPath: string;
+  /** SHA-256 hex digest of the pinned requirements file contents. */
+  requirementsHash: string;
+  /** Exact top-level packages provisioned into the sidecar environment. */
+  packages: string[];
+}
+
 /** Persistent manifest written to `~/.hlvm/.runtime/manifest.json`. */
 export interface BootstrapManifest {
   /** Current bootstrap state. */
@@ -100,6 +132,8 @@ export interface BootstrapManifest {
   models: BootstrapModelRecord[];
   /** Bundled browser records (optional — Chromium for Playwright hybrid). */
   browsers?: BootstrapBrowserRecord[];
+  /** HLVM-managed Python sidecar runtime and default package pack. */
+  python?: BootstrapPythonRecord;
   /** HLVM build identifier that created this manifest. */
   buildId: string;
   /** ISO-8601 timestamp when the manifest was first written. */

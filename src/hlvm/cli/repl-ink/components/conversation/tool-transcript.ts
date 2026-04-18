@@ -21,6 +21,16 @@ type InvocationToolLike = {
 };
 
 const FALLBACK_TRANSCRIPT_ADAPTERS = new Map<string, ToolTranscriptAdapter>([
+  ["read_file", { displayName: "Read" }],
+  ["search_code", { displayName: "Search" }],
+  ["write_file", { displayName: "Write" }],
+  ["edit_file", { displayName: "Edit" }],
+  ["open_path", { displayName: "Open" }],
+  ["reveal_path", { displayName: "Reveal" }],
+  ["move_path", { displayName: "Move" }],
+  ["copy_path", { displayName: "Copy" }],
+  ["make_directory", { displayName: "Make Directory" }],
+  ["move_to_trash", { displayName: "Trash" }],
   ["search_web", WEB_SEARCH_TRANSCRIPT_ADAPTER],
   ["web_fetch", WEB_FETCH_TRANSCRIPT_ADAPTER],
   ["fetch_url", FETCH_URL_TRANSCRIPT_ADAPTER],
@@ -102,7 +112,17 @@ export function buildToolTranscriptInvocationLabel(
 
   if (
     tool.name === "shell_exec" || tool.name === "shell_script" ||
-    tool.name.startsWith("pw_")
+    tool.name.startsWith("pw_") ||
+    tool.name === "read_file" ||
+    tool.name === "write_file" ||
+    tool.name === "edit_file" ||
+    tool.name === "open_path" ||
+    tool.name === "reveal_path" ||
+    tool.name === "move_path" ||
+    tool.name === "copy_path" ||
+    tool.name === "make_directory" ||
+    tool.name === "move_to_trash" ||
+    tool.name === "search_code"
   ) {
     return `${displayName}(${sanitizeParenthesizedArg(argsSummary)})`;
   }
@@ -155,5 +175,31 @@ export function resolveToolTranscriptGroupSummary(
 ): string | undefined {
   const adapter = getTranscriptAdapter(toolName, ownerId);
   const summary = adapter?.formatGroupSummary?.(calls) ?? null;
-  return summary?.trim() ? summary.trim() : undefined;
+  if (summary?.trim()) {
+    return summary.trim();
+  }
+
+  const count = calls.length;
+  if (count <= 0) return undefined;
+
+  const displayName = resolveToolTranscriptDisplayName(toolName, ownerId);
+  switch (toolName) {
+    case "read_file":
+      return `Read ${count} file${count === 1 ? "" : "s"}`;
+    case "search_code":
+      return `Searched ${count} code quer${count === 1 ? "y" : "ies"}`;
+    case "shell_exec":
+    case "shell_script":
+      return `Ran ${count} command${count === 1 ? "" : "s"}`;
+    case "write_file":
+      return `Wrote ${count} file${count === 1 ? "" : "s"}`;
+    case "edit_file":
+      return `Edited ${count} file${count === 1 ? "" : "s"}`;
+    case "open_path":
+      return `Opened ${count} path${count === 1 ? "" : "s"}`;
+    default:
+      return count === 1
+        ? displayName
+        : `${displayName} ×${count}`;
+  }
 }

@@ -1,4 +1,29 @@
-# HLVM REPL TUI v2 - Source of Truth
+# HLVM REPL TUI v2 - Historical Donor Runtime Reference
+
+## Status Override (2026-04-19)
+
+This file is no longer the live product SSOT.
+
+Current strategy is:
+
+- keep `src/hlvm/cli/repl-ink/` (`v1`) as the product base
+- use raw Claude Code as behavior truth
+- use `src/hlvm/tui-v2/` as donor/runtime reference only
+
+Use these documents first:
+
+1. [docs/vision/repl-runtime-migration-handoff.md](/Users/seoksoonjang/dev/hql/docs/vision/repl-runtime-migration-handoff.md)
+2. [docs/vision/repl-v1-cc-tui-parity-checklist.md](/Users/seoksoonjang/dev/hql/docs/vision/repl-v1-cc-tui-parity-checklist.md)
+
+Use this document only when you need:
+
+- historical context for the original `v2` experiment
+- donor-engine / donor-runtime adaptation notes
+- old `v2`-specific research that still helps explain how donor pieces were imported
+
+Do not use this file as permission to restart the product plan around `--new`.
+The live parity work is on default `hlvm repl`, not on `hlvm repl --new`.
+When the older sections below conflict with this override, this override wins.
 
 ## The First Principle (rule #0 — overrides everything below)
 
@@ -49,10 +74,13 @@ then does it flip to `(O)`.
 
 ### Doc contract
 
-This doc is SSOT. Every parity audit updates it. Every row flip is
-paper-trailed here with the PTY capture path or a note pointing to it.
-The §13 Shared-Surface Parity Matrix below is the live mission
-scoreboard:
+This doc is the historical ledger for `v2`-specific donor research and
+runtime adaptation notes. If work still touches `src/hlvm/tui-v2/`, update
+this file so the donor history stays usable, but treat the handoff doc and the
+`v1` parity checklist as the live product scoreboard.
+
+The original §13 Shared-Surface Parity Matrix below remains useful as a
+historical audit trail:
 
 > **Mission complete iff every row in §13 is `(O)`.**
 
@@ -60,7 +88,7 @@ Not Phase 1 done. Not "most of it working." Every row.
 
 ---
 
-## 0. Quick Start — Cold-Start Pickup for a New Agent
+## 0. Historical v2 Quick Start — Only If You Are Touching Archived Donor Work
 
 If you have just been dispatched to work on this tree and know nothing
 about the project, read THIS section first. Everything below it is
@@ -69,11 +97,16 @@ operating knowledge.
 
 ### 0.1 What this is
 
-HLVM is building a new REPL TUI (called **v2**). The *product design
-rule* is:
+Historically, HLVM explored a new REPL TUI here (called **v2**). That
+experiment mattered because it imported the donor runtime stack and proved out
+fullscreen / scroll / engine migration work.
+
+The current product design rule is:
 
 ```text
-Claude Code TUI quality + HLVM-native business logic + HQL + JS REPL
+keep v1 as product base
+copy Claude Code TUI quality onto overlapping surfaces
+use v2 as donor/runtime reference only
 ```
 
 - `~/dev/ClaudeCode-main/` is the CC donor source — you are permitted
@@ -81,7 +114,7 @@ Claude Code TUI quality + HLVM-native business logic + HQL + JS REPL
   them. Do not invent from memory.
 - `src/hlvm/cli/repl-ink/` is the v1 HLVM REPL. It already has the
   HLVM-specific composer features (attachments, `@` drill, history
-  search, queue editing). v2 reuses those components directly as SSOT
+  search, queue editing). v2 reuses those components directly as shared source
   wherever possible — see §11.5.
 - `src/hlvm/tui-v2/` is the v2 tree. It wraps the donor CC ink engine
   (hard-copied under `src/hlvm/tui-v2/ink/`) and delegates composer UX
@@ -90,7 +123,7 @@ Claude Code TUI quality + HLVM-native business logic + HQL + JS REPL
 ### 0.2 How to run + verify (copy/paste)
 
 ```bash
-# Launch the compiled binary in v2 mode:
+# Historical v2 launch path only:
 ./hlvm repl --new              # or: make repl-new
 
 # After any edit, rebuild + re-check:
@@ -134,16 +167,16 @@ src/hlvm/tui-v2/                 v2 tree (React 19 + reconciler 0.31)
   header/                        DELETED — v2 now uses v1's Banner directly
 
 src/hlvm/cli/repl-ink/           v1 REPL (React 18 + ink@5)
-  components/Banner.tsx          reused by v2 (SSOT)
-  components/HistorySearchPrompt.tsx   reused by v2 (SSOT)
-  components/HighlightedText.tsx reused by v2 (SSOT) — yellow match highlight
-  components/PickerRow.tsx       reused by v2 (SSOT)
+  components/Banner.tsx          reused by v2 (shared source)
+  components/HistorySearchPrompt.tsx   reused by v2 (shared source)
+  components/HighlightedText.tsx reused by v2 (shared source) — yellow match highlight
+  components/PickerRow.tsx       reused by v2 (shared source)
   components/LocalAgentsStatusPanel.tsx    HLVM agent-spawn tree (NOT yet wired in v2)
-  completion/Dropdown.tsx        reused by v2 (SSOT, CC-parity chrome edits landed)
+  completion/Dropdown.tsx        reused by v2 (shared source, CC-parity chrome edits landed)
   completion/concrete-providers.ts   @file-search apply() logic
   completion/useCompletion.ts    completion hook
-  hooks/useAttachments.ts        reused by v2 (SSOT)
-  hooks/useHistorySearch.ts      reused by v2 (SSOT)
+  hooks/useAttachments.ts        reused by v2 (shared source)
+  hooks/useHistorySearch.ts      reused by v2 (shared source)
 
 src/hlvm/cli/repl/               shared REPL utilities
   attachment.ts                  createAttachment() + resolveAttachmentPath() (~ expand)
@@ -151,7 +184,7 @@ src/hlvm/cli/repl/               shared REPL utilities
   mention-resolver.ts            resolves @path into real file content at submit
 
 scripts/check-tui-v2-ink.ts      regression guard (ensures no ink@5 in v2 graph)
-docs/vision/repl-v2-tui.md       THIS doc (SSOT)
+docs/vision/repl-v2-tui.md       THIS doc (historical donor reference)
 ```
 
 ### 0.4 Non-negotiable workflow
@@ -563,8 +596,9 @@ inline MCP server specs in agents, consolidate TUI v2 on v1 SSOTs`.
 Uncommitted edits on top of that include both this session's v2 work
 AND other agents' concurrent changes (agent/, tests/, cli/repl/). When
 picking up, run `git log -1 --oneline` to confirm the base and
-`git status --porcelain` to see the actual working tree. Doc is SSOT,
-git is ground truth, this doc is annotated context. The session ledger
+`git status --porcelain` to see the actual working tree. Git is ground truth,
+the handoff doc plus the `v1` parity checklist are the live product docs, and
+this file is annotated historical context for `v2`-specific work. The session ledger
 in §0.12 fingerprints which files THIS doc refresh trusts vs. which are
 concurrent-agent WIP you should leave alone.
 
@@ -578,17 +612,18 @@ tmux-backed PTY audit.
 session per CLAUDE.md concurrent-agent rule) · runtime-round-trip PTY
 audit (would require a configured local model) · CI wiring of
 `deno task check:tui-v2`.
-**Created:** 2026-04-16 **Last updated:** 2026-04-17 (PM — Cmd+C /
-clipboard fix verified end-to-end; attachment-reality audit added in
-§0.9.2) **Doc policy:** This is the only planning/vision/handoff doc
-for REPL TUI v2. Any agent working on `src/hlvm/tui-v2/` must update
-this file after real verification.
+**Created:** 2026-04-16 **Last updated:** 2026-04-19 (strategy override:
+`v1` product base, CC truth, `v2` donor reference) **Doc policy:** use this
+file only for `v2` donor/runtime notes. The live continuation docs are
+`docs/vision/repl-runtime-migration-handoff.md` and
+`docs/vision/repl-v1-cc-tui-parity-checklist.md`.
 
 ---
 
 ## 1. Purpose
 
-This document is the single source of truth for HLVM REPL TUI v2.
+This document preserves the original `v2` plan, audit history, and donor
+runtime findings. It no longer defines the live product continuation plan.
 
 It is intentionally:
 
@@ -700,7 +735,8 @@ This is:
 
 - Old REPL stays intact until v2 is genuinely ready.
 - New TUI lives in a separate tree.
-- `hlvm repl --new` is the desired opt-in path until migration is complete.
+- Historically, `hlvm repl --new` was the opt-in path during the v2 experiment.
+- Current continuation work is on default `hlvm repl`; do not treat `--new` as the active product path.
 - Chat mode must feel like Claude Code first.
 - HQL and JS must both be first-class, not bolted-on hacks.
 
@@ -1462,6 +1498,9 @@ Goal:
 - engine launch path stable
 - one supported launch path for v2
 
+This phase description is historical. It describes the archived v2 launch
+milestone, not the current product ship gate.
+
 Done means:
 
 - engine is committed
@@ -1862,7 +1901,8 @@ Any agent working on v2 must follow these rules.
 
 ### 10.1 Single-document rule
 
-This file is the source of truth.
+For `v2`-specific donor/runtime work, this file is the single historical
+ledger.
 
 Do not create a second implementation-plan doc unless there is a very strong
 reason and the owner explicitly asks for it.
@@ -2634,4 +2674,5 @@ When every row is `(O)`:
 Until then, every merge that touches `src/hlvm/tui-v2/` updates this
 matrix in the same commit: either flips row(s) `(X)` → `(O)`, or
 updates Notes with the latest finding, or adds a new row for a newly
-discovered shared surface. This doc is SSOT.
+discovered shared surface. This doc remains the historical ledger for
+`v2`-specific donor work.

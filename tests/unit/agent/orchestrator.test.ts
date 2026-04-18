@@ -134,6 +134,7 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     },
     continuedThisTurn: false,
     continuationCount: 0,
+    requestPhaseClassification: { phase: "researching" },
     ...overrides,
   };
 }
@@ -1127,8 +1128,12 @@ Deno.test({
       context,
       permissionMode: "bypassPermissions",
       l1Confirmations: new Map(),
-      toolProfileState: createToolProfileState(),
-      baselineToolAllowlistSeed: [...STANDARD_EAGER_TOOLS],
+      toolProfileState: createToolProfileState({
+        baseline: {
+          slot: "baseline",
+          allowlist: [...STANDARD_EAGER_TOOLS],
+        },
+      }),
       discoveredDeferredTools: [],
     };
 
@@ -1259,7 +1264,6 @@ Deno.test({
           allowlist: [...cuAllowlist],
         },
       }),
-      baselineToolAllowlistSeed: [...cuAllowlist],
       permissionToolAllowlist: [...cuAllowlist],
       discoveredDeferredTools: [],
     };

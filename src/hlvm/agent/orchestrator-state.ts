@@ -127,13 +127,12 @@ export interface LoopState {
   /** Message revision at the last proactive compaction boundary. */
   lastProactiveCompactionMessageRevision?: number;
   /**
-   * Cached regex heuristics about the (constant) user request.
-   * Populated lazily on first use by `applyAdaptiveToolPhase` so the same
-   * regexes do not re-run on every loop iteration.
+   * Cached request-phase classification for the constant user request.
+   * Populated lazily on first use by `applyAdaptiveToolPhase` so the local
+   * classifier runs at most once per turn.
    */
-  requestHeuristics?: {
-    impliesEditing: boolean;
-    impliesVerification: boolean;
+  requestPhaseClassification?: {
+    phase: RuntimeToolPhase;
   };
 }
 

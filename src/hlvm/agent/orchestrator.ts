@@ -130,7 +130,6 @@ import {
   ensureToolProfileState,
   intersectToolLists,
   resolvePersistentToolFilter,
-  setCanonicalToolProfileBaseline,
   syncEffectiveToolFilterToConfig,
   uniqueToolList,
   updateToolProfileLayer,
@@ -606,8 +605,6 @@ export interface OrchestratorToolConfig {
   toolAllowlist?: string[];
   /** Optional flat deny seed used when toolProfileState is omitted. */
   toolDenylist?: string[];
-  /** Canonical persistent baseline before domain-specific widening. */
-  baselineToolAllowlistSeed?: string[];
   /** Discovered deferred tools preserved across reused requests. */
   discoveredDeferredTools?: Iterable<string>;
   /** First-class layered tool profile state. */
@@ -736,30 +733,8 @@ export const COMPLETE_PHASE_CATEGORIES = new Set([
 
 const BROWSER_REACT_MAX_ITERATIONS = Math.max(MAX_ITERATIONS, 28);
 
-function requestImpliesVerification(query: string): boolean {
-  return /\b(test|verify|validation|validate|check|build|compile|run)\b/i.test(
-    query,
-  );
-}
-
-function requestImpliesEditing(query: string): boolean {
-  return /\b(fix|edit|write|change|implement|refactor|rename|update|patch|add|remove)\b/i
-    .test(query);
-}
-
-function applyRequestToolSurface(config: OrchestratorConfig): void {
-  const hadToolProfileState = !!config.toolProfileState;
+function clearTurnScopedLayersForRun(config: OrchestratorConfig): void {
   const profileState = ensureToolProfileState(config);
-  if (!hadToolProfileState && config.baselineToolAllowlistSeed !== undefined) {
-    setCanonicalToolProfileBaseline(profileState, {
-      querySource: config.querySource,
-      baseAllowlist: config.baselineToolAllowlistSeed,
-      discoveredDeferredTools: config.discoveredDeferredTools,
-      ownerId: config.toolOwnerId,
-    });
-  }
-  // Routing no longer owns semantic task profiles. The model chooses browser,
-  // search, delegation, and planning inside the loop from the allowed tools.
   clearTurnScopedToolProfileLayers(profileState);
   syncEffectiveToolFilterToConfig(config, profileState);
 }
@@ -792,17 +767,15 @@ const COMPLETE_TOOLS = new Set([
   "git_status",
 ]);
 
-function resolveRequestHeuristics(
+async function resolveRequestPhaseClassification(
   state: LoopState,
   userRequest: string,
-): { impliesEditing: boolean; impliesVerification: boolean } {
-  if (!state.requestHeuristics) {
-    state.requestHeuristics = {
-      impliesEditing: requestImpliesEditing(userRequest),
-      impliesVerification: requestImpliesVerification(userRequest),
-    };
+): Promise<{ phase: RuntimeToolPhase }> {
+  if (!state.requestPhaseClassification) {
+    const { classifyRequestPhase } = await import("../runtime/local-llm.ts");
+    state.requestPhaseClassification = await classifyRequestPhase(userRequest);
   }
-  return state.requestHeuristics;
+  return state.requestPhaseClassification;
 }
 
 async function deriveRuntimePhase(
@@ -824,10 +797,7 @@ async function deriveRuntimePhase(
 
   if (hasWrite) return "verifying";
   if (hasComplete) return "completing";
-  const heuristics = resolveRequestHeuristics(state, userRequest);
-  if (heuristics.impliesEditing) return "editing";
-  if (heuristics.impliesVerification) return "verifying";
-  return "researching";
+  return (await resolveRequestPhaseClassification(state, userRequest)).phase;
 }
 
 function getPhaseCategories(phase: RuntimeToolPhase): Set<string> {
@@ -1428,7 +1398,7 @@ export async function runReActLoop(
     );
   const autoMemoryRecall = config.autoMemoryRecall ?? false;
   resetWebToolBudget();
-  applyRequestToolSurface(config);
+  clearTurnScopedLayersForRun(config);
 
   addContextMessage(config, {
     role: "user",

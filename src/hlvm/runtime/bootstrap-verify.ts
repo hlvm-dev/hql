@@ -1,6 +1,6 @@
 /**
- * Bootstrap verification — checks that the AI engine binary and fallback
- * model blobs exist and match the recorded manifest hashes.
+ * Bootstrap verification — checks that the managed engine, fallback model,
+ * and Python sidecar runtime exist and match the recorded manifest state.
  */
 
 import { getPlatform } from "../../platform/platform.ts";
@@ -28,6 +28,8 @@ export interface BootstrapVerificationResult {
   /** True when both engine and model are present and hashes match. */
   engineOk: boolean;
   modelOk: boolean;
+  /** True when the managed Python runtime and default sidecar pack are present and verified. */
+  pythonOk: boolean;
   /** True when Chromium is present and hash matches (optional — false if not in manifest). */
   browserOk: boolean;
   /** Human-readable summary. */
@@ -70,7 +72,7 @@ async function hashFile(path: string): Promise<string> {
 
 /**
  * Full verification: reads the manifest, checks existence and hashes of the
- * engine binary and model blobs.
+ * engine binary, model blobs, and managed Python sidecar runtime.
  */
 export async function verifyBootstrap(): Promise<BootstrapVerificationResult> {
   const manifest = await readBootstrapManifest();
@@ -80,6 +82,7 @@ export async function verifyBootstrap(): Promise<BootstrapVerificationResult> {
       state: "uninitialized",
       engineOk: false,
       modelOk: false,
+      pythonOk: false,
       browserOk: false,
       message: "No bootstrap manifest found.",
       manifest: null,
@@ -165,6 +168,26 @@ export async function verifyBootstrap(): Promise<BootstrapVerificationResult> {
     }
   }
 
+  let pythonOk = false;
+  if (manifest.python) {
+    try {
+      const { verifyManagedPythonEnvironment } = await import(
+        "./python-runtime.ts"
+      );
+      pythonOk = await verifyManagedPythonEnvironment(manifest.python);
+      if (!pythonOk) {
+        log.debug?.("Managed Python runtime verification failed.");
+      }
+    } catch (err) {
+      log.debug?.(
+        `Managed Python runtime verification failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      pythonOk = false;
+    }
+  }
+
   // --- Browser (optional — Chromium for Playwright) ---
   let browserOk = true; // default true if no browsers in manifest (optional)
   if (manifest.browsers?.length) {
@@ -192,17 +215,22 @@ export async function verifyBootstrap(): Promise<BootstrapVerificationResult> {
   }
 
   // Engine + model are required; browser is optional (degraded, not broken)
-  const state: BootstrapState = engineOk && modelOk ? "verified" : "degraded";
+  const state: BootstrapState = engineOk && modelOk && pythonOk
+    ? "verified"
+    : "degraded";
 
   const parts: string[] = [];
   if (!engineOk) parts.push("engine missing or corrupt");
   if (!modelOk) parts.push("fallback model missing or corrupt");
+  if (!pythonOk) {
+    parts.push("managed Python runtime missing or corrupt");
+  }
   if (!browserOk) parts.push("Chromium missing or corrupt (browser automation unavailable)");
   const message = parts.length === 0
     ? "Bootstrap verified."
     : `Bootstrap degraded: ${parts.join("; ")}.`;
 
-  return { state, engineOk, modelOk, browserOk, message, manifest };
+  return { state, engineOk, modelOk, pythonOk, browserOk, message, manifest };
 }
 
 /**

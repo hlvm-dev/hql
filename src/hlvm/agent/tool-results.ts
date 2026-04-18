@@ -5,13 +5,16 @@
  */
 
 import { ValidationError } from "../../common/error.ts";
+import { stripErrorCodeFromMessage } from "../../common/error-codes.ts";
 import {
   getErrorMessage,
   isObjectValue,
+  truncate,
   truncateMiddle,
 } from "../../common/utils.ts";
 
 const MAX_NORMALIZED_FAILURE_CHARS = 10_000;
+const MAX_FAILURE_SUMMARY_CHARS = 96;
 
 export type ToolFailureSource =
   | "validation"
@@ -156,6 +159,139 @@ export function normalizeToolFailureText(input: {
   return combined.length > MAX_NORMALIZED_FAILURE_CHARS
     ? truncateMiddle(combined, MAX_NORMALIZED_FAILURE_CHARS)
     : combined;
+}
+
+function humanizeToolName(toolName: string): string {
+  switch (toolName) {
+    case "search_web":
+      return "Web Search";
+    case "web_fetch":
+    case "fetch_url":
+      return "Fetch";
+    case "shell_exec":
+    case "shell_script":
+      return "Bash";
+    case "pw_goto":
+    case "pw_back":
+    case "pw_click":
+    case "pw_fill":
+    case "pw_type":
+    case "pw_content":
+    case "pw_hover":
+    case "pw_links":
+    case "pw_wait_for":
+    case "pw_screenshot":
+    case "pw_evaluate":
+    case "pw_scroll":
+    case "pw_snapshot":
+    case "pw_download":
+    case "pw_select_option":
+    case "pw_upload_file":
+    case "pw_tabs":
+    case "pw_promote":
+      return "Browser";
+    default:
+      return toolName
+        .split("_")
+        .map((part) =>
+          part.length > 0 ? part[0].toUpperCase() + part.slice(1) : part
+        )
+        .join(" ");
+  }
+}
+
+function resolveToolDisplayName(
+  toolName: string | undefined,
+  message: string,
+): string | undefined {
+  if (toolName?.trim()) {
+    return humanizeToolName(toolName.trim());
+  }
+  const embeddedToolMatch = /(?:tool budget exceeded|tool not available|unknown tool):\s*([a-z0-9_]+)/i
+    .exec(message);
+  return embeddedToolMatch?.[1] ? humanizeToolName(embeddedToolMatch[1]) : undefined;
+}
+
+function buildSpecialToolFailureSummary(
+  normalizedMessage: string,
+  toolName?: string,
+): string | undefined {
+  const lower = normalizedMessage.toLowerCase();
+  const displayName = resolveToolDisplayName(toolName, normalizedMessage);
+
+  if (lower.includes("tool budget exceeded")) {
+    return displayName ? `${displayName} limit reached` : "Tool limit reached";
+  }
+  if (
+    lower.startsWith("tool not available:") ||
+    lower.startsWith("unknown tool:") ||
+    (lower.includes("tool '") && lower.includes("not found"))
+  ) {
+    return "Required tool unavailable";
+  }
+  if (
+    lower.includes("permission denied") ||
+    lower.includes("denied by policy") ||
+    lower.includes("not allowed")
+  ) {
+    return "Permission denied";
+  }
+  if (
+    lower.includes("timed out") ||
+    lower.includes("timeout") ||
+    lower.includes("deadline exceeded")
+  ) {
+    return displayName ? `${displayName} timed out` : "Timed out";
+  }
+  if (
+    lower.includes("aborted") ||
+    lower.includes("interrupted") ||
+    lower.includes("cancelled") ||
+    lower.includes("canceled")
+  ) {
+    return "Cancelled";
+  }
+  if (
+    lower.includes("network") ||
+    lower.includes("enotfound") ||
+    lower.includes("econn") ||
+    lower.includes("fetch failed") ||
+    lower.includes("service unavailable")
+  ) {
+    return "Network error";
+  }
+  if (
+    lower.includes("invalid arguments") ||
+    lower.includes("missing required argument") ||
+    lower.includes("unexpected argument") ||
+    lower.includes("must be format")
+  ) {
+    return displayName ? `${displayName} request invalid` : "Invalid request";
+  }
+  return undefined;
+}
+
+export function normalizeToolFailureMessageForDisplay(message: string): string {
+  const stripped = stripErrorCodeFromMessage(message)
+    .replace(/^error:\s*/i, "")
+    .trim();
+  return stripped.length > 0 ? stripped : "Tool failed";
+}
+
+export function summarizeToolFailureForDisplay(
+  message: string,
+  toolName?: string,
+): string {
+  const normalized = normalizeToolFailureMessageForDisplay(message);
+  const specialSummary = buildSpecialToolFailureSummary(normalized, toolName);
+  if (specialSummary) {
+    return specialSummary;
+  }
+  const firstLine = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  return truncate(firstLine ?? normalized, MAX_FAILURE_SUMMARY_CHARS);
 }
 
 export function buildToolFailureMetadata(

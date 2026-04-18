@@ -4,6 +4,7 @@ import {
   classifyFactConflicts,
   classifyGroundedness,
   classifyPlanNeed,
+  classifyRequestPhase,
   classifySourceAuthorities,
   classifyTask,
   classifyToolSafety,
@@ -160,6 +161,11 @@ Deno.test("classifyPlanNeed: whitespace-only returns defaults", async () => {
   assertEquals(result.needsPlan, false);
 });
 
+Deno.test("classifyRequestPhase: empty query returns researching", async () => {
+  const result = await classifyRequestPhase("");
+  assertEquals(result.phase, "researching");
+});
+
 Deno.test("classifyFactConflicts: empty new fact returns defaults", async () => {
   const result = await classifyFactConflicts("", ["old fact"]);
   assertEquals(result.conflicts.length, 0);
@@ -235,6 +241,34 @@ Deno.test("classifyTask: parse failure returns defaults and records warning diag
       );
     } finally {
       captured.restore();
+      restoreChat();
+    }
+  });
+});
+
+Deno.test("classifyRequestPhase: parses valid phase JSON", async () => {
+  await withLocalAiEnabled(async () => {
+    const restoreChat = setAiChatStub(async function* (_messages, _options) {
+      yield '{"phase":"verifying"}';
+    });
+    try {
+      const result = await classifyRequestPhase("run the test suite");
+      assertEquals(result.phase, "verifying");
+    } finally {
+      restoreChat();
+    }
+  });
+});
+
+Deno.test("classifyRequestPhase: runtime failure falls back deterministically", async () => {
+  await withLocalAiEnabled(async () => {
+    const restoreChat = setAiChatStub(async function* (_messages, _options) {
+      throw new Error("runtime exploded");
+    });
+    try {
+      const result = await classifyRequestPhase("fix the parser bug");
+      assertEquals(result.phase, "editing");
+    } finally {
       restoreChat();
     }
   });

@@ -2,7 +2,7 @@
 
 ## Goal
 
-One supported public install contract, with platform-specific entry commands:
+One supported public install contract:
 
 ```bash
 curl -fsSL https://hlvm.dev/install.sh | sh
@@ -16,8 +16,8 @@ After install finishes:
 
 - `hlvm ask "hello"` works immediately
 - `/health.aiReady` is true only when the local fallback is actually usable
-- there is no post-install "surprise" model download
-- users do not need to understand Ollama, model stores, or extra setup steps
+- there is no post-install surprise download
+- users do not need to understand Ollama, Python, `uv`, Chromium, or MCP
 
 ## Product Contract
 
@@ -32,15 +32,18 @@ Installer then:
   2. Resolves the latest published release on hlvm-dev/hql
   3. Downloads the HLVM binary (~363 MB)
   4. Verifies checksum
-  5. Installs hlvm to /usr/local/bin/
+  5. Installs hlvm
   6. Runs hlvm bootstrap, which:
-     a. Downloads pinned Ollama from github.com/ollama/ollama/releases
-     b. Places Ollama under ~/.hlvm/.runtime/engine/
-     c. Starts Ollama on localhost:11439
-     d. Pulls default local model (gemma4:e4b)
-     e. Downloads Chromium (~200 MB)
-     f. Verifies everything works
-     g. Writes manifest
+     a. Downloads pinned Ollama
+     b. Places it under ~/.hlvm/.runtime/engine/
+     c. Starts it on 127.0.0.1:11439
+     d. Pulls gemma4:e2b into ~/.hlvm/.runtime/models/
+     e. Downloads Chromium into ~/.hlvm/.runtime/chromium/
+     f. Installs uv into ~/.hlvm/.runtime/python/uv/
+     g. Installs CPython into ~/.hlvm/.runtime/python/cpython/
+     h. Creates ~/.hlvm/.runtime/python/venv/
+     i. Installs the default Python sidecar pack
+     j. Verifies everything and writes manifest.json
   7. Exits only after HLVM is ready
 
 User then runs:
@@ -52,24 +55,16 @@ Expected result:
 
 ### What The Binary Is
 
-The HLVM binary is a **self-bootstrapping single binary**. It contains:
+The HLVM binary is a self-bootstrapping single binary. It contains:
 
-- The HLVM runtime (CLI, agent, orchestrator, MCP, HQL transpiler)
-- The Deno runtime (V8 engine, TypeScript compiler)
-- The HQL standard library
-- Knowledge of which Ollama version and model to download
+- the HLVM runtime
+- the Deno runtime
+- the HQL standard library
+- knowledge of which Ollama, `uv`, CPython, and sidecar package pins to install
 
-It does NOT contain Ollama or the model. These are downloaded at bootstrap time
-because:
-
-- The model alone is 9.6 GB — no binary format supports embedding it
-- Ollama for Linux with GPU libraries is 4+ GB — embedding would make the binary
-  5+ GB
-- Windows PE32+ has a hard 2 GB executable size limit
-- A 363 MB binary downloads quickly; a 5 GB binary takes much longer
-
-This is the same pattern used by Rustup, Go, and Homebrew: a small binary that
-sets itself up on first run.
+It does not contain Ollama, model blobs, Chromium, or a Python distribution.
+Those are installed during bootstrap because the model and runtime payloads are
+too large and too platform-specific to embed cleanly.
 
 ### Installed Result
 
@@ -77,9 +72,14 @@ sets itself up on first run.
 /usr/local/bin/hlvm                 (or LOCALAPPDATA\HLVM\bin\hlvm.exe)
 
 ~/.hlvm/.runtime/
-  ├── engine/                       Ollama binary (downloaded at bootstrap)
-  ├── models/                       Model files (pulled at bootstrap)
-  ├── chromium/                     Chromium binary (downloaded at bootstrap)
+  ├── engine/                       Ollama binary
+  ├── models/                       Fallback model store
+  ├── chromium/                     Managed browser runtime
+  ├── python/
+  │   ├── uv/                       HLVM-owned uv binary
+  │   ├── cpython/                  uv-managed CPython installs
+  │   ├── venv/                     Isolated HLVM Python environment
+  │   └── requirements.txt          Pinned Python sidecar pack
   └── manifest.json                 Verified runtime state
 ```
 
@@ -91,84 +91,54 @@ sets itself up on first run.
 curl -fsSL https://hlvm.dev/install.sh | sh
   │
   ├── 1. detect_platform()
-  │      uname -s/-m → darwin_aarch64, darwin_x86_64, linux_x86_64
-  │
   ├── 2. get_latest_version()
-  │      GET api.github.com/repos/hlvm-dev/hql/releases/latest
-  │
   ├── 3. download binary (~363 MB)
-  │      From GitHub Releases: hlvm-dev/hql/releases/download/vX.Y.Z/hlvm-<platform>
-  │
   ├── 4. verify checksum
-  │      SHA-256 from checksums.sha256 in the release
-  │
-  ├── 5. install to /usr/local/bin/hlvm
-  │
+  ├── 5. install hlvm
   └── 6. hlvm bootstrap
          │
-         ├── a. Download pinned Ollama
-         │      Version from embedded-ollama-version.txt (baked in at compile)
-         │      From github.com/ollama/ollama/releases/download/<version>/
-         │        macOS:   ollama-darwin.tgz
-         │        Linux:   ollama-linux-amd64.tgz (Ollama auto-downloads GPU libs)
-         │        Windows: ollama-windows-amd64.zip
-         │      Extract to ~/.hlvm/.runtime/engine/
-         │
+         ├── a. Download pinned Ollama from official releases
          ├── b. Start Ollama on 127.0.0.1:11439
-         │      OLLAMA_HOST=127.0.0.1:11439
-         │      OLLAMA_MODELS=~/.hlvm/.runtime/models/
-         │
-         ├── c. Pull default model
-         │      POST /api/pull { name: "gemma4:e4b", stream: true }
-         │      ~9.6 GB download with progress
-         │
-         ├── d. Verify model readiness
-         │      Send test request, confirm model loads and responds
-         │
-         ├── e. Download Chromium (~200 MB)
-         │      Via playwright-core CDN
-         │
-         ├── f. Write manifest.json
-         │      { "state": "verified", engine: {...}, models: [...] }
-         │
-         └── g. Keep Ollama running (warm model in RAM for first hlvm ask)
-```
-
-### Model Resolution Chain
-
-```text
-resolveModelString():
-  explicit --model flag  →  use it
-  persisted config       →  use it
-  nothing                →  DEFAULT_MODEL_ID ("ollama/gemma4:e4b")
+         ├── c. Pull gemma4:e2b
+         ├── d. Download Chromium via playwright-core
+         ├── e. Install uv 0.11.7 under HLVM-owned storage
+         ├── f. Install CPython 3.13.13 under HLVM-owned storage
+         ├── g. Create a managed virtualenv
+         ├── h. Install the default Python sidecar pack
+         ├── i. Verify engine + model + Python sidecar
+         ├── j. Write manifest.json
+         └── k. Keep Ollama warm for the first request
 ```
 
 ### Key Invariants
 
 1. `hlvm bootstrap` is the single install-time preparation entrypoint.
 2. Ollama is downloaded from official releases, not embedded in the binary.
-3. The Ollama version is pinned in `embedded-ollama-version.txt` (baked into the
-   binary at compile time).
-4. The runtime uses HLVM-owned storage under `~/.hlvm/.runtime/`.
-5. Ollama binds to `127.0.0.1:11439`, not the system Ollama default (11434).
-6. `/health.aiReady` is true only after the fallback model is genuinely ready.
-7. The installer is not complete until bootstrap has finished successfully.
-8. Chromium is downloaded during bootstrap for `pw_*` browser tools.
+3. The Ollama version is pinned in `embedded-ollama-version.txt`.
+4. The Python runtime is HLVM-managed and isolated under `~/.hlvm/.runtime/python/`.
+5. The `uv` version is pinned in `embedded-uv-version.txt`.
+6. The CPython version is pinned in `embedded-python-version.txt`.
+7. The Python sidecar pack is pinned in `embedded-python-sidecar-requirements.txt`.
+8. The runtime uses HLVM-owned storage under `~/.hlvm/.runtime/`.
+9. Ollama binds to `127.0.0.1:11439`, not `11434`.
+10. `/health.aiReady` is true only after the fallback model is genuinely ready.
+11. The installer is not complete until bootstrap has finished successfully.
 
 ### Key Source Files
 
-| File                                        | Role                                                            |
-| ------------------------------------------- | --------------------------------------------------------------- |
-| `src/common/config/types.ts`                | `DEFAULT_MODEL_ID`, `DEFAULT_OLLAMA_HOST`                       |
-| `src/hlvm/cli/commands/bootstrap.ts`        | Bootstrap orchestration, warmup, readiness probe                |
-| `src/hlvm/runtime/bootstrap-materialize.ts` | Download Ollama, pull model, hash, write manifest               |
-| `src/hlvm/runtime/ai-runtime.ts`            | Ollama download, engine lifecycle, environment setup             |
-| `src/hlvm/runtime/bootstrap-manifest.ts`    | `LOCAL_FALLBACK_MODEL` constant, manifest read/write            |
-| `src/hlvm/runtime/model-access.ts`          | `isFallbackModelAvailable()`, warmup progress                   |
-| `src/hlvm/runtime/chromium-runtime.ts`      | Chromium download, extraction, verification                     |
-| `src/hlvm/api/ai.ts`                        | `resolveModelString()` — explicit → config → default chain      |
-| `src/common/ai-default-model.ts`            | `ensureInitialModelConfigured()` — model auto-config            |
-| `embedded-ollama-version.txt`               | Pinned Ollama version (SSOT, baked into binary at compile time) |
+| File                                         | Role                                                         |
+| -------------------------------------------- | ------------------------------------------------------------ |
+| `src/hlvm/cli/commands/bootstrap.ts`         | Bootstrap orchestration, warmup, readiness probe             |
+| `src/hlvm/runtime/bootstrap-materialize.ts`  | Prepare engine, model, browser, Python, and manifest         |
+| `src/hlvm/runtime/ai-runtime.ts`             | Ollama download and engine lifecycle                         |
+| `src/hlvm/runtime/chromium-runtime.ts`       | Chromium download and verification                           |
+| `src/hlvm/runtime/python-runtime.ts`         | uv install, CPython install, venv creation, sidecar pack     |
+| `src/hlvm/runtime/bootstrap-manifest.ts`     | Bootstrap manifest types and read/write                      |
+| `src/hlvm/runtime/bootstrap-verify.ts`       | Manifest verification, including Python sidecar verification |
+| `embedded-ollama-version.txt`                | Pinned Ollama version                                        |
+| `embedded-uv-version.txt`                    | Pinned `uv` version                                          |
+| `embedded-python-version.txt`                | Pinned CPython version                                       |
+| `embedded-python-sidecar-requirements.txt`   | Pinned Python sidecar pack                                   |
 
 ## Runtime Manifest
 
@@ -179,84 +149,93 @@ Location: `~/.hlvm/.runtime/manifest.json`
   "state": "verified",
   "engine": {
     "adapter": "ollama",
-    "path": "/Users/user/.hlvm/.runtime/engine",
-    "hash": "sha256:..."
+    "path": "/Users/user/.hlvm/.runtime/engine/ollama",
+    "hash": "..."
   },
-  "models": [{
-    "modelId": "gemma4:e4b",
-    "size": 9600000000,
-    "hash": "sha256:..."
-  }],
-  "browsers": [{
-    "browser": "chromium",
-    "path": "/Users/user/.hlvm/.runtime/chromium",
-    "hash": "sha256:...",
-    "revision": "playwright-core-1.52.0"
-  }],
-  "buildId": "0.2.0",
-  "createdAt": "2026-04-15T00:00:00Z",
-  "lastVerifiedAt": "2026-04-15T00:00:00Z"
+  "models": [
+    {
+      "modelId": "gemma4:e2b",
+      "size": 7162394016,
+      "hash": "sha256:4e30e2665218..."
+    }
+  ],
+  "python": {
+    "runtime": "cpython",
+    "version": "3.13.13",
+    "uvVersion": "0.11.7",
+    "uvPath": "/Users/user/.hlvm/.runtime/python/uv/uv",
+    "installDir": "/Users/user/.hlvm/.runtime/python/cpython",
+    "environmentPath": "/Users/user/.hlvm/.runtime/python/venv",
+    "interpreterPath": "/Users/user/.hlvm/.runtime/python/venv/bin/python",
+    "hash": "...",
+    "requirementsPath": "/Users/user/.hlvm/.runtime/python/requirements.txt",
+    "requirementsHash": "...",
+    "packages": [
+      "pypdf==6.10.2",
+      "pdfplumber==0.11.9",
+      "python-pptx==1.0.2"
+    ]
+  },
+  "browsers": [
+    {
+      "browser": "chromium",
+      "path": "/Users/user/.hlvm/.runtime/chromium/...",
+      "hash": "...",
+      "revision": "playwright-core-1.59.1"
+    }
+  ],
+  "buildId": "0.1.0",
+  "createdAt": "2026-04-19T00:00:00Z",
+  "lastVerifiedAt": "2026-04-19T00:00:00Z"
 }
 ```
 
 States:
 
-| State           | Meaning                                                         |
-| --------------- | --------------------------------------------------------------- |
-| `uninitialized` | No manifest exists                                              |
-| `verified`      | Engine + fallback model + Chromium present and verified          |
-| `degraded`      | Some assets missing/corrupt (Chromium missing = CU-only mode)   |
+| State           | Meaning                                                                    |
+| --------------- | -------------------------------------------------------------------------- |
+| `uninitialized` | No manifest exists                                                         |
+| `verified`      | Engine + fallback model + managed Python sidecar are present and verified  |
+| `degraded`      | Required bootstrap assets are missing or corrupt                           |
 
-## Ollama Version Pinning
+## Current Pins
 
-The Ollama version is pinned in `embedded-ollama-version.txt` at the repo root.
-This file is baked into the binary at compile time via `deno compile --include`.
-At bootstrap, the binary reads this file to know which Ollama version to
-download.
+| Component            | Current Pin |
+| -------------------- | ----------- |
+| Ollama               | `v0.21.0`   |
+| Local fallback model | `gemma4:e2b`|
+| `uv`                 | `0.11.7`    |
+| CPython              | `3.13.13`   |
 
-**Current version**: `v0.20.1`
+The default Python sidecar pack currently includes:
 
-**Why not v0.20.2**: Ollama v0.20.2 has an upstream packaging bug where the
-server binary reports as v0.19.0, causing HTTP 412 when pulling models. v0.20.1
-works correctly.
+- `pypdf`
+- `pdfplumber`
+- `python-pptx`
+- `python-docx`
+- `openpyxl`
+- `defusedxml`
+- `Pillow`
+- `icalendar`
+- `vobject`
+- `beautifulsoup4`
+- `Jinja2`
+- `striprtf`
+- `fastmcp`
+- `pydantic`
+- `PyYAML`
 
-## CI/CD Pipeline
+## CI/CD
 
-See `docs/cicd/release-pipeline.md` for the complete pipeline documentation.
+See [docs/cicd/release-pipeline.md](/Users/seoksoonjang/dev/hql/docs/cicd/release-pipeline.md:1)
+for the concrete release workflow and smoke path.
 
-```text
-git tag vX.Y.Z && git push origin vX.Y.Z
-  → resolve → build (4 platforms) → create draft release
-  → staged smoke (4 platforms) → publish → public smoke
-```
+## Future
 
-All platforms build identically: `deno compile` → ~363 MB binary. No embedding,
-no splitting, no Windows special cases.
+The runtime model selection logic can evolve over time, but the install
+contract should not:
 
-## Platform Differences
-
-From the user's perspective, all platforms are identical: one install command,
-wait, `hlvm ask "hello"` works.
-
-From the CI/CD perspective, all platforms build identically. The only difference
-is which Ollama archive is downloaded at bootstrap:
-
-| Platform    | Binary       | Size    | Ollama Archive at Bootstrap  |
-| ----------- | ------------ | ------- | ---------------------------- |
-| macOS ARM   | hlvm-mac-arm | ~363 MB | ollama-darwin.tgz            |
-| macOS Intel | hlvm-mac-intel | ~363 MB | ollama-darwin.tgz          |
-| Linux x64   | hlvm-linux   | ~363 MB | ollama-linux-amd64.tgz       |
-| Windows x64 | hlvm-windows.exe | ~363 MB | ollama-windows-amd64.zip |
-
-## Future: Model Auto-Select
-
-Bootstrap will detect available RAM and pick the best model:
-
-```text
-RAM >= 16 GB  →  gemma4:12b  (9.6 GB, best quality)
-RAM >= 8 GB   →  gemma3:4b   (2.5 GB, good)
-RAM < 8 GB    →  gemma3:1b   (680 MB, fast)
-```
-
-This reduces install time from ~30 min to ~2 min for most users. Users can
-upgrade with `hlvm pull <model>` after install.
+- install once
+- do all heavy lifting up front
+- fail closed if required runtimes are missing
+- let `hlvm ask` assume the managed runtime already exists

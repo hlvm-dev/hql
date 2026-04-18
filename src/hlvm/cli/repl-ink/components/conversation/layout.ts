@@ -3,6 +3,7 @@ import { formatDurationMs } from "../../utils/formatting.ts";
 
 export interface ToolCallTextLayout {
   labelText: string;
+  suffixText: string;
   durationText: string;
   gapWidth: number;
 }
@@ -11,6 +12,7 @@ export function buildToolCallTextLayout(
   width: number,
   label: string,
   durationMs?: number,
+  suffix?: string,
 ): ToolCallTextLayout {
   const shouldRenderDuration = durationMs != null && durationMs >= 1000;
   const fullDurationText = shouldRenderDuration
@@ -20,16 +22,26 @@ export function buildToolCallTextLayout(
       width >= fullDurationText.length + 2
     ? fullDurationText
     : "";
+  const minLabelWidth = Math.min(18, Math.max(8, Math.floor(width * 0.45)));
+  const rawSuffix = suffix?.trim() ?? "";
+  const suffixBudget = Math.max(
+    0,
+    width - durationText.length - (durationText ? 1 : 0) - minLabelWidth,
+  );
+  const suffixText = rawSuffix && suffixBudget >= 8
+    ? ` · ${truncate(rawSuffix, suffixBudget - 3, "…")}`
+    : "";
   const availableLabelWidth = Math.max(
     1,
-    width - durationText.length - (durationText ? 1 : 0),
+    width - durationText.length - suffixText.length - (durationText ? 1 : 0),
   );
   const labelText = truncate(label, availableLabelWidth, "…");
-  const usedWidth = labelText.length + durationText.length;
+  const usedWidth = labelText.length + suffixText.length + durationText.length;
   const gapWidth = durationText ? Math.max(1, width - usedWidth) : 0;
 
   return {
     labelText,
+    suffixText,
     durationText,
     gapWidth,
   };

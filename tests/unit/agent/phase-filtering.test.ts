@@ -53,6 +53,7 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     },
     continuedThisTurn: false,
     continuationCount: 0,
+    requestPhaseClassification: { phase: "researching" },
     ...overrides,
   };
 }

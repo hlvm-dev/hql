@@ -25,6 +25,29 @@ interface ToolCallItemProps {
   animateStatusIcon?: boolean;
 }
 
+function isInlineSecondaryTextAllowed(
+  text: string | undefined,
+  presentationKind: string | undefined,
+  expanded: boolean,
+): text is string {
+  if (expanded || !text) return false;
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.includes("\n")) return false;
+  if (
+    presentationKind === "diff" || presentationKind === "edit" ||
+    presentationKind === "shell"
+  ) {
+    return false;
+  }
+  if (
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function resolveToolResultText(
   tool: Pick<
     ToolCallDisplay,
@@ -52,10 +75,23 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     displayName,
     argsSummary: tool.argsSummary,
   });
+  const resultText = resolveToolResultText(tool, expanded);
+  const inlineSummary = tool.status === "running"
+    ? isInlineSecondaryTextAllowed(tool.progressText, presentationKind, expanded)
+      ? tool.progressText.trim()
+      : undefined
+    : tool.status === "pending"
+    ? isInlineSecondaryTextAllowed(tool.queuedText, presentationKind, expanded)
+      ? tool.queuedText.trim()
+      : undefined
+    : isInlineSecondaryTextAllowed(resultText, presentationKind, expanded)
+    ? resultText.trim()
+    : undefined;
   const layout = buildToolCallTextLayout(
     Math.max(0, width - 2),
     invocationLabel,
     tool.durationMs,
+    inlineSummary,
   );
 
   const labelColor = tool.status === "error"
@@ -78,6 +114,14 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     ? sc.status.success
     : sc.text.secondary;
   const queuedColor = sc.text.muted;
+  const inlineSummaryColor = tool.status === "error"
+    ? sc.status.error
+    : tool.status === "running"
+    ? progressColor
+    : tool.status === "pending"
+    ? sc.text.muted
+    : sc.text.secondary;
+  const showInlineSummary = Boolean(layout.suffixText);
   const shouldRenderResult = tool.status !== "running";
   const resultMaxLines = tool.status === "error"
     ? 12
@@ -98,7 +142,7 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     <Box flexDirection="column">
       <Box>
         <ToolStatusIcon status={tool.status} animate={animateStatusIcon} />
-        <Text></Text>
+        <Text> </Text>
         <Text color={labelColor} bold wrap="truncate-end">
           {layout.labelText}
         </Text>
@@ -106,9 +150,14 @@ export const ToolCallItem = React.memo(function ToolCallItem(
         {layout.durationText && (
           <Text color={durationColor}>{layout.durationText}</Text>
         )}
+        {showInlineSummary && (
+          <Text color={inlineSummaryColor} wrap="truncate-end">
+            {layout.suffixText}
+          </Text>
+        )}
       </Box>
 
-      {tool.status === "running" && runningProgressText && (
+      {tool.status === "running" && runningProgressText && !showInlineSummary && (
         <Box marginLeft={2} flexDirection="row">
           <Text color={resultGutterColor}>{"⎿  "}</Text>
           <Text color={progressColor} wrap="truncate-end">
@@ -117,7 +166,7 @@ export const ToolCallItem = React.memo(function ToolCallItem(
         </Box>
       )}
 
-      {tool.status === "pending" && queuedText && (
+      {tool.status === "pending" && queuedText && !showInlineSummary && (
         <Box marginLeft={2} flexDirection="row">
           <Text color={resultGutterColor}>{"⎿  "}</Text>
           <Text color={queuedColor} wrap="truncate-end">
@@ -127,13 +176,14 @@ export const ToolCallItem = React.memo(function ToolCallItem(
       )}
 
       {shouldRenderResult &&
-        resolveToolResultText(tool, expanded) &&
+        resultText &&
+        !showInlineSummary &&
         tool.status !== "running" && (
         <Box marginLeft={2} flexDirection="row">
           <Text color={resultGutterColor}>{"⎿  "}</Text>
           <Box flexDirection="column" flexShrink={1}>
             <ToolResult
-              text={resolveToolResultText(tool, expanded)}
+              text={resultText}
               width={Math.max(10, width - 5)}
               maxLines={resultMaxLines}
               expanded={expanded}

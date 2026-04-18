@@ -283,6 +283,41 @@ export function getRuntimeDir(): string {
   return join(getHlvmDir(), ".runtime");
 }
 
+/** Root directory for the HLVM-managed Python sidecar runtime. */
+export function getPythonRuntimeDir(): string {
+  return join(getRuntimeDir(), "python");
+}
+
+/** HLVM-owned uv installer/runtime directory. */
+export function getManagedUvDir(): string {
+  return join(getPythonRuntimeDir(), "uv");
+}
+
+/** HLVM-owned uv cache directory. */
+export function getManagedPythonCacheDir(): string {
+  return join(getPythonRuntimeDir(), "cache");
+}
+
+/** uv-managed CPython installation root. */
+export function getManagedPythonInstallDir(): string {
+  return join(getPythonRuntimeDir(), "cpython");
+}
+
+/** Directory where uv writes versioned Python shims. */
+export function getManagedPythonBinDir(): string {
+  return join(getPythonRuntimeDir(), "bin");
+}
+
+/** Dedicated virtual environment for HLVM's default Python sidecar pack. */
+export function getManagedPythonVenvDir(): string {
+  return join(getPythonRuntimeDir(), "venv");
+}
+
+/** Runtime copy of the default Python sidecar requirements file. */
+export function getManagedPythonRequirementsPath(): string {
+  return join(getPythonRuntimeDir(), "requirements.txt");
+}
+
 /**
  * Get the async-agent task output directory (~/.hlvm/tasks)
  */
@@ -392,6 +427,11 @@ export function ensureHlvmDirSync(): void {
  */
 export async function ensureRuntimeDir(): Promise<void> {
   await getPlatform().fs.mkdir(getRuntimeDir(), { recursive: true });
+}
+
+/** Ensure the managed Python runtime directory exists. */
+export async function ensurePythonRuntimeDir(): Promise<void> {
+  await getPlatform().fs.mkdir(getPythonRuntimeDir(), { recursive: true });
 }
 
 /** Ensure the session-scoped tool-result sidecar directory exists. */

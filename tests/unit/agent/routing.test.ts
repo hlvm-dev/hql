@@ -1,9 +1,5 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
-  buildToolSurface,
-  buildTurnRouting,
-} from "../../../src/hlvm/agent/routing.ts";
-import {
   applyAdaptiveToolPhase,
   type LoopState,
   type OrchestratorConfig,
@@ -12,61 +8,7 @@ import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { computeFallbackToolFilter } from "../../../src/hlvm/agent/agent-runner.ts";
 import { computeTierToolFilter } from "../../../src/hlvm/agent/constants.ts";
 import { UsageTracker } from "../../../src/hlvm/agent/usage.ts";
-
-Deno.test("routing builds model-driven tool surface with deferred discovery", () => {
-  const surface = buildToolSurface({
-    modelTier: "standard",
-    eagerTools: ["tool_search", "read_file"],
-    deniedTools: ["web_fetch"],
-    toolSearchUniverseAllowlist: ["read_file", "web_fetch", "search_web"],
-  });
-
-  assertEquals(surface.discovery, "tool_search");
-  assertEquals(surface.eagerTools, ["read_file", "tool_search"]);
-  assertEquals(surface.deniedTools, ["web_fetch"]);
-  assertEquals(surface.deferredTools, ["search_web"]);
-});
-
-Deno.test("routing disables meta-tool discovery for constrained models", () => {
-  const surface = buildToolSurface({
-    modelTier: "constrained",
-    eagerTools: ["tool_search", "read_file"],
-    toolSearchUniverseAllowlist: ["search_web"],
-  });
-
-  assertEquals(surface.discovery, "none");
-  assertEquals(surface.deferredTools, []);
-});
-
-Deno.test("routing disables discovery when tool_search is not in eager surface", () => {
-  const surface = buildToolSurface({
-    modelTier: "enhanced",
-    eagerTools: ["read_file"],
-    toolSearchUniverseAllowlist: ["search_web"],
-  });
-
-  assertEquals(surface.discovery, "none");
-  assertEquals(surface.deferredTools, []);
-});
-
-Deno.test("routing output stays limited to model and capacity boundaries", () => {
-  const routing = buildTurnRouting({
-    selectedModel: "openai/gpt-5.4",
-    modelSource: "explicit",
-    modelTier: "enhanced",
-    eagerTools: ["tool_search"],
-  });
-
-  assertEquals(routing.selectedModel, "openai/gpt-5.4");
-  assertEquals(routing.modelSource, "explicit");
-  assertEquals(routing.modelTier, "enhanced");
-  assertEquals("taskDomain" in routing, false);
-  assertEquals("needsPlan" in routing, false);
-});
-
-// ---------------------------------------------------------------------------
-// Contract tests for routing-adjacent fixes
-// ---------------------------------------------------------------------------
+import { getPlatform } from "../../../src/platform/platform.ts";
 
 function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
   return {
@@ -115,48 +57,41 @@ function makeConfig(
   } as OrchestratorConfig;
 }
 
-Deno.test("applyAdaptiveToolPhase caches per-turn request heuristics", async () => {
-  const state = makeLoopState();
-  const config = makeConfig({ modelTier: "standard" });
+Deno.test("applyAdaptiveToolPhase caches per-turn request phase classification", async () => {
+  const platform = getPlatform();
+  const previous = platform.env.get("HLVM_DISABLE_AI_AUTOSTART");
+  platform.env.set("HLVM_DISABLE_AI_AUTOSTART", "1");
+  try {
+    const state = makeLoopState();
+    const config = makeConfig({ modelTier: "standard" });
 
-  assertEquals(state.requestHeuristics, undefined);
+    assertEquals(state.requestPhaseClassification, undefined);
 
-  // First call: populates cache from the regex classifiers.
-  // "fix the auth bug" matches impliesEditing (fix) and not impliesVerification.
-  const phase1 = await applyAdaptiveToolPhase(state, config, "fix the auth bug");
-  assertEquals(phase1, "editing");
-  assertEquals(state.requestHeuristics?.impliesEditing, true);
-  assertEquals(state.requestHeuristics?.impliesVerification, false);
+    const phase1 = await applyAdaptiveToolPhase(
+      state,
+      config,
+      "fix the auth bug",
+    );
+    assertEquals(phase1, "editing");
+    assertEquals(state.requestPhaseClassification?.phase, "editing");
 
-  // Mutate the cache to values that contradict the regex. If the cache is
-  // actually being read, the second call must use the mutated values and
-  // return "verifying". If the regex re-runs each iteration, it would
-  // return "editing" again (and this assertion would fail).
-  state.requestHeuristics = {
-    impliesEditing: false,
-    impliesVerification: true,
-  };
+    state.requestPhaseClassification = { phase: "verifying" };
 
-  const phase2 = await applyAdaptiveToolPhase(state, config, "fix the auth bug");
-  assertEquals(phase2, "verifying");
-  // Cache was NOT overwritten by the second call.
-  assertEquals(state.requestHeuristics.impliesEditing, false);
-  assertEquals(state.requestHeuristics.impliesVerification, true);
+    const phase2 = await applyAdaptiveToolPhase(
+      state,
+      config,
+      "fix the auth bug",
+    );
+    assertEquals(phase2, "verifying");
+    assertEquals(state.requestPhaseClassification.phase, "verifying");
+  } finally {
+    if (previous === undefined) {
+      platform.env.delete("HLVM_DISABLE_AI_AUTOSTART");
+    } else {
+      platform.env.set("HLVM_DISABLE_AI_AUTOSTART", previous);
+    }
+  }
 });
-
-// ---------------------------------------------------------------------------
-// computeFallbackToolFilter — createFallbackLLM's routing boundary.
-//
-// Two regressions guarded here:
-//   (a) historical: a fallback silently LOST in-turn discovered deferred
-//       tools, breaking any task that depended on them.
-//   (b) recent: a naive "preserve primary persistent filter" approach
-//       overscoped the fallback — the primary's enhanced baseline +
-//       hybrid cu_* tools leaked into a smaller fallback's surface.
-//
-// The contract: (fallback's own tier surface) ∪ (session discoveries),
-// with an empty explicit allowlist preserved as zero.
-// ---------------------------------------------------------------------------
 
 Deno.test("fallback: native tier surface is the floor when user is implicit", () => {
   const model = "ollama/gemma4:e2b";
@@ -177,20 +112,11 @@ Deno.test("fallback: native tier surface is the floor when user is implicit", ()
 });
 
 Deno.test("fallback: does NOT inherit the primary's hybrid domain-layer tools", () => {
-  // Browser hybrid promotion widens the primary's baseline layer with cu_*
-  // tools (see widenBaselineForDomainProfile). My earlier fix mistakenly
-  // passed resolvePersistentToolFilter(session.toolProfileState).allowlist
-  // through computeTierToolFilter, which does not intersect with tier cap —
-  // so the fallback inherited cu_* tools it can't use.
-  //
-  // The fix pins the invariant: cu_* (and any other primary-baseline-only
-  // additions) are NOT inherited. Only session.discoveredDeferredTools
-  // crosses the boundary.
   const filter = computeFallbackToolFilter({
     fallbackModel: "ollama/gemma4:e2b",
     requestedToolAllowlist: undefined,
     effectiveToolDenylist: [],
-    discoveredDeferredTools: [], // cu_* came from hybrid promotion, not discovery
+    discoveredDeferredTools: [],
   });
 
   assertEquals(filter.allowlist?.some((t) => t.startsWith("cu_")), false);
@@ -206,7 +132,6 @@ Deno.test("fallback: merges in-turn discovered deferred tools onto tier floor", 
 
   assertEquals(filter.allowlist?.includes("__test_data_query"), true);
   assertEquals(filter.allowlist?.includes("__test_data_summary"), true);
-  // Native tier floor still there.
   assertEquals(filter.allowlist?.includes("read_file"), true);
 });
 
