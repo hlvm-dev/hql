@@ -962,14 +962,24 @@ interface AgentToolResult {
   status: "completed";
   agentId: string;
   agentType: string;
-  prompt: string;              // echo of the prompt sent to the child
-  content: string;             // child's final text
+  prompt: string;                    // echo of prompt sent to child
+  content: Array<{ type: "text"; text: string }>;  // CC-shaped text blocks
   totalDurationMs: number;
   totalToolUseCount: number;
   totalTokens: number;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number | null;  // null — not tracked in HLVM engine
+    cache_read_input_tokens: number | null;
+    server_tool_use: { web_search_requests: number; web_fetch_requests: number } | null;
+    service_tier: "standard" | "priority" | "batch" | null;
+    cache_creation: { ephemeral_1h_input_tokens: number; ephemeral_5m_input_tokens: number } | null;
+  };
   worktreePath?: string;
   worktreeBranch?: string;
 }
+// Use `getAgentToolResultText(result)` for the plain text.
 
 // Async launch (returned immediately when run_in_background: true)
 interface AgentAsyncResult {

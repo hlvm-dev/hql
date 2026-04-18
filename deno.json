@@ -33,7 +33,7 @@
     "jsdom": "npm:jsdom@22.1.0",
     "@mozilla/readability": "npm:@mozilla/readability@0.5",
     "lowlight": "npm:lowlight@3",
-    "marked": "npm:marked@^17",
+    "marked": "npm:marked@^18",
     "officeparser": "npm:officeparser@6.0.4",
     "mammoth": "npm:mammoth@1.12.0",
     "xlsx": "npm:xlsx@0.18.5",

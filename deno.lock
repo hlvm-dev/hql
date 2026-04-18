@@ -66,7 +66,7 @@
     "npm:lodash-es@4": "4.18.1",
     "npm:lowlight@3": "3.3.0",
     "npm:mammoth@1.12.0": "1.12.0",
-    "npm:marked@17": "17.0.4",
+    "npm:marked@18": "18.0.1",
     "npm:ms@2.1.3": "2.1.3",
     "npm:officeparser@6.0.4": "6.0.4",
     "npm:ollama-ai-provider-v2@3": "3.4.0_ai@6.0.116__zod@4.3.6_zod@4.3.6",
@@ -1796,8 +1796,8 @@
       ],
       "bin": true
     },
-    "marked@17.0.4": {
-      "integrity": "sha512-NOmVMM+KAokHMvjWmC5N/ZOvgmSWuqJB8FoYI019j4ogb/PeRMKoKIjReZ2w3376kkA8dSJIP8uD993Kxc0iRQ==",
+    "marked@18.0.1": {
+      "integrity": "sha512-IILJE4Aap/KIGu4ZRCzQcYMxkhumblXnbqfQe+HAD4f982wrRAsJEGKGM653yAioS6g3Yq3yOhjrUebcrtOgRA==",
       "bin": true
     },
     "math-intrinsics@1.1.0": {
@@ -3025,7 +3025,7 @@
       "npm:lodash-es@4",
       "npm:lowlight@3",
       "npm:mammoth@1.12.0",
-      "npm:marked@17",
+      "npm:marked@18",
       "npm:officeparser@6.0.4",
       "npm:ollama-ai-provider-v2@3",
       "npm:playwright-core@1",
