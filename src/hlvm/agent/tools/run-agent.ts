@@ -187,8 +187,6 @@ export async function runAgent(
     maxTokens: inheritedConfig?.contextBudget ?? 128_000,
   });
 
-  // CC-faithful: enrich child system prompt with notes + <env> block
-  // (constants/prompts.ts:760 enhanceSystemPromptWithEnvDetails).
   const enhanced = await enhanceSystemPromptWithEnvDetails(
     [systemPrompt],
     effectiveModel ?? inheritedConfig?.modelId ?? "unknown",

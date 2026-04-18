@@ -123,10 +123,6 @@ export type ParseAgentResult =
   | { ok: true; agent: CustomAgentDefinition }
   | { ok: false; reason: string };
 
-/**
- * Detailed variant that surfaces parse-failure reasons to callers.
- * Preferred for directory loaders that want to report failedFiles[].
- */
 export function parseAgentFromMarkdownDetailed(
   filePath: string,
   content: string,
@@ -265,10 +261,6 @@ export function parseAgentFromMarkdownDetailed(
   }
 }
 
-/**
- * Back-compat wrapper. Returns the parsed agent or null. Prefer
- * parseAgentFromMarkdownDetailed() if you need to surface reasons.
- */
 export function parseAgentFromMarkdown(
   filePath: string,
   content: string,

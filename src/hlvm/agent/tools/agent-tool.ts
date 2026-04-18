@@ -729,13 +729,16 @@ async function runAsyncAgent(opts: {
     void executeBackgroundAgent();
   }, 0);
 
-  // Return immediately (CC: async_launched)
+  const canReadOutputFile = "read_file" in allTools ||
+    "shell_exec" in allTools;
+
   return {
     status: "async_launched",
     agentId,
     description,
     prompt,
     outputFile,
+    canReadOutputFile,
   };
 }
 

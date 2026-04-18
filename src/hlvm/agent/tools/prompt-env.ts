@@ -1,15 +1,3 @@
-/**
- * CC-faithful port of constants/prompts.ts:
- *   - enhanceSystemPromptWithEnvDetails (CC line 760)
- *   - computeEnvInfo                   (CC line 606)
- *
- * Dropped from CC source: USER_TYPE==='ant'/isUndercover() gates,
- * GrowthBook flags, EXPERIMENTAL_SKILL_SEARCH (skill_discovery),
- * CACHED_MICROCOMPACT, FRONTIER_MODEL_NAME line — HLVM has none of
- * these. Prompt strings, <env> block shape, and ordering are
- * byte-identical to CC.
- */
-
 import { getPlatform } from "../../../platform/platform.ts";
 
 export async function computeEnvInfo(

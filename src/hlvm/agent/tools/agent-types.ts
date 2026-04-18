@@ -109,13 +109,13 @@ export interface AgentToolResult {
   worktreeBranch?: string;
 }
 
-/** Result from an async agent launch. CC: async_launched output */
 export interface AgentAsyncResult {
   status: "async_launched";
   agentId: string;
   description: string;
   prompt: string;
   outputFile: string;
+  canReadOutputFile?: boolean;
 }
 
 /** Union of all agent tool outputs */
