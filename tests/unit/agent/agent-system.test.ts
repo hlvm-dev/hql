@@ -184,10 +184,10 @@ Deno.test("filterToolsForAgent: blocks ALL_AGENT_DISALLOWED_TOOLS", () => {
 });
 
 Deno.test("filterToolsForAgent: allows MCP tools always", () => {
-  const tools = mockToolRegistry("mcp__slack_post", "ask_user");
+  const tools = mockToolRegistry("mcp_slack_post", "ask_user");
   const filtered = filterToolsForAgent({ tools, isBuiltIn: false });
 
-  assertEquals("mcp__slack_post" in filtered, true);
+  assertEquals("mcp_slack_post" in filtered, true);
   assertEquals("ask_user" in filtered, false);
 });
 
@@ -201,6 +201,23 @@ Deno.test("filterToolsForAgent: async restricts to allowlist", () => {
 
   assertEquals("read_file" in filtered, true);
   assertEquals("write_file" in filtered, true);
+  assertEquals("some_custom_tool" in filtered, false);
+});
+
+Deno.test("filterToolsForAgent: async preserves real MCP tools", () => {
+  const tools = mockToolRegistry(
+    "mcp_test_echo",
+    "read_file",
+    "some_custom_tool",
+  );
+  const filtered = filterToolsForAgent({
+    tools,
+    isBuiltIn: true,
+    isAsync: true,
+  });
+
+  assertEquals("mcp_test_echo" in filtered, true);
+  assertEquals("read_file" in filtered, true);
   assertEquals("some_custom_tool" in filtered, false);
 });
 
@@ -273,7 +290,7 @@ Deno.test("applyParentPermissions: no-op when neither list present", () => {
 Deno.test("applyParentPermissions: MCP tools respect parent allowlist (not bypassed)", () => {
   const tools = {
     ...mockToolRegistry("read_file"),
-    "mcp__server__tool": { name: "mcp__server__tool" } as never,
+    "mcp_server_tool": { name: "mcp_server_tool" } as never,
   };
   const filtered = applyParentPermissions(tools, ["read_file"], undefined);
   assertEquals(Object.keys(filtered).sort(), ["read_file"]);
@@ -282,12 +299,12 @@ Deno.test("applyParentPermissions: MCP tools respect parent allowlist (not bypas
 Deno.test("applyParentPermissions: MCP tools respect parent denylist", () => {
   const tools = {
     ...mockToolRegistry("read_file"),
-    "mcp__server__tool": { name: "mcp__server__tool" } as never,
+    "mcp_server_tool": { name: "mcp_server_tool" } as never,
   };
   const filtered = applyParentPermissions(
     tools,
     undefined,
-    ["mcp__server__tool"],
+    ["mcp_server_tool"],
   );
   assertEquals(Object.keys(filtered).sort(), ["read_file"]);
 });
@@ -295,23 +312,23 @@ Deno.test("applyParentPermissions: MCP tools respect parent denylist", () => {
 Deno.test("applyParentPermissions: MCP tools pass through when no lists are set", () => {
   const tools = {
     ...mockToolRegistry("read_file"),
-    "mcp__server__tool": { name: "mcp__server__tool" } as never,
+    "mcp_server_tool": { name: "mcp_server_tool" } as never,
   };
   const filtered = applyParentPermissions(tools, undefined, undefined);
-  assertEquals(Object.keys(filtered).sort(), ["mcp__server__tool", "read_file"]);
+  assertEquals(Object.keys(filtered).sort(), ["mcp_server_tool", "read_file"]);
 });
 
 Deno.test("applyParentPermissions: MCP tools pass when explicitly allowed", () => {
   const tools = {
     ...mockToolRegistry("read_file"),
-    "mcp__server__tool": { name: "mcp__server__tool" } as never,
+    "mcp_server_tool": { name: "mcp_server_tool" } as never,
   };
   const filtered = applyParentPermissions(
     tools,
-    ["read_file", "mcp__server__tool"],
+    ["read_file", "mcp_server_tool"],
     undefined,
   );
-  assertEquals(Object.keys(filtered).sort(), ["mcp__server__tool", "read_file"]);
+  assertEquals(Object.keys(filtered).sort(), ["mcp_server_tool", "read_file"]);
 });
 
 Deno.test("applyParentPermissions: allowlist accepts Tool(pattern) specs via CC parser", () => {
@@ -377,9 +394,9 @@ Deno.test("permissionRuleValueFromString: empty content -> tool-wide", () => {
 });
 
 Deno.test("permissionRuleValueFromString: escaped parens in content", () => {
-  const r = permissionRuleValueFromString("Bash(python -c \"print\\(1\\)\")");
+  const r = permissionRuleValueFromString('Bash(python -c "print\\(1\\)")');
   assertEquals(r.toolName, "Bash");
-  assertEquals(r.ruleContent, "python -c \"print(1)\"");
+  assertEquals(r.ruleContent, 'python -c "print(1)"');
 });
 
 Deno.test("permissionRuleValueFromString: malformed returns whole string as toolName", () => {

@@ -71,6 +71,7 @@ import {
   type ToolFailureMetadata,
 } from "./tool-results.ts";
 import { capturePlaywrightFailureDiagnostics } from "./playwright/diagnostics.ts";
+import { isMcpToolName } from "./mcp/tool-names.ts";
 
 const CHECKPOINT_SUPPORTED_MUTATION_TOOLS = new Set([
   "write_file",
@@ -310,7 +311,7 @@ export async function executeToolCall(
   // Lazy MCP bootstrap: defer MCP connect+registration until a tool call needs it.
   if (
     config.ensureMcpLoaded &&
-    (toolCall.toolName.startsWith("mcp_") ||
+    (isMcpToolName(toolCall.toolName) ||
       toolCall.toolName === "tool_search")
   ) {
     await config.ensureMcpLoaded(config.signal);

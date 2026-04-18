@@ -11,6 +11,7 @@
 
 import type { ToolMetadata } from "../registry.ts";
 import type { AgentDefinition } from "./agent-types.ts";
+import { isMcpToolName } from "../mcp/tool-names.ts";
 import {
   ALL_AGENT_DISALLOWED_TOOLS,
   ASYNC_AGENT_ALLOWED_TOOLS,
@@ -38,8 +39,8 @@ export interface ResolvedAgentTools {
  * Baseline tool filtering for sub-agents.
  * Applies universal and source-specific disallow lists.
  *
- * CC logic exactly:
- * 1. Allow all MCP tools (mcp__ prefix)
+ * Baseline logic:
+ * 1. Allow all MCP tools
  * 2. Block ALL_AGENT_DISALLOWED_TOOLS (universal)
  * 3. Block CUSTOM_AGENT_DISALLOWED_TOOLS for non-built-in agents
  * 4. For async agents, only allow ASYNC_AGENT_ALLOWED_TOOLS
@@ -54,7 +55,7 @@ export function filterToolsForAgent(opts: {
 
   for (const [name, meta] of Object.entries(tools)) {
     // Rule 1: Allow MCP tools
-    if (name.startsWith("mcp__")) {
+    if (isMcpToolName(name)) {
       filtered[name] = meta;
       continue;
     }
@@ -90,10 +91,14 @@ export function applyParentPermissions(
   if (!hasAllow && !hasDeny) return allTools;
 
   const allowSet = hasAllow
-    ? new Set(parentAllowlist!.map((s) => permissionRuleValueFromString(s).toolName))
+    ? new Set(
+      parentAllowlist!.map((s) => permissionRuleValueFromString(s).toolName),
+    )
     : null;
   const denySet = hasDeny
-    ? new Set(parentDenylist!.map((s) => permissionRuleValueFromString(s).toolName))
+    ? new Set(
+      parentDenylist!.map((s) => permissionRuleValueFromString(s).toolName),
+    )
     : null;
 
   const filtered: Record<string, ToolMetadata> = {};
@@ -183,4 +188,3 @@ export function resolveAgentTools(
     resolvedTools: resolved,
   };
 }
-

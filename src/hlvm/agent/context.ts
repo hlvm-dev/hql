@@ -20,6 +20,7 @@ import { truncate, truncateMiddle } from "../../common/utils.ts";
 import type { ConversationAttachmentPayload } from "../attachments/types.ts";
 import { collectFiles, collectSymbols } from "./compaction-template.ts";
 import type { FileRestorationHint } from "./file-state-cache.ts";
+import { isMcpToolName } from "./mcp/tool-names.ts";
 
 const toolCallArgLenCache = new WeakMap<object, number>();
 // ============================================================
@@ -134,7 +135,7 @@ function isMicrocompactableToolMessage(message: Message): boolean {
   const toolName = message.toolName?.toLowerCase();
   if (!toolName) return false;
   return MICROCOMPACTABLE_TOOL_NAMES.has(toolName) ||
-    toolName.startsWith("mcp_");
+    isMcpToolName(toolName);
 }
 
 interface MessageGroup {

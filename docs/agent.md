@@ -999,12 +999,12 @@ Two stages apply in order. Stage 1 (parent permissions) runs in
 runs in `resolveAgentTools`.
 
 **Stage 1 — parent permission propagation** (`applyParentPermissions`):
-   - If the parent passes `options.toolAllowlist`, drop every tool (including `mcp__*`) not on that list.
-   - If the parent passes `options.toolDenylist`, drop every matching tool (including `mcp__*`).
+   - If the parent passes `options.toolAllowlist`, drop every tool (including `mcp_*`) not on that list.
+   - If the parent passes `options.toolDenylist`, drop every matching tool (including `mcp_*`).
    - If neither list is set, passthrough.
 
 **Stage 2 — agent definition filtering** (`filterToolsForAgent` + `resolveAgentTools`):
-   1. Allow `mcp__*` tools through this stage (they have already cleared Stage 1).
+   1. Allow `mcp_*` tools through this stage (they have already cleared Stage 1).
    2. Drop tools in `ALL_AGENT_DISALLOWED_TOOLS` (currently `ask_user`, `complete_task`, `Agent`).
    3. If not a built-in agent, also drop tools in `CUSTOM_AGENT_DISALLOWED_TOOLS`.
    4. If async, restrict to `ASYNC_AGENT_ALLOWED_TOOLS` allowlist.
