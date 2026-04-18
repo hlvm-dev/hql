@@ -46,7 +46,9 @@ const apis = [
   `${ROOT}src/hlvm/cli/repl/http-server.ts`,
 ];
 
-const spec = swaggerJsdoc({ definition, apis });
+const spec = swaggerJsdoc({ definition, apis }) as {
+  paths?: Record<string, Record<string, unknown>>;
+};
 
 // Count paths and operations
 const paths = spec.paths ?? {};

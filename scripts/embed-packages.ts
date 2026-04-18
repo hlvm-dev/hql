@@ -37,7 +37,8 @@ for await (const entry of walk(coreLibPath, {
       }
       console.log(`✅ Embedded ${key} (${content.length} bytes)`);
     } catch (error) {
-      console.error(`❌ Failed to embed ${key}:`, error.message);
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`❌ Failed to embed ${key}:`, message);
     }
   }
 }
@@ -68,7 +69,10 @@ try {
             embeddedPackages[key] = content;
             console.log(`✅ Embedded ${key} (${content.length} bytes)`);
           } catch (error) {
-            console.error(`❌ Failed to embed ${key}:`, error.message);
+            const message = error instanceof Error
+              ? error.message
+              : String(error);
+            console.error(`❌ Failed to embed ${key}:`, message);
           }
         }
       }

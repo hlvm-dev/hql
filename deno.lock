@@ -1,7 +1,9 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@david/code-block-writer@^13.0.3": "13.0.3",
     "jsr:@db/sqlite@0.12": "0.12.0",
+    "jsr:@deno/dnt@*": "0.42.3",
     "jsr:@denosaurs/plug@1": "1.1.0",
     "jsr:@std/assert@*": "1.0.19",
     "jsr:@std/assert@0.217": "0.217.0",
@@ -24,6 +26,8 @@
     "jsr:@std/path@^1.1.4": "1.1.4",
     "jsr:@std/semver@1": "1.0.8",
     "jsr:@std/testing@1": "1.0.17",
+    "jsr:@ts-morph/bootstrap@0.27": "0.27.0",
+    "jsr:@ts-morph/common@0.27": "0.27.0",
     "npm:@ai-sdk/anthropic@3": "3.0.58_zod@4.3.6",
     "npm:@ai-sdk/google@3": "3.0.43_zod@4.3.6",
     "npm:@ai-sdk/openai@3": "3.0.41_zod@4.3.6",
@@ -34,6 +38,7 @@
     "npm:@mozilla/readability@0.5": "0.5.0",
     "npm:@types/node@*": "25.5.0",
     "npm:@types/source-map@0.5.7": "0.5.7",
+    "npm:@types/swagger-jsdoc@6.0.4": "6.0.4",
     "npm:acorn@8.11.3": "8.11.3",
     "npm:ai@6": "6.0.116_zod@4.3.6",
     "npm:ajv@^8.18.0": "8.18.0",
@@ -88,11 +93,24 @@
     "npm:yaml@2.0.0-1": "2.0.0-1"
   },
   "jsr": {
+    "@david/code-block-writer@13.0.3": {
+      "integrity": "f98c77d320f5957899a61bfb7a9bead7c6d83ad1515daee92dbacc861e13bb7f"
+    },
     "@db/sqlite@0.12.0": {
       "integrity": "dd1ef7f621ad50fc1e073a1c3609c4470bd51edc0994139c5bf9851de7a6d85f",
       "dependencies": [
         "jsr:@denosaurs/plug",
         "jsr:@std/path@0.217"
+      ]
+    },
+    "@deno/dnt@0.42.3": {
+      "integrity": "62a917a0492f3c8af002dce90605bb0d41f7d29debc06aca40dba72ab65d8ae3",
+      "dependencies": [
+        "jsr:@david/code-block-writer",
+        "jsr:@std/fmt",
+        "jsr:@std/fs@1",
+        "jsr:@std/path@1",
+        "jsr:@ts-morph/bootstrap"
       ]
     },
     "@denosaurs/plug@1.1.0": {
@@ -165,6 +183,15 @@
         "jsr:@std/async@^1.1.0",
         "jsr:@std/data-structures"
       ]
+    },
+    "@ts-morph/bootstrap@0.27.0": {
+      "integrity": "b8d7bc8f7942ce853dde4161b28f9aa96769cef3d8eebafb379a81800b9e2448",
+      "dependencies": [
+        "jsr:@ts-morph/common"
+      ]
+    },
+    "@ts-morph/common@0.27.0": {
+      "integrity": "c7b73592d78ce8479b356fd4f3d6ec3c460d77753a8680ff196effea7a939052"
     }
   },
   "npm": {
@@ -580,6 +607,9 @@
         "source-map"
       ],
       "deprecated": true
+    },
+    "@types/swagger-jsdoc@6.0.4": {
+      "integrity": "sha512-W+Xw5epcOZrF/AooUM/PccNMSAFOKWZA5dasNyMujTwsBkU74njSJBpvCCJhHAJ95XRMzQrrW844Btu0uoetwQ=="
     },
     "@types/unist@3.0.3": {
       "integrity": "sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q=="
