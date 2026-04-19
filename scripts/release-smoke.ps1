@@ -117,11 +117,11 @@ try {
         Write-Host "    Ollama OK"
     } catch {
         Write-Host "    Ollama dead, restarting..."
-        $ollamaPath = Join-Path $env:USERPROFILE ".hlvm\.runtime\engine\ollama.exe"
+        $ollamaPath = Join-Path $SmokeHlvmDir ".runtime\engine\ollama.exe"
         Get-Process -Name "ollama" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep 2
         $env:OLLAMA_HOST = "127.0.0.1:11439"
-        $env:OLLAMA_MODELS = Join-Path $env:USERPROFILE ".hlvm\.runtime\models"
+        $env:OLLAMA_MODELS = Join-Path $SmokeHlvmDir ".runtime\models"
         Start-Process -FilePath $ollamaPath -ArgumentList "serve" -NoNewWindow -PassThru | Out-Null
         Start-Sleep 8
         try {
@@ -152,12 +152,15 @@ try {
 
     # Verify managed Python sidecar directly (deterministic, fast).
     Write-Host "==> Verifying managed Python sidecar..."
-    $py = Join-Path $env:USERPROFILE ".hlvm\.runtime\python\venv\Scripts\python.exe"
+    $py = Join-Path $SmokeHlvmDir ".runtime\python\venv\Scripts\python.exe"
     if (-not (Test-Path $py)) {
-        $py = Join-Path $env:USERPROFILE ".hlvm\.runtime\python\venv\bin\python.exe"
+        $py = Join-Path $SmokeHlvmDir ".runtime\python\venv\bin\python.exe"
     }
     if (-not (Test-Path $py)) {
-        Write-Error "FAIL: Managed python not found under ~/.hlvm/.runtime/python/venv/"
+        $py = Join-Path $SmokeHlvmDir ".runtime\python\venv\bin\python"
+    }
+    if (-not (Test-Path $py)) {
+        Write-Error "FAIL: Managed python not found under $SmokeHlvmDir\.runtime\python\venv\"
     }
     $pyOut = & $py -c "import sys, pptx, docx; print(f'python={sys.executable}'); print(f'pptx={pptx.__version__}'); print(f'docx={docx.__version__}')" 2>&1 | Out-String
     Write-Host $pyOut
