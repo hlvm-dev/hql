@@ -143,15 +143,28 @@ try {
         $response = ($aiResponse.Content | ConvertFrom-Json).response
         Write-Host "==> Ollama response: $response"
     } catch {
-        # Fallback: try hlvm ask (may timeout on CI but works for real users)
-        Write-Host "==> Ollama API test failed, falling back to hlvm ask..."
-        $response = & "$InstallBin\hlvm.exe" ask $Prompt 2>&1
+        Write-Host "==> WARNING: Ollama API test failed: $_"
     }
-    Write-Host "Response: $response"
 
     if (-not $response) {
-        Write-Error "FAIL: Empty response from hlvm ask"
+        Write-Error "FAIL: Empty response from Ollama API"
     }
+
+    # Exercise agent + managed Python sidecar through hlvm ask.
+    # Proves qwen3 tool_calls work, agent routes python → managed venv,
+    # sidecar packages (python-pptx, python-docx) are installed and usable.
+    Write-Host "==> Exercising agent + managed Python sidecar..."
+    $pyPrompt = 'run python code: import sys, pptx; print(f"python={sys.executable} pptx={pptx.__version__}")'
+    $askResponse = & "$InstallBin\hlvm.exe" ask --permission-mode bypassPermissions $pyPrompt 2>&1 | Out-String
+    Write-Host $askResponse
+
+    if ($askResponse -notmatch '\.hlvm[\\\/]\.runtime[\\\/]python[\\\/]venv') {
+        Write-Error "FAIL: Agent did not use managed Python venv"
+    }
+    if ($askResponse -notmatch 'pptx=') {
+        Write-Error "FAIL: pptx version not reported"
+    }
+    Write-Host "==> Agent + python sidecar verified."
 
     Write-Host "==> Smoke succeeded."
 } finally {

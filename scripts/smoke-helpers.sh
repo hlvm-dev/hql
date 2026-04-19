@@ -76,16 +76,50 @@ handle_bootstrap_failure() {
   return 1
 }
 
-# Verify bootstrap and test AI generation.
-# Uses direct Ollama API — the core "local AI works" contract. The agent
-# loop (hlvm ask) is tested by unit tests + real user hardware, not CI,
-# because CI runners are too slow/memory-constrained for the agent flow.
+# Exercise the agent + managed Python sidecar through hlvm ask.
+# Proves: qwen3 tool_calls work, agent routes python → managed venv,
+# sidecar packages (python-pptx, python-docx) are installed and usable.
+# Skipped on ARM CI (runner memory can't sustain the agent loop).
+exercise_agent_and_python() {
+  local label="${1:-Smoke}"
+  if is_arm; then
+    echo "==> Skipping agent+python exercise on ARM CI (runner memory)."
+    return 0
+  fi
+
+  echo "==> Exercising agent + managed Python sidecar..."
+  local prompt='run python code: import sys, pptx; print(f"python={sys.executable} pptx={pptx.__version__}")'
+  local response
+  response=$(run_smoke_hlvm "${INSTALL_BIN}/hlvm" ask \
+    --permission-mode bypassPermissions "$prompt" 2>&1) || true
+  echo "$response"
+
+  if echo "$response" | grep -q '\.hlvm/\.runtime/python/venv'; then
+    echo "==> Agent uses managed Python venv (not system)."
+  else
+    echo "FAIL: Agent did not use managed Python venv" >&2
+    return 1
+  fi
+  if echo "$response" | grep -q 'pptx='; then
+    echo "==> ${label} agent+python sidecar verified."
+    return 0
+  fi
+  echo "FAIL: pptx version not reported" >&2
+  return 1
+}
+
+# Verify bootstrap, Ollama API, and agent+python path.
 verify_and_test() {
   local label="${1:-Smoke}"
   echo "==> Verifying bootstrap..."
   run_smoke_hlvm "${INSTALL_BIN}/hlvm" bootstrap --verify
 
   echo "==> Testing Ollama API directly..."
-  handle_bootstrap_failure "$label"
-  exit $?
+  if ! handle_bootstrap_failure "$label"; then
+    exit 1
+  fi
+
+  exercise_agent_and_python "$label" || exit 1
+
+  echo "==> ${label} succeeded."
 }
