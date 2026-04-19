@@ -20,7 +20,7 @@ need_cmd gh
 [ -n "${GH_TOKEN:-}" ] || { echo "Required: GH_TOKEN environment variable" >&2; exit 1; }
 
 SMOKE_ROOT=$(mktemp -d)
-trap 'rm -rf "$SMOKE_ROOT"' EXIT
+trap 'rm -rf "$SMOKE_ROOT" 2>/dev/null || true' EXIT
 
 ASSET_DIR="${SMOKE_ROOT}/assets"
 INSTALL_BIN="${SMOKE_ROOT}/bin"

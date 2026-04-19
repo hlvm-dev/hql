@@ -64,7 +64,7 @@ function buildPinnedDefaultLocalModel(): ModelInfo {
     family,
     parameterSize: parameterSize.toUpperCase(),
     size: LOCAL_FALLBACK_IDENTITY.publishedTotalSizeBytes,
-    capabilities: ["generate", "chat"],
+    capabilities: ["generate", "chat", "tools"],
     metadata: {
       description:
         "HLVM pinned local default model. Prepared automatically during local bootstrap.",

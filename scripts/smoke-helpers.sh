@@ -93,5 +93,9 @@ verify_and_test() {
     echo "FAIL: Empty response from hlvm ask" >&2
     exit 1
   fi
+  if echo "$RESPONSE" | grep -qE 'Error:|HLVM[0-9]{4}|Agent error'; then
+    echo "FAIL: hlvm ask returned an error" >&2
+    exit 1
+  fi
   echo "==> ${label} succeeded."
 }

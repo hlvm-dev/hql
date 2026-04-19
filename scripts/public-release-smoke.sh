@@ -10,7 +10,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd -P)
 . "${SCRIPT_DIR}/smoke-helpers.sh"
 
 SMOKE_ROOT=$(mktemp -d)
-trap 'rm -rf "$SMOKE_ROOT"' EXIT
+trap 'rm -rf "$SMOKE_ROOT" 2>/dev/null || true' EXIT
 
 INSTALL_BIN="${SMOKE_ROOT}/bin"
 SMOKE_HLVM_DIR="${SMOKE_ROOT}/home"
