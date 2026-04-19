@@ -56,7 +56,7 @@ function bootstrapError(message: string, originalError?: Error): RuntimeError {
   });
 }
 
-function getManagedPythonExecutablePath(): string {
+export function getManagedPythonExecutablePath(): string {
   const platform = getPlatform();
   return platform.path.join(
     getManagedPythonVenvDir(),

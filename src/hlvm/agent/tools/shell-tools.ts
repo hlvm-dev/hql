@@ -16,6 +16,27 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { createAbortError } from "../../../common/timeout-utils.ts";
 import { resolveToolPath } from "../path-utils.ts";
+import { getManagedPythonExecutablePath } from "../../runtime/python-runtime.ts";
+import { getManagedPythonVenvDir } from "../../../common/paths.ts";
+
+/**
+ * Build environment for shell execution, prepending HLVM's managed Python
+ * bin dir to PATH so `python`/`python3` in shell commands resolves to the
+ * managed venv (not system Python). This makes HLVM self-contained: the
+ * sidecar packages (python-pptx, python-docx) are available even if the
+ * user has no Python installed.
+ */
+function buildShellEnv(): Record<string, string> {
+  const platform = getPlatform();
+  const env = platform.env.toObject();
+  const venvBin = platform.path.join(
+    getManagedPythonVenvDir(),
+    platform.build.os === "windows" ? "Scripts" : "bin",
+  );
+  const sep = platform.build.os === "windows" ? ";" : ":";
+  env.PATH = env.PATH ? `${venvBin}${sep}${env.PATH}` : venvBin;
+  return env;
+}
 import {
   isSafeCommand,
   parseShellCommand,
@@ -145,7 +166,7 @@ function buildInlineCodeCommand(
 ): string {
   switch (language) {
     case "python":
-      return `python3 -c ${quoteShellArg(code)}`;
+      return `${quoteShellArg(getManagedPythonExecutablePath())} -c ${quoteShellArg(code)}`;
     case "javascript":
       return `node -e ${quoteShellArg(code)}`;
     case "typescript":
@@ -269,6 +290,7 @@ async function launchDetachedShellCommand(
   const process = platform.command.run({
     cmd: cmdArgs,
     cwd: workDir,
+    env: buildShellEnv(),
     stdout: "null",
     stderr: "null",
     stdin: "null",
@@ -407,6 +429,7 @@ export async function shellExec(
     const process = platform.command.run({
       cmd: cmdArgs,
       cwd: workDir,
+      env: buildShellEnv(),
       stdout: "piped",
       stderr: "piped",
       stdin: "null",
@@ -580,6 +603,7 @@ export async function shellScript(
     const process = platform.command.run({
       cmd: commandArgs,
       cwd: workDir,
+      env: buildShellEnv(),
       stdout: "piped",
       stderr: "piped",
       stdin: "null",
