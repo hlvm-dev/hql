@@ -165,16 +165,16 @@ async function prepareAgentMcpRuntime(opts: {
     options?.signal,
   );
 
-  return {
-    allTools: getAllTools(loadResult.ownerId),
-    inheritedConfig: {
-      ...inheritedConfig,
-      toolOwnerId: loadResult.ownerId,
-      ensureMcpLoaded: async () => {},
-    },
-    cleanup: loadResult.dispose,
-  };
-}
+    return {
+      allTools: getAllTools(loadResult.ownerId),
+      inheritedConfig: {
+        ...inheritedConfig,
+        toolOwnerId: loadResult.ownerId,
+        ensureMcpLoaded: async () => false,
+      },
+      cleanup: loadResult.dispose,
+    };
+  }
 
 export function getBackgroundAgentSnapshots(): BackgroundAgentSnapshot[] {
   return Array.from(getAgentToolRuntimeState().backgroundAgents.values()).map(

@@ -6,6 +6,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -63,7 +64,10 @@ import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
-import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
+import {
+  type OverlayPanel,
+  useOverlayPanel,
+} from "../hooks/useOverlayPanel.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
 import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
@@ -155,6 +159,10 @@ const DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE: BackgroundTasksOverlayState = {
   initialViewMode: "list",
 };
 const RECENT_SCROLL_REPIN_WINDOW_MS = 3000;
+
+function shouldRepinForOverlay(overlay: OverlayPanel): boolean {
+  return overlay !== "none" && overlay !== "transcript-history";
+}
 
 function usesConversationContext(surfacePanel: string): boolean {
   return surfacePanel === "conversation";
@@ -345,6 +353,10 @@ function AppContent(
   useCopyOnSelect({ onCopied: handleSelectionCopied });
   useSelectionBgColor();
 
+  const repinTranscriptScroll = useCallback(() => {
+    transcriptScrollRef.current?.scrollToBottom();
+  }, []);
+
   useEffect(() => {
     if (!init.ready) return;
     if (!modelSelection.activeModelId) return;
@@ -378,14 +390,14 @@ function AppContent(
       ) {
         const handle = transcriptScrollRef.current;
         if (handle && !handle.isSticky()) {
-          handle.scrollToBottom();
+          repinTranscriptScroll();
         }
       }
       setComposerShellState((prev: ComposerShellState) =>
         advanceComposerShellState(prev, nextState)
       );
     },
-    [],
+    [repinTranscriptScroll],
   );
 
   const getCurrentComposerDraft = useCallback((): ConversationComposerDraft => {
@@ -464,6 +476,25 @@ function AppContent(
     interruptConversationRun,
     handleForceInterrupt,
   } = agentRunner;
+  const previousBlockingInteractionRef = useRef<
+    "none" | "permission" | "question"
+  >("none");
+  useLayoutEffect(() => {
+    const currentInteraction = pendingInteraction?.mode ?? "none";
+    if (previousBlockingInteractionRef.current !== currentInteraction) {
+      repinTranscriptScroll();
+      previousBlockingInteractionRef.current = currentInteraction;
+    }
+  }, [pendingInteraction?.mode, repinTranscriptScroll]);
+  const previousRepinnedOverlayRef = useRef<OverlayPanel>(activeOverlay);
+  useLayoutEffect(() => {
+    const wasRepinned = shouldRepinForOverlay(previousRepinnedOverlayRef.current);
+    const isRepinned = shouldRepinForOverlay(activeOverlay);
+    if (wasRepinned !== isRepinned) {
+      repinTranscriptScroll();
+    }
+    previousRepinnedOverlayRef.current = activeOverlay;
+  }, [activeOverlay, repinTranscriptScroll]);
   useEffect(() => {
     if (localAgentEntries.length === 0) {
       setLocalAgentsFocused(false);
@@ -572,6 +603,51 @@ function AppContent(
     hasActivePlanningState,
     interruptConversationRun,
     pendingInteraction,
+  ]);
+  const startupStatusLabel = useMemo(() => {
+    if (init.aiAvailable) return undefined;
+    if (init.needsModelSetup && init.modelToSetup) {
+      return "Model setup needed";
+    }
+    return init.ready ? "Starting AI engine" : "Loading HLVM";
+  }, [
+    init.aiAvailable,
+    init.modelToSetup,
+    init.needsModelSetup,
+    init.ready,
+  ]);
+  const startupFooterMessage = useMemo(() => {
+    if (init.aiAvailable) return "";
+    if (init.needsModelSetup && init.modelToSetup) {
+      return `Model setup needed · /model select · ? shortcuts`;
+    }
+    return init.ready
+      ? "Starting AI engine... /help, /config, and /model are available"
+      : "Loading HLVM...";
+  }, [
+    init.aiAvailable,
+    init.modelToSetup,
+    init.needsModelSetup,
+    init.ready,
+  ]);
+  const handleAgentSubmitBlocked = useCallback(() => {
+    if (init.needsModelSetup && init.modelToSetup) {
+      setModelSetupHandled(false);
+      setActiveOverlay("model-setup");
+      return;
+    }
+    flashFooterStatus("Starting AI engine...");
+    refreshAiReadiness(modelSelection.activeModelId, {
+      force: true,
+    }).catch(() => {});
+  }, [
+    flashFooterStatus,
+    init.modelToSetup,
+    init.needsModelSetup,
+    modelSelection.activeModelId,
+    refreshAiReadiness,
+    setActiveOverlay,
+    setModelSetupHandled,
   ]);
   useEffect(() => {
     if (
@@ -1720,6 +1796,7 @@ function AppContent(
       <Box
         flexDirection="column"
         flexGrow={1}
+        height="100%"
         paddingX={SHELL_LAYOUT.gutterX}
       >
         {bannerVisible && (
@@ -1789,6 +1866,8 @@ function AppContent(
                     replState={replState}
                     onUiStateChange={handleComposerUiStateChange}
                     onSubmit={handleSubmit}
+                    canSubmitAgent={init.aiAvailable}
+                    onAgentSubmitBlocked={handleAgentSubmitBlocked}
                     onEmptySubmit={undefined}
                     onFocusLocalAgents={localAgentEntries.length > 0 &&
                         !composerShellState.hasDraftInput
@@ -1818,6 +1897,7 @@ function AppContent(
                       ? pendingInteraction?.mode
                       : undefined}
                     showQueuePreview={false}
+                    onBareShortcutsToggle={toggleShortcutsOverlay}
                   />
                 </Box>
               )}
@@ -1836,13 +1916,17 @@ function AppContent(
                   turnLabel={currentTurnSummary}
                   turnTone={currentTurnTone}
                   aiAvailable={init.aiAvailable}
+                  idleLabel={startupStatusLabel}
                 />
               )}
 
               {(isInputVisible || hasConversationContext) &&
                 (
                   <FooterHint
-                    statusMessage={footerStatusMessage}
+                    statusMessage={footerStatusMessage ||
+                      (!composerShellState.hasSubmitText
+                        ? startupFooterMessage
+                        : "")}
                     planningPhase={hasConversationContext
                       ? conversation.planningPhase
                       : undefined}

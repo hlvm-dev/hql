@@ -1,4 +1,11 @@
-type RuntimeMcpScope = "user" | "claude-code";
+type RuntimeMcpScope =
+  | "user"
+  | "cursor"
+  | "windsurf"
+  | "zed"
+  | "codex"
+  | "gemini"
+  | "claude-code";
 
 export interface RuntimeMcpServerDescriptor {
   name: string;

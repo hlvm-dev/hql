@@ -13,6 +13,7 @@ import { DEFAULT_TERMINAL_WIDTH, STATUS_GLYPHS } from "../ui-constants.ts";
 import type { PlanningPhase } from "../../../agent/planning.ts";
 import { getPlanPhaseLabel } from "./conversation/plan-flow.ts";
 import { truncate } from "../../../../common/utils.ts";
+import { stringWidth } from "../../../tui-v2/ink/stringWidth.ts";
 
 interface TuiStatusLineProps {
   modelName?: string;
@@ -23,6 +24,7 @@ interface TuiStatusLineProps {
   turnLabel?: string;
   turnTone?: "active" | "warning";
   aiAvailable?: boolean;
+  idleLabel?: string;
 }
 
 function pushStatusSegment(
@@ -40,7 +42,7 @@ function pushStatusSegment(
 function measureRightParts(parts: string[]): number {
   if (parts.length === 0) return 0;
   const joined = parts.join(SHELL_SEGMENT_SEPARATOR);
-  return joined.length + 2; // +2 for "● " prefix
+  return stringWidth(joined) + 2; // +2 for "● " prefix
 }
 
 export function TuiStatusLine(
@@ -53,33 +55,42 @@ export function TuiStatusLine(
     turnLabel,
     turnTone = "active",
     aiAvailable = false,
+    idleLabel,
   }: TuiStatusLineProps,
 ): React.ReactElement {
   const sc = useSemanticColors();
   const { stdout } = useStdout();
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const contentWidth = getShellContentWidth(terminalWidth);
+  const hasPrimaryActivity = Boolean(
+    interactionLabel?.trim() || turnLabel?.trim(),
+  );
+  const idleStatus = idleLabel?.trim() || "Ready";
+  const isStartupState = idleStatus !== "Ready";
 
   const leftSegments = useMemo(() => {
     const segments: ShellFooterSegment[] = [];
     const summarizedMode = summarizeModeLabel(modeLabel);
-    pushStatusSegment(
-      segments,
-      summarizedMode && summarizedMode !== "Default mode"
-        ? summarizedMode
-        : undefined,
-      "muted",
-    );
-    if (planningPhase && planningPhase !== "done") {
-      pushStatusSegment(segments, getPlanPhaseLabel(planningPhase), "active");
+    if (!hasPrimaryActivity) {
+      pushStatusSegment(
+        segments,
+        summarizedMode && summarizedMode !== "Default mode"
+          ? summarizedMode
+          : undefined,
+        "muted",
+      );
+      if (planningPhase && planningPhase !== "done") {
+        pushStatusSegment(segments, getPlanPhaseLabel(planningPhase), "active");
+      }
     }
     pushStatusSegment(segments, interactionLabel, "warning", true);
     pushStatusSegment(segments, turnLabel, turnTone);
     if (segments.length === 0) {
-      pushStatusSegment(segments, "Ready", "muted");
+      pushStatusSegment(segments, idleStatus, "muted");
     }
     return segments;
   }, [
+    idleStatus,
     interactionLabel,
     modeLabel,
     planningPhase,
@@ -91,11 +102,13 @@ export function TuiStatusLine(
   // Model name is truncated dynamically to fill remaining terminal width.
   const { rightText, rightWidth, fittedLeft } = useMemo(() => {
     // Fixed parts (ctx bar) — never truncated
-    const fixedParts = [
-      contextUsageLabel
-        ? buildContextUsageMiniBar(contextUsageLabel)
-        : undefined,
-    ].filter((part): part is string => Boolean(part && part.trim()));
+    const fixedParts = hasPrimaryActivity || isStartupState || !aiAvailable
+      ? []
+      : [
+        contextUsageLabel
+          ? buildContextUsageMiniBar(contextUsageLabel)
+          : undefined,
+      ].filter((part): part is string => Boolean(part && part.trim()));
 
     // Measure fixed parts width (including "● " prefix and separators)
     const fixedWidth = measureRightParts(fixedParts);
@@ -109,9 +122,9 @@ export function TuiStatusLine(
     const modelBudget = contentWidth - leftMinWidth - gap - fixedWidth -
       separatorExtra;
 
-    const displayModel = modelName && modelBudget > 8
+    const displayModel = !hasPrimaryActivity && modelName && modelBudget > 8
       ? truncate(modelName, modelBudget)
-      : modelName && modelBudget > 0
+      : !hasPrimaryActivity && modelName && modelBudget > 0
       ? truncate(modelName, modelBudget)
       : undefined;
 
@@ -119,7 +132,7 @@ export function TuiStatusLine(
     if (displayModel) allParts.push(displayModel);
 
     const joined = allParts.join(SHELL_SEGMENT_SEPARATOR);
-    const width = allParts.length > 0 ? joined.length + 2 : 0;
+    const width = allParts.length > 0 ? stringWidth(joined) + 2 : 0;
 
     const fitted = fitShellFooterSegments(
       leftSegments,
@@ -130,8 +143,11 @@ export function TuiStatusLine(
   }, [
     contentWidth,
     contextUsageLabel,
+    hasPrimaryActivity,
+    isStartupState,
     leftSegments,
     modelName,
+    aiAvailable,
   ]);
 
   return (

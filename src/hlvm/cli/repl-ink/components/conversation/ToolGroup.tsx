@@ -14,6 +14,7 @@ import type { ToolCallDisplay } from "../../types.ts";
 import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
 import { resolveCollapsedToolList } from "./layout.ts";
 import { resolveToolTranscriptGroupSummary } from "./tool-transcript.ts";
+import { buildToolTranscriptInvocationLabel } from "./tool-transcript.ts";
 
 interface ToolGroupProps {
   tools: ToolCallDisplay[];
@@ -21,16 +22,161 @@ interface ToolGroupProps {
   isToolExpanded?: (toolId: string) => boolean;
 }
 
+type CollapsedToolCategory =
+  | "search"
+  | "read"
+  | "browser"
+  | "bash"
+  | "write"
+  | "edit"
+  | "other";
+
+function capitalizeSummaryPart(text: string): string {
+  if (!text) return text;
+  return text[0]!.toUpperCase() + text.slice(1);
+}
+
+function pluralize(word: string, count: number): string {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+function formatCountNoun(
+  singular: string,
+  plural: string,
+  count: number,
+): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function resolveCollapsedToolCategory(tool: ToolCallDisplay): CollapsedToolCategory {
+  const kind = tool.resultMeta?.presentation?.kind;
+  if (
+    tool.name === "search_web" ||
+    tool.name === "search_code" ||
+    kind === "search"
+  ) {
+    return "search";
+  }
+  if (
+    tool.name === "read_file" ||
+    tool.name === "open_path" ||
+    tool.name === "reveal_path" ||
+    kind === "read"
+  ) {
+    return "read";
+  }
+  if (
+    tool.name === "web_fetch" ||
+    tool.name === "fetch_url" ||
+    tool.name.startsWith("pw_") ||
+    kind === "web"
+  ) {
+    return "browser";
+  }
+  if (
+    tool.name === "shell_exec" ||
+    tool.name === "shell_script" ||
+    kind === "shell"
+  ) {
+    return "bash";
+  }
+  if (
+    tool.name === "write_file" ||
+    tool.name === "make_directory" ||
+    tool.name === "move_path" ||
+    tool.name === "copy_path" ||
+    tool.name === "move_to_trash"
+  ) {
+    return "write";
+  }
+  if (
+    tool.name === "edit_file" ||
+    kind === "edit" ||
+    kind === "diff"
+  ) {
+    return "edit";
+  }
+  return "other";
+}
+
+function formatCollapsedSummaryPart(
+  category: CollapsedToolCategory,
+  count: number,
+  active: boolean,
+  isFirst: boolean,
+): string {
+  switch (category) {
+    case "search":
+      return isFirst
+        ? capitalizeSummaryPart(
+          `${active ? "searching for" : "searched for"} ${
+            formatCountNoun("query", "queries", count)
+          }`,
+        )
+        : `${active ? "searching for" : "searched for"} ${
+          formatCountNoun("query", "queries", count)
+        }`;
+    case "read":
+      return isFirst
+        ? capitalizeSummaryPart(`${active ? "reading" : "read"} ${pluralize("file", count)}`)
+        : `${active ? "reading" : "read"} ${pluralize("file", count)}`;
+    case "browser":
+      return isFirst
+        ? capitalizeSummaryPart(`${active ? "browsing" : "browsed"} ${pluralize("page", count)}`)
+        : `${active ? "browsing" : "browsed"} ${pluralize("page", count)}`;
+    case "bash":
+      return isFirst
+        ? capitalizeSummaryPart(`${active ? "running" : "ran"} ${pluralize("command", count)}`)
+        : `${active ? "running" : "ran"} ${pluralize("command", count)}`;
+    case "write":
+      return isFirst
+        ? capitalizeSummaryPart(`${active ? "writing" : "wrote"} ${pluralize("file", count)}`)
+        : `${active ? "writing" : "wrote"} ${pluralize("file", count)}`;
+    case "edit":
+      return isFirst
+        ? capitalizeSummaryPart(`${active ? "editing" : "edited"} ${pluralize("file", count)}`)
+        : `${active ? "editing" : "edited"} ${pluralize("file", count)}`;
+    case "other":
+    default:
+      return isFirst
+        ? capitalizeSummaryPart(`${active ? "using" : "used"} ${pluralize("tool", count)}`)
+        : `${active ? "using" : "used"} ${pluralize("tool", count)}`;
+  }
+}
+
+function buildCollapsedOperationHint(
+  tool: ToolCallDisplay | undefined,
+): string | undefined {
+  if (!tool) return undefined;
+  const invocation = buildToolTranscriptInvocationLabel({
+    name: tool.name,
+    displayName: tool.displayName ?? tool.name,
+    argsSummary: tool.argsSummary,
+  }).trim();
+  const detail = (
+    tool.status === "running" ? tool.progressText :
+    tool.status === "pending" ? tool.queuedText :
+    tool.resultSummaryText
+  )?.trim();
+  if (detail && detail !== invocation) {
+    return `${invocation} · ${detail}`;
+  }
+  return invocation || detail || undefined;
+}
+
 function buildCollapsedToolSummary(
   tools: ToolCallDisplay[],
   hiddenIndexes: readonly number[],
-): string | undefined {
-  if (hiddenIndexes.length === 0) return undefined;
+): { summary?: string; hint?: string } {
+  if (hiddenIndexes.length === 0) return {};
+
+  const hiddenTools = hiddenIndexes
+    .map((index) => tools[index])
+    .filter((tool): tool is ToolCallDisplay => Boolean(tool));
+  if (hiddenTools.length === 0) return {};
 
   const grouped = new Map<string, ToolCallDisplay[]>();
-  for (const index of hiddenIndexes) {
-    const tool = tools[index];
-    if (!tool) continue;
+  for (const tool of hiddenTools) {
     const key = `${tool.name}:${tool.status}`;
     const existing = grouped.get(key);
     if (existing) {
@@ -40,7 +186,36 @@ function buildCollapsedToolSummary(
     grouped.set(key, [tool]);
   }
 
-  const parts = Array.from(grouped.values())
+  const active = hiddenTools.some((tool) =>
+    tool.status === "running" || tool.status === "pending"
+  );
+  const categoryCounts = new Map<CollapsedToolCategory, number>();
+  for (const tool of hiddenTools) {
+    const category = resolveCollapsedToolCategory(tool);
+    categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1);
+  }
+
+  const categoryOrder: readonly CollapsedToolCategory[] = [
+    "search",
+    "read",
+    "browser",
+    "bash",
+    "write",
+    "edit",
+    "other",
+  ];
+  const categorizedParts = categoryOrder
+    .map((category) => ({
+      category,
+      count: categoryCounts.get(category) ?? 0,
+    }))
+    .filter((entry) => entry.count > 0)
+    .slice(0, 3)
+    .map((entry, index) =>
+      formatCollapsedSummaryPart(entry.category, entry.count, active, index === 0)
+    );
+
+  const fallbackParts = Array.from(grouped.values())
     .sort((a, b) => b.length - a.length)
     .slice(0, 3)
     .map((group) =>
@@ -59,8 +234,20 @@ function buildCollapsedToolSummary(
     )
     .filter((part): part is string => Boolean(part?.trim()))
     .map((part) => part.trim());
+  const summary = categorizedParts.length > 0
+    ? categorizedParts.join(", ")
+    : fallbackParts.length > 0
+    ? fallbackParts.join(" · ")
+    : undefined;
 
-  return parts.length > 0 ? parts.join(" · ") : undefined;
+  const hintTool = [...hiddenTools].reverse().find((tool) =>
+    tool.status === "running" || tool.status === "pending"
+  ) ?? hiddenTools[hiddenTools.length - 1];
+
+  return {
+    summary,
+    hint: buildCollapsedOperationHint(hintTool),
+  };
 }
 
 export const ToolGroup = React.memo(function ToolGroup({
@@ -138,11 +325,20 @@ export const ToolGroup = React.memo(function ToolGroup({
             </Text>
           </Box>,
         );
-        if (collapsedSummary) {
+        if (collapsedSummary.summary) {
           elements.push(
             <Box key={`collapsed-summary-${tool.id}`} marginLeft={2}>
               <Text color={sc.text.muted}>
-                {truncate(`⎿ ${collapsedSummary}`, Math.max(18, innerWidth))}
+                {truncate(`⎿ ${collapsedSummary.summary}`, Math.max(18, innerWidth))}
+              </Text>
+            </Box>,
+          );
+        }
+        if (collapsedSummary.hint) {
+          elements.push(
+            <Box key={`collapsed-hint-${tool.id}`} marginLeft={2}>
+              <Text color={sc.text.secondary}>
+                {truncate(`⎿ ${collapsedSummary.hint}`, Math.max(18, innerWidth))}
               </Text>
             </Box>,
           );

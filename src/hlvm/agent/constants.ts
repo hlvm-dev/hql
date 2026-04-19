@@ -378,8 +378,8 @@ export const SHELL_DENYLIST_L0: readonly RegExp[] = SHELL_DENY_MANIFEST.map(
  * ```
  */
 export const DEFAULT_TIMEOUTS = {
-  /** LLM call timeout (default: 300000ms = 5 minutes; local 8B models need cold-start time on slow runners) */
-  llm: 300_000,
+  /** LLM call timeout (default: 900000ms = 15 minutes; local 8B models on slow CPU CI runners are genuinely slow) */
+  llm: 900_000,
 
   /** Tool execution timeout (default: 60000ms = 60 seconds) */
   tool: 60000,
@@ -387,8 +387,8 @@ export const DEFAULT_TIMEOUTS = {
   /** User input/confirmation timeout (default: 300000ms = 5 minutes) */
   userInput: 300000,
 
-  /** Total agent loop timeout (default: 600000ms = 10 minutes) */
-  total: 600_000,
+  /** Total agent loop timeout (default: 2400000ms = 40 minutes) */
+  total: 2_400_000,
 } as const;
 
 // ============================================================

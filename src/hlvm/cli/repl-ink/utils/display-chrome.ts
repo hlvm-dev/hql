@@ -1,4 +1,5 @@
 import { truncate } from "../../../../common/utils.ts";
+import { stringWidth } from "../../../tui-v2/ink/stringWidth.ts";
 
 export interface TwoColumnTextLayout {
   leftText: string;
@@ -11,11 +12,11 @@ export function buildSectionLabelText(label: string, width: number): string {
   if (safeWidth === 0) return "";
 
   const trimmed = label.trim();
-  if (trimmed.length >= safeWidth) {
+  if (stringWidth(trimmed) >= safeWidth) {
     return truncate(trimmed, safeWidth, "…");
   }
 
-  const fillWidth = Math.max(0, safeWidth - trimmed.length - 1);
+  const fillWidth = Math.max(0, safeWidth - stringWidth(trimmed) - 1);
   if (fillWidth === 0) return trimmed;
   return `${trimmed} ${"─".repeat(fillWidth)}`;
 }
@@ -37,10 +38,11 @@ export function buildBalancedTextRow(
     return { leftText: "", rightText: "", gapWidth: 0 };
   }
   if (!right.trim()) {
+    const fittedLeft = truncate(left, safeWidth, "…");
     return {
-      leftText: truncate(left, safeWidth, "…"),
+      leftText: fittedLeft,
       rightText: "",
-      gapWidth: 0,
+      gapWidth: Math.max(0, safeWidth - stringWidth(fittedLeft)),
     };
   }
 
@@ -49,20 +51,22 @@ export function buildBalancedTextRow(
     Math.max(1, Math.min(maxRightWidth, safeWidth)),
     "…",
   );
-  if (fittedRight.length >= safeWidth) {
+  const fittedRightWidth = stringWidth(fittedRight);
+  if (fittedRightWidth >= safeWidth) {
     fittedRight = truncate(fittedRight, safeWidth, "…");
     return { leftText: "", rightText: fittedRight, gapWidth: 0 };
   }
 
-  const preferredGap = safeWidth - fittedRight.length > minGap ? minGap : 1;
+  const preferredGap = safeWidth - fittedRightWidth > minGap ? minGap : 1;
   const availableLeft = Math.max(
     0,
-    safeWidth - fittedRight.length - preferredGap,
+    safeWidth - fittedRightWidth - preferredGap,
   );
   const fittedLeft = truncate(left, availableLeft, "…");
+  const fittedLeftWidth = stringWidth(fittedLeft);
   const gapWidth = Math.max(
-    fittedLeft.length > 0 ? 1 : 0,
-    safeWidth - fittedLeft.length - fittedRight.length,
+    fittedLeftWidth > 0 ? 1 : 0,
+    safeWidth - fittedLeftWidth - fittedRightWidth,
   );
 
   return {
@@ -71,4 +75,3 @@ export function buildBalancedTextRow(
     gapWidth,
   };
 }
-

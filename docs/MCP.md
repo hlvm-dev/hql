@@ -4,19 +4,28 @@ SSOT for the MCP implementation in this repository as of 2026-04-19.
 
 ## Status snapshot
 
-- MCP protocol version: `2025-11-25` with fallback negotiation to `2025-03-26` and `2024-11-05`.
+- MCP protocol version: `2025-11-25` with fallback negotiation to `2025-03-26`
+  and `2024-11-05`.
 - Transports: `stdio`, HTTP, SSE (via official `@modelcontextprotocol/sdk`).
-- OAuth: Authorization Code + PKCE, dynamic client registration, proactive token refresh, 401-retry-on-refresh, per-server `clientId` / `callbackPort`, insufficient-scope handling.
-- Config scopes: project `.mcp.json`, project `.hlvm/mcp.json`, user `~/.hlvm/mcp.json`, Claude Code plugin import.
-- User-facing management: `hlvm mcp add/list/remove/login/logout` and REPL `/mcp`.
+- OAuth: Authorization Code + PKCE, dynamic client registration, proactive token
+  refresh, 401-retry-on-refresh, per-server `clientId` / `callbackPort`,
+  insufficient-scope handling.
+- Config scopes: project `.mcp.json`, project `.hlvm/mcp.json`, user
+  `~/.hlvm/mcp.json`, Claude Code plugin import, plus cross-tool inheritance
+  (Cursor, Windsurf, Zed, Codex CLI, Gemini CLI).
+- User-facing management: `hlvm mcp add/list/remove/login/logout` and REPL
+  `/mcp`.
 
 ## What users can do now
 
 - Connect stdio MCP servers (filesystem, GitHub, memory, etc.).
 - Connect OAuth-based HTTP MCP servers (Notion MCP, etc.).
 - Run one-time OAuth login per server, then reuse/refresh tokens automatically.
-- Automatically inherit any MCP server installed by Claude Code (see "CC plugin import" below).
-- Use configured MCP tools from `hlvm ask` / `hlvm repl` with no per-request auth steps.
+- Automatically inherit any MCP server the user has already configured in Claude
+  Code, Cursor, Windsurf, Zed, Codex CLI, or Gemini CLI — no reconfiguration
+  required (see "Cross-tool discovery" below).
+- Use configured MCP tools from `hlvm ask` / `hlvm repl` with no per-request
+  auth steps.
 
 ## Quick start
 
@@ -58,6 +67,23 @@ Tested across `claude-code/claude-haiku-4-5`, `ollama/qwen3:8b`, and
 `ollama/llama3.1:8b`. Fails on `ollama/gemma4:e4b` (4B is below the capability
 threshold for multi-hop meta-tool reasoning — see "Model requirements" below).
 
+### Cross-tool MCP inheritance (2026-04-19)
+
+HLVM now reads MCP server definitions from Cursor, Windsurf, Zed, Codex CLI, and
+Gemini CLI in addition to its own config and Claude Code plugins. Verified by
+`deno test --allow-all tests/unit/agent/mcp-config.test.ts` (13/13 passing),
+including:
+
+- parsing each source's native schema (JSON, nested JSON, TOML)
+- priority order (`user` > Cursor > Windsurf > Zed > Codex > Gemini > Claude
+  Code) with duplicate server-name collapse to highest-priority source
+- malformed / missing files skipped silently so one broken source can't break
+  the whole load
+- isolated CLI-source-path E2E runs via `hlvm mcp list` and `hlvm ask` proving
+  Cursor, Windsurf (primary path, legacy path, and HTTP `serverUrl`), Zed
+  (flat and nested command shapes), Codex CLI, and Gemini CLI all discover,
+  connect, and execute MCP tools end to end
+
 ## OAuth flow (HTTP servers)
 
 `hlvm mcp login <name>`:
@@ -65,7 +91,8 @@ threshold for multi-hop meta-tool reasoning — see "Model requirements" below).
 1. Discovers protected-resource + authorization-server metadata.
 2. Uses dynamic client registration when supported.
 3. Starts PKCE (`S256`) and opens browser.
-4. Waits for callback (default `127.0.0.1:35017`, per-server override supported).
+4. Waits for callback (default `127.0.0.1:35017`, per-server override
+   supported).
 5. Exchanges code for token and stores credentials locally.
 
 Runtime:
@@ -80,13 +107,19 @@ Storage: `~/.hlvm/mcp-oauth.json`. Override: `HLVM_MCP_OAUTH_PATH`.
 
 ## Configuration model
 
-Loaded from four scopes, highest priority first. First match wins.
+Loaded from multiple scopes, highest priority first. First match wins (duplicate
+server names are silently collapsed by `dedupeServers`).
 
-1. `<workspace>/.mcp.json`
-2. `<workspace>/.hlvm/mcp.json`
-3. `~/.hlvm/mcp.json`
-4. Claude Code plugin manifests under `~/.claude/plugins/marketplaces/**`
-   (see "CC plugin import" below).
+1. `<workspace>/.mcp.json` (project)
+2. `<workspace>/.hlvm/mcp.json` (project)
+3. `~/.hlvm/mcp.json` (user — HLVM's own)
+4. `~/.cursor/mcp.json` (Cursor)
+5. `~/.codeium/windsurf/mcp_config.json` or `~/.codeium/mcp_config.json`
+   (Windsurf)
+6. `~/.config/zed/settings.json` → `context_servers` (Zed)
+7. `~/.codex/config.toml` → `[mcp_servers.*]` (Codex CLI)
+8. `~/.gemini/settings.json` → `mcpServers` (Gemini CLI)
+9. `~/.claude/plugins/marketplaces/**` plugin manifests (Claude Code)
 
 ### `.mcp.json` format (Claude Code style)
 
@@ -124,6 +157,37 @@ Loaded from four scopes, highest priority first. First match wins.
 }
 ```
 
+## Cross-tool discovery
+
+HLVM reads MCP server definitions from every major agent tool on the user's
+machine and merges them into one runtime server list. User installs HLVM →
+supported MCP server definitions they already configured elsewhere work
+immediately, no reconfiguration. Duplicate server names across sources resolve
+to the highest-priority source (see the priority list above).
+
+| Source      | Path                                                                  | Format                                                                             |
+| ----------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Cursor      | `~/.cursor/mcp.json`                                                  | JSON `mcpServers`                                                                  |
+| Windsurf    | `~/.codeium/windsurf/mcp_config.json` or `~/.codeium/mcp_config.json` | JSON `mcpServers`                                                                  |
+| Zed         | `~/.config/zed/settings.json`                                         | JSON `context_servers` (flat `command`/`args` or nested `command.{path,args,env}`) |
+| Codex CLI   | `~/.codex/config.toml`                                                | TOML `[mcp_servers.*]`                                                             |
+| Gemini CLI  | `~/.gemini/settings.json`                                             | JSON `mcpServers`                                                                  |
+| Claude Code | `~/.claude/plugins/marketplaces/**`                                   | plugin manifests (see below)                                                       |
+
+Each source is read independently; a malformed or missing file never blocks the
+others. Scope labels appear in `hlvm mcp list` so you can see where a server
+came from. HLVM normalizes a few cross-tool aliases while loading, including
+Windsurf `serverUrl` → `url`, `timeout` → `connection_timeout_ms`, and Zed's
+flat vs nested command shapes.
+
+### Why this is safe (legal + security)
+
+- HLVM is MIT OSS. Reading config files the user already wrote themselves on
+  their own machine carries effectively zero legal risk — HLVM is not
+  redistributing or repackaging any third-party code.
+- No secrets are exfiltrated: env vars in these configs are just used to launch
+  the same MCP subprocesses those other tools would launch.
+
 ## Claude Code plugin import
 
 HLVM scans installed CC plugin manifests and merges them into the runtime MCP
@@ -132,7 +196,8 @@ HLVM with no extra setup.
 
 - Scan root: `~/.claude/plugins/marketplaces/`
 - Collected subdirs: both `external_plugins/` and `plugins/`
-- Schema read: `{ mcpServers: { name: { command, args, env, url, type, oauth, ... } } }`
+- Schema read:
+  `{ mcpServers: { name: { command, args, env, cwd, url, serverUrl, type, timeout, oauth, ... } } }`
 - Supported transports from imported manifests: `stdio`, `http`, `sse`.
   Unsupported types (`ws`, `sse-ide`, `ws-ide`, `sdk`) are **rejected**, not
   silently misclassified.
@@ -163,8 +228,8 @@ Notes:
 ## Runtime behavior
 
 Loaded lazily. On first MCP-tool usage (or when `tool_search` probes for a
-deferred MCP tool), HLVM connects configured servers and registers their
-tools into the active session.
+deferred MCP tool), HLVM connects configured servers and registers their tools
+into the active session.
 
 Log on connect:
 
@@ -201,12 +266,12 @@ Capability-gated helpers auto-register when the server exposes them:
 ## Discovery — `tool_search` and lazy loading
 
 MCP tools are **deferred** by default. Only the core local tools are in the
-eager set sent to the model. The model discovers MCP tools at runtime via
-the `tool_search` meta-tool.
+eager set sent to the model. The model discovers MCP tools at runtime via the
+`tool_search` meta-tool.
 
-System prompt includes an imperative rule: when the user names a tool,
-service, or integration the model does not see in its eager list, it MUST
-call `tool_search({query: "<name>"})` before replying.
+System prompt includes an imperative rule: when the user names a tool, service,
+or integration the model does not see in its eager list, it MUST call
+`tool_search({query: "<name>"})` before replying.
 
 Example discovery trace:
 
@@ -222,13 +287,13 @@ user: use context7 to get the library ID for react
 
 Verified matrix (fresh sessions via `hlvm ask`, same context7 task):
 
-| Model                  | Params | Calls tool_search? | Full MCP loop |
-| ---------------------- | ------ | ------------------ | ------------- |
-| claude-code/haiku-4-5  | ~frontier | ✅              | ✅            |
-| ollama/qwen3:8b        | 8B     | ✅                 | ✅            |
-| ollama/llama3.1:8b     | 8B     | ✅                 | ✅            |
-| ollama/gemma4:e4b      | 4B     | ❌                 | ❌            |
-| ollama/gemma4:e2b      | 2B     | ❌                 | ❌            |
+| Model                 | Params    | Calls tool_search? | Full MCP loop |
+| --------------------- | --------- | ------------------ | ------------- |
+| claude-code/haiku-4-5 | ~frontier | ✅                 | ✅            |
+| ollama/qwen3:8b       | 8B        | ✅                 | ✅            |
+| ollama/llama3.1:8b    | 8B        | ✅                 | ✅            |
+| ollama/gemma4:e4b     | 4B        | ❌                 | ❌            |
+| ollama/gemma4:e2b     | 2B        | ❌                 | ❌            |
 
 **8B is the practical minimum** for reliable multi-hop tool discovery.
 
@@ -238,18 +303,18 @@ Default local model (SSOT in `src/hlvm/runtime/bootstrap-manifest.ts`):
 LOCAL_FALLBACK_MODEL = "qwen3:8b"
 ```
 
-Legacy defaults (`gemma4:e2b`, `gemma4:e4b`) are recognized and auto-upgraded
-on next run.
+Legacy defaults (`gemma4:e2b`, `gemma4:e4b`) are recognized and auto-upgraded on
+next run.
 
 ## Performance (M1 Max, qwen3:8b)
 
 Measured on a full `hlvm ask` MCP loop (context7 discovery + call):
 
-| Turn                                   | TTFT | Latency |
-| -------------------------------------- | ---- | ------- |
-| 1 (cold, 11K system prompt)            | ~43s | 45s     |
-| 2 (process tool_search result)         | ~10s | 12s     |
-| 3 (process MCP result, write answer)   | 1.8s | 3.5s    |
+| Turn                                 | TTFT | Latency |
+| ------------------------------------ | ---- | ------- |
+| 1 (cold, 11K system prompt)          | ~43s | 45s     |
+| 2 (process tool_search result)       | ~10s | 12s     |
+| 3 (process MCP result, write answer) | 1.8s | 3.5s    |
 
 Raw generation speed: ~37 tok/s. First-turn cost is dominated by cold prompt
 processing. Subsequent turns benefit from Ollama's prompt cache.
@@ -270,35 +335,6 @@ processing. Subsequent turns benefit from Ollama's prompt cache.
 
 ## Roadmap — TODO
 
-### Expand plugin discovery beyond Claude Code
-
-Today HLVM inherits MCP servers installed by Claude Code. The same pattern
-applies to every other agent tool that stores MCP server configs on disk.
-HLVM is MIT OSS — reading config files from other tools on the user's own
-machine has **very low legal risk (effectively none)**: the user owns those
-files, the MCP servers themselves are independent OSS, and HLVM is not
-redistributing any third-party code.
-
-Planned config sources (priority order, first match wins):
-
-1. `<workspace>/.mcp.json`                          (project)
-2. `<workspace>/.hlvm/mcp.json`                     (project)
-3. `~/.hlvm/mcp.json`                               (user)
-4. `~/.cursor/mcp.json`                             (Cursor)
-5. `~/.windsurf/mcp.json`                           (Windsurf)
-6. `~/.config/zed/settings.json → context_servers` (Zed)
-7. `~/.codex/config.toml → [mcp_servers]`          (Codex CLI)
-8. `~/.gemini/settings.json`                        (Gemini CLI)
-9. `~/.claude/plugins/marketplaces/**/.mcp.json`   (Claude Code plugins — done)
-
-Each source gets a small parser in `src/hlvm/agent/mcp/config.ts`
-(mirroring `parseClaudeCodeMcpJson`) and a path helper in `src/common/paths.ts`.
-User installs HLVM → inherits whatever MCP servers they already configured in
-any supported tool → works immediately with zero additional setup.
-
-No competitor does this. The asymmetry is a real differentiator and fits the
-MIT OSS philosophy directly.
-
 ### Lazy-load reliability for small models
 
 Ship a `classifyRelevantTools(query, toolCatalog)` in
@@ -310,9 +346,25 @@ meta-tool reasoning on their own.
 ### Cold-prompt latency
 
 The 11K-token system prompt dominates first-turn TTFT on local models. Plan:
+
 - Trim non-essential sections for `constrained` / `standard` tiers.
-- Pre-warm the prompt cache on install by issuing a throwaway generation
-  during `hlvm bootstrap`.
+- Pre-warm the prompt cache on install by issuing a throwaway generation during
+  `hlvm bootstrap`.
+
+### Cold-start fan-out
+
+`tool_search` triggers `ensureMcpLoaded`, which spawns every configured server
+at once so their tools can be enumerated into the live registry. With cross-tool
+discovery the total count grows (power users may have 10–20+ servers combined).
+Options when this becomes a real cost:
+
+- Keep a lightweight **descriptor catalog** from config text alone — no
+  subprocess until the model actually matches a server name in `tool_search`.
+  Only spawn the matched server on demand.
+- Per-server connect timeout and bounded parallelism already exist
+  (`pooledMap`); failure of one server never blocks the rest.
+
+Only pursue this once fan-out latency shows up in real-world sessions.
 
 ## Test coverage in repository
 
@@ -341,8 +393,7 @@ deno test --allow-all tests/unit/agent/mcp-oauth.test.ts
 ### Browser says callback cannot connect
 
 - Ensure `mcp login` is running in terminal while approving OAuth.
-- Callback listener is owned by the login command; if it exits, callback
-  fails.
+- Callback listener is owned by the login command; if it exits, callback fails.
 
 ### `invalid_grant` during login
 
@@ -387,9 +438,15 @@ deno test --allow-all tests/unit/agent/mcp-oauth.test.ts
 - Types: `src/hlvm/agent/mcp/types.ts`
 - Barrel: `src/hlvm/agent/mcp/mod.ts`
 - CC plugin scan root: `src/common/paths.ts` → `getClaudeCodeMcpDir`
+- Cross-tool config paths: `src/common/paths.ts` → `getCursorMcpPath`,
+  `getWindsurfMcpPath`, `getZedSettingsPath`, `getCodexConfigPath`,
+  `getGeminiSettingsPath`
+- Cross-tool loaders + shared shape normalizer: `src/hlvm/agent/mcp/config.ts`
+  (`parseMcpServersMap`, `loadCursorMcpServers`, `loadWindsurfMcpServers`,
+  `loadZedMcpServers`, `loadCodexMcpServers`, `loadGeminiMcpServers`)
 - System-prompt discovery rule: `src/hlvm/prompt/sections.ts` →
   `renderCriticalRules`
-- Default local model SSOT:
-  `src/hlvm/runtime/bootstrap-manifest.ts` → `LOCAL_FALLBACK_MODEL`
+- Default local model SSOT: `src/hlvm/runtime/bootstrap-manifest.ts` →
+  `LOCAL_FALLBACK_MODEL`
 - CLI: `src/hlvm/cli/commands/mcp.ts`
 - REPL: `src/hlvm/cli/repl/commands.ts`

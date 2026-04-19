@@ -123,6 +123,10 @@ function scrollDown(handle: ScrollBoxHandle, rows: number): boolean {
 
 function scrollUp(handle: ScrollBoxHandle, rows: number): boolean {
   if (rows <= 0) return handle.isSticky();
+  if (currentScrollTop(handle) - rows <= 0) {
+    handle.scrollTo(0);
+    return false;
+  }
   handle.scrollBy(-rows);
   return false;
 }

@@ -27,7 +27,14 @@ import {
   type ModelTier,
 } from "./constants.ts";
 import type { LLMFunction } from "./orchestrator.ts";
-import { loadMcpTools, type McpHandlers } from "./mcp/mod.ts";
+import {
+  findMcpServersForExactToolName,
+  loadMcpConfigMultiScope,
+  loadMcpToolsForServers,
+  normalizeServerName,
+  rankMcpServersForQuery,
+  type McpHandlers,
+} from "./mcp/mod.ts";
 import { getAgentLogger } from "./logger.ts";
 import { generateUUID } from "../../common/utils.ts";
 import {
@@ -70,6 +77,7 @@ import {
   setToolProfileLayer,
   type ToolProfileState,
 } from "./tool-profiles.ts";
+import type { McpDiscoveryRequest, McpServerConfig } from "./mcp/types.ts";
 
 interface AgentSessionOptions {
   workspace: string;
@@ -149,7 +157,10 @@ export interface AgentSession {
   /** Deferred specialized tools discovered via tool_search and kept across turns. */
   discoveredDeferredTools: Set<string>;
   /** Lazy MCP loader (connect/register only when first needed). */
-  ensureMcpLoaded?: (signal?: AbortSignal) => Promise<void>;
+  ensureMcpLoaded?: (
+    signal?: AbortSignal,
+    request?: McpDiscoveryRequest,
+  ) => Promise<boolean>;
   /** Deferred MCP handler registration (sampling, elicitation, roots) */
   mcpSetHandlers?: (handlers: McpHandlers) => void;
   /** Wire an AbortSignal to cancel all pending MCP requests */
@@ -417,15 +428,16 @@ export async function createAgentSession(
   const fileStateCache = new FileStateCache();
 
   // Lazy MCP loading: defer connection/registration until first MCP use.
-  let loadedMcp: Awaited<ReturnType<typeof loadMcpTools>> | null = null;
-  let loadingMcp: Promise<Awaited<ReturnType<typeof loadMcpTools>>> | null =
-    null;
+  const MCP_DISCOVERY_BATCH_SIZE = 3;
+  type SessionMcpLoad = Awaited<ReturnType<typeof loadMcpToolsForServers>>;
+  let cachedMcpCatalog: Promise<McpServerConfig[]> | null = null;
+  const loadedMcpBatches: SessionMcpLoad[] = [];
+  const attemptedMcpServers = new Set<string>();
+  let loadingMcp: Promise<boolean> | null = null;
   let pendingHandlers: McpHandlers = {};
   let pendingSignal: AbortSignal | null = null;
 
-  const applyMcpBindings = (
-    mcp: Awaited<ReturnType<typeof loadMcpTools>>,
-  ): void => {
+  const applyMcpBindings = (mcp: SessionMcpLoad): void => {
     if (
       pendingHandlers.onSampling ||
       pendingHandlers.onElicitation ||
@@ -438,39 +450,91 @@ export async function createAgentSession(
     }
   };
 
-  const ensureMcpLoaded = async (signal?: AbortSignal): Promise<void> => {
-    if (modelTier === "constrained") return;
-    if (signal?.aborted) throw new Error("MCP load aborted");
-    const waitForLoad = async (
-      promise: Promise<Awaited<ReturnType<typeof loadMcpTools>>>,
-    ): Promise<Awaited<ReturnType<typeof loadMcpTools>>> => {
-      if (!signal) return await promise;
-      if (signal.aborted) throw new Error("MCP load aborted");
-      let removeAbortListener = () => {};
-      try {
-        const abortPromise = new Promise<never>((_, reject) => {
-          const onAbort = () => reject(new Error("MCP load aborted"));
-          signal.addEventListener("abort", onAbort, { once: true });
-          removeAbortListener = () =>
-            signal.removeEventListener("abort", onAbort);
-        });
-        return await Promise.race([promise, abortPromise]);
-      } finally {
-        removeAbortListener();
-      }
-    };
-    if (loadedMcp) {
-      applyMcpBindings(loadedMcp);
-      return;
+  const waitForMcpLoad = async <T>(
+    promise: Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> => {
+    if (!signal) return await promise;
+    if (signal.aborted) throw new Error("MCP load aborted");
+    let removeAbortListener = () => {};
+    try {
+      const abortPromise = new Promise<never>((_, reject) => {
+        const onAbort = () => reject(new Error("MCP load aborted"));
+        signal.addEventListener("abort", onAbort, { once: true });
+        removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+      });
+      return await Promise.race([promise, abortPromise]);
+    } finally {
+      removeAbortListener();
     }
-    if (!loadingMcp) {
-      loadingMcp = loadMcpTools(
-        options.workspace,
-        undefined,
+  };
+
+  const getMcpCatalog = async (): Promise<McpServerConfig[]> => {
+    if (!cachedMcpCatalog) {
+      cachedMcpCatalog = loadMcpConfigMultiScope();
+    }
+    return await cachedMcpCatalog;
+  };
+
+  const selectMcpBatch = async (
+    request?: McpDiscoveryRequest,
+  ): Promise<McpServerConfig[]> => {
+    const catalog = await getMcpCatalog();
+    const pendingServers = catalog.filter((server) =>
+      !attemptedMcpServers.has(normalizeServerName(server.name))
+    );
+    if (pendingServers.length === 0) return [];
+
+    if (request?.exactToolName) {
+      const exactMatches = findMcpServersForExactToolName(
+        pendingServers,
+        request.exactToolName,
+      );
+      if (exactMatches.length > 0) {
+        return exactMatches.slice(0, MCP_DISCOVERY_BATCH_SIZE);
+      }
+      return [];
+    }
+
+    if (request?.query?.trim()) {
+      const ranked = rankMcpServersForQuery(pendingServers, request.query);
+      if (ranked.length > 0) {
+        return ranked.slice(0, MCP_DISCOVERY_BATCH_SIZE);
+      }
+      return pendingServers.slice(0, MCP_DISCOVERY_BATCH_SIZE);
+    }
+
+    return pendingServers;
+  };
+
+  const ensureMcpLoaded = async (
+    signal?: AbortSignal,
+    request?: McpDiscoveryRequest,
+  ): Promise<boolean> => {
+    if (modelTier === "constrained") return false;
+    if (signal?.aborted) throw new Error("MCP load aborted");
+
+    while (true) {
+      if (loadingMcp) {
+        await waitForMcpLoad(loadingMcp, signal);
+        continue;
+      }
+
+      const batch = await selectMcpBatch(request);
+      if (batch.length === 0) return false;
+
+      const attemptedNames = batch.map((server) =>
+        normalizeServerName(server.name)
+      );
+      loadingMcp = loadMcpToolsForServers(
+        batch,
         toolOwnerId,
         undefined,
       ).then((mcp) => {
-        loadedMcp = mcp;
+        for (const name of attemptedNames) {
+          attemptedMcpServers.add(name);
+        }
+        loadedMcpBatches.push(mcp);
         applyMcpBindings(mcp);
         if (mcp.connectedServers.length > 0) {
           const logger = getAgentLogger();
@@ -478,34 +542,33 @@ export async function createAgentSession(
             logger.info(`MCP: ${s.name} — ${s.toolCount} tools`);
           }
         }
-        return mcp;
-      }).catch((error) => {
+        return true;
+      }).finally(() => {
         loadingMcp = null;
-        throw error;
       });
+
+      return await waitForMcpLoad(loadingMcp, signal);
     }
-    const mcp = await waitForLoad(loadingMcp);
-    applyMcpBindings(mcp);
   };
 
   const mcpSetHandlers = (handlers: McpHandlers): void => {
     pendingHandlers = mergeMcpHandlers(pendingHandlers, handlers);
-    if (loadedMcp) {
-      loadedMcp.setHandlers(pendingHandlers);
+    for (const mcp of loadedMcpBatches) {
+      mcp.setHandlers(pendingHandlers);
     }
   };
 
   const mcpSetSignal = (signal: AbortSignal): void => {
     pendingSignal = signal;
-    if (loadedMcp) {
-      loadedMcp.setSignal(signal);
+    for (const mcp of loadedMcpBatches) {
+      mcp.setSignal(signal);
     }
   };
 
   if (modelTier === "constrained") {
     getAgentLogger().info("MCP: skipped (constrained model tier)");
   } else {
-    getAgentLogger().debug("MCP: lazy load enabled");
+    getAgentLogger().debug("MCP: incremental lazy load enabled");
   }
 
   const resolved = resolveContextBudget({
@@ -638,9 +701,12 @@ export async function createAgentSession(
             await closeBrowser(sessionId);
           })(),
           (async () => {
-            if (!loadingMcp) return;
-            const mcp = await loadingMcp;
-            await mcp.dispose();
+            if (loadingMcp) {
+              await loadingMcp.catch(() => undefined);
+            }
+            await Promise.allSettled(
+              loadedMcpBatches.map((mcp) => mcp.dispose()),
+            );
           })(),
           lspDiagnostics.dispose(),
           clearToolResultSidecars(sessionId),

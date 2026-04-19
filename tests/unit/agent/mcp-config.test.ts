@@ -3,19 +3,39 @@ import {
   getClaudeCodeMcpDir,
   getMcpConfigPath,
   setClaudeCodeMcpDirForTests,
+  setCodexConfigPathForTests,
+  setCursorMcpPathForTests,
+  setGeminiSettingsPathForTests,
+  setWindsurfLegacyMcpPathForTests,
+  setWindsurfMcpPathForTests,
+  setZedSettingsPathForTests,
 } from "../../../src/common/paths.ts";
 import {
   addServerToConfig,
   dedupeServers,
+  findMcpServersForExactToolName,
   formatServerEntry,
   loadMcpConfig,
   loadMcpConfigMultiScope,
   normalizeServerName,
   parseClaudeCodeMcpJson,
+  rankMcpServersForQuery,
   removeServerFromConfig,
 } from "../../../src/hlvm/agent/mcp/config.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { withTempHlvmDir } from "../helpers.ts";
+
+async function writeJson(path: string, value: unknown): Promise<void> {
+  const platform = getPlatform();
+  await platform.fs.mkdir(platform.path.dirname(path), { recursive: true });
+  await platform.fs.writeTextFile(path, JSON.stringify(value, null, 2));
+}
+
+async function writeText(path: string, text: string): Promise<void> {
+  const platform = getPlatform();
+  await platform.fs.mkdir(platform.path.dirname(path), { recursive: true });
+  await platform.fs.writeTextFile(path, text);
+}
 
 Deno.test("McpConfig: parseClaudeCodeMcpJson parses direct transport entries and normalizes optional fields", () => {
   const servers = parseClaudeCodeMcpJson(
@@ -116,6 +136,28 @@ Deno.test("McpConfig: normalizeServerName and dedupeServers are case-insensitive
   assertEquals(deduped.length, 2);
   assertEquals(deduped[0].command, ["node", "a.js"]);
   assertEquals(deduped[1].name, "GitHub");
+});
+
+Deno.test("McpConfig: MCP server catalog ranking and exact tool resolution stay targeted", () => {
+  const servers = [
+    { name: "context", command: ["npx", "@example/context-mcp"] },
+    { name: "context7", command: ["npx", "@upstash/context7-mcp"] },
+    { name: "playwright", command: ["npx", "@playwright/mcp@latest"] },
+  ];
+
+  assertEquals(
+    rankMcpServersForQuery(servers, "playwright screenshot").map((server) =>
+      server.name
+    ),
+    ["playwright"],
+  );
+  assertEquals(
+    findMcpServersForExactToolName(
+      servers,
+      "mcp_context7_get_library_docs",
+    ).map((server) => server.name),
+    ["context7"],
+  );
 });
 
 Deno.test("McpConfig: addServerToConfig persists global config and replaces duplicate names", async () => {
@@ -269,6 +311,311 @@ Deno.test("McpConfig: loadMcpConfig expands MCP env vars and preserves missing p
       } else {
         platform.env.set("MCP_TEST_MISSING", originalMissing);
       }
+    }
+  });
+});
+
+Deno.test("McpConfig: loadMcpConfigMultiScope imports Cursor, Windsurf, Zed, Codex, Gemini", async () => {
+  await withTempHlvmDir(async () => {
+    const platform = getPlatform();
+    const tempRoot = await platform.fs.makeTempDir({
+      prefix: "hlvm-test-crosstool-",
+    });
+
+    const cursorPath = platform.path.join(tempRoot, "cursor", "mcp.json");
+    const windsurfPath = platform.path.join(
+      tempRoot,
+      "windsurf",
+      "mcp_config.json",
+    );
+    const zedPath = platform.path.join(tempRoot, "zed", "settings.json");
+    const codexPath = platform.path.join(tempRoot, "codex", "config.toml");
+    const geminiPath = platform.path.join(tempRoot, "gemini", "settings.json");
+    const emptyCcDir = platform.path.join(tempRoot, "cc-empty");
+    await platform.fs.mkdir(emptyCcDir, { recursive: true });
+
+    await writeJson(cursorPath, {
+      mcpServers: {
+        "cursor-only": {
+          command: "npx",
+          args: ["-y", "cursor-server"],
+          cwd: "/tmp/cursor",
+        },
+      },
+    });
+    await writeJson(windsurfPath, {
+      mcpServers: {
+        "windsurf-only": {
+          type: "streamableHttp",
+          serverUrl: "https://mcp.windsurf.test/mcp",
+          headers: {
+            Authorization: "Bearer test",
+          },
+          timeout: 30000,
+        },
+      },
+    });
+    await writeJson(zedPath, {
+      context_servers: {
+        "zed-only": {
+          command: {
+            path: "node",
+            args: ["server.js"],
+            env: {
+              ZED_TOKEN: "nested",
+            },
+          },
+        },
+        "zed-flat": {
+          command: "uvx",
+          args: ["zed-flat-server"],
+          env: {
+            ZED_FLAT: "1",
+          },
+        },
+      },
+    });
+    await writeText(
+      codexPath,
+      [
+        "[mcp_servers.codex-only]",
+        'command = "uvx"',
+        'args = ["codex-mcp"]',
+        "",
+        "[mcp_servers.codex-only.env]",
+        'TOKEN = "abc"',
+        "",
+      ].join("\n"),
+    );
+    await writeJson(geminiPath, {
+      mcpServers: {
+        "gemini-only": {
+          command: "python",
+          args: ["-m", "gemini_mcp"],
+          cwd: "./tools",
+          timeout: 15000,
+        },
+      },
+    });
+
+    setCursorMcpPathForTests(cursorPath);
+    setWindsurfMcpPathForTests(windsurfPath);
+    setZedSettingsPathForTests(zedPath);
+    setCodexConfigPathForTests(codexPath);
+    setGeminiSettingsPathForTests(geminiPath);
+    setClaudeCodeMcpDirForTests(emptyCcDir);
+
+    try {
+      const servers = await loadMcpConfigMultiScope();
+      const byName = Object.fromEntries(servers.map((s) => [s.name, s]));
+
+      assertEquals(byName["cursor-only"]?.scope, "cursor");
+      assertEquals(byName["cursor-only"]?.command, [
+        "npx",
+        "-y",
+        "cursor-server",
+      ]);
+      assertEquals(byName["cursor-only"]?.cwd, "/tmp/cursor");
+
+      assertEquals(byName["windsurf-only"]?.scope, "windsurf");
+      assertEquals(
+        byName["windsurf-only"]?.url,
+        "https://mcp.windsurf.test/mcp",
+      );
+      assertEquals(byName["windsurf-only"]?.headers, {
+        Authorization: "Bearer test",
+      });
+      assertEquals(byName["windsurf-only"]?.connection_timeout_ms, 30000);
+      assertEquals(byName["windsurf-only"]?.transport, "http");
+
+      assertEquals(byName["zed-only"]?.scope, "zed");
+      assertEquals(byName["zed-only"]?.command, ["node", "server.js"]);
+      assertEquals(byName["zed-only"]?.env, { ZED_TOKEN: "nested" });
+
+      assertEquals(byName["zed-flat"]?.scope, "zed");
+      assertEquals(byName["zed-flat"]?.command, ["uvx", "zed-flat-server"]);
+      assertEquals(byName["zed-flat"]?.env, { ZED_FLAT: "1" });
+
+      assertEquals(byName["codex-only"]?.scope, "codex");
+      assertEquals(byName["codex-only"]?.command, ["uvx", "codex-mcp"]);
+      assertEquals(byName["codex-only"]?.env, { TOKEN: "abc" });
+
+      assertEquals(byName["gemini-only"]?.scope, "gemini");
+      assertEquals(byName["gemini-only"]?.command, [
+        "python",
+        "-m",
+        "gemini_mcp",
+      ]);
+      assertEquals(byName["gemini-only"]?.cwd, "./tools");
+      assertEquals(byName["gemini-only"]?.connection_timeout_ms, 15000);
+    } finally {
+      setCursorMcpPathForTests(null);
+      setWindsurfMcpPathForTests(null);
+      setZedSettingsPathForTests(null);
+      setCodexConfigPathForTests(null);
+      setGeminiSettingsPathForTests(null);
+      setClaudeCodeMcpDirForTests(getClaudeCodeMcpDir());
+      await platform.fs.remove(tempRoot, { recursive: true });
+    }
+  });
+});
+
+Deno.test("McpConfig: loadMcpConfigMultiScope accepts Windsurf legacy config path", async () => {
+  await withTempHlvmDir(async () => {
+    const platform = getPlatform();
+    const tempRoot = await platform.fs.makeTempDir({
+      prefix: "hlvm-test-windsurf-legacy-",
+    });
+
+    const missingPrimaryPath = platform.path.join(
+      tempRoot,
+      "windsurf",
+      "missing-mcp_config.json",
+    );
+    const legacyPath = platform.path.join(
+      tempRoot,
+      "legacy",
+      "mcp_config.json",
+    );
+    const emptyCcDir = platform.path.join(tempRoot, "cc-empty");
+    await platform.fs.mkdir(emptyCcDir, { recursive: true });
+
+    await writeJson(legacyPath, {
+      mcpServers: {
+        "windsurf-legacy": {
+          command: "node",
+          args: ["legacy.js"],
+        },
+      },
+    });
+
+    setWindsurfMcpPathForTests(missingPrimaryPath);
+    setWindsurfLegacyMcpPathForTests(legacyPath);
+    setClaudeCodeMcpDirForTests(emptyCcDir);
+
+    try {
+      const servers = await loadMcpConfigMultiScope();
+      const byName = Object.fromEntries(servers.map((s) => [s.name, s]));
+
+      assertEquals(byName["windsurf-legacy"]?.scope, "windsurf");
+      assertEquals(byName["windsurf-legacy"]?.command, ["node", "legacy.js"]);
+    } finally {
+      setWindsurfMcpPathForTests(null);
+      setWindsurfLegacyMcpPathForTests(null);
+      setClaudeCodeMcpDirForTests(getClaudeCodeMcpDir());
+      await platform.fs.remove(tempRoot, { recursive: true });
+    }
+  });
+});
+
+Deno.test("McpConfig: multi-scope priority — user wins over Cursor wins over Claude Code", async () => {
+  await withTempHlvmDir(async () => {
+    const platform = getPlatform();
+    const tempRoot = await platform.fs.makeTempDir({
+      prefix: "hlvm-test-priority-",
+    });
+
+    const cursorPath = platform.path.join(tempRoot, "cursor", "mcp.json");
+    const ccDir = platform.path.join(tempRoot, "marketplaces");
+    const ccPluginDir = platform.path.join(
+      ccDir,
+      "official",
+      "plugins",
+      "shared-plugin",
+    );
+
+    await writeJson(getMcpConfigPath(), {
+      version: 1,
+      servers: [{
+        name: "shared",
+        command: ["node", "user-wins.js"],
+      }],
+    });
+    await writeJson(cursorPath, {
+      mcpServers: {
+        shared: {
+          command: "node",
+          args: ["cursor-loses.js"],
+        },
+        "cursor-only": {
+          command: "node",
+          args: ["cursor.js"],
+        },
+      },
+    });
+    await writeJson(
+      platform.path.join(ccPluginDir, ".mcp.json"),
+      {
+        shared: {
+          command: "node",
+          args: ["cc-loses.js"],
+        },
+      },
+    );
+
+    setCursorMcpPathForTests(cursorPath);
+    setClaudeCodeMcpDirForTests(ccDir);
+
+    try {
+      const servers = await loadMcpConfigMultiScope();
+      const byName = Object.fromEntries(servers.map((s) => [s.name, s]));
+
+      assertEquals(byName["shared"]?.scope, "user");
+      assertEquals(byName["shared"]?.command, ["node", "user-wins.js"]);
+      assertEquals(byName["cursor-only"]?.scope, "cursor");
+    } finally {
+      setCursorMcpPathForTests(null);
+      setClaudeCodeMcpDirForTests(getClaudeCodeMcpDir());
+      await platform.fs.remove(tempRoot, { recursive: true });
+    }
+  });
+});
+
+Deno.test("McpConfig: missing or malformed cross-tool configs are skipped silently", async () => {
+  await withTempHlvmDir(async () => {
+    const platform = getPlatform();
+    const tempRoot = await platform.fs.makeTempDir({
+      prefix: "hlvm-test-malformed-",
+    });
+
+    const cursorPath = platform.path.join(tempRoot, "cursor", "mcp.json");
+    const zedPath = platform.path.join(tempRoot, "zed", "settings.json");
+    const codexPath = platform.path.join(tempRoot, "codex", "config.toml");
+    const missingWindsurf = platform.path.join(
+      tempRoot,
+      "windsurf",
+      "does-not-exist.json",
+    );
+    const missingGemini = platform.path.join(
+      tempRoot,
+      "gemini",
+      "does-not-exist.json",
+    );
+    const emptyCcDir = platform.path.join(tempRoot, "cc-empty");
+    await platform.fs.mkdir(emptyCcDir, { recursive: true });
+
+    await writeText(cursorPath, "this is not json");
+    await writeJson(zedPath, { unrelated: true });
+    await writeText(codexPath, "this = is = not = toml");
+
+    setCursorMcpPathForTests(cursorPath);
+    setWindsurfMcpPathForTests(missingWindsurf);
+    setZedSettingsPathForTests(zedPath);
+    setCodexConfigPathForTests(codexPath);
+    setGeminiSettingsPathForTests(missingGemini);
+    setClaudeCodeMcpDirForTests(emptyCcDir);
+
+    try {
+      const servers = await loadMcpConfigMultiScope();
+      assertEquals(servers, []);
+    } finally {
+      setCursorMcpPathForTests(null);
+      setWindsurfMcpPathForTests(null);
+      setZedSettingsPathForTests(null);
+      setCodexConfigPathForTests(null);
+      setGeminiSettingsPathForTests(null);
+      setClaudeCodeMcpDirForTests(getClaudeCodeMcpDir());
+      await platform.fs.remove(tempRoot, { recursive: true });
     }
   });
 });

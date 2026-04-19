@@ -32,6 +32,7 @@ import type { TodoState } from "./todo-state.ts";
 import type { ModelTier } from "./constants.ts";
 import type { AgentProfile } from "./agent-registry.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
+import type { McpDiscoveryRequest } from "./mcp/types.ts";
 import {
   buildToolJsonSchema,
   coerceArgsToSchema,
@@ -107,7 +108,10 @@ export interface ToolExecutionOptions {
   /** Session-scoped tool owner (used by dynamic tool families like MCP). */
   toolOwnerId?: string;
   /** Optional lazy MCP loader hook used by tool_search. */
-  ensureMcpLoaded?: (signal?: AbortSignal) => Promise<void>;
+  ensureMcpLoaded?: (
+    signal?: AbortSignal,
+    request?: McpDiscoveryRequest,
+  ) => Promise<boolean>;
   /** Session-scoped todo state used by todo_read/todo_write. */
   todoState?: TodoState;
   /** Per-session file integrity cache for read/write/edit guards. */

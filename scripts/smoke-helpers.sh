@@ -99,28 +99,32 @@ verify_python_sidecar() {
   echo "==> ${label} managed Python sidecar verified."
 }
 
-# Exercise the agent through hlvm ask.
-# Proves qwen3 tool_calls work end-to-end. Lenient — agent may exceed the
-# CI runner's budget; we warn but do not fail the smoke.
+# Exercise the agent through hlvm ask — HARD GATE.
+# Proves qwen3 tool_calls + managed Python sidecar work end-to-end.
+# Skipped on ARM CI only (confirmed OOM on 7 GB runner).
 exercise_agent() {
   local label="${1:-Smoke}"
   if is_arm; then
-    echo "==> Skipping hlvm ask on ARM CI (runner memory)."
+    echo "==> Skipping hlvm ask on ARM CI (runner OOM)."
     return 0
   fi
 
-  echo "==> Running hlvm ask (lenient — CI runners are slow)..."
+  echo "==> Running hlvm ask end-to-end (may take 15-30 min on CI CPU)..."
+  local prompt='run python code: import sys, pptx; print(f"python={sys.executable} pptx={pptx.__version__}")'
   local response
   response=$(run_smoke_hlvm "${INSTALL_BIN}/hlvm" ask \
-    --permission-mode bypassPermissions \
-    'what is 2+2? answer with just the number' 2>&1) || true
+    --permission-mode bypassPermissions "$prompt" 2>&1) || true
   echo "$response"
 
-  if echo "$response" | grep -qE '^4$|^[[:space:]]*4[[:space:]]*$|=\s*4\b|answer.*4|result.*4|is.*4\b'; then
-    echo "==> ${label} agent end-to-end verified."
-  else
-    echo "==> WARNING: hlvm ask did not return expected answer (CI runner too slow; not blocking)."
+  if ! echo "$response" | grep -q '\.hlvm/\.runtime/python/venv'; then
+    echo "FAIL: hlvm ask did not route Python through managed venv" >&2
+    return 1
   fi
+  if ! echo "$response" | grep -q 'pptx='; then
+    echo "FAIL: hlvm ask did not report pptx version" >&2
+    return 1
+  fi
+  echo "==> ${label} agent + managed Python + sidecar verified end-to-end."
 }
 
 # Full smoke: bootstrap verify, Ollama API, managed Python sidecar,
@@ -137,7 +141,7 @@ verify_and_test() {
 
   verify_python_sidecar "$label" || exit 1
 
-  exercise_agent "$label"
+  exercise_agent "$label" || exit 1
 
   echo "==> ${label} succeeded."
 }

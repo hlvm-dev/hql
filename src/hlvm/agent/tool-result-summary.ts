@@ -8,6 +8,11 @@
 import { isObjectValue, truncate } from "../../common/utils.ts";
 
 const MAX_SUMMARY_CHARS = 100;
+const STRUCTURED_SUMMARY_FIRST_TOOLS = new Set([
+  "list_files",
+  "read_file",
+  "search_code",
+]);
 
 function cleanSummaryText(text: string): string {
   return truncate(text.replace(/\s+/g, " ").trim(), MAX_SUMMARY_CHARS);
@@ -19,6 +24,7 @@ function firstNonEmptyLine(text: string): string {
 
 export function pluralize(noun: string, count: number): string {
   if (count === 1) return noun;
+  if (/[^aeiou]y$/i.test(noun)) return `${noun.slice(0, -1)}ies`;
   if (/(s|x|z|ch|sh)$/i.test(noun)) return `${noun}es`;
   return `${noun}s`;
 }
@@ -53,10 +59,6 @@ function summarizeStructuredRecord(
 ): string | null {
   if (record.success === false && typeof record.error === "string") {
     return cleanSummaryText(record.error);
-  }
-
-  if (typeof record.message === "string" && record.message.trim()) {
-    return cleanSummaryText(record.message);
   }
 
   if (Array.isArray(record.matches)) {
@@ -115,6 +117,10 @@ function summarizeStructuredRecord(
     );
   }
 
+  if (typeof record.message === "string" && record.message.trim()) {
+    return cleanSummaryText(record.message);
+  }
+
   const keys = Object.keys(record).slice(0, 3);
   if (keys.length > 0) {
     return cleanSummaryText(`Returned structured result (${keys.join(", ")})`);
@@ -127,13 +133,18 @@ export function summarizeToolResult(
   result: unknown,
   preferredText?: string,
 ): string {
-  const concisePreferred = conciseDisplayText(preferredText);
-  if (concisePreferred) return concisePreferred;
-
   if (isObjectValue(result)) {
     const structuredSummary = summarizeStructuredRecord(toolName, result);
+    if (structuredSummary && STRUCTURED_SUMMARY_FIRST_TOOLS.has(toolName)) {
+      return structuredSummary;
+    }
+    const concisePreferred = conciseDisplayText(preferredText);
+    if (concisePreferred) return concisePreferred;
     if (structuredSummary) return structuredSummary;
   }
+
+  const concisePreferred = conciseDisplayText(preferredText);
+  if (concisePreferred) return concisePreferred;
 
   if (typeof result === "string") {
     const line = conciseDisplayText(result);

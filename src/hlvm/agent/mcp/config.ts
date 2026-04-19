@@ -2,16 +2,23 @@
  * MCP Config — Loading, saving, and global management of MCP server configurations.
  */
 
+import { parse as parseToml } from "@std/toml";
 import { getPlatform } from "../../../platform/platform.ts";
 import { atomicWriteTextFile } from "../../../common/atomic-file.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getAgentLogger } from "../logger.ts";
 import {
   getClaudeCodeMcpDir,
+  getCodexConfigPath,
+  getCursorMcpPath,
+  getGeminiSettingsPath,
   getMcpConfigPath,
+  getWindsurfMcpPaths,
+  getZedSettingsPath,
 } from "../../../common/paths.ts";
 import type { McpConfig, McpServerConfig } from "./types.ts";
 import { expandMcpServerEnv } from "./env-expansion.ts";
+import { sanitizeToolName } from "../tool-schema.ts";
 
 const DOT_MCP_FILE = ".mcp.json";
 const CLAUDE_PLUGIN_COLLECTION_DIRS = new Set(["external_plugins", "plugins"]);
@@ -58,7 +65,14 @@ async function loadMcpConfigFromPath(path: string): Promise<McpConfig | null> {
 }
 
 /** Scope tag for display and identification */
-export type McpScope = "user" | "claude-code";
+export type McpScope =
+  | "user"
+  | "cursor"
+  | "windsurf"
+  | "zed"
+  | "codex"
+  | "gemini"
+  | "claude-code";
 
 export interface McpServerWithScope extends McpServerConfig {
   scope: McpScope;
@@ -66,20 +80,43 @@ export interface McpServerWithScope extends McpServerConfig {
 
 /**
  * Load MCP servers from all global scopes, merged with deduplication.
- * Priority: ~/.hlvm/mcp.json (user) > Claude Code plugins
+ *
+ * Priority (first match wins):
+ *   user (~/.hlvm/mcp.json) > cursor > windsurf > zed > codex > gemini > claude-code
+ *
+ * Each source is read independently; a malformed or missing source never
+ * blocks the others. HLVM inherits MCP servers already configured in any
+ * supported agent tool, giving the user zero-config continuity.
  */
 export async function loadMcpConfigMultiScope(): Promise<McpServerWithScope[]> {
-  const [userConfig, claudeServers] = await Promise.all([
+  const [
+    userConfig,
+    cursorServers,
+    windsurfServers,
+    zedServers,
+    codexServers,
+    geminiServers,
+    claudeServers,
+  ] = await Promise.all([
     loadMcpConfigFromPath(getMcpConfigPath()),
+    loadCursorMcpServers(),
+    loadWindsurfMcpServers(),
+    loadZedMcpServers(),
+    loadCodexMcpServers(),
+    loadGeminiMcpServers(),
     loadClaudeCodeMcpServers(),
   ]);
 
-  // Dedupe: first occurrence wins (highest priority)
   return dedupeServers([
     ...(userConfig?.servers ?? []).map((s) => ({
       ...s,
       scope: "user" as const,
     })),
+    ...cursorServers.map((s) => ({ ...s, scope: "cursor" as const })),
+    ...windsurfServers.map((s) => ({ ...s, scope: "windsurf" as const })),
+    ...zedServers.map((s) => ({ ...s, scope: "zed" as const })),
+    ...codexServers.map((s) => ({ ...s, scope: "codex" as const })),
+    ...geminiServers.map((s) => ({ ...s, scope: "gemini" as const })),
     ...claudeServers.map((s) => ({ ...s, scope: "claude-code" as const })),
   ]);
 }
@@ -96,7 +133,12 @@ function parseClaudeCodeServerEntry(
   name: string,
   entry: Record<string, unknown>,
 ): McpServerConfig | null {
-  const type = typeof entry.type === "string" ? entry.type : undefined;
+  const rawType = typeof entry.type === "string" ? entry.type : undefined;
+  const type = rawType === undefined
+    ? undefined
+    : rawType === "streamableHttp" || rawType === "streamable-http"
+    ? "http"
+    : rawType;
   if (
     type !== undefined &&
     type !== "stdio" &&
@@ -114,8 +156,13 @@ function parseClaudeCodeServerEntry(
     )
     : undefined;
 
-  const disabled_tools = Array.isArray(entry.disabled_tools)
-    ? entry.disabled_tools.filter((t: unknown) =>
+  const disabledToolsValue = Array.isArray(entry.disabled_tools)
+    ? entry.disabled_tools
+    : Array.isArray(entry.excludeTools)
+    ? entry.excludeTools
+    : undefined;
+  const disabled_tools = Array.isArray(disabledToolsValue)
+    ? disabledToolsValue.filter((t: unknown) =>
       typeof t === "string"
     ) as string[]
     : undefined;
@@ -124,7 +171,14 @@ function parseClaudeCodeServerEntry(
       Number.isFinite(entry.connection_timeout_ms) &&
       entry.connection_timeout_ms > 0
       ? Math.floor(entry.connection_timeout_ms)
+      : typeof entry.timeout === "number" &&
+          Number.isFinite(entry.timeout) &&
+          entry.timeout > 0
+      ? Math.floor(entry.timeout)
       : undefined;
+  const cwd = typeof entry.cwd === "string" && entry.cwd.length > 0
+    ? entry.cwd
+    : undefined;
   const headers = isObjectValue(entry.headers)
     ? Object.fromEntries(
       Object.entries(entry.headers as Record<string, unknown>)
@@ -140,14 +194,20 @@ function parseClaudeCodeServerEntry(
   const oauth = isObjectValue(entry.oauth)
     ? parseClaudeCodeOAuthConfig(entry.oauth as Record<string, unknown>)
     : undefined;
+  const url = typeof entry.url === "string"
+    ? entry.url
+    : typeof entry.serverUrl === "string"
+    ? entry.serverUrl
+    : undefined;
 
   // HTTP / SSE transport
-  if (typeof entry.url === "string") {
+  if (typeof url === "string") {
     if (type === "stdio") return null;
     return {
       name,
-      url: entry.url,
+      url,
       ...(transport ? { transport } : {}),
+      ...(cwd ? { cwd } : {}),
       ...(headers ? { headers } : {}),
       ...(oauth ? { oauth } : {}),
       ...(env ? { env } : {}),
@@ -165,10 +225,11 @@ function parseClaudeCodeServerEntry(
     return {
       name,
       command: [entry.command, ...args],
-      env,
-      oauth,
-      disabled_tools,
-      connection_timeout_ms,
+      ...(cwd ? { cwd } : {}),
+      ...(env ? { env } : {}),
+      ...(oauth ? { oauth } : {}),
+      ...(disabled_tools ? { disabled_tools } : {}),
+      ...(connection_timeout_ms ? { connection_timeout_ms } : {}),
     };
   }
 
@@ -269,6 +330,205 @@ async function loadClaudeCodeMcpServers(): Promise<McpServerConfig[]> {
     }
   }
   return servers;
+}
+
+// ============================================================
+// Cross-Tool MCP Imports (Cursor, Windsurf, Zed, Codex, Gemini)
+// ============================================================
+
+function parseMcpServersMap(
+  map: Record<string, unknown>,
+): McpServerConfig[] {
+  const servers: McpServerConfig[] = [];
+  for (const [name, value] of Object.entries(map)) {
+    if (!isObjectValue(value)) continue;
+    const config = parseClaudeCodeServerEntry(
+      name,
+      value as Record<string, unknown>,
+    );
+    if (config) servers.push(config);
+  }
+  return servers;
+}
+
+async function readServersFromJsonKey(
+  paths: string | string[],
+  key: string,
+  sourceLabel: string,
+): Promise<McpServerConfig[]> {
+  const platform = getPlatform();
+  const candidates = Array.isArray(paths) ? paths : [paths];
+  const servers: McpServerConfig[] = [];
+
+  for (const path of candidates) {
+    let content: string;
+    try {
+      content = await platform.fs.readTextFile(path);
+    } catch {
+      continue;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      getAgentLogger().warn(
+        `${sourceLabel} MCP config JSON invalid (${path}): ${
+          getErrorMessage(error)
+        }`,
+      );
+      continue;
+    }
+
+    if (!isObjectValue(parsed)) continue;
+    const section = (parsed as Record<string, unknown>)[key];
+    if (!isObjectValue(section)) continue;
+
+    servers.push(
+      ...expandServersWithWarnings(
+        parseMcpServersMap(section as Record<string, unknown>),
+        path,
+      ),
+    );
+  }
+
+  return dedupeServers(servers);
+}
+
+async function loadCursorMcpServers(): Promise<McpServerConfig[]> {
+  return await readServersFromJsonKey(
+    getCursorMcpPath(),
+    "mcpServers",
+    "Cursor",
+  );
+}
+
+async function loadWindsurfMcpServers(): Promise<McpServerConfig[]> {
+  return await readServersFromJsonKey(
+    getWindsurfMcpPaths(),
+    "mcpServers",
+    "Windsurf",
+  );
+}
+
+async function loadGeminiMcpServers(): Promise<McpServerConfig[]> {
+  return await readServersFromJsonKey(
+    getGeminiSettingsPath(),
+    "mcpServers",
+    "Gemini CLI",
+  );
+}
+
+/**
+ * Zed settings use either a flat custom-server shape (`command`, `args`, `env`)
+ * or a nested command object (`command.{path,args,env}`).
+ * We reshape each entry into the Claude Code style before parsing so the
+ * existing validator/OAuth handling applies uniformly.
+ */
+async function loadZedMcpServers(): Promise<McpServerConfig[]> {
+  const platform = getPlatform();
+  const path = getZedSettingsPath();
+  let content: string;
+  try {
+    content = await platform.fs.readTextFile(path);
+  } catch {
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    getAgentLogger().warn(
+      `Zed settings JSON invalid (${path}): ${getErrorMessage(error)}`,
+    );
+    return [];
+  }
+
+  if (!isObjectValue(parsed)) return [];
+  const section = (parsed as Record<string, unknown>).context_servers;
+  if (!isObjectValue(section)) return [];
+
+  const normalized: Record<string, unknown> = {};
+  for (
+    const [name, raw] of Object.entries(section as Record<string, unknown>)
+  ) {
+    if (!isObjectValue(raw)) continue;
+    const entry = raw as Record<string, unknown>;
+    if (entry.enabled === false) continue;
+
+    if (isObjectValue(entry.command)) {
+      const cmd = entry.command as Record<string, unknown>;
+      if (typeof cmd.path !== "string") continue;
+      const args = Array.isArray(cmd.args)
+        ? cmd.args.filter((a: unknown) => typeof a === "string")
+        : [];
+      const env = isObjectValue(cmd.env)
+        ? cmd.env
+        : isObjectValue(entry.env)
+        ? entry.env
+        : undefined;
+      normalized[name] = {
+        command: cmd.path,
+        args,
+        ...(env ? { env } : {}),
+        ...(typeof entry.cwd === "string" ? { cwd: entry.cwd } : {}),
+      };
+      continue;
+    }
+
+    if (typeof entry.command === "string") {
+      normalized[name] = {
+        command: entry.command,
+        ...(Array.isArray(entry.args) ? { args: entry.args } : {}),
+        ...(isObjectValue(entry.env) ? { env: entry.env } : {}),
+        ...(typeof entry.cwd === "string" ? { cwd: entry.cwd } : {}),
+      };
+      continue;
+    }
+
+    if (
+      typeof entry.url === "string" || typeof entry.serverUrl === "string"
+    ) {
+      normalized[name] = { ...entry };
+    }
+  }
+
+  return expandServersWithWarnings(parseMcpServersMap(normalized), path);
+}
+
+/**
+ * Codex CLI stores MCP servers in TOML under `[mcp_servers.<name>]`.
+ * Normalize into the Claude Code-compatible shape and reuse parsing.
+ */
+async function loadCodexMcpServers(): Promise<McpServerConfig[]> {
+  const platform = getPlatform();
+  const path = getCodexConfigPath();
+  let content: string;
+  try {
+    content = await platform.fs.readTextFile(path);
+  } catch {
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = parseToml(content);
+  } catch (error) {
+    getAgentLogger().warn(
+      `Codex config TOML invalid (${path}): ${getErrorMessage(error)}`,
+    );
+    return [];
+  }
+
+  if (!isObjectValue(parsed)) return [];
+  const section = (parsed as Record<string, unknown>).mcp_servers;
+  if (!isObjectValue(section)) return [];
+
+  return expandServersWithWarnings(
+    parseMcpServersMap(section as Record<string, unknown>),
+    path,
+  );
 }
 
 function parseClaudeCodeOAuthConfig(
@@ -456,6 +716,120 @@ export function dedupeServers<T extends McpServerConfig>(servers: T[]): T[] {
   return deduped;
 }
 
+function tokenizeMcpSearchText(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function buildMcpServerSearchText(server: McpServerConfig): string {
+  return tokenizeMcpSearchText([
+    server.name,
+    ...(server.command ?? []),
+    server.url ?? "",
+    server.transport ?? "",
+  ].join(" ")).join(" ");
+}
+
+function scoreMcpServerMatch(
+  server: McpServerConfig,
+  query: string,
+): number {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return 0;
+
+  const normalizedName = normalizeServerName(server.name);
+  const haystack = buildMcpServerSearchText(server);
+  const tokens = tokenizeMcpSearchText(query);
+  let score = 0;
+
+  if (normalizedName === normalizedQuery) {
+    score += 12;
+  } else if (normalizedName.startsWith(normalizedQuery)) {
+    score += 8;
+  } else if (normalizedName.includes(normalizedQuery)) {
+    score += 6;
+  }
+
+  for (const token of tokens) {
+    if (normalizedName === token) {
+      score += 6;
+      continue;
+    }
+    if (normalizedName.startsWith(token)) {
+      score += 4;
+      continue;
+    }
+    if (normalizedName.includes(token)) {
+      score += 3;
+      continue;
+    }
+    if (haystack.includes(token)) {
+      score += 1;
+    }
+  }
+
+  if (tokens.length > 0 && tokens.every((token) => haystack.includes(token))) {
+    score += 4;
+  }
+
+  return score;
+}
+
+export function rankMcpServersForQuery<T extends McpServerConfig>(
+  servers: readonly T[],
+  query: string,
+): T[] {
+  return servers
+    .map((server, index) => ({
+      server,
+      index,
+      score: scoreMcpServerMatch(server, query),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.server.name.length !== b.server.name.length) {
+        return a.server.name.length - b.server.name.length;
+      }
+      return a.index - b.index;
+    })
+    .map((entry) => entry.server);
+}
+
+export function findMcpServersForExactToolName<T extends McpServerConfig>(
+  servers: readonly T[],
+  toolName: string,
+): T[] {
+  if (!toolName.startsWith("mcp_")) return [];
+
+  const matches = servers
+    .map((server) => ({
+      server,
+      prefix: sanitizeToolName(`mcp_${server.name}_`),
+    }))
+    .filter(({ prefix }) => toolName.startsWith(prefix));
+
+  if (matches.length === 0) return [];
+
+  const longestPrefix = Math.max(...matches.map((match) => match.prefix.length));
+  return matches
+    .filter((match) => match.prefix.length === longestPrefix)
+    .map((match) => match.server);
+}
+
+const SCOPE_LABELS: Record<McpScope, string> = {
+  "user": "user",
+  "cursor": "Cursor",
+  "windsurf": "Windsurf",
+  "zed": "Zed",
+  "codex": "Codex",
+  "gemini": "Gemini CLI",
+  "claude-code": "Claude Code",
+};
+
 /** Format a server entry for display (shared by CLI and REPL) */
 export function formatServerEntry(s: McpServerWithScope): {
   transport: string;
@@ -465,7 +839,7 @@ export function formatServerEntry(s: McpServerWithScope): {
   return {
     transport: s.url ? (s.transport ?? "http") : "stdio",
     target: s.url ?? (s.command?.join(" ") ?? ""),
-    scopeLabel: s.scope === "claude-code" ? "Claude Code" : "user",
+    scopeLabel: SCOPE_LABELS[s.scope] ?? s.scope,
   };
 }
 

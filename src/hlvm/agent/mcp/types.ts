@@ -41,6 +41,11 @@ export interface McpConfig {
   servers: McpServerConfig[];
 }
 
+export interface McpDiscoveryRequest {
+  query?: string;
+  exactToolName?: string;
+}
+
 // ============================================================
 // Tool Types
 // ============================================================

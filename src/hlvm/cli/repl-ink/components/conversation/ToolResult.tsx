@@ -193,6 +193,66 @@ function computeVisibleLines(
   };
 }
 
+type CompactShellLineTone = "default" | "error" | "muted";
+
+function buildCompactShellResult(
+  displayText: string,
+  maxLines: number,
+): {
+  visibleLines: Array<{ text: string; tone: CompactShellLineTone }>;
+  truncated: boolean;
+  remaining: number;
+} {
+  let activeSection: "stdout" | "stderr" | null = null;
+  let exitLine: string | undefined;
+  const bodyLines: Array<{ text: string; tone: CompactShellLineTone }> = [];
+  for (const rawLine of displayText.split("\n")) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    if (/^exit\s+\d+/i.test(trimmed)) {
+      exitLine = trimmed;
+      continue;
+    }
+    if (trimmed === "stdout:") {
+      activeSection = "stdout";
+      continue;
+    }
+    if (trimmed === "stderr:") {
+      activeSection = "stderr";
+      continue;
+    }
+    bodyLines.push({
+      text: rawLine,
+      tone: activeSection === "stderr" ? "error" : "default",
+    });
+  }
+
+  if (bodyLines.length === 0) {
+    if (exitLine === "exit 0") {
+      return {
+        visibleLines: [{ text: "Done", tone: "muted" }],
+        truncated: false,
+        remaining: 0,
+      };
+    }
+    return {
+      visibleLines: [{
+        text: exitLine ?? "(No output)",
+        tone: exitLine ? "error" : "muted",
+      }],
+      truncated: false,
+      remaining: 0,
+    };
+  }
+
+  const visibleLines = bodyLines.slice(-maxLines);
+  return {
+    visibleLines,
+    truncated: bodyLines.length > visibleLines.length,
+    remaining: bodyLines.length - visibleLines.length,
+  };
+}
+
 function renderStructuredLines(
   lines: string[],
   width: number,
@@ -332,6 +392,32 @@ export const ToolResult = memo(function ToolResult({
         {truncated && (
           <Text color={tone === "error" ? sc.status.error : sc.text.muted}>
             … ({remaining} more lines · {TOGGLE_LATEST_HINT})
+          </Text>
+        )}
+      </Box>
+    );
+  }
+
+  if (presentationKind === "shell") {
+    const compactShell = buildCompactShellResult(displayText, maxLines);
+    return (
+      <Box flexDirection="column">
+        {compactShell.visibleLines.map((line, i) => (
+          <Box key={i}>
+            <Text
+              color={line.tone === "error"
+                ? sc.status.error
+                : line.tone === "muted"
+                ? sc.text.muted
+                : sc.text.secondary}
+            >
+              {truncateLine(line.text, width)}
+            </Text>
+          </Box>
+        ))}
+        {compactShell.truncated && (
+          <Text color={tone === "error" ? sc.status.error : sc.text.muted}>
+            … ({compactShell.remaining} earlier lines · {TOGGLE_LATEST_HINT})
           </Text>
         )}
       </Box>

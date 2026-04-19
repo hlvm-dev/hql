@@ -311,10 +311,11 @@ export async function executeToolCall(
   // Lazy MCP bootstrap: defer MCP connect+registration until a tool call needs it.
   if (
     config.ensureMcpLoaded &&
-    (isMcpToolName(toolCall.toolName) ||
-      toolCall.toolName === "tool_search")
+    isMcpToolName(toolCall.toolName)
   ) {
-    await config.ensureMcpLoaded(config.signal);
+    await config.ensureMcpLoaded(config.signal, {
+      exactToolName: toolCall.toolName,
+    });
   }
 
   // Normalize tool name (handle camelCase, casing, separators)

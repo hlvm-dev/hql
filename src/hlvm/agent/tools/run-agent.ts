@@ -141,6 +141,67 @@ function normalizeAgentToolDetail(
   return summarizeToolFailureForDisplay(normalized, toolName);
 }
 
+type AgentGroupedActivityKind = "search" | "read" | "other";
+
+function classifyGroupedAgentActivity(toolName: string): AgentGroupedActivityKind {
+  switch (toolName) {
+    case "search_web":
+    case "search_code":
+    case "tool_search":
+      return "search";
+    case "read_file":
+    case "list_files":
+    case "get_structure":
+    case "open_path":
+    case "reveal_path":
+      return "read";
+    default:
+      return "other";
+  }
+}
+
+function buildGroupedAgentActivitySummary(
+  searchCount: number,
+  readCount: number,
+  active: boolean,
+): string | undefined {
+  const parts: string[] = [];
+  if (searchCount > 0) {
+    parts.push(
+      `${parts.length === 0
+        ? active ? "Searching for" : "Searched for"
+        : active ? "searching for" : "searched for"} ${searchCount} ${
+        searchCount === 1 ? "query" : "queries"
+      }`,
+    );
+  }
+  if (readCount > 0) {
+    parts.push(
+      `${parts.length === 0
+        ? active ? "Reading" : "Read"
+        : active ? "reading" : "read"} ${readCount} ${
+        readCount === 1 ? "file" : "files"
+      }`,
+    );
+  }
+  return parts.length > 0 ? parts.join(", ") : undefined;
+}
+
+function resolveGroupedAgentActivityText(
+  toolName: string,
+  searchCount: number,
+  readCount: number,
+  active: boolean,
+): string | undefined {
+  if (classifyGroupedAgentActivity(toolName) === "other") {
+    return undefined;
+  }
+  if (searchCount + readCount < 2) {
+    return undefined;
+  }
+  return buildGroupedAgentActivitySummary(searchCount, readCount, active);
+}
+
 // ============================================================
 // Types
 // ============================================================
@@ -328,19 +389,48 @@ export async function runAgent(
   let lastToolInfo: string | undefined;
   const transcriptLines: string[] = [];
   let lastProgressTranscriptLine: string | undefined;
+  let groupedSearchCount = 0;
+  let groupedReadCount = 0;
   const pushTranscriptLine = (line: string): void => {
     transcriptLines.push(line);
     void onTranscriptLine?.(line);
   };
+  const resetGroupedActivity = (): void => {
+    groupedSearchCount = 0;
+    groupedReadCount = 0;
+  };
+  const noteGroupedActivity = (
+    toolName: string,
+    active: boolean,
+  ): string | undefined => {
+    const kind = classifyGroupedAgentActivity(toolName);
+    if (kind === "other") {
+      resetGroupedActivity();
+      return undefined;
+    }
+    if (kind === "search") {
+      groupedSearchCount++;
+    } else if (kind === "read") {
+      groupedReadCount++;
+    }
+    return resolveGroupedAgentActivityText(
+      toolName,
+      groupedSearchCount,
+      groupedReadCount,
+      active,
+    );
+  };
   const childOnAgentEvent: typeof onAgentEvent = (event) => {
     if (event.type === "tool_start") {
       pushTranscriptLine(`  ${event.name} ${event.argsSummary}`);
+      const groupedActivityText = noteGroupedActivity(event.name, true);
       lastToolInfo = truncate(
-        buildAgentToolInvocationLabel(
-          event.name,
-          formatAgentToolLabel(event.name),
-          event.argsSummary,
-        ),
+        groupedActivityText ??
+          buildAgentToolInvocationLabel(
+            event.name,
+            formatAgentToolLabel(event.name),
+            event.argsSummary,
+          ),
         96,
       );
       onAgentEvent?.({
@@ -363,7 +453,12 @@ export async function runAgent(
         pushTranscriptLine(transcriptLine);
         lastProgressTranscriptLine = transcriptLine;
       }
-      lastToolInfo = formatAgentToolInfo(event.name, progressMessage);
+      lastToolInfo = resolveGroupedAgentActivityText(
+        event.name,
+        groupedSearchCount,
+        groupedReadCount,
+        true,
+      ) ?? formatAgentToolInfo(event.name, progressMessage);
       onAgentEvent?.({
         type: "agent_progress",
         agentId,
@@ -380,7 +475,12 @@ export async function runAgent(
       const summary = event.summary ? ` — ${event.summary.slice(0, 100)}` : "";
       pushTranscriptLine(`  ⎿ ${status} (${event.durationMs}ms)${summary}`);
       lastProgressTranscriptLine = undefined;
-      lastToolInfo = formatAgentToolInfo(event.name, event.summary);
+      lastToolInfo = resolveGroupedAgentActivityText(
+        event.name,
+        groupedSearchCount,
+        groupedReadCount,
+        true,
+      ) ?? formatAgentToolInfo(event.name, event.summary);
       // Emit progress event to PARENT for TUI updates
       onAgentEvent?.({
         type: "agent_progress",

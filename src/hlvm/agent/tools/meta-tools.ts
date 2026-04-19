@@ -20,6 +20,7 @@ import {
 import { TEXT_ENCODER } from "../../../common/utils.ts";
 import { safeStringify } from "../../../common/safe-stringify.ts";
 import { isToolArgsObject } from "../validation.ts";
+import { isMcpToolName } from "../mcp/tool-names.ts";
 import type {
   InteractionOption,
   ToolExecutionOptions,
@@ -266,20 +267,44 @@ async function toolSearch(
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    // Search with each requested name as exact query for best scoring
-    const allTools = options.searchTools("", {
-      ownerId: options?.toolOwnerId,
-      limit: 999,
-    });
-    const found: typeof allTools = [];
-    for (const name of requested) {
-      const match = allTools.find((t) =>
-        t.name.toLowerCase() === name.toLowerCase()
-      );
-      if (match && !found.some((f) => f.name === match.name)) {
-        found.push(match);
+    const findRequestedTools = () => {
+      const found: ReturnType<NonNullable<ToolExecutionOptions["searchTools"]>> =
+        [];
+      for (const name of requested) {
+        const match = options.searchTools?.(name, {
+          ownerId: options?.toolOwnerId,
+          limit: 5,
+        }).find((tool) => tool.name.toLowerCase() === name.toLowerCase());
+        if (match && !found.some((f) => f.name === match.name)) {
+          found.push(match);
+        }
+      }
+      return found;
+    };
+
+    let found = findRequestedTools();
+    const ensureMcpLoaded = options?.ensureMcpLoaded;
+    if (ensureMcpLoaded) {
+      for (const name of requested) {
+        if (found.some((match) => match.name.toLowerCase() === name.toLowerCase())) {
+          continue;
+        }
+        if (!isMcpToolName(name)) continue;
+        while (true) {
+          const loadedMore = await ensureMcpLoaded(options.signal, {
+            exactToolName: name,
+          });
+          if (!loadedMore) break;
+          found = findRequestedTools();
+          if (
+            found.some((match) => match.name.toLowerCase() === name.toLowerCase())
+          ) {
+            break;
+          }
+        }
       }
     }
+
     return {
       query,
       count: found.length,
@@ -301,13 +326,24 @@ async function toolSearch(
     !hasDeferredDiscovery &&
     matches.length < resolvedLimit;
   if (shouldProbeDeferredMcp) {
-    await ensureMcpLoaded();
-    const expandedMatches = options.searchTools(query, {
-      ownerId: options?.toolOwnerId,
-      limit: resolvedLimit,
-    });
-    if (expandedMatches.length >= matches.length) {
-      matches = expandedMatches;
+    const knownMatchNames = new Set(matches.map((match) => match.name));
+    while (matches.length < resolvedLimit) {
+      const loadedMore = await ensureMcpLoaded(options.signal, { query });
+      if (!loadedMore) break;
+      const expandedMatches = options.searchTools(query, {
+        ownerId: options?.toolOwnerId,
+        limit: resolvedLimit,
+      });
+      const discoveredNewMatch = expandedMatches.some((match) =>
+        !knownMatchNames.has(match.name)
+      );
+      if (expandedMatches.length >= matches.length) {
+        matches = expandedMatches;
+      }
+      for (const match of expandedMatches) {
+        knownMatchNames.add(match.name);
+      }
+      if (discoveredNewMatch) break;
     }
   }
 

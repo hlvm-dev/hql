@@ -13,6 +13,7 @@ import {
   WEB_FETCH_TRANSCRIPT_ADAPTER,
   WEB_SEARCH_TRANSCRIPT_ADAPTER,
 } from "../../../../agent/tools/web-tools.ts";
+import { summarizePathLabel } from "./activity-labels.ts";
 
 type InvocationToolLike = {
   name: string;
@@ -22,6 +23,7 @@ type InvocationToolLike = {
 
 const FALLBACK_TRANSCRIPT_ADAPTERS = new Map<string, ToolTranscriptAdapter>([
   ["read_file", { displayName: "Read" }],
+  ["list_files", { displayName: "List" }],
   ["search_code", { displayName: "Search" }],
   ["write_file", { displayName: "Write" }],
   ["edit_file", { displayName: "Edit" }],
@@ -84,6 +86,19 @@ function sanitizeParenthesizedArg(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+const PATH_ARGUMENT_TOOL_NAMES = new Set([
+  "read_file",
+  "list_files",
+  "write_file",
+  "edit_file",
+  "open_path",
+  "reveal_path",
+  "move_path",
+  "copy_path",
+  "make_directory",
+  "move_to_trash",
+]);
+
 export function resolveToolTranscriptDisplayName(
   toolName: string,
   ownerId?: string,
@@ -114,6 +129,7 @@ export function buildToolTranscriptInvocationLabel(
     tool.name === "shell_exec" || tool.name === "shell_script" ||
     tool.name.startsWith("pw_") ||
     tool.name === "read_file" ||
+    tool.name === "list_files" ||
     tool.name === "write_file" ||
     tool.name === "edit_file" ||
     tool.name === "open_path" ||
@@ -124,7 +140,10 @@ export function buildToolTranscriptInvocationLabel(
     tool.name === "move_to_trash" ||
     tool.name === "search_code"
   ) {
-    return `${displayName}(${sanitizeParenthesizedArg(argsSummary)})`;
+    const compactArgs = PATH_ARGUMENT_TOOL_NAMES.has(tool.name)
+      ? summarizePathLabel(argsSummary)
+      : sanitizeParenthesizedArg(argsSummary);
+    return `${displayName}(${compactArgs})`;
   }
 
   return `${displayName} ${argsSummary}`;
@@ -186,6 +205,8 @@ export function resolveToolTranscriptGroupSummary(
   switch (toolName) {
     case "read_file":
       return `Read ${count} file${count === 1 ? "" : "s"}`;
+    case "list_files":
+      return `Listed ${count} entr${count === 1 ? "y" : "ies"}`;
     case "search_code":
       return `Searched ${count} code quer${count === 1 ? "y" : "ies"}`;
     case "shell_exec":

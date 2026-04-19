@@ -96,6 +96,7 @@ interface ComposerSurfaceProps {
   queueEnabled?: boolean;
   interactionMode?: "permission" | "question";
   showQueuePreview?: boolean;
+  onBareShortcutsToggle?: () => void;
 }
 
 const ESCAPE_CONSUMED_SUPPRESSION_MS = 32;
@@ -123,6 +124,7 @@ export const ComposerSurface = forwardRef<
     queueEnabled = false,
     interactionMode,
     showQueuePreview = true,
+    onBareShortcutsToggle,
   }: ComposerSurfaceProps,
   ref: React.ForwardedRef<ComposerSurfaceHandle>,
 ): React.ReactElement {
@@ -292,6 +294,22 @@ export const ComposerSurface = forwardRef<
     onUiStateChange(uiState);
   }, [onUiStateChange, uiState]);
 
+  const handleInputChange = useCallback((nextValue: string) => {
+    if (
+      input.length === 0 &&
+      nextValue === "?" &&
+      attachmentState.attachments.length === 0
+    ) {
+      onBareShortcutsToggle?.();
+      return;
+    }
+    setInput(nextValue);
+  }, [
+    attachmentState.attachments.length,
+    input.length,
+    onBareShortcutsToggle,
+  ]);
+
   return (
     <>
       {showQueuePreview && pendingConversationQueue.length > 0 && (
@@ -304,7 +322,7 @@ export const ComposerSurface = forwardRef<
       <Box flexDirection="column">
         <Input
           value={input}
-          onChange={setInput}
+          onChange={handleInputChange}
           onSubmit={onSubmit}
           onEmptySubmit={onEmptySubmit}
           onFocusLocalAgents={onFocusLocalAgents}

@@ -23,8 +23,8 @@ export function buildModelBrowserViewLayout(
 ): TwoColumnTextLayout {
   return buildBalancedTextRow(
     width,
-    `Showing ${filterLabel} (${modelCountLabel})`,
-    `Tab → ${nextFilterLabel}`,
+    `${filterLabel} · ${modelCountLabel}`,
+    `Tab ${nextFilterLabel}`,
     {
       maxRightWidth: Math.max(10, Math.floor(width * 0.34)),
     },
@@ -39,7 +39,7 @@ export function buildModelBrowserFocusLayout(
   return buildBalancedTextRow(
     width,
     `${MODEL_BROWSER_FOCUSED_LABEL}: ${selectedModelName ?? "None"}`,
-    selectedModelName && statusLabel ? `[${statusLabel}]` : "",
+    selectedModelName && statusLabel ? statusLabel : "",
     { maxRightWidth: Math.max(10, Math.floor(width * 0.26)) },
   );
 }

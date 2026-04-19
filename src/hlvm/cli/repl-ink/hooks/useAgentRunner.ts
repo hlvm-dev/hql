@@ -50,6 +50,7 @@ import {
 } from "../../../agent/tools/agent-types.ts";
 import {
   cancelRuntimeBackgroundAgent,
+  ensureRuntimeHostReady,
   listRuntimeBackgroundAgents,
   runChatViaHost,
 } from "../../../runtime/host-client.ts";
@@ -91,6 +92,18 @@ function cleanPreviewLine(line: string): string {
 
 function normalizeLocalAgentStatusText(text: string): string {
   return summarizeToolFailureForDisplay(cleanPreviewLine(text));
+}
+
+function isRuntimeHostStartingError(error: unknown): boolean {
+  return ensureError(error).message.includes(
+    "Local HLVM runtime host is not ready for AI requests",
+  );
+}
+
+const RUNTIME_HOST_START_RETRY_ATTEMPTS = 5;
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isFinishedLocalAgentStatus(status: LocalAgentEntry["status"]): boolean {
@@ -173,7 +186,7 @@ function reduceLocalAgentEntries(
         label: event.agentType,
         status: "running",
         statusLabel: "running",
-        detail: "Initializing...",
+        detail: "Starting...",
         interruptible: true,
         foregroundable: false,
         overlayTarget: "background-tasks",
@@ -776,231 +789,263 @@ export function useAgentRunner(
           lastStreamRender = Date.now();
         }
       };
-      const result = await runChatViaHost({
-        mode: "agent",
-        querySource: REPL_MAIN_THREAD_QUERY_SOURCE,
-        requestId,
-        messages: [{
-          role: "user",
-          content: query,
-          display_content: options?.displayText !== undefined &&
-              options.displayText !== query
-            ? options.displayText
-            : undefined,
-          attachment_ids: attachmentIds,
-          client_turn_id: crypto.randomUUID(),
-        }],
-        model,
-        permissionMode: agentExecutionMode,
-        // Allow structured follow-up questions in normal conversation too so
-        // the REPL can render pickers instead of dead-end prose.
-        toolDenylist: getConversationToolDenylist(agentExecutionMode),
-        signal: controller.signal,
-        callbacks: {
-          onToken: (text: string) => {
-            if (controller.signal.aborted || !isActiveConversationRun()) {
-              return;
-            }
-            if (suppressPlanningTokens) {
-              return;
-            }
-            textBuffer += text;
-            const now = Date.now();
-            if (now - lastStreamRender >= STREAM_RENDER_INTERVAL) {
-              if (pendingStreamTimerRef.current) {
-                clearTimeout(pendingStreamTimerRef.current);
-                pendingStreamTimerRef.current = null;
+      let result;
+      for (
+        let hostAttempt = 0;
+        hostAttempt < RUNTIME_HOST_START_RETRY_ATTEMPTS;
+        hostAttempt++
+      ) {
+        try {
+          await ensureRuntimeHostReady();
+          result = await runChatViaHost({
+            mode: "agent",
+            querySource: REPL_MAIN_THREAD_QUERY_SOURCE,
+            requestId,
+            messages: [{
+              role: "user",
+              content: query,
+              display_content: options?.displayText !== undefined &&
+                  options.displayText !== query
+                ? options.displayText
+                : undefined,
+              attachment_ids: attachmentIds,
+              client_turn_id: crypto.randomUUID(),
+            }],
+            model,
+            permissionMode: agentExecutionMode,
+            toolDenylist: getConversationToolDenylist(agentExecutionMode),
+            signal: controller.signal,
+            callbacks: {
+              onToken: (text: string) => {
+                if (controller.signal.aborted || !isActiveConversationRun()) {
+                  return;
+                }
+                if (suppressPlanningTokens) {
+                  return;
+                }
+                textBuffer += text;
+                const now = Date.now();
+                if (now - lastStreamRender >= STREAM_RENDER_INTERVAL) {
+                  if (pendingStreamTimerRef.current) {
+                    clearTimeout(pendingStreamTimerRef.current);
+                    pendingStreamTimerRef.current = null;
+                  }
+                  flushStreamBuffer();
+                } else if (!pendingStreamTimerRef.current) {
+                  pendingStreamTimerRef.current = setTimeout(
+                    flushStreamBuffer,
+                    STREAM_RENDER_INTERVAL - (now - lastStreamRender),
+                  );
+                }
+              },
+              onAgentEvent: (event) => {
+                if (controller.signal.aborted || !isActiveConversationRun()) {
+                  return;
+                }
+                if (
+                  event.type === "agent_spawn" ||
+                  event.type === "agent_progress" ||
+                  event.type === "agent_complete"
+                ) {
+                  setLocalAgentEntries((prev: LocalAgentEntry[]) =>
+                    reduceLocalAgentEntries(prev, event)
+                  );
+                  return;
+                }
+                if (event.type === "plan_phase_changed") {
+                  suppressPlanningTokens = event.phase !== "done";
+                }
+                if (event.type === "tool_start" && textBuffer.trim()) {
+                  if (pendingStreamTimerRef.current) {
+                    clearTimeout(pendingStreamTimerRef.current);
+                    pendingStreamTimerRef.current = null;
+                  }
+                  conversationRef.current.addAssistantText(
+                    textBuffer,
+                    false,
+                    undefined,
+                    {
+                      turnId: activeRunTurnIdRef.current,
+                    },
+                  );
+                  textBuffer = "";
+                  lastStreamRender = 0;
+                }
+                conversationRef.current.addEvent(event);
+              },
+              onFinalResponseMeta: (meta) => {
+                if (!isActiveConversationRun()) return;
+                finalCitations = meta.citationSpans as
+                  | AssistantCitation[]
+                  | undefined;
+              },
+              onTrace: (event) => {
+                if (controller.signal.aborted || !isActiveConversationRun()) {
+                  return;
+                }
+                appendDebugTrace(presentTraceEvent(event));
+                if (event.type === "context_pressure") {
+                  setFooterContextUsageLabel(
+                    formatContextPressureLabel(event.percent, event.level),
+                  );
+                  const previousLevel = contextPressureLevelRef.current;
+                  contextPressureLevelRef.current = event.level;
+                  if (event.level === previousLevel) {
+                    return;
+                  }
+                  if (event.level === "soft") {
+                    conversationRef.current.addInfo(
+                      "Context pressure rising.",
+                      {
+                        isTransient: true,
+                        turnId: activeRunTurnIdRef.current,
+                      },
+                    );
+                    return;
+                  }
+                  if (event.level === "urgent") {
+                    conversationRef.current.addInfo(
+                      "Context nearly full.",
+                      {
+                        isTransient: true,
+                        turnId: activeRunTurnIdRef.current,
+                      },
+                    );
+                  }
+                  return;
+                }
+                if (event.type === "context_overflow_retry") {
+                  contextPressureLevelRef.current = "normal";
+                  setFooterContextUsageLabel("");
+                  conversationRef.current.addInfo(
+                    "Context compacted and retried.",
+                    {
+                      isTransient: true,
+                      turnId: activeRunTurnIdRef.current,
+                    },
+                  );
+                  return;
+                }
+                if (event.type === "context_compaction") {
+                  contextPressureLevelRef.current = "normal";
+                  setFooterContextUsageLabel("");
+                  conversationRef.current.addInfo(
+                    "Older context was compacted before the next model call.",
+                    {
+                      isTransient: true,
+                      turnId: activeRunTurnIdRef.current,
+                    },
+                  );
+                  return;
+                }
+                if (
+                  event.type === "response_continuation" &&
+                  event.status === "starting"
+                ) {
+                  conversationRef.current.addInfo(
+                    "Continuing truncated response...",
+                    {
+                      isTransient: true,
+                      turnId: activeRunTurnIdRef.current,
+                    },
+                  );
+                }
+              },
+            },
+            onInteraction: (event) => {
+              if (controller.signal.aborted || !isActiveConversationRun()) {
+                throw new DOMException("Agent interaction aborted", "AbortError");
               }
-              flushStreamBuffer();
-            } else if (!pendingStreamTimerRef.current) {
-              pendingStreamTimerRef.current = setTimeout(
-                flushStreamBuffer,
-                STREAM_RENDER_INTERVAL - (now - lastStreamRender),
-              );
-            }
-          },
-          onAgentEvent: (event) => {
-            if (controller.signal.aborted || !isActiveConversationRun()) {
-              return;
-            }
-            if (
-              event.type === "agent_spawn" ||
-              event.type === "agent_progress" ||
-              event.type === "agent_complete"
-            ) {
-              setLocalAgentEntries((prev: LocalAgentEntry[]) => reduceLocalAgentEntries(prev, event));
-              return;
-            }
-            if (event.type === "plan_phase_changed") {
-              suppressPlanningTokens = event.phase !== "done";
-              // Don't clear textBuffer or cancel timers — let any
-              // partially-streamed text flush naturally to avoid
-              // visible screen flicker during plan phase transitions.
-            }
-            // Finalize the current text segment before tool results appear.
-            // Each LLM call in the ReAct loop produces a separate text block;
-            // flushing here keeps them as individual items in the transcript
-            // (interleaved with tool groups) instead of one concatenated blob.
-            if (event.type === "tool_start" && textBuffer.trim()) {
-              if (pendingStreamTimerRef.current) {
-                clearTimeout(pendingStreamTimerRef.current);
-                pendingStreamTimerRef.current = null;
-              }
-              conversationRef.current.addAssistantText(
-                textBuffer,
-                false,
-                undefined,
-                {
-                  turnId: activeRunTurnIdRef.current,
-                },
-              );
-              textBuffer = "";
-              lastStreamRender = 0;
-            }
-            conversationRef.current.addEvent(event);
-          },
-          onFinalResponseMeta: (meta) => {
-            if (!isActiveConversationRun()) return;
-            finalCitations = meta.citationSpans as
-              | AssistantCitation[]
-              | undefined;
-          },
-          onTrace: (event) => {
-            if (controller.signal.aborted || !isActiveConversationRun()) {
-              return;
-            }
-            appendDebugTrace(presentTraceEvent(event));
-            if (event.type === "context_pressure") {
-              setFooterContextUsageLabel(
-                formatContextPressureLabel(event.percent, event.level),
-              );
-              const previousLevel = contextPressureLevelRef.current;
-              contextPressureLevelRef.current = event.level;
-              if (event.level === previousLevel) {
-                return;
-              }
-              if (event.level === "soft") {
-                conversationRef.current.addInfo(
-                  "Context pressure rising.",
-                  {
-                    isTransient: true,
-                    turnId: activeRunTurnIdRef.current,
-                  },
+              const interactionEvent: InteractionRequestEvent = {
+                type: "interaction_request",
+                requestId: event.requestId,
+                mode: event.mode,
+                toolName: event.toolName,
+                toolArgs: event.toolArgs,
+                toolInput: event.toolInput,
+                question: event.question,
+                options: event.options,
+                sourceLabel: event.sourceLabel,
+                sourceThreadId: event.sourceThreadId,
+              };
+              setInteractionQueue((prev: InteractionRequestEvent[]) => {
+                if (
+                  prev.some((item) => item.requestId === interactionEvent.requestId)
+                ) return prev;
+                return [...prev, interactionEvent];
+              });
+              return new Promise<InteractionResponse>((resolve, reject) => {
+                let settled = false;
+                const finalizeRequest = () => {
+                  if (
+                    !interactionResolversRef.current.has(interactionEvent.requestId)
+                  ) return;
+                  interactionResolversRef.current.delete(
+                    interactionEvent.requestId,
+                  );
+                  setInteractionQueue((prev: InteractionRequestEvent[]) =>
+                    prev.filter((item) =>
+                      item.requestId !== interactionEvent.requestId
+                    )
+                  );
+                  controller.signal.removeEventListener("abort", onAbort);
+                };
+                const onAbort = () => {
+                  if (settled) return;
+                  settled = true;
+                  finalizeRequest();
+                  reject(
+                    new DOMException("Agent interaction aborted", "AbortError"),
+                  );
+                };
+                const handler = (response: InteractionResponse) => {
+                  if (settled) return;
+                  settled = true;
+                  finalizeRequest();
+                  resolve(response);
+                };
+                interactionResolversRef.current.set(
+                  interactionEvent.requestId,
+                  handler,
                 );
-                return;
-              }
-              if (event.level === "urgent") {
-                conversationRef.current.addInfo(
-                  "Context nearly full.",
-                  {
-                    isTransient: true,
-                    turnId: activeRunTurnIdRef.current,
-                  },
-                );
-              }
-              return;
-            }
-            if (event.type === "context_overflow_retry") {
-              contextPressureLevelRef.current = "normal";
-              setFooterContextUsageLabel("");
-              conversationRef.current.addInfo(
-                "Context compacted and retried.",
-                {
-                  isTransient: true,
-                  turnId: activeRunTurnIdRef.current,
-                },
-              );
-              return;
-            }
-            if (event.type === "context_compaction") {
-              contextPressureLevelRef.current = "normal";
-              setFooterContextUsageLabel("");
-              conversationRef.current.addInfo(
-                "Older context was compacted before the next model call.",
-                {
-                  isTransient: true,
-                  turnId: activeRunTurnIdRef.current,
-                },
-              );
-              return;
-            }
-            if (
-              event.type === "response_continuation" &&
-              event.status === "starting"
-            ) {
-              conversationRef.current.addInfo(
-                "Continuing truncated response...",
-                {
-                  isTransient: true,
-                  turnId: activeRunTurnIdRef.current,
-                },
-              );
-            }
-          },
-        },
-        onInteraction: (event) => {
-          if (controller.signal.aborted || !isActiveConversationRun()) {
-            throw new DOMException("Agent interaction aborted", "AbortError");
+                controller.signal.addEventListener("abort", onAbort, {
+                  once: true,
+                });
+              });
+            },
+          });
+          break;
+        } catch (error) {
+          if (
+            controller.signal.aborted ||
+            hostAttempt === RUNTIME_HOST_START_RETRY_ATTEMPTS - 1 ||
+            !isRuntimeHostStartingError(error)
+          ) {
+            throw error;
           }
-          const interactionEvent: InteractionRequestEvent = {
-            type: "interaction_request",
-            requestId: event.requestId,
-            mode: event.mode,
-            toolName: event.toolName,
-            toolArgs: event.toolArgs,
-            toolInput: event.toolInput,
-            question: event.question,
-            options: event.options,
-            sourceLabel: event.sourceLabel,
-            sourceThreadId: event.sourceThreadId,
-          };
-          setInteractionQueue((prev: InteractionRequestEvent[]) => {
-            if (
-              prev.some((item) => item.requestId === interactionEvent.requestId)
-            ) return prev;
-            return [...prev, interactionEvent];
-          });
-          // Wait for user response — reject if agent is aborted
-          return new Promise<InteractionResponse>((resolve, reject) => {
-            let settled = false;
-            const finalizeRequest = () => {
-              if (
-                !interactionResolversRef.current.has(interactionEvent.requestId)
-              ) return;
-              interactionResolversRef.current.delete(
-                interactionEvent.requestId,
-              );
-              setInteractionQueue((prev: InteractionRequestEvent[]) =>
-                prev.filter((item) =>
-                  item.requestId !== interactionEvent.requestId
-                )
-              );
-              controller.signal.removeEventListener("abort", onAbort);
-            };
-            const onAbort = () => {
-              if (settled) return;
-              settled = true;
-              finalizeRequest();
-              reject(
-                new DOMException("Agent interaction aborted", "AbortError"),
-              );
-            };
-            const handler = (response: InteractionResponse) => {
-              if (settled) return;
-              settled = true;
-              finalizeRequest();
-              resolve(response);
-            };
-            interactionResolversRef.current.set(
-              interactionEvent.requestId,
-              handler,
+          appendDebugTrace([{
+            depth: 1,
+            text: withParts(
+              "AI engine still starting",
+              `retry ${hostAttempt + 2}/${RUNTIME_HOST_START_RETRY_ATTEMPTS}`,
+            ),
+            tone: "warning",
+          }]);
+          if (hostAttempt === 0) {
+            conversationRef.current.addInfo(
+              "AI engine still starting...",
+              {
+                isTransient: true,
+                turnId: activeRunTurnIdRef.current,
+              },
             );
-            controller.signal.addEventListener("abort", onAbort, {
-              once: true,
-            });
-          });
-        },
-      });
+          }
+          await delay(600 * (hostAttempt + 1));
+        }
+      }
+      if (!result) {
+        throw new Error("AI engine did not return a conversation result.");
+      }
       traceReplMainThread("ui.run_conversation.host_done", {
         requestId,
         durationMs: Date.now() - runStartedAt,

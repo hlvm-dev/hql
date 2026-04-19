@@ -121,10 +121,7 @@ function formatLocalAgentCount(entries: LocalAgentEntry[]): string {
   if (activeCount === 0) {
     return `${totalCount} local agent${totalCount === 1 ? "" : "s"} finished`;
   }
-  if (activeCount === totalCount) {
-    return `${totalCount} local agent${totalCount === 1 ? "" : "s"}`;
-  }
-  return `${totalCount} local agent${totalCount === 1 ? "" : "s"} · ${activeCount} active`;
+  return `Running ${totalCount} local agent${totalCount === 1 ? "" : "s"}...`;
 }
 
 function buildManagerSummary(

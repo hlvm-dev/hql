@@ -26,7 +26,11 @@ import {
   buildToolResultOutputs,
   buildToolSignature,
 } from "../../../src/hlvm/agent/orchestrator-tool-formatting.ts";
-import { TOOL_REGISTRY } from "../../../src/hlvm/agent/registry.ts";
+import {
+  registerTool,
+  TOOL_REGISTRY,
+  unregisterTool,
+} from "../../../src/hlvm/agent/registry.ts";
 import { clearAllL1Confirmations } from "../../../src/hlvm/agent/security/safety.ts";
 import {
   createToolProfileState,
@@ -347,6 +351,7 @@ Deno.test({
               args: { message: "string" },
               safetyLevel: "L0",
             };
+            return true;
           },
         },
       );
@@ -356,6 +361,96 @@ Deno.test({
       assertEquals(result.result, "echo:hello");
     } finally {
       delete TOOL_REGISTRY[toolName];
+    }
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: tool_search loads MCP batches progressively until discovery improves",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const toolName = "mcp_productivity_gmail_create_draft";
+    let ensureCalls = 0;
+    const requests: Array<{ query?: string; exactToolName?: string } | undefined> =
+      [];
+
+    try {
+      const result = await executeToolCall(
+        { toolName: "tool_search", args: { query: "gmail draft", limit: 3 } },
+        {
+          workspace: TEST_WORKSPACE,
+          context,
+          permissionMode: "bypassPermissions",
+          ensureMcpLoaded: async (_signal, request) => {
+            ensureCalls += 1;
+            requests.push(request);
+            if (ensureCalls === 2) {
+              registerTool(toolName, {
+                fn: async () => "drafted",
+                description: "Create a Gmail draft through productivity MCP",
+                args: {},
+                safetyLevel: "L0",
+              });
+            }
+            return ensureCalls <= 2;
+          },
+        },
+      );
+
+      assertEquals(ensureCalls, 2);
+      assertEquals(requests[0]?.query, "gmail draft");
+      assertEquals(result.success, true);
+      assertEquals(
+        (result.result as { suggested_allowlist: string[] }).suggested_allowlist,
+        [toolName],
+      );
+    } finally {
+      unregisterTool(toolName);
+    }
+  },
+});
+
+Deno.test({
+  name: "Orchestrator: tool_search select loads an exact MCP tool without full bootstrap",
+  async fn() {
+    resetApprovals();
+    const context = new ContextManager();
+    const toolName = "mcp_context7_get_library_docs";
+    let ensureCalls = 0;
+
+    try {
+      const result = await executeToolCall(
+        {
+          toolName: "tool_search",
+          args: { query: `select:${toolName}` },
+        },
+        {
+          workspace: TEST_WORKSPACE,
+          context,
+          permissionMode: "bypassPermissions",
+          ensureMcpLoaded: async (_signal, request) => {
+            ensureCalls += 1;
+            assertEquals(request?.exactToolName, toolName);
+            registerTool(toolName, {
+              fn: async () => "docs",
+              description: "Fetch library docs from Context7 MCP",
+              args: {},
+              safetyLevel: "L0",
+            });
+            return true;
+          },
+        },
+      );
+
+      assertEquals(ensureCalls, 1);
+      assertEquals(result.success, true);
+      assertEquals(
+        (result.result as { suggested_allowlist: string[] }).suggested_allowlist,
+        [toolName],
+      );
+    } finally {
+      unregisterTool(toolName);
     }
   },
 });

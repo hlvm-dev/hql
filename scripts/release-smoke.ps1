@@ -169,15 +169,18 @@ try {
     }
     Write-Host "==> Managed Python sidecar verified."
 
-    # Lenient hlvm ask exercise — agent may exceed CI runner budget, warn only.
-    Write-Host "==> Running hlvm ask (lenient — CI runners are slow)..."
-    $askResponse = & "$InstallBin\hlvm.exe" ask --permission-mode bypassPermissions 'what is 2+2? answer with just the number' 2>&1 | Out-String
+    # HARD GATE: hlvm ask must route python through managed sidecar end-to-end.
+    Write-Host "==> Running hlvm ask end-to-end (may take 15-30 min on CI CPU)..."
+    $pyPrompt = 'run python code: import sys, pptx; print(f"python={sys.executable} pptx={pptx.__version__}")'
+    $askResponse = & "$InstallBin\hlvm.exe" ask --permission-mode bypassPermissions $pyPrompt 2>&1 | Out-String
     Write-Host $askResponse
-    if ($askResponse -match '\b4\b') {
-        Write-Host "==> Agent end-to-end verified."
-    } else {
-        Write-Host "==> WARNING: hlvm ask did not return expected answer (CI runner too slow; not blocking)."
+    if ($askResponse -notmatch '\.hlvm[\\\/]\.runtime[\\\/]python[\\\/]venv') {
+        Write-Error "FAIL: hlvm ask did not route Python through managed venv"
     }
+    if ($askResponse -notmatch 'pptx=') {
+        Write-Error "FAIL: hlvm ask did not report pptx version"
+    }
+    Write-Host "==> Agent + managed Python + sidecar verified end-to-end."
 
     Write-Host "==> Smoke succeeded."
     exit 0

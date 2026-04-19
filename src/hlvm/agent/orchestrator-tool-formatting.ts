@@ -357,10 +357,16 @@ function summarizeShellResult(result: unknown): string | undefined {
   if (!isObjectValue(result) || typeof result.exitCode !== "number") {
     return undefined;
   }
+  if (result.detached === true) {
+    return "Running in background";
+  }
   const stdout = typeof result.stdout === "string" ? result.stdout : "";
   const stderr = typeof result.stderr === "string" ? result.stderr : "";
   const stdoutLines = stdout.trim() ? stdout.trim().split("\n").length : 0;
   const stderrLines = stderr.trim() ? stderr.trim().split("\n").length : 0;
+  if (result.exitCode === 0 && stdoutLines === 0 && stderrLines === 0) {
+    return "Done";
+  }
   const parts = [`exit ${result.exitCode}`];
   if (stdoutLines > 0) {
     parts.push(`${stdoutLines} stdout line${stdoutLines === 1 ? "" : "s"}`);

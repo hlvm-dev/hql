@@ -11,6 +11,7 @@ interface OverlayModalProps {
   width: number;
   minHeight?: number;
   tone?: ChromeChipTone;
+  titleStyle?: "chip" | "text";
   children?: React.ReactNode;
   footer?: React.ReactNode;
 }
@@ -35,6 +36,7 @@ export function OverlayModal(
     width,
     minHeight,
     tone = "active",
+    titleStyle = "chip",
     children,
     footer,
   }: OverlayModalProps,
@@ -43,6 +45,9 @@ export function OverlayModal(
   const sc = useSemanticColors();
   const { stdout } = useStdout();
   const terminalRows = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
+  const compactTextChrome = titleStyle === "text";
+  const bodyMarginTop = compactTextChrome ? 0 : 1;
+  const footerMarginTop = compactTextChrome ? 0 : 1;
 
   return (
     <Box
@@ -59,7 +64,7 @@ export function OverlayModal(
         borderStyle="round"
         borderColor={color("primary")}
         paddingX={1}
-        paddingY={1}
+        paddingY={compactTextChrome ? 0 : 1}
         width={width}
         minHeight={minHeight}
         backgroundColor={sc.surface.modal.background}
@@ -67,16 +72,16 @@ export function OverlayModal(
         overflow="hidden"
       >
         <Box justifyContent="space-between">
-          <ChromeChip text={title} tone={tone} />
-          {rightText
-            ? <Text dimColor wrap="truncate-end">{rightText}</Text>
-            : <Text />}
+          {titleStyle === "text"
+            ? <Text bold color={sc.text.primary}>{title}</Text>
+            : <ChromeChip text={title} tone={tone} />}
+          {rightText && <Text dimColor wrap="truncate-end">{rightText}</Text>}
         </Box>
-        <Box marginTop={1} flexDirection="column">
+        <Box marginTop={bodyMarginTop} flexDirection="column">
           {children}
         </Box>
         {footer && (
-          <Box marginTop={1} flexDirection="column">
+          <Box marginTop={footerMarginTop} flexDirection="column">
             {footer}
           </Box>
         )}

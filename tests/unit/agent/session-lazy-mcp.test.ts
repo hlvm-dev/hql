@@ -70,6 +70,136 @@ Deno.test({
 });
 
 Deno.test({
+  name: "createAgentSession: lazy MCP loading can target one server batch at a time",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTempHlvmDir(async () => {
+      const platform = getPlatform();
+      const workspace = await platform.fs.makeTempDir({
+        prefix: "hlvm-session-targeted-mcp-",
+      });
+      const fixturePath = platform.path.join(
+        platform.process.cwd(),
+        "tests",
+        "fixtures",
+        "mcp-server.ts",
+      );
+      await platform.fs.mkdir(platform.path.dirname(getMcpConfigPath()), {
+        recursive: true,
+      });
+      await platform.fs.writeTextFile(
+        getMcpConfigPath(),
+        JSON.stringify({
+          version: 1,
+          servers: [
+            {
+              name: "alpha",
+              command: [
+                "deno",
+                "run",
+                "--allow-env=MCP_REPLY_PREFIX",
+                fixturePath,
+              ],
+              env: { MCP_REPLY_PREFIX: "alpha:" },
+            },
+            {
+              name: "beta",
+              command: [
+                "deno",
+                "run",
+                "--allow-env=MCP_REPLY_PREFIX",
+                fixturePath,
+              ],
+              env: { MCP_REPLY_PREFIX: "beta:" },
+            },
+          ],
+        }),
+      );
+
+      let session: Awaited<ReturnType<typeof createAgentSession>> | null = null;
+
+      try {
+        session = await createAgentSession({
+          workspace,
+          model: "ollama/llama3.2:3b",
+          modelInfo: { name: "llama3.2:3b", parameterSize: "13B" },
+        });
+
+        assertEquals(hasTool("mcp_alpha_echo", session.toolOwnerId), false);
+        assertEquals(hasTool("mcp_beta_echo", session.toolOwnerId), false);
+
+        await session.ensureMcpLoaded?.(undefined, { query: "alpha" });
+        assertEquals(hasTool("mcp_alpha_echo", session.toolOwnerId), true);
+        assertEquals(hasTool("mcp_beta_echo", session.toolOwnerId), false);
+
+        await session.ensureMcpLoaded?.(undefined, {
+          exactToolName: "mcp_beta_echo",
+        });
+        assertEquals(hasTool("mcp_beta_echo", session.toolOwnerId), true);
+      } finally {
+        await session?.dispose();
+        await platform.fs.remove(workspace, { recursive: true });
+      }
+    });
+  },
+});
+
+Deno.test({
+  name: "createAgentSession: exact MCP lookup does not fan out when the tool prefix is unknown",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTempHlvmDir(async () => {
+      const platform = getPlatform();
+      const workspace = await platform.fs.makeTempDir({
+        prefix: "hlvm-session-exact-mcp-",
+      });
+      const fixturePath = platform.path.join(
+        platform.process.cwd(),
+        "tests",
+        "fixtures",
+        "mcp-server.ts",
+      );
+      await platform.fs.mkdir(platform.path.dirname(getMcpConfigPath()), {
+        recursive: true,
+      });
+      await platform.fs.writeTextFile(
+        getMcpConfigPath(),
+        JSON.stringify({
+          version: 1,
+          servers: [
+            { name: "alpha", command: ["deno", "run", fixturePath] },
+            { name: "beta", command: ["deno", "run", fixturePath] },
+          ],
+        }),
+      );
+
+      let session: Awaited<ReturnType<typeof createAgentSession>> | null = null;
+
+      try {
+        session = await createAgentSession({
+          workspace,
+          model: "ollama/llama3.2:3b",
+          modelInfo: { name: "llama3.2:3b", parameterSize: "13B" },
+        });
+
+        const loaded = await session.ensureMcpLoaded?.(undefined, {
+          exactToolName: "mcp_missing_echo",
+        });
+
+        assertEquals(loaded, false);
+        assertEquals(hasTool("mcp_alpha_echo", session.toolOwnerId), false);
+        assertEquals(hasTool("mcp_beta_echo", session.toolOwnerId), false);
+      } finally {
+        await session?.dispose();
+        await platform.fs.remove(workspace, { recursive: true });
+      }
+    });
+  },
+});
+
+Deno.test({
   name:
     "createAgentSession: dispose clears tool-result sidecars for the session",
   sanitizeOps: false,

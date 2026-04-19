@@ -50,7 +50,6 @@ import {
   listRuntimeInstalledModels,
 } from "../../../runtime/host-client.ts";
 import { calculateScrollWindow } from "../completion/navigation.ts";
-import { HighlightedText } from "./HighlightedText.tsx";
 import { ListSearchField } from "./ListSearchField.tsx";
 import {
   clampPanelWidth,
@@ -69,7 +68,7 @@ import {
   type ModelStatusKind,
 } from "./model-browser-status.ts";
 import { ChromeChip } from "./ChromeChip.tsx";
-import { buildSectionLabelText } from "../utils/display-chrome.ts";
+import { buildBalancedTextRow } from "../utils/display-chrome.ts";
 import { useConversationSpinnerFrame } from "../hooks/useConversationMotion.ts";
 import {
   buildModelBrowserFocusLayout,
@@ -77,6 +76,7 @@ import {
   buildModelBrowserViewLayout,
 } from "./model-browser-chrome.ts";
 import { OverlayModal } from "./OverlayModal.tsx";
+import { stringWidth } from "../../../tui-v2/ink/stringWidth.ts";
 
 const platform = getPlatform();
 const openUrl = (url: string) => platform.openUrl(url);
@@ -413,35 +413,44 @@ function getModelStatusKind(
   return "available";
 }
 
-function getModelMetadataText(model: DisplayModel): string {
-  const supplementalCapabilities = (model.capabilities ?? []).filter((
-    capability,
-  ) => capability !== "text");
+function buildModelRowDetails(
+  model: DisplayModel,
+  statusKind: ModelStatusKind,
+): string {
+  const parts: string[] = [];
+  const isExceptionalStatus = statusKind === "downloading" ||
+    statusKind === "cancelled" || statusKind === "failed" ||
+    statusKind === "needs-key" || statusKind === "pending-delete";
 
-  return [
-    model.provider ? `[${model.provider}]` : "",
-    ...supplementalCapabilities.map((capability) => `[${capability}]`),
-  ].filter(Boolean).join(" ");
-}
+  if (model.downloadStatus === "downloading" && model.progress) {
+    const { progress } = model;
+    parts.push(
+      progress.total && progress.completed
+        ? `${Math.round(progress.percent || 0)}% ${
+          formatBytes(progress.completed)
+        }/${formatBytes(progress.total)}`
+        : progress.status || "...",
+    );
+  } else if (model.downloadStatus === "cancelled" && model.progress) {
+    const { progress } = model;
+    parts.push(
+      progress.total && progress.completed
+        ? `cancelled ${Math.round(progress.percent || 0)}%`
+        : "cancelled",
+    );
+  } else if (model.downloadStatus === "failed") {
+    parts.push("failed");
+  } else if (model.size) {
+    parts.push(formatBytes(model.size));
+  } else if (model.sizeStr) {
+    parts.push(model.sizeStr);
+  }
 
-function getModelProviderTagText(model: DisplayModel): string {
-  return model.provider ? `[${model.provider}]` : "";
-}
+  if (isExceptionalStatus) {
+    parts.push(`[${getModelStatusLabel(statusKind)}]`);
+  }
 
-function getSubstringMatchIndices(
-  text: string,
-  query: string,
-): number[] | undefined {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return undefined;
-
-  const start = text.toLowerCase().indexOf(normalizedQuery);
-  if (start < 0) return undefined;
-
-  return Array.from(
-    { length: Math.min(normalizedQuery.length, text.length - start) },
-    (_, index) => start + index,
-  );
+  return parts.join("  ");
 }
 
 // ============================================================
@@ -454,149 +463,61 @@ function ModelItem({
   isActive,
   isPendingDelete = false,
   contentWidth,
-  highlightQuery,
 }: {
   model: DisplayModel;
   isSelected: boolean;
   isActive: boolean;
   isPendingDelete?: boolean;
   contentWidth: number;
-  highlightQuery: string;
 }): React.ReactElement {
   const { color } = useTheme();
 
   const statusKind = getModelStatusKind(model, isActive, isPendingDelete);
   const indicator = getStatusIndicator(statusKind);
-  const isDownloading = model.downloadStatus === "downloading";
-  let indicatorColor = color("muted");
-  switch (statusKind) {
-    case "pending-delete":
-    case "cancelled":
-    case "failed":
-    case "needs-key":
-      indicatorColor = color("error");
-      break;
-    case "active":
-    case "installed":
-      indicatorColor = color("success");
-      break;
-    case "cloud":
-      indicatorColor = color("accent");
-      break;
-    case "downloading":
-      indicatorColor = color("warning");
-      break;
-    case "available":
-      indicatorColor = color("muted");
-      break;
-  }
-  const statusTag = `[${getModelStatusLabel(statusKind)}]`;
-
-  // Size/progress display
-  let sizeLabel = "";
-  if (isDownloading && model.progress) {
-    const { progress } = model;
-    sizeLabel = progress.total && progress.completed
-      ? `${Math.round(progress.percent || 0)}% ${
-        formatBytes(progress.completed)
-      }/${formatBytes(progress.total)}`
-      : progress.status || "...";
-  } else if (model.downloadStatus === "cancelled" && model.progress) {
-    const { progress } = model;
-    sizeLabel = progress.total && progress.completed
-      ? `cancelled ${Math.round(progress.percent || 0)}%`
-      : "cancelled";
-  } else if (model.downloadStatus === "failed") {
-    sizeLabel = "failed";
-  } else if (model.size) {
-    sizeLabel = formatBytes(model.size);
-  } else if (model.sizeStr) {
-    sizeLabel = model.sizeStr;
-  }
-
-  // Color for model name (pending delete > local > downloading > cancelled/failed > remote)
-  const nameColor = isPendingDelete
+  const rowPrefix = `${isSelected ? ">" : " "} ${indicator}`;
+  const rowLayout = buildBalancedTextRow(
+    contentWidth,
+    `${rowPrefix}${model.name}`,
+    buildModelRowDetails(model, statusKind),
+    {
+      maxRightWidth: Math.max(18, Math.floor(contentWidth * 0.34)),
+    },
+  );
+  const rowColor = isPendingDelete || model.downloadStatus === "cancelled" ||
+      model.downloadStatus === "failed" || model.needsKey
     ? color("error")
-    : model.isLocal
+    : isActive || model.isLocal
     ? color("success")
     : model.downloadStatus === "downloading"
     ? color("warning")
-    : model.downloadStatus === "cancelled" || model.downloadStatus === "failed"
-    ? color("error")
+    : isSelected
+    ? color("accent")
     : undefined;
-
-  const providerTag = getModelProviderTagText(model);
-  const sizeWidth = Math.max(
-    10,
-    Math.min(18, Math.floor(contentWidth * 0.18)),
-  );
-  const statusWidth = Math.max(
-    12,
-    Math.min(16, Math.floor(contentWidth * 0.18)),
-  );
-  const providerWidth = Math.max(
-    10,
-    Math.min(24, Math.floor(contentWidth * 0.2)),
-  );
-  const nameWidth = Math.max(
-    18,
-    Math.min(60, contentWidth - providerWidth - sizeWidth - statusWidth - 8),
-  );
-  const displayName = truncate(model.name, nameWidth, "…");
-  const displayNamePadded = displayName.padEnd(nameWidth);
-  const inlineSizeLabel = truncate(sizeLabel, sizeWidth, "…").padStart(
-    sizeWidth,
-  );
-  const statusDisplay = truncate(statusTag, statusWidth, "…").padEnd(
-    statusWidth,
-  );
-  const providerDisplay = truncate(providerTag, providerWidth, "…").padEnd(
-    providerWidth,
-  );
-  const selectionMarker = isSelected ? "› " : "  ";
-  const selectionColor = isSelected ? color("accent") : color("muted");
-  const nameMatchIndices = getSubstringMatchIndices(
-    displayName,
-    highlightQuery,
-  );
-  const providerMatchIndices = getSubstringMatchIndices(
-    providerDisplay,
-    highlightQuery,
-  );
+  const fullRowText = buildFullWidthRowText(rowLayout, contentWidth);
 
   return (
     <Box width={contentWidth}>
-      <Text wrap="truncate-end">
-        <Text color={selectionColor}>{selectionMarker}</Text>
-        <Text color={indicatorColor}>
-          {indicator}
-        </Text>
-        <HighlightedText
-          text={displayNamePadded}
-          matchIndices={nameMatchIndices}
-          highlightColor={color("warning")}
-          baseColor={nameColor}
-          bold={isSelected || isActive}
-        />{" "}
-        <Text dimColor>{inlineSizeLabel}</Text>{" "}
-        <Text dimColor>{statusDisplay}</Text>
-        {providerTag
-          ? (
-            <>
-              {" "}
-              <HighlightedText
-                text={providerDisplay}
-                matchIndices={providerMatchIndices}
-                highlightColor={color("warning")}
-                baseColor={color("accent")}
-                bold={false}
-              />
-            </>
-          )
-          : null}
+      <Text color={rowColor} bold={isSelected || isActive}>
+        {fullRowText}
       </Text>
     </Box>
   );
+}
+
+function buildFullWidthRowText(
+  layout: { leftText: string; rightText: string; gapWidth: number },
+  width: number,
+): string {
+  const row = `${layout.leftText}${" ".repeat(layout.gapWidth)}${
+    layout.rightText
+  }`;
+  return padDisplayText(row, width);
+}
+
+function padDisplayText(text: string, width: number): string {
+  const displayWidth = stringWidth(text);
+  if (displayWidth >= width) return text;
+  return `${text}${" ".repeat(width - displayWidth)}`;
 }
 
 // ============================================================
@@ -613,7 +534,7 @@ export function ModelBrowser({
   endpoint = DEFAULT_OLLAMA_ENDPOINT,
   presentation = "overlay",
 }: ModelBrowserProps): React.ReactElement {
-  const { color, theme } = useTheme();
+  const { color } = useTheme();
   const sc = useSemanticColors();
   const { stdout } = useStdout();
   const { tasks, cancel } = useTaskManager();
@@ -625,10 +546,9 @@ export function ModelBrowser({
     minRows: 4,
     maxRows: 16,
   });
-  const panelWidth = clampPanelWidth(terminalWidth, {
+  const requestedPanelWidth = clampPanelWidth(terminalWidth, {
     maxWidth: MODEL_BROWSER_MAX_WIDTH,
   });
-  const contentWidth = panelWidth - 4;
   const overlayVisibleRowCount = clampVisibleRows(availableHeight, {
     reservedRows: 16,
     minRows: 4,
@@ -637,7 +557,7 @@ export function ModelBrowser({
   const overlayFrame = useMemo(
     () =>
       resolveOverlayFrame(
-        panelWidth,
+        requestedPanelWidth,
         overlayVisibleRowCount + 16,
         {
           minWidth: 48,
@@ -645,11 +565,18 @@ export function ModelBrowser({
           viewport: { columns: terminalWidth, rows: availableHeight },
         },
       ),
-    [availableHeight, overlayVisibleRowCount, panelWidth, terminalWidth],
+    [availableHeight, overlayVisibleRowCount, requestedPanelWidth, terminalWidth],
   );
+  const panelWidth = presentation === "overlay"
+    ? overlayFrame.width
+    : requestedPanelWidth;
+  const contentWidth = panelWidth - 4;
+  const browserContentWidth = presentation === "overlay"
+    ? Math.max(20, contentWidth - 2)
+    : contentWidth;
   const defaultModelWidth = Math.max(
     22,
-    Math.min(48, Math.floor(contentWidth * 0.34)),
+    Math.min(48, Math.floor(browserContentWidth * 0.34)),
   );
   const selectionScopeTitle = selectionScopeLabel.charAt(0).toUpperCase() +
     selectionScopeLabel.slice(1);
@@ -1269,45 +1196,29 @@ export function ModelBrowser({
     }
   });
 
-  // Calculate visible window
-  const visibleWindow = calculateScrollWindow(
-    selection.index,
-    displayModels.length,
-    visibleRowCount,
-  );
-  const visibleModels = displayModels.slice(
-    visibleWindow.start,
-    visibleWindow.end,
-  );
-
   // Calculate next filter for footer hint
   const nextFilterIdx = ((FILTER_CYCLE_INDEX.get(activeFilterMode) ?? 0) + 1) %
     FILTER_CYCLE.length;
   const nextFilter = FILTER_LABELS[FILTER_CYCLE[nextFilterIdx]];
   const selectedModel = displayModels[selection.index] ?? displayModels[0] ??
     null;
-  const selectedMetadata = selectedModel
-    ? getModelMetadataText(selectedModel)
-    : "";
-  const selectedMetadataDisplay = truncate(
-    selectedMetadata,
-    Math.max(0, contentWidth - 2),
-    "…",
-  );
   const scopeText = buildModelBrowserScopeText(
     selectionScopeTitle,
     currentModel,
     defaultModelWidth,
   );
+  const overlayIntroText = scopeText;
   const hasDiscoveryResults = remoteModels.length > 0 || cloudModels.length > 0;
   const emptyStateMessage = discoveryRefreshFailed && !hasDiscoveryResults
     ? "Model catalog unavailable. Retry in a moment."
     : FILTER_EMPTY[activeFilterMode];
-  const modelCountLabel = normalizedSearchQuery
+  const modelCountLabel = loading || discoveryLoading || discoveryRefreshing
+    ? "loading"
+    : normalizedSearchQuery
     ? `${displayModels.length}/${viewModels.length}`
     : `${displayModels.length}`;
   const viewLayout = buildModelBrowserViewLayout(
-    contentWidth,
+    browserContentWidth,
     FILTER_LABELS[activeFilterMode],
     modelCountLabel,
     nextFilter,
@@ -1321,25 +1232,31 @@ export function ModelBrowser({
     : undefined;
   const selectedStatusLabel = selectedStatusKind
     ? getModelStatusLabel(selectedStatusKind)
+    : !selectedModel && currentModel
+    ? "default"
     : undefined;
+  const selectedFocusDetail = selectedModel && selectedStatusKind
+    ? buildModelRowDetails(selectedModel, selectedStatusKind)
+    : selectedStatusLabel;
   const focusLayout = buildModelBrowserFocusLayout(
-    contentWidth,
-    selectedModel?.name,
-    selectedStatusLabel,
+    browserContentWidth,
+    selectedModel?.name ?? currentModel,
+    selectedFocusDetail,
   );
-  const selectedStatusColor = selectedStatusKind === "pending-delete" ||
-      selectedStatusKind === "cancelled" || selectedStatusKind === "failed" ||
-      selectedStatusKind === "needs-key"
-    ? color("error")
-    : selectedStatusKind === "active" || selectedStatusKind === "installed"
-    ? color("success")
-    : selectedStatusKind === "downloading"
-    ? color("warning")
-    : selectedStatusKind === "cloud"
-    ? color("accent")
-    : color("muted");
-
-  const overlayListRows = Math.max(4, overlayFrame.height - 16);
+  const overlayListRows = Math.min(10, Math.max(4, overlayFrame.height - 18));
+  const listRowCount = presentation === "overlay"
+    ? overlayListRows
+    : visibleRowCount;
+  const visibleWindow = calculateScrollWindow(
+    selection.index,
+    displayModels.length,
+    listRowCount,
+  );
+  const visibleModels = displayModels.slice(
+    visibleWindow.start,
+    visibleWindow.end,
+  );
+  const hiddenModelCount = Math.max(0, displayModels.length - visibleModels.length);
 
   const browserContent = (
     <>
@@ -1347,7 +1264,7 @@ export function ModelBrowser({
         ? (
           <>
             <Box justifyContent="space-between">
-              <ChromeChip text="Model catalog" tone="active" />
+              <ChromeChip text="Select model" tone="active" />
               <Text dimColor wrap="truncate-end">
                 {scopeText}
               </Text>
@@ -1364,7 +1281,7 @@ export function ModelBrowser({
         : (
           <>
             <Text color={sc.text.muted} wrap="truncate-end">
-              {scopeText}
+              {overlayIntroText}
             </Text>
             <Box>
               <Text color={sc.text.primary}>{viewLayout.leftText}</Text>
@@ -1377,73 +1294,42 @@ export function ModelBrowser({
         )}
 
       <Box marginTop={1}>
-        <Text color={sc.chrome.sectionLabel}>
-          {buildSectionLabelText("Search", contentWidth)}
-        </Text>
-      </Box>
-      <Box marginTop={0}>
         <ListSearchField
           query={searchQuery}
           cursor={searchCursor}
-          width={contentWidth}
-          placeholder="Filter by model, provider, capability, or description"
+          width={browserContentWidth}
+          placeholder="Filter models"
         />
       </Box>
       <Box marginTop={1}>
-        <Text color={sc.chrome.sectionLabel}>
-          {buildSectionLabelText("Focused model", contentWidth)}
-        </Text>
-      </Box>
-      <Box marginTop={0}>
-        <Text color={selectedModel ? sc.text.primary : sc.text.muted} bold>
-          {focusLayout.leftText}
-        </Text>
-        {focusLayout.gapWidth > 0 && (
-          <Text>{" ".repeat(focusLayout.gapWidth)}</Text>
-        )}
-        <Text color={selectedStatusColor}>{focusLayout.rightText}</Text>
-      </Box>
-      {selectedMetadata && (
-        <Box paddingLeft={1}>
-          <HighlightedText
-            text={selectedMetadataDisplay}
-            matchIndices={getSubstringMatchIndices(
-              selectedMetadataDisplay,
-              normalizedSearchQuery,
-            )}
-            highlightColor={color("warning")}
-            baseColor={color("muted")}
-            bold={false}
-          />
-        </Box>
-      )}
-
-      <Box marginTop={1}>
-        <Text color={sc.chrome.sectionLabel}>
-          {buildSectionLabelText("Catalog", contentWidth)}
+        <Text
+          color={selectedModel ? sc.text.primary : sc.text.muted}
+          bold
+        >
+          {buildFullWidthRowText(focusLayout, browserContentWidth)}
         </Text>
       </Box>
 
       {loading && (
-        <Box marginTop={0}>
+        <Box marginTop={1}>
           <Text dimColor>{loadingSpinner} Loading installed models...</Text>
         </Box>
       )}
       {!loading && discoveryLoading && (
-        <Box marginTop={0}>
+        <Box marginTop={1}>
           <Text dimColor>{loadingSpinner} Loading model catalog...</Text>
         </Box>
       )}
       {!loading && !discoveryLoading && discoveryRefreshing &&
         !hasDiscoveryResults && (
-        <Box marginTop={0}>
+        <Box marginTop={1}>
           <Text dimColor>{loadingSpinner} Refreshing model catalog...</Text>
         </Box>
       )}
 
       {!loading && !discoveryLoading && !discoveryRefreshing &&
         displayModels.length === 0 && (
-        <Box marginTop={0}>
+        <Box marginTop={1}>
           <Text dimColor wrap="truncate-end">
             {emptyStateMessage}
           </Text>
@@ -1459,30 +1345,24 @@ export function ModelBrowser({
               isSelected={actualIndex === selection.index}
               isActive={isSelectedModelActive(model.name, currentModel)}
               isPendingDelete={pendingDelete === model.name}
-              contentWidth={contentWidth}
-              highlightQuery={normalizedSearchQuery}
+              contentWidth={browserContentWidth}
             />
           </Box>
         );
       })}
 
-      {visibleWindow.start > 0 && (
+      {hiddenModelCount > 0 && (
         <Text dimColor wrap="truncate-end">
-          ... {visibleWindow.start} earlier
-        </Text>
-      )}
-      {visibleWindow.end < displayModels.length && (
-        <Text dimColor wrap="truncate-end">
-          {"  ... "}
-          {displayModels.length - visibleWindow.end}
-          {" more"}
+          {padDisplayText(
+            `... and ${hiddenModelCount} more model${
+              hiddenModelCount === 1 ? "" : "s"
+            }...`,
+            browserContentWidth,
+          )}
         </Text>
       )}
 
       <Box marginTop={1} flexDirection="column">
-        <Text color={sc.chrome.sectionLabel}>
-          {buildSectionLabelText("Actions", contentWidth)}
-        </Text>
         {pendingDelete
           ? (
             <Box
@@ -1491,27 +1371,38 @@ export function ModelBrowser({
               paddingX={1}
             >
               <Text color={color("error")} wrap="truncate-end">
-                {'Press Ctrl+D again to delete "'}
-                {truncate(pendingDelete, Math.max(0, contentWidth - 36), "…")}
-                {'", Esc to cancel'}
+                {padDisplayText(
+                  `Press Ctrl+D again to delete "${
+                    truncate(
+                      pendingDelete,
+                      Math.max(0, browserContentWidth - 36),
+                      "…",
+                    )
+                  }", Esc to cancel`,
+                  browserContentWidth - 2,
+                )}
               </Text>
             </Box>
           )
           : statusMessage
           ? (
             <Text color={color("warning")} wrap="truncate-end">
-              {statusMessage}
+              {padDisplayText(statusMessage, browserContentWidth)}
             </Text>
           )
           : (
             <>
               <Text dimColor wrap="truncate-end">
-                ↑↓ move · Tab → {nextFilter} · ↵{" "}
-                {MODEL_BROWSER_SELECT_ACTION_LABEL} · Esc back
+                {padDisplayText(
+                  `↑↓ navigate · Enter ${MODEL_BROWSER_SELECT_ACTION_LABEL} · Tab ${nextFilter} · Esc close`,
+                  browserContentWidth,
+                )}
               </Text>
               <Text dimColor wrap="truncate-end">
-                Type to filter · Ctrl+O info · Ctrl+D delete · Ctrl+X cancel ·
-                Ctrl+B tasks
+                {padDisplayText(
+                  `Type to filter · Ctrl+O info · Ctrl+D delete · Ctrl+X cancel`,
+                  browserContentWidth,
+                )}
               </Text>
             </>
           )}
@@ -1522,12 +1413,16 @@ export function ModelBrowser({
   if (presentation === "overlay") {
     return (
       <OverlayModal
-        title="Model catalog"
-        rightText="esc back"
+        title="Select model"
+        rightText="esc"
         width={overlayFrame.width}
-        minHeight={overlayFrame.height}
+        titleStyle="text"
       >
-        <Box width={panelWidth} flexDirection="column" alignSelf="center">
+        <Box
+          width={browserContentWidth}
+          flexDirection="column"
+          alignSelf="center"
+        >
           {browserContent}
         </Box>
       </OverlayModal>

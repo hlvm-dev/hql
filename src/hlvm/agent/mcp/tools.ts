@@ -1177,21 +1177,33 @@ export async function loadMcpTools(
   ownerId?: string,
   signal?: AbortSignal,
 ): Promise<McpLoadResult> {
-  const registrationOwnerId = ownerId ?? `mcp:${generateUUID()}`;
   const configServers = await loadMcpConfigMultiScope();
   const servers = dedupeServers([
     ...configServers,
     ...(extraServers ?? []),
   ]);
+  return await loadMcpToolsForServers(servers, ownerId, signal);
+}
+
+function createEmptyMcpLoadResult(ownerId: string): McpLoadResult {
+  return {
+    tools: [],
+    ownerId,
+    connectedServers: [],
+    dispose: async () => {},
+    setHandlers: () => {},
+    setSignal: () => {},
+  };
+}
+
+export async function loadMcpToolsForServers(
+  servers: readonly McpServerConfig[],
+  ownerId?: string,
+  signal?: AbortSignal,
+): Promise<McpLoadResult> {
+  const registrationOwnerId = ownerId ?? `mcp:${generateUUID()}`;
   if (servers.length === 0) {
-    return {
-      tools: [],
-      ownerId: registrationOwnerId,
-      connectedServers: [],
-      dispose: async () => {},
-      setHandlers: () => {},
-      setSignal: () => {},
-    };
+    return createEmptyMcpLoadResult(registrationOwnerId);
   }
 
   const clients: SdkMcpClient[] = [];

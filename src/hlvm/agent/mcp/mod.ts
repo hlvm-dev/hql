@@ -11,12 +11,18 @@ export type { McpHandlers } from "./types.ts";
 // Config loading & management
 export {
   addServerToConfig,
+  findMcpServersForExactToolName,
   formatServerEntry,
   loadMcpConfig,
   loadMcpConfigMultiScope,
   normalizeServerName,
+  rankMcpServersForQuery,
   removeServerFromConfig,
 } from "./config.ts";
 
 // Tool registration
-export { inferMcpSafetyLevel, loadMcpTools } from "./tools.ts";
+export {
+  inferMcpSafetyLevel,
+  loadMcpTools,
+  loadMcpToolsForServers,
+} from "./tools.ts";

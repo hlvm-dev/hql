@@ -212,6 +212,16 @@ function logicalLineBounds(
   return { lineStart, lineEnd };
 }
 
+function buildComposerNewlineInsert(text: string, pos: number): string {
+  const { lineStart } = logicalLineBounds(text, pos);
+  const linePrefix = text.slice(lineStart, pos);
+  const baseIndent = (/^[\t ]*/.exec(linePrefix)?.[0] ?? "");
+  const trimmedPrefix = linePrefix.trimEnd();
+  const shouldIncreaseIndent = /[\[{(]$/.test(trimmedPrefix) ||
+    /:\s*$/.test(trimmedPrefix);
+  return `\n${baseIndent}${shouldIncreaseIndent ? COMPOSER_INDENT : ""}`;
+}
+
 /** Lazy Intl.Segmenter singleton for grapheme-aware cursor movement. */
 let _segmenter: Intl.Segmenter | undefined;
 function getGraphemeSegmenter(): Intl.Segmenter {
@@ -232,6 +242,8 @@ interface InputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string, attachments?: AnyAttachment[]) => void;
+  canSubmitAgent?: boolean;
+  onAgentSubmitBlocked?: () => void;
   /** Open a contextual view when Enter is pressed on an empty composer. */
   onEmptySubmit?: () => void;
   /** Move focus from the empty composer into the local-agents surface. */
@@ -363,6 +375,8 @@ export function Input({
   value,
   onChange,
   onSubmit,
+  canSubmitAgent = true,
+  onAgentSubmitBlocked,
   onEmptySubmit,
   onFocusLocalAgents,
   onLocalAgentsInput,
@@ -1238,6 +1252,9 @@ export function Input({
   const insertAt = useCallback((text: string) => {
     applyInsertedText(text);
   }, [applyInsertedText]);
+  const insertComposerNewline = useCallback(() => {
+    insertAt(buildComposerNewlineInsert(value, cursorPos));
+  }, [cursorPos, insertAt, value]);
 
   const insertAtAndOpenMentionPicker = useCallback((text: string) => {
     const { newValue: nextValue, nextCursorPos } = applyInsertedText(text);
@@ -1719,7 +1736,7 @@ export function Input({
       clearPasteBuffer();
       historySearch.actions.startSearch();
     },
-    navInsertNewline: () => insertAt("\n"),
+    navInsertNewline: () => insertComposerNewline(),
     navSexpBack: () => {
       const newPos = backwardSexp(value, cursorPos);
       if (newPos !== cursorPos) setCursorPos(newPos);
@@ -2055,7 +2072,7 @@ export function Input({
 
     // CSI-u Alt+Enter (mod 3): insert newline on Kitty-protocol terminals.
     if (csiuEnterMod === 3) {
-      insertAt("\n");
+      insertComposerNewline();
       return;
     }
 
@@ -2188,7 +2205,7 @@ export function Input({
     //   Option+Enter: input="\r", key.return=false  → newline
     //   Enter:        input="",   key.return=true    → submit
     if (input === "\r" && !key.return) {
-      insertAt("\n");
+      insertComposerNewline();
       return;
     }
 
@@ -2800,10 +2817,14 @@ export function Input({
           submitAction === "send-agent"
         )
       ) {
+        if (submitAction === "send-agent" && !canSubmitAgent) {
+          onAgentSubmitBlocked?.();
+          return;
+        }
         onSubmit(trimmed, attachments.length > 0 ? attachments : undefined);
         resetAfterSubmit();
       } else if (trimmed && submitAction === "continue-multiline") {
-        insertAt("\n");
+        insertComposerNewline();
       }
       return;
     }

@@ -34,8 +34,7 @@ function isInlineSecondaryTextAllowed(
   const trimmed = text.trim();
   if (!trimmed || trimmed.includes("\n")) return false;
   if (
-    presentationKind === "diff" || presentationKind === "edit" ||
-    presentationKind === "shell"
+    presentationKind === "diff" || presentationKind === "edit"
   ) {
     return false;
   }

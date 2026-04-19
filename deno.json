@@ -20,6 +20,7 @@
     "@std/async": "jsr:@std/async@1",
     "@std/path": "jsr:@std/path@1",
     "@std/semver": "jsr:@std/semver@1",
+    "@std/toml": "jsr:@std/toml@1",
     "ignore": "npm:ignore@^6.0.0",
     "vlq": "npm:vlq@2",
     "@std/cli": "jsr:@std/cli@1",

@@ -14,113 +14,67 @@ import {
   resolveOverlayChromeLayout,
   SHORTCUTS_OVERLAY_SPEC,
 } from "../overlay/index.ts";
-import { OverlayBalancedRow, OverlayModal } from "./OverlayModal.tsx";
-import { buildSectionLabelText } from "../utils/display-chrome.ts";
+import { OverlayModal } from "./OverlayModal.tsx";
 
 interface ShortcutsOverlayProps {
   onClose: () => void;
 }
 
-interface ShortcutRow {
-  display: string;
-  label: string;
+interface HelpRow {
+  text: string;
 }
 
-interface ShortcutSection {
-  title: string;
-  rows: ShortcutRow[];
+interface HelpRowDefinition {
+  kind: "binding" | "literal";
+  id?: string;
+  display?: string;
+  suffix: string;
 }
 
-const SECTION_IDS = [
-  {
-    title: "General",
-    ids: ["ctrl+p", "ctrl+b", "ctrl+t"],
-  },
-  {
-    title: "Conversation",
-    ids: [
-      "conversation-search",
-      "conversation-search-prev",
-      "ctrl+o",
-      "ctrl+y",
-      "shift+tab",
-      "ctrl+enter-force",
-      "esc-global",
-      "pgup-pgdn",
-    ],
-  },
+const HELP_ROWS: readonly HelpRowDefinition[] = [
+  { kind: "binding", id: "ctrl+p", suffix: "commands" },
+  { kind: "binding", id: "ctrl+o", suffix: "history" },
+  { kind: "binding", id: "ctrl+t", suffix: "tasks" },
+  { kind: "binding", id: "ctrl+b", suffix: "background" },
+  { kind: "binding", id: "shift+tab", suffix: "cycle mode" },
+  { kind: "binding", id: "ctrl+enter-force", suffix: "send now" },
+  { kind: "binding", id: "pgup-pgdn", suffix: "scroll" },
+  { kind: "binding", id: "esc-global", suffix: "cancel or close" },
+  { kind: "literal", display: "/model", suffix: "switch model" },
+  { kind: "literal", display: "/config", suffix: "settings" },
 ] as const;
 
 const PADDING = SHORTCUTS_OVERLAY_SPEC.padding;
 
-function getOverlayHeight(sections: readonly ShortcutSection[]): number {
-  const sectionRows = sections.reduce(
-    (rows: number, section: ShortcutSection) => rows + section.rows.length + 2,
-    0,
-  );
-  return PADDING.top + PADDING.bottom + sectionRows + 4;
+function getOverlayHeight(rowCount: number): number {
+  return PADDING.top + PADDING.bottom + rowCount + 4;
 }
 
-function fitShortcutSections(
-  sections: readonly ShortcutSection[],
-  maxBodyRows: number,
-): ShortcutSection[] {
-  if (maxBodyRows <= 0) return [];
-
-  const fitted: ShortcutSection[] = [];
-  let usedRows = 0;
-
-  for (const section of sections) {
-    const rowsRemaining = maxBodyRows - usedRows;
-    if (rowsRemaining < 2) break;
-
-    const visibleRows = section.rows.slice(0, Math.max(1, rowsRemaining - 2));
-    if (visibleRows.length === 0) break;
-
-    fitted.push({
-      title: section.title,
-      rows: visibleRows,
-    });
-    usedRows += visibleRows.length + 2;
-
-    if (visibleRows.length < section.rows.length) {
-      break;
-    }
-  }
-
-  return fitted;
+function formatDisplay(display: string): string {
+  return display.replace(/\+/g, "+").trim();
 }
 
 function getRegistryMap(): Map<string, Keybinding> {
   return new Map(registry.getAll().map((binding) => [binding.id, binding]));
 }
 
-function buildShortcutSections(): ShortcutSection[] {
+function buildHelpRows(): HelpRow[] {
   const byId = getRegistryMap();
-  const sections: ShortcutSection[] = [];
-
-  for (const section of SECTION_IDS) {
-    const rows = section.ids.flatMap((id): ShortcutRow[] => {
-      const binding = byId.get(id);
-      if (!binding) return [];
-      return [{
-        display: getDisplay(binding),
-        label: binding.label,
-      }];
-    });
-    if (rows.length > 0) {
-      sections.push({ title: section.title, rows });
-    }
-  }
-
-  if (sections.length > 0) {
-    sections[0] = {
-      ...sections[0],
-      rows: [{ display: "?", label: "Shortcuts" }, ...sections[0].rows],
-    };
-  }
-
-  return sections;
+  return HELP_ROWS.flatMap((row): HelpRow[] => {
+    const display = row.kind === "literal"
+      ? row.display
+      : row.id
+      ? getDisplay(byId.get(row.id) ?? {
+        id: row.id,
+        display: row.id,
+        label: row.id,
+        category: "Global",
+        action: { type: "INFO" },
+      } as Keybinding)
+      : undefined;
+    if (!display) return [];
+    return [{ text: `${formatDisplay(display)} ${row.suffix}` }];
+  });
 }
 
 export function ShortcutsOverlay({
@@ -131,8 +85,8 @@ export function ShortcutsOverlay({
   const terminalColumns = stdout?.columns ?? 0;
   const terminalRows = stdout?.rows ?? 0;
 
-  const sections = useMemo(() => buildShortcutSections(), []);
-  const desiredHeight = getOverlayHeight(sections);
+  const rows = useMemo(() => buildHelpRows(), []);
+  const desiredHeight = getOverlayHeight(rows.length);
   const overlay = fitOverlayRect(
     SHORTCUTS_OVERLAY_SPEC.width,
     desiredHeight,
@@ -145,25 +99,21 @@ export function ShortcutsOverlay({
     overlay.height,
     SHORTCUTS_OVERLAY_SPEC,
   );
-  const contentWidth = Math.max(
-    12,
-    overlay.width - PADDING.left - PADDING.right - 2,
+  const contentWidth = Math.max(20, overlay.width - PADDING.left - PADDING.right - 2);
+  const columnCount = contentWidth >= 66 ? 2 : 1;
+  const columnGap = columnCount > 1 ? 3 : 0;
+  const columnWidth = Math.max(
+    16,
+    Math.floor((contentWidth - columnGap) / columnCount),
   );
-  const displayWidth = Math.max(
-    8,
-    Math.min(12, Math.floor(contentWidth * 0.3)),
+  const maxVisibleRowsPerColumn = Math.max(1, chromeLayout.visibleRows);
+  const maxVisibleRows = maxVisibleRowsPerColumn * columnCount;
+  const visibleRows = rows.slice(0, maxVisibleRows);
+  const hiddenCount = rows.length - visibleRows.length;
+  const rowsPerColumn = Math.ceil(visibleRows.length / columnCount);
+  const columns: HelpRow[][] = Array.from({ length: columnCount }, (_, index) =>
+    visibleRows.slice(index * rowsPerColumn, (index + 1) * rowsPerColumn)
   );
-  const bodyRows = chromeLayout.visibleRows;
-  const visibleSections = fitShortcutSections(sections, bodyRows);
-  const renderedRowCount = visibleSections.reduce(
-    (rows: number, section: ShortcutSection) => rows + section.rows.length,
-    0,
-  );
-  const totalRowCount = sections.reduce(
-    (rows: number, section: ShortcutSection) => rows + section.rows.length,
-    0,
-  );
-  const hasHiddenRows = renderedRowCount < totalRowCount;
 
   useInput((_input, key) => {
     if (key.escape || key.return) {
@@ -173,41 +123,31 @@ export function ShortcutsOverlay({
 
   return (
     <OverlayModal
-      title="Shortcuts"
-      rightText="esc close"
+      title="Help"
+      rightText="esc"
       width={overlay.width}
-      minHeight={overlay.height}
+      titleStyle="text"
     >
-      {visibleSections.map((section: ShortcutSection) => (
-        <Box
-          key={section.title}
-          marginTop={section.title === visibleSections[0]?.title ? 0 : 1}
-          paddingLeft={PADDING.left}
-          flexDirection="column"
-        >
-          <Text color={sc.chrome.sectionLabel}>
-            {buildSectionLabelText(section.title, contentWidth)}
-          </Text>
-          {section.rows.map((row: ShortcutRow) => (
-            <Box key={`${section.title}:${row.label}`}>
-              <OverlayBalancedRow
-                leftText={row.label}
-                rightText={row.display}
-                width={contentWidth}
-                leftColor={sc.text.primary}
-                rightColor={sc.footer.status.active}
-                maxRightWidth={displayWidth}
-              />
-            </Box>
-          ))}
-        </Box>
-      ))}
-
-      <Box paddingLeft={PADDING.left} marginTop={1}>
+      <Box
+        paddingLeft={PADDING.left}
+        flexDirection={columnCount > 1 ? "row" : "column"}
+        gap={columnGap}
+      >
+        {columns.map((column, index) => (
+          <Box key={`help-column-${index}`} flexDirection="column" width={columnWidth}>
+            {column.map((row: HelpRow) => (
+              <Text key={row.text} color={sc.text.muted} wrap="truncate-end">
+                {row.text}
+              </Text>
+            ))}
+          </Box>
+        ))}
+      </Box>
+      <Box paddingLeft={PADDING.left}>
         <Text color={sc.text.muted} wrap="truncate-end">
-          {hasHiddenRows
-            ? "Widen terminal for more · /help for full list"
-            : "Ctrl+P command palette · Esc close"}
+          {hiddenCount > 0
+            ? `Esc close · widen terminal for ${hiddenCount} more`
+            : "Esc close · /help full command list"}
         </Text>
       </Box>
     </OverlayModal>

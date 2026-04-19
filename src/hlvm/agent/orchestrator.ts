@@ -58,6 +58,7 @@ import {
 } from "./usage.ts";
 export type { LLMResponse, ToolCall } from "./tool-call.ts";
 import { type AgentProfile, getAgentProfile } from "./agent-registry.ts";
+import type { McpDiscoveryRequest } from "./mcp/types.ts";
 import {
   buildPlanModeReminder,
   createPlanState,
@@ -616,7 +617,10 @@ export interface OrchestratorToolConfig {
   onToolSearchDiscovered?: (toolNames: string[]) => string[] | undefined;
   toolOwnerId?: string;
   /** Optional lazy MCP loader called on demand. */
-  ensureMcpLoaded?: (signal?: AbortSignal) => Promise<void>;
+  ensureMcpLoaded?: (
+    signal?: AbortSignal,
+    request?: McpDiscoveryRequest,
+  ) => Promise<boolean>;
 }
 
 export interface OrchestratorModelConfig {

@@ -21,6 +21,12 @@ function sanitizeRuntimePathSegment(value: string): string {
 // Cached HLVM directory path
 let _hlvmDir: string | null = null;
 let _claudeCodeMcpDirForTests: string | null = null;
+let _cursorMcpPathForTests: string | null = null;
+let _windsurfMcpPathForTests: string | null = null;
+let _windsurfLegacyMcpPathForTests: string | null = null;
+let _zedSettingsPathForTests: string | null = null;
+let _codexConfigPathForTests: string | null = null;
+let _geminiSettingsPathForTests: string | null = null;
 
 /**
  * Get environment variable value.
@@ -112,6 +118,36 @@ export function setHlvmDirForTests(dir: string): void {
  */
 export function setClaudeCodeMcpDirForTests(dir: string | null): void {
   _claudeCodeMcpDirForTests = dir;
+}
+
+/** Test override for Cursor MCP config file. */
+export function setCursorMcpPathForTests(path: string | null): void {
+  _cursorMcpPathForTests = path;
+}
+
+/** Test override for Windsurf MCP config file. */
+export function setWindsurfMcpPathForTests(path: string | null): void {
+  _windsurfMcpPathForTests = path;
+}
+
+/** Test override for Windsurf legacy MCP config file. */
+export function setWindsurfLegacyMcpPathForTests(path: string | null): void {
+  _windsurfLegacyMcpPathForTests = path;
+}
+
+/** Test override for Zed settings.json file. */
+export function setZedSettingsPathForTests(path: string | null): void {
+  _zedSettingsPathForTests = path;
+}
+
+/** Test override for Codex config.toml file. */
+export function setCodexConfigPathForTests(path: string | null): void {
+  _codexConfigPathForTests = path;
+}
+
+/** Test override for Gemini CLI settings.json file. */
+export function setGeminiSettingsPathForTests(path: string | null): void {
+  _geminiSettingsPathForTests = path;
 }
 
 /**
@@ -398,6 +434,66 @@ export function getClaudeCodeMcpDir(): string {
     "plugins",
     "marketplaces",
   );
+}
+
+function homeDir(): string {
+  return getEnvVar("HOME") || getEnvVar("USERPROFILE") || ".";
+}
+
+/** User's Cursor MCP config (~/.cursor/mcp.json). Inherited by HLVM. */
+export function getCursorMcpPath(): string {
+  if (_cursorMcpPathForTests !== null) return _cursorMcpPathForTests;
+  return join(homeDir(), ".cursor", "mcp.json");
+}
+
+/**
+ * User's primary Windsurf MCP config (~/.codeium/windsurf/mcp_config.json).
+ * Inherited by HLVM. See `getWindsurfMcpPaths()` for the full search order.
+ */
+export function getWindsurfMcpPath(): string {
+  if (_windsurfMcpPathForTests !== null) return _windsurfMcpPathForTests;
+  return join(homeDir(), ".codeium", "windsurf", "mcp_config.json");
+}
+
+/**
+ * Windsurf MCP config search order.
+ *
+ * Windsurf's docs currently reference both `~/.codeium/windsurf/mcp_config.json`
+ * and `~/.codeium/mcp_config.json`, so HLVM accepts either path.
+ */
+export function getWindsurfMcpPaths(): string[] {
+  const primary = getWindsurfMcpPath();
+  const legacy = _windsurfLegacyMcpPathForTests !== null
+    ? _windsurfLegacyMcpPathForTests
+    : join(homeDir(), ".codeium", "mcp_config.json");
+  return primary === legacy ? [primary] : [primary, legacy];
+}
+
+/**
+ * User's Zed settings file (~/.config/zed/settings.json).
+ * HLVM reads the `context_servers` key. Inherited by HLVM.
+ */
+export function getZedSettingsPath(): string {
+  if (_zedSettingsPathForTests !== null) return _zedSettingsPathForTests;
+  return join(homeDir(), ".config", "zed", "settings.json");
+}
+
+/**
+ * User's Codex CLI config (~/.codex/config.toml).
+ * HLVM reads the `[mcp_servers.*]` TOML tables. Inherited by HLVM.
+ */
+export function getCodexConfigPath(): string {
+  if (_codexConfigPathForTests !== null) return _codexConfigPathForTests;
+  return join(homeDir(), ".codex", "config.toml");
+}
+
+/**
+ * User's Gemini CLI settings (~/.gemini/settings.json).
+ * HLVM reads the `mcpServers` key. Inherited by HLVM.
+ */
+export function getGeminiSettingsPath(): string {
+  if (_geminiSettingsPathForTests !== null) return _geminiSettingsPathForTests;
+  return join(homeDir(), ".gemini", "settings.json");
 }
 
 /**
