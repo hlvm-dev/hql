@@ -208,7 +208,8 @@ async function installUvBinary(version: string): Promise<string> {
 
   const cmd = platform.build.os === "windows"
     ? [
-      "powershell",
+      "pwsh",
+      "-NoProfile",
       "-ExecutionPolicy",
       "Bypass",
       "-File",
