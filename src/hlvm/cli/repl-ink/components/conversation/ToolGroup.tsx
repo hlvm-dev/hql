@@ -158,10 +158,13 @@ function buildCollapsedOperationHint(
     tool.status === "pending" ? tool.queuedText :
     tool.resultSummaryText
   )?.trim();
-  if (detail && detail !== invocation) {
+  if (!detail || detail === invocation) {
+    return undefined;
+  }
+  if (invocation) {
     return `${invocation} · ${detail}`;
   }
-  return invocation || detail || undefined;
+  return detail;
 }
 
 function buildCollapsedToolSummary(
@@ -305,6 +308,12 @@ export const ToolGroup = React.memo(function ToolGroup({
 
     return tools.flatMap((tool, index) => {
       if (!visible.has(index)) return [];
+      const hiddenToolLabel = collapsed.hiddenCount === 1
+        ? "+1 more (ctrl+o)"
+        : `+${collapsed.hiddenCount} more (ctrl+o)`;
+      const collapsedHeader = collapsedSummary.summary
+        ? `${hiddenToolLabel} · ${collapsedSummary.summary}`
+        : hiddenToolLabel;
       const elements = [
         (
           <Box key={tool.id}>
@@ -321,19 +330,10 @@ export const ToolGroup = React.memo(function ToolGroup({
         elements.push(
           <Box key={`collapsed-${tool.id}`} marginLeft={2}>
             <Text color={sc.text.muted}>
-              +{collapsed.hiddenCount} more tool uses (ctrl+o to expand)
+              {truncate(collapsedHeader, Math.max(18, innerWidth))}
             </Text>
           </Box>,
         );
-        if (collapsedSummary.summary) {
-          elements.push(
-            <Box key={`collapsed-summary-${tool.id}`} marginLeft={2}>
-              <Text color={sc.text.muted}>
-                {truncate(`⎿ ${collapsedSummary.summary}`, Math.max(18, innerWidth))}
-              </Text>
-            </Box>,
-          );
-        }
         if (collapsedSummary.hint) {
           elements.push(
             <Box key={`collapsed-hint-${tool.id}`} marginLeft={2}>
@@ -356,7 +356,7 @@ export const ToolGroup = React.memo(function ToolGroup({
       {toolElements}
       {hasRunningShellTool && (
         <Box marginLeft={2} marginTop={1}>
-          <Text color={sc.text.muted}>(ctrl+b to run in background)</Text>
+          <Text color={sc.text.muted}>(ctrl+b background)</Text>
         </Box>
       )}
     </Box>

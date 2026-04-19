@@ -29,7 +29,7 @@ import { CHROME_EXT_TOOLS } from "./chrome-ext/mod.ts";
 import { ValidationError } from "../../common/error.ts";
 import { isToolArgsObject } from "./validation.ts";
 import type { TodoState } from "./todo-state.ts";
-import type { ModelTier } from "./constants.ts";
+import type { ModelCapabilityClass } from "./constants.ts";
 import type { AgentProfile } from "./agent-registry.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
 import type { McpDiscoveryRequest } from "./mcp/types.ts";
@@ -98,8 +98,8 @@ export interface ToolExecutionOptions {
   argsSummary?: string;
   /** Active session model id for tool-internal AI calls. */
   modelId?: string;
-  /** Active session model tier for tool-internal routing. */
-  modelTier?: ModelTier;
+  /** Active session capability class for tool-internal routing. */
+  modelCapability?: ModelCapabilityClass;
   /** Active context budget for child-agent inheritance. */
   contextBudget?: number;
   onInteraction?: (

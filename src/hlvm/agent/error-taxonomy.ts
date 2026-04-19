@@ -85,7 +85,7 @@ const ERROR_PATTERNS: ReadonlyArray<
     retryable: false,
   },
   {
-    re: /econnreset|econnrefused|enetunreach|enotfound|etimedout|epipe|econnaborted|error reading a body|connection.*closed|socket hang up|network error|http 50[023]/,
+    re: /econnreset|econnrefused|enetunreach|enotfound|etimedout|epipe|econnaborted|error reading a body|connection.*(closed|refused|reset)|tcp connect error|socket hang up|network error|http 50[023]/,
     class: "transient",
     retryable: true,
   },

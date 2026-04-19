@@ -345,7 +345,7 @@ export const ToolResult = memo(function ToolResult({
         {body}
         {truncated && (
           <Text color={tone === "error" ? sc.status.error : sc.text.muted}>
-            … ({remaining} more lines · {TOGGLE_LATEST_HINT})
+            … (+{remaining} lines · {TOGGLE_LATEST_HINT})
           </Text>
         )}
       </Box>
@@ -391,7 +391,7 @@ export const ToolResult = memo(function ToolResult({
         {body}
         {truncated && (
           <Text color={tone === "error" ? sc.status.error : sc.text.muted}>
-            … ({remaining} more lines · {TOGGLE_LATEST_HINT})
+            … (+{remaining} lines · {TOGGLE_LATEST_HINT})
           </Text>
         )}
       </Box>
@@ -417,7 +417,7 @@ export const ToolResult = memo(function ToolResult({
         ))}
         {compactShell.truncated && (
           <Text color={tone === "error" ? sc.status.error : sc.text.muted}>
-            … ({compactShell.remaining} earlier lines · {TOGGLE_LATEST_HINT})
+            … (+{compactShell.remaining} earlier · {TOGGLE_LATEST_HINT})
           </Text>
         )}
       </Box>
@@ -442,7 +442,7 @@ export const ToolResult = memo(function ToolResult({
 
       {truncated && (
         <Text color={tone === "error" ? sc.status.error : sc.text.muted}>
-          … ({remaining} more lines · {TOGGLE_LATEST_HINT})
+          … (+{remaining} lines · {TOGGLE_LATEST_HINT})
         </Text>
       )}
     </Box>

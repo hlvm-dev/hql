@@ -1,7 +1,7 @@
 /**
  * Tasks Overlay — Claude Code-Style Task Management
  *
- * True floating overlay showing background eval tasks and local agents.
+ * True floating overlay showing background eval tasks and agents.
  *
  * - Tasks shown with ○ pending / ● in_progress / ✓ completed status
  * - ↑↓ navigation, Enter to view, x to dismiss, c to clear
@@ -58,7 +58,7 @@ type ViewMode = "list" | "result";
 
 /**
  * Unified task item displayed in the overlay.
- * Wraps both eval tasks (Task) and local agents.
+ * Wraps both eval tasks (Task) and agents.
  */
 export interface UnifiedTaskItem {
   id: string;
@@ -155,8 +155,8 @@ export function buildBackgroundTasksSummaryRows(
       contentWidth,
       viewingItem.label,
       viewingItem.kind === "local_agent"
-        ? "local agent"
-        : "background",
+        ? "agent"
+        : "task",
     );
     return [
       primary.leftText + " ".repeat(primary.gapWidth) + primary.rightText,
@@ -174,8 +174,8 @@ export function buildBackgroundTasksSummaryRows(
         ? "1 active agent"
         : `${activeLocalAgentCount} active agents`
       : s.localAgentCount === 1
-      ? "1 local agent"
-      : `${s.localAgentCount} local agents`;
+      ? "1 agent done"
+      : `${s.localAgentCount} agents done`;
     const primary = buildBalancedTextRow(
       contentWidth,
       activeLabel,
@@ -184,8 +184,8 @@ export function buildBackgroundTasksSummaryRows(
     const secondary = buildBalancedTextRow(
       contentWidth,
       s.evalCount > 0
-        ? "Local agents above \u00B7 evals below"
-        : summarizeLocalAgentFleet(s.localAgents) || "Background tasks",
+        ? "Agents above \u00B7 tasks below"
+        : summarizeLocalAgentFleet(s.localAgents) || "Tasks",
       s.totalReal > 0 ? `${selectedIndex + 1}/${s.totalReal}` : "empty",
     );
     return [
@@ -265,7 +265,7 @@ function buildUnifiedItems(
     items.push({
       id: "__section_local_agents__",
       kind: "section",
-      label: `Local agents (${localAgents.length})`,
+      label: `Agents (${localAgents.length})`,
       status: "",
       statusText: "",
       icon: "",
@@ -523,13 +523,13 @@ export function BackgroundTasksOverlay({
     (managedTask != null && isTaskActive(managedTask));
   const canDismiss = managedTask != null && !canInterrupt;
   const listHints = canInterrupt
-    ? "\u2191/\u2193 select  Enter/Space view  x stop  Esc close"
+    ? "\u2191/\u2193 select  Enter view  x stop  Esc"
     : canDismiss
-    ? "\u2191/\u2193 select  Enter/Space view  x dismiss  Esc close"
-    : "\u2191/\u2193 select  Enter/Space view  Esc close";
+    ? "\u2191/\u2193 select  Enter view  x dismiss  Esc"
+    : "\u2191/\u2193 select  Enter view  Esc";
   const detailHints = canInterrupt
-    ? "\u2191/\u2193 scroll  x stop  Enter/Space/Esc close"
-    : "\u2191/\u2193 scroll  Enter/Space/Esc close";
+    ? "\u2191/\u2193 scroll  x stop  Enter/Esc"
+    : "\u2191/\u2193 scroll  Enter/Esc";
   const footerText = truncate(
     viewMode === "list" ? listHints : detailHints,
     contentWidth,
@@ -645,7 +645,7 @@ export function BackgroundTasksOverlay({
   return (
     <OverlayModal
       title="Background tasks"
-      rightText={viewMode === "list" ? "esc close" : "esc back"}
+      rightText={viewMode === "list" ? "esc" : "esc back"}
       width={overlayFrame.width}
       minHeight={overlayFrame.height}
     >
@@ -663,7 +663,7 @@ export function BackgroundTasksOverlay({
           <Box paddingLeft={PADDING.left} marginTop={1} flexDirection="column">
             {visibleItems.length === 0
               ? (
-                <Text color={sc.text.muted}>No background tasks</Text>
+                <Text color={sc.text.muted}>No tasks</Text>
               )
               : visibleItems.map((item: UnifiedTaskItem) => {
                 if (item.kind === "section") {

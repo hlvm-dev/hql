@@ -226,6 +226,10 @@ export function getDebugLogPath(): string {
   return join(getHlvmDir(), "debug.log");
 }
 
+export function getAIEngineLogPath(): string {
+  return join(getHlvmDir(), "logs", "ai-engine.log");
+}
+
 /**
  * End-to-end JSONL trace for REPL main-thread agent turns (~/.hlvm/repl-main-thread-trace.jsonl)
  */

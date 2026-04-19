@@ -5,6 +5,7 @@
 import { parse as parseToml } from "@std/toml";
 import { getPlatform } from "../../../platform/platform.ts";
 import { atomicWriteTextFile } from "../../../common/atomic-file.ts";
+import { ValidationError } from "../../../common/error.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getAgentLogger } from "../logger.ts";
 import {
@@ -422,8 +423,8 @@ async function loadGeminiMcpServers(): Promise<McpServerConfig[]> {
 /**
  * Zed settings use either a flat custom-server shape (`command`, `args`, `env`)
  * or a nested command object (`command.{path,args,env}`).
- * We reshape each entry into the Claude Code style before parsing so the
- * existing validator/OAuth handling applies uniformly.
+ * We reshape each entry into the common server map before parsing so the
+ * shared validator/OAuth handling applies uniformly.
  */
 async function loadZedMcpServers(): Promise<McpServerConfig[]> {
   const platform = getPlatform();
@@ -499,7 +500,7 @@ async function loadZedMcpServers(): Promise<McpServerConfig[]> {
 
 /**
  * Codex CLI stores MCP servers in TOML under `[mcp_servers.<name>]`.
- * Normalize into the Claude Code-compatible shape and reuse parsing.
+ * Reshape into the common JSON server map and reuse the shared parser.
  */
 async function loadCodexMcpServers(): Promise<McpServerConfig[]> {
   const platform = getPlatform();
@@ -546,20 +547,40 @@ function parseClaudeCodeOAuthConfig(
     ? value.authServerMetadataUrl
     : undefined;
   const xaa = typeof value.xaa === "boolean" ? value.xaa : undefined;
-  if (
-    clientId === undefined &&
-    callbackPort === undefined &&
-    authServerMetadataUrl === undefined &&
-    xaa === undefined
-  ) {
-    return undefined;
-  }
-  return {
-    ...(clientId ? { clientId } : {}),
-    ...(callbackPort ? { callbackPort } : {}),
-    ...(authServerMetadataUrl ? { authServerMetadataUrl } : {}),
-    ...(xaa !== undefined ? { xaa } : {}),
+  return pickOAuthConfigFields({
+    clientId,
+    callbackPort,
+    authServerMetadataUrl,
+    xaa,
+  });
+}
+
+/**
+ * Pick the serializable OAuth config fields from any input that has them,
+ * dropping undefined values and returning undefined if all fields are unset.
+ * Shared by CLI handlers, config loaders, and runtime descriptors so the
+ * OAuth config shape is defined in exactly one place.
+ */
+export function pickOAuthConfigFields(
+  oauth:
+    | {
+      clientId?: string;
+      callbackPort?: number;
+      authServerMetadataUrl?: string;
+      xaa?: boolean;
+    }
+    | undefined,
+): McpServerConfig["oauth"] | undefined {
+  if (!oauth) return undefined;
+  const picked: NonNullable<McpServerConfig["oauth"]> = {
+    ...(oauth.clientId ? { clientId: oauth.clientId } : {}),
+    ...(oauth.callbackPort ? { callbackPort: oauth.callbackPort } : {}),
+    ...(oauth.authServerMetadataUrl
+      ? { authServerMetadataUrl: oauth.authServerMetadataUrl }
+      : {}),
+    ...(oauth.xaa !== undefined ? { xaa: oauth.xaa } : {}),
   };
+  return Object.keys(picked).length > 0 ? picked : undefined;
 }
 
 async function collectClaudeCodeMcpPaths(rootDir: string): Promise<string[]> {
@@ -669,14 +690,16 @@ export async function addServerToConfig(
   const existing = await loadMcpConfigFromPath(path);
   const servers = existing?.servers ?? [];
 
-  // Dedup by name (replace if exists)
+  validateServerName(server.name);
   const key = normalizeServerName(server.name);
-  const filtered = servers.filter(
-    (s) => normalizeServerName(s.name) !== key,
-  );
-  filtered.push(server);
+  if (servers.some((s) => normalizeServerName(s.name) === key)) {
+    throw new ValidationError(
+      `MCP server ${server.name} already exists in user config`,
+      "mcp",
+    );
+  }
 
-  await saveMcpConfig(path, { version: 1, servers: filtered });
+  await saveMcpConfig(path, { version: 1, servers: [...servers, server] });
 }
 
 export async function removeServerFromConfig(
@@ -701,7 +724,7 @@ export async function removeServerFromConfig(
 // ============================================================
 
 export function normalizeServerName(name: string): string {
-  return name.trim().toLowerCase();
+  return name.trim();
 }
 
 export function dedupeServers<T extends McpServerConfig>(servers: T[]): T[] {
@@ -830,11 +853,7 @@ const SCOPE_LABELS: Record<McpScope, string> = {
   "claude-code": "Claude Code",
 };
 
-/**
- * Full-sentence scope descriptions, used in `hlvm mcp get` output.
- * Style mirrors Claude Code's `get` output (e.g. "User config (available
- * in all your projects)").
- */
+/** Full-sentence scope descriptions, used in `hlvm mcp get` output. */
 const SCOPE_DESCRIPTIONS: Record<McpScope, string> = {
   "user": "User config (available in all your projects)",
   "cursor": "Cursor config (inherited from ~/.cursor/mcp.json)",
@@ -947,4 +966,13 @@ function isMcpOAuthConfig(
     return false;
   }
   return true;
+}
+
+function validateServerName(name: string): void {
+  if (name.match(/[^a-zA-Z0-9_-]/)) {
+    throw new ValidationError(
+      `Invalid name ${name}. Names can only contain letters, numbers, hyphens, and underscores.`,
+      "mcp",
+    );
+  }
 }

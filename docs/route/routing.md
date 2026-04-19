@@ -113,19 +113,30 @@ Six unit tests in
 - `src/hlvm/agent/query-tool-routing.ts` — REPL-main-thread baseline helpers.
 - `src/hlvm/agent/auto-select.ts` — `@auto` model selection (may use
   `classifyTask` when multiple eligible models remain).
-- `src/hlvm/agent/constants.ts` — `ModelTier` (`constrained` | `standard` |
-  `enhanced`), tier eager-tool sets, `computeTierToolFilter`.
+- `src/hlvm/agent/constants.ts` — `ModelCapabilityClass` (`chat` | `tool` |
+  `agent`), `TOOL_CLASS_STARTER_TOOLS` / `AGENT_CLASS_STARTER_TOOLS`,
+  `starterPolicy`, `REPL_MAIN_THREAD_EAGER_TOOLS` (REPL-only wide core).
 
-## 6. Tier model
+## 6. Capability-class model
 
 ```text
-enhanced     largest eager budget, tool_search discovery allowed
-standard     smaller eager budget, tool_search discovery allowed
-constrained  small fixed surface, no deferred discovery
+agent   lean ~18-tool starter + tool_search (autonomous loops, full prompt)
+tool    lean ~17-tool starter, NO tool_search (one-shot use, loop-narrowed)
+chat    no tool schema (direct chat only)
 ```
 
-Browser entry tools (`pw_*`, `ch_*`) are eager for standard/enhanced — browser
-tasks do **not** require semantic pre-routing.
+`classifyModelCapability(modelInfo, model)` decides this from capability
+data (`capabilities.includes("tools")`), provider prefix (cloud frontier
+→ agent), curated local allowlist (qwen3, llama3.1/2/3 ≥8B, deepseek,
+mistral, mixtral, command-r, yi ≥9B), and size gates (<3B → chat,
+<8K context → chat). Unknown models default to `tool` (safe).
+
+Browser entry tools (`pw_*`, `ch_*`) are **deferred** for agent mode —
+the model discovers them via `tool_search`. REPL main-thread keeps a
+wider eager core (`REPL_MAIN_THREAD_EAGER_TOOLS`) so REPL users can
+type tool names directly.
+
+See `docs/route/capability-classes.md` for full rationale and evidence.
 
 ## 7. Guardrails
 

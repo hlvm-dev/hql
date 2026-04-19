@@ -73,9 +73,13 @@ const STREAM_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const HEALTH_POLL_ATTEMPTS = 60;
 const AI_READY_POLL_ATTEMPTS = 600;
 const HEALTH_POLL_DELAY_MS = 100;
+const RUNTIME_CHAT_WARMUP_GRACE_MS = 20_000;
+const RUNTIME_CHAT_WARMUP_RETRY_DELAY_MS = 1_000;
 const RUNTIME_SHUTDOWN_POLL_ATTEMPTS = 30;
 const RUNTIME_START_LOCK_WAIT_ATTEMPTS = 120;
 const RUNTIME_START_LOCK_STALE_MS = 30_000;
+const STALE_PENDING_RUNTIME_HOST_MS = 90_000;
+const GENERIC_RUNTIME_AI_READY_REASON = "AI runtime is still initializing.";
 
 interface IncompatibleRuntimeHost {
   baseUrl: string;
@@ -237,6 +241,15 @@ interface HostBackedDirectChatOptions {
   callbacks: Pick<HostBackedChatCallbacks, "onToken">;
 }
 
+interface RuntimeHostErrorResponseDetails {
+  status: number;
+  message: string;
+  code: HLVMErrorCode;
+  retryable?: boolean;
+  aiReadyReason?: string;
+  retryAfterMs?: number;
+}
+
 function defaultChatStats(): ChatResultStats {
   return {
     messageCount: 0,
@@ -282,6 +295,12 @@ function getHostErrorCodeFromStatus(
     return HLVMErrorCode.REQUEST_FAILED;
   }
   return HLVMErrorCode.REQUEST_FAILED;
+}
+
+function parseRetryAfterMs(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number.parseInt(value.trim(), 10);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : undefined;
 }
 
 async function cancelResponseBody(response: Response): Promise<void> {
@@ -551,6 +570,7 @@ function spawnRuntimeHost(
     stdin: "null",
     stdout: "null",
     stderr: "null",
+    detached: true,
   });
   process.unref?.();
 }
@@ -594,6 +614,25 @@ function cacheAndReturn(baseUrl: string, authToken: string): {
   return { baseUrl, authToken };
 }
 
+function shouldReclaimStaleCompatibleRuntimeHost(
+  health: HostHealthResponse,
+): boolean {
+  if (health.aiReady) {
+    return false;
+  }
+  if ((health.activeRequests ?? 0) > 0) {
+    return false;
+  }
+  if (health.aiReadyRetryable === false) {
+    return false;
+  }
+  if ((health.uptimeMs ?? 0) < STALE_PENDING_RUNTIME_HOST_MS) {
+    return false;
+  }
+  return (health.aiReadyReason?.trim() || GENERIC_RUNTIME_AI_READY_REASON) ===
+    GENERIC_RUNTIME_AI_READY_REASON;
+}
+
 async function ensureRuntimeHost(): Promise<{
   baseUrl: string;
   authToken: string;
@@ -613,6 +652,14 @@ async function ensureRuntimeHost(): Promise<{
     );
     if (!attached?.authToken) {
       return null;
+    }
+    if (shouldReclaimStaleCompatibleRuntimeHost(attached)) {
+      const attachedPort = Number(new URL(url).port || basePort);
+      const attachedPid = await findListeningPidForPort(attachedPort);
+      if (attachedPid && await terminateProcess(attachedPid)) {
+        await delay(HEALTH_POLL_DELAY_MS);
+        return null;
+      }
     }
     scheduleStaleFallbackHostSweep(basePort, identity);
     return cacheAndReturn(url, attached.authToken);
@@ -671,6 +718,13 @@ async function ensureRuntimeHost(): Promise<{
         candidateHealth.status === "ok" && candidateHealth.authToken &&
         matchesRuntimeHostIdentity(candidateHealth, identity)
       ) {
+        if (shouldReclaimStaleCompatibleRuntimeHost(candidateHealth)) {
+          const candidatePid = await findListeningPidForPort(candidatePort);
+          if (candidatePid && await terminateProcess(candidatePid)) {
+            await delay(HEALTH_POLL_DELAY_MS);
+            continue;
+          }
+        }
         scheduleStaleFallbackHostSweep(basePort, identity);
         return cacheAndReturn(candidateUrl, candidateHealth.authToken);
       }
@@ -702,6 +756,13 @@ async function ensureRuntimeHost(): Promise<{
     attached?.status === "ok" && attached.authToken &&
     matchesRuntimeHostIdentity(attached, identity)
   ) {
+    if (shouldReclaimStaleCompatibleRuntimeHost(attached)) {
+      const attachedPid = await findListeningPidForPort(basePort);
+      if (attachedPid && await terminateProcess(attachedPid)) {
+        await delay(HEALTH_POLL_DELAY_MS);
+        return await ensureRuntimeHost();
+      }
+    }
     scheduleStaleFallbackHostSweep(basePort, identity);
     return cacheAndReturn(baseUrl, attached.authToken);
   }
@@ -867,6 +928,13 @@ export async function ensureRuntimeHostAvailable(): Promise<void> {
   await ensureRuntimeHost();
 }
 
+export async function getRuntimeHostHealth(): Promise<
+  HostHealthResponse | null
+> {
+  const runtime = await ensureRuntimeHost();
+  return await readHealth(runtime.baseUrl);
+}
+
 function toAgentUiEvent(event: ChatStreamEvent): AgentUIEvent | null {
   switch (event.event) {
     case "thinking":
@@ -1021,19 +1089,45 @@ async function respondToInteraction(
   await result.text();
 }
 
-async function parseErrorResponse(response: Response): Promise<never> {
+function throwRuntimeHostError(
+  details: RuntimeHostErrorResponseDetails,
+): never {
+  const parsedCode = parseErrorCodeFromMessage(details.message);
+  throw createRuntimeHostError(
+    details.message,
+    undefined,
+    parsedCode ?? details.code,
+  );
+}
+
+async function readErrorResponse(
+  response: Response,
+): Promise<RuntimeHostErrorResponseDetails> {
   let message = `Runtime host request failed with HTTP ${response.status}`;
+  let retryable: boolean | undefined;
+  let aiReadyReason: string | undefined;
   try {
     const body = (await response.text()).trim();
     if (body.length > 0) {
       try {
-        const json = JSON.parse(body) as { error?: unknown; message?: unknown };
+        const json = JSON.parse(body) as {
+          error?: unknown;
+          message?: unknown;
+          retryable?: unknown;
+          aiReadyReason?: unknown;
+        };
         if (typeof json.error === "string") {
           message = json.error;
         } else if (typeof json.message === "string") {
           message = json.message;
         } else {
           message = body;
+        }
+        if (typeof json.retryable === "boolean") {
+          retryable = json.retryable;
+        }
+        if (typeof json.aiReadyReason === "string") {
+          aiReadyReason = json.aiReadyReason;
         }
       } catch {
         message = body;
@@ -1042,12 +1136,29 @@ async function parseErrorResponse(response: Response): Promise<never> {
   } catch {
     // Ignore unreadable bodies; use the default message.
   }
-  const parsedCode = parseErrorCodeFromMessage(message);
-  throw createRuntimeHostError(
+  return {
+    status: response.status,
     message,
-    undefined,
-    parsedCode ?? getHostErrorCodeFromStatus(response.status, message),
-  );
+    code: getHostErrorCodeFromStatus(response.status, message),
+    retryable,
+    aiReadyReason,
+    retryAfterMs: parseRetryAfterMs(response.headers.get("Retry-After")),
+  };
+}
+
+function isRetryableRuntimeWarmupResponse(
+  details: RuntimeHostErrorResponseDetails,
+): boolean {
+  if (details.status !== 503 || details.retryable === false) {
+    return false;
+  }
+  const reason = (details.aiReadyReason ?? details.message).trim();
+  return reason === GENERIC_RUNTIME_AI_READY_REASON ||
+    reason === `${GENERIC_RUNTIME_AI_READY_REASON} Please retry shortly.`;
+}
+
+async function parseErrorResponse(response: Response): Promise<never> {
+  throwRuntimeHostError(await readErrorResponse(response));
 }
 
 async function fetchRuntimeJson<T>(
@@ -1181,10 +1292,7 @@ export async function getRuntimeProviderStatus(
 ): Promise<ProviderStatus> {
   const response = await fetchRuntimeJson<
     { providers?: Record<string, ProviderStatus> }
-  >(
-    "/api/models/status",
-    { requireAiReady: true },
-  );
+  >("/api/models/status");
 
   if (!providerName) {
     return response.providers?.ollama ?? { available: false };
@@ -1201,7 +1309,6 @@ export async function listRuntimeInstalledModels(
 ): Promise<ModelInfo[]> {
   const response = await fetchRuntimeJson<{ models: ModelInfo[] }>(
     `/api/models/installed?provider=${encodeURIComponent(provider)}`,
-    { requireAiReady: true },
   );
   return response.models;
 }
@@ -1212,7 +1319,6 @@ export async function getRuntimeModelDiscovery(
   const query = options.refresh ? "?refresh=true" : "";
   return await fetchRuntimeJson<RuntimeModelDiscoveryResponse>(
     `/api/models/discovery${query}`,
-    { requireAiReady: true },
   );
 }
 
@@ -1465,9 +1571,7 @@ async function runChatViaHostAttempt(
     queryPreview: buildTraceTextPreview(options.messages.at(-1)?.content),
   });
   const runtimeReadyStartedAt = Date.now();
-  const { baseUrl, authToken } = options.fixturePath
-    ? await ensureRuntimeHost()
-    : await ensureRuntimeAiReady();
+  const { baseUrl, authToken } = await ensureRuntimeHost();
   traceReplMainThreadForSource(
     options.querySource,
     "client.runtime_ready.done",
@@ -1507,42 +1611,70 @@ async function runChatViaHostAttempt(
   const requestBody = JSON.stringify(request);
   let response: Response;
   const fetchStartedAt = Date.now();
+  const warmupRetryDeadline = runStartedAt + RUNTIME_CHAT_WARMUP_GRACE_MS;
   traceReplMainThreadForSource(options.querySource, "client.fetch.start", {
     requestId,
     attempt,
     bodyBytes: requestBody.length,
     traceEnabled: !!callbacks.onTrace,
   });
-  try {
-    response = await http.fetchRaw(`${baseUrl}/api/chat`, {
-      method: "POST",
-      timeout: STREAM_TIMEOUT_MS,
-      signal: options.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Request-ID": requestId,
-        ...authHeaders(authToken),
-      },
-      body: requestBody,
-    });
-  } catch (error) {
-    traceReplMainThreadForSource(options.querySource, "client.fetch.error", {
-      requestId,
-      attempt,
-      durationMs: Date.now() - fetchStartedAt,
-      error: getErrorMessage(error),
-    });
-    const shouldRetry = options.permissionMode === "plan" &&
-      attempt < PLAN_MODE_STREAM_RETRY_LIMIT &&
-      isRetryableHostChatStreamError(error);
-    if (shouldRetry) {
-      return await runChatViaHostAttempt(options, attempt + 1);
+  while (true) {
+    try {
+      response = await http.fetchRaw(`${baseUrl}/api/chat`, {
+        method: "POST",
+        timeout: STREAM_TIMEOUT_MS,
+        signal: options.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-ID": requestId,
+          ...authHeaders(authToken),
+        },
+        body: requestBody,
+      });
+    } catch (error) {
+      traceReplMainThreadForSource(options.querySource, "client.fetch.error", {
+        requestId,
+        attempt,
+        durationMs: Date.now() - fetchStartedAt,
+        error: getErrorMessage(error),
+      });
+      const shouldRetry = options.permissionMode === "plan" &&
+        attempt < PLAN_MODE_STREAM_RETRY_LIMIT &&
+        isRetryableHostChatStreamError(error);
+      if (shouldRetry) {
+        return await runChatViaHostAttempt(options, attempt + 1);
+      }
+      rethrowAsRuntimeHostError(error);
     }
-    rethrowAsRuntimeHostError(error);
-  }
 
-  if (!response.ok) {
-    await parseErrorResponse(response);
+    if (response.ok) {
+      break;
+    }
+
+    const errorDetails = await readErrorResponse(response);
+    if (
+      isRetryableRuntimeWarmupResponse(errorDetails) &&
+      Date.now() < warmupRetryDeadline &&
+      !options.signal?.aborted
+    ) {
+      traceReplMainThreadForSource(
+        options.querySource,
+        "client.fetch.runtime_warmup_retry",
+        {
+          requestId,
+          attempt,
+          durationMs: Date.now() - runStartedAt,
+          retryAfterMs: errorDetails.retryAfterMs ??
+            RUNTIME_CHAT_WARMUP_RETRY_DELAY_MS,
+        },
+      );
+      await delay(
+        errorDetails.retryAfterMs ?? RUNTIME_CHAT_WARMUP_RETRY_DELAY_MS,
+      );
+      continue;
+    }
+
+    throwRuntimeHostError(errorDetails);
   }
 
   const responseRequestId = response.headers.get("X-Request-ID");

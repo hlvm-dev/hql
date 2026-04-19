@@ -389,7 +389,7 @@ const agentToolFn: ToolFunction = async (
   const agentId = generateAgentId();
   const baseInheritedConfig: InheritedAgentConfig = {
     contextBudget: options?.contextBudget,
-    modelTier: options?.modelTier,
+    modelCapability: options?.modelCapability,
     onTrace: options?.onTrace,
     llmTimeout: options?.llmTimeout,
     toolTimeout: options?.toolTimeout,

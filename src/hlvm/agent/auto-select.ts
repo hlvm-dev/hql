@@ -8,7 +8,11 @@
  * All scoring is pure (no side effects). Only `resolveAutoModel()` performs I/O.
  */
 
-import { classifyModelTier } from "./constants.ts";
+import {
+  classifyModelCapability,
+  isFrontierProvider,
+  parseParamBillions,
+} from "./constants.ts";
 import {
   type LastResortFallback,
   withFallbackChain,
@@ -288,12 +292,27 @@ export function modelInfoToModelCaps(
   const isLocal = provider === "ollama" && !info.metadata?.cloud;
   const overrides = lookupOverrides(info.name);
 
-  const tier = classifyModelTier(info, `${provider}/${info.name}`);
-  const defaultCodingStrength: CodingStrength = tier === "enhanced"
-    ? "strong"
-    : tier === "constrained"
-    ? "weak"
-    : "mid";
+  const providerQualifiedId = `${provider}/${info.name}`;
+  const capability = classifyModelCapability(info, providerQualifiedId);
+  // codingStrength mapping preserves the pre-refactor vocabulary:
+  //   - agent + cloud frontier           → "strong"
+  //   - agent + local ≥ 30B              → "strong"
+  //   - agent + smaller local            → "mid"
+  //   - tool                              → "mid"
+  //   - chat                              → "weak"
+  const billions = parseParamBillions(info.parameterSize);
+  let defaultCodingStrength: CodingStrength;
+  if (capability === "chat") {
+    defaultCodingStrength = "weak";
+  } else if (capability === "tool") {
+    defaultCodingStrength = "mid";
+  } else if (isFrontierProvider(providerQualifiedId)) {
+    defaultCodingStrength = "strong";
+  } else if (billions !== undefined && billions >= 30) {
+    defaultCodingStrength = "strong";
+  } else {
+    defaultCodingStrength = "mid";
+  }
 
   const costTierFromInfo: CostTier | undefined = info.costTier as
     | CostTier

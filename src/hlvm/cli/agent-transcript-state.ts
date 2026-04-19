@@ -55,6 +55,7 @@ export interface TranscriptState {
   activeTool?: {
     name: string;
     displayName: string;
+    argsSummary: string;
     progressText?: string;
     progressTone?: "running" | "success" | "warning";
     toolIndex: number;
@@ -449,6 +450,7 @@ function buildActiveToolDisplay(
     ToolCallDisplay,
     | "name"
     | "displayName"
+    | "argsSummary"
     | "progressText"
     | "progressTone"
     | "toolIndex"
@@ -459,6 +461,7 @@ function buildActiveToolDisplay(
     name: tool.name,
     displayName: tool.displayName ??
       resolveToolTranscriptDisplayName(tool.name),
+    argsSummary: tool.argsSummary,
     progressText: tool.progressText,
     progressTone: tool.progressTone,
     toolIndex: tool.toolIndex,

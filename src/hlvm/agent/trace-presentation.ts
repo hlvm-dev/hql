@@ -74,7 +74,7 @@ export function presentTraceEvent(
           1,
           withParts(
             `Prompt compiled`,
-            `${event.mode}/${event.tier}`,
+            `${event.mode}/${event.capability}`,
             `${event.sections.length} sections`,
             `${event.cacheSegments.length} cache segments`,
           ),

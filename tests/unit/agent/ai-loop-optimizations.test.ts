@@ -131,7 +131,7 @@ Deno.test({
           allowlist: ["read_file", "edit_file", "write_file", "search_web"],
         },
       }),
-      modelTier: "constrained" as const,
+      modelCapability: "tool" as const,
     };
 
     try {

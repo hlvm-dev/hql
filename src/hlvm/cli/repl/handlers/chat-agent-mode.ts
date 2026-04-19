@@ -7,7 +7,11 @@ import {
   ensureAgentReady,
   runAgentQuery,
 } from "../../../agent/agent-runner.ts";
-import { DEFAULT_TOOL_DENYLIST } from "../../../agent/constants.ts";
+import {
+  DEFAULT_TOOL_DENYLIST,
+  extractModelSuffix,
+  isFrontierProvider,
+} from "../../../agent/constants.ts";
 import {
   isMainThreadQuerySource,
   resolveQueryToolAllowlist,
@@ -35,6 +39,7 @@ import { getPlatform } from "../../../../platform/platform.ts";
 import { RuntimeError, ValidationError } from "../../../../common/error.ts";
 import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../../../common/ai-messages.ts";
 import { getPermissionMode } from "../../../../common/config/selectors.ts";
+import { combineSignals } from "../../../../common/timeout-utils.ts";
 import {
   buildClaudeCodeCommand,
   captureSessionIdFromInitEvent,
@@ -60,11 +65,35 @@ import {
   getConversationMaterializationOptionsForModel,
 } from "../../attachment-policy.ts";
 import type { ChatResultStats } from "../../../runtime/chat-protocol.ts";
+import { isOllamaCloudModel } from "../../../providers/ollama/cloud.ts";
 import {
   buildTraceTextPreview,
   summarizeTraceEvent,
   traceReplMainThreadForSource,
 } from "../../../repl-main-thread-trace.ts";
+
+const LOCAL_AGENT_FIRST_PROGRESS_TIMEOUT_MS = 15_000;
+
+function isLocalAgentStallFallbackModel(model: string): boolean {
+  if (isFrontierProvider(model)) return false;
+  return !isOllamaCloudModel(extractModelSuffix(model));
+}
+
+function isMeaningfulAgentProgressEvent(event: { type: string }): boolean {
+  return event.type !== "thinking";
+}
+
+function buildDirectChatFallbackStats(
+  messageCount: number,
+  finalText: string,
+  toolMessages: number,
+): ChatResultStats {
+  return {
+    messageCount,
+    estimatedTokens: Math.max(0, Math.ceil(finalText.length / 4)),
+    toolMessages,
+  };
+}
 
 export async function handleAgentMode(
   body: ChatRequest,
@@ -204,6 +233,19 @@ export async function handleAgentMode(
       pendingBackgroundNotifications.length === 0
     ? undefined
     : historyWithNotifications;
+  const publishFinalText = async (finalText: string): Promise<void> => {
+    updateMessage(assistantMessageId, { content: finalText });
+    const updatedAssistant = getMessage(assistantMessageId);
+    pushSSEEvent(sessionId, "message_updated", {
+      message: updatedAssistant
+        ? await toRuntimeSessionMessage(updatedAssistant)
+        : {
+          id: assistantMessageId,
+          content: finalText,
+        },
+    });
+    pushConversationUpdatedEvent(sessionId);
+  };
 
   let streamedFinalText = false;
   let successfulToolCalls = 0;
@@ -220,7 +262,38 @@ export async function handleAgentMode(
     toolDenylistCount: effectiveToolDenylist.length,
   });
 
-  let result: Awaited<ReturnType<typeof runAgentQuery>>;
+  const structuredResponseRequested = !!body.response_schema;
+  const localAgentStallFallbackEnabled = !fixturePath &&
+    !structuredResponseRequested &&
+    body.computer_use !== true &&
+    isLocalAgentStallFallbackModel(resolvedModel);
+  const localAgentController = localAgentStallFallbackEnabled
+    ? new AbortController()
+    : null;
+  const agentSignal = localAgentController
+    ? combineSignals(signal, localAgentController.signal)
+    : signal;
+  let sawMeaningfulAgentProgress = !localAgentStallFallbackEnabled;
+  let localAgentStallTriggered = false;
+  let localAgentStallTimer: ReturnType<typeof setTimeout> | undefined;
+  const markMeaningfulAgentProgress = (): void => {
+    if (sawMeaningfulAgentProgress) return;
+    sawMeaningfulAgentProgress = true;
+    if (localAgentStallTimer !== undefined) {
+      clearTimeout(localAgentStallTimer);
+      localAgentStallTimer = undefined;
+    }
+  };
+  if (localAgentStallFallbackEnabled) {
+    localAgentStallTimer = setTimeout(() => {
+      if (sawMeaningfulAgentProgress || signal.aborted) return;
+      localAgentStallTriggered = true;
+      localAgentController?.abort("Local agent stalled before first response.");
+    }, LOCAL_AGENT_FIRST_PROGRESS_TIMEOUT_MS);
+  }
+
+  let result: Awaited<ReturnType<typeof runAgentQuery>> | null = null;
+  let earlyDirectChatFallbackText: string | null = null;
   try {
     result = await runAgentQuery({
       query,
@@ -231,7 +304,7 @@ export async function handleAgentMode(
       transcriptPersistenceMode: "caller",
       permissionMode,
       noInput: false,
-      signal,
+      signal: agentSignal,
       temperature: body.temperature,
       toolAllowlist,
       toolDenylist: effectiveToolDenylist,
@@ -252,249 +325,254 @@ export async function handleAgentMode(
       retainSessionForReuse: hotSessionReusableTurn,
       callbacks: {
         onToken: (text: string) => {
+          markMeaningfulAgentProgress();
           streamedFinalText = true;
           onPartial(text);
           emit({ event: "token", text });
         },
         onInteraction: async (event) => {
+          markMeaningfulAgentProgress();
           return await awaitInteractionResponse(event, signal, emit);
         },
         onAgentEvent: (event) => {
-        switch (event.type) {
-          case "tool_start":
-            traceReplMainThreadForSource(body.query_source, "server.agent.tool_start", {
-              requestId,
-              sessionId,
-              name: event.name,
-              toolCallId: event.toolCallId,
-              toolIndex: event.toolIndex,
-              toolTotal: event.toolTotal,
-              argsSummary: event.argsSummary,
-            });
-            break;
-          case "agent_spawn":
-            traceReplMainThreadForSource(body.query_source, "server.agent.spawn", {
-              requestId,
-              sessionId,
-              agentId: event.agentId,
-              agentType: event.agentType,
-              description: event.description,
-              isAsync: event.isAsync,
-            });
-            break;
-          case "agent_progress":
-            traceReplMainThreadForSource(body.query_source, "server.agent.progress", {
-              requestId,
-              sessionId,
-              agentId: event.agentId,
-              agentType: event.agentType,
-              toolUseCount: event.toolUseCount,
-              durationMs: event.durationMs,
-              tokenCount: event.tokenCount,
-              lastToolInfo: event.lastToolInfo,
-            });
-            break;
-          case "agent_complete":
-            traceReplMainThreadForSource(body.query_source, "server.agent.complete", {
-              requestId,
-              sessionId,
-              agentId: event.agentId,
-              agentType: event.agentType,
-              success: event.success,
-              durationMs: event.durationMs,
-              toolUseCount: event.toolUseCount,
-            });
-            break;
-          case "tool_end":
-            traceReplMainThreadForSource(body.query_source, "server.agent.tool_end", {
-              requestId,
-              sessionId,
-              name: event.name,
-              toolCallId: event.toolCallId,
-              success: event.success,
-              durationMs: event.durationMs,
-              summary: event.summary,
-            });
-            break;
-          case "turn_stats":
-            traceReplMainThreadForSource(body.query_source, "server.agent.turn_stats", {
-              requestId,
-              sessionId,
-              iteration: event.iteration,
-              toolCount: event.toolCount,
-              durationMs: event.durationMs,
-              inputTokens: event.inputTokens,
-              outputTokens: event.outputTokens,
-              modelId: event.modelId,
-              continuedThisTurn: event.continuedThisTurn,
-              continuationCount: event.continuationCount,
-              compactionReason: event.compactionReason,
-            });
-            break;
-        }
-        switch (event.type) {
-          case "thinking":
-            emit({ event: "thinking", iteration: event.iteration });
-            break;
-          case "tool_start":
-            emit({
-              event: "tool_start",
-              name: event.name,
-              tool_call_id: event.toolCallId,
-              args_summary: event.argsSummary,
-              tool_index: event.toolIndex,
-              tool_total: event.toolTotal,
-            });
-            break;
-          case "tool_progress":
-            emit({
-              event: "tool_progress",
-              name: event.name,
-              tool_call_id: event.toolCallId,
-              args_summary: event.argsSummary,
-              message: event.message,
-              tone: event.tone,
-              phase: event.phase,
-            });
-            break;
-          case "agent_spawn":
-            emit({
-              event: "agent_spawn",
-              agent_id: event.agentId,
-              agent_type: event.agentType,
-              description: event.description,
-              is_async: event.isAsync,
-            });
-            break;
-          case "agent_progress":
-            emit({
-              event: "agent_progress",
-              agent_id: event.agentId,
-              agent_type: event.agentType,
-              tool_use_count: event.toolUseCount,
-              duration_ms: event.durationMs,
-              token_count: event.tokenCount,
-              last_tool_info: event.lastToolInfo,
-            });
-            break;
-          case "agent_complete":
-            emit({
-              event: "agent_complete",
-              agent_id: event.agentId,
-              agent_type: event.agentType,
-              success: event.success,
-              cancelled: event.cancelled,
-              duration_ms: event.durationMs,
-              tool_use_count: event.toolUseCount,
-              total_tokens: event.totalTokens,
-              result_preview: event.resultPreview,
-              transcript: event.transcript,
-            });
-            break;
-          case "tool_end": {
-            if (event.success) {
-              successfulToolCalls += 1;
-            } else {
-              failedToolCalls += 1;
-            }
-            const toolMsg = insertMessage({
-              session_id: sessionId,
-              role: "tool",
-              content: event.content ?? "",
-              tool_name: event.name,
-              sender_type: "agent",
-              request_id: requestId,
-            });
-            pushSSEEvent(sessionId, "message_added", {
-              message: toolMsg,
-            });
-            pushConversationUpdatedEvent(sessionId);
-            emit({
-              event: "tool_end",
-              name: event.name,
-              tool_call_id: event.toolCallId,
-              success: event.success,
-              content: event.content,
-              summary: event.summary,
-              duration_ms: event.durationMs,
-              args_summary: event.argsSummary,
-              meta: event.meta,
-            });
-            break;
+          if (isMeaningfulAgentProgressEvent(event)) {
+            markMeaningfulAgentProgress();
           }
-          case "reasoning_update":
-            emit({
-              event: "reasoning_update",
-              iteration: event.iteration,
-              summary: event.summary,
-            });
-            break;
-          case "planning_update":
-            emit({
-              event: "planning_update",
-              iteration: event.iteration,
-              summary: event.summary,
-            });
-            break;
-          case "todo_updated":
-            emit({
-              event: "todo_updated",
-              todo_state: event.todoState,
-              source: event.source,
-            });
-            break;
-          case "plan_phase_changed":
-            emit({
-              event: "plan_phase_changed",
-              phase: event.phase,
-            });
-            break;
-          case "plan_created":
-            emit({
-              event: "plan_created",
-              plan: event.plan,
-            });
-            break;
-          case "plan_step":
-            emit({
-              event: "plan_step",
-              step_id: event.stepId,
-              index: event.index,
-              completed: event.completed,
-            });
-            break;
-          case "plan_review_required":
-            emit({
-              event: "plan_review_required",
-              plan: event.plan,
-            });
-            break;
-          case "plan_review_resolved":
-            emit({
-              event: "plan_review_resolved",
-              plan: event.plan,
-              approved: event.approved,
-              decision: event.decision,
-            });
-            break;
-          case "turn_stats":
-            emit({
-              event: "turn_stats",
-              iteration: event.iteration,
-              tool_count: event.toolCount,
-              duration_ms: event.durationMs,
-              input_tokens: event.inputTokens,
-              output_tokens: event.outputTokens,
-              model_id: event.modelId,
-              continued_this_turn: event.continuedThisTurn,
-              continuation_count: event.continuationCount,
-              compaction_reason: event.compactionReason,
-            });
-            break;
-          case "interaction_request":
-            break;
-        }
-      },
+          switch (event.type) {
+            case "tool_start":
+              traceReplMainThreadForSource(body.query_source, "server.agent.tool_start", {
+                requestId,
+                sessionId,
+                name: event.name,
+                toolCallId: event.toolCallId,
+                toolIndex: event.toolIndex,
+                toolTotal: event.toolTotal,
+                argsSummary: event.argsSummary,
+              });
+              break;
+            case "agent_spawn":
+              traceReplMainThreadForSource(body.query_source, "server.agent.spawn", {
+                requestId,
+                sessionId,
+                agentId: event.agentId,
+                agentType: event.agentType,
+                description: event.description,
+                isAsync: event.isAsync,
+              });
+              break;
+            case "agent_progress":
+              traceReplMainThreadForSource(body.query_source, "server.agent.progress", {
+                requestId,
+                sessionId,
+                agentId: event.agentId,
+                agentType: event.agentType,
+                toolUseCount: event.toolUseCount,
+                durationMs: event.durationMs,
+                tokenCount: event.tokenCount,
+                lastToolInfo: event.lastToolInfo,
+              });
+              break;
+            case "agent_complete":
+              traceReplMainThreadForSource(body.query_source, "server.agent.complete", {
+                requestId,
+                sessionId,
+                agentId: event.agentId,
+                agentType: event.agentType,
+                success: event.success,
+                durationMs: event.durationMs,
+                toolUseCount: event.toolUseCount,
+              });
+              break;
+            case "tool_end":
+              traceReplMainThreadForSource(body.query_source, "server.agent.tool_end", {
+                requestId,
+                sessionId,
+                name: event.name,
+                toolCallId: event.toolCallId,
+                success: event.success,
+                durationMs: event.durationMs,
+                summary: event.summary,
+              });
+              break;
+            case "turn_stats":
+              traceReplMainThreadForSource(body.query_source, "server.agent.turn_stats", {
+                requestId,
+                sessionId,
+                iteration: event.iteration,
+                toolCount: event.toolCount,
+                durationMs: event.durationMs,
+                inputTokens: event.inputTokens,
+                outputTokens: event.outputTokens,
+                modelId: event.modelId,
+                continuedThisTurn: event.continuedThisTurn,
+                continuationCount: event.continuationCount,
+                compactionReason: event.compactionReason,
+              });
+              break;
+          }
+          switch (event.type) {
+            case "thinking":
+              emit({ event: "thinking", iteration: event.iteration });
+              break;
+            case "tool_start":
+              emit({
+                event: "tool_start",
+                name: event.name,
+                tool_call_id: event.toolCallId,
+                args_summary: event.argsSummary,
+                tool_index: event.toolIndex,
+                tool_total: event.toolTotal,
+              });
+              break;
+            case "tool_progress":
+              emit({
+                event: "tool_progress",
+                name: event.name,
+                tool_call_id: event.toolCallId,
+                args_summary: event.argsSummary,
+                message: event.message,
+                tone: event.tone,
+                phase: event.phase,
+              });
+              break;
+            case "agent_spawn":
+              emit({
+                event: "agent_spawn",
+                agent_id: event.agentId,
+                agent_type: event.agentType,
+                description: event.description,
+                is_async: event.isAsync,
+              });
+              break;
+            case "agent_progress":
+              emit({
+                event: "agent_progress",
+                agent_id: event.agentId,
+                agent_type: event.agentType,
+                tool_use_count: event.toolUseCount,
+                duration_ms: event.durationMs,
+                token_count: event.tokenCount,
+                last_tool_info: event.lastToolInfo,
+              });
+              break;
+            case "agent_complete":
+              emit({
+                event: "agent_complete",
+                agent_id: event.agentId,
+                agent_type: event.agentType,
+                success: event.success,
+                cancelled: event.cancelled,
+                duration_ms: event.durationMs,
+                tool_use_count: event.toolUseCount,
+                total_tokens: event.totalTokens,
+                result_preview: event.resultPreview,
+                transcript: event.transcript,
+              });
+              break;
+            case "tool_end": {
+              if (event.success) {
+                successfulToolCalls += 1;
+              } else {
+                failedToolCalls += 1;
+              }
+              const toolMsg = insertMessage({
+                session_id: sessionId,
+                role: "tool",
+                content: event.content ?? "",
+                tool_name: event.name,
+                sender_type: "agent",
+                request_id: requestId,
+              });
+              pushSSEEvent(sessionId, "message_added", {
+                message: toolMsg,
+              });
+              pushConversationUpdatedEvent(sessionId);
+              emit({
+                event: "tool_end",
+                name: event.name,
+                tool_call_id: event.toolCallId,
+                success: event.success,
+                content: event.content,
+                summary: event.summary,
+                duration_ms: event.durationMs,
+                args_summary: event.argsSummary,
+                meta: event.meta,
+              });
+              break;
+            }
+            case "reasoning_update":
+              emit({
+                event: "reasoning_update",
+                iteration: event.iteration,
+                summary: event.summary,
+              });
+              break;
+            case "planning_update":
+              emit({
+                event: "planning_update",
+                iteration: event.iteration,
+                summary: event.summary,
+              });
+              break;
+            case "todo_updated":
+              emit({
+                event: "todo_updated",
+                todo_state: event.todoState,
+                source: event.source,
+              });
+              break;
+            case "plan_phase_changed":
+              emit({
+                event: "plan_phase_changed",
+                phase: event.phase,
+              });
+              break;
+            case "plan_created":
+              emit({
+                event: "plan_created",
+                plan: event.plan,
+              });
+              break;
+            case "plan_step":
+              emit({
+                event: "plan_step",
+                step_id: event.stepId,
+                index: event.index,
+                completed: event.completed,
+              });
+              break;
+            case "plan_review_required":
+              emit({
+                event: "plan_review_required",
+                plan: event.plan,
+              });
+              break;
+            case "plan_review_resolved":
+              emit({
+                event: "plan_review_resolved",
+                plan: event.plan,
+                approved: event.approved,
+                decision: event.decision,
+              });
+              break;
+            case "turn_stats":
+              emit({
+                event: "turn_stats",
+                iteration: event.iteration,
+                tool_count: event.toolCount,
+                duration_ms: event.durationMs,
+                input_tokens: event.inputTokens,
+                output_tokens: event.outputTokens,
+                model_id: event.modelId,
+                continued_this_turn: event.continuedThisTurn,
+                continuation_count: event.continuationCount,
+                compaction_reason: event.compactionReason,
+              });
+              break;
+            case "interaction_request":
+              break;
+          }
+        },
         onTrace: body.trace
           ? (trace) => {
             traceReplMainThreadForSource(body.query_source, "server.agent.trace", {
@@ -505,39 +583,127 @@ export async function handleAgentMode(
             emit({ event: "trace", trace });
           }
           : undefined,
-        onFinalResponseMeta: (meta) =>
-          emit({ event: "final_response_meta", meta }),
+        onFinalResponseMeta: (meta) => {
+          markMeaningfulAgentProgress();
+          emit({ event: "final_response_meta", meta });
+        },
       },
     });
   } catch (error) {
     if (hotSessionReusableTurn) {
       invalidateReplLiveAgentSession(sessionId);
     }
-    traceReplMainThreadForSource(body.query_source, "server.agent.handle.error", {
+    if (localAgentStallFallbackEnabled && localAgentStallTriggered && !signal.aborted) {
+      traceReplMainThreadForSource(
+        body.query_source,
+        "server.agent.local_stall_fallback.start",
+        {
+          requestId,
+          sessionId,
+          durationMs: Date.now() - handlerStartedAt,
+          model: resolvedModel,
+        },
+      );
+      emit({
+        event: "warning",
+        message: "Local agent stalled. Falling back to direct chat.",
+      });
+      try {
+        earlyDirectChatFallbackText = await streamDirectChatFallback(
+          body.messages,
+          sessionId,
+          assistantMessageId,
+          resolvedModel,
+          body,
+          signal,
+          emit,
+          onPartial,
+          modelInfo,
+        );
+      } catch (fallbackError) {
+        traceReplMainThreadForSource(body.query_source, "server.agent.handle.error", {
+          requestId,
+          sessionId,
+          durationMs: Date.now() - handlerStartedAt,
+          error: fallbackError instanceof Error
+            ? fallbackError.message
+            : String(fallbackError),
+          directChatFallback: true,
+        });
+        throw fallbackError;
+      }
+      streamedFinalText = earlyDirectChatFallbackText.trim().length > 0;
+      traceReplMainThreadForSource(
+        body.query_source,
+        "server.agent.local_stall_fallback.done",
+        {
+          requestId,
+          sessionId,
+          durationMs: Date.now() - handlerStartedAt,
+          textChars: earlyDirectChatFallbackText.length,
+        },
+      );
+    } else {
+      traceReplMainThreadForSource(body.query_source, "server.agent.handle.error", {
+        requestId,
+        sessionId,
+        durationMs: Date.now() - handlerStartedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  } finally {
+    if (localAgentStallTimer !== undefined) {
+      clearTimeout(localAgentStallTimer);
+    }
+  }
+
+  if (earlyDirectChatFallbackText !== null) {
+    traceReplMainThreadForSource(body.query_source, "server.agent.handle.done", {
       requestId,
       sessionId,
       durationMs: Date.now() - handlerStartedAt,
-      error: error instanceof Error ? error.message : String(error),
+      directChatFallback: true,
+      textChars: earlyDirectChatFallbackText.length,
     });
-    throw error;
+  } else if (result) {
+    traceReplMainThreadForSource(body.query_source, "server.agent.handle.done", {
+      requestId,
+      sessionId,
+      durationMs: Date.now() - handlerStartedAt,
+      textChars: result.text.length,
+      successfulToolCalls,
+      failedToolCalls,
+    });
   }
-  traceReplMainThreadForSource(body.query_source, "server.agent.handle.done", {
-    requestId,
-    sessionId,
-    durationMs: Date.now() - handlerStartedAt,
-    textChars: result.text.length,
-    successfulToolCalls,
-    failedToolCalls,
-  });
 
   if (!signal.aborted) {
-    let finalText = result.text;
+    if (earlyDirectChatFallbackText !== null) {
+      let finalText = earlyDirectChatFallbackText;
+      if (finalText.trim().length === 0) {
+        finalText = AI_NO_OUTPUT_FALLBACK_TEXT;
+        streamedFinalText = false;
+      }
+      if (!streamedFinalText) {
+        onPartial(finalText);
+        emit({ event: "token", text: finalText });
+      }
+      await publishFinalText(finalText);
+      const fallbackStats = buildDirectChatFallbackStats(
+        body.messages.length + 1,
+        finalText,
+        successfulToolCalls + failedToolCalls,
+      );
+      emit({ event: "result_stats", stats: fallbackStats });
+      return fallbackStats;
+    }
+
+    let finalText = result!.text;
     let usedDirectChatFallback = false;
-    const structuredResponseRequested = !!body.response_schema;
     const shouldFallbackToDirectChat = !structuredResponseRequested &&
       (
-        result.finalResponseState.suppressFinalResponse ||
-        result.finalResponseState.orchestratorFailureCode !== null ||
+        result!.finalResponseState.suppressFinalResponse ||
+        result!.finalResponseState.orchestratorFailureCode !== null ||
         (failedToolCalls > 0 && successfulToolCalls === 0 && !finalText.trim())
       );
     if (shouldFallbackToDirectChat) {
@@ -573,36 +739,26 @@ export async function handleAgentMode(
       streamedFinalText = false;
     }
 
-    if (result.structuredResult !== undefined) {
+    if (result!.structuredResult !== undefined) {
       emit({
         event: "structured_result",
-        result: result.structuredResult,
+        result: result!.structuredResult,
       });
     } else if (!streamedFinalText) {
       onPartial(finalText);
       emit({ event: "token", text: finalText });
     }
 
-    updateMessage(assistantMessageId, { content: finalText });
-    const updatedAssistant = getMessage(assistantMessageId);
-    pushSSEEvent(sessionId, "message_updated", {
-      message: updatedAssistant
-        ? await toRuntimeSessionMessage(updatedAssistant)
-        : {
-          id: assistantMessageId,
-          content: finalText,
-        },
-    });
-    pushConversationUpdatedEvent(sessionId);
+    await publishFinalText(finalText);
     if (hotSessionReusableTurn && usedDirectChatFallback) {
       invalidateReplLiveAgentSession(sessionId);
-      if (historyStrategy !== "live_session" && result.liveSession) {
-        await result.liveSession.dispose().catch(() => {});
+      if (historyStrategy !== "live_session" && result!.liveSession) {
+        await result!.liveSession.dispose().catch(() => {});
       }
-    } else if (hotSessionReusableTurn && result.liveSession) {
+    } else if (hotSessionReusableTurn && result!.liveSession) {
       const updatedSession = getSession(sessionId);
       setReplLiveAgentSession(sessionId, {
-        session: result.liveSession,
+        session: result!.liveSession,
         lastSessionVersion: updatedSession?.session_version ?? preTurnSessionVersion,
         model: resolvedModel,
         querySource: body.query_source,
@@ -615,8 +771,8 @@ export async function handleAgentMode(
     invalidateReplLiveAgentSession(sessionId);
   }
 
-  emit({ event: "result_stats", stats: result.stats });
-  return result.stats;
+  emit({ event: "result_stats", stats: result!.stats });
+  return result!.stats;
 }
 
 /** Claude Code Agent Mode — delegates the entire agentic loop to Claude Code CLI. */

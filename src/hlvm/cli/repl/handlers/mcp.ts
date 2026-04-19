@@ -5,14 +5,20 @@ import {
   formatServerEntry,
   getScopeDescription,
   isMcpServerConfig,
+  loadMcpConfig,
   loadMcpConfigMultiScope,
   normalizeServerName,
+  pickOAuthConfigFields,
   removeServerFromConfig,
 } from "../../../agent/mcp/config.ts";
 import {
+  clearMcpClientConfig,
+  getMcpClientConfig,
   loginMcpHttpServer,
   logoutMcpHttpServer,
+  saveMcpClientSecret,
 } from "../../../agent/mcp/oauth.ts";
+import { createSdkMcpClient } from "../../../agent/mcp/sdk-client.ts";
 import type { McpServerConfig } from "../../../agent/mcp/types.ts";
 import {
   type RuntimeMcpAddRequest,
@@ -28,6 +34,48 @@ function getErrorStatus(error: unknown): number {
   return error instanceof ValidationError ? 400 : 500;
 }
 
+function isAuthStatus(message: string): boolean {
+  return /401|403|unauthor|forbidden|oauth|needs auth|authentication|bearer|access token/i
+    .test(message);
+}
+
+function isConnectionStatus(message: string): boolean {
+  return /timeout|timed out|econnrefused|econnreset|connection|socket|network|enotfound/i
+    .test(message);
+}
+
+async function checkMcpServerHealth(server: McpServerConfig): Promise<string> {
+  const timeoutMs = server.connection_timeout_ms ?? 5000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new Error(`MCP connect timeout (${timeoutMs}ms)`));
+  }, timeoutMs);
+  let client: Awaited<ReturnType<typeof createSdkMcpClient>> | null = null;
+  try {
+    client = await createSdkMcpClient(server, controller.signal, {
+      interactiveAuth: false,
+    });
+    return "✓ Connected";
+  } catch (error) {
+    const message = getErrorMessage(error).toLowerCase();
+    if (isAuthStatus(message)) return "! Needs authentication";
+    if (isConnectionStatus(message)) return "✗ Connection error";
+    return "✗ Failed to connect";
+  } finally {
+    clearTimeout(timer);
+    await client?.close().catch(() => undefined);
+  }
+}
+
+async function resolveUserServerByName(
+  name: string,
+): Promise<McpServerConfig | null> {
+  const config = await loadMcpConfig();
+  if (!config) return null;
+  const key = normalizeServerName(name);
+  return config.servers.find((server) => normalizeServerName(server.name) === key) ??
+    null;
+}
 
 function resolveServerInput(
   server: RuntimeMcpAddRequest["server"],
@@ -43,7 +91,7 @@ function resolveServerInput(
     ...(server.url ? { url: server.url } : {}),
     ...(server.env ? { env: server.env } : {}),
     ...(server.transport ? { transport: server.transport } : {}),
-    ...(server.oauth ? { oauth: server.oauth } : {}),
+    ...(server.oauth ? { oauth: pickOAuthConfigFields(server.oauth) } : {}),
     ...(server.disabled_tools ? { disabled_tools: server.disabled_tools } : {}),
     ...(server.connection_timeout_ms
       ? { connection_timeout_ms: server.connection_timeout_ms }
@@ -63,8 +111,11 @@ async function resolveServerByName(
 export async function handleListMcpServers(): Promise<Response> {
   const servers = await loadMcpConfigMultiScope();
   const payload: RuntimeMcpListResponse = {
-    servers: servers.map((server) => {
+    servers: await Promise.all(servers.map(async (server) => {
       const entry = formatServerEntry(server);
+      const clientConfig = server.url
+        ? await getMcpClientConfig(server)
+        : undefined;
       return {
         name: server.name,
         command: server.command,
@@ -72,13 +123,24 @@ export async function handleListMcpServers(): Promise<Response> {
         headers: server.headers,
         url: server.url,
         env: server.env,
+        ...(server.oauth
+          ? {
+            oauth: {
+              ...(pickOAuthConfigFields(server.oauth) ?? {}),
+              ...(clientConfig?.clientSecret
+                ? { clientSecretConfigured: true }
+                : {}),
+            },
+          }
+          : {}),
         scope: server.scope,
         transport: server.url ? (server.transport ?? "http") : "stdio",
         target: entry.target,
+        status: await checkMcpServerHealth(server),
         scopeLabel: entry.scopeLabel,
         scopeDescription: getScopeDescription(server.scope),
       };
-    }),
+    })),
   };
   return Response.json(payload);
 }
@@ -96,6 +158,9 @@ export async function handleAddMcpServer(req: Request): Promise<Response> {
 
   try {
     await addServerToConfig(resolvedServer);
+    if (resolvedServer.url && server.oauth?.clientSecret) {
+      await saveMcpClientSecret(resolvedServer, server.oauth.clientSecret);
+    }
     return Response.json({ ok: true });
   } catch (error) {
     return jsonError(getErrorMessage(error), getErrorStatus(error));
@@ -112,7 +177,12 @@ export async function handleRemoveMcpServer(req: Request): Promise<Response> {
   }
 
   try {
+    const serverBeforeRemoval = await resolveUserServerByName(name);
     const removed = await removeServerFromConfig(name);
+    if (removed && serverBeforeRemoval?.url) {
+      await logoutMcpHttpServer(serverBeforeRemoval).catch(() => false);
+      await clearMcpClientConfig(serverBeforeRemoval);
+    }
     const payload: RuntimeMcpRemoveResponse = {
       removed,
     };

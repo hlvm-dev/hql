@@ -3,7 +3,7 @@ import {
   assertRejects,
   assertStringIncludes,
 } from "jsr:@std/assert";
-import type { ModelTier } from "../../../src/hlvm/agent/constants.ts";
+import type { ModelCapabilityClass } from "../../../src/hlvm/agent/constants.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import {
   type AgentUIEvent,
@@ -44,7 +44,7 @@ import {
   cleanupWorkspaceDir,
   ensureWorkspaceDir,
 } from "./workspace-test-helpers.ts";
-import { STANDARD_EAGER_TOOLS } from "../../../src/hlvm/agent/constants.ts";
+import { REPL_MAIN_THREAD_EAGER_TOOLS } from "../../../src/hlvm/agent/constants.ts";
 
 const TEST_WORKSPACE = "/tmp/hlvm-test-orchestrator";
 const platform = () => getPlatform();
@@ -162,7 +162,7 @@ function makeLoopConfig(overrides: Partial<LoopConfig> = {}): LoopConfig {
     planningConfig: { mode: "off", requireStepMarkers: false },
     loopDeadline: Date.now() + 600_000,
     totalTimeout: 600_000,
-    modelTier: "standard" as ModelTier,
+    modelCapability: "agent" as ModelCapabilityClass,
     ...overrides,
   };
 }
@@ -201,7 +201,7 @@ Deno.test({
       baseline: {
         slot: "baseline",
         allowlist: [
-          ...STANDARD_EAGER_TOOLS,
+          ...REPL_MAIN_THREAD_EAGER_TOOLS,
           "pw_click",
           "pw_fill",
           "pw_links",
@@ -214,7 +214,7 @@ Deno.test({
     const config: OrchestratorConfig = {
       workspace: TEST_WORKSPACE,
       context,
-      modelTier: "standard",
+      modelCapability: "agent",
       toolProfileState,
     };
     syncEffectiveToolFilterToConfig(config, toolProfileState);
@@ -1226,7 +1226,7 @@ Deno.test({
       toolProfileState: createToolProfileState({
         baseline: {
           slot: "baseline",
-          allowlist: [...STANDARD_EAGER_TOOLS],
+          allowlist: [...REPL_MAIN_THREAD_EAGER_TOOLS],
         },
       }),
       discoveredDeferredTools: [],
@@ -1828,7 +1828,7 @@ Deno.test({
       });
       const injected = maybeInjectReminder(
         state,
-        makeLoopConfig({ modelTier: "constrained" }),
+        makeLoopConfig({ modelCapability: "tool" }),
         config,
       );
 
@@ -1846,7 +1846,7 @@ Deno.test({
       const { config, context } = makeReminderHarness();
       const periodic = maybeInjectReminder(
         makeLoopState({ iterations: 7, iterationsSinceReminder: 3 }),
-        makeLoopConfig({ modelTier: "standard" }),
+        makeLoopConfig({ modelCapability: "agent" }),
         config,
       );
       assertEquals(periodic, false);
@@ -1897,7 +1897,7 @@ Deno.test({
             workspace: TEST_WORKSPACE,
             context,
             permissionMode: "bypassPermissions",
-            modelTier: "standard",
+            modelCapability: "agent",
           },
           async () => {
             llmCalls += 1;

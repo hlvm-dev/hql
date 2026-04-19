@@ -8,7 +8,7 @@ import { type LocalAgentEntry, statusPriority } from "../utils/local-agents.ts";
 
 const MAX_VISIBLE_LOCAL_AGENTS = 4;
 const MAX_PREVIEW_LINES = 3;
-const LOCAL_AGENT_SELECT_HINT = "↓ to manage";
+const LOCAL_AGENT_SELECT_HINT = "↓ to view";
 
 type AgentRowTone = "active" | "warning" | "success" | "error" | "muted";
 
@@ -119,9 +119,12 @@ function formatLocalAgentCount(entries: LocalAgentEntry[]): string {
   const activeCount = entries.filter((entry) => !isFinishedStatus(entry.status))
     .length;
   if (activeCount === 0) {
-    return `${totalCount} local agent${totalCount === 1 ? "" : "s"} finished`;
+    return `${totalCount} agent${totalCount === 1 ? "" : "s"} done`;
   }
-  return `Running ${totalCount} local agent${totalCount === 1 ? "" : "s"}...`;
+  if (activeCount === totalCount) {
+    return `${activeCount} agent${activeCount === 1 ? "" : "s"} active`;
+  }
+  return `${activeCount}/${totalCount} agents active`;
 }
 
 function buildManagerSummary(
@@ -134,7 +137,7 @@ function buildManagerSummary(
   return {
     text: formatLocalAgentCount(entries),
     hintText: focused
-      ? " · Enter view · Esc back"
+      ? " · Enter open · Esc back"
       : reviewHint,
   };
 }
@@ -212,8 +215,8 @@ export function buildBackgroundStatusFooterModel(
   if (activeTaskCount === 0) return null;
 
   const countText = activeTaskCount === 1
-    ? "1 task running"
-    : `${activeTaskCount} tasks running`;
+    ? "1 running"
+    : `${activeTaskCount} running`;
   const taskLabel = options.recentActiveTaskLabel?.trim();
   const text = truncate(
     taskLabel ? `tasks · ${countText} · ${taskLabel}` : `tasks · ${countText}`,
@@ -222,7 +225,7 @@ export function buildBackgroundStatusFooterModel(
 
   return {
     text,
-    hintText: " · Ctrl+T manager",
+    hintText: " · Ctrl+T view",
     highlighted: false,
     hasActiveAgents: true,
     rowCount: 1,

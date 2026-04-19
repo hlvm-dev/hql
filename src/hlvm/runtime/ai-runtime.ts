@@ -16,6 +16,7 @@ import { ai } from "../api/ai.ts";
 import { log } from "../api/log.ts";
 import {
   ensureRuntimeDir,
+  getAIEngineLogPath,
   getModelsDir,
   getRuntimeDir,
 } from "../../common/paths.ts";
@@ -32,6 +33,16 @@ import {
   findListeningPidForPort,
   terminateProcess,
 } from "./port-process.ts";
+import { KNOWN_LOCAL_FALLBACK_IDENTITIES } from "./bootstrap-manifest.ts";
+
+/**
+ * Model IDs that, if served by the Ollama on DEFAULT_OLLAMA_ENDPOINT, identify
+ * that Ollama as using an HLVM-owned models directory. If none of these appear
+ * in /api/tags, the endpoint is foreign (different OLLAMA_MODELS) and must be
+ * reclaimed before HLVM can use it for the local fallback path.
+ */
+const EXPECTED_FALLBACK_MODEL_IDS: readonly string[] =
+  KNOWN_LOCAL_FALLBACK_IDENTITIES.map((identity) => identity.modelId);
 
 const textDecoder = new TextDecoder();
 
@@ -55,10 +66,34 @@ export interface AIEngineLifecycle {
 
 const AI_STARTUP_POLL_INTERVAL_MS = 300;
 const AI_STARTUP_TIMEOUT_MS = 60_000;
-const AI_STARTUP_MAX_POLLS = Math.ceil(
-  AI_STARTUP_TIMEOUT_MS / AI_STARTUP_POLL_INTERVAL_MS,
-);
+const AI_ENDPOINT_PROBE_TIMEOUT_MS = 500;
 let initPromise: Promise<void> | null = null;
+
+type AIEngineExitListener = () => void;
+const aiEngineExitListeners = new Set<AIEngineExitListener>();
+
+/**
+ * Subscribe to managed-AI-engine exit events. The callback fires when an
+ * Ollama process we spawned exits (crash, SIGKILL, graceful shutdown, etc.).
+ * Callers use this to react to engine death without polling — a single
+ * event-driven signal replaces any periodic liveness check.
+ */
+export function onAIEngineExit(
+  listener: AIEngineExitListener,
+): () => void {
+  aiEngineExitListeners.add(listener);
+  return () => {
+    aiEngineExitListeners.delete(listener);
+  };
+}
+
+function notifyAIEngineExit(): void {
+  for (const listener of aiEngineExitListeners) {
+    try {
+      listener();
+    } catch { /* best-effort — a misbehaving listener shouldn't block others */ }
+  }
+}
 
 function normalizeCommandOutput(output: {
   stdout: Uint8Array;
@@ -270,9 +305,47 @@ async function isAIRunning(): Promise<boolean> {
     // Direct HTTP check to avoid depending on provider registry initialization order
     // This is more robust than ai.status() which may fail if providers aren't loaded yet
     const response = await http.fetchRaw(DEFAULT_OLLAMA_ENDPOINT, {
-      timeout: 2000,
+      timeout: AI_ENDPOINT_PROBE_TIMEOUT_MS,
     });
     return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Probe the running Ollama on DEFAULT_OLLAMA_ENDPOINT for any of the given
+ * model IDs. Returns true if at least one expected ID appears in /api/tags.
+ *
+ * Detects the "foreign Ollama" case: when another HLVM instance or an
+ * unrelated tool started Ollama with a different OLLAMA_MODELS directory,
+ * the version still matches but the serving dir is wrong — this probe is the
+ * lightest portable way to notice without reading the peer process's env.
+ */
+async function probeOllamaHasAnyExpectedModel(
+  expectedModelIds: readonly string[],
+): Promise<boolean> {
+  if (expectedModelIds.length === 0) return true;
+  try {
+    const response = await http.fetchRaw(
+      `${DEFAULT_OLLAMA_ENDPOINT}/api/tags`,
+      { timeout: AI_ENDPOINT_PROBE_TIMEOUT_MS },
+    );
+    if (!response.ok) {
+      await response.body?.cancel();
+      return false;
+    }
+    const payload = await response.json().catch(() => null) as {
+      models?: Array<{ name?: unknown; model?: unknown }>;
+    } | null;
+    const entries = payload?.models;
+    if (!Array.isArray(entries)) return false;
+    const served = new Set<string>();
+    for (const entry of entries) {
+      if (typeof entry?.name === "string") served.add(entry.name);
+      if (typeof entry?.model === "string") served.add(entry.model);
+    }
+    return expectedModelIds.some((id) => served.has(id));
   } catch {
     return false;
   }
@@ -491,14 +564,33 @@ async function requireEmbeddedEnginePath(
 
 export async function waitForAIEngineReady(
   expectedVersion?: string,
+  exitStatus?: Promise<unknown>,
+  expectedModels?: readonly string[],
 ): Promise<boolean> {
-  for (let i = 0; i < AI_STARTUP_MAX_POLLS; i++) {
-    if (await isCompatibleAIRunning(expectedVersion)) {
+  const deadline = Date.now() + AI_STARTUP_TIMEOUT_MS;
+  while (true) {
+    if (await isCompatibleAIRunning(expectedVersion, expectedModels)) {
       return true;
     }
-    await delay(AI_STARTUP_POLL_INTERVAL_MS);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      return false;
+    }
+
+    const waitMs = Math.min(AI_STARTUP_POLL_INTERVAL_MS, remainingMs);
+    if (!exitStatus) {
+      await delay(waitMs);
+      continue;
+    }
+
+    const exited = await Promise.race([
+      delay(waitMs).then(() => false),
+      exitStatus.then(() => true).catch(() => true),
+    ]);
+    if (exited) {
+      return false;
+    }
   }
-  return false;
 }
 
 function getAIEndpointPort(): string {
@@ -510,7 +602,7 @@ async function getAIEndpointVersion(): Promise<string | null> {
     const response = await http.fetchRaw(
       `${DEFAULT_OLLAMA_ENDPOINT}/api/version`,
       {
-        timeout: 2000,
+        timeout: AI_ENDPOINT_PROBE_TIMEOUT_MS,
       },
     );
     if (!response.ok) {
@@ -543,14 +635,32 @@ export async function getAIEngineBinaryVersion(
   }
 }
 
+/**
+ * Decide whether the Ollama at DEFAULT_OLLAMA_ENDPOINT is usable by the
+ * current HLVM instance without further reclaim.
+ *
+ * When `expectedModels` is provided and non-empty, also probe `/api/tags` and
+ * require at least one of those models to be served. This catches the case
+ * where a peer HLVM (or an unrelated tool) started Ollama with a different
+ * OLLAMA_MODELS directory: the version check passes, but requests for our
+ * fallback model would 404 forever. Bootstrap callers deliberately omit
+ * `expectedModels` because the fallback is pulled *after* engine startup.
+ */
 export async function isCompatibleAIRunning(
   expectedVersion?: string,
+  expectedModels?: readonly string[],
 ): Promise<boolean> {
-  if (!expectedVersion) {
+  if (!expectedVersion && (!expectedModels || expectedModels.length === 0)) {
     return await isAIRunning();
   }
-  const endpointVersion = await getAIEndpointVersion();
-  return endpointVersion === expectedVersion;
+  if (expectedVersion) {
+    const endpointVersion = await getAIEndpointVersion();
+    if (endpointVersion !== expectedVersion) return false;
+  }
+  if (expectedModels && expectedModels.length > 0) {
+    if (!(await probeOllamaHasAnyExpectedModel(expectedModels))) return false;
+  }
+  return true;
 }
 
 async function findListeningPidForAIEndpoint(
@@ -559,7 +669,8 @@ async function findListeningPidForAIEndpoint(
 }
 
 async function waitForAIEndpointRelease(): Promise<void> {
-  for (let i = 0; i < AI_STARTUP_MAX_POLLS; i++) {
+  const deadline = Date.now() + AI_STARTUP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
     if (!await isAIRunning()) {
       return;
     }
@@ -569,16 +680,19 @@ async function waitForAIEndpointRelease(): Promise<void> {
 
 export async function reclaimConflictingAIEndpoint(
   expectedVersion?: string,
-  options?: { force?: boolean },
+  options?: { expectedModels?: readonly string[]; force?: boolean },
 ): Promise<boolean> {
   const endpointVersion = await getAIEndpointVersion();
   if (!endpointVersion) {
     return false;
   }
-  if (
-    !options?.force &&
-    (!expectedVersion || endpointVersion === expectedVersion)
-  ) {
+  const versionMatches = !expectedVersion ||
+    endpointVersion === expectedVersion;
+  const expectedModels = options?.expectedModels;
+  const modelStoreMismatch = versionMatches &&
+    Array.isArray(expectedModels) && expectedModels.length > 0 &&
+    !(await probeOllamaHasAnyExpectedModel(expectedModels));
+  if (!options?.force && versionMatches && !modelStoreMismatch) {
     return false;
   }
 
@@ -587,7 +701,15 @@ export async function reclaimConflictingAIEndpoint(
     return false;
   }
 
-  if (options?.force) {
+  if (modelStoreMismatch) {
+    log.warn?.(
+      `Reclaiming HLVM AI endpoint ${DEFAULT_OLLAMA_HOST} from Ollama ` +
+        `${endpointVersion}: version matches but the serving models directory ` +
+        `does not contain any expected HLVM fallback model. This is usually a ` +
+        `peer HLVM or another tool that owns Ollama with a different ` +
+        `OLLAMA_MODELS path.`,
+    );
+  } else if (options?.force) {
     log.warn?.(
       `Reclaiming HLVM AI endpoint ${DEFAULT_OLLAMA_HOST} from existing Ollama ` +
         `${endpointVersion} to honor the requested HLVM runtime root.`,
@@ -629,12 +751,19 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
     // Best-effort guard only
   }
 
-  if (await isCompatibleAIRunning(expectedVersion ?? undefined)) {
+  if (
+    await isCompatibleAIRunning(
+      expectedVersion ?? undefined,
+      EXPECTED_FALLBACK_MODEL_IDS,
+    )
+  ) {
     log.debug?.(`AI engine already running on ${DEFAULT_OLLAMA_HOST}`);
     return;
   }
 
-  await reclaimConflictingAIEndpoint(expectedVersion ?? undefined);
+  await reclaimConflictingAIEndpoint(expectedVersion ?? undefined, {
+    expectedModels: EXPECTED_FALLBACK_MODEL_IDS,
+  });
 
   const killProcess = (proc: PlatformCommandProcess | null) => {
     try {
@@ -656,17 +785,43 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
         env: engineEnv,
       });
     } else {
+      const logPath = getAIEngineLogPath();
+      try {
+        await platform.fs.mkdir(
+          platform.path.dirname(logPath),
+          { recursive: true },
+        );
+      } catch { /* best-effort */ }
+      // detached:true puts Ollama in its own process group. Required on
+      // macOS because the HLVM binary is ad-hoc signed: when a child Ollama
+      // (hardened-runtime + JIT-using) inherits the HLVM session, macOS
+      // SIGKILLs Ollama's GPU runner subprocess on load due to codesign
+      // inheritance restrictions. A fresh session sidesteps that check.
       aiProcess = platform.command.run({
-        cmd: [enginePath, "serve"],
+        cmd: ["sh", "-c", `exec "$0" serve >> "$1" 2>&1`, enginePath, logPath],
         stdout: "null",
         stderr: "null",
         env: engineEnv,
+        detached: true,
       });
     }
     aiProcess.unref?.();
 
-    if (await waitForAIEngineReady(expectedVersion ?? undefined)) {
+    if (
+      await waitForAIEngineReady(
+        expectedVersion ?? undefined,
+        aiProcess.status,
+        EXPECTED_FALLBACK_MODEL_IDS,
+      )
+    ) {
       log.debug?.(`AI engine started successfully (${enginePath})`);
+      // Event-driven supervision: when this Ollama exits (for whatever
+      // reason — crash, SIGKILL, external `kill`), notify subscribers so
+      // they can flip readiness back to "not ready" and respawn on the
+      // next real request. No polling, no heartbeat timer.
+      aiProcess.status
+        .then(() => notifyAIEngineExit())
+        .catch(() => notifyAIEngineExit());
       return;
     }
     killProcess(aiProcess);
@@ -674,7 +829,12 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
       code: HLVMErrorCode.AI_ENGINE_STARTUP_FAILED,
     });
   } catch (error) {
-    if (await isCompatibleAIRunning(expectedVersion ?? undefined)) {
+    if (
+      await isCompatibleAIRunning(
+        expectedVersion ?? undefined,
+        EXPECTED_FALLBACK_MODEL_IDS,
+      )
+    ) {
       log.debug?.("AI engine already running and compatible");
       return;
     }
@@ -707,9 +867,17 @@ export const aiEngine: AIEngineLifecycle = {
       enginePath,
       platform,
     );
-    if (await isCompatibleAIRunning(expectedVersion ?? undefined)) return true;
+    if (
+      await isCompatibleAIRunning(
+        expectedVersion ?? undefined,
+        EXPECTED_FALLBACK_MODEL_IDS,
+      )
+    ) return true;
     await startAIEngine(platform);
-    return await isCompatibleAIRunning(expectedVersion ?? undefined);
+    return await isCompatibleAIRunning(
+      expectedVersion ?? undefined,
+      EXPECTED_FALLBACK_MODEL_IDS,
+    );
   },
 
   getEnginePath: resolveEnginePath,
@@ -744,7 +912,12 @@ async function doInitAIRuntime(): Promise<void> {
   await downloadAIEngineIfNeeded(platform);
   const enginePath = await requireEmbeddedEnginePath(platform);
   const expectedVersion = await getAIEngineBinaryVersion(enginePath, platform);
-  if (await isCompatibleAIRunning(expectedVersion ?? undefined)) {
+  if (
+    await isCompatibleAIRunning(
+      expectedVersion ?? undefined,
+      EXPECTED_FALLBACK_MODEL_IDS,
+    )
+  ) {
     return;
   }
 

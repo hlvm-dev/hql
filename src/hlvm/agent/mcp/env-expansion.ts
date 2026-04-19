@@ -18,16 +18,20 @@ function expandMcpString(
   options: McpEnvExpansionOptions,
 ): string {
   return value.replace(MCP_ENV_VAR_PATTERN, (match, rawName: string) => {
-    const name = rawName.trim();
+    const [rawVarName, defaultValue] = rawName.split(":-", 2);
+    const name = rawVarName.trim();
     if (name.length === 0) return match;
     const resolved = Object.hasOwn(options.env ?? {}, name)
       ? options.env?.[name]
       : getPlatform().env.get(name);
-    if (resolved === undefined) {
-      missingVars.add(name);
-      return match;
+    if (resolved !== undefined) {
+      return resolved;
     }
-    return resolved;
+    if (defaultValue !== undefined) {
+      return defaultValue;
+    }
+    missingVars.add(name);
+    return match;
   });
 }
 

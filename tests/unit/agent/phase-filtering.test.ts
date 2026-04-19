@@ -94,12 +94,12 @@ function makeConfig(
 // Tests
 // ---------------------------------------------------------------------------
 
-Deno.test("applyAdaptiveToolPhase skips filtering for standard-tier models", async () => {
+Deno.test("applyAdaptiveToolPhase skips filtering for agent-class models", async () => {
   registerTestTool(`${testToolPrefix}read`, "read");
   registerTestTool(`${testToolPrefix}write`, "write");
   try {
     const state = makeLoopState({ lastToolNames: [] });
-    const config = makeConfig({ modelTier: "standard" });
+    const config = makeConfig({ modelCapability: "agent" });
     const phase = await applyAdaptiveToolPhase(state, config, "fix the bug");
     assertEquals(effectiveAllowlist(config), undefined);
     assertEquals(typeof phase, "string");
@@ -108,12 +108,12 @@ Deno.test("applyAdaptiveToolPhase skips filtering for standard-tier models", asy
   }
 });
 
-Deno.test("applyAdaptiveToolPhase skips filtering for enhanced-tier models", async () => {
+Deno.test("applyAdaptiveToolPhase skips filtering for agent-class models with wide surface", async () => {
   registerTestTool(`${testToolPrefix}read`, "read");
   registerTestTool(`${testToolPrefix}shell`, "shell");
   try {
     const state = makeLoopState({ lastToolNames: [] });
-    const config = makeConfig({ modelTier: "enhanced" });
+    const config = makeConfig({ modelCapability: "agent" });
     await applyAdaptiveToolPhase(state, config, "run the tests");
     assertEquals(effectiveAllowlist(config), undefined);
   } finally {
@@ -121,13 +121,13 @@ Deno.test("applyAdaptiveToolPhase skips filtering for enhanced-tier models", asy
   }
 });
 
-Deno.test("applyAdaptiveToolPhase applies filtering for constrained-tier models", async () => {
+Deno.test("applyAdaptiveToolPhase applies aggressive filtering for tool-class models", async () => {
   registerTestTool(`${testToolPrefix}read`, "read");
   registerTestTool(`${testToolPrefix}write`, "write");
   try {
     const state = makeLoopState({ lastToolNames: [] });
     const config = makeConfig({
-      modelTier: "constrained",
+      modelCapability: "tool",
       toolAllowlist: [`${testToolPrefix}read`, `${testToolPrefix}write`],
     });
     await applyAdaptiveToolPhase(state, config, "read the file");
@@ -150,7 +150,7 @@ Deno.test("applyAdaptiveToolPhase decrements and expires the temporary Playwrigh
       },
     });
     const config = makeConfig({
-      modelTier: "constrained",
+      modelCapability: "tool",
       toolAllowlist: [`${testToolPrefix}read`, "pw_click"],
     });
 
@@ -197,7 +197,7 @@ Deno.test("tool_search narrowing uses baseline allowlist", async () => {
   try {
     const state = makeLoopState({ lastToolNames: [searchTool] });
     const config = makeConfig({
-      modelTier: "constrained",
+      modelCapability: "tool",
       // Baseline includes both tools; phase filtering might exclude write.
       toolAllowlist: [readTool, writeTool, searchTool],
     });
@@ -247,7 +247,7 @@ Deno.test("tool_search narrowing does not persist via toolSearchAllowlist", asyn
   try {
     const state = makeLoopState({ lastToolNames: [searchTool] });
     const config = makeConfig({
-      modelTier: "constrained",
+      modelCapability: "tool",
       toolAllowlist: [readTool, searchTool],
       toolProfileState: createToolProfileState({
         baseline: {
@@ -296,7 +296,7 @@ Deno.test("tool_search discovery can expand the session baseline before turn-loc
 
   const state = makeLoopState({ lastToolNames: [searchTool] });
   const config = makeConfig({
-    modelTier: "standard",
+    modelCapability: "agent",
     toolAllowlist: [searchTool],
     toolProfileState: createToolProfileState({
       baseline: {

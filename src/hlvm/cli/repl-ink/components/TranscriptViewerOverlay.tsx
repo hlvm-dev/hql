@@ -525,7 +525,7 @@ export function TranscriptViewerOverlay(
               </Text>
               <Text color={sc.text.muted} wrap="truncate-end">
                 {truncate(
-                  "Esc cancel search · Enter close search",
+                  "Esc search · Enter close",
                   contentWidth,
                   "…",
                 )}

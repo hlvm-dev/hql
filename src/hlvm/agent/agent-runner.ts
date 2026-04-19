@@ -17,7 +17,7 @@ import {
   MEMORY_TOOLS,
   persistConversationFacts,
   persistExplicitMemoryRequest,
-  setMemoryModelTier,
+  setMemoryModelCapability,
 } from "../memory/mod.ts";
 import { setAgentLogger } from "./logger.ts";
 import {
@@ -54,14 +54,14 @@ import {
   type TraceEvent,
 } from "./orchestrator.ts";
 import {
-  classifyModelTier,
-  computeTierToolFilter,
+  classifyModelCapability,
   DEFAULT_TOOL_DENYLIST,
   ENGINE_PROFILES,
   extractModelSuffix,
   isFrontierProvider,
   MAX_SESSION_HISTORY,
-  type ModelTier,
+  type ModelCapabilityClass,
+  starterPolicy,
   supportsAgentExecution,
 } from "./constants.ts";
 import { compileSystemPrompt } from "./llm-integration.ts";
@@ -403,7 +403,7 @@ export interface FallbackToolFilterOptions {
 }
 
 export interface FallbackToolFilter {
-  tier: ModelTier;
+  capability: ModelCapabilityClass;
   allowlist?: string[];
   denylist?: string[];
 }
@@ -411,12 +411,12 @@ export interface FallbackToolFilter {
 export function computeFallbackToolFilter(
   options: FallbackToolFilterOptions,
 ): FallbackToolFilter {
-  const tier = classifyModelTier(undefined, options.fallbackModel);
+  const capability = classifyModelCapability(undefined, options.fallbackModel);
   const userAllowlist = options.requestedToolAllowlist !== undefined
     ? [...options.requestedToolAllowlist]
     : undefined;
-  const native = computeTierToolFilter(
-    tier,
+  const native = starterPolicy(
+    capability,
     userAllowlist,
     options.effectiveToolDenylist
       ? [...options.effectiveToolDenylist]
@@ -438,7 +438,7 @@ export function computeFallbackToolFilter(
   }
 
   return {
-    tier,
+    capability,
     allowlist,
     denylist: native.denylist,
   };
@@ -563,7 +563,19 @@ function persistDeferredToolDiscoveriesForSession(options: {
     return nextBaseline;
   }
 
-  // Non-REPL path (agent mode): directly add discovered tools to baseline allowlist.
+  // Non-REPL path (agent mode): discoveries are **turn-local**.
+  //
+  // We track names in session.discoveredDeferredTools (for persistence across
+  // sessions via persistDiscoveredDeferredTools) but do NOT write them into
+  // the session baseline layer. The tool_search narrowing already wrote to
+  // the turn-local `discovery` layer (orchestrator-response.ts); that layer
+  // gets cleared by resetToolFilter() at the start of the next turn.
+  //
+  // Evidence for keeping this turn-local: Anthropic's "Advanced Tool Use"
+  // (arxiv 2505.03275 RAG-MCP) shows that tool-selection accuracy relies on
+  // a small, stable starter surface; accumulating discoveries into baseline
+  // across turns reintroduces the same "too many tools" cliff the shrunk
+  // starter was meant to fix.
   let changed = false;
   for (const name of options.discoveredToolNames) {
     if (!options.session.discoveredDeferredTools.has(name)) {
@@ -571,31 +583,13 @@ function persistDeferredToolDiscoveriesForSession(options: {
       changed = true;
     }
   }
-  if (changed) {
-    const nextBaselineAllowlist = resolveCanonicalBaselineAllowlist({
-      querySource: options.session.querySource,
-      baseAllowlist: options.session.baseToolAllowlist ?? baseline.allowlist,
-      discoveredDeferredTools: options.session.discoveredDeferredTools,
-      ownerId: options.session.toolOwnerId,
-    }) ?? [...new Set(options.session.discoveredDeferredTools)];
-    const profileState = ensureToolProfileState(options.session);
-    const baselineLayer = profileState.layers.baseline;
-    setToolProfileLayer(profileState, "baseline", {
-      profileId: baselineLayer?.profileId,
-      allowlist: nextBaselineAllowlist,
-      denylist: cloneToolList(baselineLayer?.denylist),
-      reason: baselineLayer?.reason,
-    });
-    syncSessionToolProfileState(options.session);
-    if (options.sessionKey) {
-      persistDiscoveredDeferredTools(
-        options.sessionKey,
-        options.session.discoveredDeferredTools,
-      );
-    }
+  if (changed && options.sessionKey) {
+    persistDiscoveredDeferredTools(
+      options.sessionKey,
+      options.session.discoveredDeferredTools,
+    );
   }
-  return resolveSessionPersistentToolFilter(options.session).allowlist ??
-    baseline.allowlist;
+  return baseline.allowlist;
 }
 
 interface AgentRunnerResult {
@@ -833,7 +827,7 @@ export async function runAgentQuery(
   const eagerAllowlist = persistentFilter.allowlist ?? [];
   const deniedAllowlist = persistentFilter.denylist ?? [];
   const discovery: "tool_search" | "none" =
-    session.modelTier !== "constrained" &&
+    session.modelCapability === "agent" &&
       eagerAllowlist.includes("tool_search")
       ? "tool_search"
       : "none";
@@ -852,7 +846,7 @@ export async function runAgentQuery(
     deferredToolCount = deferred.length;
   }
   const routingReason =
-    `Model-driven routing: ${modelSource} model, ${session.modelTier} tier, ${eagerAllowlist.length} eager tools, ${
+    `Model-driven routing: ${modelSource} model, ${session.modelCapability} capability, ${eagerAllowlist.length} eager tools, ${
       discovery === "tool_search"
         ? `${deferredToolCount} deferred tools via tool_search`
         : "no tool discovery"
@@ -861,7 +855,7 @@ export async function runAgentQuery(
     type: "routing_decision",
     selectedModel: model,
     modelSource,
-    modelTier: session.modelTier,
+    modelCapability: session.modelCapability,
     eagerToolCount: eagerAllowlist.length,
     deferredToolCount,
     deniedToolCount: deniedAllowlist.length,
@@ -871,7 +865,7 @@ export async function runAgentQuery(
   traceReplMainThreadForSource(querySource, "agent.routing", {
     selectedModel: model,
     modelSource,
-    modelTier: session.modelTier,
+    modelCapability: session.modelCapability,
     eagerToolCount: eagerAllowlist.length,
     deferredToolCount,
     deniedToolCount: deniedAllowlist.length,
@@ -964,7 +958,7 @@ export async function runAgentQuery(
     }
 
     const usageTracker = new UsageTracker();
-    setMemoryModelTier(session.modelTier);
+    setMemoryModelCapability(session.modelCapability);
     if (persistentMemoryEnabled) {
       try {
         await persistExplicitMemoryRequest(query);
@@ -1239,7 +1233,7 @@ export async function runAgentQuery(
           requireStepMarkers: false,
         },
         skipModelCompensation: false,
-        modelTier: session.modelTier,
+        modelCapability: session.modelCapability,
         modelId: model,
         sessionId: runtimeSessionId,
         turnId,
@@ -1302,7 +1296,7 @@ export async function runAgentQuery(
               toolDenylist: fbFilter.denylist,
               toolOwnerId: session.toolOwnerId,
               querySource: session.querySource,
-              modelTier: fbFilter.tier,
+              modelCapability: fbFilter.capability,
               agentProfiles: session.agentProfiles,
               visionCapable: session.visionCapable,
             })

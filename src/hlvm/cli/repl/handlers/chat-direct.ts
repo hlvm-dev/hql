@@ -177,7 +177,7 @@ async function streamChatWithFallback(
 function getChatSystemPrompt(): string {
   return compilePrompt({
     mode: "chat",
-    tier: "standard",
+    capability: "agent",
     tools: {},
   }).text;
 }

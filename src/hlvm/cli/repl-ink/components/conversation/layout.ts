@@ -9,6 +9,44 @@ export interface ToolCallTextLayout {
   gapWidth: number;
 }
 
+function buildToolCallLayoutCandidate(
+  width: number,
+  label: string,
+  rawSuffix: string,
+  durationText: string,
+  minLabelWidth: number,
+): ToolCallTextLayout {
+  const durationWidth = stringWidth(durationText);
+  const minGapWidth = durationText ? 1 : 0;
+  const suffixBudget = Math.max(
+    0,
+    width - durationWidth - minGapWidth - minLabelWidth,
+  );
+  const suffixText = rawSuffix && suffixBudget >= 6
+    ? ` · ${truncate(rawSuffix, suffixBudget - 3, "…")}`
+    : "";
+  const suffixWidth = stringWidth(suffixText);
+  const availableLabelWidth = Math.max(
+    1,
+    width - durationWidth - suffixWidth - minGapWidth,
+  );
+  const labelText = truncate(label, availableLabelWidth, "…");
+  const labelWidth = stringWidth(labelText);
+  const usedWithoutGap = labelWidth + suffixWidth + durationWidth;
+  const gapWidth = durationText
+    ? suffixText
+      ? 1
+      : Math.max(1, width - usedWithoutGap)
+    : 0;
+
+  return {
+    labelText,
+    suffixText,
+    durationText,
+    gapWidth,
+  };
+}
+
 export function buildToolCallTextLayout(
   width: number,
   label: string,
@@ -19,37 +57,34 @@ export function buildToolCallTextLayout(
   const fullDurationText = shouldRenderDuration
     ? `· ${formatDurationMs(durationMs)}`
     : "";
-  const fullDurationWidth = stringWidth(fullDurationText);
-  const durationText = fullDurationWidth > 0 &&
-      width >= fullDurationWidth + 2
-    ? fullDurationText
-    : "";
-  const durationWidth = stringWidth(durationText);
-  const minLabelWidth = Math.min(14, Math.max(6, Math.floor(width * 0.28)));
   const rawSuffix = suffix?.trim() ?? "";
-  const suffixBudget = Math.max(
-    0,
-    width - durationWidth - (durationText ? 1 : 0) - minLabelWidth,
+  const minLabelWidth = Math.min(12, Math.max(6, Math.floor(width * 0.22)));
+  const withoutDuration = buildToolCallLayoutCandidate(
+    width,
+    label,
+    rawSuffix,
+    "",
+    minLabelWidth,
   );
-  const suffixText = rawSuffix && suffixBudget >= 6
-    ? ` · ${truncate(rawSuffix, suffixBudget - 3, "…")}`
-    : "";
-  const suffixWidth = stringWidth(suffixText);
-  const availableLabelWidth = Math.max(
-    1,
-    width - durationWidth - suffixWidth - (durationText ? 1 : 0),
-  );
-  const labelText = truncate(label, availableLabelWidth, "…");
-  const labelWidth = stringWidth(labelText);
-  const usedWidth = labelWidth + suffixWidth + durationWidth;
-  const gapWidth = durationText ? Math.max(1, width - usedWidth) : 0;
+  if (!fullDurationText || width < stringWidth(fullDurationText) + 2) {
+    return withoutDuration;
+  }
 
-  return {
-    labelText,
-    suffixText,
-    durationText,
-    gapWidth,
-  };
+  const withDuration = buildToolCallLayoutCandidate(
+    width,
+    label,
+    rawSuffix,
+    fullDurationText,
+    minLabelWidth,
+  );
+  if (!rawSuffix) {
+    return withDuration;
+  }
+
+  return stringWidth(withoutDuration.suffixText) >
+      stringWidth(withDuration.suffixText)
+    ? withoutDuration
+    : withDuration;
 }
 
 export interface CollapsedToolList {

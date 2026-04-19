@@ -107,6 +107,7 @@ function createDenoCommand(options: PlatformCommandOptions): Deno.Command {
     stdin: options.stdin,
     stdout: options.stdout,
     stderr: options.stderr,
+    detached: options.detached,
     signal: options.signal,
   });
 }

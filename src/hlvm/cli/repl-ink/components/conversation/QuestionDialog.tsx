@@ -37,7 +37,7 @@ export const QuestionDialog = React.memo(function QuestionDialog(
 ): React.ReactElement {
   const sc = useSemanticColors();
   const dialog = getQuestionDialogDisplay(question, options);
-  const promptTitle = "Reply needed";
+  const promptTitle = "Reply";
   const promptSubtitle = sourceLabel?.trim() || undefined;
 
   const buildQuestionResponse = (
@@ -71,7 +71,7 @@ export const QuestionDialog = React.memo(function QuestionDialog(
           allowNotes
           notesLabel="Response"
           notesPlaceholder="Type your response..."
-          notesEmptyText="Press Tab to amend your reply."
+          notesEmptyText="Tab amend reply."
           onSubmit={(option: InteractionPickerOption, notes?: string) =>
             onResolve(requestId, {
               approved: true,
@@ -104,7 +104,7 @@ export const QuestionDialog = React.memo(function QuestionDialog(
           <Text color={sc.text.muted}>{QUESTION_DIALOG_HINT}</Text>
         </Box>
         <Box marginTop={1}>
-          <Text color={sc.text.muted}>Esc to cancel</Text>
+          <Text color={sc.text.muted}>Esc</Text>
         </Box>
       </Box>
     </PermissionDialogFrame>

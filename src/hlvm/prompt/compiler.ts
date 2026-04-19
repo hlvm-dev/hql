@@ -2,10 +2,10 @@
  * Prompt Compiler — single entry point for prompt assembly.
  *
  * Pure function: no I/O, no side effects.
- * Collects sections, filters by tier, joins, and produces metadata.
+ * Collects sections, filters by capability class, joins, produces metadata.
  */
 
-import { tierMeetsMinimum } from "../agent/constants.ts";
+import { capabilityAtLeast } from "../agent/constants.ts";
 import { fnv1aHex } from "../../common/hash.ts";
 import { collectSections } from "./sections.ts";
 import {
@@ -93,13 +93,13 @@ function buildStableCacheProfile(
  * Compile a prompt from structured input.
  *
  * 1. Collects sections for the given mode
- * 2. Filters by tier
+ * 2. Filters by capability class
  * 3. Joins into final text
  * 4. Builds section manifest + instruction sources + signature hash
  */
 export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   const filtered = orderSections(collectSections(input).filter(
-    (s) => s.content && tierMeetsMinimum(input.tier, s.minTier),
+    (s) => s.content && capabilityAtLeast(input.capability, s.minCapability),
   ));
 
   const text = filtered.map((s) => s.content).join("\n\n");
@@ -114,14 +114,14 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   const cacheSegments = buildCacheSegments(filtered);
   const stableCacheProfile = buildStableCacheProfile(cacheSegments);
 
-  const signatureHash = `${input.mode}:${input.tier}:${
-    fnv1aHex(`${input.mode}:${input.tier}:${text}`)
+  const signatureHash = `${input.mode}:${input.capability}:${
+    fnv1aHex(`${input.mode}:${input.capability}:${text}`)
   }`;
 
   return {
     text,
     mode: input.mode,
-    tier: input.tier,
+    capability: input.capability,
     querySource: input.querySource,
     sections,
     cacheSegments,

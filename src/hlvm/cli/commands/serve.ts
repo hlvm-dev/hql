@@ -13,10 +13,12 @@ import { withRetry } from "../../../common/retry.ts";
 import { pushSSEEvent } from "../../store/sse-store.ts";
 import { verifyBootstrap } from "../../runtime/bootstrap-verify.ts";
 import { recoverBootstrap } from "../../runtime/bootstrap-recovery.ts";
-import { waitForModelAccess } from "../../runtime/model-access.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { resolveLocalFallbackModelId } from "../../runtime/local-fallback.ts";
 import { getLocalModelDisplayName } from "../../runtime/local-llm.ts";
+import { http } from "../../../common/http-client.ts";
+import { DEFAULT_OLLAMA_ENDPOINT } from "../../../common/config/types.ts";
+import { aiEngine, onAIEngineExit } from "../../runtime/ai-runtime.ts";
 
 /** Resolves when runtime is initialized; rejects permanently if all retries fail. */
 let runtimeReady: Promise<void> | null = null;
@@ -31,6 +33,7 @@ let localFallbackReady = false;
 let runtimeAiReadyReason: string | null = "AI runtime is still initializing.";
 let runtimeAiReadyRetryable = true;
 let localFallbackRetryTask: Promise<void> | null = null;
+let runtimeServeStartedAt = 0;
 
 function emitModelsReadyEvent(): void {
   pushSSEEvent("__models__", "models_updated", { reason: "runtime_ready" });
@@ -63,23 +66,30 @@ export function isRuntimeAiReadyRetryable(): boolean {
   return !isRuntimeReadyForAiRequests() && runtimeAiReadyRetryable;
 }
 
+export function getRuntimeHostUptimeMs(): number | null {
+  return runtimeServeStartedAt > 0
+    ? Math.max(0, Date.now() - runtimeServeStartedAt)
+    : null;
+}
+
 function hasRuntimeInitializationFailed(): boolean {
   return runtimeReadyState === "failed";
 }
 
 async function ensureLocalFallbackReady(): Promise<boolean> {
   const fallbackModelId = await resolveLocalFallbackModelId();
-  const result = await waitForModelAccess(fallbackModelId);
-  if (result.available) {
+  const bareName = fallbackModelId.replace(/^ollama\//, "");
+  const probe = await probeLocalFallbackPresence(bareName);
+
+  if (probe.present) {
     setRuntimeAiReadyState(null);
     return true;
   }
-  const reason = result.authRequired
-    ? "authentication is unexpectedly required"
-    : result.error ?? "the model did not answer a readiness probe in time";
+
+  const reason = probe.reason;
   setRuntimeAiReadyState(
     `Local ${getLocalModelDisplayName()} fallback (${fallbackModelId}) is not ready for AI requests: ${reason}`,
-    !result.authRequired,
+    probe.retryable,
   );
   log.warn?.(
     `Local ${getLocalModelDisplayName()} fallback (${fallbackModelId}) is not ready for requests yet: ${reason}`,
@@ -87,11 +97,106 @@ async function ensureLocalFallbackReady(): Promise<boolean> {
   return false;
 }
 
+interface LocalFallbackProbe {
+  present: boolean;
+  reason: string;
+  retryable: boolean;
+}
+
+async function probeLocalFallbackPresence(
+  modelName: string,
+): Promise<LocalFallbackProbe> {
+  try {
+    return await fetchAndMatchTags(modelName);
+  } catch (err) {
+    // Engine is unreachable — try to heal it, then probe once more. This is
+    // reactive (no timers): we only touch the engine because a real probe
+    // just failed. `aiEngine.ensureRunning` is idempotent.
+    try {
+      await aiEngine.ensureRunning();
+    } catch { /* best-effort heal; original error still bubbles */ }
+    try {
+      return await fetchAndMatchTags(modelName);
+    } catch (retryErr) {
+      return {
+        present: false,
+        reason: retryErr instanceof Error ? retryErr.message : String(retryErr),
+        retryable: true,
+      };
+    }
+  }
+}
+
+async function fetchAndMatchTags(
+  modelName: string,
+): Promise<LocalFallbackProbe> {
+  const response = await http.fetchRaw(
+    `${DEFAULT_OLLAMA_ENDPOINT}/api/tags`,
+    { timeout: 2_000 },
+  );
+  if (!response.ok) {
+    await response.body?.cancel();
+    return {
+      present: false,
+      reason: `AI engine returned HTTP ${response.status} on /api/tags`,
+      retryable: true,
+    };
+  }
+  const payload = await response.json().catch(() => null) as {
+    models?: Array<{ name?: unknown; model?: unknown }>;
+  } | null;
+  const served = new Set<string>();
+  for (const entry of payload?.models ?? []) {
+    if (typeof entry?.name === "string") served.add(entry.name);
+    if (typeof entry?.model === "string") served.add(entry.model);
+  }
+  if (served.has(modelName)) {
+    return { present: true, reason: "", retryable: true };
+  }
+  return {
+    present: false,
+    reason: `model '${modelName}' is not in the AI engine's model list`,
+    retryable: false,
+  };
+}
+
 function emitModelsReadyIfReady(): void {
   if (bootstrapVerified && localFallbackReady) {
     setRuntimeAiReadyState(null);
     emitModelsReadyEvent();
   }
+}
+
+let aiEngineExitUnsubscribe: (() => void) | null = null;
+function subscribeToAIEngineExitOnce(): void {
+  if (aiEngineExitUnsubscribe) return;
+  aiEngineExitUnsubscribe = onAIEngineExit(() => {
+    if (!runtimeReadinessManaged) return;
+    if (!localFallbackReady) return;
+    log.warn?.(
+      "Managed AI engine exited; respawning reactively.",
+    );
+    localFallbackReady = false;
+    setRuntimeAiReadyState(
+      "Managed AI engine exited. Respawning.",
+      true,
+    );
+    // Reactive respawn, triggered by the exit event — not a timer.
+    // `ensureLocalFallbackReady` calls `aiEngine.ensureRunning` internally
+    // via its probe-then-heal path, so a single call here brings Ollama
+    // back and flips readiness true in one shot.
+    (async () => {
+      const ready = await ensureLocalFallbackReady();
+      localFallbackReady = ready;
+      if (ready) {
+        emitModelsReadyIfReady();
+      } else {
+        scheduleLocalFallbackRetry();
+      }
+    })().catch(() => {
+      scheduleLocalFallbackRetry();
+    });
+  });
 }
 
 function scheduleLocalFallbackRetry(): void {
@@ -151,11 +256,13 @@ export async function serveCommand(args: string[]): Promise<number> {
 
   try {
     runtimeReadinessManaged = true;
+    runtimeServeStartedAt = Date.now();
     runtimeReadyState = "pending";
     bootstrapVerified = false;
     localFallbackReady = false;
     localFallbackRetryTask = null;
     setRuntimeAiReadyState("AI runtime is still initializing.", true);
+    subscribeToAIEngineExitOnce();
 
     // Start server FIRST so the port is open immediately for GUI clients.
     // Deno.serve() binds the port synchronously — no "Connection refused" race.

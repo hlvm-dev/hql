@@ -80,7 +80,7 @@ export function summarizeTraceEvent(
       return {
         type: event.type,
         mode: event.mode,
-        tier: event.tier,
+        capability: event.capability,
         querySource: event.querySource,
         signatureHash: event.signatureHash,
         sectionCount: event.sections.length,

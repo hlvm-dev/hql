@@ -3,7 +3,7 @@
  */
 
 import { invalidateFact, searchFactsFts } from "./facts.ts";
-import { type ModelTier } from "../agent/constants.ts";
+import { type ModelCapabilityClass } from "../agent/constants.ts";
 
 interface ConflictCandidate {
   factId: number;
@@ -41,9 +41,9 @@ export async function detectConflicts(content: string, category: string): Promis
 
 export function autoInvalidateConflicts(
   candidates: ConflictCandidate[],
-  modelTier: ModelTier,
+  modelCapability: ModelCapabilityClass,
 ): number[] {
-  if (modelTier !== "enhanced") return [];
+  if (modelCapability !== "agent") return [];
 
   const invalidated: number[] = [];
   for (const candidate of candidates) {

@@ -146,8 +146,8 @@ export function ShortcutsOverlay({
       <Box paddingLeft={PADDING.left}>
         <Text color={sc.text.muted} wrap="truncate-end">
           {hiddenCount > 0
-            ? `Esc close · widen terminal for ${hiddenCount} more`
-            : "Esc close · /help full command list"}
+            ? `Esc · widen terminal for ${hiddenCount} more`
+            : "Esc · /help full list"}
         </Text>
       </Box>
     </OverlayModal>

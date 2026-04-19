@@ -99,10 +99,41 @@ function currentScrollTop(handle: ScrollBoxHandle): number {
   return handle.getScrollTop() + handle.getPendingDelta();
 }
 
+function translateSelectionForJump(
+  handle: ScrollBoxHandle,
+  selection: ReturnType<typeof useSelection>,
+  delta: number,
+): void {
+  const state = selection.getState();
+  if (!state?.anchor || !state.focus) return;
+
+  const top = handle.getViewportTop();
+  const bottom = top + handle.getViewportHeight() - 1;
+
+  if (state.anchor.row < top || state.anchor.row > bottom) return;
+  if (state.focus.row < top || state.focus.row > bottom) return;
+
+  const max = maxScrollTop(handle);
+  const current = currentScrollTop(handle);
+  const actual = clamp(current + delta, 0, max) - current;
+  if (actual === 0) return;
+
+  if (actual > 0) {
+    selection.captureScrolledRows(top, top + actual - 1, "above");
+    selection.shiftSelection(-actual, top, bottom);
+    return;
+  }
+
+  const distance = -actual;
+  selection.captureScrolledRows(bottom - distance + 1, bottom, "below");
+  selection.shiftSelection(distance, top, bottom);
+}
+
 function jumpBy(handle: ScrollBoxHandle, delta: number): boolean {
   const max = maxScrollTop(handle);
   const target = clamp(currentScrollTop(handle) + delta, 0, max);
   if (target >= max) {
+    handle.scrollTo(max);
     handle.scrollToBottom();
     return true;
   }
@@ -143,6 +174,19 @@ function shouldClearSelectionOnKey(key: Key): boolean {
   return true;
 }
 
+function selectionFocusMoveForKey(
+  key: Key,
+): "left" | "right" | "up" | "down" | "lineStart" | "lineEnd" | null {
+  if (!key.shift || key.meta || key.super) return null;
+  if (key.leftArrow) return "left";
+  if (key.rightArrow) return "right";
+  if (key.upArrow) return "up";
+  if (key.downArrow) return "down";
+  if (key.home) return "lineStart";
+  if (key.end) return "lineEnd";
+  return null;
+}
+
 export function ScrollKeybindingHandler({
   scrollRef,
   isActive,
@@ -159,20 +203,18 @@ export function ScrollKeybindingHandler({
 
     if (key.pageUp) {
       event.stopImmediatePropagation();
-      const sticky = jumpBy(
-        handle,
-        -Math.max(1, Math.floor(handle.getViewportHeight() / 2)),
-      );
+      const delta = -Math.max(1, Math.floor(handle.getViewportHeight() / 2));
+      translateSelectionForJump(handle, selection, delta);
+      const sticky = jumpBy(handle, delta);
       onScroll?.(sticky, handle);
       return;
     }
 
     if (key.pageDown) {
       event.stopImmediatePropagation();
-      const sticky = jumpBy(
-        handle,
-        Math.max(1, Math.floor(handle.getViewportHeight() / 2)),
-      );
+      const delta = Math.max(1, Math.floor(handle.getViewportHeight() / 2));
+      translateSelectionForJump(handle, selection, delta);
+      const sticky = jumpBy(handle, delta);
       onScroll?.(sticky, handle);
       return;
     }
@@ -180,6 +222,7 @@ export function ScrollKeybindingHandler({
     if (key.wheelUp) {
       if (handle.getScrollHeight() <= handle.getViewportHeight()) return;
       event.stopImmediatePropagation();
+      selection.clearSelection();
       wheelAccelRef.current ??= initWheelAccel();
       const sticky = scrollUp(
         handle,
@@ -192,6 +235,7 @@ export function ScrollKeybindingHandler({
     if (key.wheelDown) {
       if (handle.getScrollHeight() <= handle.getViewportHeight()) return;
       event.stopImmediatePropagation();
+      selection.clearSelection();
       wheelAccelRef.current ??= initWheelAccel();
       const sticky = scrollDown(
         handle,
@@ -221,6 +265,13 @@ export function ScrollKeybindingHandler({
     if ((key.ctrl || key.super) && normalizedInput === "c") {
       const text = selection.copySelection();
       if (text) onSelectionCopied?.(text);
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    const move = selectionFocusMoveForKey(key);
+    if (move) {
+      selection.moveFocus(move);
       event.stopImmediatePropagation();
       return;
     }

@@ -123,7 +123,7 @@ export const InteractionPicker = React.memo(function InteractionPicker(
   );
   const trimmedNotes = notes.trim();
   const displayedHint = notesMode
-    ? "Type notes · Tab return to choices · Enter submit · Esc cancel"
+    ? "Type notes · Tab choices · Enter · Esc"
     : hint;
 
   useInput((input, key) => {

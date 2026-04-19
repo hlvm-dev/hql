@@ -396,7 +396,7 @@ export class DdgSearchBackend implements WebSearchBackend {
           toolOptions: options,
         };
         let selection;
-        if (options?.modelTier === "enhanced") {
+        if (options?.modelCapability === "agent") {
           try {
             selection = await selectSearchResultsWithLlm(selectorInput);
           } catch (err) {
@@ -584,7 +584,7 @@ export class DdgSearchBackend implements WebSearchBackend {
       });
 
       // Frontier: LLM reorders already-annotated results by semantic relevance
-      if (options?.modelTier === "enhanced" && rankedFetched.results.length > 1) {
+      if (options?.modelCapability === "agent" && rankedFetched.results.length > 1) {
         try {
           const reordered = await reorderFetchedEvidenceWithLlm({
             query,

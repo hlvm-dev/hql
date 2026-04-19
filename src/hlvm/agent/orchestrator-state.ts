@@ -7,7 +7,7 @@ import {
   DEFAULT_TIMEOUTS,
   type GroundingMode,
   MAX_ITERATIONS,
-  type ModelTier,
+  type ModelCapabilityClass,
   RATE_LIMITS,
   RESOURCE_LIMITS,
 } from "./constants.ts";
@@ -156,7 +156,7 @@ export interface LoopConfig {
   planningConfig: PlanningConfig;
   loopDeadline: number;
   totalTimeout: number;
-  modelTier: ModelTier;
+  modelCapability: ModelCapabilityClass;
 }
 
 /** Control flow directive from extracted loop functions */
@@ -239,7 +239,7 @@ export function resolveLoopConfig(config: OrchestratorConfig): LoopConfig {
     planningConfig: config.planning ?? { mode: "off" },
     loopDeadline: Date.now() + totalTimeout,
     totalTimeout,
-    modelTier: config.modelTier ?? "standard",
+    modelCapability: config.modelCapability ?? "agent",
   };
 }
 

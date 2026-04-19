@@ -4,7 +4,7 @@
  * Shared type definitions for the prompt compilation pipeline.
  */
 
-import type { ModelTier } from "../agent/constants.ts";
+import type { ModelCapabilityClass } from "../agent/constants.ts";
 import type { ToolMetadata } from "../agent/registry.ts";
 import type { AgentProfile } from "../agent/agent-registry.ts";
 
@@ -14,18 +14,18 @@ export type PromptMode = "chat" | "agent";
 /** Prompt section stability — determines cache invalidation boundaries. */
 export type PromptSectionStability = "static" | "session" | "turn";
 
-/** A single prompt section with tier gating. */
+/** A single prompt section with capability-class gating. */
 export interface PromptSection {
   id: string;
   content: string;
-  minTier: ModelTier;
+  minCapability: ModelCapabilityClass;
   stability: PromptSectionStability;
 }
 
 /** Input to the prompt compiler. */
 export interface PromptCompilerInput {
   mode: PromptMode;
-  tier: ModelTier;
+  capability: ModelCapabilityClass;
   tools: Record<string, ToolMetadata>;
   agentProfiles?: readonly AgentProfile[];
   querySource?: string;
@@ -62,7 +62,7 @@ export interface PromptStableCacheProfile {
 export interface CompiledPrompt {
   text: string;
   mode: PromptMode;
-  tier: ModelTier;
+  capability: ModelCapabilityClass;
   querySource?: string;
   sections: SectionManifestEntry[];
   cacheSegments: PromptCacheSegment[];

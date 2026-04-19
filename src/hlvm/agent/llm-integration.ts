@@ -15,7 +15,7 @@ import {
 } from "./registry.ts";
 import type { AgentProfile } from "./agent-registry.ts";
 import { buildToolJsonSchema } from "./tool-schema.ts";
-import type { ModelTier } from "./constants.ts";
+import type { ModelCapabilityClass } from "./constants.ts";
 import {
   type CompiledPrompt,
   compilePrompt,
@@ -148,8 +148,8 @@ export interface SystemPromptOptions {
   toolDenylist?: string[];
   toolOwnerId?: string;
   querySource?: string;
-  /** Model tier — controls prompt depth */
-  modelTier?: ModelTier;
+  /** Model capability class — controls prompt depth */
+  modelCapability?: ModelCapabilityClass;
   /** Preloaded agent profiles for child agent guidance. */
   agentProfiles?: readonly AgentProfile[];
   /** Whether the active model supports vision inputs. */
@@ -163,7 +163,7 @@ export interface SystemPromptOptions {
 export function compileSystemPrompt(
   options: SystemPromptOptions = {},
 ): CompiledPrompt {
-  const tier = options.modelTier ?? "standard";
+  const capability = options.modelCapability ?? "agent";
   const tools = resolveTools({
     allowlist: options.toolAllowlist,
     denylist: options.toolDenylist,
@@ -172,7 +172,7 @@ export function compileSystemPrompt(
 
   return compilePrompt({
     mode: "agent",
-    tier,
+    capability,
     tools,
     agentProfiles: options.agentProfiles,
     querySource: options.querySource,

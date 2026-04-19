@@ -30,7 +30,7 @@ import {
   loadMemoryContext,
   loadMemorySystemMessage,
   MEMORY_TOOLS,
-  _resetMemoryModelTierForTests,
+  _resetMemoryModelCapabilityForTests,
   persistConversationFacts,
   persistExplicitMemoryRequest,
   readExplicitMemory,
@@ -72,7 +72,7 @@ async function setupTestEnv(): Promise<string> {
 
 async function teardownTestEnv(tempDir: string): Promise<void> {
   closeFactDb();
-  _resetMemoryModelTierForTests();
+  _resetMemoryModelCapabilityForTests();
   resetHlvmDirCacheForTests();
   try {
     await platform().fs.remove(tempDir, { recursive: true });
@@ -106,7 +106,7 @@ function createAgentSession(context: ContextManager): AgentSession {
     dispose: () => Promise.resolve(),
     profile: ENGINE_PROFILES.normal,
     isFrontierModel: false,
-    modelTier: "standard",
+    modelCapability: "agent",
     todoState: createTodoState(),
     resolvedContextBudget: {
       budget: 32000,
@@ -217,7 +217,7 @@ Deno.test("memory: writeMemoryFact does not insert when conflict detection fails
           writeMemoryFact({
             content: "User prefers Bun for scripts",
             invalidateConflicts: true,
-            modelTier: "enhanced",
+            modelCapability: "agent",
           }),
         Error,
         "conflict detector failed",

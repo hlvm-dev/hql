@@ -228,7 +228,7 @@ Created by `createAgentSession()` in `src/hlvm/agent/session.ts`:
 | `engine`                | `AgentEngine`          | SDK or Legacy engine instance         |
 | `context`               | `ContextManager`       | Token budget + sliding window         |
 | `profile`               | `ENGINE_PROFILES[key]` | Engine profile (normal/strict config) |
-| `modelTier`             | `ModelTier`            | `"weak"` / `"mid"` / `"frontier"`     |
+| `modelCapability`       | `ModelCapabilityClass` | `"chat"` / `"tool"` / `"agent"`       |
 | `isFrontierModel`       | `boolean`              | API-hosted or large context           |
 | `thinkingCapable`       | `boolean`              | Extended thinking support             |
 | `compiledPromptMeta`    | `CompiledPromptMeta`   | Compiled system prompt metadata       |
@@ -427,20 +427,24 @@ hlvm ask --permission-mode dontAsk --allowedTools write_file "generate docs"
 | `git`     | `git_status`, `git_diff`, `git_log`, `git_commit`                            |
 | `data`    | Data processing tools                                                        |
 
-### Model Tier Tool Filtering
+### Capability-Class Tool Filtering
 
 ```typescript
-type ModelTier = "weak" | "mid" | "frontier";
+type ModelCapabilityClass = "chat" | "tool" | "agent";
 
-classifyModelTier(modelInfo, isFrontier) → ModelTier
-  // frontier: API-hosted (anthropic/openai/google/claude-code) OR context ≥ 128K
-  // weak: local model with <13B params
-  // mid: everything else
+classifyModelCapability(modelInfo, model) → ModelCapabilityClass
+  // agent:  cloud frontier OR curated local allowlist (qwen3, llama3.1+,
+  //         deepseek, mistral, mixtral, command-r, yi ≥9B) AND params ≥7B
+  // chat:   no tool capability, OR params <3B, OR context <8K
+  // tool:   has tools but not on agent allowlist (unknown/weak locals)
 
-computeTierToolFilter(tier) → { allowlist, denylist }
-  // weak: restricted to WEAK_TIER_CORE_TOOLS (read, list, search, shell basics)
-  // mid/frontier: full access
+starterPolicy(capability) → { allowlist, denylist }
+  // chat:  [] (no tool schema)
+  // tool:  TOOL_CLASS_STARTER_TOOLS (~17, no tool_search)
+  // agent: AGENT_CLASS_STARTER_TOOLS (~18, includes tool_search)
 ```
+
+See `docs/route/model-tiers.md` for full rationale + evidence.
 
 ---
 

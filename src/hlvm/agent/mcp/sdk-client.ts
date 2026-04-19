@@ -1,9 +1,6 @@
 /**
- * MCP SDK Client Adapter — Wraps @modelcontextprotocol/sdk Client to expose
- * the same API surface used by tools.ts and other HLVM code.
- *
- * Replaces the hand-rolled McpClient, StdioTransport, and HttpTransport with
- * the official Anthropic-maintained SDK.
+ * MCP SDK Client Adapter — wraps @modelcontextprotocol/sdk Client with
+ * the API surface used by tools.ts and the rest of HLVM.
  */
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -105,6 +102,12 @@ function wrapFetchWithTimeout(
 }
 
 const MCP_HTTP_REQUEST_TIMEOUT_MS = 60_000;
+
+function hasExplicitAuthorizationHeader(
+  headers: Record<string, string>,
+): boolean {
+  return Object.keys(headers).some((key) => key.toLowerCase() === "authorization");
+}
 
 // ============================================================
 // SdkMcpClient — Adapter wrapping SDK Client
@@ -248,16 +251,21 @@ export class SdkMcpClient {
     if (this.serverConfig.transport === "sse") {
       const url = new URL(this.serverConfig.url!);
       const baseHeaders = this.serverConfig.headers ?? {};
-      this.remoteAuthProvider = createMcpOAuthTransportAuthProvider(
-        this.serverConfig,
-        authOptions,
-      );
-      const fetchImpl = this.createRemoteFetch(
+      const explicitAuthorization = hasExplicitAuthorizationHeader(baseHeaders);
+      this.remoteAuthProvider = explicitAuthorization
+        ? null
+        : createMcpOAuthTransportAuthProvider(
+          this.serverConfig,
+          authOptions,
+        );
+      const rawFetchImpl =
         // deno-lint-ignore no-explicit-any
-        wrapFetchWithTimeout(MCP_HTTP_REQUEST_TIMEOUT_MS) as any,
-      );
+        wrapFetchWithTimeout(MCP_HTTP_REQUEST_TIMEOUT_MS) as any;
+      const fetchImpl = explicitAuthorization
+        ? rawFetchImpl
+        : this.createRemoteFetch(rawFetchImpl);
       return new SSEClientTransport(url, {
-        authProvider: this.remoteAuthProvider,
+        ...(this.remoteAuthProvider ? { authProvider: this.remoteAuthProvider } : {}),
         requestInit: {
           headers: baseHeaders,
         },
@@ -268,16 +276,21 @@ export class SdkMcpClient {
     if (this.serverConfig.url || this.serverConfig.transport === "http") {
       const url = new URL(this.serverConfig.url!);
       const baseHeaders = this.serverConfig.headers ?? {};
-      this.remoteAuthProvider = createMcpOAuthTransportAuthProvider(
-        this.serverConfig,
-        authOptions,
-      );
-      const fetchImpl = this.createRemoteFetch(
+      const explicitAuthorization = hasExplicitAuthorizationHeader(baseHeaders);
+      this.remoteAuthProvider = explicitAuthorization
+        ? null
+        : createMcpOAuthTransportAuthProvider(
+          this.serverConfig,
+          authOptions,
+        );
+      const rawFetchImpl =
         // deno-lint-ignore no-explicit-any
-        wrapFetchWithTimeout(MCP_HTTP_REQUEST_TIMEOUT_MS) as any,
-      );
+        wrapFetchWithTimeout(MCP_HTTP_REQUEST_TIMEOUT_MS) as any;
+      const fetchImpl = explicitAuthorization
+        ? rawFetchImpl
+        : this.createRemoteFetch(rawFetchImpl);
       return new StreamableHTTPClientTransport(url, {
-        authProvider: this.remoteAuthProvider,
+        ...(this.remoteAuthProvider ? { authProvider: this.remoteAuthProvider } : {}),
         requestInit: {
           headers: {
             ...baseHeaders,

@@ -208,7 +208,7 @@ function resolveGroupedAgentActivityText(
 
 export interface InheritedAgentConfig {
   contextBudget?: number;
-  modelTier?: OrchestratorConfig["modelTier"];
+  modelCapability?: OrchestratorConfig["modelCapability"];
   onTrace?: OrchestratorConfig["onTrace"];
   llmTimeout?: OrchestratorConfig["llmTimeout"];
   toolTimeout?: OrchestratorConfig["toolTimeout"];
@@ -506,7 +506,7 @@ export async function runAgent(
     onAgentEvent: childOnAgentEvent,
     usage: usageTracker,
     // Inherit from parent where appropriate
-    modelTier: inheritedConfig?.modelTier,
+    modelCapability: inheritedConfig?.modelCapability,
     onTrace: inheritedConfig?.onTrace,
     permissionMode: agentDefinition.permissionMode ??
       inheritedConfig?.permissionMode,

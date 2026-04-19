@@ -222,7 +222,7 @@ export function ModelSetupOverlay({
           One-time download · initial setup may download around 2GB once.
         </Text>
         <Text color={sc.footer.status.active} wrap="wrap">
-          Esc cancels · background shell stays visible while setup is open.
+          Esc · background shell stays visible while setup is open.
         </Text>
       </Box>
     </OverlayModal>

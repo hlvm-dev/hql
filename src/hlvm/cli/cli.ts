@@ -32,6 +32,7 @@ import { VERSION } from "../../common/version.ts";
 import { HLVM_RUNTIME_DEFAULT_PORT } from "../runtime/host-config.ts";
 import { ensureDenoAvailable } from "./utils/toolchain.ts";
 import { ValidationError } from "../../common/error.ts";
+import { stripErrorCodeFromMessage } from "../../common/error-codes.ts";
 
 interface ParsedReplArgs {
   debug: boolean;
@@ -301,6 +302,10 @@ async function main(): Promise<void> {
     exitIfNonZero(await runCommand(args));
     return;
   }
+  if (command === "mcp") {
+    exitIfNonZero(await entry.run(commandArgs));
+    return;
+  }
   if (entry.help && hasHelpFlag(commandArgs)) {
     entry.help();
   } else {
@@ -311,7 +316,14 @@ async function main(): Promise<void> {
 // Run if executed directly
 if (import.meta.main) {
   main().catch((error) => {
-    log.raw.error("Error:", error.message);
+    const args = platformGetArgs();
+    const command = args[0];
+    const message = stripErrorCodeFromMessage(error.message);
+    if (command === "mcp") {
+      log.raw.error(message);
+    } else {
+      log.raw.error("Error:", message);
+    }
     getPlatform().process.exit(1);
   });
 }

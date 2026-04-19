@@ -1,11 +1,4 @@
-type RuntimeMcpScope =
-  | "user"
-  | "cursor"
-  | "windsurf"
-  | "zed"
-  | "codex"
-  | "gemini"
-  | "claude-code";
+import type { McpScope } from "../agent/mcp/config.ts";
 
 export interface RuntimeMcpServerDescriptor {
   name: string;
@@ -14,9 +7,17 @@ export interface RuntimeMcpServerDescriptor {
   headers?: Record<string, string>;
   url?: string;
   env?: Record<string, string>;
-  scope: RuntimeMcpScope;
+  oauth?: {
+    clientId?: string;
+    callbackPort?: number;
+    authServerMetadataUrl?: string;
+    xaa?: boolean;
+    clientSecretConfigured?: boolean;
+  };
+  scope: McpScope;
   transport: "http" | "sse" | "stdio";
   target: string;
+  status: string;
   /** Short scope label, used in list output (e.g. "Cursor", "user"). */
   scopeLabel: string;
   /**
@@ -42,6 +43,7 @@ export interface RuntimeMcpServerInput {
   connection_timeout_ms?: number;
   oauth?: {
     clientId?: string;
+    clientSecret?: string;
     callbackPort?: number;
     authServerMetadataUrl?: string;
     xaa?: boolean;

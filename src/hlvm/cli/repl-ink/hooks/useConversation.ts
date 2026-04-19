@@ -37,6 +37,7 @@ export interface UseConversationResult {
   activeTool?: {
     name: string;
     displayName: string;
+    argsSummary: string;
     progressText?: string;
     progressTone?: "running" | "success" | "warning";
     toolIndex: number;

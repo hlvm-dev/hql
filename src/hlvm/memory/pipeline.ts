@@ -12,13 +12,13 @@ import {
   autoInvalidateConflicts,
   detectConflicts,
 } from "./invalidate.ts";
-import { type ModelTier } from "../agent/constants.ts";
+import { type ModelCapabilityClass } from "../agent/constants.ts";
 import { normalizeWhitespace } from "./store.ts";
 
 export interface WriteMemoryFactOptions extends InsertFactOptions {
   linkEntities?: boolean;
   invalidateConflicts?: boolean;
-  modelTier?: ModelTier;
+  modelCapability?: ModelCapabilityClass;
 }
 
 interface WriteMemoryFactResult {
@@ -108,7 +108,7 @@ export async function writeMemoryFact(
   const invalidated = normalized.invalidateConflicts === true
     ? autoInvalidateConflicts(
       conflictCandidates,
-      normalized.modelTier ?? "standard",
+      normalized.modelCapability ?? "agent",
     ).length
     : 0;
 
@@ -142,7 +142,7 @@ export async function writeMemoryFacts(
  * Internal callers that need raw DB-only insertion should import from facts.ts.
  */
 export async function insertFact(
-  opts: InsertFactOptions & { modelTier?: ModelTier },
+  opts: InsertFactOptions & { modelCapability?: ModelCapabilityClass },
 ): Promise<number> {
   const result = await writeMemoryFact({
     ...opts,

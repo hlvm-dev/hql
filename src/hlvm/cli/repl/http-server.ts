@@ -35,6 +35,7 @@ import {
   handleListBackgroundAgents,
 } from "./handlers/background-agents.ts";
 import {
+  getRuntimeHostUptimeMs,
   getRuntimeAiReadyReason,
   getRuntimeReady,
   isRuntimeAiReadyRetryable,
@@ -424,6 +425,7 @@ async function handleHealth(): Promise<Response> {
     initialized: replState !== null,
     definitions: replState?.getDocstrings().size ?? 0,
     activeRequests: activeRequests.size,
+    uptimeMs: getRuntimeHostUptimeMs(),
     aiReady: isRuntimeReadyForAiRequests(),
     aiReadyReason: getRuntimeAiReadyReason(),
     aiReadyRetryable: isRuntimeAiReadyRetryable(),

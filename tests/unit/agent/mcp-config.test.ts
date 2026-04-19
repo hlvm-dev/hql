@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@1";
+import { assertEquals, assertRejects } from "jsr:@std/assert@1";
 import {
   getClaudeCodeMcpDir,
   getMcpConfigPath,
@@ -125,17 +125,18 @@ Deno.test("McpConfig: parseClaudeCodeMcpJson parses wrapped mcpServers entries a
   assertEquals(parseClaudeCodeMcpJson("{}", "test"), []);
 });
 
-Deno.test("McpConfig: normalizeServerName and dedupeServers are case-insensitive and first-win", () => {
+Deno.test("McpConfig: normalizeServerName trims while dedupeServers preserves case-distinct names", () => {
   const deduped = dedupeServers([
     { name: " Playwright ", command: ["node", "a.js"] },
     { name: "playwright", command: ["node", "b.js"] },
     { name: "GitHub", url: "https://example.com/mcp" },
   ]);
 
-  assertEquals(normalizeServerName(" Playwright "), "playwright");
-  assertEquals(deduped.length, 2);
+  assertEquals(normalizeServerName(" Playwright "), "Playwright");
+  assertEquals(deduped.length, 3);
   assertEquals(deduped[0].command, ["node", "a.js"]);
-  assertEquals(deduped[1].name, "GitHub");
+  assertEquals(deduped[1].command, ["node", "b.js"]);
+  assertEquals(deduped[2].name, "GitHub");
 });
 
 Deno.test("McpConfig: MCP server catalog ranking and exact tool resolution stay targeted", () => {
@@ -160,7 +161,7 @@ Deno.test("McpConfig: MCP server catalog ranking and exact tool resolution stay 
   );
 });
 
-Deno.test("McpConfig: addServerToConfig persists global config and replaces duplicate names", async () => {
+Deno.test("McpConfig: addServerToConfig preserves case-distinct names and rejects exact duplicates", async () => {
   await withTempHlvmDir(async () => {
     await addServerToConfig({
       name: "Playwright",
@@ -172,8 +173,23 @@ Deno.test("McpConfig: addServerToConfig persists global config and replaces dupl
     });
 
     const config = await loadMcpConfig();
-    assertEquals(config?.servers.length, 1);
-    assertEquals(config?.servers[0].command, ["node", "scripts/two.mjs"]);
+    assertEquals(config?.servers.length, 2);
+    assertEquals(config?.servers[0].command, ["node", "scripts/one.mjs"]);
+    assertEquals(config?.servers[1].command, ["node", "scripts/two.mjs"]);
+
+    await addServerToConfig({
+      name: "github",
+      command: ["node", "scripts/github.mjs"],
+    });
+    await assertRejects(
+      async () =>
+        await addServerToConfig({
+          name: "github",
+          command: ["node", "scripts/github-again.mjs"],
+        }),
+      Error,
+      "MCP server github already exists in user config",
+    );
   });
 });
 
@@ -244,14 +260,15 @@ Deno.test("McpConfig: loadMcpConfigMultiScope scans marketplace plugin trees and
   });
 });
 
-Deno.test("McpConfig: removeServerFromConfig deletes persisted global entries by normalized name", async () => {
+Deno.test("McpConfig: removeServerFromConfig matches persisted global entries exactly after trimming", async () => {
   await withTempHlvmDir(async () => {
     await addServerToConfig({
       name: "Playwright",
       command: ["node", "scripts/playwright.mjs"],
     });
 
-    assertEquals(await removeServerFromConfig("playwright"), true);
+    assertEquals(await removeServerFromConfig("playwright"), false);
+    assertEquals(await removeServerFromConfig(" Playwright "), true);
     assertEquals(await removeServerFromConfig("playwright"), false);
     assertEquals(await loadMcpConfig(), null);
   });

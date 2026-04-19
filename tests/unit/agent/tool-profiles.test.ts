@@ -14,7 +14,7 @@ import {
   updateToolProfileLayer,
   widenBaselineForDomainProfile,
 } from "../../../src/hlvm/agent/tool-profiles.ts";
-import { STANDARD_EAGER_TOOLS } from "../../../src/hlvm/agent/constants.ts";
+import { REPL_MAIN_THREAD_EAGER_TOOLS } from "../../../src/hlvm/agent/constants.ts";
 import { PLAYWRIGHT_TOOLS } from "../../../src/hlvm/agent/playwright/mod.ts";
 import { COMPUTER_USE_TOOLS } from "../../../src/hlvm/agent/computer-use/mod.ts";
 
@@ -197,7 +197,7 @@ Deno.test("hybrid promotion exposes pw_promote and cu_* after widenBaselineForDo
     n !== "pw_promote"
   );
   const cuToolNames = Object.keys(COMPUTER_USE_TOOLS);
-  const baselineAllowlist = [...STANDARD_EAGER_TOOLS, ...pwToolNames];
+  const baselineAllowlist = [...REPL_MAIN_THREAD_EAGER_TOOLS, ...pwToolNames];
 
   const target: ToolProfileCarrier = {
     toolProfileState: createToolProfileState({
@@ -234,7 +234,7 @@ Deno.test("hybrid promotion: domain layer correctly narrows to browser tools onl
     n !== "pw_promote"
   );
   const cuToolNames = Object.keys(COMPUTER_USE_TOOLS);
-  const baselineAllowlist = [...STANDARD_EAGER_TOOLS, ...pwToolNames];
+  const baselineAllowlist = [...REPL_MAIN_THREAD_EAGER_TOOLS, ...pwToolNames];
 
   const target: ToolProfileCarrier = {
     toolProfileState: createToolProfileState({
@@ -262,7 +262,7 @@ Deno.test("widenBaselineForDomainProfile is idempotent", () => {
   const pwToolNames = Object.keys(PLAYWRIGHT_TOOLS).filter((n) =>
     n !== "pw_promote"
   );
-  const baselineAllowlist = [...STANDARD_EAGER_TOOLS, ...pwToolNames];
+  const baselineAllowlist = [...REPL_MAIN_THREAD_EAGER_TOOLS, ...pwToolNames];
 
   const target: ToolProfileCarrier = {
     toolProfileState: createToolProfileState({

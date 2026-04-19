@@ -103,12 +103,35 @@ export async function withTimeout<T>(
       reject(new TimeoutError(label, timeoutMs));
     }, timeoutMs);
   });
+  let removeParentAbortListener: (() => void) | undefined;
+  const parentAbortPromise = parentSignal
+    ? new Promise<never>((_, reject) => {
+      const rejectOnAbort = () => {
+        reject(
+          createAbortError(
+            parentSignal.reason ??
+              `${label} aborted`,
+          ),
+        );
+      };
+      if (parentSignal.aborted) {
+        rejectOnAbort();
+        return;
+      }
+      parentSignal.addEventListener("abort", rejectOnAbort, {
+        once: true,
+      });
+      removeParentAbortListener = () =>
+        parentSignal.removeEventListener("abort", rejectOnAbort);
+    })
+    : null;
 
   // Race between operation and timeout
   try {
     return await Promise.race([
       operation(combinedSignal),
       timeoutPromise,
+      ...(parentAbortPromise ? [parentAbortPromise] : []),
     ]);
   } catch (error) {
     // If it's timeout error, throw it
@@ -129,6 +152,7 @@ export async function withTimeout<T>(
     // Other errors - re-throw as-is
     throw error;
   } finally {
+    removeParentAbortListener?.();
     if (timeoutId !== undefined) {
       clearTimeout(timeoutId);
     }

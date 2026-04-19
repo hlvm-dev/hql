@@ -6,7 +6,7 @@ import {
   type ResolvedBudget,
 } from "../../../agent/context-resolver.ts";
 import {
-  classifyModelTier,
+  classifyModelCapability,
   isFrontierProvider,
 } from "../../../agent/constants.ts";
 import { log } from "../../../api/log.ts";
@@ -104,8 +104,11 @@ export function isWeakLocalDirectChatModel(
   modelKey?: string,
   modelInfo?: ModelInfo | null,
 ): boolean {
-  return !isFrontierProvider(modelKey) &&
-    classifyModelTier(modelInfo) === "constrained";
+  if (isFrontierProvider(modelKey)) return false;
+  // Weak direct-chat tier == non-agent capability class. Either the model
+  // cannot use tools at all (chat) or is not proven-agent-capable (tool).
+  const cap = classifyModelCapability(modelInfo, modelKey);
+  return cap !== "agent";
 }
 
 export function resolveWeakDirectChatBudget(

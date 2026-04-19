@@ -465,9 +465,9 @@ export function useCompletion(
     if (!providerId) return "";
     const docsStatus = dropdown.state.showDocPanel ? "on" : "off";
     if (providerId === "file") {
-      return `Enter select • →/Shift+Tab drill • ← back • Tab/Esc close • docs ${docsStatus}`;
+      return `Enter select • →/Shift+Tab drill • ← back • Tab/Esc • docs ${docsStatus}`;
     }
-    return `Enter select • Tab next • Esc close • docs ${docsStatus}`;
+    return `Enter select • Tab next • Esc • docs ${docsStatus}`;
   }, [dropdown.state.providerId, dropdown.state.showDocPanel]);
 
   // ============================================================

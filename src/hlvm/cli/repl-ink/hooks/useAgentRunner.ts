@@ -50,7 +50,7 @@ import {
 } from "../../../agent/tools/agent-types.ts";
 import {
   cancelRuntimeBackgroundAgent,
-  ensureRuntimeHostReady,
+  ensureRuntimeHostAvailable,
   listRuntimeBackgroundAgents,
   runChatViaHost,
 } from "../../../runtime/host-client.ts";
@@ -119,7 +119,7 @@ function formatLocalAgentCompletionSummary(
   entries: readonly LocalAgentEntry[],
 ): string {
   const total = entries.length;
-  if (total === 0) return "Local agents finished";
+  if (total === 0) return "Agents done";
   const completed = entries.filter((entry) => entry.status === "completed")
     .length;
   const failed = entries.filter((entry) => entry.status === "failed").length;
@@ -135,7 +135,7 @@ function formatLocalAgentCompletionSummary(
   if (cancelled > 0) {
     parts.push(`${cancelled} cancelled`);
   }
-  const label = `${total} local agent${total === 1 ? "" : "s"} finished`;
+  const label = `${total} agent${total === 1 ? "" : "s"} done`;
   return parts.length > 0
     ? `${label} · ${parts.join(" · ")} · ↓ to review`
     : `${label} · ↓ to review`;
@@ -796,7 +796,7 @@ export function useAgentRunner(
         hostAttempt++
       ) {
         try {
-          await ensureRuntimeHostReady();
+          await ensureRuntimeHostAvailable();
           result = await runChatViaHost({
             mode: "agent",
             querySource: REPL_MAIN_THREAD_QUERY_SOURCE,

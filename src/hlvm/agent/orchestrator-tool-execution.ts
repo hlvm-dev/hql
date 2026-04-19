@@ -147,7 +147,7 @@ async function executeToolWithTimeout(
         toolCallId: toolCall.id,
         argsSummary: generateArgsSummary(toolCall.toolName, args),
         modelId: config.modelId,
-        modelTier: config.modelTier,
+        modelCapability: config.modelCapability,
         onInteraction: config.onInteraction,
         toolOwnerId: config.toolOwnerId,
         ensureMcpLoaded: config.ensureMcpLoaded,

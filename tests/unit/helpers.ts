@@ -7,8 +7,14 @@
 import hql, { type RunOptions } from "../../mod.ts";
 import {
   resetHlvmDirCacheForTests,
+  setCodexConfigPathForTests,
   setClaudeCodeMcpDirForTests,
+  setCursorMcpPathForTests,
+  setGeminiSettingsPathForTests,
   setHlvmDirForTests,
+  setWindsurfLegacyMcpPathForTests,
+  setWindsurfMcpPathForTests,
+  setZedSettingsPathForTests,
 } from "../../src/common/paths.ts";
 import { getPlatform } from "../../src/platform/platform.ts";
 import { transpileToJavascript } from "../../src/hql/transpiler/hql-transpiler.ts";
@@ -243,6 +249,20 @@ export async function withTempHlvmDir(
         "external_plugins",
       ),
     );
+    setCursorMcpPathForTests(join(tempDir, ".cursor", "mcp.json"));
+    setWindsurfMcpPathForTests(
+      join(tempDir, ".codeium", "windsurf", "mcp_config.json"),
+    );
+    setWindsurfLegacyMcpPathForTests(
+      join(tempDir, ".codeium", "mcp_config.json"),
+    );
+    setZedSettingsPathForTests(
+      join(tempDir, ".config", "zed", "settings.json"),
+    );
+    setCodexConfigPathForTests(join(tempDir, ".codex", "config.toml"));
+    setGeminiSettingsPathForTests(
+      join(tempDir, ".gemini", "settings.json"),
+    );
 
     try {
       await fn();
@@ -250,6 +270,12 @@ export async function withTempHlvmDir(
       resetHlvmRuntimeState();
       resetHlvmDirCacheForTests();
       setClaudeCodeMcpDirForTests(null);
+      setCursorMcpPathForTests(null);
+      setWindsurfMcpPathForTests(null);
+      setWindsurfLegacyMcpPathForTests(null);
+      setZedSettingsPathForTests(null);
+      setCodexConfigPathForTests(null);
+      setGeminiSettingsPathForTests(null);
 
       try {
         await platform.fs.remove(tempDir, { recursive: true });

@@ -1314,18 +1314,18 @@ export function ModelBrowser({
 
       {loading && (
         <Box marginTop={1}>
-          <Text dimColor>{loadingSpinner} Loading installed models...</Text>
+          <Text dimColor>{loadingSpinner} Loading models...</Text>
         </Box>
       )}
       {!loading && discoveryLoading && (
         <Box marginTop={1}>
-          <Text dimColor>{loadingSpinner} Loading model catalog...</Text>
+          <Text dimColor>{loadingSpinner} Loading catalog...</Text>
         </Box>
       )}
       {!loading && !discoveryLoading && discoveryRefreshing &&
         !hasDiscoveryResults && (
         <Box marginTop={1}>
-          <Text dimColor>{loadingSpinner} Refreshing model catalog...</Text>
+          <Text dimColor>{loadingSpinner} Refreshing catalog...</Text>
         </Box>
       )}
 
@@ -1374,13 +1374,13 @@ export function ModelBrowser({
             >
               <Text color={color("error")} wrap="truncate-end">
                 {padDisplayText(
-                  `Press Ctrl+D again to delete "${
+                  `Ctrl+D delete "${
                     truncate(
                       pendingDelete,
-                      Math.max(0, browserContentWidth - 36),
+                      Math.max(0, browserContentWidth - 24),
                       "…",
                     )
-                  }", Esc to cancel`,
+                  }" · Esc`,
                   browserContentWidth - 2,
                 )}
               </Text>
@@ -1397,15 +1397,15 @@ export function ModelBrowser({
               <Text dimColor wrap="truncate-end">
                 {padDisplayText(
                   presentation === "overlay"
-                    ? `↑↓ move · Enter ${MODEL_BROWSER_SELECT_ACTION_LABEL} · Type filter · Tab cycle · Esc`
-                    : `↑↓ navigate · Enter ${MODEL_BROWSER_SELECT_ACTION_LABEL} · Tab ${nextFilter} · Esc close`,
+                    ? `↑↓ move · Enter ${MODEL_BROWSER_SELECT_ACTION_LABEL} · Type filter · Tab next · Esc`
+                    : `↑↓ move · Enter ${MODEL_BROWSER_SELECT_ACTION_LABEL} · Tab ${nextFilter} · Esc`,
                   browserContentWidth,
                 )}
               </Text>
               {presentation === "inline" && (
                 <Text dimColor wrap="truncate-end">
                   {padDisplayText(
-                    `Type to filter · Ctrl+O info · Ctrl+D delete · Ctrl+X cancel`,
+                    `Type filter · Ctrl+O info · Ctrl+D delete · Ctrl+X`,
                     browserContentWidth,
                   )}
                 </Text>

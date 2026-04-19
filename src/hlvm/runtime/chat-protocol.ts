@@ -83,6 +83,8 @@ export interface HostHealthResponse {
   definitions: number;
   /** In-flight /api/chat requests currently owned by this runtime host. */
   activeRequests?: number;
+  /** Milliseconds since this runtime host process entered serveCommand(). */
+  uptimeMs?: number | null;
   aiReady: boolean;
   aiReadyReason?: string | null;
   aiReadyRetryable?: boolean;

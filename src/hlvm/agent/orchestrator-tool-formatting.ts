@@ -29,7 +29,10 @@ import type { FormattedToolResult } from "./registry.ts";
 import type { SearchResult } from "./tools/web/search-provider.ts";
 import { hasStructuredEvidence } from "./tools/web/web-utils.ts";
 import { AGENT_TOOL_NAME } from "./tools/agent-constants.ts";
-import { summarizeToolResult } from "./tool-result-summary.ts";
+import {
+  summarizeToolCompletion,
+  summarizeToolResult,
+} from "./tool-result-summary.ts";
 import { parseShellCommand } from "../../common/shell-parser.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import {
@@ -490,19 +493,22 @@ export async function buildToolResultOutputs(
   }
 
   const fallbackBody = stringifyToolResult(result);
-  const fallbackMarker = `${toolName} completed with no output.`;
+  const fallbackMarker = "No output.";
   const rawBodyCandidate = formatted?.returnDisplay ??
     extractStructuredBody(presentationKind, result) ??
     fallbackBody;
-  const rawBody = !isImageAttachmentResult(result) &&
-      (isBlankText(rawBodyCandidate) || isEffectivelyEmptyToolResult(result))
+  const emptyResult = !isImageAttachmentResult(result) &&
+    (isBlankText(rawBodyCandidate) || isEffectivelyEmptyToolResult(result));
+  const rawBody = emptyResult
     ? fallbackMarker
     : rawBodyCandidate;
   const rawSummaryCandidate = formatted?.summaryDisplay ??
     buildStructuredSummary(presentationKind, result, rawBody) ??
-    summarizeToolResult(toolName, result, rawBody);
+    (emptyResult
+      ? summarizeToolCompletion(toolName)
+      : summarizeToolResult(toolName, result, rawBody));
   const rawSummary = isBlankText(rawSummaryCandidate)
-    ? fallbackMarker
+    ? summarizeToolCompletion(toolName)
     : rawSummaryCandidate;
   const rawLlmContentCandidate = formatted?.llmContent ?? rawBody;
   const rawLlmContent = isBlankText(rawLlmContentCandidate)

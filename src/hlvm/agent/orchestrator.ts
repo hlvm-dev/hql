@@ -32,7 +32,7 @@ import {
   CONTEXT_PRESSURE_SOFT_THRESHOLD,
   type GroundingMode,
   MAX_ITERATIONS,
-  type ModelTier,
+  type ModelCapabilityClass,
   RESPONSE_CONTINUATION_MAX_HOPS,
 } from "./constants.ts";
 import { getErrorMessage, truncate } from "../../common/utils.ts";
@@ -299,7 +299,7 @@ export type TraceEvent =
   | {
     type: "prompt_compiled";
     mode: import("../prompt/types.ts").PromptMode;
-    tier: import("./constants.ts").ModelTier;
+    capability: import("./constants.ts").ModelCapabilityClass;
     querySource?: string;
     sections: import("../prompt/types.ts").SectionManifestEntry[];
     cacheSegments: import("../prompt/types.ts").PromptCacheSegment[];
@@ -310,7 +310,7 @@ export type TraceEvent =
     type: "routing_decision";
     selectedModel: string;
     modelSource: "explicit" | "auto";
-    modelTier: import("./constants.ts").ModelTier;
+    modelCapability: import("./constants.ts").ModelCapabilityClass;
     eagerToolCount: number;
     deferredToolCount: number;
     deniedToolCount: number;
@@ -631,7 +631,7 @@ export interface OrchestratorModelConfig {
   /** Whether the active model supports vision (image) inputs. */
   visionCapable?: boolean;
   skipModelCompensation?: boolean;
-  modelTier?: ModelTier;
+  modelCapability?: ModelCapabilityClass;
   modelId?: string;
   eagerToolCount?: number;
   discoveredDeferredToolCount?: number;
@@ -871,9 +871,10 @@ export async function applyAdaptiveToolPhase(
     }
   }
 
-  // Mid/frontier tiers keep their normal allowlist, but still benefit from
-  // targeted denylist pruning once the loop is clearly in edit/verify mode.
-  if ((config.modelTier ?? "standard") !== "constrained") {
+  // Non-tool classes (agent, chat) keep their normal allowlist but still
+  // benefit from targeted denylist pruning once the loop is clearly in
+  // edit/verify mode. Tool class takes the aggressive-narrow branch below.
+  if ((config.modelCapability ?? "agent") !== "tool") {
     const phaseDenylist = phase === "editing" || phase === "verifying" ||
         phase === "completing"
       ? Object.entries(availableTools)

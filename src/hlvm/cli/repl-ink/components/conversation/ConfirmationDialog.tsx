@@ -297,7 +297,9 @@ export const ConfirmationDialog = React.memo(
     if (requestId && onResolve) {
       const options = buildPermissionOptions();
       const hintContent = (
-        <Text color={sc.text.muted}>Esc to cancel · Tab to amend</Text>
+        <Text color={sc.text.muted}>
+          {isPlanReview ? PLAN_REVIEW_PICKER_HINT : "Esc · Tab guide"}
+        </Text>
       );
       const resolvePermission = (
         option: InteractionPickerOption,
@@ -345,14 +347,14 @@ export const ConfirmationDialog = React.memo(
 
       const picker = (
         <InteractionPicker
-          title={isPlanReview ? "Ready to start implementation?" : ""}
+          title={isPlanReview ? "Ready to code?" : ""}
           subtitle={!isPlanReview
             ? undefined
             : undefined}
           options={options}
           hint={isPlanReview
             ? PLAN_REVIEW_PICKER_HINT
-            : "Use arrows or 1-9 to choose · Tab add guidance · Enter submit · Esc cancel"}
+            : "↑/↓ / 1-9 · Tab guide · Enter · Esc"}
           hintContent={hintContent}
           tone={isPlanReview ? "warning" : "active"}
           allowNotes
@@ -361,8 +363,8 @@ export const ConfirmationDialog = React.memo(
             ? "Tell the agent what to revise..."
             : "Tell HLVM what to do differently..."}
           notesEmptyText={isPlanReview
-            ? "Press Tab to add revision notes."
-            : "Press Tab to add guidance."}
+            ? "Tab add notes."
+            : "Tab add guidance."}
           onSubmit={resolvePermission}
           onCancel={() => onResolve(requestId, { approved: false })}
         >

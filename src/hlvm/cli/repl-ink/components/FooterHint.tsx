@@ -10,6 +10,7 @@ import React from "react";
 import { Box, Text, useStdout } from "ink";
 import { useSemanticColors } from "../../theme/index.ts";
 import type { PlanningPhase } from "../../../agent/planning.ts";
+import { useHasSelection } from "../../../tui-v2/ink/hooks/use-selection.ts";
 import {
   type StreamingState,
   StreamingState as ConversationStreamingState,
@@ -68,6 +69,7 @@ interface FooterLeftStateInput {
   submitAction?: SubmitAction;
   backgroundLabel?: string;
   backgroundHintLabel?: string;
+  hasSelection?: boolean;
 }
 
 interface FooterLeftState {
@@ -84,6 +86,26 @@ function getQueuedInputLabel(
   const totalCount = conversationQueueCount + localEvalQueueCount;
   if (totalCount === 0) return undefined;
   return `+${totalCount} next`;
+}
+
+function applySelectionAwareHint(
+  text: string,
+  hasSelection: boolean,
+): string {
+  if (!hasSelection) return text;
+  const trimmed = text.trim();
+  if (!trimmed) return "Esc clear selection";
+
+  const replaced = trimmed
+    .replace(/\bEsc cancel\b/g, "Esc clear selection")
+    .replace(/\bEsc clear plan\b/g, "Esc clear selection")
+    .replace(/\bEsc close\b/g, "Esc clear selection");
+
+  if (replaced.includes("Esc clear selection")) return replaced;
+  if (/(^| · )Esc\b/.test(replaced)) {
+    return replaced.replace(/(^| · )Esc\b/g, "$1Esc clear selection");
+  }
+  return `${trimmed} · Esc clear selection`;
 }
 
 export function buildFooterLeftState({
@@ -104,6 +126,7 @@ export function buildFooterLeftState({
   submitAction,
   backgroundLabel,
   backgroundHintLabel,
+  hasSelection = false,
 }: FooterLeftStateInput): FooterLeftState {
   const queuedCount = Math.max(0, interactionQueueLength - 1);
 
@@ -133,12 +156,17 @@ export function buildFooterLeftState({
       return {
         mode: "message",
         segments: [],
-        text: "Ctrl+B background · Esc cancel",
+        text: applySelectionAwareHint(
+          "Ctrl+B background · Esc cancel",
+          hasSelection,
+        ),
         tone: "muted",
       };
     }
 
-    if (segments.length === 0) {
+    if (hasSelection) {
+      segments.push({ text: "Esc clear selection", tone: "muted" });
+    } else if (segments.length === 0) {
       segments.push({ text: "? for shortcuts", tone: "muted" });
     }
     return {
@@ -159,8 +187,8 @@ export function buildFooterLeftState({
       text: hasPendingPlanReview
         ? "Plan review"
         : hasPendingQuestion
-        ? "Reply needed"
-        : "Permission needed",
+        ? "Reply"
+        : "Approval",
       tone: "warning",
       chip: true,
     });
@@ -168,11 +196,14 @@ export function buildFooterLeftState({
       segments.push({ text: `+${queuedCount} queued`, tone: "active" });
     }
     const interactionHint = suppressInteractionHints
-      ? "↑/↓ / 1-9 · Enter submit · Esc"
+      ? "↑/↓ / 1-9 · Enter · Esc"
       : hasPendingQuestion
-      ? "Type reply · Enter submit · Esc"
-      : "Enter submit · Esc";
-    segments.push({ text: interactionHint, tone: "muted" });
+      ? "Type reply · Enter · Esc"
+      : "Enter · Esc";
+    segments.push({
+      text: applySelectionAwareHint(interactionHint, hasSelection),
+      tone: "muted",
+    });
     return {
       mode: "segments",
       segments,
@@ -193,7 +224,10 @@ export function buildFooterLeftState({
     segments.push({ text: backgroundLabel, tone: "active" });
   }
   if (backgroundHintLabel) {
-    segments.push({ text: backgroundHintLabel, tone: "muted" });
+    segments.push({
+      text: applySelectionAwareHint(backgroundHintLabel, hasSelection),
+      tone: "muted",
+    });
   }
   const queuedInputLabel = getQueuedInputLabel(
     conversationQueueCount,
@@ -217,12 +251,17 @@ export function buildFooterLeftState({
   }
 
   const idleHint = "Ctrl+O history · ? shortcuts";
-  const hintText = streamingState === ConversationStreamingState.Responding
+  const hintBase = streamingState === ConversationStreamingState.Responding
     ? hasDraftInput ? "Tab queue · Ctrl+Enter send" : "Esc cancel"
     : planningPhase && planningPhase !== "done"
     ? "Esc clear plan"
     : segments.length === 0
-    ? idleHint
+    ? hasSelection ? "" : idleHint
+    : "";
+  const hintText = hintBase
+    ? applySelectionAwareHint(hintBase, hasSelection)
+    : hasSelection
+    ? "Esc clear selection"
     : "";
   if (hintText) {
     segments.push({
@@ -263,6 +302,7 @@ export const FooterHint = React.memo(function FooterHint({
 }: FooterProps): React.ReactElement {
   const { stdout } = useStdout();
   const sc = useSemanticColors();
+  const hasSelection = useHasSelection();
 
   const left = buildFooterLeftState({
     inConversation,
@@ -282,6 +322,7 @@ export const FooterHint = React.memo(function FooterHint({
     submitAction,
     backgroundLabel,
     backgroundHintLabel,
+    hasSelection,
   });
 
   const rawTerminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;

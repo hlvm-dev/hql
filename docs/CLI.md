@@ -475,32 +475,54 @@ hlvm mcp <command>
 
 **Subcommands:**
 
-| Command                  | Description                          |
-| ------------------------ | ------------------------------------ |
-| `add <name> -- <cmd...>` | Add a stdio MCP server               |
-| `add <name> --url <url>` | Add an HTTP MCP server               |
-| `list`                   | List configured servers              |
-| `remove <name>`          | Remove a server                      |
-| `login <name>`           | OAuth authentication for HTTP server |
-| `logout <name>`          | Remove stored OAuth token            |
+| Command                               | Description                                      |
+| ------------------------------------- | ------------------------------------------------ |
+| `add <name> <commandOrUrl> [args...]` | Add a stdio or remote MCP server                 |
+| `add-json <name> <json>`              | Add an MCP server from a JSON config             |
+| `get <name>`                          | Show details for one MCP server                  |
+| `list`                                | List configured servers                          |
+| `remove <name>`                       | Remove a server                                  |
+| `login <name>`                        | OAuth authentication for a remote MCP server     |
+| `logout <name>`                       | Remove stored OAuth token                        |
 
 **Options:**
 
-| Flag              | Description                                  |
-| ----------------- | -------------------------------------------- |
-| `--env KEY=VALUE` | Environment variable (repeatable, for `add`) |
+| Flag                       | Description                                               |
+| -------------------------- | --------------------------------------------------------- |
+| `-t, --transport <type>`   | `stdio`, `http`, or `sse` for `add` (defaults to `stdio`) |
+| `-e, --env KEY=VALUE`      | Environment variable (repeatable, for `add`)              |
+| `-H, --header "Name: v"`   | HTTP/SSE header (repeatable, for `add`)                   |
+| `--client-id <id>`         | OAuth client ID (for `add`)                               |
+| `--client-secret`          | OAuth client secret input toggle (for `add` / `add-json`) |
+| `--callback-port <port>`   | OAuth callback port (for `add`)                           |
 
 **Examples:**
 
 ```bash
 hlvm mcp add github -- npx -y @modelcontextprotocol/server-github
-hlvm mcp add db --url http://localhost:8080
+hlvm mcp add db --transport http http://localhost:8080
+hlvm mcp add-json gh '{"type":"stdio","command":"npx","args":["-y","@pkg"]}'
 hlvm mcp add sentry --env SENTRY_TOKEN=abc123 -- npx @sentry/mcp-server
+hlvm mcp get github
 hlvm mcp list
 hlvm mcp remove github
 hlvm mcp login notion
 hlvm mcp logout notion
 ```
+
+Notes:
+
+- Servers persist to `~/.hlvm/mcp.json`. Inherited sources (Cursor, Windsurf,
+  Zed, Codex CLI, Gemini CLI, Claude Code plugins) are read-only from HLVM.
+- Bare-URL `hlvm mcp add <name> https://...` defaults to stdio and warns with
+  the `--transport http|sse` alternatives.
+- Remote `add-json` configs must include explicit `"type":"http"` or
+  `"type":"sse"`; `{ "url": "..." }` alone is invalid.
+- `list` and `get` show live MCP connection status.
+- `hlvm mcp <subcommand> --help` shows subcommand-specific help.
+
+See [MCP.md](./MCP.md) for the full MCP surface, configuration model, and
+runtime behavior.
 
 ---
 

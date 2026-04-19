@@ -8,7 +8,7 @@ import type { ToolMetadata } from "../agent/registry.ts";
 import { isObjectValue } from "../../common/utils.ts";
 import { invalidateAllFacts, invalidateFactsByCategory, replaceInFacts } from "./facts.ts";
 import { retrieveMemory } from "./retrieve.ts";
-import { type ModelTier } from "../agent/constants.ts";
+import { type ModelCapabilityClass } from "../agent/constants.ts";
 import { writeMemoryFact } from "./pipeline.ts";
 
 function assertToolArgs(args: unknown, toolName: string): Record<string, unknown> {
@@ -18,15 +18,17 @@ function assertToolArgs(args: unknown, toolName: string): Record<string, unknown
   return args as Record<string, unknown>;
 }
 
-let _memoryModelTier: ModelTier = "standard";
+let _memoryModelCapability: ModelCapabilityClass = "agent";
 
-export function setMemoryModelTier(tier: ModelTier): void {
-  _memoryModelTier = tier;
+export function setMemoryModelCapability(
+  capability: ModelCapabilityClass,
+): void {
+  _memoryModelCapability = capability;
 }
 
-/** @internal Reset to default tier between tests. */
-export function _resetMemoryModelTierForTests(): void {
-  _memoryModelTier = "standard";
+/** @internal Reset to default capability between tests. */
+export function _resetMemoryModelCapabilityForTests(): void {
+  _memoryModelCapability = "agent";
 }
 
 async function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
@@ -55,7 +57,7 @@ async function memoryWrite(args: unknown): Promise<Record<string, unknown>> {
     category,
     source: target,
     invalidateConflicts: target === "memory",
-    modelTier: _memoryModelTier,
+    modelCapability: _memoryModelCapability,
   });
 
   return {

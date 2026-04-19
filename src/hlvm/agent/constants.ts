@@ -570,7 +570,7 @@ export function isFrontierProvider(model?: string): boolean {
 }
 
 // ============================================================
-// Model Tier Classification
+// Grounding modes (orthogonal to capability class — retained as-is)
 // ============================================================
 
 const GROUNDING_MODES = ["off", "warn", "strict"] as const;
@@ -583,89 +583,25 @@ export function isGroundingMode(value: unknown): value is GroundingMode {
   return typeof value === "string" && GROUNDING_MODES_SET.has(value);
 }
 
-/**
- * Model experience tier — controls what features the system enables.
- *
- * constrained: Resource-limited (< 3B, < 8K context, or no tools).
- *              Short prompt, 16 core tools, no MCP, 3-6K budget.
- *
- * standard:    Full capability with deterministic features.
- *              Full prompt, all tools, MCP, deterministic search.
- *
- * enhanced:    Full capability with LLM-powered features.
- *              Full prompt, all tools, MCP, LLM search & memory cleanup.
- */
-export type ModelTier = "constrained" | "standard" | "enhanced";
-
-/** Returns true if `tier` meets or exceeds `minTier`. */
-export function tierMeetsMinimum(tier: ModelTier, minTier: ModelTier): boolean {
-  const order: Record<ModelTier, number> = {
-    constrained: 0,
-    standard: 1,
-    enhanced: 2,
-  };
-  return order[tier] >= order[minTier];
-}
-
 /** Extract parameter count in billions from a string like "8B" or "70.6B". */
-function parseParamBillions(parameterSize?: string): number | undefined {
+export function parseParamBillions(
+  parameterSize?: string,
+): number | undefined {
   if (!parameterSize) return undefined;
   const match = parameterSize.match(/^(\d+(?:\.\d+)?)\s*[bB]/);
   return match ? parseFloat(match[1]) : undefined;
 }
 
 /**
- * Classify a model into constrained / standard / enhanced tier.
+ * Returns true if this model is classified as agent-capable.
  *
- * Classification priority:
- * 1. No tools capability (capabilities present but no "tools") → constrained
- * 2. Context window < 8K → constrained
- * 3. Parameter count < 3B → constrained
- * 4. Cloud provider → enhanced
- * 5. Large local model (≥ 30B) with tools → enhanced
- * 6. Everything else → standard (safe default)
+ * Phase 1 routing: equivalent to `classifyModelCapability(...) === "agent"`.
+ * Callers use this as the admission gate for agent mode (multi-step
+ * autonomous tool loops). Cloud frontier models and curated local
+ * models (AGENT_CAPABLE_MODELS) pass. Tool-capable-but-unproven local
+ * models (e.g. gemma*, phi*, small variants) now fail this gate
+ * intentionally — see memory: project_agent_system_default_broken.md.
  */
-export function classifyModelTier(
-  modelInfo?: {
-    parameterSize?: string;
-    contextWindow?: number;
-    capabilities?: string[];
-  } | null,
-  model?: string,
-): ModelTier {
-  // 1. Capabilities ground truth: has data but no tools → constrained
-  if (
-    modelInfo?.capabilities?.length &&
-    !modelInfo.capabilities.includes("tools")
-  ) {
-    return "constrained";
-  }
-
-  // 2. Context window too small → constrained
-  if (modelInfo?.contextWindow && modelInfo.contextWindow < 8_000) {
-    return "constrained";
-  }
-
-  // 3. Tiny model → constrained
-  const billions = parseParamBillions(modelInfo?.parameterSize);
-  if (billions !== undefined && billions < 3) return "constrained";
-
-  // 4. Cloud provider → enhanced (fast enough for LLM-powered features)
-  if (isFrontierProvider(model)) return "enhanced";
-
-  // 5. Large local model with tools → enhanced
-  if (
-    billions !== undefined &&
-    billions >= 30 &&
-    modelInfo?.capabilities?.includes("tools")
-  ) {
-    return "enhanced";
-  }
-
-  // 6. Default → standard
-  return "standard";
-}
-
 export function supportsAgentExecution(
   model?: string,
   modelInfo?: {
@@ -674,14 +610,7 @@ export function supportsAgentExecution(
     capabilities?: string[];
   } | null,
 ): boolean {
-  // Cloud providers always support agent execution
-  if (isFrontierProvider(model)) return true;
-  // Ground truth: provider reports capabilities → use them
-  if (modelInfo?.capabilities?.length) {
-    return modelInfo.capabilities.includes("tools");
-  }
-  // No capability data → fall back to tier heuristic
-  return classifyModelTier(modelInfo) !== "constrained";
+  return classifyModelCapability(modelInfo, model) === "agent";
 }
 
 // ============================================================
@@ -710,40 +639,20 @@ export const DEFAULT_TOOL_DENYLIST = [
 ] as const;
 
 // ============================================================
-// Constrained-Tier Tool Cap
+// REPL Main-Thread Eager Tool Core
 // ============================================================
 
 /**
- * Core tools for constrained-tier models (< 3B params, < 8K context, or no tools).
- * Keeps tool count low to avoid context overflow and tool selection confusion.
+ * Eager tool surface for the REPL main-thread query path.
+ *
+ * The REPL has different UX constraints than agent mode (`hlvm ask`):
+ * users type tool names directly and expect autocomplete to work. Shrinking
+ * the eager list would break the "type `pw_goto(...)` in the REPL" habit.
+ *
+ * Agent mode uses the narrower AGENT_CLASS_STARTER_TOOLS via starterPolicy.
+ * This constant is ONLY for REPL main-thread seeding.
  */
-const CONSTRAINED_CORE_TOOLS: readonly string[] = [
-  "read_file",
-  "write_file",
-  "edit_file",
-  "list_files",
-  "search_code",
-  "ask_user",
-  "complete_task",
-  "git_status",
-  "git_diff",
-  "git_log",
-  "search_web",
-  "web_fetch",
-  "fetch_url",
-  "memory_write",
-  "memory_search",
-  "memory_edit",
-] as const;
-
-/**
- * Eager tools for standard-tier models.
- * Standard-tier starts with these; deferred tools (web, data, memory categories)
- * are discoverable via tool_search.  Also used by REPL main-thread routing.
- * Keep destructive, niche actions like empty_trash deferred even for standard
- * tier so they must be discovered intentionally.
- */
-export const STANDARD_EAGER_TOOLS: readonly string[] = [
+export const REPL_MAIN_THREAD_EAGER_TOOLS: readonly string[] = [
   "ask_user",
   "tool_search",
   AGENT_TOOL_NAME,
@@ -768,7 +677,7 @@ export const STANDARD_EAGER_TOOLS: readonly string[] = [
   "shell_exec",
   "shell_script",
   "open_path",
-  // Browser tools — eager so any model can use them directly.
+  // Browser tools — eager so REPL users can call them by name directly.
   // pw_* fail gracefully if Chromium not installed.
   // ch_* fail gracefully if Chrome extension not connected.
   "pw_goto",
@@ -801,43 +710,183 @@ export const STANDARD_EAGER_TOOLS: readonly string[] = [
   "ch_network",
 ] as const;
 
+// ============================================================
+// Model Capability Class (Phase 1 routing)
+// ============================================================
+
 /**
- * Eager tools for enhanced-tier models.
- * Enhanced-tier keeps the same bounded discovery model as standard tier, while
- * preserving agent entrypoints as always-available meta tools.
+ * Model capability class — what kind of work can this model reliably do?
+ *
+ * chat:  Text only. No tool calls. Direct chat mode.
+ * tool:  Can emit tool calls, but not trusted to drive multi-step
+ *        ReAct loops unattended. One-shot tool use only.
+ * agent: Tool-capable AND on the curated allowlist — known to drive
+ *        autonomous loops reliably (frontier cloud + known-good local).
+ *
+ * Ordering: chat < tool < agent. Each class is a superset of the previous.
  */
-export const ENHANCED_EAGER_TOOLS: readonly string[] = [
-  ...STANDARD_EAGER_TOOLS,
+export type ModelCapabilityClass = "chat" | "tool" | "agent";
+
+/** Returns true if `value` meets or exceeds `minimum` class. */
+export function capabilityAtLeast(
+  value: ModelCapabilityClass,
+  minimum: ModelCapabilityClass,
+): boolean {
+  const order: Record<ModelCapabilityClass, number> = {
+    chat: 0,
+    tool: 1,
+    agent: 2,
+  };
+  return order[value] >= order[minimum];
+}
+
+/**
+ * Local models curated as agent-capable.
+ *
+ * Criteria:
+ *   - Reliably drives ReAct loops (multi-turn tool calls with correct JSON).
+ *   - Reports "tools" capability in /api/show.
+ *   - Parameter count >= 7B (empirical floor for loop coherence).
+ *
+ * Patterns match the post-provider-prefix portion of the model name
+ * (e.g. "ollama/qwen3:8b" is matched against "qwen3:8b").
+ *
+ * Internal — consumers use classifyModelCapability() instead.
+ */
+const AGENT_CAPABLE_MODELS: readonly RegExp[] = [
+  /^qwen3($|[:\-])/i,
+  /^qwen2\.5:(7|14|32|72)b/i,
+  /^qwen2\.5-coder:(7|14|32)b/i,
+  /^llama3\.(1|2|3):(8|70|405)b/i,
+  /^deepseek-(coder|r1|v[0-9]+)/i,
+  /^mistral(-|:)(large|small|medium|nemo)/i,
+  /^mixtral:(8x7b|8x22b)/i,
+  /^command-r(-plus)?/i,
+  /^yi:(9|34)b/i,
+];
+
+/**
+ * True if model name matches the curated agent-capable local allowlist
+ * AND (if modelInfo provided) reports >= 7B parameters. Double-gate:
+ * a mis-tagged model size overrides a pattern match.
+ */
+function isAgentCapableLocalModel(
+  modelName: string,
+  modelInfo?: { parameterSize?: string } | null,
+): boolean {
+  const suffix = extractModelSuffix(modelName);
+  if (!AGENT_CAPABLE_MODELS.some((re) => re.test(suffix))) return false;
+  const billions = parseParamBillions(modelInfo?.parameterSize);
+  return billions === undefined || billions >= 7;
+}
+
+/**
+ * Classify a model into chat / tool / agent capability class.
+ *
+ * Priority order (most specific signal first):
+ *   1. capabilities reported + "tools" absent → chat
+ *   2. parameter count < 3B                    → chat
+ *   3. context window < 8K                     → chat
+ *   4. frontier provider                       → agent
+ *   5. local model on curated allowlist + ≥7B  → agent
+ *   6. default                                 → tool
+ *      (has "tools" capability but unproven, OR unknown — safe: allows
+ *      one-shot tool use but blocks autonomous agent loops)
+ */
+export function classifyModelCapability(
+  modelInfo?: {
+    parameterSize?: string;
+    contextWindow?: number;
+    capabilities?: string[];
+  } | null,
+  model?: string,
+): ModelCapabilityClass {
+  const caps = modelInfo?.capabilities;
+  if (caps?.length && !caps.includes("tools")) return "chat";
+
+  const billions = parseParamBillions(modelInfo?.parameterSize);
+  if (billions !== undefined && billions < 3) return "chat";
+  if (modelInfo?.contextWindow && modelInfo.contextWindow < 8_000) {
+    return "chat";
+  }
+
+  if (isFrontierProvider(model)) return "agent";
+  if (model && isAgentCapableLocalModel(model, modelInfo)) return "agent";
+
+  return "tool";
+}
+
+// ============================================================
+// Capability-Class Starter Tool Lists
+// ============================================================
+
+/**
+ * Starter tools for the `tool` capability class.
+ *
+ * Evidence: tool-selection accuracy collapses past ~30 tools (RAG-MCP,
+ * arXiv 2505.03275). This ~17-tool set covers high-frequency cases;
+ * anything else is discoverable via tool_search (agent class only).
+ */
+export const TOOL_CLASS_STARTER_TOOLS: readonly string[] = [
+  "read_file",
+  "write_file",
+  "edit_file",
+  "list_files",
+  "search_code",
+  "find_symbol",
+  "git_status",
+  "git_diff",
+  "git_log",
+  "search_web",
+  "web_fetch",
+  "fetch_url",
+  "memory_write",
+  "memory_search",
+  "memory_edit",
+  "ask_user",
+  "complete_task",
+  "shell_exec",
 ] as const;
 
 /**
- * Compute tier-aware tool filter.
- * - constrained: restricts to CONSTRAINED_CORE_TOOLS (hard cap, no tool_search)
- * - standard: restricts to STANDARD_EAGER_TOOLS (progressive discovery via tool_search)
- * - enhanced: restricts to ENHANCED_EAGER_TOOLS (bounded eager core)
+ * Starter tools for the `agent` capability class.
+ * Same as tool class + `tool_search` for on-demand discovery.
  */
-export function computeTierToolFilter(
-  tier: ModelTier,
+export const AGENT_CLASS_STARTER_TOOLS: readonly string[] = [
+  ...TOOL_CLASS_STARTER_TOOLS,
+  "tool_search",
+] as const;
+
+/** SSOT: capability class → starter tool list. */
+const STARTER_TOOLS_BY_CLASS: Record<
+  ModelCapabilityClass,
+  readonly string[]
+> = {
+  chat: [],
+  tool: TOOL_CLASS_STARTER_TOOLS,
+  agent: AGENT_CLASS_STARTER_TOOLS,
+};
+
+/**
+ * Compute the starter tool filter for a capability class.
+ *
+ * Single starter allowlist per class (no size/context variation) —
+ * only by capability class. Runtime-phase narrowing stays in
+ * applyAdaptiveToolPhase (orchestrator.ts).
+ *
+ * User-explicit allowlist wins over class default.
+ */
+export function starterPolicy(
+  capClass: ModelCapabilityClass,
   userAllowlist?: string[],
   userDenylist?: string[],
 ): { allowlist?: string[]; denylist?: string[] } {
-  if (tier === "enhanced") {
-    const baseAllowlist = userAllowlist !== undefined
+  return {
+    allowlist: userAllowlist !== undefined
       ? userAllowlist
-      : [...ENHANCED_EAGER_TOOLS];
-    return { allowlist: baseAllowlist, denylist: userDenylist };
-  }
-  if (tier === "constrained") {
-    const baseAllowlist = userAllowlist !== undefined
-      ? userAllowlist
-      : [...CONSTRAINED_CORE_TOOLS];
-    return { allowlist: baseAllowlist, denylist: userDenylist };
-  }
-  // standard: eager core unless caller already provides an allowlist (e.g. REPL with discovered tools)
-  const baseAllowlist = userAllowlist !== undefined
-    ? userAllowlist
-    : [...STANDARD_EAGER_TOOLS];
-  return { allowlist: baseAllowlist, denylist: userDenylist };
+      : [...STARTER_TOOLS_BY_CLASS[capClass]],
+    denylist: userDenylist,
+  };
 }
 
 // ============================================================

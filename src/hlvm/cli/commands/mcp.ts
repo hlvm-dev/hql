@@ -1,18 +1,8 @@
-/**
- * CLI Command — hlvm mcp
- *
- * Surface is intentionally kept compatible with Claude Code's
- * `claude mcp ...` CLI so users coming from CC hit zero learning curve:
- *   - same subcommand names: add, add-json, get, list, remove, login, logout
- *   - same flag names: -s/--scope, -t/--transport, -e/--env, -H/--header,
- *     --client-id, --client-secret, --callback-port
- *   - same positional layout for add: `add <name> <commandOrUrl> [args...]`
- */
-
 import { log } from "../../api/log.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { getMcpConfigPath } from "../../../common/paths.ts";
+import { normalizeServerName } from "../../agent/mcp/config.ts";
 import {
   addRuntimeMcpServer,
   listRuntimeMcpServers,
@@ -39,10 +29,8 @@ Commands:
   logout <name>                         Remove stored OAuth token for server
 
 Options for 'add':
-  -s, --scope <scope>            Config scope: user (default)
-                                 [project / local not yet persisted separately]
   -t, --transport <transport>    Transport: stdio | http | sse
-                                 (auto-detected from URL if omitted)
+                                 (defaults to stdio if omitted)
   -e, --env KEY=VALUE            Environment variable (repeatable)
   -H, --header "Name: value"     HTTP/SSE header (repeatable)
       --client-id <id>           OAuth client ID (HTTP/SSE only)
@@ -63,8 +51,109 @@ Examples:
 `);
 }
 
+function showMcpAddHelp(): void {
+  log.raw.log(`
+Add an MCP server to HLVM.
+
+Usage: hlvm mcp add <name> <commandOrUrl> [args...] [options]
+
+Examples:
+  # Add HTTP server:
+  hlvm mcp add --transport http sentry https://mcp.sentry.dev/mcp
+
+  # Add HTTP server with headers:
+  hlvm mcp add --transport http corridor https://app.corridor.dev/api/mcp --header "Authorization: Bearer ..."
+
+  # Add stdio server with environment variables:
+  hlvm mcp add -e API_KEY=xxx my-server -- npx my-mcp-server
+
+  # Add stdio server with subprocess flags:
+  hlvm mcp add my-server -- my-command --some-flag arg1
+
+Options:
+  -t, --transport <transport>    Transport type (stdio, sse, http). Defaults to stdio if not specified.
+  -e, --env <env...>             Set environment variables (e.g. -e KEY=value)
+  -H, --header <header...>       Set WebSocket headers (e.g. -H "X-Api-Key: abc123" -H "X-Custom: value")
+      --client-id <clientId>     OAuth client ID for HTTP/SSE servers
+      --client-secret            Prompt for OAuth client secret (or set MCP_CLIENT_SECRET env var)
+      --callback-port <port>     Fixed port for OAuth callback (for servers requiring pre-registered redirect URIs)
+  -h, --help                     Display help for command
+`);
+}
+
+function showMcpAddJsonHelp(): void {
+  log.raw.log(`
+Add an MCP server (stdio or SSE) with a JSON string
+
+Usage: hlvm mcp add-json <name> <json> [options]
+
+Options:
+      --client-secret      Prompt for OAuth client secret (or set MCP_CLIENT_SECRET env var)
+  -h, --help               Display help for command
+`);
+}
+
+function showMcpGetHelp(): void {
+  log.raw.log(`
+Get details about an MCP server. Note: stdio servers are spawned for health checks. Only use this command in directories you trust.
+
+Usage: hlvm mcp get <name>
+
+Options:
+  -h, --help  Display help for command
+`);
+}
+
+function showMcpListHelp(): void {
+  log.raw.log(`
+List configured MCP servers. Note: stdio servers are spawned for health checks. Only use this command in directories you trust.
+
+Usage: hlvm mcp list
+
+Options:
+  -h, --help  Display help for command
+`);
+}
+
+function showMcpRemoveHelp(): void {
+  log.raw.log(`
+Remove an MCP server
+
+Usage: hlvm mcp remove <name> [options]
+
+Options:
+  -h, --help  Display help for command
+`);
+}
+
+function showMcpLoginHelp(): void {
+  log.raw.log(`
+Authenticate an HTTP MCP server via OAuth
+
+Usage: hlvm mcp login <name>
+
+Options:
+  -h, --help  Display help for command
+`);
+}
+
+function showMcpLogoutHelp(): void {
+  log.raw.log(`
+Remove stored OAuth token for server
+
+Usage: hlvm mcp logout <name>
+
+Options:
+  -h, --help  Display help for command
+`);
+}
+
+function isHelpToken(value: string | undefined): boolean {
+  return value === "--help" || value === "-h";
+}
+
 export async function mcpCommand(args: string[]): Promise<void> {
-  if (args.length === 0 || hasHelpFlag(args)) {
+  if (args.length === 0 || isHelpToken(args[0])) {
     showMcpHelp();
     return;
   }
@@ -73,20 +162,48 @@ export async function mcpCommand(args: string[]): Promise<void> {
   const subArgs = args.slice(1);
   switch (subcommand) {
     case "add":
+      if (hasHelpFlag(subArgs)) {
+        showMcpAddHelp();
+        return;
+      }
       return await mcpAdd(subArgs);
     case "add-json":
+      if (hasHelpFlag(subArgs)) {
+        showMcpAddJsonHelp();
+        return;
+      }
       return await mcpAddJson(subArgs);
     case "get":
+      if (hasHelpFlag(subArgs)) {
+        showMcpGetHelp();
+        return;
+      }
       return await mcpGet(subArgs);
     case "list":
     case "ls":
+      if (hasHelpFlag(subArgs)) {
+        showMcpListHelp();
+        return;
+      }
       return await mcpList();
     case "remove":
     case "rm":
+      if (hasHelpFlag(subArgs)) {
+        showMcpRemoveHelp();
+        return;
+      }
       return await mcpRemove(subArgs);
     case "login":
+      if (hasHelpFlag(subArgs)) {
+        showMcpLoginHelp();
+        return;
+      }
       return await mcpLogin(subArgs);
     case "logout":
+      if (hasHelpFlag(subArgs)) {
+        showMcpLogoutHelp();
+        return;
+      }
       return await mcpLogout(subArgs);
     default:
       throw new ValidationError(
@@ -97,11 +214,10 @@ export async function mcpCommand(args: string[]): Promise<void> {
 }
 
 // ============================================================
-// add — Claude-Code-compatible grammar
+// add
 // ============================================================
 
 interface AddFlags {
-  scope: "user" | "project" | "local";
   transport?: "stdio" | "http" | "sse";
   env: Record<string, string>;
   headers: Record<string, string>;
@@ -110,7 +226,8 @@ interface AddFlags {
   callbackPort?: number;
 }
 
-const URL_LIKE_RE = /^(https?:\/\/|localhost[:/])/i;
+const URL_LIKE_RE =
+  /^(https?:\/\/|localhost[:/])|(?:\/sse$)|(?:\/mcp$)/i;
 
 function isUrlLike(value: string): boolean {
   return URL_LIKE_RE.test(value);
@@ -118,17 +235,17 @@ function isUrlLike(value: string): boolean {
 
 function parseHeaderPair(raw: string): [string, string] {
   const colonIdx = raw.indexOf(":");
-  if (colonIdx <= 0) {
+  if (colonIdx === -1) {
     throw new ValidationError(
-      `Invalid --header format: ${raw}. Expected "Name: value".`,
+      `Invalid header format: "${raw}". Expected format: "Header-Name: value"`,
       "mcp",
     );
   }
   const name = raw.slice(0, colonIdx).trim();
   const value = raw.slice(colonIdx + 1).trim();
-  if (!name || !value) {
+  if (!name) {
     throw new ValidationError(
-      `Invalid --header format: ${raw}. Expected "Name: value".`,
+      `Invalid header: "${raw}". Header name cannot be empty.`,
       "mcp",
     );
   }
@@ -139,7 +256,7 @@ function parseEnvPair(raw: string): [string, string] {
   const eqIdx = raw.indexOf("=");
   if (eqIdx <= 0) {
     throw new ValidationError(
-      `Invalid --env format: ${raw}. Expected KEY=VALUE.`,
+      `Invalid environment variable format: ${raw}, environment variables should be added as: -e KEY1=value1 -e KEY2=value2`,
       "mcp",
     );
   }
@@ -150,16 +267,6 @@ function parseTransport(value: string): "stdio" | "http" | "sse" {
   if (value !== "stdio" && value !== "http" && value !== "sse") {
     throw new ValidationError(
       `Invalid transport type: ${value}. Must be one of: stdio, sse, http`,
-      "mcp",
-    );
-  }
-  return value;
-}
-
-function parseScope(value: string): "user" | "project" | "local" {
-  if (value !== "user" && value !== "project" && value !== "local") {
-    throw new ValidationError(
-      `Invalid scope: ${value}. Must be one of: local, project, user`,
       "mcp",
     );
   }
@@ -180,8 +287,7 @@ function splitStdioSeparator(
 }
 
 /**
- * Parse `hlvm mcp add` style flags + positionals.
- * Grammar mirrors Claude Code: `add [opts] <name> <commandOrUrl> [args...]`.
+ * Parse `hlvm mcp add`: `add [opts] <name> <commandOrUrl> [args...]`.
  */
 function parseAddArgs(args: string[]): {
   name: string;
@@ -192,7 +298,6 @@ function parseAddArgs(args: string[]): {
   const { opts: preSep, rest: postSep } = splitStdioSeparator(args);
 
   const flags: AddFlags = {
-    scope: "user",
     env: {},
     headers: {},
     clientSecret: false,
@@ -218,10 +323,6 @@ function parseAddArgs(args: string[]): {
     }
 
     switch (tok) {
-      case "-s":
-      case "--scope":
-        flags.scope = parseScope(takeNext(tok));
-        break;
       case "-t":
       case "--transport":
         flags.transport = parseTransport(takeNext(tok));
@@ -247,13 +348,9 @@ function parseAddArgs(args: string[]): {
       case "--callback-port": {
         const raw = takeNext(tok);
         const n = Number.parseInt(raw, 10);
-        if (!Number.isFinite(n) || n <= 0) {
-          throw new ValidationError(
-            `--callback-port must be a positive integer (got "${raw}")`,
-            "mcp",
-          );
+        if (Number.isFinite(n) && n > 0) {
+          flags.callbackPort = n;
         }
-        flags.callbackPort = n;
         break;
       }
       default:
@@ -302,65 +399,100 @@ function parseAddArgs(args: string[]): {
   return { name, commandOrUrl, rest, flags };
 }
 
-function ensureScopeSupported(scope: "user" | "project" | "local"): void {
-  if (scope !== "user") {
+async function readClientSecret(): Promise<string> {
+  const envSecret = getPlatform().env.get("MCP_CLIENT_SECRET");
+  if (envSecret) {
+    return envSecret;
+  }
+
+  const stdin = getPlatform().terminal.stdin;
+  if (!stdin.isTerminal()) {
     throw new ValidationError(
-      `--scope ${scope} is not yet supported (tracked as follow-up). Use --scope user.`,
+      "No TTY available to prompt for client secret. Set MCP_CLIENT_SECRET env var instead.",
       "mcp",
     );
   }
+
+  log.raw.write("Enter OAuth client secret: ");
+  stdin.setRaw(true);
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  try {
+    while (true) {
+      const buf = new Uint8Array(1);
+      const n = await stdin.read(buf);
+      if (n === null || n === 0) break;
+      const char = decoder.decode(buf.subarray(0, n));
+      if (char === "\n" || char === "\r") break;
+      if (char === "\u0003") {
+        throw new ValidationError("Cancelled", "mcp");
+      }
+      if (char === "\u007F" || char === "\b") {
+        chunks.pop();
+        continue;
+      }
+      chunks.push(char);
+    }
+  } finally {
+    stdin.setRaw(false);
+    log.raw.write("\n");
+  }
+  return chunks.join("");
 }
 
-function buildOAuthConfig(
+async function buildOAuthConfig(
   flags: AddFlags,
-): RuntimeMcpServerInput["oauth"] | undefined {
+): Promise<{
+  oauth?: RuntimeMcpServerInput["oauth"];
+  clientSecret?: string;
+}> {
   const hasOAuth = flags.clientId !== undefined ||
     flags.clientSecret || flags.callbackPort !== undefined;
-  if (!hasOAuth) return undefined;
-  // Validate --client-secret companion requirement (env)
-  if (flags.clientSecret && !getPlatform().env.get("MCP_CLIENT_SECRET")) {
-    throw new ValidationError(
-      "--client-secret requires MCP_CLIENT_SECRET env var to be set.",
-      "mcp",
-    );
-  }
+  if (!hasOAuth) return {};
+  const clientSecret = flags.clientSecret && flags.clientId
+    ? await readClientSecret()
+    : undefined;
   return {
-    ...(flags.clientId ? { clientId: flags.clientId } : {}),
-    ...(flags.callbackPort ? { callbackPort: flags.callbackPort } : {}),
+    oauth: {
+      ...(flags.clientId ? { clientId: flags.clientId } : {}),
+      ...(clientSecret ? { clientSecret } : {}),
+      ...(flags.callbackPort ? { callbackPort: flags.callbackPort } : {}),
+    },
+    clientSecret,
   };
 }
 
 async function mcpAdd(args: string[]): Promise<void> {
   const { name, commandOrUrl, rest, flags } = parseAddArgs(args);
-  ensureScopeSupported(flags.scope);
 
   const looksLikeUrl = isUrlLike(commandOrUrl);
-  let transport = flags.transport;
-  if (!transport) {
-    transport = looksLikeUrl ? "http" : "stdio";
-  }
+  const transport = flags.transport ?? "stdio";
 
   const env = Object.keys(flags.env).length > 0 ? flags.env : undefined;
   const headers = Object.keys(flags.headers).length > 0
     ? flags.headers
     : undefined;
-  const oauth = buildOAuthConfig(flags);
+  const { oauth } = await buildOAuthConfig(flags);
 
   if (transport === "stdio") {
     if (looksLikeUrl && flags.transport === undefined) {
-      log.raw.log(
+      log.raw.error(
         `Warning: The command "${commandOrUrl}" looks like a URL, but is being interpreted as a stdio server as --transport was not specified.`,
       );
-      log.raw.log(
-        `If this is an HTTP server, use: hlvm mcp add --transport http ${name} ...`,
+      log.raw.error(
+        `If this is an HTTP server, use: hlvm mcp add --transport http ${name} ${commandOrUrl}`,
       );
-      log.raw.log(
-        `If this is an SSE server, use: hlvm mcp add --transport sse ${name} ...`,
+      log.raw.error(
+        `If this is an SSE server, use: hlvm mcp add --transport sse ${name} ${commandOrUrl}`,
       );
     }
-    if (headers || oauth) {
-      log.raw.log(
-        `Warning: --header / --client-id / --callback-port are ignored for stdio transport.`,
+    if (
+      flags.clientId ||
+      flags.clientSecret ||
+      flags.callbackPort !== undefined
+    ) {
+      log.raw.error(
+        "Warning: --client-id, --client-secret, and --callback-port are only supported for HTTP/SSE transports and will be ignored for stdio.",
       );
     }
     await addRuntimeMcpServer({
@@ -373,39 +505,24 @@ async function mcpAdd(args: string[]): Promise<void> {
     });
     const restStr = rest.length > 0 ? ` ${rest.join(" ")}` : "";
     log.raw.log(
-      `Added stdio MCP server ${name} with command: ${commandOrUrl}${restStr} to ${flags.scope} config`,
+      `Added stdio MCP server ${name} with command: ${commandOrUrl}${restStr} to user config`,
     );
     log.raw.log(`File modified: ${getMcpConfigPath()}`);
     return;
   }
 
   // HTTP / SSE
-  if (!looksLikeUrl) {
-    throw new ValidationError(
-      `Error: URL is required for ${transport.toUpperCase()} transport.`,
-      "mcp",
-    );
-  }
-  if (rest.length > 0) {
-    throw new ValidationError(
-      `Error: Extra arguments (${
-        rest.join(" ")
-      }) are not valid for ${transport} transport.`,
-      "mcp",
-    );
-  }
   await addRuntimeMcpServer({
     server: {
       name,
       url: commandOrUrl,
-      env,
       headers,
       oauth,
       transport,
     },
   });
   log.raw.log(
-    `Added ${transport.toUpperCase()} MCP server ${name} with URL: ${commandOrUrl} to ${flags.scope} config`,
+    `Added ${transport.toUpperCase()} MCP server ${name} with URL: ${commandOrUrl} to user config`,
   );
   if (headers) {
     log.raw.log(`Headers: ${JSON.stringify(headers, null, 2)}`);
@@ -418,29 +535,197 @@ async function mcpAdd(args: string[]): Promise<void> {
 // ============================================================
 
 interface AddJsonFlags {
-  scope: "user" | "project" | "local";
   clientSecret: boolean;
+}
+
+type AddJsonIssue = {
+  path: string;
+  message: string;
+};
+
+function throwInvalidAddJsonConfig(issues: AddJsonIssue[]): never {
+  const formatted = issues.map(({ path, message }) =>
+    `${path}: ${message}`
+  ).join(", ");
+  throw new ValidationError(`Invalid configuration: ${formatted}`, "mcp");
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function expectStringRecord(
+  value: unknown,
+  basePath: string,
+): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  const record = asRecord(value);
+  if (!record) {
+    throwInvalidAddJsonConfig([{ path: "", message: "Invalid input" }]);
+  }
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(record)) {
+    if (typeof entry !== "string") {
+      throwInvalidAddJsonConfig([{
+        path: "",
+        message: "Invalid input",
+      }]);
+    }
+    result[key] = entry;
+  }
+  return result;
+}
+
+function resolveAuthServerMetadataIssues(
+  value: string,
+): AddJsonIssue[] {
+  const issues: AddJsonIssue[] = [];
+  try {
+    new URL(value);
+  } catch {
+    issues.push({
+      path: "oauth.authServerMetadataUrl",
+      message: "Invalid URL",
+    });
+  }
+  if (!value.startsWith("https://")) {
+    issues.push({
+      path: "oauth.authServerMetadataUrl",
+      message: "authServerMetadataUrl must use https://",
+    });
+  }
+  return issues;
+}
+
+function normalizeAddJsonServer(
+  parsed: unknown,
+): {
+  server: Omit<RuntimeMcpServerInput, "name">;
+  transport: "stdio" | "http" | "sse";
+} {
+  const obj = asRecord(parsed);
+  if (!obj) {
+    throwInvalidAddJsonConfig([{ path: "", message: "Invalid input" }]);
+  }
+
+  const type = typeof obj.type === "string" ? obj.type : undefined;
+
+  if (type === undefined || type === "stdio") {
+    if (typeof obj.command !== "string") {
+      throwInvalidAddJsonConfig([{ path: "", message: "Invalid input" }]);
+    }
+    if (obj.command.length === 0) {
+      throwInvalidAddJsonConfig([{
+        path: "command",
+        message: "Command cannot be empty",
+      }]);
+    }
+    if (
+      obj.args !== undefined &&
+      (!Array.isArray(obj.args) || obj.args.some((arg) => typeof arg !== "string"))
+    ) {
+      throwInvalidAddJsonConfig([{ path: "", message: "Invalid input" }]);
+    }
+    const env = expectStringRecord(obj.env, "env");
+    return {
+      server: {
+        command: [obj.command, ...((obj.args as string[] | undefined) ?? [])],
+        ...(env ? { env } : {}),
+        ...(type === "stdio" ? { transport: "stdio" as const } : {}),
+      },
+      transport: "stdio",
+    };
+  }
+
+  if (type !== "http" && type !== "sse") {
+    throwInvalidAddJsonConfig([{ path: "", message: "Invalid input" }]);
+  }
+  if (typeof obj.url !== "string") {
+    throwInvalidAddJsonConfig([{ path: "", message: "Invalid input" }]);
+  }
+
+  const headers = expectStringRecord(obj.headers, "headers");
+
+  let oauth: RuntimeMcpServerInput["oauth"] | undefined;
+  if (obj.oauth !== undefined) {
+    const oauthObj = asRecord(obj.oauth);
+    if (!oauthObj) {
+      throwInvalidAddJsonConfig([{ path: "", message: "Invalid input" }]);
+    }
+
+    const clientId = oauthObj.clientId;
+    if (clientId !== undefined && typeof clientId !== "string") {
+      throwInvalidAddJsonConfig([{ path: "", message: "Invalid input" }]);
+    }
+
+    const callbackPort = oauthObj.callbackPort;
+    if (
+      callbackPort !== undefined &&
+      (
+        typeof callbackPort !== "number" ||
+        !Number.isFinite(callbackPort) ||
+        !Number.isInteger(callbackPort)
+      )
+    ) {
+      throwInvalidAddJsonConfig([{ path: "", message: "Invalid input" }]);
+    }
+    if (typeof callbackPort === "number" && callbackPort <= 0) {
+      throwInvalidAddJsonConfig([{
+        path: "oauth.callbackPort",
+        message: "Too small: expected number to be >0",
+      }]);
+    }
+
+    const authServerMetadataUrl = oauthObj.authServerMetadataUrl;
+    if (
+      authServerMetadataUrl !== undefined &&
+      typeof authServerMetadataUrl !== "string"
+    ) {
+      throwInvalidAddJsonConfig([{ path: "", message: "Invalid input" }]);
+    }
+    if (typeof authServerMetadataUrl === "string") {
+      const issues = resolveAuthServerMetadataIssues(authServerMetadataUrl);
+      if (issues.length > 0) {
+        throwInvalidAddJsonConfig(issues);
+      }
+    }
+
+    const xaa = oauthObj.xaa;
+    if (xaa !== undefined && typeof xaa !== "boolean") {
+      throwInvalidAddJsonConfig([{ path: "", message: "Invalid input" }]);
+    }
+
+    oauth = {
+      ...(typeof clientId === "string" ? { clientId } : {}),
+      ...(typeof callbackPort === "number" ? { callbackPort } : {}),
+      ...(typeof authServerMetadataUrl === "string"
+        ? { authServerMetadataUrl }
+        : {}),
+      ...(typeof xaa === "boolean" ? { xaa } : {}),
+    };
+  }
+
+  return {
+    server: {
+      transport: type,
+      url: obj.url,
+      ...(headers ? { headers } : {}),
+      ...(oauth ? { oauth } : {}),
+    },
+    transport: type,
+  };
 }
 
 function parseAddJsonArgs(
   args: string[],
 ): { name: string; json: string; flags: AddJsonFlags } {
-  const flags: AddJsonFlags = { scope: "user", clientSecret: false };
+  const flags: AddJsonFlags = { clientSecret: false };
   const positionals: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const tok = args[i];
-    const takeNext = (flag: string): string => {
-      if (i + 1 >= args.length) {
-        throw new ValidationError(`Missing value after ${flag}`, "mcp");
-      }
-      return args[++i];
-    };
     switch (tok) {
-      case "-s":
-      case "--scope":
-        flags.scope = parseScope(takeNext(tok));
-        break;
       case "--client-secret":
         flags.clientSecret = true;
         break;
@@ -463,92 +748,30 @@ function parseAddJsonArgs(
 
 async function mcpAddJson(args: string[]): Promise<void> {
   const { name, json, flags } = parseAddJsonArgs(args);
-  ensureScopeSupported(flags.scope);
 
-  let parsed: unknown;
+  let parsed: unknown = null;
   try {
     parsed = JSON.parse(json);
-  } catch (err) {
-    throw new ValidationError(
-      `Error: invalid JSON for add-json: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-      "mcp",
-    );
+  } catch {
+    parsed = null;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new ValidationError(
-      "Error: add-json expects a JSON object.",
-      "mcp",
-    );
-  }
-  const obj = parsed as Record<string, unknown>;
-  const type = typeof obj.type === "string"
-    ? (obj.type as "stdio" | "http" | "sse")
-    : undefined;
-  if (type && type !== "stdio" && type !== "http" && type !== "sse") {
-    throw new ValidationError(
-      `Invalid transport type: ${type}. Must be one of: stdio, sse, http`,
-      "mcp",
-    );
-  }
+  const normalized = normalizeAddJsonServer(parsed);
+  const server: RuntimeMcpServerInput = {
+    name,
+    ...normalized.server,
+  };
 
-  const server: RuntimeMcpServerInput = { name };
-  if (typeof obj.command === "string") {
-    const args = Array.isArray(obj.args)
-      ? obj.args.filter((a): a is string => typeof a === "string")
-      : [];
-    server.command = [obj.command, ...args];
-  }
-  if (typeof obj.url === "string") server.url = obj.url;
-  if (obj.env && typeof obj.env === "object" && !Array.isArray(obj.env)) {
-    server.env = Object.fromEntries(
-      Object.entries(obj.env as Record<string, unknown>).filter(
-        (e): e is [string, string] => typeof e[1] === "string",
-      ),
-    );
-  }
-  if (
-    obj.headers && typeof obj.headers === "object" && !Array.isArray(obj.headers)
-  ) {
-    server.headers = Object.fromEntries(
-      Object.entries(obj.headers as Record<string, unknown>).filter(
-        (e): e is [string, string] => typeof e[1] === "string",
-      ),
-    );
-  }
-  if (
-    obj.oauth && typeof obj.oauth === "object" && !Array.isArray(obj.oauth)
-  ) {
-    const o = obj.oauth as Record<string, unknown>;
-    const oauth: NonNullable<RuntimeMcpServerInput["oauth"]> = {};
-    if (typeof o.clientId === "string") oauth.clientId = o.clientId;
-    if (typeof o.callbackPort === "number") {
-      oauth.callbackPort = o.callbackPort;
-    }
-    server.oauth = oauth;
-  }
-  if (type) server.transport = type;
-  else server.transport = server.url ? "http" : "stdio";
-
-  if (!server.command && !server.url) {
-    throw new ValidationError(
-      "Error: add-json requires 'command' (stdio) or 'url' (http/sse).",
-      "mcp",
-    );
+  if (flags.clientSecret && server.url && server.oauth?.clientId) {
+    server.oauth = {
+      ...server.oauth,
+      clientSecret: await readClientSecret(),
+    };
   }
 
   await addRuntimeMcpServer({ server });
-  const typeLabel = (server.transport ?? "stdio") === "stdio"
-    ? "stdio"
-    : (server.transport ?? "").toUpperCase();
-  const descriptor = server.url
-    ? `with URL: ${server.url}`
-    : `with command: ${(server.command ?? []).join(" ")}`;
   log.raw.log(
-    `Added ${typeLabel} MCP server ${name} ${descriptor} to ${flags.scope} config`,
+    `Added ${normalized.transport} MCP server ${name} to user config`,
   );
-  log.raw.log(`File modified: ${getMcpConfigPath()}`);
 }
 
 // ============================================================
@@ -564,8 +787,8 @@ async function mcpGet(args: string[]): Promise<void> {
   }
   const name = args[0];
   const servers = await listRuntimeMcpServers();
-  const key = name.trim().toLowerCase();
-  const found = servers.find((s) => s.name.trim().toLowerCase() === key);
+  const key = normalizeServerName(name);
+  const found = servers.find((s) => normalizeServerName(s.name) === key);
   if (!found) {
     throw new ValidationError(
       `No MCP server found with name: ${name}`,
@@ -575,7 +798,7 @@ async function mcpGet(args: string[]): Promise<void> {
 
   log.raw.log(`${found.name}:`);
   log.raw.log(`  Scope: ${found.scopeDescription}`);
-  log.raw.log(`  Status: configured`);
+  log.raw.log(`  Status: ${found.status}`);
   log.raw.log(`  Type: ${found.transport}`);
   if (found.url) {
     log.raw.log(`  URL: ${found.url}`);
@@ -585,11 +808,26 @@ async function mcpGet(args: string[]): Promise<void> {
         log.raw.log(`    ${k}: ${v}`);
       }
     }
+    if (
+      found.oauth?.clientId ||
+      found.oauth?.callbackPort ||
+      found.oauth?.clientSecretConfigured
+    ) {
+      const parts: string[] = [];
+      if (found.oauth?.clientId) {
+        parts.push("client_id configured");
+      }
+      if (found.oauth?.clientSecretConfigured) {
+        parts.push("client_secret configured");
+      }
+      if (found.oauth?.callbackPort) {
+        parts.push(`callback_port ${found.oauth.callbackPort}`);
+      }
+      log.raw.log(`  OAuth: ${parts.join(", ")}`);
+    }
   } else if (found.command && found.command.length > 0) {
     log.raw.log(`  Command: ${found.command[0]}`);
-    if (found.command.length > 1) {
-      log.raw.log(`  Args: ${found.command.slice(1).join(" ")}`);
-    }
+    log.raw.log(`  Args: ${found.command.slice(1).join(" ")}`);
   }
   if (found.env && Object.keys(found.env).length > 0) {
     log.raw.log(`  Environment:`);
@@ -597,10 +835,7 @@ async function mcpGet(args: string[]): Promise<void> {
       log.raw.log(`    ${k}=${v}`);
     }
   }
-  const removeHint = found.scope === "user"
-    ? `hlvm mcp remove "${found.name}" -s user`
-    : `hlvm mcp remove "${found.name}"`;
-  log.raw.log(`\nTo remove this server, run: ${removeHint}`);
+  log.raw.log(`\nTo remove this server, run: hlvm mcp remove "${found.name}"`);
 }
 
 // ============================================================
@@ -619,21 +854,20 @@ async function mcpList(): Promise<void> {
 
   log.raw.log("Checking MCP server health...\n");
   for (const server of servers) {
-    const status = "configured";
-    // Scopes CC has ("user") render exactly like CC. Scopes HLVM adds
-    // (inherited from Cursor/Codex/etc.) get a trailing ` [source]` suffix
-    // so users can see at a glance where a server came from — CC has no
-    // equivalent information to match, so this doesn't break parity.
+    // Inherited-source servers (Cursor/Windsurf/Zed/Codex/Gemini/CC plugins)
+    // get a trailing ` [source]` suffix so users can see where each came from.
     const scopeSuffix = server.scope === "user"
       ? ""
       : ` [${server.scopeLabel}]`;
     let line: string;
     if (server.transport === "sse") {
-      line = `${server.name}: ${server.target} (SSE) - ${status}${scopeSuffix}`;
+      line =
+        `${server.name}: ${server.target} (SSE) - ${server.status}${scopeSuffix}`;
     } else if (server.transport === "http") {
-      line = `${server.name}: ${server.target} (HTTP) - ${status}${scopeSuffix}`;
+      line =
+        `${server.name}: ${server.target} (HTTP) - ${server.status}${scopeSuffix}`;
     } else {
-      line = `${server.name}: ${server.target} - ${status}${scopeSuffix}`;
+      line = `${server.name}: ${server.target} - ${server.status}${scopeSuffix}`;
     }
     log.raw.log(line);
   }
@@ -644,31 +878,16 @@ async function mcpList(): Promise<void> {
 // ============================================================
 
 async function mcpRemove(args: string[]): Promise<void> {
-  // Accept optional -s/--scope for parity; we only support user today.
-  let scope: "user" | "project" | "local" | undefined;
   const positionals: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const tok = args[i];
-    if (tok === "-s" || tok === "--scope") {
-      if (i + 1 >= args.length) {
-        throw new ValidationError(`Missing value after ${tok}`, "mcp");
-      }
-      scope = parseScope(args[++i]);
-    } else if (tok.startsWith("-")) {
+  for (const tok of args) {
+    if (tok.startsWith("-")) {
       throw new ValidationError(`Unknown option: ${tok}`, "mcp");
-    } else {
-      positionals.push(tok);
     }
+    positionals.push(tok);
   }
   if (positionals.length === 0) {
     throw new ValidationError(
       "Usage: hlvm mcp remove <name>",
-      "mcp",
-    );
-  }
-  if (scope && scope !== "user") {
-    throw new ValidationError(
-      `--scope ${scope} is not yet supported (tracked as follow-up). Use --scope user.`,
       "mcp",
     );
   }

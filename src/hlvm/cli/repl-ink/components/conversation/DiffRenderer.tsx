@@ -431,7 +431,7 @@ const DiffRenderer = memo(function DiffRenderer({
     elements.push(
       <Box key="truncated">
         <Text color={sc.text.muted}>
-          ... ({truncatedCount} more lines · {TOGGLE_LATEST_HINT})
+          ... (+{truncatedCount} lines · {TOGGLE_LATEST_HINT})
         </Text>
       </Box>,
     );

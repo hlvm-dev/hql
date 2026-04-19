@@ -1987,7 +1987,9 @@ Deno.test("runtime host client exposes Ollama signin and MCP admin flows through
           scope: "user",
           transport: "stdio",
           target: "npx -y @modelcontextprotocol/server-github",
+          status: "✓ Connected",
           scopeLabel: "user",
+          scopeDescription: "User config (available in all your projects)",
         }],
       });
     }

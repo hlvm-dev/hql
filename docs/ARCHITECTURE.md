@@ -422,11 +422,11 @@ When the user types "fix the auth bug" in the Chat window:
 │     │     │     ├── loadMemoryContext(budget)                        │
 │     │     │     ├── detectGitContext() (3s timeout)                  │
 │     │     │     ├── ensureMcpLoaded()                               │
-│     │     │     └── classifyModelTier() → weak|mid|frontier         │
-│     │     └── session: { engine, llm, modelTier, context }          │
+│     │     │     └── classifyModelCapability() → chat|tool|agent     │
+│     │     └── session: { engine, llm, modelCapability, context }    │
 │     │                                                               │
-│     ├── ③ Build system prompt (11 modular sections, tier-filtered)  │
-│     ├── ④ Build tool definitions (filtered by model tier)           │
+│     ├── ③ Build system prompt (11 sections, capability-filtered)    │
+│     ├── ④ Build tool definitions (filtered by capability class)     │
 │     ├── ⑤ Load history from SQLite                                  │
 │     │                                                               │
 │     ├── ⑥ Enter ReAct loop (orchestrator.ts)                        │
@@ -746,7 +746,7 @@ createAgentSession(options)
   ├── loadMemoryContext()     → SQLite FTS5 search, budget-aware
   ├── detectGitContext()      → Branch, dirty state (3s timeout)
   ├── ensureMcpLoaded()       → Load MCP tools from configured servers
-  └── classifyModelTier()     → weak | mid | frontier
+  └── classifyModelCapability() → chat | tool | agent
 ```
 
 ### System Prompt (11 Sections)
@@ -1764,9 +1764,9 @@ details as well - in ASCII visual
     │  │     │     ├── loadMemoryContext(budget) → memory system msg            │   │
     │  │     │     ├── detectGitContext() → branch, dirty (3s timeout)          │   │
     │  │     │     ├── ensureMcpLoaded() → load MCP tools                      │   │
-    │  │     │     └── classifyModelTier(model) → weak|mid|frontier             │   │
+    │  │     │     └── classifyModelCapability(model) → chat|tool|agent         │   │
     │  │     │                                                                  │   │
-    │  │     └── session: { engine, llm, modelTier, context, mcp }              │   │
+    │  │     └── session: { engine, llm, modelCapability, context, mcp }        │   │
     │  │                                                                        │   │
     │  │  ③ Build system prompt                                                 │   │
     │  │     llm-integration.ts → generateSystemPrompt(session)                │   │

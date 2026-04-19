@@ -95,10 +95,10 @@ function resolveWaitingLabel(
     if (item?.type !== "info") continue;
     const text = normalizeActivityText(item.text).toLowerCase();
     if (text.startsWith(CLARIFICATION_PREFIX)) {
-      return "Reply needed";
+      return "Reply";
     }
   }
-  return "Permission needed";
+  return "Approval";
 }
 
 function resolvePlanningFallbackLabel(

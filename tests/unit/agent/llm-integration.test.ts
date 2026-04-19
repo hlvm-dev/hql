@@ -10,12 +10,12 @@ import {
   generateSystemPrompt,
 } from "../../../src/hlvm/agent/llm-integration.ts";
 import {
-  classifyModelTier,
-  computeTierToolFilter,
-  ENHANCED_EAGER_TOOLS,
-  STANDARD_EAGER_TOOLS,
+  AGENT_CLASS_STARTER_TOOLS,
+  capabilityAtLeast,
+  classifyModelCapability,
+  starterPolicy,
   supportsAgentExecution,
-  tierMeetsMinimum,
+  TOOL_CLASS_STARTER_TOOLS,
 } from "../../../src/hlvm/agent/constants.ts";
 import { CODE_TOOLS } from "../../../src/hlvm/agent/tools/code-tools.ts";
 import { FILE_TOOLS } from "../../../src/hlvm/agent/tools/file-tools.ts";
@@ -73,7 +73,7 @@ Deno.test("LLM integration: prompt renders routing and permission sections witho
   assertStringIncludes(prompt, "Use prefetch, not preFetch");
   assertStringIncludes(
     prompt,
-    "Only the core local and project tools are preloaded",
+    "MANDATORY: Unknown tool names trigger tool_search FIRST",
   );
   assertStringIncludes(
     prompt,
@@ -134,113 +134,118 @@ Deno.test("LLM integration: generateSystemPrompt remains a text-only compatibili
   assertEquals(generated, compiled.text);
 });
 
-Deno.test("LLM integration: model tiers classify and compare correctly", () => {
-  // Tier classification
-  assertEquals(classifyModelTier(null, "anthropic/claude-sonnet"), "enhanced");
-  assertEquals(classifyModelTier({ parameterSize: "2B" }), "constrained");
-  assertEquals(classifyModelTier({ parameterSize: "7B" }), "standard");
-  assertEquals(classifyModelTier({ parameterSize: "13B" }), "standard");
-  assertEquals(classifyModelTier({ contextWindow: 128_000 }), "standard");
-  assertEquals(classifyModelTier(null, "openai/gpt-4o"), "enhanced");
-
-  // Tier comparison
-  assertEquals(tierMeetsMinimum("constrained", "standard"), false);
-  assertEquals(tierMeetsMinimum("standard", "constrained"), true);
-  assertEquals(tierMeetsMinimum("enhanced", "enhanced"), true);
-});
-
-Deno.test("LLM integration: computeTierToolFilter returns correct tools per tier", () => {
-  // Enhanced: bounded eager core
-  const enhanced = computeTierToolFilter("enhanced");
-  assertEquals(enhanced.allowlist?.length, ENHANCED_EAGER_TOOLS.length);
-  assertEquals(enhanced.allowlist?.includes("tool_search"), true);
-  assertEquals(enhanced.allowlist?.includes("search_web"), false);
-
-  // Enhanced with user allowlist: user override
-  const enhancedWithAllow = computeTierToolFilter("enhanced", ["read_file"]);
-  assertEquals(enhancedWithAllow.allowlist, ["read_file"]);
-  assertEquals(computeTierToolFilter("enhanced", []).allowlist, []);
-
-  // Standard: eager core tools (includes tool_search for discovery)
-  const standard = computeTierToolFilter("standard");
-  assertEquals(standard.allowlist?.length, STANDARD_EAGER_TOOLS.length);
-  assertEquals(standard.allowlist?.includes("tool_search"), true);
-  assertEquals(standard.allowlist?.includes("read_file"), true);
-  assertEquals(standard.allowlist?.includes("shell_exec"), true);
-  assertEquals(standard.allowlist?.includes("move_to_trash"), true);
-  assertEquals(standard.allowlist?.includes("reveal_path"), true);
-  assertEquals(standard.allowlist?.includes("make_directory"), true);
-  assertEquals(standard.allowlist?.includes("move_path"), true);
-  assertEquals(standard.allowlist?.includes("copy_path"), true);
-  // Deferred tools NOT in eager core:
-  assertEquals(standard.allowlist?.includes("search_web"), false);
-  assertEquals(standard.allowlist?.includes("memory_write"), false);
-  assertEquals(standard.allowlist?.includes("cu_screenshot"), false);
-  assertEquals(standard.allowlist?.includes("empty_trash"), false);
-
-  // Standard with user allowlist (e.g. from REPL with discovered tools): passthrough
-  const standardWithAllow = computeTierToolFilter("standard", [
-    "read_file",
-    "search_web",
-  ]);
-  assertEquals(standardWithAllow.allowlist, ["read_file", "search_web"]);
-  assertEquals(computeTierToolFilter("standard", []).allowlist, []);
-
-  // Constrained: hard cap (no tool_search)
-  const constrained = computeTierToolFilter("constrained");
-  assertEquals(constrained.allowlist?.includes("tool_search"), false);
-  assertEquals(constrained.allowlist?.includes("read_file"), true);
-
-  // Constrained with user allowlist: user override
-  const constrainedWithAllow = computeTierToolFilter("constrained", [
-    "read_file",
-  ]);
-  assertEquals(constrainedWithAllow.allowlist, ["read_file"]);
-  assertEquals(computeTierToolFilter("constrained", []).allowlist, []);
-});
-
-Deno.test("LLM integration: fallback model tier recalculation gives standard tools to local model", () => {
-  // Simulates what createFallbackLLM does: classify the fallback model, get its tool filter
-  const gemma4Tier = classifyModelTier(undefined, "ollama/gemma4:e2b");
-  assertEquals(gemma4Tier, "standard");
-  const gemma4Filter = computeTierToolFilter(gemma4Tier);
-  assertEquals(gemma4Filter.allowlist?.length, STANDARD_EAGER_TOOLS.length);
-  assertEquals(gemma4Filter.allowlist?.includes("tool_search"), true);
-
-  // Cloud model remains enhanced (bounded eager tools)
-  const claudeTier = classifyModelTier(undefined, "anthropic/claude-sonnet");
-  assertEquals(claudeTier, "enhanced");
-  const claudeFilter = computeTierToolFilter(claudeTier);
-  assertEquals(claudeFilter.allowlist?.length, ENHANCED_EAGER_TOOLS.length);
-
-  // "Double apply" scenario: enhanced primary falls back to standard.
-  // Fallback recalculates its own tier → independent filter, no conflict.
+Deno.test("LLM integration: classifyModelCapability sorts models into chat/tool/agent", () => {
+  // Frontier providers → agent (always trusted)
   assertEquals(
-    computeTierToolFilter("enhanced").allowlist?.length,
-    ENHANCED_EAGER_TOOLS.length,
+    classifyModelCapability(null, "anthropic/claude-sonnet"),
+    "agent",
   );
+  assertEquals(classifyModelCapability(null, "openai/gpt-4o"), "agent");
   assertEquals(
-    computeTierToolFilter("standard").allowlist?.length,
-    STANDARD_EAGER_TOOLS.length,
+    classifyModelCapability(null, "google/gemini-2.5-pro"),
+    "agent",
   );
+
+  // No tools capability → chat
+  assertEquals(
+    classifyModelCapability({ capabilities: ["chat"] }, "ollama/notools:8b"),
+    "chat",
+  );
+
+  // Agent-allowlist local model with adequate size → agent
+  assertEquals(
+    classifyModelCapability(
+      { capabilities: ["tools"], parameterSize: "8B" },
+      "ollama/qwen3:8b",
+    ),
+    "agent",
+  );
+
+  // gemma* is explicitly NOT agent-class (open P1 issue) → tool
+  assertEquals(
+    classifyModelCapability(
+      { capabilities: ["tools"], parameterSize: "8B" },
+      "ollama/gemma4:e2b",
+    ),
+    "tool",
+  );
+
+  // Agent-allowlist pattern but size < 7B → tool (size gate)
+  assertEquals(
+    classifyModelCapability(
+      { capabilities: ["tools"], parameterSize: "3B" },
+      "ollama/qwen3:3b",
+    ),
+    "tool",
+  );
+
+  // Unknown model with no info → tool (safe default)
+  assertEquals(classifyModelCapability(null, "ollama/unknown:latest"), "tool");
+  assertEquals(classifyModelCapability(undefined, undefined), "tool");
+
+  // Capability ordering: chat < tool < agent
+  assertEquals(capabilityAtLeast("chat", "tool"), false);
+  assertEquals(capabilityAtLeast("tool", "chat"), true);
+  assertEquals(capabilityAtLeast("agent", "agent"), true);
+  assertEquals(capabilityAtLeast("agent", "tool"), true);
 });
 
-Deno.test("LLM integration: supportsAgentExecution uses capabilities ground truth", () => {
+Deno.test("LLM integration: starterPolicy returns correct tools per capability class", () => {
+  // Agent class: lean core + tool_search (~18 tools)
+  const agent = starterPolicy("agent");
+  assertEquals(agent.allowlist?.length, AGENT_CLASS_STARTER_TOOLS.length);
+  assertEquals(agent.allowlist?.includes("tool_search"), true);
+  assertEquals(agent.allowlist?.includes("read_file"), true);
+  assertEquals(agent.allowlist?.includes("shell_exec"), true);
+  // Deferred tools NOT in agent starter:
+  assertEquals(agent.allowlist?.includes("todo_read"), false);
+  assertEquals(agent.allowlist?.includes("move_to_trash"), false);
+  assertEquals(agent.allowlist?.includes("pw_goto"), false);
+  assertEquals(agent.allowlist?.includes("ch_navigate"), false);
+
+  // Tool class: same lean core but NO tool_search (~17 tools)
+  const tool = starterPolicy("tool");
+  assertEquals(tool.allowlist?.length, TOOL_CLASS_STARTER_TOOLS.length);
+  assertEquals(tool.allowlist?.includes("tool_search"), false);
+  assertEquals(tool.allowlist?.includes("read_file"), true);
+  assertEquals(tool.allowlist?.includes("shell_exec"), true);
+
+  // Chat class: empty (no tool schema)
+  const chat = starterPolicy("chat");
+  assertEquals(chat.allowlist, []);
+
+  // User-explicit allowlist wins over class default
+  const userOverride = starterPolicy("agent", ["read_file"]);
+  assertEquals(userOverride.allowlist, ["read_file"]);
+  // Empty user allowlist is preserved
+  assertEquals(starterPolicy("agent", []).allowlist, []);
+});
+
+Deno.test("LLM integration: supportsAgentExecution returns true only for agent class", () => {
   // Cloud providers always support agent execution
   assertEquals(supportsAgentExecution("anthropic/haiku", null), true);
   assertEquals(supportsAgentExecution("openai/gpt-4o", null), true);
   assertEquals(supportsAgentExecution("google/gemini-2.5-pro", null), true);
 
-  // Capability-driven: model reports "tools" → agent supported
+  // Curated agent-capable local model with tools → agent
   assertEquals(
-    supportsAgentExecution("ollama/gemma4:e2b", {
+    supportsAgentExecution("ollama/qwen3:8b", {
       capabilities: ["chat", "tools"],
       parameterSize: "8B",
     }),
     true,
   );
 
-  // Capability-driven: model reports NO "tools" → agent blocked
+  // gemma* has tools but is NOT agent-class (open P1) → false
+  assertEquals(
+    supportsAgentExecution("ollama/gemma4:e2b", {
+      capabilities: ["chat", "tools"],
+      parameterSize: "8B",
+    }),
+    false,
+  );
+
+  // Model reports NO "tools" → chat class → false
   assertEquals(
     supportsAgentExecution("ollama/notools:8b", {
       capabilities: ["chat"],
@@ -249,28 +254,27 @@ Deno.test("LLM integration: supportsAgentExecution uses capabilities ground trut
     false,
   );
 
-  // No capability data → fallback to tier heuristic
-  assertEquals(
-    supportsAgentExecution("ollama/unknown", { parameterSize: "1B" }),
-    false, // 1B < 3B = constrained = no agent
-  );
+  // No capability data, unknown model → tool class → false
   assertEquals(
     supportsAgentExecution("ollama/unknown", { parameterSize: "8B" }),
-    true, // 8B >= 3B = standard = agent supported
+    false,
   );
 });
 
-Deno.test("LLM integration: prompt content scales by tier", () => {
-  const constrained = generateSystemPrompt({ modelTier: "constrained" });
-  const standard = generateSystemPrompt({ modelTier: "standard" });
-  const enhanced = generateSystemPrompt({ modelTier: "enhanced" });
+Deno.test("LLM integration: prompt sections gated by capability class", () => {
+  const chat = generateSystemPrompt({ modelCapability: "chat" });
+  const tool = generateSystemPrompt({ modelCapability: "tool" });
+  const agent = generateSystemPrompt({ modelCapability: "agent" });
 
-  assertStringIncludes(constrained, "# Examples");
-  assertEquals(constrained.includes("# Tips"), false);
-  assertStringIncludes(standard, "# Tips");
-  assertStringIncludes(enhanced, "# Tips");
-  assertEquals(constrained.length < standard.length, true);
-  assertEquals(enhanced.length >= standard.length, true);
+  // Examples is minCapability: "chat" → included in all three
+  assertStringIncludes(chat, "# Examples");
+  assertStringIncludes(tool, "# Examples");
+  assertStringIncludes(agent, "# Examples");
+
+  // Tips is minCapability: "tool" → included in tool + agent, NOT chat
+  assertEquals(chat.includes("# Tips"), false);
+  assertStringIncludes(tool, "# Tips");
+  assertStringIncludes(agent, "# Tips");
 });
 
 Deno.test("LLM integration: buildToolDefinitions caches until the registry changes", async () => {

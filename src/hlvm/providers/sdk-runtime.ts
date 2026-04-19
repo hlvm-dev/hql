@@ -333,6 +333,21 @@ export async function maybeHandleSdkRecoverableError(
     return false;
   }
 
+  // Network-level failures (ECONNREFUSED, fetch failed) mean the managed
+  // Ollama died after startup. Heal reactively before the retry — no polling,
+  // no periodic liveness timers; we only touch the engine when a real request
+  // actually failed against it.
+  if (isNetworkFailure(message, error)) {
+    try {
+      const { aiEngine } = await import("../runtime/ai-runtime.ts");
+      await aiEngine.ensureRunning();
+    } catch {
+      // Best-effort heal. If ensureRunning fails, the retry below will
+      // surface the original error, which is more actionable than the
+      // secondary spawn failure.
+    }
+  }
+
   await new Promise((resolve) =>
     setTimeout(
       resolve,

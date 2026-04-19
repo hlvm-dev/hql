@@ -109,9 +109,14 @@ interface McpOAuthRecord {
   updatedAt: string;
 }
 
+interface McpOAuthClientConfig {
+  clientSecret?: string;
+}
+
 interface McpOAuthStore {
   version: 1;
   records: McpOAuthRecord[];
+  clientConfig: Record<string, McpOAuthClientConfig>;
 }
 
 interface ParsedBearerChallenge {
@@ -199,7 +204,7 @@ function recordToTokens(record: McpOAuthRecord): OAuthTokens {
 // ---------------------------------------------------------------------------
 
 function emptyStore(): McpOAuthStore {
-  return { version: MCP_OAUTH_STORE_VERSION, records: [] };
+  return { version: MCP_OAUTH_STORE_VERSION, records: [], clientConfig: {} };
 }
 
 function normalizeServerUrl(url: string): string {
@@ -346,7 +351,27 @@ async function loadStore(storePath?: string): Promise<McpOAuthStore> {
           typeof record.updatedAt === "string";
       })
       : [];
-    return { version: MCP_OAUTH_STORE_VERSION, records };
+    const clientConfig = isObjectValue(parsed.clientConfig)
+      ? Object.fromEntries(
+        Object.entries(parsed.clientConfig)
+          .filter((entry): entry is [string, Record<string, unknown>] =>
+            typeof entry[0] === "string" && isObjectValue(entry[1])
+          )
+          .filter(([, config]) =>
+            config.clientSecret === undefined ||
+            typeof config.clientSecret === "string"
+          )
+          .map(([key, config]) => [
+            key,
+            {
+              ...(typeof config.clientSecret === "string"
+                ? { clientSecret: config.clientSecret }
+                : {}),
+            } satisfies McpOAuthClientConfig,
+          ]),
+      )
+      : {};
+    return { version: MCP_OAUTH_STORE_VERSION, records, clientConfig };
   } catch {
     return emptyStore();
   }
@@ -386,6 +411,9 @@ async function upsertRecord(
   } else {
     store.records[idx] = record;
   }
+  if (record.clientSecret) {
+    delete store.clientConfig[record.key];
+  }
   await saveStore(store, storePath);
 }
 
@@ -399,6 +427,76 @@ async function removeRecordByKey(
   store.records = next;
   await saveStore(store, storePath);
   return true;
+}
+
+async function upsertClientConfig(
+  server: McpServerConfig,
+  config: McpOAuthClientConfig,
+  storePath?: string,
+): Promise<void> {
+  const key = getServerKey(server);
+  if (!key) {
+    throw new ValidationError(
+      `MCP server '${server.name}' must use an HTTP URL to store OAuth client config`,
+      "mcp_oauth",
+    );
+  }
+  const store = await loadStore(storePath);
+  store.clientConfig[key] = config;
+  const existingRecord = store.records.find((record) => record.key === key);
+  if (existingRecord) {
+    existingRecord.clientSecret = config.clientSecret;
+  }
+  await saveStore(store, storePath);
+}
+
+export async function saveMcpClientSecret(
+  server: McpServerConfig,
+  clientSecret: string,
+  options: McpOAuthStoreOptions = {},
+): Promise<void> {
+  await upsertClientConfig(
+    server,
+    { clientSecret },
+    options.storePath,
+  );
+}
+
+export async function clearMcpClientConfig(
+  server: McpServerConfig,
+  options: McpOAuthStoreOptions = {},
+): Promise<boolean> {
+  const key = getServerKey(server);
+  if (!key) return false;
+  const store = await loadStore(options.storePath);
+  const hadClientConfig = key in store.clientConfig;
+  if (hadClientConfig) {
+    delete store.clientConfig[key];
+  }
+  const existingRecord = store.records.find((record) => record.key === key);
+  const hadRecordSecret = existingRecord?.clientSecret !== undefined;
+  if (existingRecord) {
+    existingRecord.clientSecret = undefined;
+  }
+  if (hadClientConfig || hadRecordSecret) {
+    await saveStore(store, options.storePath);
+    return true;
+  }
+  return false;
+}
+
+export async function getMcpClientConfig(
+  server: McpServerConfig,
+  options: McpOAuthStoreOptions = {},
+): Promise<McpOAuthClientConfig | undefined> {
+  const key = getServerKey(server);
+  if (!key) return undefined;
+  const store = await loadStore(options.storePath);
+  const existingRecord = store.records.find((record) => record.key === key);
+  if (existingRecord?.clientSecret) {
+    return { clientSecret: existingRecord.clientSecret };
+  }
+  return store.clientConfig[key];
 }
 
 async function withRefreshLock<T>(
@@ -871,7 +969,14 @@ export class McpOAuthTransportAuthProvider implements OAuthClientProvider {
     if (record) return recordToClientInfo(record);
     if (this.pendingClientInformation) return this.pendingClientInformation;
     const staticClientId = getMcpOAuthStaticClientId(this.server);
-    return staticClientId ? { client_id: staticClientId } : undefined;
+    if (!staticClientId) return undefined;
+    const clientConfig = await getMcpClientConfig(this.server, this.options);
+    return {
+      client_id: staticClientId,
+      ...(clientConfig?.clientSecret
+        ? { client_secret: clientConfig.clientSecret }
+        : {}),
+    };
   }
 
   async saveClientInformation(

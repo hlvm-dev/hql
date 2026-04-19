@@ -26,8 +26,8 @@
 ┃                     │  ▼                                                  ┃
 ┃                     │  SESSION CREATION  (session.ts:372)                  ┃
 ┃                     │    ├─ tryGetModelInfo()                              ┃
-┃                     │    ├─ classifyModelTier()                            ┃
-┃                     │    ├─ computeTierToolFilter()                        ┃
+┃                     │    ├─ classifyModelCapability()  → chat|tool|agent  ┃
+┃                     │    ├─ starterPolicy(class)       → starter filter   ┃
 ┃                     │    ├─ createToolProfileState()     → 5-layer stack  ┃
 ┃                     │    ├─ resolveContextBudget()       → token limit    ┃
 ┃                     │    ├─ new ContextManager()         → msg history    ┃

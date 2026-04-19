@@ -48,6 +48,7 @@ import {
   parsePlanReviewToolArgs,
 } from "./conversation/interaction-dialog-layout.ts";
 import { deriveLiveTurnStatus } from "./conversation/turn-activity.ts";
+import { summarizeStatusLineToolLabel } from "./conversation/activity-labels.ts";
 import {
   executeHandler,
   inspectHandlerKeybinding,
@@ -335,11 +336,10 @@ function AppContent(
   } = modelConfig;
   const handleSelectionCopied = useCallback((text: string) => {
     const path = getClipboardPath();
-    const count = text.length.toLocaleString("en-US");
     if (path === "native") {
-      flashFooterStatus(`copied ${count} chars to clipboard`);
       return;
     }
+    const count = text.length.toLocaleString("en-US");
     if (path === "tmux-buffer") {
       flashFooterStatus(
         `copied ${count} chars to tmux buffer · paste with prefix + ]`,
@@ -363,6 +363,25 @@ function AppContent(
     refreshAiReadiness(modelSelection.activeModelId)
       .catch(() => {});
   }, [init.ready, modelSelection.activeModelId, refreshAiReadiness]);
+
+  // Reactive footer refresh: when an agent turn finishes, re-read the host's
+  // readiness so stale "Starting AI engine / still initializing" text stops
+  // showing once the engine has clearly just responded. The evaluation
+  // completion itself is the event — no periodic polling.
+  const wasEvaluatingRef = useRef(false);
+  useEffect(() => {
+    const wasEvaluating = wasEvaluatingRef.current;
+    wasEvaluatingRef.current = isEvaluating;
+    if (!wasEvaluating || isEvaluating) return;
+    if (!init.ready) return;
+    refreshAiReadiness(modelSelection.activeModelId, { force: true })
+      .catch(() => {});
+  }, [
+    init.ready,
+    isEvaluating,
+    modelSelection.activeModelId,
+    refreshAiReadiness,
+  ]);
 
   const handleModelSelectionChange = useCallback(async (modelName: string) => {
     const updates = buildSelectedModelConfigUpdates(modelName);
@@ -629,10 +648,12 @@ function AppContent(
       return `Model setup needed · /model select · ? shortcuts`;
     }
     return init.ready
-      ? "Starting AI engine... /help, /config, and /model are available"
+      ? init.aiReadyReason?.trim() ||
+        "Starting AI engine... /help, /config, and /model are available"
       : "Loading HLVM...";
   }, [
     init.aiAvailable,
+    init.aiReadyReason,
     init.loading,
     init.modelToSetup,
     init.needsModelSetup,
@@ -644,7 +665,11 @@ function AppContent(
       setActiveOverlay("model-setup");
       return;
     }
-    flashFooterStatus(init.loading ? "Loading HLVM..." : "Starting AI engine...");
+    flashFooterStatus(
+      init.loading
+        ? "Loading HLVM..."
+        : init.aiReadyReason?.trim() || "Starting AI engine...",
+    );
     if (init.loading) {
       return;
     }
@@ -653,6 +678,7 @@ function AppContent(
     }).catch(() => {});
   }, [
     flashFooterStatus,
+    init.aiReadyReason,
     init.loading,
     init.modelToSetup,
     init.needsModelSetup,
@@ -1584,10 +1610,10 @@ function AppContent(
     if (pendingInteraction?.mode === "permission") {
       return pendingInteraction.toolName === "plan_review"
         ? "Plan review"
-        : "Approval needed";
+        : "Approval";
     }
     if (pendingInteraction?.mode === "question") {
-      return "Reply needed";
+      return "Reply";
     }
     return undefined;
   }, [hasConversationContext, pendingInteraction]);
@@ -1604,14 +1630,7 @@ function AppContent(
     }
     const activeTool = conversation.activeTool;
     if (activeTool) {
-      const summaryLabel = activeTool.toolTotal > 1
-        ? `${activeTool.displayName} ${activeTool.toolIndex}/${activeTool.toolTotal}`
-        : activeTool.displayName;
-      const parts = [summaryLabel];
-      if (activeTool.progressText?.trim()) {
-        parts.push(truncate(activeTool.progressText.trim(), 48));
-      }
-      return parts.join(" · ");
+      return summarizeStatusLineToolLabel(activeTool);
     }
     return "Thinking";
   }, [
@@ -1694,6 +1713,7 @@ function AppContent(
     hasPendingInteraction: Boolean(pendingInteraction),
     hasLocalAgents: localAgentEntries.length > 0,
   });
+  const suppressEmbeddedStartupChrome = bannerVisible && !init.ready;
   let overlayNode: React.ReactNode = null;
 
   if (activeOverlay === "palette") {
@@ -1914,7 +1934,8 @@ function AppContent(
                 </Box>
               )}
 
-              {(isInputVisible || hasConversationContext) && (
+              {(isInputVisible || hasConversationContext) &&
+                !suppressEmbeddedStartupChrome && (
                 <TuiStatusLine
                   modelName={modelSelection.displayLabel}
                   contextUsageLabel={modelConfig.footerContextUsageLabel}
@@ -1933,10 +1954,12 @@ function AppContent(
               )}
 
               {(isInputVisible || hasConversationContext) &&
+                !suppressEmbeddedStartupChrome &&
                 (
                   <FooterHint
                     statusMessage={footerStatusMessage ||
                       (!composerShellState.hasSubmitText
+                        && !isConversationTaskRunning
                         ? startupFooterMessage
                         : "")}
                     planningPhase={hasConversationContext

@@ -9,6 +9,82 @@ same native messaging protocol, same user experience.
 
 ---
 
+## Current Status (for agents picking this up)
+
+**Status: WORKING and TESTED** on real Chrome through `hlvm ask`.
+
+### What's done
+- 22 `ch_*` tools registered in `BUILTIN_TOOL_REGISTRY`
+- All tools in `REPL_MAIN_THREAD_EAGER_TOOLS` (REPL); discoverable via
+  `tool_search` in agent mode
+- Content-scripts architecture (no `chrome.debugger`, no yellow banner)
+- Native messaging host (Deno binary) spawned by Chrome
+- Unix socket bridge between CLI and native host
+- CLI commands: `hlvm chrome-ext setup/status/uninstall`
+- System prompt auto-injected when ch_* tools present
+- 12 unit tests pass
+- 21/21 socket-level E2E tests pass
+- 10/10 agent-level E2E tests pass (Haiku 4.5, `hlvm ask`)
+
+### How to verify it still works
+
+```bash
+# 1. Type check + SSOT
+deno task ssot:check
+deno check src/hlvm/agent/chrome-ext/mod.ts
+
+# 2. Unit tests
+deno test -A tests/unit/agent/chrome-ext.test.ts --no-check
+
+# 3. Load extension (one-time, manual)
+#    chrome://extensions → Developer mode → Load unpacked
+#    → select: src/hlvm/agent/chrome-ext/extension/
+
+# 4. Install native host
+./src/hlvm/agent/chrome-ext/test-local.sh <extension-id>
+
+# 5. E2E through agent (requires Chrome in foreground for screenshots)
+deno run -A src/hlvm/cli/cli.ts ask \
+  "use ch_tabs to list my chrome browser tabs" \
+  --model claude-code/claude-haiku-4-5-20251001 \
+  --permission-mode acceptEdits
+```
+
+### What's NOT done (future work)
+
+- [ ] Chrome Web Store submission (needs icons, privacy policy, screenshots)
+- [ ] Auto-detection of extension connection on session start
+- [ ] Startup notification ("Chrome extension connected")
+- [ ] GIF recording tool (CC has `gif_creator`)
+- [ ] Upload image tool (CC has `upload_image`)
+
+### Implementation plan file
+
+Full journey documented at:
+`~/.claude/plans/mutable-soaring-bee.md`
+
+### Key decisions made
+
+1. **Content scripts, not chrome.debugger** — HLVM has native CU
+   (HLVM.app) for screenshots and native input, so extension doesn't
+   need CDP. Avoids yellow banner, easier Web Store approval.
+
+2. **Builtin tools, not MCP subprocess** — CC uses MCP, HLVM uses
+   direct `BUILTIN_TOOL_REGISTRY` registration. Simpler, faster.
+
+3. **No session lock** — CC doesn't lock chrome extension access.
+   Multiple sessions can share the extension.
+
+4. **REPL gets all 22 tools eagerly** (`REPL_MAIN_THREAD_EAGER_TOOLS`);
+   **agent mode uses `tool_search`** to discover them on demand.
+   Tools fail gracefully if extension not connected.
+
+5. **Permission mode matters** — Some tools are L1/L2 safety level.
+   `hlvm ask --permission-mode acceptEdits` (or `default` for
+   interactive) is required for them to execute.
+
+---
+
 ## What It Does
 
 ```
@@ -191,10 +267,10 @@ USER: "check my Gmail for new emails"
 ```
 BUILTIN_TOOL_REGISTRY (registry.ts)
   └── CHROME_EXT_TOOLS (22 tools from chrome-ext/tools.ts)
-        └── All added to STANDARD_EAGER_TOOLS (constants.ts)
-              └── LLM sees them in every session
-                    └── System prompt (sections.ts) adds guidance:
-                          "ch_* = auth'd Chrome, pw_* = headless"
+        └── All in REPL_MAIN_THREAD_EAGER_TOOLS (constants.ts, REPL)
+        └── Deferred for agent mode; reachable via tool_search
+              └── System prompt (sections.ts) adds guidance:
+                    "ch_* = auth'd Chrome, pw_* = headless"
 ```
 
 The LLM decides which tool to use based on the task. No manual
@@ -320,7 +396,7 @@ src/hlvm/agent/shared/
 Modified files:
 ├── src/hlvm/agent/registry.ts        # CHROME_EXT_TOOLS in BUILTIN_TOOL_REGISTRY
 ├── src/hlvm/agent/tool-profiles.ts   # browser_chrome profile
-├── src/hlvm/agent/constants.ts       # ch_* in STANDARD_EAGER_TOOLS
+├── src/hlvm/agent/constants.ts       # ch_* in REPL_MAIN_THREAD_EAGER_TOOLS
 ├── src/hlvm/agent/agent-runner.ts    # Browser domain adds ch_* to allowlist
 ├── src/hlvm/agent/orchestrator.ts    # Browser domain adds ch_* to allowlist
 ├── src/hlvm/prompt/sections.ts       # renderChromeExtGuidance()
@@ -433,8 +509,8 @@ Chrome to front automatically, but if it fails:
 The tool isn't in the LLM's eager tool list. This shouldn't happen
 after the constants.ts update, but if it does:
 
-1. Check `STANDARD_EAGER_TOOLS` in constants.ts includes ch_* tools
-2. Or use `tool_search` to discover: `tool_search({query:"select:ch_navigate"})`
+1. In REPL: check `REPL_MAIN_THREAD_EAGER_TOOLS` in constants.ts includes ch_* tools
+2. In agent mode: discover via `tool_search({query:"select:ch_navigate"})`
 
 ### Extension keeps disconnecting
 

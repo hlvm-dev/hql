@@ -1,10 +1,7 @@
-import { STANDARD_EAGER_TOOLS } from "./constants.ts";
+import { REPL_MAIN_THREAD_EAGER_TOOLS } from "./constants.ts";
 import { getAllTools } from "./registry.ts";
 
 export const REPL_MAIN_THREAD_QUERY_SOURCE = "repl_main_thread";
-
-/** REPL main thread uses the same eager core as standard tier (SSOT in constants.ts). */
-const REPL_MAIN_THREAD_EAGER_CORE = STANDARD_EAGER_TOOLS;
 
 /** Deduplicate and validate a tool allowlist. */
 export function resolveQueryToolAllowlist(
@@ -17,11 +14,16 @@ export function isMainThreadQuerySource(querySource?: string): boolean {
   return querySource === REPL_MAIN_THREAD_QUERY_SOURCE;
 }
 
+/**
+ * REPL main thread uses its own wider eager core (defined in constants.ts)
+ * so REPL users can call tools like `pw_goto(...)` by name directly.
+ * Agent mode (`hlvm ask`) uses the narrower AGENT_CLASS_STARTER_TOOLS.
+ */
 export function getMainThreadEagerCoreAllowlist(
   ownerId?: string,
 ): string[] {
   const tools = getAllTools(ownerId);
-  return REPL_MAIN_THREAD_EAGER_CORE.filter((name) => name in tools);
+  return REPL_MAIN_THREAD_EAGER_TOOLS.filter((name) => name in tools);
 }
 
 export function resolveMainThreadBaselineToolAllowlist(options: {

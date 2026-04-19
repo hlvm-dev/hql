@@ -11,8 +11,8 @@ export function buildModelBrowserScopeText(
   maxModelWidth: number,
 ): string {
   return currentModel
-    ? `${selectionScopeTitle}: ${truncate(currentModel, maxModelWidth, "…")}`
-    : `${selectionScopeTitle}: none`;
+    ? `${selectionScopeTitle} · ${truncate(currentModel, maxModelWidth, "…")}`
+    : `${selectionScopeTitle} · none`;
 }
 
 export function buildModelBrowserViewLayout(

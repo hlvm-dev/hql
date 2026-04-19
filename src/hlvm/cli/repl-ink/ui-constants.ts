@@ -36,7 +36,7 @@ export const STATUS_GLYPHS = {
 
 
 /** Shared helper hint for opening the transcript/history viewer. */
-export const TOGGLE_LATEST_HINT = "Ctrl+O for history";
+export const TOGGLE_LATEST_HINT = "Ctrl+O";
 /** Shared helper hint for opening the latest citation URL. */
 export const OPEN_LATEST_SOURCE_HINT = "Ctrl+Y opens latest source";
 

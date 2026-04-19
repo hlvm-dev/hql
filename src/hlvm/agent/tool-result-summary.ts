@@ -13,6 +13,37 @@ const STRUCTURED_SUMMARY_FIRST_TOOLS = new Set([
   "read_file",
   "search_code",
 ]);
+const TOOL_COMPLETION_SUMMARIES = new Map<string, string>([
+  ["ask_user", "Asked"],
+  ["edit_file", "Edited"],
+  ["fetch_url", "Fetched"],
+  ["list_files", "Listed"],
+  ["make_directory", "Created"],
+  ["move_path", "Moved"],
+  ["move_to_trash", "Trashed"],
+  ["open_path", "Opened"],
+  ["read_file", "Read"],
+  ["reveal_path", "Revealed"],
+  ["search_code", "Searched"],
+  ["search_web", "Searched web"],
+  ["shell_exec", "Ran command"],
+  ["shell_script", "Ran command"],
+  ["web_fetch", "Fetched"],
+  ["write_file", "Wrote"],
+]);
+
+function titleCaseWords(text: string): string {
+  return text.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+export function summarizeToolCompletion(toolName: string): string {
+  const mapped = TOOL_COMPLETION_SUMMARIES.get(toolName);
+  if (mapped) return mapped;
+  if (toolName.startsWith("pw_")) {
+    return "Browser action done";
+  }
+  return `${titleCaseWords(toolName.replaceAll("_", " "))} done`;
+}
 
 function cleanSummaryText(text: string): string {
   return truncate(text.replace(/\s+/g, " ").trim(), MAX_SUMMARY_CHARS);
@@ -155,5 +186,5 @@ export function summarizeToolResult(
     return `Result: ${String(result)}`;
   }
 
-  return `${toolName} completed.`;
+  return summarizeToolCompletion(toolName);
 }

@@ -24,7 +24,8 @@ import {
   getConfiguredModelReadiness,
   getModelReadiness,
 } from "../../../runtime/configured-model-readiness.ts";
-import { ensureRuntimeHostReady } from "../../../runtime/host-client.ts";
+import { getRuntimeHostHealth } from "../../../runtime/host-client.ts";
+import { getHlvmRuntimeBaseUrl } from "../../../runtime/host-config.ts";
 import {
   checkForUpdate,
   type UpdateInfo,
@@ -38,6 +39,8 @@ interface InitializationState {
   aiReadiness: ConfiguredModelReadinessState;
   /** True if AI engine (globalThis.ai) is actually available */
   aiAvailable: boolean;
+  /** Runtime-host reason when AI is not accepting requests yet */
+  aiReadyReason: string | null;
   /** True if the default AI model needs to be downloaded */
   needsModelSetup: boolean;
   /** The model name that needs to be downloaded */
@@ -80,6 +83,7 @@ export function useInitialization(state: ReplState): InitializationState {
     "unavailable",
   );
   const [aiAvailable, setAiAvailable] = useState(false);
+  const [aiReadyReason, setAiReadyReason] = useState<string | null>(null);
   const [needsModelSetup, setNeedsModelSetup] = useState(false);
   const [modelToSetup, setModelToSetup] = useState("");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -114,6 +118,37 @@ export function useInitialization(state: ReplState): InitializationState {
     [],
   );
 
+  const readAiAvailability = useCallback(async (): Promise<{
+    available: boolean;
+    reason: string | null;
+  }> => {
+    const globalAi = (globalThis as Record<string, unknown>).ai;
+    const hasGlobalAi = globalAi != null &&
+      (typeof globalAi === "object" || typeof globalAi === "function");
+    if (!hasGlobalAi) {
+      return {
+        available: false,
+        reason: "AI runtime is unavailable.",
+      };
+    }
+
+    try {
+      const health = await getRuntimeHostHealth();
+      if (health?.aiReady) {
+        return { available: true, reason: null };
+      }
+      return {
+        available: false,
+        reason: health?.aiReadyReason?.trim() || "Starting AI engine...",
+      };
+    } catch (error) {
+      return {
+        available: false,
+        reason: getErrorMessage(error),
+      };
+    }
+  }, []);
+
   const refreshAiReadiness = useCallback(
     async (modelId?: string, options?: { force?: boolean }): Promise<void> => {
       const normalizedModelId = modelId?.trim() || undefined;
@@ -125,26 +160,16 @@ export function useInitialization(state: ReplState): InitializationState {
         return;
       }
 
-      const globalAi = (globalThis as Record<string, unknown>).ai;
-      let isAiAvailable = globalAi != null &&
-        (typeof globalAi === "object" || typeof globalAi === "function");
-
-      // Verify runtime host is actually reachable with a compatible build
-      if (isAiAvailable) {
-        try {
-          await ensureRuntimeHostReady();
-        } catch {
-          isAiAvailable = false;
-        }
-      }
+      const aiStatus = await readAiAvailability();
 
       const readiness = normalizedModelId
         ? await getModelReadiness(normalizedModelId)
         : await getConfiguredModelReadiness();
       lastReadinessModelIdRef.current = readiness.modelId;
-      applyModelReadinessState(readiness, isAiAvailable);
+      applyModelReadinessState(readiness, aiStatus.available);
+      setAiReadyReason(aiStatus.reason);
     },
-    [applyModelReadinessState],
+    [applyModelReadinessState, readAiAvailability],
   );
 
   useEffect(() => {
@@ -173,8 +198,8 @@ export function useInitialization(state: ReplState): InitializationState {
           log.error(`History init failed: ${getErrorMessage(error)}`);
         });
 
-        // Initialize runtime
-        await initializeRuntime();
+        // Initialize the local REPL shell without blocking on AI engine startup.
+        await initializeRuntime({ ai: false });
 
         const initResult = await initReplState({
           state,
@@ -190,20 +215,9 @@ export function useInitialization(state: ReplState): InitializationState {
           }
         }
 
-        // AI is available if globalThis.ai is registered AND runtime host is reachable
-        const globalAi = (globalThis as Record<string, unknown>).ai;
-        let isAiAvailable = globalAi != null &&
-          (typeof globalAi === "object" || typeof globalAi === "function");
-
-        if (isAiAvailable) {
-          try {
-            await ensureRuntimeHostReady();
-          } catch {
-            isAiAvailable = false;
-          }
-        }
-
-        setAiAvailable(isAiAvailable);
+        const aiStatus = await readAiAvailability();
+        setAiAvailable(aiStatus.available);
+        setAiReadyReason(aiStatus.reason);
 
         if (initResult.bindingsResult?.errors.length) {
           loadErrors.push(...initResult.bindingsResult.errors);
@@ -250,7 +264,7 @@ export function useInitialization(state: ReplState): InitializationState {
         unsubscribe();
       }
     })();
-  }, [refreshAiReadiness, state]);
+  }, [readAiAvailability, refreshAiReadiness, state]);
 
   return {
     loading,
@@ -260,6 +274,7 @@ export function useInitialization(state: ReplState): InitializationState {
     progress,
     aiReadiness,
     aiAvailable,
+    aiReadyReason,
     needsModelSetup,
     modelToSetup,
     updateInfo,

@@ -4,11 +4,9 @@ import { isObjectValue } from "../../../../../common/utils.ts";
 
 const CONFIRMATION_DIALOG_MAX_ARG_LINES = 10;
 const PLAN_REVIEW_MAX_STEPS = 6;
-export const QUESTION_DIALOG_HINT = "Type your reply below, then press Enter";
-export const QUESTION_PICKER_HINT =
-  "Esc to cancel · Tab to amend";
-export const PLAN_REVIEW_PICKER_HINT =
-  "Esc to cancel · Tab to amend";
+export const QUESTION_DIALOG_HINT = "Type reply · Enter";
+export const QUESTION_PICKER_HINT = "Esc · Tab amend";
+export const PLAN_REVIEW_PICKER_HINT = "Esc · Tab amend";
 
 interface PlanReviewDialogDisplay {
   plan: Plan;

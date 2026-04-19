@@ -1,303 +1,180 @@
-# Model Tier Classification
+# Capability-Class Routing
 
-> SSOT: `classifyModelTier()` in `src/hlvm/agent/constants.ts`
+> SSOT: `classifyModelCapability()` in `src/hlvm/agent/constants.ts`
+>
+> Renamed from the old `ModelTier` system on 2026-04-20. Was
+> `"constrained" | "standard" | "enhanced"`; now
+> `"chat" | "tool" | "agent"`.
 
-## Overview
+## 1. What it decides
 
-Every model HLVM works with is classified into one of three experience
-tiers. The tier controls how much the system gives the model (prompt
-depth, tool count, MCP) and whether LLM-powered quality features are
-enabled (semantic search ranking, memory auto-invalidation).
+One question, up front, before any tools run:
 
-For request-time routing behavior, see [routing.md](./routing.md).
+- **What kind of work can this model reliably do?**
 
-```
-ModelTier = "constrained" | "standard" | "enhanced"
-```
-
-## Tier Definitions
-
-### constrained
-
-Resource-limited models that need protection from token overflow.
-
-- **Short system prompt** (~1K tokens, base sections only)
-- **16 core tools** (file I/O, git, web, memory, complete_task)
-- **No MCP** server loading
-- **3-6K context budget** for direct chat
-- **Deterministic search** ranking
-- **No memory auto-invalidation**
-
-### standard
-
-Full-capability models with progressive tool discovery.
-
-- **Full system prompt** (~3K tokens with 23 tools, vs ~8K with all tools)
-- **23 eager tools** + `tool_search` for progressive discovery
-- **Deferred tools** (web, memory, CU, etc.) discoverable via `tool_search`
-- **MCP** servers loaded lazily on first use
-- **Full context budget**
-- **Deterministic search** ranking
-- **No memory auto-invalidation**
-
-### enhanced
-
-Full-capability models with LLM-powered quality features.
-
-- Everything standard gets, plus:
-- **LLM-ranked search result selection** (model picks best results to fetch)
-- **LLM evidence reordering** (model ranks fetched passages by relevance)
-- **Memory auto-invalidation** (conflicting facts auto-removed when similarity > 0.9)
-- **2 extra instruction lines** (iterative search, evidence quality)
-
-## Classification Logic
+The answer picks one of three classes:
 
 ```
-classifyModelTier(modelInfo?, model?): ModelTier
-
- 1. Has capabilities data but NO "tools"?     -> constrained
- 2. contextWindow < 8K?                        -> constrained
- 3. parameterSize < 3B?                        -> constrained
- 4. Cloud provider (anthropic/openai/google)?   -> enhanced
- 5. Local model >= 30B with tools?             -> enhanced
- 6. Everything else                            -> standard
+chat   -> text only. No tool schema sent. Direct chat.
+tool   -> can emit tool calls, but not trusted for autonomous loops.
+          Gets a small starter, no tool_search, loop narrowed.
+agent  -> proven tool-capable. Gets same small starter + tool_search.
 ```
 
-Priority is top-down. Rule 1 fires before rule 4, so a cloud embedding
-model (no tools) correctly gets constrained, not enhanced.
+Ordering: `chat < tool < agent` (each is a superset of the previous).
 
-### Classification Examples
+## 2. Why (evidence)
 
-```
-Model                         Data Available               Tier
----------------------------------------------------------------------------
-Claude Opus (cloud)           anthropic/ prefix            enhanced
-Claude Haiku (cloud)          anthropic/ prefix            enhanced
-GPT-4o (cloud)                openai/ prefix               enhanced
-Gemini 2.5 Pro (cloud)        google/ prefix               enhanced
-Gemma4 8B (local, tools)      parameterSize=8B, tools      standard
-Llama 3.1 8B (local, 128K)    parameterSize=8B, tools      standard
-DeepSeek R1 70B (local)       parameterSize=70B, tools     enhanced
-Qwen 72B (local)              parameterSize=72B, tools     enhanced
-CodeLlama 34B (local)         parameterSize=34B, tools     enhanced
-Phi-2 2.7B (local)            parameterSize=2.7B, no tools constrained
-noname:8b (no tools cap)      parameterSize=8B, chat only  constrained
-Unknown model (no data)       nothing                      standard
-```
+Earlier HLVM used size-based tiers mapped to eager lists of 16 / 51 / 51
+tools. Two independent sources showed this was past the accuracy cliff:
 
-## Two Separate Concerns
+- **RAG-MCP** (arXiv 2505.03275): tool-selection accuracy drops from
+  >90% at N≤30 tools to ~13% on full-dump baselines. Retrieval gets
+  43%. 3× improvement.
+- **Anthropic "Advanced Tool Use"**: Opus 4 went 49% → 74% on MCP
+  benchmarks just by switching "all tools upfront" → Tool Search.
+  Token load dropped 72K → 8.7K for 50+ tools.
+- **Claude Code source** (verified): ~35 eager built-in tools, MCP
+  deferred via ToolSearchTool by default.
 
-The tier system answers "how much should we give this model?" It does
-NOT answer "can this model call tools?" That is a separate capability
-check:
+HLVM's open P1 (`project_agent_system_default_broken.md`) also showed
+that size-based tiers can't express "tool-capable but weak at loops"
+— gemma4:e2b passed the old tier gate but couldn't drive agent mode.
+
+## 3. Classification logic
+
+`src/hlvm/agent/constants.ts:classifyModelCapability`:
 
 ```
-classifyModelTier()         -> constrained | standard | enhanced
-                               (resource sizing + quality features)
-
-supportsAgentExecution()    -> boolean
-                               (can this model call tools?)
-                               checks capabilities.includes("tools")
-                               separate from tier
+1. capabilities reported + "tools" absent → chat
+2. parameter count < 3B                   → chat
+3. context window < 8K                    → chat
+4. frontier provider (anthropic|openai|
+   google|claude-code)                    → agent
+5. local model name on curated allowlist
+   AND params >= 7B                       → agent
+6. has "tools" capability                 → tool
+7. unknown (no signal)                    → tool   (safe default)
 ```
 
-A model can be "standard" tier (full prompt, all tools) but NOT support
-agent execution (no tool-calling capability). In that case it gets chat
-mode with a full prompt but no ReAct loop.
+The curated allowlist (`AGENT_CAPABLE_MODELS`, private): qwen3, qwen2.5
+≥7B, qwen2.5-coder ≥7B, llama3.1/3.2/3.3 ≥8B, deepseek-coder / r1,
+mistral (large/small/medium/nemo), mixtral, command-r(-plus), yi ≥9B.
 
-## Data Sources
+Explicitly `tool`-class (never `agent`): gemma*, phi*, tinyllama,
+tinydolphin, smollm, orca-mini, llama2*, qwen2 (pre-2.5), anything
+with `:1b` / `:2b` / `:3b` / `:e2b` suffix.
 
-Classification uses data from `ModelInfo`, which providers populate:
+## 4. Starter tool policy
 
-| Field | Ollama | Anthropic | OpenAI | Google | Public Catalog |
-|-------|--------|-----------|--------|--------|----------------|
-| parameterSize | YES | no | no | no | no |
-| contextWindow | YES | no | no | YES | YES |
-| capabilities | YES | hardcoded | hardcoded | provider-level | inferred |
-| family | YES | hardcoded | from API | hardcoded | extracted |
-
-`capabilities` is the most reliable field (all providers report it).
-`parameterSize` is only available from Ollama.
-
-## What Each Tier Controls
-
-### Prompt Sections (minTier gates)
-
-Each prompt section has a `minTier` annotation. The compiler includes a
-section only if the model's tier meets or exceeds it:
+`src/hlvm/agent/constants.ts:starterPolicy` returns the allowlist for
+a given class. Single source of truth: one table, three entries.
 
 ```
-Section               minTier       constrained  standard  enhanced
-----------------------------------------------------------------------
-Role                  constrained   YES          YES       YES
-Critical Rules        constrained   YES          YES       YES
-Instructions (base)   constrained   YES          YES       YES
-Instructions (+mid)   standard      no           YES       YES
-Instructions (+enh)   enhanced      no           no        YES
-Tool Routing          constrained   YES          YES       YES
-Permissions           constrained   YES          YES       YES
-Web Guidance          constrained   YES          YES       YES
-Environment           constrained   YES          YES       YES
-Custom Instructions   constrained   YES          YES       YES
-Delegation            constrained   YES*         YES       YES
-Team Coordination     constrained   YES*         YES       YES
-Examples              constrained   YES          YES       YES
-Tips                  standard      no           YES       YES
-Computer Use          standard      no           YES       YES
-Footer                constrained   YES          YES       YES
-
-* constrained gets brief versions; standard/enhanced get full guidance
+chat  → []                              (no tool schema)
+tool  → TOOL_CLASS_STARTER_TOOLS        (~17 tools)
+agent → AGENT_CLASS_STARTER_TOOLS       (~18 = tool starter + tool_search)
 ```
 
-### Tool Access
+Starter contents (both classes share these; agent adds `tool_search`):
 
 ```
-constrained: 16 core tools, hard cap, NO tool_search (CONSTRAINED_CORE_TOOLS)
-  read_file, write_file, edit_file, list_files,
-  search_code, ask_user, complete_task,
-  git_status, git_diff, git_log,
-  search_web, web_fetch, fetch_url,
-  memory_write, memory_search, memory_edit
-
-standard: 23 eager tools + progressive discovery (STANDARD_EAGER_TOOLS)
-  ask_user, tool_search, todo_read, todo_write,
-  list_files, read_file, move_to_trash, reveal_path,
-  file_metadata, make_directory, move_path, copy_path,
-  search_code, find_symbol, get_structure, edit_file, write_file,
-  git_status, git_diff, git_log,
-  shell_exec, shell_script, open_path
-  (deferred: web, memory, CU, archive — discovered via tool_search)
-
-enhanced: 32 eager tools (ENHANCED_EAGER_TOOLS)
-  standard eager core
-  + delegate_agent, batch_delegate
-  + team runtime collaboration entrypoints
-  (still bounded; still uses progressive discovery)
+read_file, write_file, edit_file, list_files
+search_code, find_symbol
+git_status, git_diff, git_log
+search_web, web_fetch, fetch_url
+memory_write, memory_search, memory_edit
+ask_user, complete_task, shell_exec
 ```
 
-Why constrained has web+memory but standard doesn't: constrained has no
-`tool_search` so it can never discover tools. Standard has `tool_search`
-so it starts lean and expands on demand. This cuts input tokens by ~70%
-for standard-tier models (8K vs 29K).
+Deferred (discoverable via `tool_search` in agent class):
+`todo_*`, `move_to_trash`, `reveal_path`, `file_metadata`,
+`make_directory`, `move_path`, `copy_path`, `open_path`,
+`shell_script`, `get_structure`, all `pw_*` (Playwright),
+all `ch_*` (Chrome), sub-agent spawn.
 
-### Lazy Tool Loading Pipeline (standard tier)
+User-explicit `toolAllowlist` wins over class default.
 
-```
-Session start
-  → computeTierToolFilter("standard") → 23 eager tools
-  → System prompt describes only 23 tools
-  → LLM sees 23 tool schemas (~3K tokens)
+## 5. What differs by class
 
-Model needs deferred tool (e.g. search_web)
-  → Calls tool directly → BLOCKED with hint:
-    "Use tool_search to discover and enable 'search_web'"
-  → Model calls tool_search("web search")
-  → tool_search searches FULL registry (all 40+ tools)
-  → Returns: suggested_allowlist: ["search_web", "web_fetch"]
+| Aspect | chat | tool | agent |
+|---|---|---|---|
+| Tool schema | empty | ~17 starter | ~18 starter + tool_search |
+| Autonomous loop | no | no (agent mode rejects) | yes |
+| MCP loading | skipped | loaded | loaded |
+| Runtime phase narrowing | n/a | aggressive (web pruning) | permissive |
+| Memory aggressive-invalidation | no | no | yes |
+| Prompt depth | narrowest | tool-level sections | full agent sections |
 
-Discovery callback fires
-  → session.discoveredDeferredTools.add("search_web")
-  → baseline allowlist grows by one discovered tool
-  → Current turn narrows to the core set plus discovered tools
-  → Persisted to disk for session reuse
+## 6. REPL vs agent mode
 
-Next turn
-  → toolFilterState resets to the updated baseline
-  → Model can call search_web directly without tool_search
-```
+REPL main-thread uses a wider eager core
+(`REPL_MAIN_THREAD_EAGER_TOOLS` in `src/hlvm/agent/constants.ts`,
+~51-tool surface including browser families) so REPL users can type
+`pw_goto(...)` directly. Only agent mode (`hlvm ask`) uses the lean
+`AGENT_CLASS_STARTER_TOOLS`.
 
-Key invariant: `tool_search` searches the FULL registry (not just the
-active allowlist). Deferred tools are always findable — just not callable
-until discovered.
+Code boundary: `src/hlvm/agent/query-tool-routing.ts` for REPL
+seeding; `src/hlvm/agent/session.ts` for agent-mode seeding via
+`starterPolicy(capability, …)`.
 
-### MCP Server Loading
+## 7. Discovery semantics
 
-```
-constrained: skipped entirely (never loads MCP)
-standard:    lazy-loaded on first tool use
-enhanced:    lazy-loaded on first tool use
-```
+In agent mode, `tool_search` discoveries are **turn-local**:
 
-### Web Search Quality
+- The discovered tool name is tracked in `session.discoveredDeferredTools`
+  for cross-session persistence.
+- The turn-local `discovery` layer of `toolProfileState` surfaces it
+  for the current turn only.
+- `resetToolFilter()` at the next turn clears the `discovery` layer;
+  baseline is NOT silently grown.
 
-```
-constrained/standard:
-  selectSearchResultsDeterministically()  — formula-based scoring
-  rankFetchedEvidenceDeterministically()  — keyword + authority + freshness
+Evidence: same RAG-MCP / Anthropic findings — ratcheting discoveries
+into baseline reintroduces the "too many tools" cliff the lean starter
+was designed to avoid.
 
-enhanced:
-  selectSearchResultsWithLlm()            — model picks best results
-  reorderFetchedEvidenceWithLlm()         — model ranks by relevance
-  (try/catch fallback to deterministic if LLM call fails)
-```
+REPL keeps its original promotion semantics (the REPL branch of
+`persistDeferredToolDiscoveriesForSession`) because REPL users expect
+discovered tools to stay for the session.
 
-### Memory Auto-Invalidation
+## 8. Where the logic lives
 
-```
-constrained/standard: conflicts detected but NOT auto-removed
-enhanced:             conflicts with Jaccard similarity > 0.9 auto-invalidated
-```
+| Concern | File |
+|---|---|
+| Capability class + classifier | `src/hlvm/agent/constants.ts` |
+| Starter tool lists + policy | `src/hlvm/agent/constants.ts` |
+| Agent admission gate | `src/hlvm/agent/agent-runner.ts:700` |
+| Session baseline seeding | `src/hlvm/agent/session.ts:410` |
+| Turn-local discovery | `src/hlvm/agent/agent-runner.ts:566` |
+| Adaptive phase narrowing | `src/hlvm/agent/orchestrator.ts:876` |
+| Prompt section gating | `src/hlvm/prompt/sections.ts` + `compiler.ts` |
+| Memory invalidation gate | `src/hlvm/memory/invalidate.ts:46` |
+| REPL wider eager core | `src/hlvm/agent/query-tool-routing.ts` |
+| `@auto` codingStrength derivation | `src/hlvm/agent/auto-select.ts:280` |
 
-### Auto-Select Coding Strength Default
+## 9. Migration from the old tier system
 
-```
-constrained -> codingStrength: "weak"   (+0 score)
-standard    -> codingStrength: "mid"    (+2 score)
-enhanced    -> codingStrength: "strong" (+5 score)
+| Old | New |
+|---|---|
+| `ModelTier = "constrained" \| "standard" \| "enhanced"` | `ModelCapabilityClass = "chat" \| "tool" \| "agent"` |
+| `classifyModelTier(modelInfo, model)` | `classifyModelCapability(modelInfo, model)` |
+| `computeTierToolFilter(tier, ...)` | `starterPolicy(capability, ...)` |
+| `CONSTRAINED_CORE_TOOLS` (16) | `TOOL_CLASS_STARTER_TOOLS` (17) |
+| `STANDARD_EAGER_TOOLS` (51) | `AGENT_CLASS_STARTER_TOOLS` (18) + `REPL_MAIN_THREAD_EAGER_TOOLS` (51, REPL only) |
+| `ENHANCED_EAGER_TOOLS` (alias of STANDARD) | — (no difference between agent and cloud-frontier) |
+| `tierMeetsMinimum(tier, min)` | `capabilityAtLeast(value, min)` |
 
-(overridden by MODEL_OVERRIDES for known models)
-```
+Behavior changes intentionally introduced:
 
-## Relationship to ToolProfile System
+- Agent mode eager surface shrunk from 51 → 18 tools.
+- Browser tools (`pw_*` / `ch_*`) moved out of eager — discoverable
+  via `tool_search`.
+- Unknown / weak local models fail agent admission instead of being
+  silently promoted to a standard tier with 51 tools.
+- Discovery in agent mode stays turn-local (no baseline ratchet).
 
-Tier-based filtering feeds into the `baseline` slot of the first-class
-ToolProfile system (`tool-profiles.ts`). The tier filter is the foundation
-layer; additional layers stack on top:
+## 10. One-line summary
 
-```
-registered tools
-  → baseline layer (tier + capability gating — this doc)
-  → domain layer   (task-type routing, e.g. browser_safe)
-  → plan layer     (planning vs execution phase)
-  → discovery layer (tool_search narrowing)
-  → runtime layer  (adaptive pruning)
-  = final visible/executable tools
-```
-
-The tier system answers "how much should we give this model?"
-The domain layer answers "what tools should this task use?"
-Both are enforced by the same underlying allowlist/denylist machinery.
-
-See `src/hlvm/agent/tool-profiles.ts` for the profile controller.
-See `docs/computer-use/hybrid-strategy.md` for browser domain profiles.
-
-## Key Source Files
-
-| File | Role |
-|------|------|
-| `src/hlvm/agent/constants.ts` | `ModelTier` type, `classifyModelTier()`, `tierMeetsMinimum()`, `computeTierToolFilter()`, `STANDARD_EAGER_TOOLS`, `supportsAgentExecution()` |
-| `src/hlvm/agent/tool-profiles.ts` | `ToolProfileState`, profile CRUD, declared browser profiles, merge semantics |
-| `src/hlvm/prompt/sections.ts` | Prompt section renderers with `minTier` annotations |
-| `src/hlvm/prompt/compiler.ts` | Filters sections by `tierMeetsMinimum(tier, section.minTier)` |
-| `src/hlvm/agent/session.ts` | MCP gate, tool filter application, tier computation, profile baseline init |
-| `src/hlvm/agent/tools/web/ddg-search-backend.ts` | LLM vs deterministic search selection |
-| `src/hlvm/memory/invalidate.ts` | Auto-invalidation gate |
-| `src/hlvm/agent/auto-select.ts` | Coding strength default from tier |
-| `src/hlvm/cli/repl/handlers/direct-chat-history.ts` | Constrained direct-chat budget (3-6K) |
-
-## Design Principles
-
-1. **Names describe system behavior, not model quality.**
-   "constrained" = we constrain what we give it. Not "weak" = it's bad.
-
-2. **Capabilities and tier are orthogonal.**
-   Tier = resource sizing. Capabilities = feature gates (tools, vision, thinking).
-
-3. **SSOT.** One function (`classifyModelTier`), one type (`ModelTier`),
-   one file (`constants.ts`). No duplicate types. No scattered logic.
-
-4. **Ground truth first.** Check capabilities and context window before
-   falling back to parameter count heuristics.
-
-5. **Safe defaults.** Unknown models get "standard" (full tools, full
-   prompt). Conservative enough not to break, generous enough to be useful.
+Capability class in front, lean starter underneath, `tool_search` for
+discovery, REPL keeps its own wider surface. Same runtime machinery
+below — this is a policy replacement, not a subsystem rewrite.

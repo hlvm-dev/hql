@@ -420,6 +420,7 @@ const NodeCommand: PlatformCommand = {
     const child = spawn(options.cmd[0], options.cmd.slice(1), {
       cwd: options.cwd,
       env: options.env,
+      detached: options.detached,
       signal: options.signal,
       timeout: options.timeout,
       stdio: [
@@ -478,6 +479,7 @@ const NodeCommand: PlatformCommand = {
       const child = spawn(options.cmd[0], options.cmd.slice(1), {
         cwd: options.cwd,
         env: options.env,
+        detached: options.detached,
         stdio: ["ignore", "pipe", "pipe"],
         signal: options.signal,
         timeout: options.timeout,

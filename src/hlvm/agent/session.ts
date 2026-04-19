@@ -17,14 +17,14 @@ import type { AgentProfile } from "./agent-registry.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { ValidationError } from "../../common/error.ts";
 import {
-  classifyModelTier,
-  computeTierToolFilter,
+  classifyModelCapability,
   DEFAULT_TOOL_DENYLIST,
   ENGINE_PROFILES,
   extractModelSuffix,
   extractProviderName,
   isFrontierProvider,
-  type ModelTier,
+  type ModelCapabilityClass,
+  starterPolicy,
 } from "./constants.ts";
 import type { LLMFunction } from "./orchestrator.ts";
 import {
@@ -64,10 +64,7 @@ import { releaseToolOwner } from "./registry.ts";
 import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
 import { FileStateCache } from "./file-state-cache.ts";
 import { clearToolResultSidecars } from "./tool-result-storage.ts";
-import {
-  REPL_MAIN_THREAD_QUERY_SOURCE,
-  resolveMainThreadBaselineToolAllowlist,
-} from "./query-tool-routing.ts";
+import { resolveMainThreadBaselineToolAllowlist } from "./query-tool-routing.ts";
 import {
   clearToolProfileLayer,
   createToolProfileState,
@@ -132,8 +129,8 @@ export interface AgentSession {
   profile: typeof ENGINE_PROFILES[keyof typeof ENGINE_PROFILES];
   /** True if the model is a frontier model (API provider, not local) */
   isFrontierModel: boolean;
-  /** Classified model tier for prompt depth control */
-  modelTier: ModelTier;
+  /** Classified capability class for prompt depth control and agent admission */
+  modelCapability: ModelCapabilityClass;
   /** Resolved context budget (budget, rawLimit, source) */
   resolvedContextBudget: ResolvedBudget;
   /** LLM config for rebuilding with different onToken (GUI streaming) */
@@ -179,7 +176,7 @@ export interface AgentSession {
     | "stableCacheProfile"
     | "signatureHash"
     | "mode"
-    | "tier"
+    | "capability"
     | "querySource"
   >;
   /** Preloaded agent profiles used for child agent prompt guidance. */
@@ -219,7 +216,7 @@ function buildCompiledPromptArtifacts(options: {
   toolDenylist?: string[];
   toolOwnerId: string;
   querySource?: string;
-  modelTier: ModelTier;
+  modelCapability: ModelCapabilityClass;
   agentProfiles?: readonly AgentProfile[];
   visionCapable?: boolean;
 }): {
@@ -232,7 +229,7 @@ function buildCompiledPromptArtifacts(options: {
     toolDenylist: options.toolDenylist,
     toolOwnerId: options.toolOwnerId,
     querySource: options.querySource,
-    modelTier: options.modelTier,
+    modelCapability: options.modelCapability,
     agentProfiles: options.agentProfiles,
     visionCapable: options.visionCapable,
   });
@@ -250,7 +247,7 @@ function buildCompiledPromptArtifacts(options: {
       stableCacheProfile: compiled.stableCacheProfile,
       signatureHash: compiled.signatureHash,
       mode: compiled.mode,
-      tier: compiled.tier,
+      capability: compiled.capability,
       querySource: compiled.querySource,
     },
     systemPromptText: compiled.text,
@@ -298,7 +295,7 @@ export async function refreshReusableAgentSession(
     toolDenylist: denylist,
     toolOwnerId: session.toolOwnerId,
     querySource: options.querySource ?? session.querySource,
-    modelTier: session.modelTier,
+    modelCapability: session.modelCapability,
     agentProfiles,
   });
 
@@ -379,9 +376,9 @@ export async function createAgentSession(
       ? await tryGetModelInfo(providerName, modelName)
       : null);
 
-  // Compute model tier BEFORE MCP loading (weak models skip MCP entirely)
+  // Classify model capability BEFORE MCP loading (non-agent models skip MCP)
   const isFrontier = isFrontierProvider(options.model);
-  const modelTier = classifyModelTier(modelInfo, options.model);
+  const modelCapability = classifyModelCapability(modelInfo, options.model);
   const effectiveToolDenylist = options.toolDenylist?.length
     ? [...options.toolDenylist]
     : [...DEFAULT_TOOL_DENYLIST];
@@ -407,15 +404,15 @@ export async function createAgentSession(
     toolAllowlist: options.toolAllowlist,
     discoveredDeferredTools,
   });
-  const tierFilter = computeTierToolFilter(
-    modelTier,
+  const starterFilter = starterPolicy(
+    modelCapability,
     baselineToolAllowlist,
     effectiveToolDenylist,
   );
   const toolProfileState = createToolProfileState();
   setToolProfileLayer(toolProfileState, "baseline", {
-    allowlist: cloneToolList(tierFilter.allowlist),
-    denylist: cloneToolList(tierFilter.denylist),
+    allowlist: cloneToolList(starterFilter.allowlist),
+    denylist: cloneToolList(starterFilter.denylist),
   });
   const initialEffectiveFilter = resolveEffectiveToolFilterCached(
     toolProfileState,
@@ -511,7 +508,10 @@ export async function createAgentSession(
     signal?: AbortSignal,
     request?: McpDiscoveryRequest,
   ): Promise<boolean> => {
-    if (modelTier === "constrained") return false;
+    // Skip MCP for chat-class models (no tools at all). Tool and agent
+    // classes both load MCP — even tool-class one-shot use benefits from
+    // MCP (e.g. Gmail send). Only chat class is hopeless.
+    if (modelCapability === "chat") return false;
     if (signal?.aborted) throw new Error("MCP load aborted");
 
     while (true) {
@@ -565,8 +565,8 @@ export async function createAgentSession(
     }
   };
 
-  if (modelTier === "constrained") {
-    getAgentLogger().info("MCP: skipped (constrained model tier)");
+  if (modelCapability === "chat") {
+    getAgentLogger().info("MCP: skipped (chat-class model has no tools)");
   } else {
     getAgentLogger().debug("MCP: incremental lazy load enabled");
   }
@@ -599,7 +599,7 @@ export async function createAgentSession(
     toolDenylist: initialEffectiveFilter.denylist,
     toolOwnerId,
     querySource: options.querySource,
-    modelTier,
+    modelCapability,
     agentProfiles: options.agentProfiles,
     visionCapable,
   });
@@ -640,8 +640,8 @@ export async function createAgentSession(
           : {}),
       },
       contextBudget: resolved.budget,
-      toolAllowlist: cloneToolList(tierFilter.allowlist),
-      toolDenylist: cloneToolList(tierFilter.denylist),
+      toolAllowlist: cloneToolList(starterFilter.allowlist),
+      toolDenylist: cloneToolList(starterFilter.denylist),
       toolProfileState,
       eagerToolCount: initialPersistentFilter.allowlist?.length,
       discoveredDeferredToolCount: discoveredDeferredTools.size,
@@ -664,7 +664,7 @@ export async function createAgentSession(
   const resetToolFilter = () => {
     setCanonicalToolProfileBaseline(toolProfileState, {
       querySource: options.querySource,
-      baseAllowlist: tierFilter.allowlist,
+      baseAllowlist: starterFilter.allowlist,
       discoveredDeferredTools,
       ownerId: toolOwnerId,
     });
@@ -717,7 +717,7 @@ export async function createAgentSession(
     },
     profile,
     isFrontierModel: isFrontier,
-    modelTier,
+    modelCapability,
     resolvedContextBudget: resolved,
     llmConfig,
     thinkingState,
@@ -725,8 +725,8 @@ export async function createAgentSession(
     visionCapable,
     engine,
     toolProfileState,
-    baseToolAllowlist: cloneToolList(tierFilter.allowlist),
-    baseToolDenylist: cloneToolList(tierFilter.denylist),
+    baseToolAllowlist: cloneToolList(starterFilter.allowlist),
+    baseToolDenylist: cloneToolList(starterFilter.denylist),
     resetToolFilter,
     discoveredDeferredTools,
     ensureMcpLoaded,

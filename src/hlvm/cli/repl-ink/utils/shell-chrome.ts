@@ -1,5 +1,6 @@
 import { truncate } from "../../../../common/utils.ts";
 import { formatProgressBar } from "./formatting.ts";
+import { stringWidth } from "../../../tui-v2/ink/stringWidth.ts";
 
 export const SHELL_SEGMENT_SEPARATOR = " · ";
 
@@ -38,13 +39,13 @@ export function getHistorySearchHintText(
   query: string,
   matchCount: number,
 ): string {
-  if (!query.trim()) return "Type to search · Esc cancel";
-  if (matchCount <= 1) return "Enter select · Esc cancel";
-  return "Ctrl+R next · Ctrl+S prev · Enter select · Esc cancel";
+  if (!query.trim()) return "Type search · Esc";
+  if (matchCount <= 1) return "Enter select · Esc";
+  return "Ctrl+R next · Ctrl+S prev · Enter · Esc";
 }
 
 export function getShellPromptSlotWidth(promptLabel = ""): number {
-  return promptLabel.length;
+  return stringWidth(promptLabel);
 }
 
 export function getShellPromptPrefixWidth(promptLabel = ""): number {
@@ -77,7 +78,7 @@ function measureShellFooterSegments(
   return segments.reduce((total, segment, index) => {
     const separatorWidth = index > 0 ? SHELL_SEGMENT_SEPARATOR.length : 0;
     const chipPadding = segment.chip ? 2 : 0;
-    return total + separatorWidth + segment.text.length + chipPadding;
+    return total + separatorWidth + stringWidth(segment.text) + chipPadding;
   }, 0);
 }
 

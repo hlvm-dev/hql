@@ -6,7 +6,7 @@ import {
 } from "../../../src/hlvm/agent/orchestrator.ts";
 import { ContextManager } from "../../../src/hlvm/agent/context.ts";
 import { computeFallbackToolFilter } from "../../../src/hlvm/agent/agent-runner.ts";
-import { computeTierToolFilter } from "../../../src/hlvm/agent/constants.ts";
+import { starterPolicy } from "../../../src/hlvm/agent/constants.ts";
 import { UsageTracker } from "../../../src/hlvm/agent/usage.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 
@@ -63,7 +63,7 @@ Deno.test("applyAdaptiveToolPhase caches per-turn request phase classification",
   platform.env.set("HLVM_DISABLE_AI_AUTOSTART", "1");
   try {
     const state = makeLoopState();
-    const config = makeConfig({ modelTier: "standard" });
+    const config = makeConfig({ modelCapability: "agent" });
 
     assertEquals(state.requestPhaseClassification, undefined);
 
@@ -93,7 +93,7 @@ Deno.test("applyAdaptiveToolPhase caches per-turn request phase classification",
   }
 });
 
-Deno.test("fallback: native tier surface is the floor when user is implicit", () => {
+Deno.test("fallback: native capability-class starter is the floor when user is implicit", () => {
   const model = "ollama/gemma4:e2b";
   const filter = computeFallbackToolFilter({
     fallbackModel: model,
@@ -103,11 +103,11 @@ Deno.test("fallback: native tier surface is the floor when user is implicit", ()
   });
 
   const nativeSurface =
-    computeTierToolFilter(filter.tier, undefined, []).allowlist!;
+    starterPolicy(filter.capability, undefined, []).allowlist!;
   assertEquals(
     filter.allowlist?.sort(),
     [...nativeSurface].sort(),
-    "native tier surface must be used when user was implicit and no discoveries",
+    "native starter policy must be used when user was implicit and no discoveries",
   );
 });
 

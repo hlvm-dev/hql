@@ -78,6 +78,8 @@ export interface PlatformCommandOptions {
   stdin?: "piped" | "inherit" | "null";
   stdout?: "piped" | "inherit" | "null";
   stderr?: "piped" | "inherit" | "null";
+  /** Start the subprocess in a detached process group so it can outlive the parent. */
+  detached?: boolean;
   /** Kill the subprocess after this many milliseconds. */
   timeout?: number;
   /** Abort signal — kills the subprocess when aborted. */

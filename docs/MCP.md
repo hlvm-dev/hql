@@ -1,7 +1,13 @@
 # MCP in HLVM
 
 SSOT for MCP configuration, inheritance, transport, auth, discovery, and tool
-registration in this repository as of 2026-04-19.
+registration in this repository.
+
+MCP is a stable, feature-frozen compatibility layer in HLVM. The surface
+described in this document is the intended target. HLVM does not pursue feature
+parity with other agent tools' MCP surfaces — it interoperates with their
+configs (see "Cross-tool discovery" below), which is where HLVM's MCP value
+actually lives.
 
 Runtime-host lifecycle is a separate domain. Port ownership, host reuse,
 build-identity compatibility, fallback-port scanning, and host reclamation live
@@ -16,11 +22,11 @@ in `src/hlvm/runtime/host-client.ts`, `src/hlvm/cli/commands/serve.ts`, and
 - OAuth: Authorization Code + PKCE, dynamic client registration, proactive token
   refresh, 401-retry-on-refresh, per-server `clientId` / `callbackPort`,
   insufficient-scope handling.
-- Config scopes: project `.mcp.json`, project `.hlvm/mcp.json`, user
-  `~/.hlvm/mcp.json`, Claude Code plugin import, plus cross-tool inheritance
-  (Cursor, Windsurf, Zed, Codex CLI, Gemini CLI).
-- User-facing management: `hlvm mcp add/list/remove/login/logout` and REPL
-  `/mcp`.
+- Current `hlvm mcp` CLI-visible sources: user `~/.hlvm/mcp.json` plus
+  cross-tool inheritance from Cursor, Windsurf, Zed, Codex CLI, Gemini CLI,
+  and Claude Code plugin manifests.
+- User-facing management: `hlvm mcp add/add-json/get/list/remove/login/logout`.
+  REPL `/mcp` is currently list-only.
 
 ## What users can do now
 
@@ -44,7 +50,7 @@ HLVM_CMD='deno run -A src/hlvm/cli/cli.ts'         # from source
 ### One-line connect — OAuth HTTP MCP server
 
 ```bash
-$HLVM_CMD mcp add notion --url https://mcp.notion.com/mcp && \
+$HLVM_CMD mcp add notion --transport http https://mcp.notion.com/mcp && \
 $HLVM_CMD mcp login notion
 ```
 
@@ -61,7 +67,7 @@ $HLVM_CMD mcp list
 $HLVM_CMD ask "use my MCP tools"
 ```
 
-## Live-verified end to end (2026-04-19)
+## Live-verified end to end
 
 Both via proper `hlvm ask` (no backdoor):
 
@@ -73,12 +79,11 @@ Tested across `claude-code/claude-haiku-4-5`, `ollama/qwen3:8b`, and
 `ollama/llama3.1:8b`. Fails on `ollama/gemma4:e4b` (4B is below the capability
 threshold for multi-hop meta-tool reasoning — see "Model requirements" below).
 
-### Cross-tool MCP inheritance (2026-04-19)
+### Cross-tool MCP inheritance
 
-HLVM now reads MCP server definitions from Cursor, Windsurf, Zed, Codex CLI, and
+HLVM reads MCP server definitions from Cursor, Windsurf, Zed, Codex CLI, and
 Gemini CLI in addition to its own config and Claude Code plugins. Verified by
-`deno test --allow-all tests/unit/agent/mcp-config.test.ts` (13/13 passing),
-including:
+`deno test --allow-all tests/unit/agent/mcp-config.test.ts`, including:
 
 - parsing each source's native schema (JSON, nested JSON, TOML)
 - priority order (`user` > Cursor > Windsurf > Zed > Codex > Gemini > Claude
@@ -110,24 +115,24 @@ Runtime:
   requests it.
 
 Storage: `~/.hlvm/mcp-oauth.json`. Override: `HLVM_MCP_OAUTH_PATH`.
+This store carries both tokens and pre-login client-secret metadata for remote
+MCP servers.
 
 ## Configuration model
 
-Loaded from multiple scopes, highest priority first. First match wins (duplicate
-server names are silently collapsed by `dedupeServers`).
+Servers are loaded from the following sources, highest priority first. First
+match wins (duplicate server names are silently collapsed by `dedupeServers`).
 
-1. `<workspace>/.mcp.json` (project)
-2. `<workspace>/.hlvm/mcp.json` (project)
-3. `~/.hlvm/mcp.json` (user — HLVM's own)
-4. `~/.cursor/mcp.json` (Cursor)
-5. `~/.codeium/windsurf/mcp_config.json` or `~/.codeium/mcp_config.json`
+1. `~/.hlvm/mcp.json` (user — HLVM's own)
+2. `~/.cursor/mcp.json` (Cursor)
+3. `~/.codeium/windsurf/mcp_config.json` or `~/.codeium/mcp_config.json`
    (Windsurf)
-6. `~/.config/zed/settings.json` → `context_servers` (Zed)
-7. `~/.codex/config.toml` → `[mcp_servers.*]` (Codex CLI)
-8. `~/.gemini/settings.json` → `mcpServers` (Gemini CLI)
-9. `~/.claude/plugins/marketplaces/**` plugin manifests (Claude Code)
+4. `~/.config/zed/settings.json` → `context_servers` (Zed)
+5. `~/.codex/config.toml` → `[mcp_servers.*]` (Codex CLI)
+6. `~/.gemini/settings.json` → `mcpServers` (Gemini CLI)
+7. `~/.claude/plugins/marketplaces/**` plugin manifests (Claude Code)
 
-### `.mcp.json` format (Claude Code style)
+### `.mcp.json` format (standard `mcpServers` object)
 
 ```json
 {
@@ -144,7 +149,7 @@ server names are silently collapsed by `dedupeServers`).
 }
 ```
 
-### Native format (`.hlvm/mcp.json` and `~/.hlvm/mcp.json`)
+### Native format (`~/.hlvm/mcp.json`)
 
 ```json
 {
@@ -215,21 +220,27 @@ HLVM with no extra setup.
 ## CLI commands
 
 ```bash
-hlvm mcp add <name> -- <command...>
-hlvm mcp add <name> --url <url>
+hlvm mcp add <name> <commandOrUrl> [args...]
+hlvm mcp add-json <name> <json>
+hlvm mcp get <name>
 hlvm mcp list
-hlvm mcp remove <name> [--scope project|user]
+hlvm mcp remove <name>
 hlvm mcp login <name>
 hlvm mcp logout <name>
 ```
 
-Notes:
+Flags:
 
-- `add --scope project|user` (default: `project`)
-- `add --env KEY=VALUE` repeatable
-- `remove` without scope tries project first, then user
-- Entries in `.mcp.json` are file-managed; edit `.mcp.json` to remove them
-- `/mcp` in REPL lists configured servers with transport and scope
+- `add` accepts `-t, --transport <stdio|http|sse>`
+- `add --env KEY=VALUE` repeatable (stdio)
+- `add --header "Name: value"` repeatable (HTTP/SSE)
+- `add --client-id`, `--client-secret`, and `--callback-port` for OAuth
+- bare-URL `add` defaults to stdio and warns with the `--transport http` /
+  `--transport sse` alternatives
+- `/mcp` in the REPL is list-only
+
+HLVM persists servers to `~/.hlvm/mcp.json` only. Inherited sources are
+read-only — to edit them, use their native tool (Cursor, Windsurf, etc.).
 
 ## Runtime behavior
 
@@ -305,7 +316,9 @@ Verified matrix (fresh sessions via `hlvm ask`, same context7 task):
 | ollama/gemma4:e4b     | 4B        | ❌                 | ❌            |
 | ollama/gemma4:e2b     | 2B        | ❌                 | ❌            |
 
-**8B is the practical minimum** for reliable multi-hop tool discovery.
+**8B is the practical minimum** for reliable multi-hop tool discovery. Below
+that threshold, MCP tools do not load reliably from `tool_search` — this is a
+known capability cliff, not a bug in HLVM.
 
 Default local model (SSOT in `src/hlvm/runtime/bootstrap-manifest.ts`):
 
@@ -328,57 +341,6 @@ Measured on a full `hlvm ask` MCP loop (context7 discovery + call):
 
 Raw generation speed: ~37 tok/s. First-turn cost is dominated by cold prompt
 processing. Subsequent turns benefit from Ollama's prompt cache.
-
-## Current known gaps
-
-- OAuth authorization UI is browser+redirect based (no device code flow).
-- HTTP transport does not yet implement automatic `409` session recreation.
-- HTTP transport uses request/response SSE and does not run a separate
-  long-lived GET SSE listener.
-- MCP Tasks (experimental protocol feature) not implemented.
-- WebSocket transport (`ws`, `ws-ide`) not implemented — imported manifests
-  using them are rejected rather than misclassified.
-- Tool result output truncation + compression (CC-style) not implemented.
-- MCP tools below 8B-class models: discovery via `tool_search` is unreliable.
-  Architectural fix (pre-route tools via embedding retrieval before the LLM
-  call) is the known path forward, not yet implemented.
-
-## Roadmap — TODO
-
-### Lazy-load reliability for small models
-
-Ship a `classifyRelevantTools(query, toolCatalog)` in
-`src/hlvm/runtime/local-llm.ts` that runs a cheap classification call and
-populates `toolProfileState.discovery` before the main LLM turn. This is the
-path that makes MCP reliable on 4B-class models that cannot do multi-hop
-meta-tool reasoning on their own.
-
-### Cold-prompt latency
-
-The 11K-token system prompt dominates first-turn TTFT on local models. Plan:
-
-- Trim non-essential sections for `constrained` / `standard` tiers.
-- Pre-warm the prompt cache on install by issuing a throwaway generation during
-  `hlvm bootstrap`.
-
-### Residual discovery broadening
-
-The old "spawn every configured server on first search" behavior is no longer
-the default path. `ensureMcpLoaded` now works from a config-only server catalog
-and loads one relevant batch at a time.
-
-The remaining limitation is vague semantic queries. If query text does not
-identify a server clearly enough, HLVM may widen discovery through successive
-small batches until it finds a useful match or exhausts the catalog. That is a
-much smaller blast radius than the old eager-all-server path, but it is still
-broader than a perfect per-tool descriptor catalog.
-
-Next improvement when this becomes measurable:
-
-- enrich the config-only catalog with stronger descriptors so `tool_search`
-  stays narrow even for fuzzier queries
-- persist warmed server metadata across sessions so repeated searches do less
-  work on the first hop
 
 ## Test coverage in repository
 
@@ -446,8 +408,8 @@ deno test --allow-all tests/unit/agent/mcp-oauth.test.ts
 
 - Client: `src/hlvm/agent/mcp/sdk-client.ts`
 - OAuth: `src/hlvm/agent/mcp/oauth.ts`
-- Config (includes CC import + env expansion): `src/hlvm/agent/mcp/config.ts`,
-  `src/hlvm/agent/mcp/env-expansion.ts`
+- Config (includes CC plugin import + env expansion):
+  `src/hlvm/agent/mcp/config.ts`, `src/hlvm/agent/mcp/env-expansion.ts`
 - Tools + registration: `src/hlvm/agent/mcp/tools.ts`
 - Types: `src/hlvm/agent/mcp/types.ts`
 - Barrel: `src/hlvm/agent/mcp/mod.ts`
