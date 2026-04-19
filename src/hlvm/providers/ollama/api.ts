@@ -253,12 +253,28 @@ export async function listModels(endpoint: string): Promise<ModelInfo[]> {
     "GET",
   );
 
-  return (result.models || []).map((m) => {
+  const models = result.models || [];
+
+  // Query /api/show for each model to get real capabilities (tools, thinking, etc.)
+  // /api/tags doesn't expose these; /api/show does.
+  const capabilitiesByName = await Promise.all(
+    models.map(async (m): Promise<string[] | undefined> => {
+      try {
+        const show = await jsonRequest<OllamaShowResponse>(
+          endpoint,
+          "/api/show",
+          { name: m.name },
+        );
+        return show.capabilities;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+
+  return models.map((m, i) => {
     const families = m.details?.families ?? [];
     const hasVision = families.some((f) => f === "clip" || f === "mllama");
-    const capabilities: import("../types.ts").ProviderCapability[] = ["chat"];
-    if (hasVision) capabilities.push("vision");
-
     return {
       name: m.name,
       displayName: m.name.split(":")[0],
@@ -267,7 +283,7 @@ export async function listModels(endpoint: string): Promise<ModelInfo[]> {
       parameterSize: m.details?.parameter_size,
       quantization: m.details?.quantization_level,
       modifiedAt: new Date(m.modified_at),
-      capabilities,
+      capabilities: extractCapabilities(capabilitiesByName[i], hasVision),
       metadata: { digest: m.digest, details: m.details },
     };
   });
