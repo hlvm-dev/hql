@@ -77,24 +77,15 @@ handle_bootstrap_failure() {
 }
 
 # Verify bootstrap and test AI generation.
-# Tries hlvm ask first (real user path). On failure (agent loop slow on CI),
-# falls back to direct Ollama API call — the core "local AI works" proof.
+# Uses direct Ollama API — the core "local AI works" contract. The agent
+# loop (hlvm ask) is tested by unit tests + real user hardware, not CI,
+# because CI runners are too slow/memory-constrained for the agent flow.
 verify_and_test() {
   local label="${1:-Smoke}"
   echo "==> Verifying bootstrap..."
   run_smoke_hlvm "${INSTALL_BIN}/hlvm" bootstrap --verify
 
-  echo "==> Running: hlvm ask \"${PROMPT}\""
-  RESPONSE=$(run_smoke_hlvm "${INSTALL_BIN}/hlvm" ask "$PROMPT" 2>&1) || true
-  echo "Response: ${RESPONSE}"
-
-  if [ -n "$RESPONSE" ] && ! echo "$RESPONSE" | grep -qE 'Error:|HLVM[0-9]{4}|Agent error'; then
-    echo "==> ${label} succeeded."
-    return 0
-  fi
-
-  # hlvm ask failed — fall back to direct Ollama API (same contract, simpler path)
-  echo "==> hlvm ask failed. Falling back to direct Ollama API..."
+  echo "==> Testing Ollama API directly..."
   handle_bootstrap_failure "$label"
   exit $?
 }
