@@ -37,13 +37,14 @@ Installer then:
      a. Downloads pinned Ollama
      b. Places it under ~/.hlvm/.runtime/engine/
      c. Starts it on 127.0.0.1:11439
-     d. Pulls gemma4:e2b into ~/.hlvm/.runtime/models/
-     e. Downloads Chromium into ~/.hlvm/.runtime/chromium/
-     f. Installs uv into ~/.hlvm/.runtime/python/uv/
-     g. Installs CPython into ~/.hlvm/.runtime/python/cpython/
-     h. Creates ~/.hlvm/.runtime/python/venv/
-     i. Installs the default Python sidecar pack
-     j. Verifies everything and writes manifest.json
+     d. Detects host memory and selects the pinned qwen3 model tier
+     e. Pulls that qwen3 fallback into ~/.hlvm/.runtime/models/
+     f. Downloads Chromium into ~/.hlvm/.runtime/chromium/
+     g. Installs uv into ~/.hlvm/.runtime/python/uv/
+     h. Installs CPython into ~/.hlvm/.runtime/python/cpython/
+     i. Creates ~/.hlvm/.runtime/python/venv/
+     j. Installs the default Python sidecar pack
+     k. Verifies everything and writes manifest.json
   7. Exits only after HLVM is ready
 
 User then runs:
@@ -99,15 +100,16 @@ curl -fsSL https://hlvm.dev/install.sh | sh
          │
          ├── a. Download pinned Ollama from official releases
          ├── b. Start Ollama on 127.0.0.1:11439
-         ├── c. Pull gemma4:e2b
-         ├── d. Download Chromium via playwright-core
-         ├── e. Install uv 0.11.7 under HLVM-owned storage
-         ├── f. Install CPython 3.13.13 under HLVM-owned storage
-         ├── g. Create a managed virtualenv
-         ├── h. Install the default Python sidecar pack
-         ├── i. Verify engine + model + Python sidecar
-         ├── j. Write manifest.json
-         └── k. Keep Ollama warm for the first request
+         ├── c. Detect host memory and choose qwen3:8b or qwen3:30b
+         ├── d. Pull the selected qwen3 fallback
+         ├── e. Download Chromium via playwright-core
+         ├── f. Install uv 0.11.7 under HLVM-owned storage
+         ├── g. Install CPython 3.13.13 under HLVM-owned storage
+         ├── h. Create a managed virtualenv
+         ├── i. Install the default Python sidecar pack
+         ├── j. Verify engine + model + Python sidecar
+         ├── k. Write manifest.json
+         └── l. Keep Ollama warm for the first request
 ```
 
 ### Key Invariants
@@ -119,10 +121,14 @@ curl -fsSL https://hlvm.dev/install.sh | sh
 5. The `uv` version is pinned in `embedded-uv-version.txt`.
 6. The CPython version is pinned in `embedded-python-version.txt`.
 7. The Python sidecar pack is pinned in `embedded-python-sidecar-requirements.txt`.
-8. The runtime uses HLVM-owned storage under `~/.hlvm/.runtime/`.
-9. Ollama binds to `127.0.0.1:11439`, not `11434`.
-10. `/health.aiReady` is true only after the fallback model is genuinely ready.
-11. The installer is not complete until bootstrap has finished successfully.
+8. The local fallback tier map is pinned in `embedded-model-tiers.json`.
+9. The runtime uses HLVM-owned storage under `~/.hlvm/.runtime/`.
+10. Ollama binds to `127.0.0.1:11439`, not `11434`.
+11. A bootstrap request must never silently reuse another `HLVM_DIR`'s managed
+    Ollama instance.
+12. A runtime host attachment must match both build identity and `HLVM_DIR`.
+13. `/health.aiReady` is true only after the fallback model is genuinely ready.
+14. The installer is not complete until bootstrap has finished successfully.
 
 ### Key Source Files
 
@@ -131,11 +137,14 @@ curl -fsSL https://hlvm.dev/install.sh | sh
 | `src/hlvm/cli/commands/bootstrap.ts`         | Bootstrap orchestration, warmup, readiness probe             |
 | `src/hlvm/runtime/bootstrap-materialize.ts`  | Prepare engine, model, browser, Python, and manifest         |
 | `src/hlvm/runtime/ai-runtime.ts`             | Ollama download and engine lifecycle                         |
+| `src/hlvm/runtime/host-identity.ts`          | Runtime-host identity, including build and `HLVM_DIR`        |
+| `src/hlvm/runtime/host-client.ts`            | Runtime-host attach/start logic with root-aware compatibility |
 | `src/hlvm/runtime/chromium-runtime.ts`       | Chromium download and verification                           |
 | `src/hlvm/runtime/python-runtime.ts`         | uv install, CPython install, venv creation, sidecar pack     |
 | `src/hlvm/runtime/bootstrap-manifest.ts`     | Bootstrap manifest types and read/write                      |
 | `src/hlvm/runtime/bootstrap-verify.ts`       | Manifest verification, including Python sidecar verification |
 | `embedded-ollama-version.txt`                | Pinned Ollama version                                        |
+| `embedded-model-tiers.json`                  | Pinned host-memory → qwen3 tier map                          |
 | `embedded-uv-version.txt`                    | Pinned `uv` version                                          |
 | `embedded-python-version.txt`                | Pinned CPython version                                       |
 | `embedded-python-sidecar-requirements.txt`   | Pinned Python sidecar pack                                   |
@@ -154,9 +163,9 @@ Location: `~/.hlvm/.runtime/manifest.json`
   },
   "models": [
     {
-      "modelId": "gemma4:e2b",
-      "size": 7162394016,
-      "hash": "sha256:4e30e2665218..."
+      "modelId": "qwen3:8b",
+      "size": 5225387677,
+      "hash": "sha256:a3de86cd1c13..."
     }
   ],
   "python": {
@@ -203,9 +212,17 @@ States:
 | Component            | Current Pin |
 | -------------------- | ----------- |
 | Ollama               | `v0.21.0`   |
-| Local fallback model | `gemma4:e2b`|
+| Local fallback tiers | `>=64 GiB -> qwen3:30b`, otherwise `qwen3:8b` |
 | `uv`                 | `0.11.7`    |
 | CPython              | `3.13.13`   |
+
+Default install policy is conservative on purpose:
+
+- 32 GiB M1 Max stays on `qwen3:8b`
+- 64 GiB and larger hosts may auto-upgrade to `qwen3:30b`
+- `qwen3:14b` is supported as a manual upgrade, not the default auto-pull
+- model digest pins come from the live Ollama registry manifests, not the
+  human-facing library detail pages
 
 The default Python sidecar pack currently includes:
 
@@ -229,6 +246,13 @@ The default Python sidecar pack currently includes:
 
 See [docs/cicd/release-pipeline.md](/Users/seoksoonjang/dev/hql/docs/cicd/release-pipeline.md:1)
 for the concrete release workflow and smoke path.
+
+Release smoke validation must also isolate runtime ownership:
+
+- temp `HLVM_DIR`
+- dedicated `HLVM_REPL_PORT`
+- no inherited background `hlvm serve` processes
+- no inherited `~/.hlvm` bootstrap state
 
 ## Future
 

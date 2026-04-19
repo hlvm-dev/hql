@@ -1494,14 +1494,12 @@ function AppContent(
   const interactionStatusLabel = useMemo(() => {
     if (!hasConversationContext) return undefined;
     if (pendingInteraction?.mode === "permission") {
-      return pendingInteraction.sourceLabel
-        ? `Approval needed · ${pendingInteraction.sourceLabel}`
+      return pendingInteraction.toolName === "plan_review"
+        ? "Plan review"
         : "Approval needed";
     }
     if (pendingInteraction?.mode === "question") {
-      return pendingInteraction.sourceLabel
-        ? `Reply needed · ${pendingInteraction.sourceLabel}`
-        : "Reply needed";
+      return "Reply needed";
     }
     return undefined;
   }, [hasConversationContext, pendingInteraction]);
@@ -1527,7 +1525,7 @@ function AppContent(
       }
       return parts.join(" · ");
     }
-    return "Working";
+    return "Thinking";
   }, [
     conversation.activeTool,
     conversation.liveItems,

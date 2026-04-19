@@ -8,7 +8,8 @@ all runtime heavy lifting during `hlvm bootstrap`. Install completes only after
 HLVM has:
 
 - downloaded the pinned Ollama engine
-- pulled the pinned local fallback model
+- selected the pinned local fallback model tier for the host
+- pulled that local fallback model
 - downloaded managed Chromium for browser automation
 - installed a HLVM-owned `uv` binary
 - installed a HLVM-owned CPython runtime and isolated Python sidecar pack
@@ -32,7 +33,8 @@ THE USER EXPERIENCE
       Installing Python 3.13.13...                ✓
       Installing default Python sidecar pack...   ✓
       Starting AI engine...                        ✓
-      Pulling gemma4:e2b... ████████████████ 100%
+      Selecting local model tier...                qwen3:8b
+      Pulling qwen3:8b... ████████████████ 100%
       Verifying readiness...                       ✓
     ✓ HLVM vX.Y.Z is ready!
 
@@ -127,6 +129,7 @@ cross-compilation.
 The compiled binary includes the pin files that drive bootstrap:
 
 - `embedded-ollama-version.txt`
+- `embedded-model-tiers.json`
 - `embedded-uv-version.txt`
 - `embedded-python-version.txt`
 - `embedded-python-sidecar-requirements.txt`
@@ -159,7 +162,7 @@ Bootstrap is driven by the following pinned defaults in the repo:
 | Component              | Pin / Default |
 | ---------------------- | ------------- |
 | Ollama engine          | `v0.21.0`     |
-| Local fallback model   | `gemma4:e2b`  |
+| Local fallback tiers   | `>=64 GiB -> qwen3:30b`, otherwise `qwen3:8b` |
 | Managed `uv`           | `0.11.7`      |
 | Managed CPython        | `3.13.13`     |
 
@@ -185,6 +188,26 @@ The default Python sidecar pack is pinned in
 This pack is installed into an isolated HLVM-owned virtual environment. System
 Python is never required.
 
+The local-model tier map is pinned in `embedded-model-tiers.json`. Current
+policy is intentionally conservative:
+
+- `qwen3:8b` is the baseline default, including 32 GiB M1 Max machines
+- `qwen3:30b` is reserved for 64 GiB and larger hosts
+- `qwen3:14b` remains a supported manual upgrade path, not the auto-installed default
+
+Model identity pins must match the live Ollama registry manifests, not the
+human-facing library detail pages, because those detail pages can lag behind the
+actual pull artifacts.
+
+Bootstrap and first-use runtime attachment are both root-aware:
+
+- the managed Ollama endpoint on `127.0.0.1:11439` must belong to the same
+  `HLVM_DIR` that requested bootstrap
+- the background HLVM runtime host must match both the build identity and the
+  requesting `HLVM_DIR`
+- clean installs must never silently reuse another runtime root's engine, model
+  store, or background host
+
 ---
 
 ## Staged Smoke Test
@@ -192,15 +215,20 @@ Python is never required.
 Draft smoke tests download staged assets locally and exercise the full install
 contract.
 
+Both staged and public smoke tests run inside an isolated temp `HLVM_DIR` and a
+dedicated runtime-host port so release validation does not inherit the caller's
+existing `~/.hlvm` state or background `hlvm serve` processes.
+
 ### Unix staged path
 
 ```
 1. Download draft assets via gh release download
 2. Run install.sh with local file:// overrides
-3. Installer downloads binary and runs bootstrap
-4. Bootstrap installs Ollama + model + Chromium + Python sidecar
-5. hlvm ask "hello"
-6. Cleanup
+3. Export isolated `HLVM_DIR` and `HLVM_REPL_PORT`
+4. Installer downloads binary and runs bootstrap
+5. Bootstrap installs Ollama + model + Chromium + Python sidecar
+6. `hlvm ask "hello"` runs against the isolated runtime host
+7. Cleanup
 ```
 
 ### continue-on-error Strategy
@@ -246,12 +274,13 @@ $ curl -fsSL https://hlvm.dev/install.sh | sh
   Step 8: Script runs hlvm bootstrap
           ├─ download Ollama from official releases
           ├─ extract to ~/.hlvm/.runtime/engine/
+          ├─ detect host memory and choose the pinned model tier
           ├─ install uv to ~/.hlvm/.runtime/python/uv/
           ├─ install CPython to ~/.hlvm/.runtime/python/cpython/
           ├─ create ~/.hlvm/.runtime/python/venv/
           ├─ install the default Python sidecar pack
           ├─ start Ollama on 127.0.0.1:11439
-          ├─ pull gemma4:e2b into ~/.hlvm/.runtime/models/
+          ├─ pull the selected qwen3 fallback into ~/.hlvm/.runtime/models/
           ├─ download Chromium into ~/.hlvm/.runtime/chromium/
           ├─ verify engine + model + Python sidecar
           ├─ write ~/.hlvm/.runtime/manifest.json

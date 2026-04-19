@@ -23,7 +23,10 @@ import { ensureModelAvailability } from "./model-availability.ts";
 import { getPlatform } from "../platform/platform.ts";
 import { RuntimeError } from "./error.ts";
 import { LOCAL_FALLBACK_MODEL_ID } from "../hlvm/runtime/local-fallback.ts";
-import { LEGACY_LOCAL_FALLBACK_IDENTITIES } from "../hlvm/runtime/bootstrap-manifest.ts";
+import {
+  LEGACY_LOCAL_FALLBACK_IDENTITIES,
+  TIERED_LOCAL_FALLBACK_IDENTITIES,
+} from "../hlvm/runtime/bootstrap-manifest.ts";
 
 let defaultModelEnsured = false;
 const CLAUDE_CODE_PROVIDER = "claude-code";
@@ -34,10 +37,14 @@ const CLAUDE_BOOTSTRAP_FAILURE_CACHE_MS = 5_000;
 const LEGACY_LOCAL_FALLBACK_MODEL_IDS = LEGACY_LOCAL_FALLBACK_IDENTITIES.map(
   (identity) => `ollama/${identity.modelId}`,
 );
+const TIERED_LOCAL_FALLBACK_MODEL_IDS = TIERED_LOCAL_FALLBACK_IDENTITIES.map(
+  (identity) => `ollama/${identity.modelId}`,
+);
 const LEGACY_DEFAULT_MODEL_IDS = new Set([
   "ollama/llama3.1:8b",
   "ollama/mistral-large-3:675b-cloud",
   LOCAL_FALLBACK_MODEL_ID,
+  ...TIERED_LOCAL_FALLBACK_MODEL_IDS,
   ...LEGACY_LOCAL_FALLBACK_MODEL_IDS,
 ]);
 type ClaudeBootstrapProbeCache =

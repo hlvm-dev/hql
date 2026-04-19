@@ -6,7 +6,7 @@ set -eu
 TAG="${1:?Usage: release-smoke.sh <tag>}"
 REPO="${HLVM_SMOKE_REPO:-hlvm-dev/hql}"
 PROMPT="${HLVM_SMOKE_PROMPT:-hello}"
-MODEL="${HLVM_SMOKE_MODEL:-gemma4:e2b}"
+MODEL="${HLVM_SMOKE_MODEL:-qwen3:8b}"
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd -P)
 . "${SCRIPT_DIR}/smoke-helpers.sh"
@@ -24,7 +24,9 @@ trap 'rm -rf "$SMOKE_ROOT"' EXIT
 
 ASSET_DIR="${SMOKE_ROOT}/assets"
 INSTALL_BIN="${SMOKE_ROOT}/bin"
-mkdir -p "$ASSET_DIR" "$INSTALL_BIN"
+SMOKE_HLVM_DIR="${SMOKE_ROOT}/home"
+SMOKE_RUNTIME_PORT="${HLVM_SMOKE_RUNTIME_PORT:-$((12035 + ($$ % 1000)))}"
+mkdir -p "$ASSET_DIR" "$INSTALL_BIN" "$SMOKE_HLVM_DIR"
 
 echo "==> Downloading draft assets for ${TAG}..."
 gh release download "$TAG" --repo "$REPO" --dir "$ASSET_DIR"
@@ -32,6 +34,8 @@ cp "${ASSET_DIR}/install.sh" "${SMOKE_ROOT}/install.sh"
 
 echo "==> Running installer (staged, local assets)..."
 BOOTSTRAP_EXIT=0
+HLVM_DIR="$SMOKE_HLVM_DIR" \
+HLVM_REPL_PORT="$SMOKE_RUNTIME_PORT" \
 HLVM_INSTALL_REPO="$REPO" \
 HLVM_INSTALL_VERSION="$TAG" \
 HLVM_INSTALL_DIR="$INSTALL_BIN" \

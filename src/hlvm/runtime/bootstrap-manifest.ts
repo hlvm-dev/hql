@@ -30,6 +30,21 @@ export const LOCAL_FALLBACK_IDENTITY = {
   sizeToleranceBytes: 512_000_000,
 } as const;
 
+export const TIERED_LOCAL_FALLBACK_IDENTITIES = [
+  {
+    modelId: "qwen3:30b",
+    modelDigestPrefix: "sha256:58574f2e94b9",
+    publishedTotalSizeBytes: 19_000_000_000,
+    sizeToleranceBytes: 2_000_000_000,
+  },
+  {
+    modelId: "qwen3:14b",
+    modelDigestPrefix: "sha256:a8cc1361f314",
+    publishedTotalSizeBytes: 9_300_000_000,
+    sizeToleranceBytes: 1_000_000_000,
+  },
+] as const;
+
 export const LEGACY_LOCAL_FALLBACK_IDENTITIES = [
   {
     modelId: "gemma4:e2b",
@@ -47,9 +62,11 @@ export const LEGACY_LOCAL_FALLBACK_IDENTITIES = [
 
 export type LocalFallbackIdentity =
   | typeof LOCAL_FALLBACK_IDENTITY
+  | typeof TIERED_LOCAL_FALLBACK_IDENTITIES[number]
   | typeof LEGACY_LOCAL_FALLBACK_IDENTITIES[number];
 
-const KNOWN_LOCAL_FALLBACK_IDENTITIES: readonly LocalFallbackIdentity[] = [
+export const KNOWN_LOCAL_FALLBACK_IDENTITIES: readonly LocalFallbackIdentity[] = [
+  ...TIERED_LOCAL_FALLBACK_IDENTITIES,
   LOCAL_FALLBACK_IDENTITY,
   ...LEGACY_LOCAL_FALLBACK_IDENTITIES,
 ] as const;
@@ -76,7 +93,7 @@ export interface BootstrapEngineRecord {
 
 /** Metadata for a single model in the bootstrap store. */
 export interface BootstrapModelRecord {
-  /** Model identifier (e.g. "gemma4:e2b"). */
+  /** Model identifier (e.g. "qwen3:8b"). */
   modelId: string;
   /** Total size in bytes of all model blobs. */
   size: number;

@@ -18,7 +18,7 @@ permissions:
 env:
   PUBLIC_RELEASE_REPO: hlvm-dev/hql
   SMOKE_PROMPT: hello
-  SMOKE_MODEL: gemma4:e2b
+  SMOKE_MODEL: qwen3:8b
 
 jobs:
   # ─── Resolve release tag from trigger ───────────────────────────────────

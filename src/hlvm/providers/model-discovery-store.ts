@@ -50,6 +50,11 @@ const EMPTY_MODEL_DISCOVERY_SNAPSHOT: ModelDiscoverySnapshot = {
   cloudModels: [],
 };
 
+function formatPinnedModelSize(sizeBytes: number): string {
+  const sizeGb = sizeBytes / 1_000_000_000;
+  return sizeGb >= 10 ? `${Math.round(sizeGb)}GB` : `${sizeGb.toFixed(1)}GB`;
+}
+
 function buildPinnedDefaultLocalModel(): ModelInfo {
   const [family = LOCAL_FALLBACK_MODEL, parameterSize = ""] =
     LOCAL_FALLBACK_MODEL.split(":");
@@ -63,7 +68,9 @@ function buildPinnedDefaultLocalModel(): ModelInfo {
     metadata: {
       description:
         "HLVM pinned local default model. Prepared automatically during local bootstrap.",
-      sizes: ["9.6GB"],
+      sizes: [formatPinnedModelSize(
+        LOCAL_FALLBACK_IDENTITY.publishedTotalSizeBytes,
+      )],
       defaultPinned: true,
       localFallback: true,
     },

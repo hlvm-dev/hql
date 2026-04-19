@@ -11,7 +11,10 @@ import {
   type PlatformCommandProcess,
 } from "../../platform/platform.ts";
 import { ensureRuntimeDir, getModelsDir } from "../../common/paths.ts";
-import { DEFAULT_OLLAMA_ENDPOINT } from "../../common/config/types.ts";
+import {
+  DEFAULT_OLLAMA_ENDPOINT,
+  DEFAULT_OLLAMA_HOST,
+} from "../../common/config/types.ts";
 import { http } from "../../common/http-client.ts";
 import { log } from "../api/log.ts";
 import { VERSION } from "../../common/version.ts";
@@ -19,11 +22,13 @@ import {
   type BootstrapManifest,
   findOllamaModelManifest,
   getOllamaModelManifestPath,
-  LOCAL_FALLBACK_MODEL,
   matchesPinnedFallbackIdentity,
   type OllamaModelManifestInfo,
   writeBootstrapManifest,
 } from "./bootstrap-manifest.ts";
+import { getKnownLocalFallbackIdentity, matchesFallbackIdentity } from "./bootstrap-manifest.ts";
+import { selectBootstrapModelForHost } from "./bootstrap-model-selection.ts";
+import { findListeningPidForPort } from "./port-process.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -106,8 +111,12 @@ async function startEngineForBootstrap(
     waitForAIEngineReady,
   } = await import("./ai-runtime.ts");
   const expectedVersion = await getAIEngineBinaryVersion(enginePath);
+  const forceDedicatedEndpoint = Boolean(getPlatform().env.get("HLVM_DIR"));
 
-  if (await isCompatibleAIRunning(expectedVersion ?? undefined)) {
+  if (
+    !forceDedicatedEndpoint &&
+    await isCompatibleAIRunning(expectedVersion ?? undefined)
+  ) {
     onProgress?.({
       phase: "start_engine",
       message: "Using existing compatible AI engine on the HLVM endpoint.",
@@ -115,7 +124,20 @@ async function startEngineForBootstrap(
     return null;
   }
 
-  await reclaimConflictingAIEndpoint(expectedVersion ?? undefined);
+  await reclaimConflictingAIEndpoint(expectedVersion ?? undefined, {
+    force: forceDedicatedEndpoint,
+  });
+
+  if (forceDedicatedEndpoint) {
+    const port = Number(DEFAULT_OLLAMA_HOST.split(":").at(-1) ?? "11439");
+    const existingPid = await findListeningPidForPort(port);
+    if (existingPid) {
+      throw new Error(
+        "AI engine endpoint was already owned by another runtime root and " +
+          "could not be reclaimed for this bootstrap.",
+      );
+    }
+  }
 
   const proc = getPlatform().command.run({
     cmd: [enginePath, "serve"],
@@ -209,25 +231,31 @@ async function pullModel(
 }
 
 async function ensurePinnedFallbackModel(
+  modelId: string,
   options?: MaterializeOptions,
 ): Promise<OllamaModelManifestInfo> {
   const modelsDir = getModelsDir();
   const ollamaManifestPath = getOllamaModelManifestPath(
     modelsDir,
-    LOCAL_FALLBACK_MODEL,
+    modelId,
   );
   const existingManifest = await findOllamaModelManifest(
     modelsDir,
-    LOCAL_FALLBACK_MODEL,
+    modelId,
   );
+  const fallbackIdentity = getKnownLocalFallbackIdentity(modelId);
+  const matchesRequestedIdentity = (manifest: OllamaModelManifestInfo | null) =>
+    fallbackIdentity
+      ? matchesFallbackIdentity(manifest, fallbackIdentity)
+      : matchesPinnedFallbackIdentity(manifest);
 
   if (
-    existingManifest && matchesPinnedFallbackIdentity(existingManifest.manifest)
+    existingManifest && matchesRequestedIdentity(existingManifest.manifest)
   ) {
     options?.onProgress?.({
       phase: "pull_model",
       message:
-        `Using existing ${LOCAL_FALLBACK_MODEL} from the HLVM model store.`,
+        `Using existing ${modelId} from the HLVM model store.`,
       percent: 100,
     });
     return existingManifest.manifest;
@@ -236,17 +264,15 @@ async function ensurePinnedFallbackModel(
   // If the model is already present (e.g. from a previous bootstrap),
   // the existingManifest check above should have already returned.
   // Fall back to a network pull.
-  await pullModel(LOCAL_FALLBACK_MODEL, options);
+  await pullModel(modelId, options);
 
   const pulledManifest = await findOllamaModelManifest(
     modelsDir,
-    LOCAL_FALLBACK_MODEL,
+    modelId,
   );
-  if (
-    !pulledManifest || !matchesPinnedFallbackIdentity(pulledManifest.manifest)
-  ) {
+  if (!pulledManifest || !matchesRequestedIdentity(pulledManifest.manifest)) {
     throw new Error(
-      `Pulled ${LOCAL_FALLBACK_MODEL}, but the saved Ollama manifest did not ` +
+      `Pulled ${modelId}, but the saved Ollama manifest did not ` +
         `match the pinned fallback identity at ${
           pulledManifest?.path ?? ollamaManifestPath
         }.`,
@@ -274,6 +300,8 @@ export async function materializeBootstrap(
   options?: MaterializeOptions,
 ): Promise<BootstrapManifest> {
   await ensureRuntimeDir();
+  const selectedModel = await selectBootstrapModelForHost();
+  const selectedModelId = selectedModel.modelId;
 
   // 1. Extract engine
   const enginePath = await ensureEngine(options?.onProgress);
@@ -325,7 +353,10 @@ export async function materializeBootstrap(
     proc = await startEngineForBootstrap(enginePath, options?.onProgress);
 
     // 3. Adopt existing pinned model or pull it once.
-    const ollamaManifest = await ensurePinnedFallbackModel(options);
+    const ollamaManifest = await ensurePinnedFallbackModel(
+      selectedModelId,
+      options,
+    );
 
     // 4. Hash — read Ollama's own model manifest for authoritative digest + size
     options?.onProgress?.({
@@ -343,7 +374,7 @@ export async function materializeBootstrap(
       state: "verified",
       engine: { adapter: "ollama", path: enginePath, hash: engineHash },
       models: [{
-        modelId: LOCAL_FALLBACK_MODEL,
+        modelId: selectedModelId,
         size: modelSize,
         hash: modelHash,
       }],
@@ -380,5 +411,6 @@ export async function materializeBootstrap(
 export async function materializeFallbackModel(
   options?: MaterializeOptions,
 ): Promise<void> {
-  await ensurePinnedFallbackModel(options);
+  const selectedModel = await selectBootstrapModelForHost();
+  await ensurePinnedFallbackModel(selectedModel.modelId, options);
 }

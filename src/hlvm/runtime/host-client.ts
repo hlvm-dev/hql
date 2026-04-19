@@ -57,6 +57,7 @@ import {
   areRuntimeHostBuildIdsCompatible,
   buildRuntimeServeCommand,
   getRuntimeHostIdentity,
+  type RuntimeHostIdentity,
 } from "./host-identity.ts";
 import {
   findListeningPidForPort,
@@ -319,9 +320,10 @@ function isHostTransportError(error: unknown): boolean {
 
 function matchesRuntimeHostIdentity(
   health: HostHealthResponse,
-  buildId: string,
+  identity: RuntimeHostIdentity,
 ): boolean {
-  return areRuntimeHostBuildIdsCompatible(buildId, health.buildId);
+  return health.hlvmDir === identity.hlvmDir &&
+    areRuntimeHostBuildIdsCompatible(identity.buildId, health.buildId);
 }
 
 async function readHealth(baseUrl: string): Promise<HostHealthResponse | null> {
@@ -522,7 +524,7 @@ async function ensureRuntimeHost(): Promise<{
   ) => {
     const attached = await waitForRuntimeHost(
       url,
-      (health) => matchesRuntimeHostIdentity(health, identity.buildId),
+      (health) => matchesRuntimeHostIdentity(health, identity),
       attempts,
     );
     return attached?.authToken ? cacheAndReturn(url, attached.authToken) : null;
@@ -558,7 +560,7 @@ async function ensureRuntimeHost(): Promise<{
           candidateUrl,
           (health) =>
             health.authToken === authToken &&
-            matchesRuntimeHostIdentity(health, identity.buildId),
+            matchesRuntimeHostIdentity(health, identity),
           HEALTH_POLL_ATTEMPTS * 4,
         );
         if (started?.authToken) {
@@ -569,7 +571,7 @@ async function ensureRuntimeHost(): Promise<{
 
       if (
         candidateHealth.status === "ok" && candidateHealth.authToken &&
-        matchesRuntimeHostIdentity(candidateHealth, identity.buildId)
+        matchesRuntimeHostIdentity(candidateHealth, identity)
       ) {
         return cacheAndReturn(candidateUrl, candidateHealth.authToken);
       }
@@ -599,7 +601,7 @@ async function ensureRuntimeHost(): Promise<{
   const attached = await readHealth(baseUrl);
   if (
     attached?.status === "ok" && attached.authToken &&
-    matchesRuntimeHostIdentity(attached, identity.buildId)
+    matchesRuntimeHostIdentity(attached, identity)
   ) {
     return cacheAndReturn(baseUrl, attached.authToken);
   }
@@ -608,7 +610,7 @@ async function ensureRuntimeHost(): Promise<{
   // instead of killing it (avoids race conditions with GUI app).
   const incompatibleOnBasePort = attached?.status === "ok" &&
     attached.authToken &&
-    !matchesRuntimeHostIdentity(attached, identity.buildId);
+    !matchesRuntimeHostIdentity(attached, identity);
 
   if (incompatibleOnBasePort) {
     const attachedAuthToken = attached.authToken!;
@@ -686,7 +688,7 @@ async function ensureRuntimeHost(): Promise<{
     const reattached = await readHealth(baseUrl);
     if (
       reattached?.status === "ok" && reattached.authToken &&
-      matchesRuntimeHostIdentity(reattached, identity.buildId)
+      matchesRuntimeHostIdentity(reattached, identity)
     ) {
       return cacheAndReturn(baseUrl, reattached.authToken);
     }
@@ -698,12 +700,12 @@ async function ensureRuntimeHost(): Promise<{
       baseUrl,
       (health) =>
         health.authToken === authToken &&
-        matchesRuntimeHostIdentity(health, identity.buildId),
+        matchesRuntimeHostIdentity(health, identity),
       HEALTH_POLL_ATTEMPTS * 4,
     );
     if (
       started?.authToken &&
-      matchesRuntimeHostIdentity(started, identity.buildId)
+      matchesRuntimeHostIdentity(started, identity)
     ) {
       return cacheAndReturn(baseUrl, started.authToken);
     }

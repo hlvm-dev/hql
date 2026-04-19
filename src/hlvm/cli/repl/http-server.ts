@@ -427,6 +427,7 @@ async function handleHealth(): Promise<Response> {
     aiReadyRetryable: isRuntimeAiReadyRetryable(),
     version: identity.version,
     buildId: identity.buildId,
+    hlvmDir: identity.hlvmDir,
     authToken: serverAuthToken,
   });
 }

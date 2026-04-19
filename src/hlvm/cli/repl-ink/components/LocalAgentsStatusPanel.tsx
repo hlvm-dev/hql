@@ -137,9 +137,7 @@ function buildManagerSummary(
   return {
     text: formatLocalAgentCount(entries),
     hintText: focused
-      ? activeCount === 0
-        ? " · Enter to view results · Esc back"
-        : " · Enter to view tasks · Esc back"
+      ? " · Enter view · Esc back"
       : reviewHint,
   };
 }
@@ -184,9 +182,7 @@ export function buildLocalAgentsCompactFooterModel(
     .length;
   const highlighted = options.focused === true;
   const hintText = highlighted
-    ? activeCount === 0
-      ? " · Enter to view results · Esc back"
-      : " · Enter to view tasks · Esc back"
+    ? " · Enter view · Esc back"
     : activeCount === 0
     ? " · ↓ to review"
     : ` · ${LOCAL_AGENT_SELECT_HINT}`;

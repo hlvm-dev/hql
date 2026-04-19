@@ -174,20 +174,14 @@ export function ShortcutsOverlay({
   return (
     <OverlayModal
       title="Shortcuts"
-      rightText="esc"
+      rightText="esc close"
       width={overlay.width}
       minHeight={overlay.height}
     >
-      <Box paddingLeft={PADDING.left} flexDirection="column">
-        <Text color={sc.text.muted} wrap="truncate-end">
-          Summary first by default. Expand only when you need detail.
-        </Text>
-      </Box>
-
       {visibleSections.map((section: ShortcutSection) => (
         <Box
           key={section.title}
-          marginTop={1}
+          marginTop={section.title === visibleSections[0]?.title ? 0 : 1}
           paddingLeft={PADDING.left}
           flexDirection="column"
         >
@@ -212,8 +206,8 @@ export function ShortcutsOverlay({
       <Box paddingLeft={PADDING.left} marginTop={1}>
         <Text color={sc.text.muted} wrap="truncate-end">
           {hasHiddenRows
-            ? "Reopen with /help. Widen terminal for the full list."
-            : "Reopen with /help. Ctrl+P opens command palette."}
+            ? "Widen terminal for more · /help for full list"
+            : "Ctrl+P command palette · Esc close"}
         </Text>
       </Box>
     </OverlayModal>

@@ -186,13 +186,15 @@ function reduceLocalAgentEntries(
     case "agent_progress": {
       const existing = prev.find((entry) => entry.id === event.agentId);
       if (!existing) return prev;
-      const activityText = event.lastToolInfo?.trim();
+      const activityText = event.lastToolInfo?.trim()
+        ? normalizeLocalAgentStatusText(event.lastToolInfo)
+        : undefined;
       return updateLocalAgentEntry(prev, {
         ...existing,
         status: "running",
         statusLabel: "running",
         detail: activityText ||
-          (event.toolUseCount > 0 ? "In progress..." : "Initializing..."),
+          (event.toolUseCount > 0 ? "Working..." : "Starting..."),
         interruptible: true,
         progress: {
           previewLines: existing.progress?.previewLines ?? [],
@@ -258,7 +260,9 @@ function buildLocalAgentProgressFromBackgroundAgent(
     ? normalizeLocalAgentStatusText(agent.error ?? "Cancelled by user")
     : agent.status === "errored"
     ? normalizeLocalAgentStatusText(agent.error ?? agent.resultPreview ?? "Failed")
-    : agent.lastToolInfo ?? existingProgress?.activityText;
+    : agent.lastToolInfo?.trim()
+    ? normalizeLocalAgentStatusText(agent.lastToolInfo)
+    : existingProgress?.activityText;
   return {
     previewLines,
     activityText,
@@ -298,7 +302,7 @@ function mapBackgroundAgentToLocalAgentEntry(
       ? normalizeLocalAgentStatusText(agent.error ?? "Cancelled by user")
       : status === "failed"
       ? normalizeLocalAgentStatusText(agent.error ?? agent.resultPreview ?? "Failed")
-      : existing?.detail ?? "Initializing...",
+      : existing?.detail ?? "Starting...",
     interruptible: status === "running",
     foregroundable: false,
     overlayTarget: "background-tasks",
@@ -877,7 +881,7 @@ export function useAgentRunner(
               }
               if (event.level === "soft") {
                 conversationRef.current.addInfo(
-                  "Context pressure is rising; older context may compact soon.",
+                  "Context pressure rising.",
                   {
                     isTransient: true,
                     turnId: activeRunTurnIdRef.current,
@@ -887,7 +891,7 @@ export function useAgentRunner(
               }
               if (event.level === "urgent") {
                 conversationRef.current.addInfo(
-                  "Context is nearly full; this turn may compact older messages.",
+                  "Context nearly full.",
                   {
                     isTransient: true,
                     turnId: activeRunTurnIdRef.current,
@@ -900,7 +904,7 @@ export function useAgentRunner(
               contextPressureLevelRef.current = "normal";
               setFooterContextUsageLabel("");
               conversationRef.current.addInfo(
-                "Context was compacted and the turn retried.",
+                "Context compacted and retried.",
                 {
                   isTransient: true,
                   turnId: activeRunTurnIdRef.current,

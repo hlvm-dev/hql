@@ -58,6 +58,8 @@ cmd+=(
   --include
   embedded-python-sidecar-requirements.txt
   --include
+  embedded-model-tiers.json
+  --include
   src/hql/lib/stdlib/js/index.js
   --output
   "$OUTPUT"

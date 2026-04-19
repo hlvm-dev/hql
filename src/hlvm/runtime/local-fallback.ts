@@ -1,5 +1,5 @@
 /**
- * SSOT local fallback — single source of truth for the gemma4 last-resort model,
+ * SSOT local fallback — single source of truth for the last-resort local model,
  * error classification, and the generic fallback chain used by ALL LLM call sites.
  *
  * All callers (agent mode, direct chat, serve) import from here instead of
@@ -13,7 +13,7 @@ import { classifyError } from "../agent/error-taxonomy.ts";
 // Constants
 // ============================================================
 
-/** Fully-qualified model ID for the local gemma4 fallback. */
+/** Fully-qualified model ID for the baseline local fallback. */
 export const LOCAL_FALLBACK_MODEL_ID = `ollama/${LOCAL_FALLBACK_MODEL}`;
 
 export async function resolveLocalFallbackModelId(): Promise<string> {
@@ -32,14 +32,14 @@ export async function resolveLocalFallbackModelId(): Promise<string> {
  * Classify an error for local fallback purposes.
  *
  * Returns the error class string if the error warrants trying the local
- * gemma4 fallback (truthy), or `null` if it does not (falsy).
+ * fallback (truthy), or `null` if it does not (falsy).
  *
  * Callers that also need the error class for tracing use this directly;
  * callers that only need a boolean check use `isLocalFallbackWorthy`.
  *
  * Worthy: rate_limit, transient, timeout, unknown, and
  * permanent with 401/403 status (auth failure = cloud key bad,
- * but local gemma4 can still answer).
+ * but the local fallback can still answer).
  */
 export async function classifyForLocalFallback(error: unknown): Promise<string | null> {
   const { class: errorClass } = await classifyError(error);
@@ -98,7 +98,7 @@ export interface FallbackChainConfig<T> {
   fallbacks: string[];
   /** Execute a scored fallback model call. */
   tryFallback: (model: string) => Promise<T>;
-  /** Local last-resort model (e.g. gemma4). */
+  /** Local last-resort model (e.g. qwen3). */
   lastResort?: LastResortFallback;
   /** Execute the last-resort model call. Falls back to tryFallback if omitted. */
   tryLastResort?: (model: string) => Promise<T>;

@@ -89,7 +89,7 @@ function resolveWaitingLabel(
   items: readonly AgentConversationItem[],
   planningPhase: PlanningPhase | undefined,
 ): string {
-  if (planningPhase === "reviewing") return "Waiting for plan review";
+  if (planningPhase === "reviewing") return "Plan review";
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
     if (item?.type !== "info") continue;
@@ -98,7 +98,7 @@ function resolveWaitingLabel(
       return "Reply needed";
     }
   }
-  return "Waiting for approval";
+  return "Permission needed";
 }
 
 function resolvePlanningFallbackLabel(
@@ -106,13 +106,13 @@ function resolvePlanningFallbackLabel(
 ): string | undefined {
   switch (planningPhase) {
     case "researching":
-      return "Planning the approach";
+      return "Planning";
     case "drafting":
-      return "Drafting the implementation plan";
+      return "Drafting plan";
     case "reviewing":
-      return "Waiting for plan review";
+      return "Plan review";
     case "executing":
-      return "Starting implementation";
+      return "Working";
     default:
       return undefined;
   }
@@ -127,8 +127,8 @@ function hasPendingAssistant(items: readonly AgentConversationItem[]): boolean {
 function isPassiveRecentActivity(label: string): boolean {
   const lower = normalizeActivityText(label).toLowerCase();
   return lower.startsWith(CLARIFICATION_PREFIX) ||
-    lower === "waiting for approval" ||
-    lower === "waiting for plan review";
+    lower === "permission needed" ||
+    lower === "plan review";
 }
 
 export function deriveLiveTurnStatus(options: {
@@ -137,9 +137,10 @@ export function deriveLiveTurnStatus(options: {
   planningPhase?: PlanningPhase;
 }): LiveTurnStatus | undefined {
   const { items, streamingState, planningPhase } = options;
-  const recentLabels = getRecentPlanFlowActivitySummaries(items, 3).filter(
-    (label) => !isPassiveRecentActivity(label),
-  );
+  const recentLabels = getRecentPlanFlowActivitySummaries(items, 3, {
+    includeInfo: false,
+    includeThinking: false,
+  }).filter((label) => !isPassiveRecentActivity(label));
 
   if (streamingState === ConversationStreamingState.WaitingForConfirmation) {
     return {
@@ -151,6 +152,8 @@ export function deriveLiveTurnStatus(options: {
 
   const currentActivity = getPlanFlowActivitySummary(items, {
     includeAssistant: false,
+    includeInfo: false,
+    includeThinking: false,
   });
   if (currentActivity) {
     return {
@@ -171,7 +174,7 @@ export function deriveLiveTurnStatus(options: {
 
   if (hasPendingAssistant(items) && items.length <= 2) {
     return {
-      label: "Starting response",
+      label: "Thinking",
       tone: "active",
       recentLabels,
     };

@@ -52,6 +52,7 @@ async function withChatHost(
         aiReady: true,
         version: identity.version,
         buildId: identity.buildId,
+        hlvmDir: identity.hlvmDir,
         authToken,
       });
     }

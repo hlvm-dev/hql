@@ -86,6 +86,7 @@ export interface HostHealthResponse {
   aiReadyRetryable?: boolean;
   version: string;
   buildId: string;
+  hlvmDir: string;
   authToken: string | null;
   /** Actual port the server is listening on (may differ from default on port-0 fallback) */
   port?: number | null;

@@ -133,7 +133,7 @@ export function buildFooterLeftState({
       return {
         mode: "message",
         segments: [],
-        text: "Ctrl+B background \u00B7 Esc cancels",
+        text: "Ctrl+B background · Esc cancel",
         tone: "muted",
       };
     }
@@ -157,7 +157,7 @@ export function buildFooterLeftState({
   ) {
     segments.push({
       text: hasPendingPlanReview
-        ? "Plan review pending"
+        ? "Plan review"
         : hasPendingQuestion
         ? "Reply needed"
         : "Permission needed",
@@ -168,10 +168,10 @@ export function buildFooterLeftState({
       segments.push({ text: `+${queuedCount} queued`, tone: "active" });
     }
     const interactionHint = suppressInteractionHints
-      ? "Use arrows or 1-9 below · Enter submit · Esc cancel"
+      ? "↑/↓ / 1-9 · Enter submit · Esc"
       : hasPendingQuestion
-      ? "Reply below · Enter submit · Esc cancel"
-      : "Review below · Enter submit · Esc cancel";
+      ? "Type reply · Enter submit · Esc"
+      : "Enter submit · Esc";
     segments.push({ text: interactionHint, tone: "muted" });
     return {
       mode: "segments",
@@ -216,11 +216,11 @@ export function buildFooterLeftState({
     segments.push({ text: getPlanPhaseLabel(planningPhase), tone: "active" });
   }
 
-  const idleHint = "Ctrl+O transcript history · ? for shortcuts";
+  const idleHint = "Ctrl+O history · ? shortcuts";
   const hintText = streamingState === ConversationStreamingState.Responding
-    ? hasDraftInput ? "Tab queues · Ctrl+Enter forces" : "Esc cancels"
+    ? hasDraftInput ? "Tab queue · Ctrl+Enter send" : "Esc cancel"
     : planningPhase && planningPhase !== "done"
-    ? "Esc clears plan"
+    ? "Esc clear plan"
     : segments.length === 0
     ? idleHint
     : "";

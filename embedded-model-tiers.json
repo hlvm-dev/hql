@@ -1,0 +1,13 @@
+{
+  "defaultModelId": "qwen3:8b",
+  "tiers": [
+    {
+      "minMemoryGiB": 64,
+      "modelId": "qwen3:30b"
+    },
+    {
+      "minMemoryGiB": 0,
+      "modelId": "qwen3:8b"
+    }
+  ]
+}

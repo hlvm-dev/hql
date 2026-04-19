@@ -1,4 +1,5 @@
 import { VERSION } from "../../common/version.ts";
+import { getHlvmDir } from "../../common/paths.ts";
 import { getPlatform } from "../../platform/platform.ts";
 
 const CLI_ENTRY_URL = new URL("../cli/cli.ts", import.meta.url);
@@ -7,6 +8,7 @@ const RUNTIME_BUILD_ID_OVERRIDE_ENV = "HLVM_RUNTIME_BUILD_ID";
 export interface RuntimeHostIdentity {
   version: string;
   buildId: string;
+  hlvmDir: string;
 }
 
 interface ParsedRuntimeHostBuildId {
@@ -50,6 +52,10 @@ function getSourceFingerprintTargets(): string[] {
     platform.path.join(root, "src", "hlvm", "cli", "repl"),
     platform.path.join(root, "src", "hlvm", "runtime"),
     platform.path.join(root, "embedded-ollama-version.txt"),
+    platform.path.join(root, "embedded-uv-version.txt"),
+    platform.path.join(root, "embedded-python-version.txt"),
+    platform.path.join(root, "embedded-python-sidecar-requirements.txt"),
+    platform.path.join(root, "embedded-model-tiers.json"),
     platform.path.join(root, "deno.json"),
     platform.path.join(root, "deno.lock"),
   ];
@@ -128,6 +134,7 @@ export async function getRuntimeHostIdentity(): Promise<RuntimeHostIdentity> {
         return {
           version: VERSION,
           buildId: overriddenBuildId,
+          hlvmDir: getHlvmDir(),
         };
       }
 
@@ -144,11 +151,13 @@ export async function getRuntimeHostIdentity(): Promise<RuntimeHostIdentity> {
             fingerprint.size,
             fingerprint.mtimeMs,
           ),
+          hlvmDir: getHlvmDir(),
         };
       } catch {
         return {
           version: VERSION,
           buildId: buildRuntimeHostFingerprint(artifactPath, 0, 0),
+          hlvmDir: getHlvmDir(),
         };
       }
     })();

@@ -76,7 +76,7 @@ export function TuiStatusLine(
     pushStatusSegment(segments, interactionLabel, "warning", true);
     pushStatusSegment(segments, turnLabel, turnTone);
     if (segments.length === 0) {
-      pushStatusSegment(segments, "Conversation ready", "muted");
+      pushStatusSegment(segments, "Ready", "muted");
     }
     return segments;
   }, [
@@ -102,7 +102,7 @@ export function TuiStatusLine(
 
     // Model name gets whatever width remains after left + fixed right + gap
     const leftMinWidth = 10;
-    const gap = 2;
+    const gap = 3;
     const separatorExtra = fixedParts.length > 0
       ? SHELL_SEGMENT_SEPARATOR.length
       : 0;

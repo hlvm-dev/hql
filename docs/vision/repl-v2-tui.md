@@ -10,6 +10,13 @@ Current strategy is:
 - use raw Claude Code as behavior truth
 - use `src/hlvm/tui-v2/` as donor/runtime reference only
 
+Important nuance:
+
+- `src/hlvm/tui-v2/` is archived as a product direction
+- it is **not** yet objectively unused
+- the live default `v1` REPL still imports donor/runtime pieces from this tree
+- therefore do not delete this directory, its `--new` launch path, or its related docs/checks until those live imports have been removed first
+
 Use these documents first:
 
 1. [docs/vision/repl-runtime-migration-handoff.md](/Users/seoksoonjang/dev/hql/docs/vision/repl-runtime-migration-handoff.md)

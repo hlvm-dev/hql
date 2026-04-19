@@ -4,7 +4,10 @@ import type { ModelInfo, PullProgress } from "../hlvm/providers/types.ts";
 import { AUTO_MODEL_ID, DEFAULT_MODEL_ID, DEFAULT_MODEL_PROVIDER } from "./config/types.ts";
 import { getErrorMessage } from "./utils.ts";
 import { LOCAL_FALLBACK_MODEL_ID } from "../hlvm/runtime/local-fallback.ts";
-import { LEGACY_LOCAL_FALLBACK_IDENTITIES } from "../hlvm/runtime/bootstrap-manifest.ts";
+import {
+  LEGACY_LOCAL_FALLBACK_IDENTITIES,
+  TIERED_LOCAL_FALLBACK_IDENTITIES,
+} from "../hlvm/runtime/bootstrap-manifest.ts";
 
 export interface ModelAvailabilityTarget {
   modelId: string;
@@ -64,6 +67,9 @@ export interface EnsureModelAvailabilityResult
 
 const KNOWN_LOCAL_FALLBACK_MODEL_IDS = [
   LOCAL_FALLBACK_MODEL_ID,
+  ...TIERED_LOCAL_FALLBACK_IDENTITIES.map((identity) =>
+    `ollama/${identity.modelId}`
+  ),
   ...LEGACY_LOCAL_FALLBACK_IDENTITIES.map((identity) =>
     `ollama/${identity.modelId}`
   ),
@@ -73,7 +79,7 @@ export function resolveModelAvailabilityTarget(
   modelId: string,
 ): ModelAvailabilityTarget {
   // "auto" is a routing directive, not an installable model — resolve to
-  // the concrete local fallback (gemma4) for availability checks.
+  // the concrete local fallback for availability checks.
   const concreteId = modelId === AUTO_MODEL_ID ? DEFAULT_MODEL_ID : modelId;
   let [providerName, modelName] = parseModelString(concreteId);
   if (!modelName) {

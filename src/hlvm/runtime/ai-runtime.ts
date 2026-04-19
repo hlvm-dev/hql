@@ -569,12 +569,16 @@ async function waitForAIEndpointRelease(): Promise<void> {
 
 export async function reclaimConflictingAIEndpoint(
   expectedVersion?: string,
+  options?: { force?: boolean },
 ): Promise<boolean> {
   const endpointVersion = await getAIEndpointVersion();
   if (!endpointVersion) {
     return false;
   }
-  if (!expectedVersion || endpointVersion === expectedVersion) {
+  if (
+    !options?.force &&
+    (!expectedVersion || endpointVersion === expectedVersion)
+  ) {
     return false;
   }
 
@@ -583,10 +587,17 @@ export async function reclaimConflictingAIEndpoint(
     return false;
   }
 
-  log.warn?.(
-    `Reclaiming HLVM AI endpoint ${DEFAULT_OLLAMA_HOST} from incompatible Ollama ` +
-      `${endpointVersion} (expected ${expectedVersion}).`,
-  );
+  if (options?.force) {
+    log.warn?.(
+      `Reclaiming HLVM AI endpoint ${DEFAULT_OLLAMA_HOST} from existing Ollama ` +
+        `${endpointVersion} to honor the requested HLVM runtime root.`,
+    );
+  } else {
+    log.warn?.(
+      `Reclaiming HLVM AI endpoint ${DEFAULT_OLLAMA_HOST} from incompatible Ollama ` +
+        `${endpointVersion} (expected ${expectedVersion}).`,
+    );
+  }
 
   if (!await terminateProcess(pid)) {
     const error = new Error(`Failed to terminate process ${pid}.`);

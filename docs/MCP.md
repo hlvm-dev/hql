@@ -1,50 +1,39 @@
-# MCP in HLVM (Current State)
+# MCP in HLVM
 
-This document describes the MCP implementation that is currently in this repository.
+SSOT for the MCP implementation in this repository as of 2026-04-19.
 
 ## Status snapshot
 
 - MCP protocol version: `2025-11-25` with fallback negotiation to `2025-03-26` and `2024-11-05`.
-- Transports: `stdio` and HTTP (`POST` with JSON or SSE responses).
+- Transports: `stdio`, HTTP, SSE (via official `@modelcontextprotocol/sdk`).
+- OAuth: Authorization Code + PKCE, dynamic client registration, proactive token refresh, 401-retry-on-refresh, per-server `clientId` / `callbackPort`, insufficient-scope handling.
+- Config scopes: project `.mcp.json`, project `.hlvm/mcp.json`, user `~/.hlvm/mcp.json`, Claude Code plugin import.
 - User-facing management: `hlvm mcp add/list/remove/login/logout` and REPL `/mcp`.
-- OAuth for HTTP MCP servers: implemented (Authorization Code + PKCE).
-- OAuth callback UX: local listener at `http://127.0.0.1:35017/hlvm/oauth/callback` with success page.
-- Interop test suite in repo: `8` interop tests (conformance handled by MCP SDK).
 
 ## What users can do now
 
-- Connect stdio MCP servers (for example GitHub, filesystem, memory).
-- Connect OAuth-based HTTP MCP servers (for example Notion MCP).
+- Connect stdio MCP servers (filesystem, GitHub, memory, etc.).
+- Connect OAuth-based HTTP MCP servers (Notion MCP, etc.).
 - Run one-time OAuth login per server, then reuse/refresh tokens automatically.
-- Use configured MCP tools from `hlvm ask` with no extra per-request auth steps.
+- Automatically inherit any MCP server installed by Claude Code (see "CC plugin import" below).
+- Use configured MCP tools from `hlvm ask` / `hlvm repl` with no per-request auth steps.
 
 ## Quick start
 
-Pick one launcher style:
-
-- Installed CLI: `hlvm`
-- From this repo source: `deno run -A src/hlvm/cli/cli.ts`
-
-A convenient alias:
-
 ```bash
-HLVM_CMD='deno run -A src/hlvm/cli/cli.ts'
-# or: HLVM_CMD='hlvm'
+HLVM_CMD='hlvm'                                    # installed CLI
+# or:
+HLVM_CMD='deno run -A src/hlvm/cli/cli.ts'         # from source
 ```
 
-### One-line connect for any OAuth HTTP MCP server
+### One-line connect — OAuth HTTP MCP server
 
 ```bash
-NAME="<server_name>"; URL="<mcp_http_url>"; $HLVM_CMD mcp add "$NAME" --url "$URL" && $HLVM_CMD mcp login "$NAME"
+$HLVM_CMD mcp add notion --url https://mcp.notion.com/mcp && \
+$HLVM_CMD mcp login notion
 ```
 
-Example:
-
-```bash
-NAME="notion"; URL="https://mcp.notion.com/mcp"; $HLVM_CMD mcp add "$NAME" --url "$URL" && $HLVM_CMD mcp login "$NAME"
-```
-
-### One-line connect for stdio server
+### One-line connect — stdio server
 
 ```bash
 $HLVM_CMD mcp add github -- npx -y @modelcontextprotocol/server-github
@@ -57,38 +46,47 @@ $HLVM_CMD mcp list
 $HLVM_CMD ask "use my MCP tools"
 ```
 
+## Live-verified end to end (2026-04-19)
+
+Both via proper `hlvm ask` (no backdoor):
+
+- **context7** (stdio, npx) — agent called `tool_search` → discovered
+  `mcp_context7_resolve-library-id` → got `/reactjs/react.dev` back.
+- **playwright** (stdio, npx) — navigated to a URL and returned page title.
+
+Tested across `claude-code/claude-haiku-4-5`, `ollama/qwen3:8b`, and
+`ollama/llama3.1:8b`. Fails on `ollama/gemma4:e4b` (4B is below the capability
+threshold for multi-hop meta-tool reasoning — see "Model requirements" below).
+
 ## OAuth flow (HTTP servers)
 
-`hlvm mcp login <name>` does the following:
+`hlvm mcp login <name>`:
 
-1. Discovers protected resource metadata and authorization server metadata.
-2. Uses dynamic client registration when available.
-3. Starts PKCE flow (`S256`) and opens browser.
-4. Waits for callback on `127.0.0.1:35017`.
+1. Discovers protected-resource + authorization-server metadata.
+2. Uses dynamic client registration when supported.
+3. Starts PKCE (`S256`) and opens browser.
+4. Waits for callback (default `127.0.0.1:35017`, per-server override supported).
 5. Exchanges code for token and stores credentials locally.
 
-Token storage:
+Runtime:
 
-- Default path: `~/.hlvm/mcp-oauth.json`
-- Test override env: `HLVM_MCP_OAUTH_PATH`
+- Adds `Authorization` header automatically when a token exists.
+- Refreshes proactively near expiry (5-minute skew).
+- On HTTP `401` with Bearer challenge: refresh → retry once.
+- On `insufficient_scope`: persists the required scope so the next `login`
+  requests it.
 
-Runtime behavior:
-
-- Adds `Authorization` header automatically when token exists.
-- Refreshes token proactively near expiry.
-- On HTTP `401` with Bearer challenge, tries refresh and retries once.
-- If login is required, surfaces:
-  - `Run: hlvm mcp login <name>`
+Storage: `~/.hlvm/mcp-oauth.json`. Override: `HLVM_MCP_OAUTH_PATH`.
 
 ## Configuration model
 
-HLVM loads config from three scopes, highest priority first:
+Loaded from four scopes, highest priority first. First match wins.
 
 1. `<workspace>/.mcp.json`
 2. `<workspace>/.hlvm/mcp.json`
 3. `~/.hlvm/mcp.json`
-
-If names collide, first match wins (higher-priority scope overrides lower).
+4. Claude Code plugin manifests under `~/.claude/plugins/marketplaces/**`
+   (see "CC plugin import" below).
 
 ### `.mcp.json` format (Claude Code style)
 
@@ -126,6 +124,23 @@ If names collide, first match wins (higher-priority scope overrides lower).
 }
 ```
 
+## Claude Code plugin import
+
+HLVM scans installed CC plugin manifests and merges them into the runtime MCP
+server list. Anything a user has already configured for Claude Code works in
+HLVM with no extra setup.
+
+- Scan root: `~/.claude/plugins/marketplaces/`
+- Collected subdirs: both `external_plugins/` and `plugins/`
+- Schema read: `{ mcpServers: { name: { command, args, env, url, type, oauth, ... } } }`
+- Supported transports from imported manifests: `stdio`, `http`, `sse`.
+  Unsupported types (`ws`, `sse-ide`, `ws-ide`, `sdk`) are **rejected**, not
+  silently misclassified.
+- OAuth config on imported manifests is preserved (`clientId`, `callbackPort`,
+  `authServerMetadataUrl`, `xaa`).
+- Plugin-local variables (`${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`) are
+  expanded to real paths at connect time so stdio plugins launch correctly.
+
 ## CLI commands
 
 ```bash
@@ -142,23 +157,24 @@ Notes:
 - `add --scope project|user` (default: `project`)
 - `add --env KEY=VALUE` repeatable
 - `remove` without scope tries project first, then user
-- `.mcp.json` entries are file-managed; remove them by editing `.mcp.json`
+- Entries in `.mcp.json` are file-managed; edit `.mcp.json` to remove them
+- `/mcp` in REPL lists configured servers with transport and scope
 
-## REPL command
+## Runtime behavior
 
-`/mcp` lists configured MCP servers with transport and scope labels.
+Loaded lazily. On first MCP-tool usage (or when `tool_search` probes for a
+deferred MCP tool), HLVM connects configured servers and registers their
+tools into the active session.
 
-## Runtime behavior in agent sessions
+Log on connect:
 
-At session startup, MCP tools are loaded and registered. Connected servers are logged:
+```
+MCP: <server> — <toolCount> tools
+```
 
-- `MCP: <server> — <toolCount> tools`
+Tool naming pattern: `mcp_<server>_<tool>`
 
-Tool naming pattern:
-
-- `mcp_<server>_<tool>`
-
-Resource and prompt helpers are auto-registered when capability exists:
+Capability-gated helpers auto-register when the server exposes them:
 
 - `mcp_<server>_list_resources`
 - `mcp_<server>_read_resource`
@@ -167,7 +183,7 @@ Resource and prompt helpers are auto-registered when capability exists:
 
 ## Implemented protocol surface
 
-- Lifecycle + initialize/initialized negotiation
+- Lifecycle + `initialize/initialized` negotiation
 - JSON-RPC routing (responses, server requests, notifications)
 - Tools (`tools/list`, `tools/call`)
 - Resources (`list/read/templates/subscribe/unsubscribe`)
@@ -176,80 +192,204 @@ Resource and prompt helpers are auto-registered when capability exists:
 - Elicitation (`elicitation/create`)
 - Roots (`roots/list`)
 - Completion (`completion/complete`)
-- Logging (`logging/setLevel`, notifications/message)
+- Logging (`logging/setLevel`, `notifications/message`)
 - Cancellation (`notifications/cancelled`)
-- Progress notifications (`notifications/progress`)
+- Progress (`notifications/progress`)
 - Pagination helper across list endpoints
 - Ping
 
-## Current known gaps
+## Discovery — `tool_search` and lazy loading
 
-These are intentionally explicit so docs match implementation reality:
+MCP tools are **deferred** by default. Only the core local tools are in the
+eager set sent to the model. The model discovers MCP tools at runtime via
+the `tool_search` meta-tool.
+
+System prompt includes an imperative rule: when the user names a tool,
+service, or integration the model does not see in its eager list, it MUST
+call `tool_search({query: "<name>"})` before replying.
+
+Example discovery trace:
+
+```
+user: use context7 to get the library ID for react
+  → tool_search({query:"context7"})
+  → returns matches: mcp_context7_resolve-library-id, mcp_context7_query-docs
+  → mcp_context7_resolve-library-id({libraryName:"React"})
+  → answer with /reactjs/react.dev
+```
+
+## Model requirements for reliable MCP
+
+Verified matrix (fresh sessions via `hlvm ask`, same context7 task):
+
+| Model                  | Params | Calls tool_search? | Full MCP loop |
+| ---------------------- | ------ | ------------------ | ------------- |
+| claude-code/haiku-4-5  | ~frontier | ✅              | ✅            |
+| ollama/qwen3:8b        | 8B     | ✅                 | ✅            |
+| ollama/llama3.1:8b     | 8B     | ✅                 | ✅            |
+| ollama/gemma4:e4b      | 4B     | ❌                 | ❌            |
+| ollama/gemma4:e2b      | 2B     | ❌                 | ❌            |
+
+**8B is the practical minimum** for reliable multi-hop tool discovery.
+
+Default local model (SSOT in `src/hlvm/runtime/bootstrap-manifest.ts`):
+
+```
+LOCAL_FALLBACK_MODEL = "qwen3:8b"
+```
+
+Legacy defaults (`gemma4:e2b`, `gemma4:e4b`) are recognized and auto-upgraded
+on next run.
+
+## Performance (M1 Max, qwen3:8b)
+
+Measured on a full `hlvm ask` MCP loop (context7 discovery + call):
+
+| Turn                                   | TTFT | Latency |
+| -------------------------------------- | ---- | ------- |
+| 1 (cold, 11K system prompt)            | ~43s | 45s     |
+| 2 (process tool_search result)         | ~10s | 12s     |
+| 3 (process MCP result, write answer)   | 1.8s | 3.5s    |
+
+Raw generation speed: ~37 tok/s. First-turn cost is dominated by cold prompt
+processing. Subsequent turns benefit from Ollama's prompt cache.
+
+## Current known gaps
 
 - OAuth authorization UI is browser+redirect based (no device code flow).
 - HTTP transport does not yet implement automatic `409` session recreation.
-- HTTP transport currently uses request/response SSE handling and does not run a separate long-lived GET SSE listener.
-- MCP Tasks (experimental) are not implemented.
+- HTTP transport uses request/response SSE and does not run a separate
+  long-lived GET SSE listener.
+- MCP Tasks (experimental protocol feature) not implemented.
+- WebSocket transport (`ws`, `ws-ide`) not implemented — imported manifests
+  using them are rejected rather than misclassified.
+- Tool result output truncation + compression (CC-style) not implemented.
+- MCP tools below 8B-class models: discovery via `tool_search` is unreliable.
+  Architectural fix (pre-route tools via embedding retrieval before the LLM
+  call) is the known path forward, not yet implemented.
+
+## Roadmap — TODO
+
+### Expand plugin discovery beyond Claude Code
+
+Today HLVM inherits MCP servers installed by Claude Code. The same pattern
+applies to every other agent tool that stores MCP server configs on disk.
+HLVM is MIT OSS — reading config files from other tools on the user's own
+machine has **very low legal risk (effectively none)**: the user owns those
+files, the MCP servers themselves are independent OSS, and HLVM is not
+redistributing any third-party code.
+
+Planned config sources (priority order, first match wins):
+
+1. `<workspace>/.mcp.json`                          (project)
+2. `<workspace>/.hlvm/mcp.json`                     (project)
+3. `~/.hlvm/mcp.json`                               (user)
+4. `~/.cursor/mcp.json`                             (Cursor)
+5. `~/.windsurf/mcp.json`                           (Windsurf)
+6. `~/.config/zed/settings.json → context_servers` (Zed)
+7. `~/.codex/config.toml → [mcp_servers]`          (Codex CLI)
+8. `~/.gemini/settings.json`                        (Gemini CLI)
+9. `~/.claude/plugins/marketplaces/**/.mcp.json`   (Claude Code plugins — done)
+
+Each source gets a small parser in `src/hlvm/agent/mcp/config.ts`
+(mirroring `parseClaudeCodeMcpJson`) and a path helper in `src/common/paths.ts`.
+User installs HLVM → inherits whatever MCP servers they already configured in
+any supported tool → works immediately with zero additional setup.
+
+No competitor does this. The asymmetry is a real differentiator and fits the
+MIT OSS philosophy directly.
+
+### Lazy-load reliability for small models
+
+Ship a `classifyRelevantTools(query, toolCatalog)` in
+`src/hlvm/runtime/local-llm.ts` that runs a cheap classification call and
+populates `toolProfileState.discovery` before the main LLM turn. This is the
+path that makes MCP reliable on 4B-class models that cannot do multi-hop
+meta-tool reasoning on their own.
+
+### Cold-prompt latency
+
+The 11K-token system prompt dominates first-turn TTFT on local models. Plan:
+- Trim non-essential sections for `constrained` / `standard` tiers.
+- Pre-warm the prompt cache on install by issuing a throwaway generation
+  during `hlvm bootstrap`.
 
 ## Test coverage in repository
 
-- Interop tests: `tests/interop/mcp/` (8 tests against @modelcontextprotocol/server-everything)
-- OAuth unit tests: `tests/unit/agent/mcp-oauth.test.ts`
-- MCP unit tests: `tests/unit/agent/mcp.test.ts`
+- Unit: `tests/unit/agent/mcp.test.ts`, `mcp-config.test.ts`,
+  `mcp-resilience.test.ts`, `mcp-sse.test.ts`, `session-lazy-mcp.test.ts`
+- OAuth unit: `tests/unit/agent/mcp-oauth.test.ts`
+- CLI: `tests/unit/cli/mcp-command.test.ts`
+- Integration (real `@modelcontextprotocol/server-filesystem`):
+  `tests/integration/mcp-official-filesystem.test.ts`
+- Interop (real `@modelcontextprotocol/server-everything`):
+  `tests/interop/mcp/everything-stdio.test.ts`
+- E2E OAuth (real HTTP server + full PKCE flow):
+  `tests/e2e/mcp-oauth-e2e.test.ts`
 
-Run commands:
+Run:
 
 ```bash
-deno task test:conformance   # interop tests
-deno test --allow-all tests/unit/agent/mcp-oauth.test.ts
+deno task test:conformance                                     # interop
 deno test --allow-all tests/unit/agent/mcp.test.ts
+deno test --allow-all tests/unit/agent/mcp-config.test.ts
+deno test --allow-all tests/unit/agent/mcp-oauth.test.ts
 ```
-
-## Live verification performed
-
-Recent live verification against Notion MCP in this environment:
-
-- OAuth callback success page rendered on `127.0.0.1:35017`.
-- Token stored and read from local OAuth store.
-- Real HTTP MCP handshake + tool listing succeeded:
-  - `initialize` HTTP status `200`
-  - `tools/list` HTTP status `200`
-  - tools returned: `12`
 
 ## Troubleshooting
 
 ### Browser says callback cannot connect
 
 - Ensure `mcp login` is running in terminal while approving OAuth.
-- Callback listener is started by login command; if login process exits, callback will fail.
+- Callback listener is owned by the login command; if it exits, callback
+  fails.
 
 ### `invalid_grant` during login
 
-- Usually caused by reusing old callback code/URL from a previous login attempt.
-- Retry login and use callback from the same run.
+- Usually caused by reusing a stale callback code/URL from a previous login
+  attempt. Re-run `mcp login` and use the callback from the same run.
 
 ### `Client ID mismatch`
 
-- Also indicates callback code not matching current auth session.
-- Re-run `mcp login` and complete once end-to-end.
+- Also indicates the callback code is not matching the current auth session.
+  Re-run `mcp login` end-to-end.
 
 ### `NO_TOKEN` after login
 
-- Run `hlvm mcp list` and ensure server name matches what you logged in with.
-- Check `~/.hlvm/mcp-oauth.json` exists and contains that server key.
+- Run `hlvm mcp list` and confirm the server name matches what was logged in.
+- Check `~/.hlvm/mcp-oauth.json` contains that server key.
 
 ### HTTP `401` on MCP call
 
 - Run `hlvm mcp login <name>` again.
-- Ensure server URL in config matches the URL used for login.
+- Ensure the server URL in config matches the URL used for login.
 
-## Source map (where MCP code lives)
+### Local model ignores user's "use <service>" request
 
-- `src/hlvm/agent/mcp/sdk-client.ts`
-- `src/hlvm/agent/mcp/oauth.ts`
-- `src/hlvm/agent/mcp/config.ts`
-- `src/hlvm/agent/mcp/tools.ts`
-- `src/hlvm/agent/mcp/types.ts`
-- `src/hlvm/agent/mcp/mod.ts`
-- `src/hlvm/cli/commands/mcp.ts`
-- `src/hlvm/cli/repl/commands.ts`
+- Likely on a <8B model. Switch to `ollama/qwen3:8b` or better.
+
+### Imported CC plugin fails to start
+
+- Confirm the plugin is in `~/.claude/plugins/marketplaces/**/external_plugins/`
+  or `.../plugins/`.
+- If the plugin manifest uses `${CLAUDE_PLUGIN_ROOT}`, HLVM expands it at
+  connect time; check `hlvm mcp list` to confirm it was imported.
+- If the manifest declares `type: "ws"`, `"sse-ide"`, `"ws-ide"`, or `"sdk"`,
+  HLVM rejects it — those transports are not supported.
+
+## Source map
+
+- Client: `src/hlvm/agent/mcp/sdk-client.ts`
+- OAuth: `src/hlvm/agent/mcp/oauth.ts`
+- Config (includes CC import + env expansion): `src/hlvm/agent/mcp/config.ts`,
+  `src/hlvm/agent/mcp/env-expansion.ts`
+- Tools + registration: `src/hlvm/agent/mcp/tools.ts`
+- Types: `src/hlvm/agent/mcp/types.ts`
+- Barrel: `src/hlvm/agent/mcp/mod.ts`
+- CC plugin scan root: `src/common/paths.ts` → `getClaudeCodeMcpDir`
+- System-prompt discovery rule: `src/hlvm/prompt/sections.ts` →
+  `renderCriticalRules`
+- Default local model SSOT:
+  `src/hlvm/runtime/bootstrap-manifest.ts` → `LOCAL_FALLBACK_MODEL`
+- CLI: `src/hlvm/cli/commands/mcp.ts`
+- REPL: `src/hlvm/cli/repl/commands.ts`

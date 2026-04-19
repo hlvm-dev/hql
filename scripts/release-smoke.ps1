@@ -11,14 +11,19 @@ param(
 $ErrorActionPreference = "Stop"
 $Repo = if ($env:HLVM_SMOKE_REPO) { $env:HLVM_SMOKE_REPO } else { "hlvm-dev/hql" }
 $Prompt = if ($env:HLVM_SMOKE_PROMPT) { $env:HLVM_SMOKE_PROMPT } else { "hello" }
-$Model = if ($env:HLVM_SMOKE_MODEL) { $env:HLVM_SMOKE_MODEL } else { "gemma4:e2b" }
+$Model = if ($env:HLVM_SMOKE_MODEL) { $env:HLVM_SMOKE_MODEL } else { "qwen3:8b" }
 
 $SmokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("hlvm-smoke-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 $AssetDir = Join-Path $SmokeRoot "assets"
 $InstallBin = Join-Path $SmokeRoot "bin"
-New-Item -ItemType Directory -Path $AssetDir, $InstallBin -Force | Out-Null
+$SmokeHlvmDir = Join-Path $SmokeRoot "home"
+$SmokeRuntimePort = if ($env:HLVM_SMOKE_RUNTIME_PORT) { $env:HLVM_SMOKE_RUNTIME_PORT } else { "12035" }
+New-Item -ItemType Directory -Path $AssetDir, $InstallBin, $SmokeHlvmDir -Force | Out-Null
 
 try {
+    $env:HLVM_DIR = $SmokeHlvmDir
+    $env:HLVM_REPL_PORT = $SmokeRuntimePort
+
     if ($Mode -eq "staged") {
         Write-Host "==> Downloading draft assets for $Tag..."
         gh release download $Tag --repo $Repo --dir $AssetDir
@@ -92,6 +97,19 @@ try {
     Write-Host "==> Verifying bootstrap..."
     & "$InstallBin\hlvm.exe" bootstrap --verify
 
+    $SelectedModel = $Model
+    try {
+        $statusJson = & "$InstallBin\hlvm.exe" bootstrap --status 2>$null
+        if ($LASTEXITCODE -eq 0 -and $statusJson) {
+            $status = $statusJson | ConvertFrom-Json
+            if ($status.models -and $status.models.Count -gt 0 -and $status.models[0].modelId) {
+                $SelectedModel = $status.models[0].modelId
+            }
+        }
+    } catch {
+        $SelectedModel = $Model
+    }
+
     # On Windows, Ollama's socket dies when bootstrap exits. Restart it.
     Write-Host "==> Ensuring Ollama is alive on 11439..."
     try {
@@ -116,9 +134,9 @@ try {
 
     # On Windows, hlvm ask → hlvm serve startup is slow (pre-existing issue).
     # Test the AI path directly via Ollama API to verify bootstrap worked.
-    Write-Host "==> Testing AI via Ollama API directly (Windows)..."
+    Write-Host "==> Testing AI via Ollama API directly (Windows, model $SelectedModel)..."
     try {
-        $body = @{ model = "$Model"; prompt = $Prompt; stream = $false } | ConvertTo-Json
+        $body = @{ model = "$SelectedModel"; prompt = $Prompt; stream = $false } | ConvertTo-Json
         $aiResponse = Invoke-WebRequest -Uri "http://127.0.0.1:11439/api/generate" `
             -Method POST -Body $body -ContentType "application/json" `
             -TimeoutSec 300 -UseBasicParsing

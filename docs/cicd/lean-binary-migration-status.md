@@ -226,13 +226,44 @@ DOCS UPDATED:
   website/src/components/Hero.jsx        (removed bundled mode card)
 ```
 
+### Default Model Choice
+
+```
+Current:  qwen3:8b (default tier for <64 GB RAM)
+          qwen3:30b (for >=64 GB RAM)
+Next:     gemma4 series (when vision/multimodal needed)
+
+Why qwen3:
+  - Native tool_call support (structured function calling)
+  - Deferred tool loading (tool_search) works out of the box
+  - Strong reasoning + code generation at 8B params
+  - 5.2 GB disk, ~3-4 GB RAM — fits CI ARM runner (7 GB)
+
+Why not gemma4:
+  - gemma4 supports vision (qwen3 does not)
+  - gemma4:e2b at 7.2 GB disk still OOMs on CI ARM runner
+  - gemma4 is the next candidate when vision is needed
+
+Dynamic tier selection:
+  - embedded-model-tiers.json → host memory → model tier
+  - bootstrap-model-selection.ts reads host RAM, picks tier
+```
+
 ### SSOT
 
 ```
 Model:           src/hlvm/runtime/bootstrap-manifest.ts
-                 → LOCAL_FALLBACK_MODEL = "gemma4:e2b"
+                 → LOCAL_FALLBACK_MODEL = "qwen3:8b"
                  → local-fallback.ts derives LOCAL_FALLBACK_MODEL_ID
                  → config/types.ts derives DEFAULT_MODEL_ID
+
+Model tiers:     embedded-model-tiers.json (baked into binary)
+                 → bootstrap-model-selection.ts selects by host RAM
+
+Python sidecar:  embedded-python-version.txt (CPython pin)
+                 embedded-uv-version.txt (uv pin)
+                 embedded-python-sidecar-requirements.txt (packages)
+                 → python-runtime.ts installs at bootstrap
 
 Ollama version:  embedded-ollama-version.txt (repo root)
                  → baked into binary via `--include` in compile-hlvm.sh
