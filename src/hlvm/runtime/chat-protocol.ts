@@ -81,6 +81,8 @@ export interface HostHealthResponse {
   status: "ok";
   initialized: boolean;
   definitions: number;
+  /** In-flight /api/chat requests currently owned by this runtime host. */
+  activeRequests?: number;
   aiReady: boolean;
   aiReadyReason?: string | null;
   aiReadyRetryable?: boolean;

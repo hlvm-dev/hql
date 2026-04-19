@@ -1,6 +1,12 @@
 # MCP in HLVM
 
-SSOT for the MCP implementation in this repository as of 2026-04-19.
+SSOT for MCP configuration, inheritance, transport, auth, discovery, and tool
+registration in this repository as of 2026-04-19.
+
+Runtime-host lifecycle is a separate domain. Port ownership, host reuse,
+build-identity compatibility, fallback-port scanning, and host reclamation live
+in `src/hlvm/runtime/host-client.ts`, `src/hlvm/cli/commands/serve.ts`, and
+`docs/ARCHITECTURE.md`. This document does not own that behavior.
 
 ## Status snapshot
 
@@ -227,9 +233,12 @@ Notes:
 
 ## Runtime behavior
 
-Loaded lazily. On first MCP-tool usage (or when `tool_search` probes for a
-deferred MCP tool), HLVM connects configured servers and registers their tools
-into the active session.
+Loaded lazily and incrementally. `tool_search` first searches the active
+registry, then asks the MCP loader for the next relevant server batch only.
+HLVM prefers exact server matches for `select:mcp_<server>_<tool>`, ranked
+server-name matches for normal queries, and small fallback batches only when a
+query is vague. Connected servers register their tools into the active session;
+unmatched servers stay cold.
 
 Log on connect:
 
@@ -267,7 +276,8 @@ Capability-gated helpers auto-register when the server exposes them:
 
 MCP tools are **deferred** by default. Only the core local tools are in the
 eager set sent to the model. The model discovers MCP tools at runtime via the
-`tool_search` meta-tool.
+`tool_search` meta-tool, and HLVM incrementally loads matching MCP servers
+instead of force-connecting the entire configured set up front.
 
 System prompt includes an imperative rule: when the user names a tool, service,
 or integration the model does not see in its eager list, it MUST call
@@ -351,20 +361,24 @@ The 11K-token system prompt dominates first-turn TTFT on local models. Plan:
 - Pre-warm the prompt cache on install by issuing a throwaway generation during
   `hlvm bootstrap`.
 
-### Cold-start fan-out
+### Residual discovery broadening
 
-`tool_search` triggers `ensureMcpLoaded`, which spawns every configured server
-at once so their tools can be enumerated into the live registry. With cross-tool
-discovery the total count grows (power users may have 10–20+ servers combined).
-Options when this becomes a real cost:
+The old "spawn every configured server on first search" behavior is no longer
+the default path. `ensureMcpLoaded` now works from a config-only server catalog
+and loads one relevant batch at a time.
 
-- Keep a lightweight **descriptor catalog** from config text alone — no
-  subprocess until the model actually matches a server name in `tool_search`.
-  Only spawn the matched server on demand.
-- Per-server connect timeout and bounded parallelism already exist
-  (`pooledMap`); failure of one server never blocks the rest.
+The remaining limitation is vague semantic queries. If query text does not
+identify a server clearly enough, HLVM may widen discovery through successive
+small batches until it finds a useful match or exhausts the catalog. That is a
+much smaller blast radius than the old eager-all-server path, but it is still
+broader than a perfect per-tool descriptor catalog.
 
-Only pursue this once fan-out latency shows up in real-world sessions.
+Next improvement when this becomes measurable:
+
+- enrich the config-only catalog with stronger descriptors so `tool_search`
+  stays narrow even for fuzzier queries
+- persist warmed server metadata across sessions so repeated searches do less
+  work on the first hop
 
 ## Test coverage in repository
 
@@ -444,9 +458,14 @@ deno test --allow-all tests/unit/agent/mcp-oauth.test.ts
 - Cross-tool loaders + shared shape normalizer: `src/hlvm/agent/mcp/config.ts`
   (`parseMcpServersMap`, `loadCursorMcpServers`, `loadWindsurfMcpServers`,
   `loadZedMcpServers`, `loadCodexMcpServers`, `loadGeminiMcpServers`)
+- Incremental MCP discovery + lazy batch loading: `src/hlvm/agent/session.ts`
+  → `ensureMcpLoaded`, `selectMcpBatch`
 - System-prompt discovery rule: `src/hlvm/prompt/sections.ts` →
   `renderCriticalRules`
 - Default local model SSOT: `src/hlvm/runtime/bootstrap-manifest.ts` →
   `LOCAL_FALLBACK_MODEL`
 - CLI: `src/hlvm/cli/commands/mcp.ts`
 - REPL: `src/hlvm/cli/repl/commands.ts`
+- Runtime-host lifecycle (not MCP SSOT, but the source of port/host reuse
+  behavior around MCP startup): `src/hlvm/runtime/host-client.ts`,
+  `src/hlvm/cli/commands/serve.ts`

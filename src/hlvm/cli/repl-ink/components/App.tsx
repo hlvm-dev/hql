@@ -605,6 +605,9 @@ function AppContent(
     pendingInteraction,
   ]);
   const startupStatusLabel = useMemo(() => {
+    if (init.loading) {
+      return "Loading HLVM";
+    }
     if (init.aiAvailable) return undefined;
     if (init.needsModelSetup && init.modelToSetup) {
       return "Model setup needed";
@@ -612,11 +615,15 @@ function AppContent(
     return init.ready ? "Starting AI engine" : "Loading HLVM";
   }, [
     init.aiAvailable,
+    init.loading,
     init.modelToSetup,
     init.needsModelSetup,
     init.ready,
   ]);
   const startupFooterMessage = useMemo(() => {
+    if (init.loading) {
+      return "Loading HLVM...";
+    }
     if (init.aiAvailable) return "";
     if (init.needsModelSetup && init.modelToSetup) {
       return `Model setup needed · /model select · ? shortcuts`;
@@ -626,6 +633,7 @@ function AppContent(
       : "Loading HLVM...";
   }, [
     init.aiAvailable,
+    init.loading,
     init.modelToSetup,
     init.needsModelSetup,
     init.ready,
@@ -636,12 +644,16 @@ function AppContent(
       setActiveOverlay("model-setup");
       return;
     }
-    flashFooterStatus("Starting AI engine...");
+    flashFooterStatus(init.loading ? "Loading HLVM..." : "Starting AI engine...");
+    if (init.loading) {
+      return;
+    }
     refreshAiReadiness(modelSelection.activeModelId, {
       force: true,
     }).catch(() => {});
   }, [
     flashFooterStatus,
+    init.loading,
     init.modelToSetup,
     init.needsModelSetup,
     modelSelection.activeModelId,
@@ -1866,7 +1878,7 @@ function AppContent(
                     replState={replState}
                     onUiStateChange={handleComposerUiStateChange}
                     onSubmit={handleSubmit}
-                    canSubmitAgent={init.aiAvailable}
+                    canSubmitAgent={init.aiAvailable && !init.loading}
                     onAgentSubmitBlocked={handleAgentSubmitBlocked}
                     onEmptySubmit={undefined}
                     onFocusLocalAgents={localAgentEntries.length > 0 &&

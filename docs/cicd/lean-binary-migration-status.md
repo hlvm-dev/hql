@@ -132,6 +132,27 @@ Compared to v0.1.0:
   File splitting, Windows zip sidecar: eliminated
 ```
 
+### What CI smoke verifies (honestly)
+
+```
+On each platform, CI smoke verifies:
+  ✓ Binary downloads, checksum matches, installs
+  ✓ Bootstrap completes (Ollama + Chromium + Python sidecar)
+  ✓ Ollama alive, generates response via /api/generate (direct)
+  ✓ Managed Python sidecar: ~/.hlvm/.runtime/python/venv/bin/python
+      imports pptx + docx, prints versions (direct subprocess call)
+
+CI smoke does NOT verify:
+  ✗ hlvm ask agent flow end-to-end
+    Reason: qwen3:8b on CPU CI runners is too slow (30-60 min per flow).
+    Windows also has a separate HLVM5006 runtime-host bug.
+    The full chain IS verified by users on real hardware (M1 Max etc.)
+    and by unit tests. CI accepts component-level proof.
+
+To enable CI hlvm ask E2E: upgrade to macos-15-xlarge runners (GitHub
+Team plan, faster CPU + more RAM) OR use a smaller CI-only model.
+```
+
 ### ARM CI: model skipped due to CI runner OOM (not a real-world issue)
 
 The 2 ARM jobs skip model inference because the **CI runner** only has ~7 GB

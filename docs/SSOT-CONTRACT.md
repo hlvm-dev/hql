@@ -23,6 +23,8 @@ This prevents fragmentation, simplifies maintenance, and enables consistent beha
 | **Bindings** | `globalThis.bindings` | `src/hlvm/api/bindings.ts` | None |
 | **History** | `globalThis.history` | `src/hlvm/api/history.ts` | None |
 | **Local Fallback Substrate** | `materializeBootstrap()` + `verifyBootstrap()` | `src/hlvm/runtime/bootstrap-*.ts` | None |
+| **Runtime Host Lifecycle** | `ensureRuntimeHost()` + `serveCommand()` | `src/hlvm/runtime/host-client.ts`, `src/hlvm/cli/commands/serve.ts` | None |
+| **MCP Discovery + Registration** | `loadMcpConfigMultiScope()` + session `ensureMcpLoaded()` | `src/hlvm/agent/mcp/config.ts`, `src/hlvm/agent/session.ts` | None |
 
 ## Forbidden Patterns
 

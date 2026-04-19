@@ -13,6 +13,7 @@ function sleep(ms: number): Promise<void> {
 export async function createRuntimeHostHealthResponse(
   authToken: string,
   overrides: {
+    activeRequests?: number;
     aiReady?: boolean;
     aiReadyReason?: string | null;
     aiReadyRetryable?: boolean;
@@ -24,6 +25,7 @@ export async function createRuntimeHostHealthResponse(
     status: "ok",
     initialized: true,
     definitions: 0,
+    activeRequests: overrides.activeRequests ?? 0,
     aiReady: overrides.aiReady ?? true,
     aiReadyReason: overrides.aiReadyReason ?? null,
     aiReadyRetryable: overrides.aiReadyRetryable ??

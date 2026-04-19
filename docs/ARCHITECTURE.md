@@ -108,12 +108,25 @@ The rule is:
 - the runtime host owns the local protocol and lifecycle
 - the core engine owns intelligence and state
 
+SSOT for runtime-host lifecycle is `src/hlvm/runtime/host-client.ts` on the
+client side and `src/hlvm/cli/commands/serve.ts` on the host side. MCP docs do
+not own port selection, host reuse, or host reclamation behavior.
+
 That keeps GUI, CLI, and future shells aligned around one runtime instead of
 duplicating agent logic per surface.
 
 ---
 
 ## Process Lifecycle
+
+Runtime-host attachment and startup follow one rule set:
+
+- prefer the configured base port
+- reuse a compatible host when build identity matches
+- fall back to nearby ports only when the base port is occupied by an active
+  incompatible host
+- reclaim idle incompatible fallback hosts in the background so stale source /
+  binary mixes do not accumulate forever
 
 ### How GUI Spawns the Server
 

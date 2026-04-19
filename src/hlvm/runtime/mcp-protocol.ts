@@ -17,7 +17,13 @@ export interface RuntimeMcpServerDescriptor {
   scope: RuntimeMcpScope;
   transport: "http" | "sse" | "stdio";
   target: string;
+  /** Short scope label, used in list output (e.g. "Cursor", "user"). */
   scopeLabel: string;
+  /**
+   * Full-sentence scope description, used in get output
+   * (e.g. "User config (available in all your projects)").
+   */
+  scopeDescription: string;
 }
 
 export interface RuntimeMcpListResponse {
@@ -34,6 +40,12 @@ export interface RuntimeMcpServerInput {
   transport?: "http" | "sse" | "stdio";
   disabled_tools?: string[];
   connection_timeout_ms?: number;
+  oauth?: {
+    clientId?: string;
+    callbackPort?: number;
+    authServerMetadataUrl?: string;
+    xaa?: boolean;
+  };
 }
 
 export interface RuntimeMcpAddRequest {

@@ -77,6 +77,14 @@ const RUNTIME_SHUTDOWN_POLL_ATTEMPTS = 30;
 const RUNTIME_START_LOCK_WAIT_ATTEMPTS = 120;
 const RUNTIME_START_LOCK_STALE_MS = 30_000;
 
+interface IncompatibleRuntimeHost {
+  baseUrl: string;
+  authToken: string;
+  activeRequests?: number;
+}
+
+let staleFallbackHostSweep: Promise<void> | null = null;
+
 function parseNdjsonLine<T>(line: string): T {
   try {
     return JSON.parse(line) as T;
@@ -397,8 +405,14 @@ async function requestRuntimeShutdown(
   }
 }
 
+function canSafelyReclaimIncompatibleRuntimeHost(
+  host: IncompatibleRuntimeHost,
+): boolean {
+  return host.activeRequests === 0;
+}
+
 async function reclaimIncompatibleRuntimeHosts(
-  hosts: ReadonlyArray<{ baseUrl: string; authToken: string }>,
+  hosts: ReadonlyArray<IncompatibleRuntimeHost>,
 ): Promise<boolean> {
   const seen = new Set<string>();
   let reclaimedAny = false;
@@ -406,6 +420,9 @@ async function reclaimIncompatibleRuntimeHosts(
   for (const host of hosts) {
     if (seen.has(host.baseUrl)) continue;
     seen.add(host.baseUrl);
+    if (!canSafelyReclaimIncompatibleRuntimeHost(host)) {
+      continue;
+    }
 
     const shutdownAccepted = await requestRuntimeShutdown(
       host.baseUrl,
@@ -443,6 +460,69 @@ async function reclaimUnresponsiveRuntimeHosts(
   }
 
   return reclaimedAny;
+}
+
+async function reclaimKnownStaleRuntimeHosts(
+  incompatibleHosts: ReadonlyArray<IncompatibleRuntimeHost>,
+  unresponsiveHosts: ReadonlyArray<{ baseUrl: string; pid: string }>,
+): Promise<boolean> {
+  const reclaimedIncompatible = await reclaimIncompatibleRuntimeHosts(
+    incompatibleHosts,
+  );
+  const reclaimedUnresponsive = await reclaimUnresponsiveRuntimeHosts(
+    unresponsiveHosts,
+  );
+  return reclaimedIncompatible || reclaimedUnresponsive;
+}
+
+function scheduleStaleFallbackHostSweep(
+  basePort: number,
+  identity: RuntimeHostIdentity,
+): void {
+  if (staleFallbackHostSweep !== null) {
+    return;
+  }
+
+  staleFallbackHostSweep = (async () => {
+    try {
+      const incompatibleHosts: IncompatibleRuntimeHost[] = [];
+      const unresponsiveHosts: Array<{ baseUrl: string; pid: string }> = [];
+
+      for (let offset = 1; offset <= HLVM_RUNTIME_PORT_SCAN_RANGE; offset++) {
+        const candidatePort = basePort + offset;
+        const candidateUrl = makeBaseUrl(candidatePort);
+        const candidateHealth = await readHealth(candidateUrl);
+
+        if (!candidateHealth) {
+          const candidatePid = await findListeningPidForPort(candidatePort);
+          if (candidatePid) {
+            unresponsiveHosts.push({
+              baseUrl: candidateUrl,
+              pid: candidatePid,
+            });
+          }
+          continue;
+        }
+
+        if (
+          candidateHealth.status === "ok" && candidateHealth.authToken &&
+          !matchesRuntimeHostIdentity(candidateHealth, identity)
+        ) {
+          incompatibleHosts.push({
+            baseUrl: candidateUrl,
+            authToken: candidateHealth.authToken,
+            activeRequests: candidateHealth.activeRequests,
+          });
+        }
+      }
+
+      await reclaimKnownStaleRuntimeHosts(incompatibleHosts, unresponsiveHosts);
+    } catch {
+      // Best-effort cleanup only.
+    } finally {
+      staleFallbackHostSweep = null;
+    }
+  })();
 }
 
 function spawnRuntimeHost(
@@ -487,6 +567,10 @@ export function __testOnlyGetRuntimeStartLockPath(): string {
   return getRuntimeStartLockPath();
 }
 
+export async function __testOnlyWaitForStaleFallbackHostSweep(): Promise<void> {
+  await staleFallbackHostSweep;
+}
+
 async function tryAcquireRuntimeStartLock(): Promise<boolean> {
   return await tryAcquireDirLock(
     getRuntimeStartLockPath(),
@@ -527,11 +611,15 @@ async function ensureRuntimeHost(): Promise<{
       (health) => matchesRuntimeHostIdentity(health, identity),
       attempts,
     );
-    return attached?.authToken ? cacheAndReturn(url, attached.authToken) : null;
+    if (!attached?.authToken) {
+      return null;
+    }
+    scheduleStaleFallbackHostSweep(basePort, identity);
+    return cacheAndReturn(url, attached.authToken);
   };
 
   const scanFallbackPorts = async (
-    incompatibleHosts: Array<{ baseUrl: string; authToken: string }>,
+    incompatibleHosts: Array<IncompatibleRuntimeHost>,
     unresponsiveHosts: Array<{ baseUrl: string; pid: string }>,
   ) => {
     for (
@@ -553,6 +641,15 @@ async function ensureRuntimeHost(): Promise<{
           continue;
         }
 
+        if (
+          await reclaimKnownStaleRuntimeHosts(
+            incompatibleHosts,
+            unresponsiveHosts,
+          )
+        ) {
+          return await ensureRuntimeHost();
+        }
+
         const authToken = crypto.randomUUID();
         spawnRuntimeHost(authToken, identity.buildId, candidatePort);
 
@@ -564,6 +661,7 @@ async function ensureRuntimeHost(): Promise<{
           HEALTH_POLL_ATTEMPTS * 4,
         );
         if (started?.authToken) {
+          scheduleStaleFallbackHostSweep(basePort, identity);
           return cacheAndReturn(candidateUrl, started.authToken);
         }
         continue;
@@ -573,6 +671,7 @@ async function ensureRuntimeHost(): Promise<{
         candidateHealth.status === "ok" && candidateHealth.authToken &&
         matchesRuntimeHostIdentity(candidateHealth, identity)
       ) {
+        scheduleStaleFallbackHostSweep(basePort, identity);
         return cacheAndReturn(candidateUrl, candidateHealth.authToken);
       }
 
@@ -580,17 +679,17 @@ async function ensureRuntimeHost(): Promise<{
         incompatibleHosts.push({
           baseUrl: candidateUrl,
           authToken: candidateHealth.authToken,
+          activeRequests: candidateHealth.activeRequests,
         });
       }
     }
 
-    const reclaimedIncompatible = await reclaimIncompatibleRuntimeHosts(
-      incompatibleHosts,
-    );
-    const reclaimedUnresponsive = await reclaimUnresponsiveRuntimeHosts(
-      unresponsiveHosts,
-    );
-    if (reclaimedIncompatible || reclaimedUnresponsive) {
+    if (
+      await reclaimKnownStaleRuntimeHosts(
+        incompatibleHosts,
+        unresponsiveHosts,
+      )
+    ) {
       return await ensureRuntimeHost();
     }
 
@@ -603,6 +702,7 @@ async function ensureRuntimeHost(): Promise<{
     attached?.status === "ok" && attached.authToken &&
     matchesRuntimeHostIdentity(attached, identity)
   ) {
+    scheduleStaleFallbackHostSweep(basePort, identity);
     return cacheAndReturn(baseUrl, attached.authToken);
   }
 
@@ -619,6 +719,7 @@ async function ensureRuntimeHost(): Promise<{
         {
           baseUrl,
           authToken: attachedAuthToken,
+          activeRequests: attached.activeRequests,
         },
       ],
       [],
@@ -690,6 +791,7 @@ async function ensureRuntimeHost(): Promise<{
       reattached?.status === "ok" && reattached.authToken &&
       matchesRuntimeHostIdentity(reattached, identity)
     ) {
+      scheduleStaleFallbackHostSweep(basePort, identity);
       return cacheAndReturn(baseUrl, reattached.authToken);
     }
 
@@ -707,6 +809,7 @@ async function ensureRuntimeHost(): Promise<{
       started?.authToken &&
       matchesRuntimeHostIdentity(started, identity)
     ) {
+      scheduleStaleFallbackHostSweep(basePort, identity);
       return cacheAndReturn(baseUrl, started.authToken);
     }
 

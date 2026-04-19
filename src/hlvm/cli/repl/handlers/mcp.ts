@@ -3,6 +3,7 @@ import { getErrorMessage } from "../../../../common/utils.ts";
 import {
   addServerToConfig,
   formatServerEntry,
+  getScopeDescription,
   isMcpServerConfig,
   loadMcpConfigMultiScope,
   normalizeServerName,
@@ -42,6 +43,7 @@ function resolveServerInput(
     ...(server.url ? { url: server.url } : {}),
     ...(server.env ? { env: server.env } : {}),
     ...(server.transport ? { transport: server.transport } : {}),
+    ...(server.oauth ? { oauth: server.oauth } : {}),
     ...(server.disabled_tools ? { disabled_tools: server.disabled_tools } : {}),
     ...(server.connection_timeout_ms
       ? { connection_timeout_ms: server.connection_timeout_ms }
@@ -74,6 +76,7 @@ export async function handleListMcpServers(): Promise<Response> {
         transport: server.url ? (server.transport ?? "http") : "stdio",
         target: entry.target,
         scopeLabel: entry.scopeLabel,
+        scopeDescription: getScopeDescription(server.scope),
       };
     }),
   };

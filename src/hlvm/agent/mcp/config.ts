@@ -830,6 +830,27 @@ const SCOPE_LABELS: Record<McpScope, string> = {
   "claude-code": "Claude Code",
 };
 
+/**
+ * Full-sentence scope descriptions, used in `hlvm mcp get` output.
+ * Style mirrors Claude Code's `get` output (e.g. "User config (available
+ * in all your projects)").
+ */
+const SCOPE_DESCRIPTIONS: Record<McpScope, string> = {
+  "user": "User config (available in all your projects)",
+  "cursor": "Cursor config (inherited from ~/.cursor/mcp.json)",
+  "windsurf":
+    "Windsurf config (inherited from ~/.codeium/windsurf/mcp_config.json)",
+  "zed": "Zed config (inherited from ~/.config/zed/settings.json)",
+  "codex": "Codex CLI config (inherited from ~/.codex/config.toml)",
+  "gemini": "Gemini CLI config (inherited from ~/.gemini/settings.json)",
+  "claude-code":
+    "Claude Code plugin config (inherited from ~/.claude/plugins/...)",
+};
+
+export function getScopeDescription(scope: McpScope): string {
+  return SCOPE_DESCRIPTIONS[scope] ?? String(scope);
+}
+
 /** Format a server entry for display (shared by CLI and REPL) */
 export function formatServerEntry(s: McpServerWithScope): {
   transport: string;

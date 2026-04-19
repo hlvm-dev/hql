@@ -13,6 +13,7 @@ import { DEFAULT_OLLAMA_ENDPOINT } from "../../../src/common/config/types.ts";
 import { RuntimeError } from "../../../src/common/error.ts";
 import {
   __testOnlyGetRuntimeStartLockPath,
+  __testOnlyWaitForStaleFallbackHostSweep,
   addRuntimeMcpServer,
   deleteRuntimeModel,
   getRuntimeAttachment,
@@ -44,7 +45,10 @@ import {
   withEnv,
   withRuntimeHostServer,
 } from "../../shared/light-helpers.ts";
-import { createRuntimeHostHealthResponse } from "../../shared/runtime-host-test-helpers.ts";
+import {
+  createRuntimeHostHealthResponse,
+  waitForRuntimeHostShutdown,
+} from "../../shared/runtime-host-test-helpers.ts";
 
 const encoder = new TextEncoder();
 
@@ -286,6 +290,7 @@ Deno.test("runAgentQueryViaHost streams events, traces, and interaction response
       );
       assertEquals(capturedInteractionBody?.request_id, "interaction-1");
       assertEquals(capturedInteractionBody?.approved, true);
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -374,6 +379,7 @@ Deno.test("runChatViaHost forwards agent max_tokens and maps continuation-aware 
         assertEquals(turnStats.continuationCount, 1);
         assertEquals(turnStats.compactionReason, "proactive_pressure");
       }
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -461,6 +467,7 @@ Deno.test("runAgentQueryViaHost forwards structured interaction options", async 
         },
       });
       assertEquals(capturedSelection, "keep_signposts");
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -538,6 +545,7 @@ Deno.test("runAgentQueryViaHost retries an early transient plan-mode stream drop
       assertEquals(result.text, "Plan recovered.");
       assertEquals(chatRequestCount, 2);
       assertEquals(uiEvents.includes("plan_phase_changed"), true);
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -619,6 +627,7 @@ Deno.test("runtime host client streams direct chat through the active conversati
         capturedChatBody?.messages?.[0]?.content,
         "hello",
       );
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -689,6 +698,7 @@ Deno.test("runtime host client registers, uploads, and fetches attachments", asy
     );
     assertEquals(uploadedSourcePath, "/tmp/pixel.png");
     assertEquals(requestedAttachmentId, "att_example_png");
+    await __testOnlyWaitForStaleFallbackHostSweep();
   });
 });
 
@@ -731,6 +741,7 @@ Deno.test("runAgentQueryViaHost labels host request rejections as runtime-host r
         error.message,
         "Selected model does not support tool calling",
       );
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -774,6 +785,7 @@ Deno.test("runAgentQueryViaHost maps payload-too-large responses to a dedicated 
       );
       assertEquals(error.code, HLVMErrorCode.REQUEST_TOO_LARGE);
       assertStringIncludes(error.message, "Request too large");
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -817,6 +829,7 @@ Deno.test("runAgentQueryViaHost preserves provider codes returned by the runtime
       );
       assertEquals(error.code, ProviderErrorCode.AUTH_FAILED);
       assertStringIncludes(error.message, "[PRV9004]");
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -860,6 +873,7 @@ Deno.test("runAgentQueryViaHost maps generic host timeouts to transport errors",
       );
       assertEquals(error.code, HLVMErrorCode.TRANSPORT_ERROR);
       assertStringIncludes(error.message, "timed out");
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -913,6 +927,7 @@ Deno.test("runAgentQueryViaHost maps malformed runtime streams to stream protoco
         error.message,
         "Failed to parse runtime host stream event",
       );
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -970,6 +985,7 @@ Deno.test("runAgentQueryViaHost preserves structured HQL codes from streamed hos
       );
       assertEquals(error.code, HQLErrorCode.UNDEFINED_VARIABLE);
       assertStringIncludes(error.message, "[HQL5001]");
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -1038,6 +1054,7 @@ Deno.test("runAgentQueryViaHost sends stateless requests without rebinding the a
       });
       assertEquals(capturedChatBody?.stateless, true);
       assertEquals(capturedChatBody?.session_id, undefined);
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -1109,6 +1126,7 @@ Deno.test("runAgentQueryViaHost waits for runtime readiness before sending chat"
       assertEquals(result.text, "ready");
       assertEquals(chatRequests, 1);
       assertEquals(healthChecks >= 3, true);
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -1163,6 +1181,7 @@ Deno.test("runAgentQueryViaHost surfaces non-retryable AI readiness reasons with
       assertStringIncludes(error.message, "ollama/gemma4:e4b");
       assertEquals(chatRequests, 0);
       assertEquals(healthChecks < 10, true);
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -1277,6 +1296,7 @@ Deno.test("runAgentQueryViaHost takes over runtime startup after an abandoned st
 
       assertEquals(result.text, "handoff");
       assertEquals(spawnCount, 1);
+      await __testOnlyWaitForStaleFallbackHostSweep();
     } finally {
       clearTimeout(releaseTimer);
     }
@@ -1290,6 +1310,363 @@ Deno.test("runAgentQueryViaHost takes over runtime startup after an abandoned st
       await serverHandle.shutdown();
       await serverHandle.finished;
     }
+  }
+});
+
+Deno.test("runAgentQueryViaHost reclaims an idle incompatible runtime host before expanding to the next port", async () => {
+  const basePort = await findFreePort();
+  const incompatibleAuthToken = "idle-incompatible-auth-token";
+  const originalPlatform = getPlatform();
+  let incompatibleHandle: PlatformHttpServerHandle | null = null;
+  const spawnedHandles: PlatformHttpServerHandle[] = [];
+  const spawnedPorts: number[] = [];
+  let shutdownRequests = 0;
+
+  incompatibleHandle = originalPlatform.http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json({
+        ...await createRuntimeHostHealthResponse(incompatibleAuthToken, {
+          activeRequests: 0,
+        }),
+        buildId: "incompatible-build",
+      });
+    }
+
+    if (url.pathname === "/api/runtime/shutdown") {
+      shutdownRequests += 1;
+      setTimeout(() => {
+        void incompatibleHandle?.shutdown().catch(() => {});
+      }, 0);
+      return Response.json({ ok: true, shutting_down: true });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port: basePort,
+    onListen: () => {},
+  });
+
+  setPlatform({
+    ...originalPlatform,
+    command: {
+      ...originalPlatform.command,
+      run: (options) => {
+        const port = Number.parseInt(
+          options.env?.HLVM_REPL_PORT ?? String(basePort),
+          10,
+        );
+        const authToken = options.env?.HLVM_AUTH_TOKEN ?? "spawned-auth-token";
+        const buildId = options.env?.HLVM_RUNTIME_BUILD_ID ?? "spawned-build";
+        spawnedPorts.push(port);
+        const handle = originalPlatform.http.serveWithHandle!(async (req) => {
+          const url = new URL(req.url);
+          if (url.pathname === "/health") {
+            return Response.json({
+              ...await createRuntimeHostHealthResponse(authToken, {
+                activeRequests: 0,
+              }),
+              buildId,
+            });
+          }
+
+          if (url.pathname === "/api/chat") {
+            const stream = new ReadableStream({
+              start(controller) {
+                controller.enqueue(
+                  encoder.encode(
+                    JSON.stringify({ event: "token", text: "reclaimed" }) +
+                      "\n",
+                  ),
+                );
+                controller.enqueue(
+                  encoder.encode(
+                    JSON.stringify({
+                      event: "complete",
+                      request_id: "req-reclaimed-idle",
+                      session_version: 1,
+                    }) + "\n",
+                  ),
+                );
+                controller.close();
+              },
+            });
+
+            return new Response(stream, {
+              status: 200,
+              headers: {
+                "Content-Type": "application/x-ndjson",
+                "X-Request-ID": "req-reclaimed-idle",
+              },
+            });
+          }
+
+          return new Response("Not found", { status: 404 });
+        }, {
+          hostname: "127.0.0.1",
+          port,
+          onListen: () => {},
+        });
+        spawnedHandles.push(handle);
+        return {
+          status: Promise.resolve({ success: true, code: 0, signal: undefined }),
+          unref: () => {},
+        };
+      },
+    },
+  });
+
+  try {
+    const result = await withRuntimePortOverrideForTests(
+      basePort,
+      async () =>
+        await runAgentQueryViaHost({
+          query: "reclaim idle incompatible host",
+          model: "ollama/llama3.1:8b",
+          callbacks: {},
+        }),
+    );
+
+    assertEquals(result.text, "reclaimed");
+    assertEquals(shutdownRequests, 1);
+    assertEquals(spawnedPorts, [basePort]);
+    await __testOnlyWaitForStaleFallbackHostSweep();
+  } finally {
+    setPlatform(originalPlatform);
+    await incompatibleHandle?.shutdown().catch(() => {});
+    await incompatibleHandle?.finished.catch(() => {});
+    for (const handle of spawnedHandles) {
+      await handle.shutdown().catch(() => {});
+      await handle.finished.catch(() => {});
+    }
+  }
+});
+
+Deno.test("runAgentQueryViaHost preserves an active incompatible runtime host and expands to the next port", async () => {
+  const basePort = await findFreePort();
+  const incompatibleAuthToken = "active-incompatible-auth-token";
+  const originalPlatform = getPlatform();
+  const incompatibleHandle = originalPlatform.http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json({
+        ...await createRuntimeHostHealthResponse(incompatibleAuthToken, {
+          activeRequests: 1,
+        }),
+        buildId: "incompatible-build",
+      });
+    }
+
+    if (url.pathname === "/api/runtime/shutdown") {
+      return new Response("unexpected shutdown", { status: 500 });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port: basePort,
+    onListen: () => {},
+  });
+
+  const spawnedHandles: PlatformHttpServerHandle[] = [];
+  const spawnedPorts: number[] = [];
+
+  setPlatform({
+    ...originalPlatform,
+    command: {
+      ...originalPlatform.command,
+      run: (options) => {
+        const port = Number.parseInt(
+          options.env?.HLVM_REPL_PORT ?? String(basePort),
+          10,
+        );
+        const authToken = options.env?.HLVM_AUTH_TOKEN ?? "spawned-auth-token";
+        const buildId = options.env?.HLVM_RUNTIME_BUILD_ID ?? "spawned-build";
+        spawnedPorts.push(port);
+        const handle = originalPlatform.http.serveWithHandle!(async (req) => {
+          const url = new URL(req.url);
+          if (url.pathname === "/health") {
+            return Response.json({
+              ...await createRuntimeHostHealthResponse(authToken, {
+                activeRequests: 0,
+              }),
+              buildId,
+            });
+          }
+
+          if (url.pathname === "/api/chat") {
+            const stream = new ReadableStream({
+              start(controller) {
+                controller.enqueue(
+                  encoder.encode(
+                    JSON.stringify({ event: "token", text: "expanded" }) + "\n",
+                  ),
+                );
+                controller.enqueue(
+                  encoder.encode(
+                    JSON.stringify({
+                      event: "complete",
+                      request_id: "req-expanded-active",
+                      session_version: 1,
+                    }) + "\n",
+                  ),
+                );
+                controller.close();
+              },
+            });
+
+            return new Response(stream, {
+              status: 200,
+              headers: {
+                "Content-Type": "application/x-ndjson",
+                "X-Request-ID": "req-expanded-active",
+              },
+            });
+          }
+
+          return new Response("Not found", { status: 404 });
+        }, {
+          hostname: "127.0.0.1",
+          port,
+          onListen: () => {},
+        });
+        spawnedHandles.push(handle);
+        return {
+          status: Promise.resolve({ success: true, code: 0, signal: undefined }),
+          unref: () => {},
+        };
+      },
+    },
+  });
+
+  try {
+    const result = await withRuntimePortOverrideForTests(
+      basePort,
+      async () =>
+        await runAgentQueryViaHost({
+          query: "preserve active incompatible host",
+          model: "ollama/llama3.1:8b",
+          callbacks: {},
+        }),
+    );
+
+    assertEquals(result.text, "expanded");
+    assertEquals(spawnedPorts, [basePort + 1]);
+    await __testOnlyWaitForStaleFallbackHostSweep();
+  } finally {
+    setPlatform(originalPlatform);
+    await incompatibleHandle.shutdown();
+    await incompatibleHandle.finished;
+    for (const handle of spawnedHandles) {
+      await handle.shutdown().catch(() => {});
+      await handle.finished.catch(() => {});
+    }
+  }
+});
+
+Deno.test("runAgentQueryViaHost asynchronously sweeps idle incompatible fallback hosts after attaching to a compatible base host", async () => {
+  const basePort = await findFreePort();
+  const fallbackPort = basePort + 1;
+  const fallbackUrl = `http://127.0.0.1:${fallbackPort}`;
+  const compatibleAuthToken = "base-compatible-auth-token";
+  const incompatibleAuthToken = "fallback-incompatible-auth-token";
+  let fallbackHandle: PlatformHttpServerHandle | null = null;
+  let fallbackShutdownRequests = 0;
+
+  const baseHandle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json(
+        await createRuntimeHostHealthResponse(compatibleAuthToken, {
+          activeRequests: 0,
+        }),
+      );
+    }
+
+    if (url.pathname === "/api/chat") {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({ event: "token", text: "base" }) + "\n",
+            ),
+          );
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({
+                event: "complete",
+                request_id: "req-base-compatible",
+                session_version: 1,
+              }) + "\n",
+            ),
+          );
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "X-Request-ID": "req-base-compatible",
+        },
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port: basePort,
+    onListen: () => {},
+  });
+
+  fallbackHandle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json({
+        ...await createRuntimeHostHealthResponse(incompatibleAuthToken, {
+          activeRequests: 0,
+        }),
+        buildId: "fallback-incompatible-build",
+      });
+    }
+
+    if (url.pathname === "/api/runtime/shutdown") {
+      fallbackShutdownRequests += 1;
+      setTimeout(() => {
+        void fallbackHandle?.shutdown().catch(() => {});
+      }, 0);
+      return Response.json({ ok: true, shutting_down: true });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port: fallbackPort,
+    onListen: () => {},
+  });
+
+  try {
+    const result = await withRuntimePortOverrideForTests(
+      basePort,
+      async () =>
+        await runAgentQueryViaHost({
+          query: "sweep fallback hosts",
+          model: "ollama/llama3.1:8b",
+          callbacks: {},
+        }),
+    );
+
+    assertEquals(result.text, "base");
+    assert(await waitForRuntimeHostShutdown(fallbackUrl));
+    assertEquals(fallbackShutdownRequests, 1);
+    await __testOnlyWaitForStaleFallbackHostSweep();
+  } finally {
+    await baseHandle.shutdown().catch(() => {});
+    await baseHandle.finished.catch(() => {});
+    await fallbackHandle?.shutdown().catch(() => {});
+    await fallbackHandle?.finished.catch(() => {});
   }
 });
 
@@ -1358,6 +1735,7 @@ Deno.test("runAgentQueryViaHost accepts compatible runtime hosts when the compil
       });
       assertEquals(result.text, "compatible");
       assertEquals(chatRequests, 1);
+      await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
     await handle.shutdown();
@@ -1469,6 +1847,7 @@ Deno.test("runtime host client exposes model discovery, installed models, get/de
     assertEquals(pullBodies[0]?.name, "llama3.2:latest");
     assertEquals(deleteCalls, 1);
     assertEquals(deleted, true);
+    await __testOnlyWaitForStaleFallbackHostSweep();
   });
 });
 
@@ -1514,6 +1893,7 @@ Deno.test("pullRuntimeModelViaHost cancels the response stream when the consumer
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     assertEquals(streamCancelled, true);
+    await __testOnlyWaitForStaleFallbackHostSweep();
   });
 });
 
@@ -1574,6 +1954,7 @@ Deno.test("runtime host client exposes config get/patch/reset through the runtim
     assertEquals(seenPatches[1]?.theme, "hlvm");
     assertEquals(reset.model, "ollama/llama3.2:latest");
     assertEquals(reloaded.model, "ollama/llama3.2:latest");
+    await __testOnlyWaitForStaleFallbackHostSweep();
   });
 });
 
@@ -1675,5 +2056,6 @@ Deno.test("runtime host client exposes Ollama signin and MCP admin flows through
       "OAuth login complete for MCP server 'github'.",
     );
     assertEquals(logout.removed, true);
+    await __testOnlyWaitForStaleFallbackHostSweep();
   });
 });

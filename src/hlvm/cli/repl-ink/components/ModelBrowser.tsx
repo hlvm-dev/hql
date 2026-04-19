@@ -1243,7 +1243,7 @@ export function ModelBrowser({
     selectedModel?.name ?? currentModel,
     selectedFocusDetail,
   );
-  const overlayListRows = Math.min(10, Math.max(4, overlayFrame.height - 18));
+  const overlayListRows = Math.min(10, Math.max(4, overlayFrame.height - 17));
   const listRowCount = presentation === "overlay"
     ? overlayListRows
     : visibleRowCount;
@@ -1301,14 +1301,16 @@ export function ModelBrowser({
           placeholder="Filter models"
         />
       </Box>
-      <Box marginTop={1}>
-        <Text
-          color={selectedModel ? sc.text.primary : sc.text.muted}
-          bold
-        >
-          {buildFullWidthRowText(focusLayout, browserContentWidth)}
-        </Text>
-      </Box>
+      {presentation === "inline" && (
+        <Box marginTop={1}>
+          <Text
+            color={selectedModel ? sc.text.primary : sc.text.muted}
+            bold
+          >
+            {buildFullWidthRowText(focusLayout, browserContentWidth)}
+          </Text>
+        </Box>
+      )}
 
       {loading && (
         <Box marginTop={1}>
@@ -1394,16 +1396,20 @@ export function ModelBrowser({
             <>
               <Text dimColor wrap="truncate-end">
                 {padDisplayText(
-                  `↑↓ navigate · Enter ${MODEL_BROWSER_SELECT_ACTION_LABEL} · Tab ${nextFilter} · Esc close`,
+                  presentation === "overlay"
+                    ? `↑↓ move · Enter ${MODEL_BROWSER_SELECT_ACTION_LABEL} · Type filter · Tab cycle · Esc`
+                    : `↑↓ navigate · Enter ${MODEL_BROWSER_SELECT_ACTION_LABEL} · Tab ${nextFilter} · Esc close`,
                   browserContentWidth,
                 )}
               </Text>
-              <Text dimColor wrap="truncate-end">
-                {padDisplayText(
-                  `Type to filter · Ctrl+O info · Ctrl+D delete · Ctrl+X cancel`,
-                  browserContentWidth,
-                )}
-              </Text>
+              {presentation === "inline" && (
+                <Text dimColor wrap="truncate-end">
+                  {padDisplayText(
+                    `Type to filter · Ctrl+O info · Ctrl+D delete · Ctrl+X cancel`,
+                    browserContentWidth,
+                  )}
+                </Text>
+              )}
             </>
           )}
       </Box>

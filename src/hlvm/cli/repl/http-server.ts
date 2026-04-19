@@ -25,6 +25,7 @@ import { getActiveProvider } from "../repl-ink/completion/concrete-providers.ts"
 import { addCorsHeaders, jsonError, parseJsonBody } from "./http-utils.ts";
 import { createRouter } from "./http-router.ts";
 import {
+  activeRequests,
   handleChat,
   handleChatCancel,
   handleChatInteraction,
@@ -422,6 +423,7 @@ async function handleHealth(): Promise<Response> {
     status: "ok",
     initialized: replState !== null,
     definitions: replState?.getDocstrings().size ?? 0,
+    activeRequests: activeRequests.size,
     aiReady: isRuntimeReadyForAiRequests(),
     aiReadyReason: getRuntimeAiReadyReason(),
     aiReadyRetryable: isRuntimeAiReadyRetryable(),

@@ -117,6 +117,7 @@ export async function withRuntimeHostServer(
         status: "ok",
         initialized: true,
         definitions: 0,
+        activeRequests: 0,
         aiReady: true,
         version: identity.version,
         buildId: identity.buildId,

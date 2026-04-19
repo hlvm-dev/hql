@@ -64,7 +64,7 @@ import { evaluateProviderApproval } from "../../../providers/approval.ts";
 import { supportsAgentExecution } from "../../../agent/constants.ts";
 import { resolveLocalFallbackModelId } from "../../../runtime/local-fallback.ts";
 
-export { handleChatInteraction } from "./chat-session.ts";
+export { activeRequests, handleChatInteraction } from "./chat-session.ts";
 
 import {
   activeRequests,
