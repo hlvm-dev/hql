@@ -180,6 +180,12 @@ try {
     }
 
     Write-Host "==> Smoke succeeded."
+    exit 0
 } finally {
-    Remove-Item -Path $SmokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    try {
+        Get-Process -Name "ollama","hlvm" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    } catch {}
+    try {
+        Remove-Item -Path $SmokeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    } catch {}
 }
