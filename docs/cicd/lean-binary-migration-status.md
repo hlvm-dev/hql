@@ -118,12 +118,16 @@ RELEASE PIPELINE RESULTS (rc19 — 2026-04-17, 14/14 PASS):
 ✓ Staged smoke Intel             4m28s   ← full AI response verified
 ✓ Staged smoke ARM              17m19s   ← pipeline verified, model skipped (OOM)
 ✓ Publish Release                   5s
-✓ Public smoke Windows           4m50s   ← full AI response verified
-✓ Public smoke Linux             2m38s   ← full AI response verified
-✓ Public smoke Intel             7m28s   ← full AI response verified
-✓ Public smoke ARM              17m43s   ← pipeline verified, model skipped (OOM)
+✓ Public smoke Windows           5m35s   ← Ollama + managed Python OK
+✓ Public smoke Linux             2m44s   ← Ollama + managed Python OK
+✓ Public smoke Intel             3m50s   ← Ollama + managed Python OK
+✓ Public smoke ARM               3m19s   ← pipeline verified, model skipped (OOM)
 
 PASS: 14/14   FAIL: 0
+
+⚠ IMPORTANT: 14/14 does NOT mean the full user contract is tested.
+   What CI verifies: install + bootstrap + Ollama + managed Python (direct)
+   What CI does NOT verify: hlvm ask agent flow end-to-end
 
 Compared to v0.1.0:
   Binary size: 587 MB–5.2 GB → ~363 MB (all platforms identical)
@@ -131,6 +135,46 @@ Compared to v0.1.0:
   Build time: ~20 min          → ~2 min
   File splitting, Windows zip sidecar: eliminated
 ```
+
+## ⚠ Known Gaps — Goal NOT Fully Accomplished
+
+The product contract (docs/vision/single-binary-local-ai.md) says:
+
+> After install finishes: `hlvm ask "hello"` works immediately
+
+**Honest status of this contract:**
+
+| Platform | Install | Bootstrap | Ollama direct | Python sidecar direct | `hlvm ask` end-to-end |
+|----------|:-:|:-:|:-:|:-:|:-:|
+| M1 Max (local dev) | ✅ | ✅ | ✅ | ✅ | ✅ tested |
+| Linux CI | ✅ | ✅ | ✅ | ✅ | ❓ too slow on CPU (not verified) |
+| Intel CI | ✅ | ✅ | ✅ | ✅ | ❓ too slow on CPU (not verified) |
+| Windows CI | ✅ | ✅ | ✅ | ✅ | ❌ HLVM5006 bug (see below) |
+| ARM CI | ✅ | ✅ | skip (OOM) | skip | — |
+
+### Windows HLVM5006 — real bug or CI artifact?
+
+When `hlvm ask` runs on Windows CI, it fails instantly with:
+```
+Error: [HLVM5006] Failed to start a matching local HLVM runtime host.
+Restart HLVM and try again.
+```
+
+This is NOT a timeout — it's an immediate failure. Either:
+- Real bug in Windows runtime-host spawn (`hlvm serve` child process)
+- CI-specific (port conflict, antivirus, etc.)
+
+Cannot be distinguished without a real Windows machine to test on.
+**Action item: test hlvm ask on a real Windows install before declaring v0.2.0 ready.**
+
+### Linux/Intel CI — not verified, but not broken
+
+`hlvm ask` on Linux/Intel CI ran >40 min in rc33 before cancellation. The
+agent was progressing (making LLM calls, each taking 1-3 min) but qwen3:8b
+on CPU is fundamentally slow. On real user hardware with GPU or faster CPU,
+this completes in seconds-to-minutes.
+
+**Not a bug, just too slow for CI budget.**
 
 ### What CI smoke verifies (honestly)
 
