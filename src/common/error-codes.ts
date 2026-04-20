@@ -203,10 +203,6 @@ export enum HLVMErrorCode {
   BOOTSTRAP_MODEL_PULL_FAILED = 5021,
   /** Bootstrap verification found missing or corrupt assets */
   BOOTSTRAP_VERIFICATION_FAILED = 5022,
-  /** Bootstrap recovery could not repair degraded state */
-  BOOTSTRAP_RECOVERY_FAILED = 5023,
-  /** Bootstrap manifest file is missing or unparseable */
-  BOOTSTRAP_MANIFEST_CORRUPT = 5024,
 }
 
 export enum ProviderErrorCode {
@@ -987,30 +983,6 @@ const HLVM_ERROR_INFO: Record<HLVMErrorCode, ErrorInfo> = {
       "Run `hlvm bootstrap` for a full re-materialization",
     ],
   },
-  [HLVMErrorCode.BOOTSTRAP_RECOVERY_FAILED]: {
-    description: "Bootstrap recovery could not repair the degraded state.",
-    causes: [
-      "Embedded engine resource is missing from the binary",
-      "Repeated model pull failures",
-      "File system permissions prevent writing to ~/.hlvm/.runtime/",
-    ],
-    fixes: [
-      "Check file permissions on ~/.hlvm/.runtime/",
-      "Rebuild HLVM with an embedded AI engine and reinstall",
-      "Run `hlvm bootstrap` manually with verbose logging",
-    ],
-  },
-  [HLVMErrorCode.BOOTSTRAP_MANIFEST_CORRUPT]: {
-    description: "The bootstrap manifest file is missing or unparseable.",
-    causes: [
-      "manifest.json was manually edited or deleted",
-      "Disk corruption or incomplete write",
-    ],
-    fixes: [
-      "Run `hlvm bootstrap` to create a fresh manifest",
-      "Run `hlvm bootstrap --repair` to regenerate from existing assets",
-    ],
-  },
 };
 
 const PROVIDER_ERROR_INFO: Record<ProviderErrorCode, ErrorInfo> = {
@@ -1061,12 +1033,13 @@ const PROVIDER_ERROR_INFO: Record<ProviderErrorCode, ErrorInfo> = {
     causes: [
       "Missing or invalid API key",
       "OAuth token expired or revoked",
-      "Account lacks required model access",
+      "Subscription tier does not include the requested model",
+      "Token has insufficient scopes for this endpoint",
     ],
     fixes: [
       "Verify API key / token configuration",
-      "Re-authenticate with the provider",
-      "Check provider billing and model access permissions",
+      "Re-authenticate with the provider (e.g. `claude login`) if the token is expired",
+      "If the token is valid, upgrade your subscription or request scopes that cover this model",
     ],
   },
   [ProviderErrorCode.RATE_LIMITED]: {

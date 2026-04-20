@@ -13,6 +13,7 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { EXIT_CODES } from "../../../src/hlvm/agent/constants.ts";
+import { findListeningPidForPort } from "../../../src/hlvm/runtime/port-process.ts";
 import { findFreePort, normalizeCliOutput } from "../../shared/light-helpers.ts";
 import { binaryTest, runCLI, withTempDir } from "../_shared/binary-helpers.ts";
 
@@ -449,5 +450,74 @@ binaryTest(
         `Expected success (agent recovers from blocked tool), got: ${output}`,
       );
     });
+  },
+);
+
+Deno.test(
+  "CLI ask: ephemeral test-mode shuts down spawned serve on exit (direct invocation, no test-helper cleanup)",
+  async () => {
+    const dir = await platform.fs.makeTempDir({ prefix: "hlvm-ask-ephem-" });
+    try {
+      const port = await findFreePort();
+      const fixturePath = platform.path.join(dir, "safe_tool_fixture.json");
+      await platform.fs.writeFile(fixturePath, encoder.encode(SAFE_TOOL_FIXTURE));
+      await platform.fs.writeFile(
+        platform.path.join(dir, "README.md"),
+        encoder.encode("# Test Project"),
+      );
+
+      const cliPath = new URL("../../../src/hlvm/cli/cli.ts", import.meta.url)
+        .pathname;
+      const output = await platform.command.output({
+        cmd: [
+          "deno",
+          "run",
+          "-A",
+          cliPath,
+          "ask",
+          "-p",
+          "--no-session-persistence",
+          "--model",
+          "ollama/test-fixture",
+          "read files",
+        ],
+        cwd: dir,
+        env: {
+          ...platform.env.toObject(),
+          HLVM_TEST_STATE_ROOT: dir,
+          HLVM_ALLOW_TEST_STATE_ROOT: "1",
+          HLVM_DISABLE_AI_AUTOSTART: "1",
+          HLVM_REPL_PORT: String(port),
+          HLVM_ASK_FIXTURE_PATH: fixturePath,
+        },
+        stdout: "piped",
+        stderr: "piped",
+      });
+      assertEquals(
+        output.success,
+        true,
+        `ask failed: ${new TextDecoder().decode(output.stderr)}`,
+      );
+
+      const leakedPid = await findListeningPidForPort(port);
+      if (leakedPid) {
+        try {
+          await platform.command.output({
+            cmd: ["kill", leakedPid],
+            stdout: "null",
+            stderr: "null",
+          });
+        } catch {
+          // best-effort cleanup so a failure here does not poison other tests
+        }
+      }
+      assertEquals(
+        leakedPid,
+        null,
+        `Ephemeral ask leaked a serve on port ${port} (pid=${leakedPid})`,
+      );
+    } finally {
+      await platform.fs.remove(dir, { recursive: true }).catch(() => {});
+    }
   },
 );

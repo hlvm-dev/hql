@@ -115,9 +115,9 @@ export const HINTS = Object.freeze({
   USER_DENIED:
     "User denied this action. Try an alternative approach or ask the user what they prefer.",
   AUTH_FAILED_API_KEY:
-    "Authentication failed. Check your API key configuration.",
+    "Authentication failed. Verify your credentials (API key or OAuth token) and retry.",
   AUTH_FAILED_PROVIDER:
-    "Authentication failed. Check your API key configuration for this provider.",
+    "Authentication failed. Re-authenticate with the provider and retry.",
   RATE_LIMIT: "Rate limit hit. Wait a moment before retrying this operation.",
   PROVIDER_RATE_LIMIT: "Provider rate limit hit. Wait a moment before retrying.",
   USAGE_QUOTA:
@@ -186,7 +186,7 @@ const ERROR_PATTERNS: ReadonlyArray<
   { re: RegExp; class: ErrorClass; retryable: boolean }
 > = [
   {
-    re: /api key not configured|api key not valid|api key is missing|incorrect api key|invalid api key|invalid x-api-key|authentication_error|exceeded your current quota|insufficient_quota|http 40[13]/,
+    re: /api key not configured|api key not valid|api key is missing|incorrect api key|invalid api key|invalid x-api-key|authentication_error|invalid_grant|oauth token|refresh token|claude login|re-authenticate|exceeded your current quota|insufficient_quota|http 40[13]/,
     class: ERROR_CLASS.PERMANENT,
     retryable: false,
   },
@@ -207,6 +207,11 @@ const ERROR_PATTERNS: ReadonlyArray<
   },
   {
     re: /econnreset|econnrefused|enetunreach|enotfound|etimedout|epipe|econnaborted|error reading a body|connection.*(closed|refused|reset)|tcp connect error|socket hang up|network error|http 50[023]/,
+    class: ERROR_CLASS.TRANSIENT,
+    retryable: true,
+  },
+  {
+    re: /is not ready for ai requests|local ai bootstrap is being materialized/,
     class: ERROR_CLASS.TRANSIENT,
     retryable: true,
   },
@@ -397,11 +402,11 @@ export function classifyFromApiResponseBody(
       ? (parsed as { error: Record<string, unknown> }).error
       : (parsed as Record<string, unknown>);
 
-  const type = typeof errorNode.type === "string" ? errorNode.type : undefined;
-  const code = typeof errorNode.code === "string" ? errorNode.code : undefined;
-  const status = typeof errorNode.status === "string" ? errorNode.status : undefined;
+  const type = typeof errorNode.type === "string" ? errorNode.type : "";
+  const code = typeof errorNode.code === "string" ? errorNode.code : "";
+  const status = typeof errorNode.status === "string" ? errorNode.status : "";
 
-  const signal = (type ?? code ?? status ?? "").toLowerCase();
+  const signal = `${type} ${code} ${status}`.trim().toLowerCase();
   if (!signal) return null;
 
   if (
@@ -419,7 +424,13 @@ export function classifyFromApiResponseBody(
   if (signal.includes("insufficient_quota") || signal.includes("billing")) {
     return { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.PROVIDER_QUOTA };
   }
-  if (signal.includes("context") || signal.includes("maximum_tokens")) {
+  if (
+    signal.includes("context") ||
+    signal.includes("max_tokens") ||
+    signal.includes("maximum_tokens") ||
+    signal.includes("prompt_too_long") ||
+    signal.includes("context_length_exceeded")
+  ) {
     return { class: ERROR_CLASS.CONTEXT_OVERFLOW, retryable: true, hint: HINTS.CONTEXT_OVERFLOW };
   }
   if (signal.includes("not_found") || signal === "not found") {
@@ -644,9 +655,14 @@ export async function classifyError(err: unknown): Promise<ClassifiedError> {
  * All keywords in a rule must match (AND). Order matters -- first match wins.
  * "command not found" must precede "not found" to avoid false match on file errors.
  */
-const RECOVERY_HINT_RULES: readonly [string[], string][] = [
+export const RECOVERY_HINT_RULES: readonly [string[], string][] = [
   [["command not found"], HINTS.COMMAND_NOT_FOUND],
   [["not recognized"], HINTS.COMMAND_NOT_FOUND],
+  [["invalid_grant"], HINTS.AUTH_FAILED_PROVIDER],
+  [["oauth token"], HINTS.AUTH_FAILED_PROVIDER],
+  [["refresh token"], HINTS.AUTH_FAILED_PROVIDER],
+  [["claude login"], HINTS.AUTH_FAILED_PROVIDER],
+  [["re-authenticate"], HINTS.AUTH_FAILED_PROVIDER],
   [["enospc"], HINTS.DISK_FULL],
   [["no space left"], HINTS.DISK_FULL],
   [["eaddrinuse"], HINTS.PORT_IN_USE],
@@ -656,9 +672,16 @@ const RECOVERY_HINT_RULES: readonly [string[], string][] = [
   [["enotfound"], HINTS.DNS_FAILED],
   [["eai_again"], HINTS.DNS_TEMP],
   [["cannot resolve"], HINTS.DNS_FAILED],
+  [["http 401"], HINTS.AUTH_FAILED_API_KEY],
+  [["http 403"], HINTS.AUTH_FAILED_API_KEY],
+  [["signin required"], HINTS.SIGNIN_REQUIRED],
+  [["sign in required"], HINTS.SIGNIN_REQUIRED],
+  [["token expired"], HINTS.TOKEN_EXPIRED],
+  [["model", "not found"], HINTS.MODEL_NOT_INSTALLED],
+  [["python not found"], HINTS.PYTHON_MISSING],
+  [["uv is not installed"], HINTS.UV_MISSING],
   [["enoent"], HINTS.FILE_NOT_FOUND],
   [["no such file"], HINTS.FILE_NOT_FOUND],
-  [["not found"], HINTS.FILE_NOT_FOUND],
   [["eacces"], HINTS.PERMISSION_DENIED],
   [["permission denied"], HINTS.PERMISSION_DENIED],
   [["eisdir"], HINTS.IS_DIRECTORY],
@@ -680,17 +703,9 @@ const RECOVERY_HINT_RULES: readonly [string[], string][] = [
   [["429"], HINTS.RATE_LIMIT],
   [["too many requests"], HINTS.RATE_LIMIT],
   [["invalid", "schema"], HINTS.INVALID_SCHEMA],
-  [["http 401"], HINTS.AUTH_FAILED_API_KEY],
-  [["http 403"], HINTS.AUTH_FAILED_API_KEY],
-  [["signin required"], HINTS.SIGNIN_REQUIRED],
-  [["sign in required"], HINTS.SIGNIN_REQUIRED],
-  [["token expired"], HINTS.TOKEN_EXPIRED],
-  [["model", "not found"], HINTS.MODEL_NOT_INSTALLED],
   [["not in the ai engine"], HINTS.AI_RUNTIME_NOT_READY],
   [["is not ready for ai requests"], HINTS.AI_RUNTIME_NOT_READY],
   [["manifest", "mismatch"], HINTS.MANIFEST_MISMATCH],
-  [["uv is not installed"], HINTS.UV_MISSING],
-  [["python not found"], HINTS.PYTHON_MISSING],
   [["exit code"], HINTS.CMD_EXIT_FAILED],
 ];
 

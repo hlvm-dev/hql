@@ -11,11 +11,15 @@ import {
   buildEditFileRecovery,
   CancellationError,
   classifyError,
+  classifyFromApiResponseBody,
   describeErrorForDisplay,
   getRecoveryHint,
+  HINTS,
+  RECOVERY_HINT_RULES,
   renderEditFileRecoveryPrompt,
   ToolError,
 } from "../../../src/hlvm/agent/error-taxonomy.ts";
+import { RuntimeError } from "../../../src/common/error.ts";
 import { TimeoutError } from "../../../src/common/timeout-utils.ts";
 
 Deno.test("error taxonomy: aborts and timeouts map to their dedicated classes", async () => {
@@ -36,6 +40,23 @@ Deno.test("error taxonomy: string-based fallback classification covers rate limi
   assertEquals((await classifyError(new Error("Provider HTTP 503: unavailable"))).class, "transient");
   assertEquals((await classifyError(new Error("Invalid request payload"))).class, "permanent");
   assertEquals((await classifyError(new TypeError("bad type"))).class, "permanent");
+});
+
+Deno.test("error taxonomy: bootstrap-in-progress readiness errors classify as retryable transient with an AI-runtime hint", async () => {
+  const bootstrapMessages = [
+    "Local HLVM runtime host is not ready for AI requests: Verified bootstrap not found. Local AI bootstrap is being materialized.",
+    "Local HLVM runtime host is not ready for AI requests: AI runtime is still initializing.",
+  ];
+  for (const msg of bootstrapMessages) {
+    const classified = await classifyError(new Error(msg));
+    assertEquals(classified.class, "transient", `"${msg}" should be transient`);
+    assertEquals(classified.retryable, true, `"${msg}" should be retryable`);
+
+    const described = await describeErrorForDisplay(new RuntimeError(msg));
+    assertEquals(described.class, "transient");
+    assertEquals(described.retryable, true);
+    assertEquals(described.hint, HINTS.AI_RUNTIME_NOT_READY);
+  }
 });
 
 Deno.test("error taxonomy: connection-death errors classify as retryable transient", async () => {
@@ -203,6 +224,94 @@ Deno.test("error taxonomy: recovery hints cover network, auth, schema, and user-
     "alternative approach",
   );
   assertEquals(getRecoveryHint("Some completely novel error"), null);
+});
+
+Deno.test("error taxonomy: every RECOVERY_HINT_RULES entry is reachable (no rule shadowed by an earlier, less-specific one)", () => {
+  const unreachable: string[] = [];
+  for (let i = 0; i < RECOVERY_HINT_RULES.length; i++) {
+    const [keywords, expectedHint] = RECOVERY_HINT_RULES[i];
+    const probe = keywords.join(" ");
+    const actual = getRecoveryHint(probe);
+    if (actual !== expectedHint) {
+      unreachable.push(
+        `rule #${i} [${keywords.join(", ")}] -> expected ${describeHint(expectedHint)} but got ${describeHint(actual)}`,
+      );
+    }
+  }
+  assertEquals(
+    unreachable,
+    [],
+    `Some RECOVERY_HINT_RULES entries are shadowed by earlier rules:\n  ${unreachable.join("\n  ")}`,
+  );
+});
+
+function describeHint(hint: string | null): string {
+  if (hint === null) return "null";
+  const key = Object.entries(HINTS).find(([, v]) => v === hint)?.[0];
+  return key ? `HINTS.${key}` : JSON.stringify(hint.slice(0, 40));
+}
+
+Deno.test("error taxonomy: specific not-found rules (model / python / uv) do not fall through to the filesystem hint", () => {
+  assertStringIncludes(
+    getRecoveryHint("Ollama model gemma4:e2b not found in local registry") ?? "",
+    "hlvm pull",
+  );
+  assertStringIncludes(
+    getRecoveryHint("python not found on PATH") ?? "",
+    "bootstrap --repair",
+  );
+  assertStringIncludes(
+    getRecoveryHint("uv is not installed") ?? "",
+    "bootstrap --repair",
+  );
+});
+
+Deno.test("error taxonomy: HTTP 403 with 'permission denied' body gets auth hint, not filesystem advice", () => {
+  const hint = getRecoveryHint("HTTP 403 Forbidden: permission denied by provider") ?? "";
+  assertStringIncludes(hint, "credentials");
+  assertEquals(hint.includes("list_files"), false);
+});
+
+Deno.test("error taxonomy: ambiguous 'not found' without a more specific rule returns null instead of the filesystem hint", () => {
+  assertEquals(getRecoveryHint("Tool 'search_code' not found"), null);
+  assertEquals(getRecoveryHint("method not found"), null);
+});
+
+Deno.test("error taxonomy: classifyFromApiResponseBody recognises Anthropic prompt_too_long as context overflow", () => {
+  const anthropicBody = JSON.stringify({
+    error: { type: "prompt_too_long", message: "Input prompt is too long" },
+  });
+  const mapped = classifyFromApiResponseBody(anthropicBody);
+  assertEquals(mapped?.class, "context_overflow");
+  assertEquals(mapped?.hint, HINTS.CONTEXT_OVERFLOW);
+});
+
+Deno.test("error taxonomy: classifyFromApiResponseBody recognises OpenAI context_length_exceeded", () => {
+  const openaiBody = JSON.stringify({
+    error: {
+      type: "invalid_request_error",
+      code: "context_length_exceeded",
+      message: "This model's maximum context length is 8192 tokens...",
+    },
+  });
+  const mapped = classifyFromApiResponseBody(openaiBody);
+  assertEquals(mapped?.class, "context_overflow");
+});
+
+Deno.test("error taxonomy: Claude OAuth refresh failures stay auth-shaped instead of matching the generic not-found hint", async () => {
+  const oauthRefreshFailure = new RuntimeError(
+    'OAuth token refresh failed (400). {"error":"invalid_grant","error_description":"Refresh token not found or invalid"} Run `claude login` to re-authenticate.',
+  );
+
+  const described = await describeErrorForDisplay(oauthRefreshFailure);
+
+  assertEquals(described.class, "permanent");
+  assertEquals(described.retryable, false);
+  assertStringIncludes(described.hint ?? "", "Re-authenticate");
+  assertEquals(
+    described.hint?.includes("path exists") ?? false,
+    false,
+  );
 });
 
 Deno.test("error taxonomy: leans on Deno.errors.* typed errors instead of regex on the message", async () => {

@@ -228,6 +228,27 @@ Deno.test("channels: sender.id takes precedence over remoteId for allowlist", as
   await runtime.stop();
 });
 
+Deno.test("channels: sender.id mismatch rejects even when remoteId matches allowedIds", async () => {
+  // allowedIds contains "sender-identity". remoteId also happens to be
+  // "sender-identity" but sender.id is "different" — because sender.id
+  // takes precedence, this must still be rejected.
+  const { runtime, runs, contextPromise } = buildAllowlistRuntime({
+    allowedIds: ["sender-identity"],
+  });
+  await runtime.reconfigure();
+  const ctx = await contextPromise;
+
+  await ctx.receive({
+    channel: "telegram",
+    remoteId: "sender-identity",
+    sender: { id: "different-sender" },
+    text: "hello",
+  });
+
+  assertEquals(runs, [], "must reject — sender.id mismatch overrides remoteId match");
+  await runtime.stop();
+});
+
 Deno.test("channels: reconfigure picks up config changes without a process restart", async () => {
   const startCalls: string[] = [];
   const stopCalls: string[] = [];
@@ -316,10 +337,12 @@ Deno.test("channels: concurrent reconfigure calls serialize", async () => {
 
 Deno.test("channels: subscribe fires on status transitions and swallows listener errors", async () => {
   const snapshots: ChannelStatus[][] = [];
+  let badCalled = 0;
   const okListener = (channels: ChannelStatus[]) => {
     snapshots.push(channels);
   };
   const badListener = () => {
+    badCalled++;
     throw new Error("listener boom");
   };
 
@@ -349,7 +372,16 @@ Deno.test("channels: subscribe fires on status transitions and swallows listener
 
   await runtime.reconfigure();
 
-  assert(snapshots.length > 0, "listener never fired");
+  // The bad listener MUST have been called at least once — otherwise
+  // the "errors are swallowed" guarantee is vacuously true.
+  assert(
+    badCalled > 0,
+    "bad listener was never invoked; swallow guarantee is unverified",
+  );
+  assert(
+    snapshots.length > 0,
+    "good listener never fired despite the bad one throwing",
+  );
   const last = snapshots.at(-1)!;
   assertEquals(last[0]?.state, "connected");
 

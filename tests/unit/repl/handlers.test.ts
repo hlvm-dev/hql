@@ -2,6 +2,7 @@ import { assertEquals, assertExists } from "jsr:@std/assert";
 import { RuntimeError } from "../../../src/common/error.ts";
 import { ProviderErrorCode } from "../../../src/common/error-codes.ts";
 import { AUTO_MODEL_ID } from "../../../src/common/config/types.ts";
+import { LOCAL_FALLBACK_MODEL_ID } from "../../../src/hlvm/runtime/local-fallback.ts";
 import {
   createSession,
   getSession,
@@ -470,13 +471,33 @@ Deno.test("handlers: chat surfaces provider auth failures during agent model ver
   await withTempHlvmDir(async () => {
     await withDb(async () => {
       const originalGet = ai.models.get;
-      (ai.models as { get: typeof ai.models.get }).get = () =>
-        Promise.reject(
-          new RuntimeError(
-            "Claude Code OAuth token invalid or expired. Run `claude login` to re-authenticate.",
-            { code: ProviderErrorCode.AUTH_FAILED },
-          ),
-        );
+      const getCalls: Array<[string, string | undefined]> = [];
+      const [fallbackProvider, fallbackModelName] = LOCAL_FALLBACK_MODEL_ID.split("/") as [
+        string,
+        string,
+      ];
+      (ai.models as { get: typeof ai.models.get }).get = (
+        name: string,
+        provider?: string,
+      ) => {
+        getCalls.push([name, provider]);
+        if (provider === "claude-code") {
+          return Promise.reject(
+            new RuntimeError(
+              "Claude Code OAuth token invalid or expired. Run `claude login` to re-authenticate.",
+              { code: ProviderErrorCode.AUTH_FAILED },
+            ),
+          );
+        }
+        if (name === fallbackModelName && provider === fallbackProvider) {
+          return Promise.resolve({
+            name,
+            displayName: "Local fallback",
+            capabilities: ["chat", "tools"],
+          });
+        }
+        return Promise.resolve(null);
+      };
 
       try {
         const response = await handleChat(jsonRequest({
@@ -494,6 +515,10 @@ Deno.test("handlers: chat surfaces provider auth failures during agent model ver
           (await response.json()).error,
           "[PRV9004] Claude Code OAuth token invalid or expired. Run `claude login` to re-authenticate.",
         );
+        assertEquals(getCalls, [[
+          "claude-haiku-4-5-20251001",
+          "claude-code",
+        ]]);
       } finally {
         (ai.models as { get: typeof ai.models.get }).get = originalGet;
       }
@@ -516,11 +541,22 @@ Deno.test("handlers: chat resolves auto before agent capability verification", a
           apiKeyConfigured: true,
         },
       }]);
+      const [fallbackProvider, fallbackModelName] = LOCAL_FALLBACK_MODEL_ID.split("/") as [
+        string,
+        string,
+      ];
       (ai.models as { get: typeof ai.models.get }).get = (
         name: string,
         provider?: string,
       ) => {
         getCalls.push([name, provider]);
+        if (name === fallbackModelName && provider === fallbackProvider) {
+          return Promise.resolve({
+            name,
+            displayName: "Local fallback",
+            capabilities: ["chat", "tools"],
+          });
+        }
         return Promise.reject(
           new RuntimeError(
             "Claude Code OAuth token invalid or expired. Run `claude login` to re-authenticate.",
@@ -545,10 +581,61 @@ Deno.test("handlers: chat resolves auto before agent capability verification", a
           (await response.json()).error,
           "[PRV9004] Claude Code OAuth token invalid or expired. Run `claude login` to re-authenticate.",
         );
-        assertEquals(getCalls[0], ["gpt-4o-mini", "openai"]);
+        assertEquals(getCalls, [["gpt-4o-mini", "openai"]]);
       } finally {
         (ai.models as { get: typeof ai.models.get }).get = originalGet;
         __setListAllProviderModelsForTesting(null);
+      }
+    });
+  });
+});
+
+Deno.test("handlers: chat does not silently replace an explicit missing agent model", async () => {
+  await withTempHlvmDir(async () => {
+    await withDb(async () => {
+      const originalGet = ai.models.get;
+      const getCalls: Array<[string, string | undefined]> = [];
+      const [fallbackProvider, fallbackModelName] = LOCAL_FALLBACK_MODEL_ID.split("/") as [
+        string,
+        string,
+      ];
+      (ai.models as { get: typeof ai.models.get }).get = (
+        name: string,
+        provider?: string,
+      ) => {
+        getCalls.push([name, provider]);
+        if (name === fallbackModelName && provider === fallbackProvider) {
+          return Promise.resolve({
+            name,
+            displayName: "Local fallback",
+            capabilities: ["chat", "tools"],
+          });
+        }
+        return Promise.resolve(null);
+      };
+
+      try {
+        const response = await handleChat(jsonRequest({
+          mode: "agent",
+          session_id: "session-missing-explicit-model",
+          model: "claude-code/claude-haiku-4-5-20990101",
+          messages: [{
+            role: "user",
+            content: "hello world",
+          }],
+        }));
+
+        assertEquals(response.status, 400);
+        assertEquals(
+          (await response.json()).error,
+          "Model not found: claude-code/claude-haiku-4-5-20990101.",
+        );
+        assertEquals(getCalls, [[
+          "claude-haiku-4-5-20990101",
+          "claude-code",
+        ]]);
+      } finally {
+        (ai.models as { get: typeof ai.models.get }).get = originalGet;
       }
     });
   });

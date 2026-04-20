@@ -46,7 +46,10 @@ import {
   type PermissionMode,
 } from "../../../common/config/types.ts";
 import { OLLAMA_SETTINGS_URL } from "./shared.ts";
-import { runAgentQueryViaHost } from "../../runtime/host-client.ts";
+import {
+  runAgentQueryViaHost,
+  shutdownLocalRuntimeHostIfPresent,
+} from "../../runtime/host-client.ts";
 import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 import { confirmPaidProviderConsent } from "../utils/provider-consent.ts";
 import {
@@ -549,6 +552,12 @@ export async function askCommand(args: string[]): Promise<void> {
     stateless = true;
   }
 
+  const isEphemeralTestMode = !!getPlatform().env.get("HLVM_TEST_STATE_ROOT");
+  const cleanupEphemeralHost = async (): Promise<void> => {
+    if (!isEphemeralTestMode) return;
+    try { await shutdownLocalRuntimeHostIfPresent(); } catch { /* best-effort */ }
+  };
+
   const attachmentIds = await resolveAskAttachmentIds(attachmentArgs);
   if (
     !fixturePath && attachmentIds?.length && modelOverride &&
@@ -1043,6 +1052,7 @@ export async function askCommand(args: string[]): Promise<void> {
   let executionError: unknown = null;
   try {
     await executeQuery();
+    await cleanupEphemeralHost();
     return;
   } catch (error) {
     executionError = error;
@@ -1059,6 +1069,7 @@ export async function askCommand(args: string[]): Promise<void> {
       errorContext,
     );
     log.raw.log(renderDescribedError(described, "json"));
+    await cleanupEphemeralHost();
     getPlatform().process.exit(EXIT_CODES.GENERAL_FAILURE);
     return;
   }
@@ -1085,8 +1096,12 @@ export async function askCommand(args: string[]): Promise<void> {
   );
   streamedTokens = recovery.streamedTokens;
   executionError = recovery.executionError;
-  if (recovery.recovered) return;
+  if (recovery.recovered) {
+    await cleanupEphemeralHost();
+    return;
+  }
 
+  await cleanupEphemeralHost();
   if (executionError instanceof Error) {
     const described = await describeErrorForDisplay(
       executionError,

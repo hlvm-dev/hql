@@ -26,7 +26,6 @@ import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
 import {
   HTTP_STATUS,
-  isAuthStatus,
   isTransientStatus,
 } from "../../common/http-status.ts";
 import { PROVIDER_IDS, type ProviderId } from "../../common/provider-ids.ts";
@@ -269,8 +268,7 @@ export async function maybeHandleSdkAuthError(
   const message = getErrorMessage(error);
   const responseBody = extractResponseBodyText(error);
 
-  // Token invalid / expired → clear cache so next attempt re-reads keychain
-  if (isAuthStatus(status)) {
+  if (status === 401) {
     const { clearTokenCache } = await import("./claude-code/auth.ts");
     clearTokenCache();
     return true;

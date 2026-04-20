@@ -1,4 +1,5 @@
 import { delay } from "@std/async";
+import { log } from "../api/log.ts";
 import { http } from "../../common/http-client.ts";
 import {
   HTTP_STATUS,
@@ -82,8 +83,16 @@ import {
 
 const STREAM_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const HEALTH_POLL_ATTEMPTS = 60;
-const AI_READY_POLL_ATTEMPTS = 600;
 const HEALTH_POLL_DELAY_MS = 100;
+// Cold-root first-run bootstrap (engine extract + Chromium download + Python
+// install + fallback model pull) can take tens of minutes. AI-ready polling
+// runs in two phases: a fast phase covering warm/normal startup, then a slow
+// phase that tolerates cold bootstrap. Both phases short-circuit on
+// aiReady=true (success) or aiReadyRetryable=false (hard fail).
+const AI_READY_FAST_POLL_ATTEMPTS = 600;
+const AI_READY_FAST_POLL_DELAY_MS = 100;
+const AI_READY_SLOW_POLL_ATTEMPTS = 1740;
+const AI_READY_SLOW_POLL_DELAY_MS = 1_000;
 const RUNTIME_CHAT_WARMUP_GRACE_MS = 20_000;
 const RUNTIME_CHAT_WARMUP_RETRY_DELAY_MS = 1_000;
 const RUNTIME_SHUTDOWN_POLL_ATTEMPTS = 30;
@@ -440,6 +449,14 @@ async function requestRuntimeShutdown(
   }
 }
 
+export async function shutdownLocalRuntimeHostIfPresent(): Promise<void> {
+  const baseUrl = getHlvmRuntimeBaseUrl();
+  const health = await readHealth(baseUrl);
+  if (!health?.authToken) return;
+  await requestRuntimeShutdown(baseUrl, health.authToken);
+  await waitForRuntimeShutdown(baseUrl);
+}
+
 function spawnRuntimeHost(
   authToken: string,
   buildId: string,
@@ -789,17 +806,57 @@ async function ensureRuntimeHost(): Promise<{
   }
 }
 
+async function pollForAiReady(
+  baseUrl: string,
+  attempts: number,
+  delayMs: number,
+): Promise<HostHealthResponse | null> {
+  for (let i = 0; i < attempts; i++) {
+    const health = await readHealth(baseUrl);
+    if (
+      health?.status === "ok" && health.authToken &&
+      (health.aiReady || health.aiReadyRetryable === false)
+    ) {
+      return health;
+    }
+    await delay(delayMs);
+  }
+  return await readHealth(baseUrl);
+}
+
+async function waitForRuntimeAiReady(
+  baseUrl: string,
+): Promise<HostHealthResponse | null> {
+  const fast = await pollForAiReady(
+    baseUrl,
+    AI_READY_FAST_POLL_ATTEMPTS,
+    AI_READY_FAST_POLL_DELAY_MS,
+  );
+  if (fast?.aiReady || fast?.aiReadyRetryable === false) {
+    return fast;
+  }
+  // Fast phase exhausted with bootstrap still in progress. Tell the user so a
+  // multi-minute cold bootstrap does not look like a hung command. Use
+  // log.warn so it shows without --verbose; log.info is filtered by default.
+  const reason = fast?.aiReadyReason?.trim();
+  log.warn?.(
+    reason
+      ? `Local AI bootstrap still in progress (${reason}). Continuing to wait; this can take several minutes on first run.`
+      : "Local AI bootstrap still in progress. Continuing to wait; this can take several minutes on first run.",
+  );
+  return await pollForAiReady(
+    baseUrl,
+    AI_READY_SLOW_POLL_ATTEMPTS,
+    AI_READY_SLOW_POLL_DELAY_MS,
+  );
+}
+
 async function ensureRuntimeAiReady(): Promise<{
   baseUrl: string;
   authToken: string;
 }> {
   const runtime = await ensureRuntimeHost();
-  const health = await waitForRuntimeHost(
-    runtime.baseUrl,
-    undefined,
-    AI_READY_POLL_ATTEMPTS,
-    true,
-  );
+  const health = await waitForRuntimeAiReady(runtime.baseUrl);
   if (!health?.authToken) {
     throw createRuntimeHostError(
       "Failed to start or attach to the local HLVM runtime host.",

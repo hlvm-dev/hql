@@ -532,6 +532,8 @@ export async function handleChat(req: Request): Promise<Response> {
     | null = null;
   let modelDiscoveryFailed = false;
   let modelDiscoveryError: string | null = null;
+  const requestHasExplicitModel = typeof body.model === "string" &&
+    body.model.trim().length > 0;
   const hasMediaAttachments = requestHasMediaAttachments(body.messages);
   const isAutoSelect = resolvedModel === AUTO_MODEL_ID;
   if (resolvedModel && !fixturePath && !isAutoSelect) {
@@ -546,7 +548,13 @@ export async function handleChat(req: Request): Promise<Response> {
       modelDiscoveryError = getErrorMessage(error);
     }
     if (resolvedModelInfo === null && !modelDiscoveryFailed) {
-      // Configured model not found — fall back to guaranteed local default
+      if (requestHasExplicitModel) {
+        return jsonError(
+          `Model not found: ${body.model ?? resolvedModel}.`,
+          400,
+        );
+      }
+
       const defaultModelId = localFallbackModelId ?? DEFAULT_MODEL_ID;
       if (resolvedModel !== defaultModelId) {
         const [defProvider, defModelName] = parseModelString(defaultModelId);
@@ -573,7 +581,14 @@ export async function handleChat(req: Request): Promise<Response> {
       resolvedModelInfo === null &&
       modelDiscoveryFailed
     ) {
-      // Discovery failed for configured model — try guaranteed local default
+      if (requestHasExplicitModel) {
+        return jsonError(
+          modelDiscoveryError ??
+            "Could not verify selected model capabilities for agent mode. Check provider connection and model availability.",
+          503,
+        );
+      }
+
       const defaultModelId = localFallbackModelId ?? DEFAULT_MODEL_ID;
       if (resolvedModel !== defaultModelId) {
         const [defProvider, defModelName] = parseModelString(defaultModelId);
@@ -864,8 +879,6 @@ export async function handleChat(req: Request): Promise<Response> {
         const configUsesAgentModel = cfgSnapshot.model.endsWith(
           AGENT_MODEL_SUFFIX,
         );
-        const requestHasExplicitModel = typeof body.model === "string" &&
-          body.model.length > 0;
         const effectiveMode = requestedMode === CLAUDE_CODE_AGENT_MODE
           ? CLAUDE_CODE_AGENT_MODE
           : (requestedMode === "agent" &&

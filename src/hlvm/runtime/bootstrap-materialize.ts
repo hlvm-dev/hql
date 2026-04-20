@@ -101,6 +101,7 @@ async function ensureEngine(
 
 async function startEngineForBootstrap(
   enginePath: string,
+  modelId: string,
   onProgress?: MaterializeOptions["onProgress"],
 ): Promise<PlatformCommandProcess | null> {
   onProgress?.({ phase: "start_engine", message: "Starting AI engine..." });
@@ -115,8 +116,16 @@ async function startEngineForBootstrap(
     waitForAIEngineReady,
   } = await import("./ai-runtime.ts");
   const expectedVersion = await getAIEngineBinaryVersion(enginePath);
+  const requestedIdentity = getKnownLocalFallbackIdentity(modelId);
+  const currentStoreManifest = await findOllamaModelManifest(modelsDir, modelId);
+  const currentStoreHasRequestedModel = requestedIdentity
+    ? matchesFallbackIdentity(currentStoreManifest?.manifest ?? null, requestedIdentity)
+    : matchesPinnedFallbackIdentity(currentStoreManifest?.manifest ?? null);
 
-  if (await isCompatibleAIRunning(expectedVersion ?? undefined)) {
+  if (
+    currentStoreHasRequestedModel &&
+    await isCompatibleAIRunning(expectedVersion ?? undefined)
+  ) {
     onProgress?.({
       phase: "start_engine",
       message: "Using existing compatible AI engine on the HLVM endpoint.",
@@ -124,7 +133,9 @@ async function startEngineForBootstrap(
     return null;
   }
 
-  await reclaimConflictingAIEndpoint(expectedVersion ?? undefined);
+  await reclaimConflictingAIEndpoint(expectedVersion ?? undefined, {
+    force: !currentStoreHasRequestedModel,
+  });
 
   const proc = getPlatform().command.run({
     cmd: [enginePath, "serve"],
@@ -360,7 +371,11 @@ export async function materializeBootstrap(
   // 2. Start engine
   let proc: PlatformCommandProcess | null = null;
   try {
-    proc = await startEngineForBootstrap(enginePath, options?.onProgress);
+    proc = await startEngineForBootstrap(
+      enginePath,
+      selectedModelId,
+      options?.onProgress,
+    );
 
     // 3. Adopt existing pinned model or pull it once.
     const ollamaManifest = await ensurePinnedFallbackModel(

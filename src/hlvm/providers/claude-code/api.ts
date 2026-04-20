@@ -42,7 +42,7 @@ async function fetchWithOAuthRetry(
       headers: oauthHeaders(token),
       timeout: API_TIMEOUT_MS,
     });
-    if (!isAuthFailureStatus(response.status) || attempt > 0) {
+    if (response.status !== 401 || attempt > 0) {
       return response;
     }
     await response.body?.cancel().catch(() => {});
@@ -61,10 +61,16 @@ async function throwModelListFailure(response: Response): Promise<never> {
     `${response.status} ${response.statusText}`.trim();
 
   if (isAuthFailureStatus(response.status)) {
-    clearTokenCache();
     const authDetail = detail.length > 0 ? `${detail} ` : "";
+    if (response.status === 403) {
+      throw new RuntimeError(
+        `Claude Code request forbidden (403). ${authDetail}Your OAuth token is valid but your subscription or scopes do not grant access to this resource.`,
+        { code: ProviderErrorCode.AUTH_FAILED },
+      );
+    }
+    clearTokenCache();
     throw new RuntimeError(
-      `Claude Code OAuth token invalid or expired. ${authDetail}Run \`claude login\` to re-authenticate.`,
+      `Claude Code OAuth token invalid or expired (401). ${authDetail}Run \`claude login\` to re-authenticate.`,
       { code: ProviderErrorCode.AUTH_FAILED },
     );
   }
@@ -118,8 +124,10 @@ export async function checkStatus(
     const response = await fetchWithOAuthRetry(url);
     return {
       available: !isAuthFailureStatus(response.status),
-      error: isAuthFailureStatus(response.status)
-        ? "Claude Code OAuth token invalid or expired. Run `claude login` to re-authenticate."
+      error: response.status === 403
+        ? "Claude Code request forbidden (403). OAuth token is valid but your subscription or scopes do not grant access."
+        : isAuthFailureStatus(response.status)
+        ? "Claude Code OAuth token invalid or expired (401). Run `claude login` to re-authenticate."
         : undefined,
     };
   } catch (error) {

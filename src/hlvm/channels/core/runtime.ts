@@ -249,5 +249,3 @@ export function createChannelRuntime(
     },
   };
 }
-
-export const channelRuntime = createChannelRuntime();

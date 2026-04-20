@@ -13,6 +13,7 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { RuntimeError } from "../../../common/error.ts";
+import { ProviderErrorCode } from "../../../common/error-codes.ts";
 import { http } from "../../../common/http-client.ts";
 import { DEFAULT_CLAUDE_CODE_OAUTH_TOKEN_ENDPOINT } from "../../../common/config/types.ts";
 
@@ -74,6 +75,7 @@ export async function getClaudeCodeToken(): Promise<string> {
   if (!creds?.claudeAiOauth?.accessToken) {
     throw new RuntimeError(
       "Claude Code OAuth token not found. Run `claude login` first to authenticate with your Max subscription.",
+      { code: ProviderErrorCode.AUTH_FAILED },
     );
   }
 
@@ -127,6 +129,7 @@ async function refreshOAuthToken(
   if (!refreshToken) {
     throw new RuntimeError(
       "OAuth token expired and no refresh token available. Run `claude login` to re-authenticate.",
+      { code: ProviderErrorCode.AUTH_FAILED },
     );
   }
 
@@ -146,6 +149,7 @@ async function refreshOAuthToken(
     const body = await response.text().catch(() => "");
     throw new RuntimeError(
       `OAuth token refresh failed (${response.status}). ${body ? body + " " : ""}Run \`claude login\` to re-authenticate.`,
+      { code: ProviderErrorCode.AUTH_FAILED },
     );
   }
 
@@ -188,15 +192,33 @@ async function readFullCredentials(
 async function readCredentialsFromKeychain(
   platform: Platform,
 ): Promise<ClaudeCredentials | null> {
+  const username = claudeCodeAccount(platform);
+  if (username) {
+    const creds = await readKeychainEntry(platform, username);
+    if (creds) return creds;
+  }
+  return await readKeychainEntry(platform, null);
+}
+
+function claudeCodeAccount(platform: Platform): string | null {
+  return platform.env.get("USER") ?? platform.env.get("LOGNAME") ?? null;
+}
+
+async function readKeychainEntry(
+  platform: Platform,
+  account: string | null,
+): Promise<ClaudeCredentials | null> {
   try {
+    const cmd = [
+      "security",
+      "find-generic-password",
+      "-s",
+      "Claude Code-credentials",
+      ...(account ? ["-a", account] : []),
+      "-w",
+    ];
     const result = await platform.command.output({
-      cmd: [
-        "security",
-        "find-generic-password",
-        "-s",
-        "Claude Code-credentials",
-        "-w",
-      ],
+      cmd,
       stdout: "piped",
       stderr: "piped",
     });
@@ -232,26 +254,28 @@ async function writeCredentials(
 ): Promise<void> {
   const json = JSON.stringify(creds);
 
-  // Write to Keychain on macOS
   if (platform.build.os === "darwin") {
-    try {
-      await platform.command.output({
-        cmd: [
-          "security",
-          "add-generic-password",
-          "-U",
-          "-s",
-          "Claude Code-credentials",
-          "-a",
-          "Claude Code",
-          "-w",
-          json,
-        ],
-        stdout: "piped",
-        stderr: "piped",
-      });
-    } catch {
-      /* best effort */
+    const account = claudeCodeAccount(platform);
+    if (account) {
+      try {
+        await platform.command.output({
+          cmd: [
+            "security",
+            "add-generic-password",
+            "-U",
+            "-s",
+            "Claude Code-credentials",
+            "-a",
+            account,
+            "-w",
+            json,
+          ],
+          stdout: "piped",
+          stderr: "piped",
+        });
+      } catch {
+        /* best effort */
+      }
     }
   }
 

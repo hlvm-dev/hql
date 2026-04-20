@@ -106,6 +106,10 @@ import {
   handleReachabilityStatus,
 } from "./handlers/reachability.ts";
 import {
+  handleMessagesInbound,
+  handleMessagesOutbox,
+} from "./handlers/channels/messages.ts";
+import {
   HLVM_RUNTIME_DEFAULT_PORT,
   resolveHlvmRuntimePort,
 } from "../../runtime/host-config.ts";
@@ -844,6 +848,8 @@ router.add("GET", "/api/config/stream", (req) => handleConfigStream(req));
 router.add("GET", "/api/reachability/status", () => handleReachabilityStatus());
 router.add("POST", "/api/reachability/rebind", () => handleReachabilityRebind());
 router.add("GET", "/api/reachability/events", (req) => handleReachabilityEvents(req));
+router.add("POST", "/api/channels/messages/inbound", (req) => handleMessagesInbound(req));
+router.add("GET", "/api/channels/messages/outbox", (req) => handleMessagesOutbox(req));
 
 router.add("GET", "/api/mcp/servers", () => handleListMcpServers());
 router.add("POST", "/api/mcp/servers", (req) => handleAddMcpServer(req));

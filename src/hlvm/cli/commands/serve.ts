@@ -17,7 +17,7 @@ import { resolveLocalFallbackModelId } from "../../runtime/local-fallback.ts";
 import { getLocalModelDisplayName } from "../../runtime/local-llm.ts";
 import { http } from "../../../common/http-client.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../common/config/types.ts";
-import { channelRuntime } from "../../channels/core/runtime.ts";
+import { channelRuntime } from "../../channels/registry.ts";
 import { aiEngine, shutdownManagedAIRuntime } from "../../runtime/ai-runtime.ts";
 
 /** Resolves when runtime is initialized; rejects permanently if all retries fail. */
@@ -317,6 +317,10 @@ export async function serveCommand(args: string[]): Promise<number> {
           recoverBootstrap(verification.manifest, verification).then(async (r) => {
             if (r.success) {
               bootstrapVerified = true;
+              // Bootstrap reclaimed and killed production ollama while
+              // materializing. Restart it before probing for fallback
+              // readiness, else the probe sees Connection refused.
+              await aiEngine.ensureRunning();
               localFallbackReady = await ensureLocalFallbackReady();
               log.info?.("Bootstrap recovery completed.");
               emitModelsReadyIfReady();
@@ -369,6 +373,10 @@ export async function serveCommand(args: string[]): Promise<number> {
                 recoverBootstrap(verification.manifest, verification).then(async (r) => {
                   if (r.success) {
                     bootstrapVerified = true;
+                    // Bootstrap reclaimed and killed production ollama while
+                    // materializing. Restart it before probing for fallback
+                    // readiness, else the probe sees Connection refused.
+                    await aiEngine.ensureRunning();
                     localFallbackReady = await ensureLocalFallbackReady();
                     log.info?.("Bootstrap materialization completed.");
                     emitModelsReadyIfReady();
