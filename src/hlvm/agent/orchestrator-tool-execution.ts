@@ -678,6 +678,8 @@ export async function executeToolCall(
       startedAt,
       config,
       toolCall.id,
+      undefined,
+      error,
     );
     return await maybeEnrichPlaywrightFailureResult(
       toolCall,

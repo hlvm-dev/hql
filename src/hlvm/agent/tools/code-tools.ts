@@ -20,6 +20,11 @@ import { escapeRegExp, isObjectValue } from "../../../common/utils.ts";
 import { failTool, formatToolError, okTool } from "../tool-results.ts";
 import { pluralize } from "../tool-result-summary.ts";
 import { loadGitignore, walkDirectory } from "../../../common/file-utils.ts";
+import {
+  isHqlFile,
+  isJsFile,
+  isTypeScriptFile,
+} from "../../../common/import-utils.ts";
 import { RESOURCE_LIMITS } from "../constants.ts";
 import { assertMaxBytes } from "../../../common/limits.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
@@ -353,9 +358,8 @@ export async function findSymbol(
 
       // Only search in code files
       if (
-        !filename.endsWith(".ts") && !filename.endsWith(".tsx") &&
-        !filename.endsWith(".js") && !filename.endsWith(".jsx") &&
-        !filename.endsWith(".hql")
+        !isTypeScriptFile(filename) && !isJsFile(filename) &&
+        !filename.endsWith(".jsx") && !isHqlFile(filename)
       ) {
         return;
       }

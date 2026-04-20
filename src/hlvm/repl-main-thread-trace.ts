@@ -120,6 +120,10 @@ export function summarizeTraceEvent(
       };
     case "auto_select":
       return { type: event.type, model: event.model, fallbacks: event.fallbacks, reason: event.reason };
+    case "eval_log":
+      return { type: event.type, detail: buildTraceTextPreview(event.detail, 120) };
+    case "agent_downgrade":
+      return { type: event.type, detail: buildTraceTextPreview(event.detail, 120) };
     case "auto_fallback":
       return { type: event.type, from: event.fromModel, to: event.toModel, reason: event.reason };
     default:

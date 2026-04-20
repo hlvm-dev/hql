@@ -7,6 +7,15 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
+import { TOOL_CATEGORY, ToolError } from "../error-taxonomy.ts";
+import { TOOL_NAMES } from "../tool-names.ts";
+
+function chError(
+  message: string,
+  category: "validation" | "internal" | "network" = TOOL_CATEGORY.INTERNAL,
+): ToolError {
+  return new ToolError(message, TOOL_NAMES.CHROME_EXT, category);
+}
 import type {
   ChromeExtBackendResolution,
   ChromeExtRequest,
@@ -84,7 +93,7 @@ export async function chromeExtRequest<T = unknown>(
 ): Promise<T> {
   const resolution = await resolveChromeExtBackend();
   if (resolution.backend !== "extension") {
-    throw new Error(resolution.reason);
+    throw chError(resolution.reason);
   }
 
   const id = nextRequestId();
@@ -112,16 +121,16 @@ export async function chromeExtRequest<T = unknown>(
     let hdrRead = 0;
     while (hdrRead < 4) {
       if (Date.now() > deadline) {
-        throw new Error(`Chrome extension request timed out (method: ${method})`);
+        throw chError(`Chrome extension request timed out (method: ${method})`);
       }
       const n = await conn.read(hdr.subarray(hdrRead));
-      if (n === null) throw new Error("Chrome extension bridge disconnected");
+      if (n === null) throw chError("Chrome extension bridge disconnected");
       hdrRead += n;
     }
 
     const responseLength = new DataView(hdr.buffer).getUint32(0, true);
     if (responseLength === 0 || responseLength > MAX_MESSAGE_SIZE) {
-      throw new Error(`Invalid response length: ${responseLength}`);
+      throw chError(`Invalid response length: ${responseLength}`);
     }
 
     // Read body
@@ -129,7 +138,7 @@ export async function chromeExtRequest<T = unknown>(
     let bodyRead = 0;
     while (bodyRead < responseLength) {
       if (Date.now() > deadline) {
-        throw new Error(`Chrome extension request timed out (method: ${method})`);
+        throw chError(`Chrome extension request timed out (method: ${method})`);
       }
       const n = await conn.read(body.subarray(bodyRead));
       if (n === null) break;
@@ -141,7 +150,7 @@ export async function chromeExtRequest<T = unknown>(
     );
 
     if (response.error) {
-      throw new Error(`Chrome extension error: ${response.error}`);
+      throw chError(`Chrome extension error: ${response.error}`);
     }
 
     return response.result as T;

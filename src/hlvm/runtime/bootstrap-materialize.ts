@@ -18,6 +18,11 @@ import { http } from "../../common/http-client.ts";
 import { log } from "../api/log.ts";
 import { VERSION } from "../../common/version.ts";
 import {
+  BootstrapError,
+  CancellationError,
+  HINTS,
+} from "../agent/error-taxonomy.ts";
+import {
   type BootstrapManifest,
   findOllamaModelManifest,
   getOllamaModelManifestPath,
@@ -82,8 +87,9 @@ async function ensureEngine(
 
   const enginePath = await resolveEmbeddedEnginePath();
   if (!enginePath) {
-    throw new Error(
+    throw new BootstrapError(
       "Failed to download AI engine — no valid binary found after download.",
+      "engine_download",
     );
   }
   return enginePath;
@@ -131,7 +137,10 @@ async function startEngineForBootstrap(
     try {
       proc.kill?.("SIGTERM");
     } catch { /* best-effort */ }
-    throw new Error("AI engine did not become ready within timeout.");
+    throw new BootstrapError(
+      "AI engine did not become ready within timeout.",
+      "engine_start",
+    );
   }
 
   return proc;
@@ -159,7 +168,10 @@ async function pullModel(
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(`Model pull failed (${response.status}): ${body}`);
+    throw new BootstrapError(
+      `Model pull failed (${response.status}): ${body}`,
+      "model_pull",
+    );
   }
 
   // Stream NDJSON progress
@@ -172,7 +184,7 @@ async function pullModel(
   while (true) {
     if (options?.signal?.aborted) {
       reader.cancel();
-      throw new Error("Bootstrap cancelled.");
+      throw new CancellationError("Bootstrap cancelled.");
     }
 
     const { done, value } = await reader.read();
@@ -195,9 +207,25 @@ async function pullModel(
           });
         }
         if (evt.error) {
-          throw new Error(`Ollama pull error: ${evt.error}`);
+          const rawError = String(evt.error);
+          const lower = rawError.toLowerCase();
+          const hint = lower.includes("no space")
+            ? HINTS.DISK_FULL
+            : lower.includes("manifest")
+            ? HINTS.MANIFEST_MISMATCH
+            : lower.includes("not found")
+            ? HINTS.MODEL_NOT_IN_REGISTRY
+            : lower.includes("unauthorized")
+            ? HINTS.OLLAMA_SIGNIN_REQUIRED
+            : undefined;
+          throw new BootstrapError(
+            `Ollama pull error: ${rawError}`,
+            "model_pull",
+            hint ? { hint } : undefined,
+          );
         }
       } catch (e) {
+        if (e instanceof BootstrapError) throw e;
         if ((e as Error).message?.startsWith("Ollama pull error")) throw e;
         // ignore parse errors on partial lines
       }
@@ -252,11 +280,12 @@ async function ensurePinnedFallbackModel(
     modelId,
   );
   if (!pulledManifest || !matchesRequestedIdentity(pulledManifest.manifest)) {
-    throw new Error(
+    throw new BootstrapError(
       `Pulled ${modelId}, but the saved Ollama manifest did not ` +
         `match the pinned fallback identity at ${
           pulledManifest?.path ?? ollamaManifestPath
         }.`,
+      "manifest_verify",
     );
   }
 

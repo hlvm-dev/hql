@@ -6,27 +6,23 @@
  */
 
 import { config } from "../../../api/config.ts";
-import { parseJsonBody, jsonError, createSSEResponse } from "../http-utils.ts";
+import {
+  createSSEResponse,
+  jsonError,
+  jsonErrorFromUnknown,
+  parseJsonBody,
+} from "../http-utils.ts";
 import { isConfigKey } from "../../../../common/config/storage.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { validateValue } from "../../../../common/config/types.ts";
 import { normalizeSelectedModelId } from "../../../../common/config/model-selection.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { debounce } from "@std/async";
-import { isFrontierProvider, supportsAgentExecution } from "../../../agent/constants.ts";
-import { parseModelString } from "../../../providers/registry.ts";
+import { supportsAgentExecution } from "../../../agent/constants.ts";
 
-async function computeSupportsAgent(model?: string): Promise<boolean> {
+function computeSupportsAgent(model?: string): boolean {
   if (!model) return false;
-  if (isFrontierProvider(model)) return true;
-  try {
-    const { ai } = await import("../../../api/ai.ts");
-    const [parsedProvider, parsedName] = parseModelString(model);
-    const modelInfo = await ai.models.get(parsedName, parsedProvider ?? undefined);
-    return supportsAgentExecution(model, modelInfo);
-  } catch {
-    return true;
-  }
+  return supportsAgentExecution(model, null);
 }
 
 function buildClientConfigPayload(
@@ -58,7 +54,7 @@ function buildClientConfigPayload(
  */
 export async function handleGetConfig(): Promise<Response> {
   const cfg = await config.all;
-  const supportsAgent = await computeSupportsAgent(cfg.model);
+  const supportsAgent = computeSupportsAgent(cfg.model);
   return Response.json(buildClientConfigPayload(cfg, supportsAgent));
 }
 
@@ -112,10 +108,10 @@ export async function handlePatchConfig(req: Request): Promise<Response> {
 
   try {
     const updated = await config.patch(updates);
-    const supportsAgent = await computeSupportsAgent(updated.model);
+    const supportsAgent = computeSupportsAgent(updated.model);
     return Response.json(buildClientConfigPayload(updated, supportsAgent));
   } catch (error) {
-    return jsonError(getErrorMessage(error), 500);
+    return await jsonErrorFromUnknown(error, 500);
   }
 }
 
@@ -130,13 +126,10 @@ export async function handlePatchConfig(req: Request): Promise<Response> {
 export async function handleResetConfig(): Promise<Response> {
   try {
     const updated = await config.reset();
-    const supportsAgent = await computeSupportsAgent(updated.model);
+    const supportsAgent = computeSupportsAgent(updated.model);
     return Response.json(buildClientConfigPayload(updated, supportsAgent));
   } catch (error) {
-    return jsonError(
-      getErrorMessage(error),
-      500,
-    );
+    return await jsonErrorFromUnknown(error, 500);
   }
 }
 
@@ -151,13 +144,10 @@ export async function handleResetConfig(): Promise<Response> {
 export async function handleReloadConfig(): Promise<Response> {
   try {
     const updated = await config.reload();
-    const supportsAgent = await computeSupportsAgent(updated.model);
+    const supportsAgent = computeSupportsAgent(updated.model);
     return Response.json(buildClientConfigPayload(updated, supportsAgent));
   } catch (error) {
-    return jsonError(
-      getErrorMessage(error),
-      500,
-    );
+    return await jsonErrorFromUnknown(error, 500);
   }
 }
 
@@ -190,9 +180,10 @@ export function handleConfigStream(req: Request): Response {
     };
 
     const unsubConfig = config.subscribe((nextConfig) => {
-      void computeSupportsAgent(nextConfig.model).then((supportsAgent) => {
-        emitConfig(buildClientConfigPayload(nextConfig, supportsAgent));
-      });
+      emitConfig(buildClientConfigPayload(
+        nextConfig,
+        computeSupportsAgent(nextConfig.model),
+      ));
     });
 
     void config.reload();

@@ -22,7 +22,12 @@ import { RuntimeError } from "../../../common/error.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { buildContext } from "../repl-ink/completion/providers.ts";
 import { getActiveProvider } from "../repl-ink/completion/concrete-providers.ts";
-import { addCorsHeaders, jsonError, parseJsonBody } from "./http-utils.ts";
+import {
+  addCorsHeaders,
+  jsonError,
+  jsonErrorFromUnknown,
+  parseJsonBody,
+} from "./http-utils.ts";
 import { createRouter } from "./http-router.ts";
 import {
   activeRequests,
@@ -340,7 +345,7 @@ export async function handleComplete(req: Request): Promise<Response> {
     });
   } catch (error) {
     log.error("Completion failed", error);
-    return jsonError(getErrorMessage(error), 500);
+    return await jsonErrorFromUnknown(error, 500);
   }
 }
 
@@ -597,7 +602,7 @@ async function handleBindingFunctions(): Promise<Response> {
     return Response.json(payload);
   } catch (error) {
     log.error("Binding functions list failed", error);
-    return jsonError(getErrorMessage(error), 500);
+    return await jsonErrorFromUnknown(error, 500);
   }
 }
 
@@ -716,7 +721,7 @@ async function handleBindingExecute(req: Request): Promise<Response> {
     );
   } catch (error) {
     log.error("Binding execute failed", error);
-    return jsonError(getErrorMessage(error), 500);
+    return await jsonErrorFromUnknown(error, 500);
   }
 }
 

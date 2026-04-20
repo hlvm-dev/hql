@@ -6,6 +6,7 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
+import { ToolError } from "../error-taxonomy.ts";
 
 export const COMPUTER_USE_MCP_SERVER_NAME = "computer-use";
 
@@ -76,8 +77,10 @@ export function assertValidBundleId(
   fieldName = "bundleId",
 ): void {
   if (!isValidBundleId(bundleId)) {
-    throw new Error(
+    throw new ToolError(
       `Invalid ${fieldName}: "${bundleId}". Must be reverse-DNS format (e.g. "com.apple.Safari").`,
+      "computer_use",
+      "validation",
     );
   }
 }
@@ -139,5 +142,5 @@ export async function openComputerUseSettings(
     if (result.success) return;
     lastError = new TextDecoder().decode(result.stderr).trim() || lastError;
   }
-  throw new Error(lastError);
+  throw new ToolError(lastError, "cu_request_access", "internal");
 }

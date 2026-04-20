@@ -7,6 +7,11 @@
 
 import { Database } from "@db/sqlite";
 import { getConversationsDbPath } from "../../common/paths.ts";
+import {
+  SQLITE_PRAGMA_BUSY_TIMEOUT,
+  SQLITE_PRAGMA_FOREIGN_KEYS,
+  SQLITE_PRAGMA_WAL,
+} from "../../common/db-constants.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import {
   CONVERSATIONS_SCHEMA_USER_VERSION,
@@ -18,9 +23,9 @@ import {
 let _db: Database | null = null;
 
 function configureDb(db: Database): void {
-  db.exec("PRAGMA journal_mode = WAL");
-  db.exec("PRAGMA foreign_keys = ON");
-  db.exec("PRAGMA busy_timeout = 5000");
+  db.exec(SQLITE_PRAGMA_WAL);
+  db.exec(SQLITE_PRAGMA_FOREIGN_KEYS);
+  db.exec(SQLITE_PRAGMA_BUSY_TIMEOUT);
 }
 
 function conversationsDbExists(dbPath: string): boolean {

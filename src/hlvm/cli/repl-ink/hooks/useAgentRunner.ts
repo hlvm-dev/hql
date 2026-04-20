@@ -19,6 +19,10 @@ import type {
   InteractionResponse,
 } from "../../../agent/registry.ts";
 import type { AgentUIEvent, TraceEvent } from "../../../agent/orchestrator.ts";
+import {
+  AgentStreamError,
+  describeErrorForDisplay,
+} from "../../../agent/error-taxonomy.ts";
 import type {
   AssistantCitation,
   ConversationAttachmentRef,
@@ -1044,7 +1048,12 @@ export function useAgentRunner(
         }
       }
       if (!result) {
-        throw new Error("AI engine did not return a conversation result.");
+        throw new AgentStreamError(
+          "AI engine did not return a conversation result.",
+          "unknown",
+          false,
+          null,
+        );
       }
       traceReplMainThread("ui.run_conversation.host_done", {
         requestId,
@@ -1152,8 +1161,12 @@ export function useAgentRunner(
       } else {
         finalizeStatus = "failed";
         if (isActiveConversationRun()) {
-          conversationRef.current.addError(ensureError(error).message, {
+          const described = await describeErrorForDisplay(ensureError(error));
+          conversationRef.current.addError(described.message, {
             turnId: activeRunTurnIdRef.current,
+            errorClass: described.class,
+            hint: described.hint,
+            retryable: described.retryable,
           });
         }
       }

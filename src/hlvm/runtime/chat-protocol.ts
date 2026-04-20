@@ -213,7 +213,6 @@ export type ChatStreamEvent =
     message: string;
     errorClass?: string;
     retryable?: boolean;
-    /** Pre-computed recovery hint from the server's describeErrorForDisplay. */
     hint?: string | null;
   }
   | { event: "cancelled"; request_id: string; partial_text: string }

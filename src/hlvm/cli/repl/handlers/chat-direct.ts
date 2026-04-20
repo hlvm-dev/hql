@@ -75,8 +75,12 @@ function emitAutoSelectionTrace(
   if (!resolvedModel.autoSelectionReason) return;
   emit({
     event: "trace",
-    kind: "auto_select",
-    detail: resolvedModel.autoSelectionReason,
+    trace: {
+      type: "auto_select",
+      model: resolvedModel.effectiveModel ?? AUTO_MODEL_ID,
+      fallbacks: resolvedModel.scoredFallbacks,
+      reason: resolvedModel.autoSelectionReason,
+    },
   });
 }
 

@@ -18,7 +18,10 @@ import {
   shouldSuppressFinalResponse,
   stripPlanEnvelopeBlocks,
 } from "../../agent/model-compat.ts";
-import { describeErrorForDisplay } from "../../agent/error-taxonomy.ts";
+import {
+  describeErrorForDisplay,
+  renderDescribedError,
+} from "../../agent/error-taxonomy.ts";
 import { isAutoModel } from "../../agent/auto-select.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import {
@@ -373,6 +376,7 @@ type AskJsonEvent =
     message: string;
     errorClass: string;
     retryable: boolean;
+    hint?: string | null;
   };
 
 export async function attemptCloudAuthRecovery(
@@ -1044,15 +1048,17 @@ export async function askCommand(args: string[]): Promise<void> {
     executionError = error;
   }
 
+  const errorContext = {
+    command: "ask",
+    model: resolvedModel,
+  };
+
   if (jsonOutput) {
-    const described = await describeErrorForDisplay(executionError);
-    const errorPayload = {
-      type: "error",
-      message: described.message,
-      errorClass: described.class,
-      retryable: described.retryable,
-    };
-    log.raw.log(JSON.stringify(errorPayload));
+    const described = await describeErrorForDisplay(
+      executionError,
+      errorContext,
+    );
+    log.raw.log(renderDescribedError(described, "json"));
     getPlatform().process.exit(EXIT_CODES.GENERAL_FAILURE);
     return;
   }
@@ -1082,9 +1088,12 @@ export async function askCommand(args: string[]): Promise<void> {
   if (recovery.recovered) return;
 
   if (executionError instanceof Error) {
-    const described = await describeErrorForDisplay(executionError);
-    log.error(`Agent error (${described.class}): ${described.message}`);
-    if (described.hint) log.error(`Hint: ${described.hint}`);
+    const described = await describeErrorForDisplay(
+      executionError,
+      errorContext,
+    );
+    const mode = verbose ? "human_verbose" : "human";
+    log.error(renderDescribedError(described, mode, { prefix: "Agent error" }));
     throw executionError;
   }
   throw executionError;

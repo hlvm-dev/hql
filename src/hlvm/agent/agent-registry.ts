@@ -5,6 +5,7 @@
 import { ValidationError } from "../../common/error.ts";
 import { splitFrontmatter } from "../../common/frontmatter.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import { getProjectAgentsDir } from "../../common/paths.ts";
 import { parse as parseYaml } from "npm:yaml@2.0.0-1";
 
 export interface AgentProfile {
@@ -115,7 +116,6 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
   },
 ];
 
-const PROJECT_AGENT_DIR = ".hlvm/agents";
 const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown"]);
 
 function normalizeAgentProfile(profile: AgentProfile): AgentProfile {
@@ -238,7 +238,7 @@ export async function loadAgentProfiles(
 ): Promise<readonly AgentProfile[]> {
   if (!workspace) return AGENT_PROFILES;
   const platform = getPlatform();
-  const agentsDir = platform.path.join(workspace, PROJECT_AGENT_DIR);
+  const agentsDir = getProjectAgentsDir(workspace);
   if (!(await platform.fs.exists(agentsDir))) {
     return AGENT_PROFILES;
   }

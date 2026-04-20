@@ -12,4 +12,10 @@ export interface RuntimeModelDiscoveryResponse {
 export type RuntimeModelPullStreamEvent =
   | ({ event: "progress" } & PullProgress)
   | { event: "complete"; name: string }
-  | { event: "error"; message: string };
+  | {
+    event: "error";
+    message: string;
+    errorClass?: string;
+    retryable?: boolean;
+    hint?: string | null;
+  };

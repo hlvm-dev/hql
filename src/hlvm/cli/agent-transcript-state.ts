@@ -90,7 +90,14 @@ export type TranscriptInput =
     citations?: AssistantCitation[];
     turnId?: string;
   }
-  | { type: "error"; text: string; turnId?: string }
+  | {
+    type: "error";
+    text: string;
+    turnId?: string;
+    errorClass?: string;
+    hint?: string | null;
+    retryable?: boolean;
+  }
   | { type: "info"; text: string; isTransient?: boolean; turnId?: string }
   | {
     type: "debug_trace";
@@ -1064,6 +1071,9 @@ export function reduceTranscriptState(
         id,
         text: input.text,
         turnId: input.turnId ?? state.currentTurnId,
+        errorClass: input.errorClass,
+        hint: input.hint,
+        retryable: input.retryable,
       };
       return {
         ...nextState,

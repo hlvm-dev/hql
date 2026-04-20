@@ -114,6 +114,14 @@ export function presentTraceEvent(
           "active",
         ),
       ];
+    case "eval_log":
+      return [
+        makeLine(2, previewText(event.detail, 120) ?? "", "muted"),
+      ];
+    case "agent_downgrade":
+      return [
+        makeLine(1, previewText(event.detail, 120) ?? "", "warning"),
+      ];
     case "auto_fallback":
       return [
         makeLine(

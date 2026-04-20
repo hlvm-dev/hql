@@ -26,6 +26,19 @@
 import { sleep } from "../../../common/timeout-utils.ts";
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
 import {
+  TOOL_CATEGORY,
+  ToolError,
+  type ToolErrorCategory,
+} from "../error-taxonomy.ts";
+import { TOOL_NAMES } from "../tool-names.ts";
+
+function cuError(
+  message: string,
+  category: ToolErrorCategory = TOOL_CATEGORY.VALIDATION,
+): ToolError {
+  return new ToolError(message, TOOL_NAMES.COMPUTER_USE, category);
+}
+import {
   assertValidBundleId,
   type ComputerUseSettingsPane,
   isComputerUseHostBundleId,
@@ -195,11 +208,11 @@ function parseCoordinate(
     } catch { /* fall through to validation */ }
   }
   if (!Array.isArray(parsed) || parsed.length !== 2) {
-    throw new Error(`${name} must be a [x, y] tuple`);
+    throw cuError(`${name} must be a [x, y] tuple`);
   }
   const [x, y] = [Number(parsed[0]), Number(parsed[1])];
   if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    throw new Error(`${name} values must be numbers`);
+    throw cuError(`${name} values must be numbers`);
   }
   return { x, y };
 }
@@ -236,7 +249,7 @@ function scrollDirectionToDeltas(
     ? direction.toLowerCase().trim()
     : "";
   if (!VALID_SCROLL_DIRECTIONS.has(dir)) {
-    throw new Error(
+    throw cuError(
       `Invalid scroll direction: "${direction}". Must be "up", "down", "left", or "right".`,
     );
   }
@@ -250,7 +263,7 @@ function scrollDirectionToDeltas(
     case "right":
       return { dx: amount, dy: 0 };
     default:
-      throw new Error(`Invalid scroll direction: ${dir}`);
+      throw cuError(`Invalid scroll direction: ${dir}`);
   }
 }
 
@@ -441,13 +454,13 @@ function ensureStringArray(
     }
   }
   if (!Array.isArray(value) || value.length === 0) {
-    throw new Error(`${field} must be a non-empty string array`);
+    throw cuError(`${field} must be a non-empty string array`);
   }
   const items = value.map((entry) =>
     typeof entry === "string" ? entry.trim() : ""
   );
   if (items.some((entry) => entry.length === 0)) {
-    throw new Error(`${field} entries must be non-empty strings`);
+    throw cuError(`${field} entries must be non-empty strings`);
   }
   return items;
 }
@@ -457,7 +470,7 @@ function parsePlanSelector(
 ): CUPlanTargetSelector {
   const selector = asRecordLoose(raw);
   if (!selector) {
-    throw new Error("find_target.selector must be an object");
+    throw cuError("find_target.selector must be an object");
   }
   const bundleId = selector.bundle_id;
   const roleIn = selector.role_in;
@@ -466,7 +479,7 @@ function parsePlanSelector(
   };
   if (bundleId != null) {
     if (!isNonEmptyString(bundleId)) {
-      throw new Error(
+      throw cuError(
         "find_target.selector.bundle_id must be a non-empty string",
       );
     }
@@ -475,7 +488,7 @@ function parsePlanSelector(
   }
   if (selector.window_title_contains != null) {
     if (!isNonEmptyString(selector.window_title_contains)) {
-      throw new Error(
+      throw cuError(
         "find_target.selector.window_title_contains must be a non-empty string",
       );
     }
@@ -483,7 +496,7 @@ function parsePlanSelector(
   }
   if (selector.label_contains != null) {
     if (!isNonEmptyString(selector.label_contains)) {
-      throw new Error(
+      throw cuError(
         "find_target.selector.label_contains must be a non-empty string",
       );
     }
@@ -491,7 +504,7 @@ function parsePlanSelector(
   }
   if (selector.value_contains != null) {
     if (!isNonEmptyString(selector.value_contains)) {
-      throw new Error(
+      throw cuError(
         "find_target.selector.value_contains must be a non-empty string",
       );
     }
@@ -500,7 +513,7 @@ function parsePlanSelector(
   if (selector.index != null) {
     const index = Number(selector.index);
     if (!Number.isInteger(index) || index < 0) {
-      throw new Error(
+      throw cuError(
         "find_target.selector.index must be a non-negative integer",
       );
     }
@@ -514,17 +527,17 @@ function parseObservedTargetRef(
 ): CUObservedTargetRef {
   const ref = asRecordLoose(raw);
   if (!ref) {
-    throw new Error("find_target.observed_target must be an object");
+    throw cuError("find_target.observed_target must be an object");
   }
   const observationId = ref.observation_id;
   const targetId = ref.target_id;
   if (!isNonEmptyString(observationId)) {
-    throw new Error(
+    throw cuError(
       "find_target.observed_target.observation_id must be a non-empty string",
     );
   }
   if (!isNonEmptyString(targetId)) {
-    throw new Error(
+    throw cuError(
       "find_target.observed_target.target_id must be a non-empty string",
     );
   }
@@ -539,7 +552,7 @@ function parseReadTargetKind(raw: unknown): CUReadTargetKind {
   if (raw === "value" || raw === "enabled") {
     return raw;
   }
-  throw new Error("read_kind must be 'value' or 'enabled'");
+  throw cuError("read_kind must be 'value' or 'enabled'");
 }
 
 function parseExecutePlanArgs(args: unknown): {
@@ -549,19 +562,19 @@ function parseExecutePlanArgs(args: unknown): {
   const DEFAULT_PLAN_WAIT_TIMEOUT_MS = 10_000;
   const input = asRecordLoose(args);
   if (!input) {
-    throw new Error("Arguments must be an object");
+    throw cuError("Arguments must be an object");
   }
   if (!Array.isArray(input.steps) || input.steps.length === 0) {
-    throw new Error("'steps' must be a non-empty array");
+    throw cuError("'steps' must be a non-empty array");
   }
   if (input.steps.length > MAX_PLAN_STEPS) {
-    throw new Error(`'steps' may contain at most ${MAX_PLAN_STEPS} items`);
+    throw cuError(`'steps' may contain at most ${MAX_PLAN_STEPS} items`);
   }
   const rawSteps = input.steps as unknown[];
   const seenIds = new Set<string>();
   const assertKnownTargetRef = (targetRef: string, index: number) => {
     if (!seenIds.has(targetRef)) {
-      throw new Error(
+      throw cuError(
         `steps[${index}].target_ref must reference a prior find_target id`,
       );
     }
@@ -569,17 +582,17 @@ function parseExecutePlanArgs(args: unknown): {
   const steps = rawSteps.map((rawStep, index) => {
     const step = asRecordLoose(rawStep);
     if (!step) {
-      throw new Error(`steps[${index}] must be an object`);
+      throw cuError(`steps[${index}] must be an object`);
     }
     const op = step.op;
     if (!isNonEmptyString(op)) {
-      throw new Error(`steps[${index}].op must be a non-empty string`);
+      throw cuError(`steps[${index}].op must be a non-empty string`);
     }
     switch (op) {
       case "open_app": {
         const bundleId = step.bundle_id;
         if (!isNonEmptyString(bundleId)) {
-          throw new Error(
+          throw cuError(
             `steps[${index}].bundle_id must be a non-empty string`,
           );
         }
@@ -593,7 +606,7 @@ function parseExecutePlanArgs(args: unknown): {
         const allowsImplicitSurfaceWait = nextStep?.op === "find_target";
         if (!isNonEmptyString(bundleId) && !isNonEmptyString(targetRef)) {
           if (!allowsImplicitSurfaceWait) {
-            throw new Error(
+            throw cuError(
               `steps[${index}] must specify bundle_id or target_ref for wait_for_ready unless the next step is find_target`,
             );
           }
@@ -602,7 +615,7 @@ function parseExecutePlanArgs(args: unknown): {
           assertValidBundleId(bundleId, `steps[${index}].bundle_id`);
         }
         if (targetRef != null && !isNonEmptyString(targetRef)) {
-          throw new Error(
+          throw cuError(
             `steps[${index}].target_ref must be a non-empty string`,
           );
         }
@@ -616,7 +629,7 @@ function parseExecutePlanArgs(args: unknown): {
           timeout != null &&
           (!Number.isFinite(timeout) || timeout <= 0)
         ) {
-          throw new Error(
+          throw cuError(
             `steps[${index}].timeout_ms must be a positive number`,
           );
         }
@@ -630,16 +643,16 @@ function parseExecutePlanArgs(args: unknown): {
       case "find_target": {
         const id = step.id;
         if (!isNonEmptyString(id)) {
-          throw new Error(`steps[${index}].id must be a non-empty string`);
+          throw cuError(`steps[${index}].id must be a non-empty string`);
         }
         if (seenIds.has(id)) {
-          throw new Error(`Duplicate step id '${id}'`);
+          throw cuError(`Duplicate step id '${id}'`);
         }
         seenIds.add(id);
         const hasSelector = step.selector != null;
         const hasObservedTarget = step.observed_target != null;
         if (hasSelector === hasObservedTarget) {
-          throw new Error(
+          throw cuError(
             `steps[${index}] must specify exactly one of selector or observed_target`,
           );
         }
@@ -659,7 +672,7 @@ function parseExecutePlanArgs(args: unknown): {
       case "click": {
         const targetRef = step.target_ref;
         if (!isNonEmptyString(targetRef)) {
-          throw new Error(
+          throw cuError(
             `steps[${index}].target_ref must be a non-empty string`,
           );
         }
@@ -670,27 +683,27 @@ function parseExecutePlanArgs(args: unknown): {
         const targetRef = step.target_ref;
         const text = step.text;
         if (!isNonEmptyString(targetRef)) {
-          throw new Error(
+          throw cuError(
             `steps[${index}].target_ref must be a non-empty string`,
           );
         }
         assertKnownTargetRef(targetRef, index);
         if (typeof text !== "string") {
-          throw new Error(`steps[${index}].text must be a string`);
+          throw cuError(`steps[${index}].text must be a string`);
         }
         return { op, target_ref: targetRef, text } satisfies CUPlanStep;
       }
       case "press_keys": {
         const keys = step.keys;
         if (!isNonEmptyString(keys)) {
-          throw new Error(`steps[${index}].keys must be a non-empty string`);
+          throw cuError(`steps[${index}].keys must be a non-empty string`);
         }
         const repeat = step.repeat != null ? Number(step.repeat) : undefined;
         if (
           repeat != null &&
           (!Number.isInteger(repeat) || repeat <= 0)
         ) {
-          throw new Error(`steps[${index}].repeat must be a positive integer`);
+          throw cuError(`steps[${index}].repeat must be a positive integer`);
         }
         return {
           op,
@@ -701,7 +714,7 @@ function parseExecutePlanArgs(args: unknown): {
       case "verify": {
         const predicate = step.predicate;
         if (!isNonEmptyString(predicate)) {
-          throw new Error(
+          throw cuError(
             `steps[${index}].predicate must be a non-empty string`,
           );
         }
@@ -713,7 +726,7 @@ function parseExecutePlanArgs(args: unknown): {
           "target_enabled",
         ]);
         if (!allowed.has(predicate)) {
-          throw new Error(`Unsupported verify predicate '${predicate}'`);
+          throw cuError(`Unsupported verify predicate '${predicate}'`);
         }
         const parsed: Extract<CUPlanStep, { op: "verify" }> = {
           op,
@@ -724,7 +737,7 @@ function parseExecutePlanArgs(args: unknown): {
         };
         if (step.bundle_id != null) {
           if (!isNonEmptyString(step.bundle_id)) {
-            throw new Error(
+            throw cuError(
               `steps[${index}].bundle_id must be a non-empty string`,
             );
           }
@@ -733,7 +746,7 @@ function parseExecutePlanArgs(args: unknown): {
         }
         if (step.window_title_contains != null) {
           if (!isNonEmptyString(step.window_title_contains)) {
-            throw new Error(
+            throw cuError(
               `steps[${index}].window_title_contains must be a non-empty string`,
             );
           }
@@ -741,7 +754,7 @@ function parseExecutePlanArgs(args: unknown): {
         }
         if (step.target_ref != null) {
           if (!isNonEmptyString(step.target_ref)) {
-            throw new Error(
+            throw cuError(
               `steps[${index}].target_ref must be a non-empty string`,
             );
           }
@@ -750,7 +763,7 @@ function parseExecutePlanArgs(args: unknown): {
         }
         if (step.value_contains != null) {
           if (!isNonEmptyString(step.value_contains)) {
-            throw new Error(
+            throw cuError(
               `steps[${index}].value_contains must be a non-empty string`,
             );
           }
@@ -758,21 +771,21 @@ function parseExecutePlanArgs(args: unknown): {
         }
         if (step.enabled != null) {
           if (typeof step.enabled !== "boolean") {
-            throw new Error(`steps[${index}].enabled must be a boolean`);
+            throw cuError(`steps[${index}].enabled must be a boolean`);
           }
           parsed.enabled = step.enabled;
         }
         switch (parsed.predicate) {
           case "frontmost_app_is":
             if (!parsed.bundle_id) {
-              throw new Error(
+              throw cuError(
                 `steps[${index}].bundle_id is required for frontmost_app_is`,
               );
             }
             break;
           case "window_visible":
             if (!parsed.bundle_id) {
-              throw new Error(
+              throw cuError(
                 `steps[${index}].bundle_id is required for window_visible`,
               );
             }
@@ -780,14 +793,14 @@ function parseExecutePlanArgs(args: unknown): {
           case "target_exists":
           case "target_enabled":
             if (!parsed.target_ref) {
-              throw new Error(
+              throw cuError(
                 `steps[${index}].target_ref is required for ${parsed.predicate}`,
               );
             }
             break;
           case "target_value_contains":
             if (!parsed.target_ref || !parsed.value_contains) {
-              throw new Error(
+              throw cuError(
                 `steps[${index}] requires target_ref and value_contains for target_value_contains`,
               );
             }
@@ -796,7 +809,7 @@ function parseExecutePlanArgs(args: unknown): {
         return parsed satisfies CUPlanStep;
       }
       default:
-        throw new Error(`Unsupported step op '${op}' at steps[${index}]`);
+        throw cuError(`Unsupported step op '${op}' at steps[${index}]`);
     }
   });
 
@@ -807,7 +820,7 @@ function parseExecutePlanArgs(args: unknown): {
     displayId != null &&
     (!Number.isInteger(displayId) || displayId <= 0)
   ) {
-    throw new Error("'display_id' must be a positive integer");
+    throw cuError("'display_id' must be a positive integer");
   }
   return { steps, displayId };
 }
@@ -2052,11 +2065,11 @@ const cuZoomFn = cuTool("Zoom failed", async (args, exec, options) => {
     } catch { /* fall through */ }
   }
   if (!Array.isArray(region) || region.length !== 4) {
-    throw new Error("region must be a [x1, y1, x2, y2] tuple");
+    throw cuError("region must be a [x1, y1, x2, y2] tuple");
   }
   const [x1, y1, x2, y2] = region.map(Number);
   if (x2 <= x1 || y2 <= y1) {
-    throw new Error(
+    throw cuError(
       `Invalid region: x2 must be > x1 and y2 must be > y1 (got [${x1},${y1},${x2},${y2}])`,
     );
   }

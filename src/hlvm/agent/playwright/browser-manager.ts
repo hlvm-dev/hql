@@ -25,6 +25,7 @@ import {
 } from "../../runtime/chromium-runtime.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import type { PlaywrightSnapshotRef } from "./snapshot-refs.ts";
+import { ToolError } from "../error-taxonomy.ts";
 
 // Playwright types — imported dynamically to avoid loading when unused
 type Browser = import("playwright-core").Browser;
@@ -348,8 +349,10 @@ async function _launchOrRecover(
 
   const chromiumPath = await resolveChromiumExecutablePath();
   if (!chromiumPath) {
-    throw new Error(
+    throw new ToolError(
       "Chromium not available. Run `hlvm bootstrap` to install it.",
+      "playwright",
+      "internal",
     );
   }
 
@@ -447,8 +450,10 @@ export async function promoteToHeaded(
   // Relaunch as headed
   const chromiumPath = await resolveChromiumExecutablePath();
   if (!chromiumPath) {
-    throw new Error(
+    throw new ToolError(
       "Chromium not available. Run `hlvm bootstrap` to install it.",
+      "playwright",
+      "internal",
     );
   }
 
@@ -539,8 +544,10 @@ export async function selectBrowserTab(
   const { sessionKey, state } = ensureBrowserSessionState(sessionId);
   const { pages } = await currentTabs(sessionId);
   if (!Number.isInteger(index) || index < 0 || index >= pages.length) {
-    throw new Error(
+    throw new ToolError(
       `Invalid tab index: ${index}. Available range is 0-${Math.max(0, pages.length - 1)}.`,
+      "playwright",
+      "validation",
     );
   }
   const page = pages[index]!;
@@ -583,8 +590,10 @@ export async function closeBrowserTab(
     !Number.isInteger(targetIndex) || targetIndex < 0 ||
     targetIndex >= pages.length
   ) {
-    throw new Error(
+    throw new ToolError(
       `Invalid tab index: ${targetIndex}. Available range is 0-${Math.max(0, pages.length - 1)}.`,
+      "playwright",
+      "validation",
     );
   }
 

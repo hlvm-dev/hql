@@ -12,6 +12,7 @@
 import { log } from "../api/log.ts";
 import { getRuntimeDir } from "../../common/paths.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import { BootstrapError } from "../agent/error-taxonomy.ts";
 
 // ── Paths ────────────────────────────────────────────────────────────────
 
@@ -113,7 +114,10 @@ export async function downloadChromium(
 
     if (!fallbackResult.success) {
       const fallbackStderr = new TextDecoder().decode(fallbackResult.stderr).trim();
-      throw new Error(`Failed to download Chromium: ${fallbackStderr}`);
+      throw new BootstrapError(
+        `Failed to download Chromium: ${fallbackStderr}`,
+        "engine_download",
+      );
     }
   }
 

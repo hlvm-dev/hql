@@ -290,6 +290,8 @@ export type TraceEvent =
   }
   | { type: "transient_retry"; attempt: number; error: string }
   | { type: "auto_select"; model: string; fallbacks: string[]; reason: string }
+  | { type: "eval_log"; detail: string }
+  | { type: "agent_downgrade"; detail: string }
   | {
     type: "auto_fallback";
     fromModel: string;
@@ -452,6 +454,9 @@ export type AgentUIEvent =
     durationMs: number;
     argsSummary: string;
     meta?: ToolEventMeta;
+    hint?: string | null;
+    errorClass?: string;
+    retryable?: boolean;
   }
   | { type: "plan_created"; plan: Plan }
   | { type: "plan_step"; stepId: string; index: number; completed: boolean }

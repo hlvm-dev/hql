@@ -15,6 +15,12 @@
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
+import { TOOL_CATEGORY, ToolError } from "../error-taxonomy.ts";
+import { TOOL_NAMES } from "../tool-names.ts";
+import {
+  getWorktreePath,
+  getWorktreesDir,
+} from "../../../common/paths.ts";
 
 const log = getAgentLogger();
 
@@ -52,7 +58,7 @@ function flattenSlug(slug: string): string {
  * HLVM: {gitRoot}/.hlvm/worktrees/{flatSlug}
  */
 function worktreePathFor(gitRoot: string, slug: string): string {
-  return `${gitRoot}/.hlvm/worktrees/${flattenSlug(slug)}`;
+  return getWorktreePath(gitRoot, flattenSlug(slug));
 }
 
 /**
@@ -127,19 +133,31 @@ export async function createAgentWorktree(
   // Validate slug (CC: validateWorktreeSlug)
   // Each segment must match /^[a-zA-Z0-9._-]+$/ and reject "." and ".." segments
   if (!slug || slug.length > 64) {
-    throw new Error(`Invalid worktree slug: '${slug}'`);
+    throw new ToolError(
+      `Invalid worktree slug: '${slug}'`,
+      TOOL_NAMES.AGENT_WORKTREE,
+      TOOL_CATEGORY.VALIDATION,
+    );
   }
   const segments = slug.split("/");
   for (const seg of segments) {
     if (!seg || seg === "." || seg === ".." || !/^[a-zA-Z0-9._-]+$/.test(seg)) {
-      throw new Error(`Invalid worktree slug: '${slug}'`);
+      throw new ToolError(
+        `Invalid worktree slug: '${slug}'`,
+        "agent_worktree",
+        "validation",
+      );
     }
   }
 
   // Find git root (CC: findCanonicalGitRoot)
   const gitRoot = await findGitRoot(cwd);
   if (!gitRoot) {
-    throw new Error("Cannot create worktree: not a git repository");
+    throw new ToolError(
+      "Cannot create worktree: not a git repository",
+      TOOL_NAMES.AGENT_WORKTREE,
+      TOOL_CATEGORY.VALIDATION,
+    );
   }
 
   const worktreePath = worktreePathFor(gitRoot, slug);
@@ -159,12 +177,16 @@ export async function createAgentWorktree(
 
   // Create worktrees directory
   const platform = getPlatform();
-  await platform.fs.mkdir(`${gitRoot}/.hlvm/worktrees`, { recursive: true });
+  await platform.fs.mkdir(getWorktreesDir(gitRoot), { recursive: true });
 
   // Get current HEAD for change detection
   const headCommit = await getHeadSha(gitRoot);
   if (!headCommit) {
-    throw new Error("Cannot determine HEAD commit");
+    throw new ToolError(
+      "Cannot determine HEAD commit",
+      TOOL_NAMES.AGENT_WORKTREE,
+      TOOL_CATEGORY.INTERNAL,
+    );
   }
 
   // Create worktree (CC: git worktree add -B branchName worktreePath HEAD)
@@ -174,7 +196,11 @@ export async function createAgentWorktree(
   );
 
   if (!result.success) {
-    throw new Error(`Failed to create worktree: ${result.stderr}`);
+    throw new ToolError(
+      `Failed to create worktree: ${result.stderr}`,
+      TOOL_NAMES.AGENT_WORKTREE,
+      TOOL_CATEGORY.INTERNAL,
+    );
   }
 
   log.debug(`Created agent worktree: ${worktreePath} (branch: ${branchName})`);

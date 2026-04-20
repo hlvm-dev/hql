@@ -21,6 +21,7 @@ import {
   textEncoder,
 } from "../http-utils.ts";
 import { getErrorMessage } from "../../../../common/utils.ts";
+import { describeErrorForDisplay } from "../../../agent/error-taxonomy.ts";
 import { listRegisteredProviders } from "../../../providers/index.ts";
 import {
   hasModelDiscoveryData,
@@ -299,7 +300,13 @@ export function handlePullModel(req: Request): Response {
 
       if (!parsed.ok) {
         controller.enqueue(textEncoder.encode(
-          ndjsonLine({ event: "error", message: "Invalid request" }),
+          ndjsonLine({
+            event: "error",
+            message: "Invalid request",
+            errorClass: "permanent",
+            retryable: false,
+            hint: "Send a JSON body like { \"name\": \"<model>\" } to /api/models/pull.",
+          }),
         ));
         controller.close();
         return;
@@ -308,7 +315,13 @@ export function handlePullModel(req: Request): Response {
       const { name, provider } = parsed.value;
       if (!name) {
         controller.enqueue(textEncoder.encode(
-          ndjsonLine({ event: "error", message: "Missing model name" }),
+          ndjsonLine({
+            event: "error",
+            message: "Missing model name",
+            errorClass: "permanent",
+            retryable: false,
+            hint: "Include a non-empty `name` field identifying the model to pull.",
+          }),
         ));
         controller.close();
         return;
@@ -330,8 +343,15 @@ export function handlePullModel(req: Request): Response {
           provider: provider ?? null,
         });
       } catch (error) {
+        const described = await describeErrorForDisplay(error);
         controller.enqueue(textEncoder.encode(
-          ndjsonLine({ event: "error", message: getErrorMessage(error) }),
+          ndjsonLine({
+            event: "error",
+            message: described.message,
+            errorClass: described.class,
+            retryable: described.retryable,
+            hint: described.hint,
+          }),
         ));
       }
 

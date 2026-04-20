@@ -557,6 +557,26 @@ export async function ensureModelsDir(): Promise<void> {
   await getPlatform().fs.mkdir(getModelsDir(), { recursive: true });
 }
 
+export const HLVM_PROJECT_DIR_SEGMENT = ".hlvm";
+export const HLVM_AGENTS_SEGMENT = "agents";
+export const HLVM_WORKTREES_SEGMENT = "worktrees";
+
+export function getUserAgentsDir(): string {
+  return join(homeDir(), HLVM_PROJECT_DIR_SEGMENT, HLVM_AGENTS_SEGMENT);
+}
+
+export function getProjectAgentsDir(workspace: string): string {
+  return join(workspace, HLVM_PROJECT_DIR_SEGMENT, HLVM_AGENTS_SEGMENT);
+}
+
+export function getWorktreesDir(gitRoot: string): string {
+  return join(gitRoot, HLVM_PROJECT_DIR_SEGMENT, HLVM_WORKTREES_SEGMENT);
+}
+
+export function getWorktreePath(gitRoot: string, flatSlug: string): string {
+  return join(getWorktreesDir(gitRoot), flatSlug);
+}
+
 // ── Agent Team Paths ──────────────────────────────────────────────────
 
 // ============================================================

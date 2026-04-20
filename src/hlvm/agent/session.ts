@@ -16,6 +16,7 @@ import type { CompiledPrompt } from "../prompt/mod.ts";
 import type { AgentProfile } from "./agent-registry.ts";
 import { createFixtureLLM, loadLlmFixture } from "./llm-fixtures.ts";
 import { ValidationError } from "../../common/error.ts";
+import { CancellationError } from "./error-taxonomy.ts";
 import {
   classifyModelCapability,
   DEFAULT_TOOL_DENYLIST,
@@ -378,7 +379,9 @@ export async function createAgentSession(
 
   // Classify model capability BEFORE MCP loading (non-agent models skip MCP)
   const isFrontier = isFrontierProvider(options.model);
-  const modelCapability = classifyModelCapability(modelInfo, options.model);
+  const modelCapability = options.fixturePath
+    ? "agent"
+    : classifyModelCapability(modelInfo, options.model);
   const effectiveToolDenylist = options.toolDenylist?.length
     ? [...options.toolDenylist]
     : [...DEFAULT_TOOL_DENYLIST];
@@ -452,7 +455,7 @@ export async function createAgentSession(
     signal?: AbortSignal,
   ): Promise<T> => {
     if (!signal) return await promise;
-    if (signal.aborted) throw new Error("MCP load aborted");
+    if (signal.aborted) throw new CancellationError("MCP load aborted");
     let removeAbortListener = () => {};
     try {
       const abortPromise = new Promise<never>((_, reject) => {
@@ -512,7 +515,7 @@ export async function createAgentSession(
     // classes both load MCP — even tool-class one-shot use benefits from
     // MCP (e.g. Gmail send). Only chat class is hopeless.
     if (modelCapability === "chat") return false;
-    if (signal?.aborted) throw new Error("MCP load aborted");
+    if (signal?.aborted) throw new CancellationError("MCP load aborted");
 
     while (true) {
       if (loadingMcp) {

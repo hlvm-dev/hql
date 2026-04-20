@@ -307,7 +307,13 @@ function renderItem(
     case "hql_eval":
       return <HqlEvalDisplay input={item.input} result={item.result} />;
     case "error":
-      return <ErrorMessage text={item.text} />;
+      return (
+        <ErrorMessage
+          text={item.text}
+          errorClass={item.errorClass}
+          hint={item.hint}
+        />
+      );
     case "info":
       return <InfoMessage text={item.text} />;
     case "debug_trace":

@@ -7,11 +7,14 @@ import {
 } from "ai";
 import {
   AgentStreamError,
+  BootstrapError,
   buildEditFileRecovery,
+  CancellationError,
   classifyError,
   describeErrorForDisplay,
   getRecoveryHint,
   renderEditFileRecoveryPrompt,
+  ToolError,
 } from "../../../src/hlvm/agent/error-taxonomy.ts";
 import { TimeoutError } from "../../../src/common/timeout-utils.ts";
 
@@ -200,6 +203,121 @@ Deno.test("error taxonomy: recovery hints cover network, auth, schema, and user-
     "alternative approach",
   );
   assertEquals(getRecoveryHint("Some completely novel error"), null);
+});
+
+Deno.test("error taxonomy: leans on Deno.errors.* typed errors instead of regex on the message", async () => {
+  const notFound = new Deno.errors.NotFound("couldn't open file");
+  const notFoundDesc = await describeErrorForDisplay(notFound);
+  assertEquals(notFoundDesc.class, "permanent");
+  assertEquals(notFoundDesc.retryable, false);
+  assertStringIncludes(notFoundDesc.hint ?? "", "path exists");
+
+  const connRefused = new Deno.errors.ConnectionRefused("refused");
+  const connDesc = await describeErrorForDisplay(connRefused);
+  assertEquals(connDesc.class, "transient");
+  assertEquals(connDesc.retryable, true);
+  assertStringIncludes(connDesc.hint ?? "", "Connection refused");
+
+  const addrInUse = new Deno.errors.AddrInUse("port busy");
+  const addrDesc = await describeErrorForDisplay(addrInUse);
+  assertEquals(addrDesc.class, "permanent");
+  assertStringIncludes(addrDesc.hint ?? "", "Port is already in use");
+});
+
+Deno.test("error taxonomy: Node-compat `err.code` strings classify without reading the message", async () => {
+  const enospc = Object.assign(new Error("write failed"), { code: "ENOSPC" });
+  const enospcDesc = await describeErrorForDisplay(enospc);
+  assertEquals(enospcDesc.class, "permanent");
+  assertStringIncludes(enospcDesc.hint ?? "", "Disk is full");
+
+  const dnsFail = Object.assign(new Error("getaddrinfo failed"), {
+    code: "ENOTFOUND",
+  });
+  const dnsDesc = await describeErrorForDisplay(dnsFail);
+  assertEquals(dnsDesc.class, "transient");
+  assertEquals(dnsDesc.retryable, true);
+  assertStringIncludes(dnsDesc.hint ?? "", "DNS");
+});
+
+Deno.test("error taxonomy: CancellationError renders as clean `Cancelled.` with no misleading hint", async () => {
+  const cancelled = new CancellationError("Runtime host request cancelled.");
+  const described = await describeErrorForDisplay(cancelled);
+  assertEquals(described.class, "abort");
+  assertEquals(described.retryable, false);
+  assertEquals(described.hint, null);
+  assertStringIncludes(described.message, "cancelled");
+});
+
+Deno.test("error taxonomy: BootstrapError picks a phase-appropriate hint and retryable flag", async () => {
+  const pull = await describeErrorForDisplay(
+    new BootstrapError("Model pull failed (500): unavailable", "model_pull"),
+  );
+  assertEquals(pull.class, "transient");
+  assertEquals(pull.retryable, true);
+  assertStringIncludes(pull.hint ?? "", "disk space");
+
+  const manifest = await describeErrorForDisplay(
+    new BootstrapError("Pulled but manifest mismatch", "manifest_verify"),
+  );
+  assertEquals(manifest.class, "permanent");
+  assertEquals(manifest.retryable, false);
+  assertStringIncludes(manifest.hint ?? "", "hlvm bootstrap --repair");
+});
+
+Deno.test("error taxonomy: ToolError with typed originalError derives its hint from the typed error, not regex", async () => {
+  const raw = new Deno.errors.PermissionDenied("/etc/shadow");
+  const toolErr = new ToolError(
+    "cannot read /etc/shadow",
+    "read_file",
+    "file",
+    { originalError: raw },
+  );
+  const described = await describeErrorForDisplay(toolErr);
+  assertEquals(described.class, "permanent");
+  assertEquals(described.retryable, false);
+  assertStringIncludes(described.hint ?? "", "Permission denied");
+});
+
+Deno.test("error taxonomy: AgentStreamError + BootstrapError + ToolError all short-circuit past the REQUEST_FAILED fallback", async () => {
+  const misleadingHintFragment = "Restart HLVM so the client";
+
+  const stream = await describeErrorForDisplay(
+    new AgentStreamError(
+      "Internal HLVM error: boom",
+      "unknown",
+      false,
+      "This looks like an HLVM bug.",
+    ),
+  );
+  assertEquals(
+    stream.hint?.includes(misleadingHintFragment) ?? false,
+    false,
+  );
+
+  const boot = await describeErrorForDisplay(
+    new BootstrapError("Bootstrap cancelled.", "model_pull"),
+  );
+  assertEquals(
+    boot.hint?.includes(misleadingHintFragment) ?? false,
+    false,
+  );
+
+  const tool = await describeErrorForDisplay(
+    new ToolError("bad arg", "read_file", "validation"),
+  );
+  assertEquals(
+    tool.hint?.includes(misleadingHintFragment) ?? false,
+    false,
+  );
+});
+
+Deno.test("error taxonomy: walks `.cause` one level to find the platform-typed root error", async () => {
+  const root = new Deno.errors.PermissionDenied("can't read /etc/shadow");
+  const wrapped = new Error("failed to read config");
+  (wrapped as Error & { cause?: unknown }).cause = root;
+
+  const described = await describeErrorForDisplay(wrapped);
+  assertStringIncludes(described.hint ?? "", "Permission denied");
 });
 
 Deno.test("error taxonomy: buildEditFileRecovery produces a structured recovery payload for missing edit targets", () => {

@@ -18,6 +18,15 @@ import { DEFAULT_LOCALHOST } from "../../../common/config/types.ts";
 import { sleep as bridgeSleep } from "../../../common/timeout-utils.ts";
 import { http } from "../../../common/http-client.ts";
 import { getAgentLogger } from "../logger.ts";
+import { TOOL_CATEGORY, ToolError } from "../error-taxonomy.ts";
+import { TOOL_NAMES } from "../tool-names.ts";
+
+function cuBridgeError(
+  message: string,
+  category: "internal" | "validation" = TOOL_CATEGORY.INTERNAL,
+): ToolError {
+  return new ToolError(message, TOOL_NAMES.COMPUTER_USE, category);
+}
 import {
   assertValidBundleId,
   CLI_HOST_BUNDLE_ID,
@@ -72,7 +81,7 @@ async function osascript(
   });
   if (!result.success) {
     const stderr = new TextDecoder().decode(result.stderr);
-    throw new Error(`osascript failed (exit ${result.code}): ${stderr}`);
+    throw cuBridgeError(`osascript failed (exit ${result.code}): ${stderr}`);
   }
   return new TextDecoder().decode(result.stdout).trim();
 }
@@ -91,7 +100,7 @@ async function jxa(
   });
   if (!result.success) {
     const stderr = new TextDecoder().decode(result.stderr);
-    throw new Error(`JXA failed (exit ${result.code}): ${stderr}`);
+    throw cuBridgeError(`JXA failed (exit ${result.code}): ${stderr}`);
   }
   return new TextDecoder().decode(result.stdout).trim();
 }
@@ -99,7 +108,7 @@ async function jxa(
 /** Validate that a numeric value is a finite number (guards against NaN/Infinity in JXA). */
 function assertFiniteCoord(value: number, name: string): void {
   if (!Number.isFinite(value)) {
-    throw new Error(`Invalid ${name}: ${value} (must be a finite number)`);
+    throw cuBridgeError(`Invalid ${name}: ${value} (must be a finite number)`);
   }
 }
 
@@ -508,7 +517,7 @@ function resolveCaptureDisplayIndex(
   const order = buildDisplayOrderMap(displays);
   const displayOrder = order.get(displayId);
   if (displayOrder == null) {
-    throw new Error(`Unknown display id for capture: ${displayId}`);
+    throw cuBridgeError(`Unknown display id for capture: ${displayId}`);
   }
   return displayOrder + 1;
 }
@@ -798,7 +807,7 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
         },
       };
       if (!(button in buttonMap)) {
-        throw new Error(
+        throw cuBridgeError(
           `Invalid mouse button: "${button}". Must be "left", "right", or "middle".`,
         );
       }
@@ -886,7 +895,7 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
         modNames.length > 0 ? `${modNames.join("+")}+${keyName}` : keyName,
       );
       if (!parsed) {
-        throw new Error(`Unknown key spec: "${parts.join("+")}"`);
+        throw cuBridgeError(`Unknown key spec: "${parts.join("+")}"`);
       }
 
       const modClause = parsed.modifiers.length > 0
@@ -922,7 +931,7 @@ export function requireComputerUseInput(): ComputerUseInputAPI {
         keyCode = modifierKeyCode[effectiveName];
       } else {
         const parsed = parseKeySpec(effectiveName);
-        if (!parsed) throw new Error(`Unknown key: "${name}"`);
+        if (!parsed) throw cuBridgeError(`Unknown key: "${name}"`);
         keyCode = parsed.keyCode;
       }
 
@@ -1199,7 +1208,7 @@ async function cuNativeFetch<T>(
   }
   const resolution = _backendResolution;
   if (!resolution || resolution.backend !== "native_gui" || !resolution.port) {
-    throw new Error("Native CU backend not available");
+    throw cuBridgeError("Native CU backend not available");
   }
   const token = await resolveNativeCuAuthToken();
   const response = await http.fetchRaw(
@@ -1219,7 +1228,7 @@ async function cuNativeFetch<T>(
     if (response.status === 401 || response.status === 403) {
       _resolvedNativeAuthToken = undefined;
     }
-    throw new Error(
+    throw cuBridgeError(
       `CU native fetch failed: ${path} (${response.status} ${response.statusText}${
         errorText.trim().length > 0 ? `: ${errorText.trim()}` : ""
       })`,
@@ -1285,7 +1294,7 @@ export async function fetchNativeObservationTargets(
       typeof raw.observationId !== "string" ||
       !Array.isArray(raw.targets)
     ) {
-      throw new Error("Invalid native targets response");
+      throw cuBridgeError("Invalid native targets response");
     }
     const targets = raw.targets.flatMap((target) => {
       const normalized = normalizeNativeTarget(target, bundleId);
@@ -1358,7 +1367,7 @@ export async function performNativeExecutePlan(
       (response?.status !== "completed" && response?.status !== "blocked") ||
       !Array.isArray(response?.steps)
     ) {
-      throw new Error("Invalid execute-plan response");
+      throw cuBridgeError("Invalid execute-plan response");
     }
     getAgentLogger().debug(
       `[bridge] Native execute-plan used status=${response.status} steps=${response.steps.length}`,
@@ -1389,7 +1398,7 @@ export async function performNativeReadTarget(
       typeof response?.targetId !== "string" ||
       typeof response?.readKind !== "string"
     ) {
-      throw new Error("Invalid read-target response");
+      throw cuBridgeError("Invalid read-target response");
     }
     getAgentLogger().debug(
       `[bridge] Native read-target used ok=${response.ok} target=${response.targetId} kind=${response.readKind}`,
@@ -1888,7 +1897,7 @@ export function upgradeSwiftInstanceToNative(): void {
           { bundleId },
         );
         if (response.ok !== true) {
-          throw new Error(`Unexpected activate-app response for ${bundleId}`);
+          throw cuBridgeError(`Unexpected activate-app response for ${bundleId}`);
         }
         _cachedRunningApps = undefined;
         _runningAppsReady = undefined;
@@ -1990,7 +1999,7 @@ export function upgradeSwiftInstanceToNative(): void {
         const x = Number(location.x);
         const y = Number(location.y);
         if (!Number.isFinite(x) || !Number.isFinite(y)) {
-          throw new Error("Invalid native mouse-location response");
+          throw cuBridgeError("Invalid native mouse-location response");
         }
         log.debug(`[bridge] Native input.mouseLocation used x=${x} y=${y}`);
         return { x, y };
@@ -2010,7 +2019,7 @@ export function upgradeSwiftInstanceToNative(): void {
         modNames.length > 0 ? `${modNames.join("+")}+${keyName}` : keyName,
       );
       if (!parsed) {
-        throw new Error(`Unknown key spec: "${parts.join("+")}"`);
+        throw cuBridgeError(`Unknown key spec: "${parts.join("+")}"`);
       }
       try {
         await cuNativeFetch<{ ok?: unknown }>("/cu/input/keys", {
@@ -2050,7 +2059,7 @@ export function upgradeSwiftInstanceToNative(): void {
         keyCode = modifierKeyCode[effectiveName];
       } else {
         const parsed = parseKeySpec(effectiveName);
-        if (!parsed) throw new Error(`Unknown key: "${name}"`);
+        if (!parsed) throw cuBridgeError(`Unknown key: "${name}"`);
         keyCode = parsed.keyCode;
       }
       try {
@@ -2222,7 +2231,7 @@ async function captureScreenshot(
       stderr: "piped",
     });
     if (!capResult.success) {
-      throw new Error(
+      throw cuBridgeError(
         `screencapture failed: ${new TextDecoder().decode(capResult.stderr)}`,
       );
     }
@@ -2333,7 +2342,7 @@ async function captureScreenshotRegion(
       stderr: "piped",
     });
     if (!capResult.success) {
-      throw new Error(
+      throw cuBridgeError(
         `screencapture region failed: ${
           new TextDecoder().decode(capResult.stderr)
         }`,

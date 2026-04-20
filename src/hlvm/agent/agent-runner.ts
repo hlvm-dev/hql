@@ -667,11 +667,13 @@ export async function runAgentQuery(
   const permissionMode: AgentExecutionMode = options.permissionMode ??
     "default";
   let model = options.model ?? getConfiguredModel();
-  model = await resolveCompatibleClaudeCodeModel(model);
+  if (!options.fixturePath) {
+    model = await resolveCompatibleClaudeCodeModel(model);
+  }
 
   // Auto model resolution — dynamic import to avoid loading provider listing when not needed
   let autoDecision: import("./auto-select.ts").AutoDecision | null = null;
-  if (model === AUTO_MODEL_ID) {
+  if (!options.fixturePath && model === AUTO_MODEL_ID) {
     const { resolveAutoModel } = await import("./auto-select.ts");
     const { loadConfig } = await import("../../common/config/storage.ts");
     const config = await loadConfig();
@@ -691,7 +693,7 @@ export async function runAgentQuery(
     });
   }
 
-  if (!supportsAgentExecution(model, options.modelInfo)) {
+  if (!options.fixturePath && !supportsAgentExecution(model, options.modelInfo)) {
     // Configured model is constrained — fall back to guaranteed local default
     const fallbackModelId = await resolveLocalFallbackModelId();
     if (

@@ -14,6 +14,10 @@ import { parseFrontmatter } from "../../../common/frontmatter.ts";
 import { PERMISSION_MODES_SET } from "../../../common/config/types.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import {
+  getProjectAgentsDir,
+  getUserAgentsDir,
+} from "../../../common/paths.ts";
 import { getAgentLogger } from "../logger.ts";
 import type { AgentExecutionMode } from "../execution-mode.ts";
 import type {
@@ -290,12 +294,11 @@ export async function loadAgentDefinitions(
   const customAgents: CustomAgentDefinition[] = [];
 
   // Load user agents (~/.hlvm/agents/)
-  const homeDir = getPlatform().env.get("HOME") ?? "";
-  const userAgentsDir = `${homeDir}/.hlvm/agents`;
+  const userAgentsDir = getUserAgentsDir();
   await loadAgentsFromDir(userAgentsDir, "user", customAgents, failedFiles, fs);
 
   // Load project agents (.hlvm/agents/ in workspace)
-  const projectAgentsDir = `${workspace}/.hlvm/agents`;
+  const projectAgentsDir = getProjectAgentsDir(workspace);
   await loadAgentsFromDir(
     projectAgentsDir,
     "project",

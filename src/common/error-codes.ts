@@ -26,6 +26,8 @@
  * - Links to detailed error explanations
  */
 
+import { DEFAULT_OLLAMA_HOST } from "./hosts.ts";
+
 /**
  * Symbol used to mark errors as reported to prevent double-reporting.
  * Shared across error handling modules.
@@ -189,6 +191,12 @@ export enum HLVMErrorCode {
   STREAM_ERROR = 5010,
   /** Local AI engine startup or validation failure */
   AI_ENGINE_STARTUP_FAILED = 5011,
+  /** Runtime host build ID does not match the client build */
+  RUNTIME_IDENTITY_MISMATCH = 5012,
+  /** User or supervisor cancelled an in-flight operation */
+  REQUEST_CANCELLED = 5013,
+  /** Tool execution failed inside the agent loop */
+  TOOL_EXECUTION_FAILED = 5014,
   /** Bootstrap materialization (engine + model) failed */
   BOOTSTRAP_FAILED = 5020,
   /** Fallback model pull during bootstrap failed */
@@ -828,13 +836,47 @@ const HLVM_ERROR_INFO: Record<HLVMErrorCode, ErrorInfo> = {
     description: "A request to the local HLVM runtime host failed.",
     causes: [
       "Runtime host returned an error response",
-      "Runtime host build did not match the current client",
       "Runtime host could not start, stop, or stream a response",
+      "Transient failure during a runtime request",
     ],
     fixes: [
-      "Restart HLVM so the client and runtime host use the same build",
-      "Check provider or model availability if the host rejected the request",
-      "Retry after the local runtime host finishes initializing",
+      "Retry; if the failure persists, check recent runtime logs for details.",
+      "Run `hlvm doctor` to inspect runtime host and AI engine health.",
+      "Check provider or model availability if the host rejected the request.",
+    ],
+  },
+  [HLVMErrorCode.RUNTIME_IDENTITY_MISMATCH]: {
+    description:
+      "The local HLVM runtime host is running a different build than the client.",
+    causes: [
+      "An older or newer HLVM process owns the runtime port",
+      "HLVM was upgraded while a previous process remained alive",
+    ],
+    fixes: [
+      "Restart HLVM so the client and runtime host use the same build.",
+      "Stop any stale HLVM processes still listening on the runtime port.",
+    ],
+  },
+  [HLVMErrorCode.REQUEST_CANCELLED]: {
+    description: "The request was cancelled by the user or a supervisor.",
+    causes: [
+      "User interrupted the operation (Ctrl-C)",
+      "Parent process aborted the in-flight request",
+    ],
+    fixes: [
+      "No action required.",
+    ],
+  },
+  [HLVMErrorCode.TOOL_EXECUTION_FAILED]: {
+    description: "A tool invoked by the agent failed during execution.",
+    causes: [
+      "Tool argument was invalid or missing",
+      "Underlying resource (file, network, permission) rejected the call",
+      "Tool implementation raised an uncaught error",
+    ],
+    fixes: [
+      "Check the tool result for a tool-specific hint before retrying.",
+      "Validate arguments against the tool schema.",
     ],
   },
   [HLVMErrorCode.REQUEST_REJECTED]: {
@@ -899,12 +941,12 @@ const HLVM_ERROR_INFO: Record<HLVMErrorCode, ErrorInfo> = {
     causes: [
       "Cached embedded engine binary is invalid or from the wrong program",
       "Embedded AI engine resource is missing or corrupted",
-      "The HLVM-owned local AI endpoint was unavailable or failed to become reachable on 127.0.0.1:11439",
+      `The HLVM-owned local AI endpoint was unavailable or failed to become reachable on ${DEFAULT_OLLAMA_HOST}`,
     ],
     fixes: [
       "Remove the cached embedded engine so HLVM can extract a fresh copy",
       "Verify the embedded AI engine resource or rebuild HLVM with a valid Ollama binary",
-      "Check whether the embedded Ollama runtime can start and respond on 127.0.0.1:11439",
+      `Check whether the embedded Ollama runtime can start and respond on ${DEFAULT_OLLAMA_HOST}`,
     ],
   },
   [HLVMErrorCode.BOOTSTRAP_FAILED]: {
@@ -923,7 +965,7 @@ const HLVM_ERROR_INFO: Record<HLVMErrorCode, ErrorInfo> = {
   [HLVMErrorCode.BOOTSTRAP_MODEL_PULL_FAILED]: {
     description: "The fallback model could not be pulled during bootstrap.",
     causes: [
-      "AI engine not running or not reachable on 127.0.0.1:11439",
+      `AI engine not running or not reachable on ${DEFAULT_OLLAMA_HOST}`,
       "Model name is invalid or unavailable in the Ollama registry",
       "Download interrupted or disk full",
     ],

@@ -12,6 +12,7 @@ import type {
   ObservationTarget,
   WindowInfo,
 } from "./types.ts";
+import { ToolError } from "../error-taxonomy.ts";
 
 export interface ComputerUseActionRecord {
   kind: string;
@@ -293,21 +294,27 @@ export function resolveObservationTarget(
 } {
   const observation = state.lastObservation;
   if (!observation || observation.observationId !== observationId) {
-    throw new Error(
+    throw new ToolError(
       "Observation is stale. Call cu_observe again before using target-based actions.",
+      "computer_use",
+      "validation",
     );
   }
   if (Date.now() - observation.createdAt > COMPUTER_USE_OBSERVATION_MAX_AGE_MS) {
-    throw new Error(
+    throw new ToolError(
       "Observation is too old. Call cu_observe again before using target-based actions.",
+      "computer_use",
+      "validation",
     );
   }
   const target = observation.targets.find((candidate) =>
     candidate.targetId === targetId
   );
   if (!target) {
-    throw new Error(
+    throw new ToolError(
       `Unknown target_id '${targetId}' for observation '${observationId}'.`,
+      "computer_use",
+      "validation",
     );
   }
   return { observation, target };
@@ -322,21 +329,27 @@ export function resolveRecentObservationTarget(
 } {
   const observation = getRecentComputerUseObservation(observationId);
   if (!observation) {
-    throw new Error(
+    throw new ToolError(
       "Observation is stale. Call cu_observe again before using target-based actions.",
+      "computer_use",
+      "validation",
     );
   }
   if (Date.now() - observation.createdAt > COMPUTER_USE_OBSERVATION_MAX_AGE_MS) {
-    throw new Error(
+    throw new ToolError(
       "Observation is too old. Call cu_observe again before using target-based actions.",
+      "computer_use",
+      "validation",
     );
   }
   const target = observation.targets.find((candidate) =>
     candidate.targetId === targetId
   );
   if (!target) {
-    throw new Error(
+    throw new ToolError(
       `Unknown target_id '${targetId}' for observation '${observationId}'.`,
+      "computer_use",
+      "validation",
     );
   }
   return { observation, target };

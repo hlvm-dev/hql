@@ -20,8 +20,16 @@ export const AUTO_MODEL_ID = "auto";
 export const DEFAULT_MODEL_ID = LOCAL_FALLBACK_MODEL_ID;
 export const DEFAULT_MODEL_PROVIDER = DEFAULT_MODEL_ID.split("/")[0];
 export const DEFAULT_MODEL_NAME = DEFAULT_MODEL_ID.split("/")[1];
-export const DEFAULT_OLLAMA_HOST = "127.0.0.1:11439";
-export const DEFAULT_OLLAMA_ENDPOINT = `http://${DEFAULT_OLLAMA_HOST}`;
+import {
+  DEFAULT_OLLAMA_ENDPOINT,
+  DEFAULT_OLLAMA_HOST,
+  DEFAULT_OLLAMA_PORT,
+} from "../hosts.ts";
+export {
+  DEFAULT_OLLAMA_ENDPOINT,
+  DEFAULT_OLLAMA_HOST,
+  DEFAULT_OLLAMA_PORT,
+};
 
 /** Single source of truth for the user-agent string across all web tools. */
 export const DEFAULT_USER_AGENT =
@@ -41,8 +49,8 @@ export const DEFAULT_OPENROUTER_CATALOG_URL = "https://openrouter.ai/api/v1/mode
 export const DEFAULT_CLAUDE_CODE_OAUTH_TOKEN_ENDPOINT = "https://platform.claude.com/v1/oauth/token";
 /** SSOT endpoint for GitHub releases API */
 export const DEFAULT_GITHUB_RELEASES_URL = "https://api.github.com/repos/hlvm-dev/hql/releases/latest";
-/** SSOT localhost address — all local URLs must use this */
-export const DEFAULT_LOCALHOST = "127.0.0.1";
+import { DEFAULT_LOCALHOST } from "../hosts.ts";
+export { DEFAULT_LOCALHOST };
 /** SSOT port for MCP OAuth callback server */
 export const DEFAULT_MCP_OAUTH_PORT = 35017;
 

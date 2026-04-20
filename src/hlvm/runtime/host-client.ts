@@ -1,5 +1,10 @@
 import { delay } from "@std/async";
 import { http } from "../../common/http-client.ts";
+import {
+  HTTP_STATUS,
+  isClientError,
+  isServerError,
+} from "../../common/http-status.ts";
 import { releaseDirLock, tryAcquireDirLock } from "../../common/dir-lock.ts";
 import { RuntimeError } from "../../common/error.ts";
 import { getErrorMessage } from "../../common/utils.ts";
@@ -18,7 +23,11 @@ import type {
   FinalResponseMeta,
   TraceEvent,
 } from "../agent/orchestrator.ts";
-import { AgentStreamError, type ErrorClass } from "../agent/error-taxonomy.ts";
+import {
+  AgentStreamError,
+  CancellationError,
+  type ErrorClass,
+} from "../agent/error-taxonomy.ts";
 import type { AgentExecutionMode } from "../agent/execution-mode.ts";
 import type { InteractionOption } from "../agent/registry.ts";
 import { formatStructuredResultText } from "../agent/structured-output.ts";
@@ -242,6 +251,8 @@ interface RuntimeHostErrorResponseDetails {
   retryable?: boolean;
   aiReadyReason?: string;
   retryAfterMs?: number;
+  errorClass?: string;
+  hint?: string | null;
 }
 
 function defaultChatStats(): ChatResultStats {
@@ -273,19 +284,19 @@ function getHostErrorCodeFromStatus(
   status: number,
   fallbackMessage: string,
 ): HLVMErrorCode {
-  if (status === 413) {
+  if (status === HTTP_STATUS.PAYLOAD_TOO_LARGE) {
     return HLVMErrorCode.REQUEST_TOO_LARGE;
   }
   if (
-    status === 408 ||
+    status === HTTP_STATUS.REQUEST_TIMEOUT ||
     fallbackMessage.toLowerCase().includes("timeout")
   ) {
     return HLVMErrorCode.TRANSPORT_ERROR;
   }
-  if (status >= 400 && status < 500) {
+  if (isClientError(status)) {
     return HLVMErrorCode.REQUEST_REJECTED;
   }
-  if (status >= 500) {
+  if (isServerError(status)) {
     return HLVMErrorCode.REQUEST_FAILED;
   }
   return HLVMErrorCode.REQUEST_FAILED;
@@ -703,6 +714,8 @@ async function ensureRuntimeHost(): Promise<{
       }
       throw createRuntimeHostError(
         "Failed to start a matching local HLVM runtime host. Restart HLVM and try again.",
+        undefined,
+        HLVMErrorCode.RUNTIME_IDENTITY_MISMATCH,
       );
     }
   }
@@ -978,6 +991,14 @@ async function respondToInteraction(
 function throwRuntimeHostError(
   details: RuntimeHostErrorResponseDetails,
 ): never {
+  if (details.errorClass !== undefined) {
+    throw new AgentStreamError(
+      details.message,
+      details.errorClass as ErrorClass,
+      details.retryable ?? false,
+      details.hint ?? null,
+    );
+  }
   const parsedCode = parseErrorCodeFromMessage(details.message);
   throw createRuntimeHostError(
     details.message,
@@ -992,6 +1013,8 @@ async function readErrorResponse(
   let message = `Runtime host request failed with HTTP ${response.status}`;
   let retryable: boolean | undefined;
   let aiReadyReason: string | undefined;
+  let errorClass: string | undefined;
+  let hint: string | null | undefined;
   try {
     const body = (await response.text()).trim();
     if (body.length > 0) {
@@ -1001,6 +1024,8 @@ async function readErrorResponse(
           message?: unknown;
           retryable?: unknown;
           aiReadyReason?: unknown;
+          errorClass?: unknown;
+          hint?: unknown;
         };
         if (typeof json.error === "string") {
           message = json.error;
@@ -1014,6 +1039,12 @@ async function readErrorResponse(
         }
         if (typeof json.aiReadyReason === "string") {
           aiReadyReason = json.aiReadyReason;
+        }
+        if (typeof json.errorClass === "string") {
+          errorClass = json.errorClass;
+        }
+        if (typeof json.hint === "string" || json.hint === null) {
+          hint = json.hint;
         }
       } catch {
         message = body;
@@ -1029,6 +1060,8 @@ async function readErrorResponse(
     retryable,
     aiReadyReason,
     retryAfterMs: parseRetryAfterMs(response.headers.get("Retry-After")),
+    errorClass,
+    hint,
   };
 }
 
@@ -1316,7 +1349,12 @@ export async function* pullRuntimeModelViaHost(
         const { event: _kind, ...progress } = event;
         yield progress;
       } else if (event.event === "error") {
-        throw createRuntimeHostError(event.message);
+        throw new AgentStreamError(
+          event.message,
+          (event.errorClass ?? "unknown") as ErrorClass,
+          event.retryable ?? false,
+          event.hint ?? null,
+        );
       }
     }
   } finally {
@@ -1736,7 +1774,7 @@ async function runChatViaHostAttempt(
               durationMs: Date.now() - runStartedAt,
             },
           );
-          throw createRuntimeHostError("Runtime host request cancelled.");
+          throw new CancellationError("Runtime host request cancelled.");
         case "plan_review_required":
         case "plan_review_resolved":
           sawPlanReview = true;

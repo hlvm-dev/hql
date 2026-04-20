@@ -40,6 +40,8 @@ import { loadMcpTools } from "../mcp/tools.ts";
 import type { McpLoadResult, McpServerConfig } from "../mcp/types.ts";
 import { type InheritedAgentConfig, runAgent } from "./run-agent.ts";
 import { applyParentPermissions } from "./agent-tool-utils.ts";
+import { TOOL_CATEGORY, ToolError } from "../error-taxonomy.ts";
+import { TOOL_NAMES } from "../tool-names.ts";
 import { insertMessage } from "../../store/conversation-store.ts";
 import { pushSSEEvent } from "../../store/sse-store.ts";
 import {
@@ -357,7 +359,11 @@ const agentToolFn: ToolFunction = async (
   const run_in_background = rawBackground === true || rawBackground === "true";
 
   if (!prompt || typeof prompt !== "string") {
-    throw new Error("Agent tool requires a 'prompt' parameter");
+    throw new ToolError(
+      "Agent tool requires a 'prompt' parameter",
+      TOOL_NAMES.AGENT,
+      TOOL_CATEGORY.VALIDATION,
+    );
   }
 
   // Step 1: Load agent definitions
@@ -371,8 +377,10 @@ const agentToolFn: ToolFunction = async (
 
   if (!selectedAgent) {
     const available = activeAgents.map((a) => a.agentType).join(", ");
-    throw new Error(
+    throw new ToolError(
       `Agent type '${effectiveType}' not found. Available agents: ${available}`,
+      TOOL_NAMES.AGENT,
+      TOOL_CATEGORY.VALIDATION,
     );
   }
 
@@ -380,9 +388,11 @@ const agentToolFn: ToolFunction = async (
   // The LLM function is passed through ToolExecutionOptions
   const llmFunction = options?.llmFunction;
   if (!llmFunction) {
-    throw new Error(
+    throw new ToolError(
       "Agent tool requires llmFunction in ToolExecutionOptions. " +
         "This is an internal error — the orchestrator should provide it.",
+      TOOL_NAMES.AGENT,
+      TOOL_CATEGORY.INTERNAL,
     );
   }
 
@@ -410,13 +420,21 @@ const agentToolFn: ToolFunction = async (
   // Step 4: Create worktree if isolation requested (CC: effectiveIsolation)
   const effectiveIsolation = isolation ?? selectedAgent.isolation;
   if (effectiveIsolation === "worktree" && trimmedCwd) {
-    throw new Error("cwd and isolation='worktree' are mutually exclusive");
+    throw new ToolError(
+      "cwd and isolation='worktree' are mutually exclusive",
+      TOOL_NAMES.AGENT,
+      TOOL_CATEGORY.VALIDATION,
+    );
   }
   if (
     trimmedCwd &&
     !getPlatform().path.isAbsolute(trimmedCwd)
   ) {
-    throw new Error("Agent tool cwd must be an absolute path");
+    throw new ToolError(
+      "Agent tool cwd must be an absolute path",
+      TOOL_NAMES.AGENT,
+      TOOL_CATEGORY.VALIDATION,
+    );
   }
   let worktreeInfo: WorktreeInfo | null = null;
 

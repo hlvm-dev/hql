@@ -16,6 +16,7 @@ import {
 import { RuntimeError } from "../../../common/error.ts";
 import { ProviderErrorCode } from "../../../common/error-codes.ts";
 import { http } from "../../../common/http-client.ts";
+import { isAuthStatus } from "../../../common/http-status.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import type { ModelInfo, ProviderStatus } from "../types.ts";
 import { clearTokenCache, getClaudeCodeToken } from "./auth.ts";
@@ -29,7 +30,7 @@ function oauthHeaders(token: string): Record<string, string> {
 }
 
 function isAuthFailureStatus(status: number): boolean {
-  return status === 401 || status === 403;
+  return isAuthStatus(status);
 }
 
 async function fetchWithOAuthRetry(

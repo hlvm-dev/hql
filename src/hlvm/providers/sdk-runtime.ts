@@ -25,6 +25,12 @@ import { getPlatform } from "../../platform/platform.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
 import {
+  HTTP_STATUS,
+  isAuthStatus,
+  isTransientStatus,
+} from "../../common/http-status.ts";
+import { PROVIDER_IDS, type ProviderId } from "../../common/provider-ids.ts";
+import {
   classifyProviderErrorCode,
   formatProviderFailureMessage,
 } from "./common.ts";
@@ -32,12 +38,7 @@ import {
   isProviderErrorCode as isProviderErrorFromDomain,
   ProviderErrorCode,
 } from "../../common/error-codes.ts";
-export type SdkProviderName =
-  | "openai"
-  | "anthropic"
-  | "google"
-  | "claude-code"
-  | "ollama";
+export type SdkProviderName = ProviderId;
 
 export interface SdkModelSpec {
   providerName: SdkProviderName;
@@ -53,29 +54,29 @@ export interface SdkProviderBundle {
 const OLLAMA_TRANSIENT_RETRY_DELAY_MS = 750;
 
 const SUPPORTED_SDK_PROVIDERS = new Set<SdkProviderName>([
-  "openai",
-  "anthropic",
-  "google",
-  "claude-code",
-  "ollama",
+  PROVIDER_IDS.OPENAI,
+  PROVIDER_IDS.ANTHROPIC,
+  PROVIDER_IDS.GOOGLE,
+  PROVIDER_IDS.CLAUDE_CODE,
+  PROVIDER_IDS.OLLAMA,
 ]);
 
 function sdkRetryAttemptLimit(providerName: SdkProviderName): number {
-  return providerName === "ollama" ? 4 : 2;
+  return providerName === PROVIDER_IDS.OLLAMA ? 4 : 2;
 }
 
 function sdkRetryDelayMs(
   providerName: SdkProviderName,
   attempt: number,
 ): number | undefined {
-  if (providerName !== "ollama") return undefined;
+  if (providerName !== PROVIDER_IDS.OLLAMA) return undefined;
   return OLLAMA_TRANSIENT_RETRY_DELAY_MS * (attempt + 1);
 }
 
 const REQUIRED_API_KEY_ENV_VARS: Partial<Record<SdkProviderName, string>> = {
-  openai: "OPENAI_API_KEY",
-  anthropic: "ANTHROPIC_API_KEY",
-  google: "GOOGLE_API_KEY",
+  [PROVIDER_IDS.OPENAI]: "OPENAI_API_KEY",
+  [PROVIDER_IDS.ANTHROPIC]: "ANTHROPIC_API_KEY",
+  [PROVIDER_IDS.GOOGLE]: "GOOGLE_API_KEY",
 };
 
 function toNonEmptyString(value: unknown): string | undefined {
@@ -269,7 +270,7 @@ export async function maybeHandleSdkAuthError(
   const responseBody = extractResponseBodyText(error);
 
   // Token invalid / expired → clear cache so next attempt re-reads keychain
-  if (status === 401 || status === 403) {
+  if (isAuthStatus(status)) {
     const { clearTokenCache } = await import("./claude-code/auth.ts");
     clearTokenCache();
     return true;
@@ -311,15 +312,10 @@ export async function maybeHandleSdkRecoverableError(
   const status = extractStatusCode(error);
   const message = getErrorMessage(error).toLowerCase();
   const responseBody = extractResponseBodyText(error)?.toLowerCase() ?? "";
-  const transientStatus = status === 404 ||
-    status === 408 ||
+  const transientStatus = status === HTTP_STATUS.NOT_FOUND ||
     status === 409 ||
-    status === 429 ||
-    status === 500 ||
-    status === 502 ||
-    status === 503 ||
-    status === 504;
-  const transientModelWarmup = status === 404 &&
+    isTransientStatus(status);
+  const transientModelWarmup = status === HTTP_STATUS.NOT_FOUND &&
     (
       message.includes("not found") ||
       responseBody.includes("not found") ||

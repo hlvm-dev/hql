@@ -11,6 +11,16 @@
  */
 
 import type { ToolExecutionOptions, ToolMetadata } from "../registry.ts";
+import { TOOL_CATEGORY, ToolError } from "../error-taxonomy.ts";
+import { TOOL_NAMES } from "../tool-names.ts";
+
+function pwError(
+  message: string,
+  category: "validation" | "internal" | "network" = TOOL_CATEGORY.VALIDATION,
+): ToolError {
+  return new ToolError(message, TOOL_NAMES.PLAYWRIGHT, category);
+}
+
 import {
   failTool,
   failToolDetailed,
@@ -221,7 +231,7 @@ function resolveUploadPaths(paths: unknown): string[] {
     .map((value) => resolveHomePath(value.trim()))
     .filter((value) => value.length > 0);
   if (normalized.length === 0) {
-    throw new Error("paths must contain at least one file path");
+    throw pwError("paths must contain at least one file path");
   }
   return normalized;
 }
@@ -241,7 +251,7 @@ function parseSelectValues(args: {
     .map((value) => String(value).trim())
     .filter((value) => value.length > 0);
   if (normalized.length === 0) {
-    throw new Error("value or values is required");
+    throw pwError("value or values is required");
   }
   return normalized;
 }
@@ -255,7 +265,7 @@ async function resolvePlaywrightTarget(
   if (ref) {
     const refMeta = resolveSnapshotRef(ref, toolOptions?.sessionId);
     if (!refMeta) {
-      throw new Error(
+      throw pwError(
         `Invalid or expired snapshot ref: ${ref}. Call pw_snapshot again to refresh refs.`,
       );
     }
@@ -274,7 +284,7 @@ async function resolvePlaywrightTarget(
     ? normalizePlaywrightSelector((args as { selector?: string }).selector ?? "")
     : "";
   if (!selector) {
-    throw new Error("selector or ref is required");
+    throw pwError("selector or ref is required");
   }
   return {
     page,
@@ -385,7 +395,7 @@ function pwTool(
 
 const pwGotoFn = pwTool("Navigation failed", async (args, toolOptions) => {
   const { url } = args as { url: string };
-  if (!url) throw new Error("url is required");
+  if (!url) throw pwError("url is required");
   const page = await getOrCreatePage(toolOptions?.sessionId);
   clearSnapshotRefsForSession(toolOptions?.sessionId);
   const response = await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -408,7 +418,7 @@ const pwClickFn = pwTool("Click failed", async (args, toolOptions) => {
 
 const pwFillFn = pwTool("Fill failed", async (args, toolOptions) => {
   const { value } = args as { value: string };
-  if (value == null) throw new Error("value is required");
+  if (value == null) throw pwError("value is required");
   const target = await resolvePlaywrightTarget(args, toolOptions);
   await target.locator.fill(String(value), { timeout: 10_000 });
   return okTool({
@@ -423,7 +433,7 @@ const pwTypeFn = pwTool("Type failed", async (args, toolOptions) => {
     value: string;
     submit?: boolean;
   };
-  if (value == null) throw new Error("value is required");
+  if (value == null) throw pwError("value is required");
   const target = await resolvePlaywrightTarget(args, toolOptions);
   await target.locator.fill(String(value), { timeout: 10_000 });
   if (submit === true) {
@@ -445,7 +455,7 @@ const pwContentFn = pwTool(
     let text: string;
     if (target) {
       const el = await target.locator.elementHandle();
-      if (!el) throw new Error(`Element not found: ${target.selector}`);
+      if (!el) throw pwError(`Element not found: ${target.selector}`);
       text = (await el.textContent()) ?? "";
     } else {
       text = await page.innerText("body");
@@ -544,7 +554,7 @@ const pwLinksFn = pwTool(
     const page = await getOrCreatePage(toolOptions?.sessionId);
     if (sel) {
       const root = await page.$(sel);
-      if (!root) throw new Error(`Element not found: ${sel}`);
+      if (!root) throw pwError(`Element not found: ${sel}`);
     }
 
     const textFilter = typeof text_contains === "string"
@@ -652,7 +662,7 @@ const pwWaitForFn = pwTool("Wait failed", async (args, toolOptions) => {
     timeout?: number;
   };
   if (!VALID_WAIT_CONDITIONS.has(condition)) {
-    throw new Error(
+    throw pwError(
       `Invalid condition: "${condition}". Must be "networkidle" or "selector".`,
     );
   }
@@ -664,7 +674,7 @@ const pwWaitForFn = pwTool("Wait failed", async (args, toolOptions) => {
       ? normalizePlaywrightSelector(selector)
       : "";
     if (!sel) {
-      throw new Error("selector is required when condition is 'selector'");
+      throw pwError("selector is required when condition is 'selector'");
     }
     await page.waitForSelector(sel, { timeout: ms });
   } else {
@@ -724,7 +734,7 @@ const pwScreenshotFn = pwTool(
 const pwEvaluateFn = pwTool("Evaluate failed", async (args, toolOptions) => {
   const { expression } = args as { expression: string };
   const expr = typeof expression === "string" ? expression.trim() : "";
-  if (!expr) throw new Error("expression is required");
+  if (!expr) throw pwError("expression is required");
   const page = await getOrCreatePage(toolOptions?.sessionId);
   try {
     const result = await page.evaluate(expr);
@@ -733,7 +743,7 @@ const pwEvaluateFn = pwTool("Evaluate failed", async (args, toolOptions) => {
     // Handle non-serializable results (DOM nodes, functions, etc.)
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("serialize") || msg.includes("circular")) {
-      throw new Error(
+      throw pwError(
         `Expression returned a non-serializable value. Wrap in JSON-safe output: ${msg}`,
       );
     }
@@ -811,7 +821,7 @@ const pwDownloadFn = pwTool("Download failed", async (args, toolOptions) => {
     ? null
     : await resolvePlaywrightTarget(args, toolOptions);
   if (!target && !downloadUrl) {
-    throw new Error("ref, selector, or url is required");
+    throw pwError("ref, selector, or url is required");
   }
 
   const page = target?.page ?? await getOrCreatePage(toolOptions?.sessionId);
@@ -929,7 +939,7 @@ const pwTabsFn = pwTool("Tab action failed", async (args, toolOptions) => {
     ? action.trim().toLowerCase()
     : "list";
   if (!VALID_TAB_ACTIONS.has(normalizedAction)) {
-    throw new Error(
+    throw pwError(
       `Invalid action: "${action}". Must be "list", "select", "close", or "new".`,
     );
   }
@@ -945,7 +955,7 @@ const pwTabsFn = pwTool("Tab action failed", async (args, toolOptions) => {
     }
     case "select": {
       if (!Number.isInteger(index)) {
-        throw new Error("index is required for pw_tabs action='select'");
+        throw pwError("index is required for pw_tabs action='select'");
       }
       const page = await selectBrowserTab(Number(index), toolOptions?.sessionId);
       const tabs = await listBrowserTabs(toolOptions?.sessionId);
@@ -960,7 +970,7 @@ const pwTabsFn = pwTool("Tab action failed", async (args, toolOptions) => {
     case "close": {
       const closeIndex = index == null ? undefined : Number(index);
       if (closeIndex != null && !Number.isInteger(closeIndex)) {
-        throw new Error("index must be an integer when provided");
+        throw pwError("index must be an integer when provided");
       }
       const page = await closeBrowserTab(closeIndex, toolOptions?.sessionId);
       const tabs = await listBrowserTabs(toolOptions?.sessionId);
@@ -986,7 +996,7 @@ const pwTabsFn = pwTool("Tab action failed", async (args, toolOptions) => {
       });
     }
     default:
-      throw new Error(`Unsupported tab action: ${normalizedAction}`);
+      throw pwError(`Unsupported tab action: ${normalizedAction}`);
   }
 });
 

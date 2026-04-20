@@ -65,7 +65,15 @@ export interface UseConversationResult {
     options?: { turnId?: string },
   ) => void;
   addHqlEval: (input: string, result: EvalResult) => void;
-  addError: (text: string, options?: { turnId?: string }) => void;
+  addError: (
+    text: string,
+    options?: {
+      turnId?: string;
+      errorClass?: string;
+      hint?: string | null;
+      retryable?: boolean;
+    },
+  ) => void;
   addInfo: (
     text: string,
     options?: { isTransient?: boolean; turnId?: string },
@@ -160,11 +168,22 @@ export function useConversation(): UseConversationResult {
   }, []);
 
   const addError = useCallback(
-    (text: string, options?: { turnId?: string }) => {
+    (
+      text: string,
+      options?: {
+        turnId?: string;
+        errorClass?: string;
+        hint?: string | null;
+        retryable?: boolean;
+      },
+    ) => {
       updateState(stateRef, setState, {
         type: "error",
         text,
         turnId: options?.turnId,
+        errorClass: options?.errorClass,
+        hint: options?.hint,
+        retryable: options?.retryable,
       });
     },
     [],

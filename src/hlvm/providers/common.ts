@@ -8,6 +8,13 @@
 import { RuntimeError } from "../../common/error.ts";
 import { ProviderErrorCode, getErrorFixes } from "../../common/error-codes.ts";
 import { http } from "../../common/http-client.ts";
+import {
+  HTTP_STATUS,
+  isAuthStatus,
+  isClientError,
+  isRateLimited,
+  isServerError,
+} from "../../common/http-status.ts";
 import { escapeRegExp, getErrorMessage, truncate } from "../../common/utils.ts";
 import type { ProviderStatus } from "./types.ts";
 
@@ -254,28 +261,26 @@ export function classifyProviderErrorCode(
   message: string,
 ): ProviderErrorCode {
   const lower = message.toLowerCase();
-  if (status === 401 || status === 403) {
+  if (isAuthStatus(status)) {
     return ProviderErrorCode.AUTH_FAILED;
   }
-  if (lower.includes("rate limit")) {
+  if (lower.includes("rate limit") || isRateLimited(status)) {
     return ProviderErrorCode.RATE_LIMITED;
   }
-  if (lower.includes("payload too large") || lower.includes("request too large")) {
+  if (
+    lower.includes("payload too large") ||
+    lower.includes("request too large") ||
+    status === HTTP_STATUS.PAYLOAD_TOO_LARGE
+  ) {
     return ProviderErrorCode.REQUEST_TOO_LARGE;
   }
-  if (status === 413) {
-    return ProviderErrorCode.REQUEST_TOO_LARGE;
-  }
-  if (status === 408 || lower.includes("timeout")) {
+  if (status === HTTP_STATUS.REQUEST_TIMEOUT || lower.includes("timeout")) {
     return ProviderErrorCode.REQUEST_TIMEOUT;
   }
-  if (status === 429) {
-    return ProviderErrorCode.RATE_LIMITED;
-  }
-  if (status >= 500) {
+  if (isServerError(status)) {
     return ProviderErrorCode.SERVICE_UNAVAILABLE;
   }
-  if (status >= 400) {
+  if (isClientError(status)) {
     return ProviderErrorCode.REQUEST_REJECTED;
   }
   return ProviderErrorCode.REQUEST_FAILED;

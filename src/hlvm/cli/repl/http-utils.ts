@@ -21,6 +21,36 @@ export function jsonError(
   return Response.json({ ...details, error: message }, { status });
 }
 
+export function jsonErrorFromDescribed(
+  described: {
+    message: string;
+    class: string;
+    retryable: boolean;
+    hint: string | null;
+  },
+  status: number,
+  extra: Record<string, unknown> = {},
+): Response {
+  return Response.json({
+    ...extra,
+    error: described.message,
+    errorClass: described.class,
+    retryable: described.retryable,
+    hint: described.hint,
+  }, { status });
+}
+
+export async function jsonErrorFromUnknown(
+  error: unknown,
+  status: number,
+): Promise<Response> {
+  const { describeErrorForDisplay } = await import(
+    "../../agent/error-taxonomy.ts"
+  );
+  const described = await describeErrorForDisplay(error);
+  return jsonErrorFromDescribed(described, status);
+}
+
 /** Check if origin is a localhost variant (http://localhost:* or http://127.0.0.1:*) */
 function isLocalhostOrigin(origin: string): boolean {
   if (!origin) return false;

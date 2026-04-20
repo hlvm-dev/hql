@@ -28,7 +28,11 @@ import {
   type RuntimeMcpRemoveRequest,
   type RuntimeMcpRemoveResponse,
 } from "../../../runtime/mcp-protocol.ts";
-import { jsonError, parseJsonBody } from "../http-utils.ts";
+import {
+  jsonError,
+  jsonErrorFromUnknown,
+  parseJsonBody,
+} from "../http-utils.ts";
 
 function getErrorStatus(error: unknown): number {
   return error instanceof ValidationError ? 400 : 500;
@@ -163,7 +167,7 @@ export async function handleAddMcpServer(req: Request): Promise<Response> {
     }
     return Response.json({ ok: true });
   } catch (error) {
-    return jsonError(getErrorMessage(error), getErrorStatus(error));
+    return await jsonErrorFromUnknown(error, getErrorStatus(error));
   }
 }
 
@@ -188,7 +192,7 @@ export async function handleRemoveMcpServer(req: Request): Promise<Response> {
     };
     return Response.json(payload);
   } catch (error) {
-    return jsonError(getErrorMessage(error), getErrorStatus(error));
+    return await jsonErrorFromUnknown(error, getErrorStatus(error));
   }
 }
 
@@ -227,7 +231,7 @@ export async function handleLoginMcpServer(req: Request): Promise<Response> {
     };
     return Response.json(payload);
   } catch (error) {
-    return jsonError(getErrorMessage(error), getErrorStatus(error));
+    return await jsonErrorFromUnknown(error, getErrorStatus(error));
   }
 }
 
@@ -263,6 +267,6 @@ export async function handleLogoutMcpServer(req: Request): Promise<Response> {
     };
     return Response.json(payload);
   } catch (error) {
-    return jsonError(getErrorMessage(error), getErrorStatus(error));
+    return await jsonErrorFromUnknown(error, getErrorStatus(error));
   }
 }

@@ -42,6 +42,8 @@ import {
 } from "../../../common/limits.ts";
 import { throwIfAborted } from "../../../common/timeout-utils.ts";
 import { failTool, formatToolError, okTool } from "../tool-results.ts";
+import { TOOL_CATEGORY, ToolError } from "../error-taxonomy.ts";
+import { TOOL_NAMES } from "../tool-names.ts";
 import {
   isObjectValue,
   TEXT_ENCODER,
@@ -921,16 +923,25 @@ async function resolveTransferPaths(
   actionVerb: "move" | "copy",
 ): Promise<ResolvedTransferPaths> {
   const platform = getPlatform();
+  const toolName = `${actionVerb}_path`;
   if (
     typeof args.sourcePath !== "string" || args.sourcePath.trim().length === 0
   ) {
-    throw new Error("'sourcePath' must be a non-empty string");
+    throw new ToolError(
+      "'sourcePath' must be a non-empty string",
+      toolName,
+      TOOL_CATEGORY.VALIDATION,
+    );
   }
   if (
     typeof args.destinationPath !== "string" ||
     args.destinationPath.trim().length === 0
   ) {
-    throw new Error("'destinationPath' must be a non-empty string");
+    throw new ToolError(
+      "'destinationPath' must be a non-empty string",
+      toolName,
+      TOOL_CATEGORY.VALIDATION,
+    );
   }
 
   const sourcePath = await resolveOpenPathAlias(
@@ -946,13 +957,17 @@ async function resolveTransferPaths(
 
   const sourceInfo = await platform.fs.lstat(sourcePath);
   if (sourceInfo.isSymlink) {
-    throw new Error(
+    throw new ToolError(
       `Refusing to ${actionVerb} symlink path: ${args.sourcePath}`,
+      toolName,
+      TOOL_CATEGORY.VALIDATION,
     );
   }
   if (!sourceInfo.isFile && !sourceInfo.isDirectory) {
-    throw new Error(
+    throw new ToolError(
       `Only files and directories can be ${actionVerb}d: ${args.sourcePath}`,
+      toolName,
+      TOOL_CATEGORY.VALIDATION,
     );
   }
 
@@ -960,31 +975,43 @@ async function resolveTransferPaths(
     platform.path.normalize(sourcePath) ===
       platform.path.normalize(destinationPath)
   ) {
-    throw new Error("sourcePath and destinationPath must be different");
+    throw new ToolError(
+      "sourcePath and destinationPath must be different",
+      toolName,
+      TOOL_CATEGORY.VALIDATION,
+    );
   }
 
   if (sourceInfo.isDirectory && isPathWithinRoot(destinationPath, sourcePath)) {
-    throw new Error(
+    throw new ToolError(
       `destinationPath must not be inside source directory: ${args.sourcePath}`,
+      toolName,
+      TOOL_CATEGORY.VALIDATION,
     );
   }
 
   if (await platform.fs.exists(destinationPath)) {
-    throw new Error(
+    throw new ToolError(
       `Destination already exists: ${args.destinationPath}`,
+      toolName,
+      TOOL_CATEGORY.FILE,
     );
   }
 
   const destinationParent = platform.path.dirname(destinationPath);
   if (!(await platform.fs.exists(destinationParent))) {
-    throw new Error(
+    throw new ToolError(
       `Destination parent directory does not exist: ${destinationParent}`,
+      toolName,
+      TOOL_CATEGORY.FILE,
     );
   }
   const parentInfo = await platform.fs.stat(destinationParent);
   if (!parentInfo.isDirectory) {
-    throw new Error(
+    throw new ToolError(
       `Destination parent is not a directory: ${destinationParent}`,
+      toolName,
+      TOOL_CATEGORY.FILE,
     );
   }
 
@@ -1166,9 +1193,10 @@ async function revealResolvedPath(path: string): Promise<string | undefined> {
     });
     if (!result.success) {
       const output = formatCommandOutput(result, decoder);
-      throw new Error(
-        output ||
-          `open -R failed with code ${result.code}`,
+      throw new ToolError(
+        output || `open -R failed with code ${result.code}`,
+        TOOL_NAMES.REVEAL_PATH,
+        TOOL_CATEGORY.INTERNAL,
       );
     }
     return undefined;
@@ -1182,9 +1210,10 @@ async function revealResolvedPath(path: string): Promise<string | undefined> {
     // explorer.exe frequently returns a non-zero exit code even when the
     // selection succeeds, so treat quiet launches as success.
     if (!result.success && output !== "") {
-      throw new Error(
-        output ||
-          `explorer.exe failed with code ${result.code}`,
+      throw new ToolError(
+        output || `explorer.exe failed with code ${result.code}`,
+        TOOL_NAMES.REVEAL_PATH,
+        TOOL_CATEGORY.INTERNAL,
       );
     }
     return undefined;

@@ -28,7 +28,11 @@ import { pushSSEEvent } from "../../../store/sse-store.ts";
 import {
   ensureInitialModelConfigured,
 } from "../../../../common/ai-default-model.ts";
-import { AUTO_MODEL_ID, DEFAULT_MODEL_ID } from "../../../../common/config/types.ts";
+import {
+  AUTO_MODEL_ID,
+  DEFAULT_MODEL_ID,
+  DEFAULT_OLLAMA_HOST,
+} from "../../../../common/config/types.ts";
 import { describeErrorForDisplay } from "../../../agent/error-taxonomy.ts";
 import { RuntimeError } from "../../../../common/error.ts";
 import {
@@ -133,7 +137,7 @@ function hasDeprecatedSessionIdField(body: ChatRequest): boolean {
 
 function isManagedLocalAiEndpointFailure(message: string): boolean {
   const normalized = message.toLowerCase();
-  return normalized.includes("127.0.0.1:11439") ||
+  return normalized.includes(DEFAULT_OLLAMA_HOST) ||
     normalized.includes("connection refused") ||
     normalized.includes("tcp connect error") ||
     normalized.includes("econnrefused");
@@ -485,8 +489,12 @@ export async function handleChat(req: Request): Promise<Response> {
       resolvedModel = preResolvedChatModel.effectiveModel;
       pendingStreamEvents.push({
         event: "trace",
-        kind: "auto_select",
-        detail: preResolvedChatModel.autoSelectionReason,
+        trace: {
+          type: "auto_select",
+          model: resolvedModel ?? AUTO_MODEL_ID,
+          fallbacks: preResolvedChatModel.scoredFallbacks,
+          reason: preResolvedChatModel.autoSelectionReason,
+        },
       });
     }
   }
@@ -910,8 +918,10 @@ export async function handleChat(req: Request): Promise<Response> {
             }
             emit({
               event: "trace",
-              kind: "eval_log",
-              detail,
+              trace: {
+                type: "eval_log",
+                detail,
+              },
             });
           }
 
@@ -972,10 +982,12 @@ export async function handleChat(req: Request): Promise<Response> {
               if (classified.class === "permanent") {
                 emit({
                   event: "trace",
-                  kind: "agent_downgrade",
-                  detail: `Agent mode failed (${
-                    classified.message.slice(0, 80)
-                  }), falling back to chat mode`,
+                  trace: {
+                    type: "agent_downgrade",
+                    detail: `Agent mode failed (${
+                      classified.message.slice(0, 80)
+                    }), falling back to chat mode`,
+                  },
                 });
                 await handleChatMode(
                   body,

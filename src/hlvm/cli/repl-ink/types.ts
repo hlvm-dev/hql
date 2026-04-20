@@ -128,6 +128,9 @@ export interface ErrorItem {
   id: string;
   text: string;
   turnId?: string;
+  errorClass?: string;
+  hint?: string | null;
+  retryable?: boolean;
 }
 
 /** Informational message */

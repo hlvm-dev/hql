@@ -28,6 +28,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { getAgentLogger } from "../logger.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
+import { TOOL_CATEGORY, ToolError } from "../error-taxonomy.ts";
+import { TOOL_NAMES } from "../tool-names.ts";
 import { http } from "../../../common/http-client.ts";
 import { sleep } from "../../../common/timeout-utils.ts";
 import {
@@ -243,8 +245,10 @@ export class SdkMcpClient {
       ? {}
       : {
         openBrowser: async () => {
-          throw new Error(
+          throw new ToolError(
             `Interactive MCP OAuth disabled while inspecting '${this.serverConfig.name}'`,
+            TOOL_NAMES.MCP,
+            TOOL_CATEGORY.PERMISSION,
           );
         },
       };
@@ -490,8 +494,10 @@ export class SdkMcpClient {
     signal?: AbortSignal,
   ): Promise<T> {
     if (this.connectionState.terminalErrorCount >= 3) {
-      throw new Error(
+      throw new ToolError(
         `MCP terminal error budget exceeded for '${this.serverConfig.name}'`,
+        TOOL_NAMES.MCP,
+        TOOL_CATEGORY.INTERNAL,
       );
     }
     try {

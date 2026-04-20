@@ -4,6 +4,10 @@
 
 import { Database } from "@db/sqlite";
 import { ensureMemoryDirsSync, getMemoryDbPath } from "../../common/paths.ts";
+import {
+  SQLITE_PRAGMA_BUSY_TIMEOUT,
+  SQLITE_PRAGMA_WAL,
+} from "../../common/db-constants.ts";
 
 const DDL = `
   CREATE TABLE IF NOT EXISTS facts (
@@ -90,8 +94,8 @@ export function getFactDb(): Database {
   if (!_db) {
     ensureMemoryDirsSync();
     _db = new Database(getMemoryDbPath());
-    _db.exec("PRAGMA journal_mode = WAL");
-    _db.exec("PRAGMA busy_timeout = 5000");
+    _db.exec(SQLITE_PRAGMA_WAL);
+    _db.exec(SQLITE_PRAGMA_BUSY_TIMEOUT);
     _db.exec(DDL);
     migrateFactDb(_db);
     // Ensure WAL checkpoint and connection cleanup on process exit.

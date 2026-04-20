@@ -7,7 +7,11 @@ import {
 } from "../../../attachments/service.ts";
 import { AttachmentServiceError } from "../../../attachments/types.ts";
 import type { RouteParams } from "../http-router.ts";
-import { jsonError, parseJsonBody } from "../http-utils.ts";
+import {
+  jsonError,
+  jsonErrorFromUnknown,
+  parseJsonBody,
+} from "../http-utils.ts";
 
 function parseOptionalInteger(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -148,7 +152,7 @@ export async function handleRegisterAttachment(
     if (error instanceof AttachmentServiceError) {
       return toAttachmentErrorResponse(error);
     }
-    return jsonError(getErrorMessage(error), 500);
+    return await jsonErrorFromUnknown(error, 500);
   }
 }
 
@@ -222,7 +226,7 @@ export async function handleUploadAttachment(
     if (error instanceof AttachmentServiceError) {
       return toAttachmentErrorResponse(error);
     }
-    return jsonError(getErrorMessage(error), 500);
+    return await jsonErrorFromUnknown(error, 500);
   }
 }
 
@@ -314,6 +318,6 @@ export async function handleGetAttachmentContent(
     if (error instanceof AttachmentServiceError) {
       return toAttachmentErrorResponse(error);
     }
-    return jsonError(getErrorMessage(error), 500);
+    return await jsonErrorFromUnknown(error, 500);
   }
 }

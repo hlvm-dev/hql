@@ -13,7 +13,12 @@ import {
 import { TOOL_RESULT_LIMITS } from "./constants.ts";
 import { isObjectValue, truncate } from "../../common/utils.ts";
 import { safeStringify } from "../../common/safe-stringify.ts";
-import { getRecoveryHint } from "./error-taxonomy.ts";
+import {
+  classifyFromPlatformError,
+  getRecoveryHint,
+  getRecoveryHintFromError,
+  ToolError,
+} from "./error-taxonomy.ts";
 import type { ToolCall } from "./tool-call.ts";
 import type {
   OrchestratorConfig,
@@ -861,6 +866,48 @@ export function generateArgsSummary(
   }
 }
 
+function deriveToolRecovery(
+  normalizedMessage: string,
+  originalError: unknown,
+): { hint: string | null; class: string; retryable: boolean } {
+  if (originalError instanceof ToolError) {
+    const classMap = {
+      validation: { class: "permanent", retryable: false },
+      file: { class: "permanent", retryable: false },
+      network: { class: "transient", retryable: true },
+      permission: { class: "permanent", retryable: false },
+      schema: { class: "permanent", retryable: false },
+      timeout: { class: "timeout", retryable: true },
+      internal: { class: "unknown", retryable: false },
+    }[originalError.category];
+    return {
+      hint: originalError.toolHint,
+      class: classMap.class,
+      retryable: classMap.retryable,
+    };
+  }
+
+  const platform = originalError !== undefined
+    ? classifyFromPlatformError(originalError)
+    : null;
+  if (platform) {
+    return {
+      hint: platform.hint,
+      class: platform.class,
+      retryable: platform.retryable,
+    };
+  }
+
+  const hint = originalError !== undefined
+    ? getRecoveryHintFromError(originalError)
+    : getRecoveryHint(normalizedMessage);
+  return {
+    hint,
+    class: "permanent",
+    retryable: false,
+  };
+}
+
 export function buildToolErrorResult(
   toolName: string,
   error: string,
@@ -868,6 +915,7 @@ export function buildToolErrorResult(
   config: OrchestratorConfig,
   toolCallId?: string,
   failure?: Partial<ToolFailureMetadata>,
+  originalError?: unknown,
 ): ToolExecutionResult {
   const normalizedError = normalizeToolFailureText({ message: error });
   const normalizedFailure = buildToolFailureMetadata(normalizedError, failure);
@@ -877,6 +925,7 @@ export function buildToolErrorResult(
     toolName,
     config.toolOwnerId,
   );
+  const recovery = deriveToolRecovery(normalizedError, originalError);
   const result: ToolExecutionResult = {
     success: false,
     error: normalizedError,
@@ -911,6 +960,9 @@ export function buildToolErrorResult(
     durationMs: Date.now() - startedAt,
     argsSummary: "",
     meta,
+    hint: recovery.hint,
+    errorClass: recovery.class,
+    retryable: recovery.retryable,
   });
 
   return result;

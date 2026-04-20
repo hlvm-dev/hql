@@ -58,6 +58,7 @@ import {
 import { drainRunLoop } from "./drain-run-loop.ts";
 import { notifyExpectedEscape } from "./esc-hotkey.ts";
 import { sleep } from "../../../common/timeout-utils.ts";
+import { ToolError } from "../error-taxonomy.ts";
 
 // ── Helpers (CC originals) ───────────────────────────────────────────────
 
@@ -149,7 +150,11 @@ async function readClipboardViaPbpaste(): Promise<string> {
     useCwd: false,
   });
   if (code !== 0) {
-    throw new Error(`pbpaste exited with code ${code}`);
+    throw new ToolError(
+      `pbpaste exited with code ${code}`,
+      "computer_use",
+      "internal",
+    );
   }
   return stdout;
 }
@@ -160,7 +165,11 @@ async function writeClipboardViaPbcopy(text: string): Promise<void> {
     useCwd: false,
   });
   if (code !== 0) {
-    throw new Error(`pbcopy exited with code ${code}`);
+    throw new ToolError(
+      `pbcopy exited with code ${code}`,
+      "computer_use",
+      "internal",
+    );
   }
 }
 
@@ -256,7 +265,11 @@ async function typeViaClipboard(
   try {
     await writeClipboardViaPbcopy(text);
     if ((await readClipboardViaPbpaste()) !== text) {
-      throw new Error("Clipboard write did not round-trip.");
+      throw new ToolError(
+        "Clipboard write did not round-trip.",
+        "computer_use",
+        "internal",
+      );
     }
     await input.keys(["command", "v"]);
     await sleep(100);
@@ -320,8 +333,10 @@ export function createCliExecutor(opts: {
   getHideBeforeActionEnabled: () => boolean;
 }): ComputerExecutor {
   if (getPlatformOs() !== "darwin") {
-    throw new Error(
+    throw new ToolError(
       `createCliExecutor called on ${getPlatformOs()}. Computer control is macOS-only.`,
+      "computer_use",
+      "internal",
     );
   }
 
@@ -590,7 +605,11 @@ export function createCliExecutor(opts: {
       const input = requireComputerUseInput();
       const parts = keySequence.split("+").filter((p) => p.length > 0);
       if (parts.length === 0) {
-        throw new Error("Empty key sequence");
+        throw new ToolError(
+          "Empty key sequence",
+          "computer_use",
+          "validation",
+        );
       }
       const isEsc = isBareEscape(parts);
       const n = repeat ?? 1;
