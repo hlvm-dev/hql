@@ -90,3 +90,14 @@ Deno.test("active conversation: stateless explicit session IDs do not overwrite 
     assertEquals(getHostStateValue(ACTIVE_SESSION_KEY), activeSessionId);
   });
 });
+
+Deno.test("active conversation: reserved channel sessions never become the durable active binding", async () => {
+  await withDb(() => {
+    const activeSessionId = resolveConversationSessionId("visible-session");
+    const channelSessionId = resolveConversationSessionId("channel:telegram:123456789");
+
+    assertEquals(channelSessionId, "channel:telegram:123456789");
+    assertEquals(getActiveConversationSessionId(), activeSessionId);
+    assertEquals(getHostStateValue(ACTIVE_SESSION_KEY), activeSessionId);
+  });
+});

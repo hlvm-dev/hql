@@ -5,8 +5,13 @@ import {
 } from "jsr:@std/assert";
 import { http } from "../../../src/common/http-client.ts";
 import {
+  resetHlvmDirCacheForTests,
+  setHlvmDirForTests,
+} from "../../../src/common/paths.ts";
+import {
   aiEngine,
   isCompatibleAIRunning,
+  shutdownManagedAIRuntime,
 } from "../../../src/hlvm/runtime/ai-runtime.ts";
 import { LOCAL_FALLBACK_MODEL } from "../../../src/hlvm/runtime/bootstrap-manifest.ts";
 import { getPlatform, setPlatform } from "../../../src/platform/platform.ts";
@@ -202,5 +207,82 @@ Deno.test("aiEngine.getEnginePath fails closed when the embedded engine is unava
     );
   } finally {
     setPlatform(originalPlatform);
+  }
+});
+
+Deno.test("shutdownManagedAIRuntime terminates the managed listener and orphaned runners", async () => {
+  const originalPlatform = getPlatform();
+  const originalFetchRaw = http.fetchRaw;
+  const runtimeRoot = "/tmp/hlvm-ai-runtime-test/.runtime";
+  const alivePids = new Set(["321", "654"]);
+
+  setHlvmDirForTests("/tmp/hlvm-ai-runtime-test");
+  (http as { fetchRaw: typeof http.fetchRaw }).fetchRaw = () =>
+    Promise.reject(new Error("offline"));
+
+  setPlatform({
+    ...originalPlatform,
+    process: {
+      ...originalPlatform.process,
+      pid: () => 999,
+    },
+    command: {
+      ...originalPlatform.command,
+      output: async ({ cmd }) => {
+        if (cmd[0] === "lsof") {
+          return {
+            code: 0,
+            success: true,
+            stdout: new TextEncoder().encode(alivePids.has("321") ? "321\n" : ""),
+            stderr: new Uint8Array(),
+          };
+        }
+        if (cmd[0] === "kill") {
+          const pid = cmd.at(-1) ?? "";
+          alivePids.delete(pid);
+          return {
+            code: 0,
+            success: true,
+            stdout: new Uint8Array(),
+            stderr: new Uint8Array(),
+          };
+        }
+        if (cmd[0] === "ps" && cmd[1] === "-axo") {
+          return {
+            code: 0,
+            success: true,
+            stdout: new TextEncoder().encode(
+              [
+                `321 ${runtimeRoot}/engine/ollama serve`,
+                `654 ${runtimeRoot}/engine/ollama runner --ollama-engine --model ${runtimeRoot}/models/blobs/sha256-test --port 60000`,
+              ].join("\n"),
+            ),
+            stderr: new Uint8Array(),
+          };
+        }
+        if (cmd[0] === "ps" && cmd[1] === "-p") {
+          const pid = cmd[2];
+          if (alivePids.has(pid)) {
+            return {
+              code: 0,
+              success: true,
+              stdout: new TextEncoder().encode(`${pid}\n`),
+              stderr: new Uint8Array(),
+            };
+          }
+          throw new Error("process not found");
+        }
+        throw new Error(`Unexpected command: ${cmd.join(" ")}`);
+      },
+    },
+  });
+
+  try {
+    await shutdownManagedAIRuntime();
+    assertEquals([...alivePids].length, 0);
+  } finally {
+    setPlatform(originalPlatform);
+    (http as { fetchRaw: typeof http.fetchRaw }).fetchRaw = originalFetchRaw;
+    resetHlvmDirCacheForTests();
   }
 });

@@ -115,6 +115,11 @@ not own port selection, host reuse, or host reclamation behavior.
 That keeps GUI, CLI, and future shells aligned around one runtime instead of
 duplicating agent logic per surface.
 
+Messaging reachability follows this same split: shells own onboarding and
+presentation, the runtime host exposes status/protocol, and the core engine
+handles message execution. See [docs/vision/messaging-channels.md](./vision/messaging-channels.md)
+as the canonical spec.
+
 ---
 
 ## Process Lifecycle

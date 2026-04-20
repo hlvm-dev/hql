@@ -599,15 +599,22 @@ google/gemini-2.0-flash    # Google
 
 Supported user-facing environment variables:
 
-| Variable               | Description                                         |
-| ---------------------- | --------------------------------------------------- |
-| `HLVM_DIR`             | Override HLVM config directory (default: `~/.hlvm`) |
-| `HLVM_FORCE_SETUP`     | Force first-run setup                               |
-| `HLVM_REPL_PORT`       | Override REPL server port                           |
-| `HLVM_NO_UPDATE_CHECK` | Disable the startup update check                    |
+| Variable               | Description                                |
+| ---------------------- | ------------------------------------------ |
+| `HLVM_FORCE_SETUP`     | Force first-run setup                      |
+| `HLVM_NO_UPDATE_CHECK` | Disable the startup update check           |
 
-Internal test and diagnostics hooks exist, but they are not part of the stable
-CLI surface.
+HLVM's state lives at `~/.hlvm/` — this is fixed and not configurable.
+HLVM runs as a single user-level daemon, shared by the CLI, the macOS
+GUI, and any messaging-channel receivers; there is no per-directory
+isolation at the user contract. Internal test and diagnostics hooks
+exist, but they are not part of the stable CLI surface.
+
+Internal-only runtime isolation hook:
+
+| Variable         | Description |
+| ---------------- | ----------- |
+| `HLVM_REPL_PORT` | Override the runtime-host port for explicit dev/test isolation only |
 
 ---
 

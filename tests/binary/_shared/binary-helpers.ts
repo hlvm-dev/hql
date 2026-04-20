@@ -57,7 +57,8 @@ export interface CommandOptions {
 export function getBinaryTestEnv(overrides: Record<string, string> = {}): Record<string, string> {
   return {
     ...platform.env.toObject(),
-    HLVM_DIR: BINARY_TEST_HLVM_DIR,
+    HLVM_TEST_STATE_ROOT: BINARY_TEST_HLVM_DIR,
+    HLVM_ALLOW_TEST_STATE_ROOT: "1",
     HLVM_DISABLE_AI_AUTOSTART: "1",
     ...overrides,
   };

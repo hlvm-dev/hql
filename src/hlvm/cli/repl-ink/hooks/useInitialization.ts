@@ -173,6 +173,34 @@ export function useInitialization(state: ReplState): InitializationState {
   );
 
   useEffect(() => {
+    let source: EventSource | null = null;
+    let cancelled = false;
+    (async () => {
+      const health = await getRuntimeHostHealth().catch(() => null);
+      if (cancelled) return;
+      const token = health?.authToken;
+      if (!token) return;
+      const baseUrl = getHlvmRuntimeBaseUrl();
+      try {
+        source = new EventSource(
+          `${baseUrl}/api/models/stream?auth=${encodeURIComponent(token)}`,
+        );
+        source.addEventListener("models_updated", () => {
+          refreshAiReadiness(undefined, { force: true }).catch(() => {});
+        });
+        source.onerror = () => { /* best-effort; serve restarts reconnect */ };
+      } catch {
+        // EventSource unavailable or URL unreachable — existing refresh
+        // triggers (turn completion, model switch) still run.
+      }
+    })();
+    return () => {
+      cancelled = true;
+      source?.close();
+    };
+  }, [refreshAiReadiness]);
+
+  useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
 

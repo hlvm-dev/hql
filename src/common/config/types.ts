@@ -141,6 +141,31 @@ export interface ToolsConfig {
   };
 }
 
+export type ChannelTransportMode = "direct" | "local" | "relay";
+export const CHANNEL_TRANSPORT_MODES: ChannelTransportMode[] = [
+  "direct",
+  "local",
+  "relay",
+];
+
+export interface ChannelTransportConfig {
+  mode?: ChannelTransportMode;
+  deviceId?: string;
+  relayUrl?: string;
+  token?: string;
+  cursor?: number;
+  [key: string]: unknown;
+}
+
+export interface ChannelConfig {
+  enabled?: boolean;
+  allowedIds?: string[];
+  transport?: ChannelTransportConfig;
+  [key: string]: unknown;
+}
+
+export type ChannelsConfig = Record<string, ChannelConfig>;
+
 export interface HlvmConfig {
   version: number;
   model: string; // "provider/model" format (e.g., "ollama/llama3.2"). Models with ":agent" suffix use Claude Code full agent mode.
@@ -164,6 +189,7 @@ export interface HlvmConfig {
     localOnly?: boolean;
     noUpload?: boolean;
   };
+  channels?: ChannelsConfig; // Messaging reachability surfaces keyed by platform name
 }
 
 // ============================================================
@@ -215,6 +241,7 @@ export const DEFAULT_CONFIG: HlvmConfig = {
   maxTokens: 4096,
   theme: "sicp",
   tools: createDefaultToolsConfig(),
+  channels: {},
 };
 
 // ============================================================
@@ -238,8 +265,81 @@ export const CONFIG_KEYS = [
   "chatMaxReferencesLocal",
   "chatMaxReferencesCloud",
   "autoSelect",
+  "channels",
 ] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validateChannelTransportConfig(value: unknown): ValidationResult {
+  if (!isPlainObject(value)) {
+    return { valid: false, error: "channels.*.transport must be an object" };
+  }
+  if (
+    value.mode !== undefined &&
+    !CHANNEL_TRANSPORT_MODES.includes(value.mode as ChannelTransportMode)
+  ) {
+    return {
+      valid: false,
+      error: `channels.*.transport.mode must be one of: ${
+        CHANNEL_TRANSPORT_MODES.join(", ")
+      }`,
+    };
+  }
+  if (value.deviceId !== undefined && typeof value.deviceId !== "string") {
+    return { valid: false, error: "channels.*.transport.deviceId must be a string" };
+  }
+  if (value.relayUrl !== undefined && typeof value.relayUrl !== "string") {
+    return { valid: false, error: "channels.*.transport.relayUrl must be a string" };
+  }
+  if (value.token !== undefined && typeof value.token !== "string") {
+    return { valid: false, error: "channels.*.transport.token must be a string" };
+  }
+  if (
+    value.cursor !== undefined &&
+    (typeof value.cursor !== "number" || !Number.isInteger(value.cursor) ||
+      value.cursor < 0)
+  ) {
+    return {
+      valid: false,
+      error: "channels.*.transport.cursor must be a non-negative integer",
+    };
+  }
+  return { valid: true };
+}
+
+function validateChannelsConfig(value: unknown): ValidationResult {
+  if (!isPlainObject(value)) {
+    return { valid: false, error: "channels must be an object" };
+  }
+  for (const channelValue of Object.values(value)) {
+    if (!isPlainObject(channelValue)) {
+      return { valid: false, error: "channels.* must be an object" };
+    }
+    if (
+      channelValue.enabled !== undefined && typeof channelValue.enabled !== "boolean"
+    ) {
+      return { valid: false, error: "channels.*.enabled must be a boolean" };
+    }
+    if (
+      channelValue.allowedIds !== undefined &&
+      (!Array.isArray(channelValue.allowedIds) ||
+        !channelValue.allowedIds.every((entry) => typeof entry === "string"))
+    ) {
+      return {
+        valid: false,
+        error: "channels.*.allowedIds must be an array of strings",
+      };
+    }
+    if (channelValue.transport !== undefined) {
+      const result = validateChannelTransportConfig(channelValue.transport);
+      if (!result.valid) return result;
+    }
+  }
+  return { valid: true };
+}
 
 // ============================================================
 // Validation
@@ -426,6 +526,10 @@ export function validateValue(
         return { valid: false, error: "autoSelect must be an object" };
       }
       return { valid: true };
+
+    case "channels":
+      if (value === undefined) return { valid: true };
+      return validateChannelsConfig(value);
 
     default:
       return { valid: false, error: `Unknown config key: ${key}` };

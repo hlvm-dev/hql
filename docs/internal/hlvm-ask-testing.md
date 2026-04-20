@@ -7,21 +7,12 @@ debugging connectivity issues that have a simple fix.
 ## TL;DR
 
 ```bash
-# 1. Ensure exactly ONE serve process is running
-ps aux | grep 'hlvm serve' | grep -v grep
-# If zero or multiple: kill all, start fresh
-kill $(lsof -ti:11435) $(lsof -ti:11439) 2>/dev/null
-./hlvm serve &
-
-# 2. Wait for AI runtime
-for i in $(seq 1 30); do
-  curl -s http://127.0.0.1:11435/health | grep -q '"aiReady":true' && break
-  sleep 2
-done
-
-# 3. Test
+# 1. Production path: use the compiled binary. It owns the shared daemon.
 ./hlvm ask --print --permission-mode dontAsk "your prompt"                                    # gemma4 (default)
 ./hlvm ask --model claude-code/claude-haiku-4-5-20251001 --print --permission-mode dontAsk "your prompt"  # haiku
+
+# 2. Source-mode diagnostics: isolate explicitly so you do not touch the shared daemon.
+HLVM_REPL_PORT=19435 deno run -A src/hlvm/cli/cli.ts ask --print --permission-mode dontAsk "your prompt"
 ```
 
 ## Architecture
@@ -83,28 +74,21 @@ kill $(lsof -ti:11435) $(lsof -ti:11439) 2>/dev/null
 
 **Cause**: Version mismatch between CLI binary and running serve process.
 
-**Why it happens**: Two serve processes running simultaneously. The GUI app
-(`/Users/seoksoonjang/dev/hql/hlvm serve`) may have started one, and you
-started another. The CLI connects to whichever grabbed port 11435 first —
-if that's the stale one, message serialization breaks because the protocol
-changed between builds.
+**Why it happens**: You are talking to a stale shared daemon that predates the
+current binary build. Normal first-party usage now converges on one shared
+runtime, so if you still see multiple runtime processes they are usually
+leftovers from older behavior or explicitly isolated source-mode tests.
 
-**Fix**: Kill ALL serve processes, verify only one remains:
+**Fix**: Kill the shared runtime and let `./hlvm ask` restart it:
 
 ```bash
-# Kill everything on both ports
 kill $(lsof -ti:11435) $(lsof -ti:11439) 2>/dev/null
-# Also kill any orphaned ollama runners
-ps aux | grep 'ollama runner' | grep -v grep | awk '{print $2}' | xargs kill 2>/dev/null
-sleep 1
-# Verify clean
-lsof -ti:11435 && echo "STILL OCCUPIED" || echo "OK"
-# Start fresh
-./hlvm serve &
+./hlvm ask --print --permission-mode dontAsk "what is 2+2?"
 ```
 
-**Critical**: Always check `ps aux | grep 'hlvm serve'` BEFORE starting.
-If you see TWO processes, kill both first.
+**Critical**: Do not use `deno run -A src/hlvm/cli/cli.ts ...` against the
+shared daemon without `HLVM_REPL_PORT`. Source mode now refuses to auto-start
+or replace the shared runtime unless you isolate it explicitly.
 
 ### 3. "Unauthorized" on port 11439
 
@@ -116,26 +100,42 @@ If you see "Unauthorized", something unexpected is listening there.
 
 ### 4. Simple prompts work but agent loop fails
 
-**Cause**: Likely the two-serve-process problem (failure mode #2). Simple
-prompts may route differently (fewer messages = less chance of hitting the
-serialization mismatch). The agent loop sends 20-30+ messages with tool
-calls/results, which exposes the version mismatch.
+**Cause**: Usually a stale shared daemon, not a second fresh daemon. Restart
+the shared runtime and retry through `./hlvm ask`.
 
 ## Verification Checklist
 
 Before running benchmarks, confirm all three:
 
 ```bash
-# 1. Exactly one serve process
-ps aux | grep 'hlvm serve' | grep -v grep | wc -l   # must be 1
-
-# 2. Health check passes
-curl -s http://127.0.0.1:11435/health | grep '"aiReady":true'   # must match
-
-# 3. Both models respond through agent loop
+# 1. Shared runtime responds through the real user path
 ./hlvm ask --print --permission-mode dontAsk "What is 2+2?"
 ./hlvm ask --model claude-code/claude-haiku-4-5-20251001 --print --permission-mode dontAsk "What is 2+2?"
+
+# 2. If debugging from source, use an isolated port
+HLVM_REPL_PORT=19435 deno run -A src/hlvm/cli/cli.ts ask --print --permission-mode dontAsk "What is 2+2?"
 ```
+
+## Topology Smoke
+
+Use the opt-in live topology smoke when you need to prove the single-daemon
+contract itself, not just that one prompt succeeded:
+
+```bash
+HLVM_E2E_RUNTIME_TOPOLOGY=1 \
+HLVM_E2E_GUI_APP_PATH=/path/to/HLVM.app \
+deno test --allow-all tests/e2e/runtime-topology-smoke.test.ts
+```
+
+What it asserts:
+
+- starts from a clean machine state
+- compiled `./hlvm ask` cold-starts one shared daemon on `11435`
+- repeated compiled `ask` reuses that same daemon
+- source-mode `deno run -A src/hlvm/cli/cli.ts ask` without `HLVM_REPL_PORT`
+  fails fast and spawns nothing
+- the rebuilt GUI app attaches to the same daemon and does not spawn its own
+  bundled runtime
 
 ## Key Code Paths (for debugging)
 

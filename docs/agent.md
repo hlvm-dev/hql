@@ -841,11 +841,12 @@ deno task ssot:check
 
 ## Quick Reference
 
-### Environment Variables
+### Data directory
 
-| Variable   | Purpose             | Default   |
-| ---------- | ------------------- | --------- |
-| `HLVM_DIR` | HLVM data directory | `~/.hlvm` |
+HLVM state lives at `~/.hlvm/` and is not user-configurable. The
+directory is user-global: every HLVM entry point (CLI, macOS GUI,
+messaging receivers) attaches to the same runtime daemon and shares
+the same state.
 
 ### Key File Paths
 

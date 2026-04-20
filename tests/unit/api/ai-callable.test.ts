@@ -65,8 +65,9 @@ function createMockProvider(): AIProvider {
 registerProvider("mock", createMockProvider, { isDefault: true });
 setDefaultProvider("mock");
 
-// Isolate tests from the developer's real config by pointing HLVM_DIR to a
-// temp directory with a config that routes to the mock provider.
+// Isolate tests from the developer's real state by pointing the HLVM state
+// directory (via the in-process `setHlvmDirForTests` seam) at a temp dir
+// with a config that routes to the mock provider.
 const tmpDir = Deno.makeTempDirSync();
 await getPlatform().fs.writeTextFile(
   `${tmpDir}/config.json`,

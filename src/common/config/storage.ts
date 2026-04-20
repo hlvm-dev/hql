@@ -4,7 +4,12 @@
  */
 
 import {
+  CHANNEL_TRANSPORT_MODES,
   CONFIG_KEYS,
+  type ChannelConfig,
+  type ChannelTransportConfig,
+  type ChannelTransportMode,
+  type ChannelsConfig,
   type ConfigKey,
   createDefaultToolsConfig,
   createDefaultWebFetchConfig,
@@ -193,6 +198,91 @@ function normalizeToolsConfig(value: unknown): ToolsConfig | undefined {
   return tools;
 }
 
+function normalizeChannelTransportConfig(
+  value: unknown,
+): ChannelTransportConfig | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  const extras = Object.fromEntries(
+    Object.entries(raw).filter(([key]) =>
+      !["mode", "deviceId", "relayUrl", "token", "cursor"].includes(key)
+    ),
+  );
+  const config: ChannelTransportConfig = { ...extras };
+
+  if (
+    typeof raw.mode === "string" &&
+    CHANNEL_TRANSPORT_MODES.includes(raw.mode as ChannelTransportMode)
+  ) {
+    config.mode = raw.mode as ChannelTransportMode;
+  }
+  if (typeof raw.deviceId === "string" && raw.deviceId.trim()) {
+    config.deviceId = raw.deviceId.trim();
+  }
+  if (typeof raw.relayUrl === "string" && raw.relayUrl.trim()) {
+    config.relayUrl = raw.relayUrl.trim();
+  }
+  if (typeof raw.token === "string" && raw.token.trim()) {
+    config.token = raw.token;
+  }
+  if (
+    typeof raw.cursor === "number" && Number.isInteger(raw.cursor) &&
+    raw.cursor >= 0
+  ) {
+    config.cursor = raw.cursor;
+  }
+
+  return Object.keys(config).length > 0 ? config : undefined;
+}
+
+function normalizeChannelConfig(value: unknown): ChannelConfig | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  const extras = Object.fromEntries(
+    Object.entries(raw).filter(([key]) =>
+      !["enabled", "allowedIds", "transport"].includes(key)
+    ),
+  );
+  const config: ChannelConfig = { ...extras };
+
+  if (typeof raw.enabled === "boolean") {
+    config.enabled = raw.enabled;
+  }
+  if (Array.isArray(raw.allowedIds)) {
+    const allowedIds = raw.allowedIds.filter((entry): entry is string =>
+      typeof entry === "string" && entry.trim().length > 0
+    ).map((entry) => entry.trim());
+    if (allowedIds.length > 0) {
+      config.allowedIds = [...new Set(allowedIds)];
+    }
+  }
+  const transport = normalizeChannelTransportConfig(raw.transport);
+  if (transport) {
+    config.transport = transport;
+  }
+
+  return Object.keys(config).length > 0 ? config : undefined;
+}
+
+function normalizeChannelsConfig(value: unknown): ChannelsConfig | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const normalized: ChannelsConfig = {};
+  for (const [channel, channelValue] of Object.entries(value)) {
+    if (!channel.trim()) continue;
+    const config = normalizeChannelConfig(channelValue);
+    if (config) {
+      normalized[channel] = config;
+    }
+  }
+  return normalized;
+}
+
 function normalizeConfigInput(
   raw: Record<string, unknown> | null,
 ): Partial<HlvmConfig> | null {
@@ -285,6 +375,11 @@ function normalizeConfigInput(
     }
   }
 
+  const channels = normalizeChannelsConfig(raw.channels);
+  if (channels && validateValue("channels", channels).valid) {
+    normalized.channels = channels;
+  }
+
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
@@ -293,8 +388,8 @@ function isDefaultLikeConfig(config: Partial<HlvmConfig> | null): boolean {
   for (const key of CONFIG_KEYS) {
     const value = config[key];
     if (value === undefined) continue;
-    if (key === "tools") {
-      const defaults = DEFAULT_CONFIG.tools;
+    if (key === "tools" || key === "channels") {
+      const defaults = DEFAULT_CONFIG[key];
       if (!defaults || typeof value !== "object") {
         return false;
       }
@@ -328,7 +423,9 @@ function mergeConfigs(
     const legacyValue = legacy?.[key] as HlvmConfig[ConfigKey] | undefined;
     const defaultValue = DEFAULT_CONFIG[key] as HlvmConfig[ConfigKey];
     const currentIsDefault = currentValue === undefined ||
-      currentValue === defaultValue;
+      (key === "tools" || key === "channels"
+        ? JSON.stringify(currentValue) === JSON.stringify(defaultValue)
+        : currentValue === defaultValue);
 
     if (currentValue !== undefined && !currentIsDefault) {
       mergedByKey[key] = currentValue;

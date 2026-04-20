@@ -21,7 +21,8 @@ function withMockedPlatform(
     env: {
       ...original.env,
       get: (key: string) => {
-        if (key === "HLVM_DIR") return hlvmDir;
+        if (key === "HLVM_TEST_STATE_ROOT") return hlvmDir;
+        if (key === "HLVM_ALLOW_TEST_STATE_ROOT") return "1";
         return original.env.get(key);
       },
     },

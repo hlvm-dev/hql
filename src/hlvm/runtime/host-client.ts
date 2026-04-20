@@ -11,7 +11,6 @@ import {
 import { getPlatform } from "../../platform/platform.ts";
 import {
   type ConfigKey,
-  DEFAULT_LOCALHOST,
   type HlvmConfig,
 } from "../../common/config/types.ts";
 import type {
@@ -19,13 +18,14 @@ import type {
   FinalResponseMeta,
   TraceEvent,
 } from "../agent/orchestrator.ts";
+import { AgentStreamError, type ErrorClass } from "../agent/error-taxonomy.ts";
 import type { AgentExecutionMode } from "../agent/execution-mode.ts";
 import type { InteractionOption } from "../agent/registry.ts";
 import { formatStructuredResultText } from "../agent/structured-output.ts";
 import type { BackgroundAgentSnapshot } from "../agent/tools/agent-types.ts";
 import {
   getHlvmRuntimeBaseUrl,
-  HLVM_RUNTIME_PORT_SCAN_RANGE,
+  hasExplicitRuntimePortOverride,
   resolveHlvmRuntimePort,
   setCachedRuntimeBaseUrl,
 } from "./host-config.ts";
@@ -57,10 +57,12 @@ import {
   areRuntimeHostBuildIdsCompatible,
   buildRuntimeServeCommand,
   getRuntimeHostIdentity,
+  isRuntimeHostSourceMode,
   type RuntimeHostIdentity,
 } from "./host-identity.ts";
 import {
   findListeningPidForPort,
+  getProcessCommand,
   terminateProcess,
 } from "./port-process.ts";
 import {
@@ -80,14 +82,6 @@ const RUNTIME_START_LOCK_WAIT_ATTEMPTS = 120;
 const RUNTIME_START_LOCK_STALE_MS = 30_000;
 const STALE_PENDING_RUNTIME_HOST_MS = 90_000;
 const GENERIC_RUNTIME_AI_READY_REASON = "AI runtime is still initializing.";
-
-interface IncompatibleRuntimeHost {
-  baseUrl: string;
-  authToken: string;
-  activeRequests?: number;
-}
-
-let staleFallbackHostSweep: Promise<void> | null = null;
 
 function parseNdjsonLine<T>(line: string): T {
   try {
@@ -168,7 +162,7 @@ interface HostBackedAgentQueryResult {
   stats: ChatResultStats;
 }
 
-const PLAN_MODE_STREAM_RETRY_LIMIT = 1;
+const EARLY_STREAM_RETRY_LIMIT = 1;
 
 export interface RuntimeConfigApi {
   set: (key: string, value: unknown) => Promise<void>;
@@ -332,6 +326,18 @@ function isRetryableHostChatStreamError(error: unknown): boolean {
     message.includes("stream closed");
 }
 
+function shouldRetryEarlyTransientStreamDrop(
+  error: unknown,
+  attempt: number,
+  sawFirstToken = false,
+  sawPlanReview = false,
+): boolean {
+  return attempt < EARLY_STREAM_RETRY_LIMIT &&
+    !sawFirstToken &&
+    !sawPlanReview &&
+    isRetryableHostChatStreamError(error);
+}
+
 function isHostTransportError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   if (error.name === "AbortError") return true;
@@ -349,8 +355,7 @@ function matchesRuntimeHostIdentity(
   health: HostHealthResponse,
   identity: RuntimeHostIdentity,
 ): boolean {
-  return health.hlvmDir === identity.hlvmDir &&
-    areRuntimeHostBuildIdsCompatible(identity.buildId, health.buildId);
+  return areRuntimeHostBuildIdsCompatible(identity.buildId, health.buildId);
 }
 
 async function readHealth(baseUrl: string): Promise<HostHealthResponse | null> {
@@ -424,126 +429,6 @@ async function requestRuntimeShutdown(
   }
 }
 
-function canSafelyReclaimIncompatibleRuntimeHost(
-  host: IncompatibleRuntimeHost,
-): boolean {
-  return host.activeRequests === 0;
-}
-
-async function reclaimIncompatibleRuntimeHosts(
-  hosts: ReadonlyArray<IncompatibleRuntimeHost>,
-): Promise<boolean> {
-  const seen = new Set<string>();
-  let reclaimedAny = false;
-
-  for (const host of hosts) {
-    if (seen.has(host.baseUrl)) continue;
-    seen.add(host.baseUrl);
-    if (!canSafelyReclaimIncompatibleRuntimeHost(host)) {
-      continue;
-    }
-
-    const shutdownAccepted = await requestRuntimeShutdown(
-      host.baseUrl,
-      host.authToken,
-    );
-    if (!shutdownAccepted) {
-      continue;
-    }
-
-    if (await waitForRuntimeShutdown(host.baseUrl)) {
-      reclaimedAny = true;
-    }
-  }
-
-  return reclaimedAny;
-}
-
-async function reclaimUnresponsiveRuntimeHosts(
-  hosts: ReadonlyArray<{ baseUrl: string; pid: string }>,
-): Promise<boolean> {
-  const seen = new Set<string>();
-  let reclaimedAny = false;
-
-  for (const host of hosts) {
-    if (seen.has(host.baseUrl)) continue;
-    seen.add(host.baseUrl);
-
-    if (!await terminateProcess(host.pid)) {
-      continue;
-    }
-
-    if (await waitForRuntimeShutdown(host.baseUrl)) {
-      reclaimedAny = true;
-    }
-  }
-
-  return reclaimedAny;
-}
-
-async function reclaimKnownStaleRuntimeHosts(
-  incompatibleHosts: ReadonlyArray<IncompatibleRuntimeHost>,
-  unresponsiveHosts: ReadonlyArray<{ baseUrl: string; pid: string }>,
-): Promise<boolean> {
-  const reclaimedIncompatible = await reclaimIncompatibleRuntimeHosts(
-    incompatibleHosts,
-  );
-  const reclaimedUnresponsive = await reclaimUnresponsiveRuntimeHosts(
-    unresponsiveHosts,
-  );
-  return reclaimedIncompatible || reclaimedUnresponsive;
-}
-
-function scheduleStaleFallbackHostSweep(
-  basePort: number,
-  identity: RuntimeHostIdentity,
-): void {
-  if (staleFallbackHostSweep !== null) {
-    return;
-  }
-
-  staleFallbackHostSweep = (async () => {
-    try {
-      const incompatibleHosts: IncompatibleRuntimeHost[] = [];
-      const unresponsiveHosts: Array<{ baseUrl: string; pid: string }> = [];
-
-      for (let offset = 1; offset <= HLVM_RUNTIME_PORT_SCAN_RANGE; offset++) {
-        const candidatePort = basePort + offset;
-        const candidateUrl = makeBaseUrl(candidatePort);
-        const candidateHealth = await readHealth(candidateUrl);
-
-        if (!candidateHealth) {
-          const candidatePid = await findListeningPidForPort(candidatePort);
-          if (candidatePid) {
-            unresponsiveHosts.push({
-              baseUrl: candidateUrl,
-              pid: candidatePid,
-            });
-          }
-          continue;
-        }
-
-        if (
-          candidateHealth.status === "ok" && candidateHealth.authToken &&
-          !matchesRuntimeHostIdentity(candidateHealth, identity)
-        ) {
-          incompatibleHosts.push({
-            baseUrl: candidateUrl,
-            authToken: candidateHealth.authToken,
-            activeRequests: candidateHealth.activeRequests,
-          });
-        }
-      }
-
-      await reclaimKnownStaleRuntimeHosts(incompatibleHosts, unresponsiveHosts);
-    } catch {
-      // Best-effort cleanup only.
-    } finally {
-      staleFallbackHostSweep = null;
-    }
-  })();
-}
-
 function spawnRuntimeHost(
   authToken: string,
   buildId: string,
@@ -588,7 +473,7 @@ export function __testOnlyGetRuntimeStartLockPath(): string {
 }
 
 export async function __testOnlyWaitForStaleFallbackHostSweep(): Promise<void> {
-  await staleFallbackHostSweep;
+  return;
 }
 
 async function tryAcquireRuntimeStartLock(): Promise<boolean> {
@@ -602,16 +487,92 @@ async function releaseRuntimeStartLock(): Promise<void> {
   await releaseDirLock(getRuntimeStartLockPath());
 }
 
-function makeBaseUrl(port: number): string {
-  return `http://${DEFAULT_LOCALHOST}:${port}`;
-}
-
 function cacheAndReturn(baseUrl: string, authToken: string): {
   baseUrl: string;
   authToken: string;
 } {
   setCachedRuntimeBaseUrl(baseUrl);
   return { baseUrl, authToken };
+}
+
+function createSourceModeRuntimeIsolationError(): RuntimeError {
+  return createRuntimeHostError(
+    "Source-mode HLVM will not auto-start or replace the shared runtime " +
+      "without HLVM_REPL_PORT. Use ./hlvm for the shared user daemon or set " +
+      "HLVM_REPL_PORT for dev/test isolation.",
+  );
+}
+
+function createRuntimeHostConflictError(port: number): RuntimeError {
+  return createRuntimeHostError(
+    `A different runtime is already using port ${port}. ` +
+      "Stop that runtime or use HLVM_REPL_PORT for dev/test isolation.",
+  );
+}
+
+function createForeignPortConflictError(port: number): RuntimeError {
+  return createRuntimeHostError(
+    `Port ${port} is occupied by a non-HLVM process. ` +
+      "Stop that process or use HLVM_REPL_PORT for dev/test isolation.",
+  );
+}
+
+function isKnownRuntimeHostCommand(command: string): boolean {
+  const normalized = command.toLowerCase().replaceAll("\\", "/");
+  const servesHlvm = /\bhlvm(?:\.exe)?\b/.test(normalized) &&
+    /(^|\s)serve(\s|$)/.test(normalized);
+  const servesSourceCli = normalized.includes("deno run") &&
+    normalized.includes("src/hlvm/cli/cli.ts") &&
+    /(^|\s)serve(\s|$)/.test(normalized);
+  return servesHlvm || servesSourceCli;
+}
+
+async function isKnownRuntimeHostProcess(pid: string): Promise<boolean> {
+  const command = await getProcessCommand(pid);
+  return !!command && isKnownRuntimeHostCommand(command);
+}
+
+async function reclaimKnownRuntimeProcess(
+  baseUrl: string,
+  pid: string,
+): Promise<boolean> {
+  if (!await isKnownRuntimeHostProcess(pid)) {
+    return false;
+  }
+  if (!await terminateProcess(pid)) {
+    return false;
+  }
+  await delay(HEALTH_POLL_DELAY_MS);
+  return await waitForRuntimeShutdown(baseUrl);
+}
+
+async function reclaimIdleIncompatibleRuntimeHost(
+  baseUrl: string,
+  authToken: string,
+  activeRequests?: number,
+): Promise<boolean> {
+  if ((activeRequests ?? 0) !== 0) {
+    return false;
+  }
+  if (!await requestRuntimeShutdown(baseUrl, authToken)) {
+    return false;
+  }
+  return await waitForRuntimeShutdown(baseUrl);
+}
+
+async function reclaimStaleCompatibleRuntimeHost(
+  baseUrl: string,
+  authToken: string,
+  port: number,
+): Promise<boolean> {
+  if (await requestRuntimeShutdown(baseUrl, authToken)) {
+    if (await waitForRuntimeShutdown(baseUrl)) {
+      return true;
+    }
+  }
+
+  const pid = await findListeningPidForPort(port);
+  return !!(pid && await terminateProcess(pid) && await waitForRuntimeShutdown(baseUrl));
 }
 
 function shouldReclaimStaleCompatibleRuntimeHost(
@@ -640,6 +601,8 @@ async function ensureRuntimeHost(): Promise<{
   const basePort = resolveHlvmRuntimePort();
   const baseUrl = getHlvmRuntimeBaseUrl();
   const identity = await getRuntimeHostIdentity();
+  const sourceModeRequiresIsolation = isRuntimeHostSourceMode() &&
+    !hasExplicitRuntimePortOverride();
 
   const attachCompatibleHost = async (
     url: string,
@@ -655,99 +618,17 @@ async function ensureRuntimeHost(): Promise<{
     }
     if (shouldReclaimStaleCompatibleRuntimeHost(attached)) {
       const attachedPort = Number(new URL(url).port || basePort);
-      const attachedPid = await findListeningPidForPort(attachedPort);
-      if (attachedPid && await terminateProcess(attachedPid)) {
-        await delay(HEALTH_POLL_DELAY_MS);
+      if (
+        await reclaimStaleCompatibleRuntimeHost(
+          url,
+          attached.authToken,
+          attachedPort,
+        )
+      ) {
         return null;
       }
     }
-    scheduleStaleFallbackHostSweep(basePort, identity);
     return cacheAndReturn(url, attached.authToken);
-  };
-
-  const scanFallbackPorts = async (
-    incompatibleHosts: Array<IncompatibleRuntimeHost>,
-    unresponsiveHosts: Array<{ baseUrl: string; pid: string }>,
-  ) => {
-    for (
-      let offset = 1;
-      offset <= HLVM_RUNTIME_PORT_SCAN_RANGE;
-      offset++
-    ) {
-      const candidatePort = basePort + offset;
-      const candidateUrl = makeBaseUrl(candidatePort);
-      const candidateHealth = await readHealth(candidateUrl);
-
-      if (!candidateHealth) {
-        const candidatePid = await findListeningPidForPort(candidatePort);
-        if (candidatePid) {
-          unresponsiveHosts.push({
-            baseUrl: candidateUrl,
-            pid: candidatePid,
-          });
-          continue;
-        }
-
-        if (
-          await reclaimKnownStaleRuntimeHosts(
-            incompatibleHosts,
-            unresponsiveHosts,
-          )
-        ) {
-          return await ensureRuntimeHost();
-        }
-
-        const authToken = crypto.randomUUID();
-        spawnRuntimeHost(authToken, identity.buildId, candidatePort);
-
-        const started = await waitForRuntimeHost(
-          candidateUrl,
-          (health) =>
-            health.authToken === authToken &&
-            matchesRuntimeHostIdentity(health, identity),
-          HEALTH_POLL_ATTEMPTS * 4,
-        );
-        if (started?.authToken) {
-          scheduleStaleFallbackHostSweep(basePort, identity);
-          return cacheAndReturn(candidateUrl, started.authToken);
-        }
-        continue;
-      }
-
-      if (
-        candidateHealth.status === "ok" && candidateHealth.authToken &&
-        matchesRuntimeHostIdentity(candidateHealth, identity)
-      ) {
-        if (shouldReclaimStaleCompatibleRuntimeHost(candidateHealth)) {
-          const candidatePid = await findListeningPidForPort(candidatePort);
-          if (candidatePid && await terminateProcess(candidatePid)) {
-            await delay(HEALTH_POLL_DELAY_MS);
-            continue;
-          }
-        }
-        scheduleStaleFallbackHostSweep(basePort, identity);
-        return cacheAndReturn(candidateUrl, candidateHealth.authToken);
-      }
-
-      if (candidateHealth.status === "ok" && candidateHealth.authToken) {
-        incompatibleHosts.push({
-          baseUrl: candidateUrl,
-          authToken: candidateHealth.authToken,
-          activeRequests: candidateHealth.activeRequests,
-        });
-      }
-    }
-
-    if (
-      await reclaimKnownStaleRuntimeHosts(
-        incompatibleHosts,
-        unresponsiveHosts,
-      )
-    ) {
-      return await ensureRuntimeHost();
-    }
-
-    return null;
   };
 
   // Check base port first
@@ -757,64 +638,44 @@ async function ensureRuntimeHost(): Promise<{
     matchesRuntimeHostIdentity(attached, identity)
   ) {
     if (shouldReclaimStaleCompatibleRuntimeHost(attached)) {
-      const attachedPid = await findListeningPidForPort(basePort);
-      if (attachedPid && await terminateProcess(attachedPid)) {
-        await delay(HEALTH_POLL_DELAY_MS);
+      if (
+        await reclaimStaleCompatibleRuntimeHost(
+          baseUrl,
+          attached.authToken,
+          basePort,
+        )
+      ) {
         return await ensureRuntimeHost();
       }
     }
-    scheduleStaleFallbackHostSweep(basePort, identity);
     return cacheAndReturn(baseUrl, attached.authToken);
   }
-
-  // If an incompatible host occupies the base port, scan for a free port
-  // instead of killing it (avoids race conditions with GUI app).
-  const incompatibleOnBasePort = attached?.status === "ok" &&
-    attached.authToken &&
-    !matchesRuntimeHostIdentity(attached, identity);
-
-  if (incompatibleOnBasePort) {
-    const attachedAuthToken = attached.authToken!;
-    const scannedRuntime = await scanFallbackPorts(
-      [
-        {
-          baseUrl,
-          authToken: attachedAuthToken,
-          activeRequests: attached.activeRequests,
-        },
-      ],
-      [],
-    );
-    if (scannedRuntime) {
-      return scannedRuntime;
-    }
-
-    throw createRuntimeHostError(
-      "Failed to find a free port for the local HLVM runtime host. " +
-        `Ports ${basePort}-${
-          basePort + HLVM_RUNTIME_PORT_SCAN_RANGE
-        } are all occupied.`,
-    );
+  if (sourceModeRequiresIsolation) {
+    throw createSourceModeRuntimeIsolationError();
   }
 
-  if (!attached) {
-    const occupiedBasePid = await findListeningPidForPort(basePort);
-    if (occupiedBasePid) {
-      const scannedRuntime = await scanFallbackPorts([], [{
+  if (
+    attached?.status === "ok" && attached.authToken &&
+    !matchesRuntimeHostIdentity(attached, identity)
+  ) {
+    if (
+      await reclaimIdleIncompatibleRuntimeHost(
         baseUrl,
-        pid: occupiedBasePid,
-      }]);
-      if (scannedRuntime) {
-        return scannedRuntime;
-      }
-
-      throw createRuntimeHostError(
-        "Failed to find a free port for the local HLVM runtime host. " +
-          `Ports ${basePort}-${
-            basePort + HLVM_RUNTIME_PORT_SCAN_RANGE
-          } are all occupied.`,
-      );
+        attached.authToken,
+        attached.activeRequests,
+      )
+    ) {
+      return await ensureRuntimeHost();
     }
+    throw createRuntimeHostConflictError(basePort);
+  }
+
+  const occupiedBasePid = await findListeningPidForPort(basePort);
+  if (occupiedBasePid) {
+    if (await reclaimKnownRuntimeProcess(baseUrl, occupiedBasePid)) {
+      return await ensureRuntimeHost();
+    }
+    throw createForeignPortConflictError(basePort);
   }
 
   // Base port is free or no response — proceed with the original startup logic
@@ -852,8 +713,34 @@ async function ensureRuntimeHost(): Promise<{
       reattached?.status === "ok" && reattached.authToken &&
       matchesRuntimeHostIdentity(reattached, identity)
     ) {
-      scheduleStaleFallbackHostSweep(basePort, identity);
       return cacheAndReturn(baseUrl, reattached.authToken);
+    }
+
+    if (
+      reattached?.status === "ok" && reattached.authToken &&
+      !matchesRuntimeHostIdentity(reattached, identity)
+    ) {
+      if (
+        await reclaimIdleIncompatibleRuntimeHost(
+          baseUrl,
+          reattached.authToken,
+          reattached.activeRequests,
+        )
+      ) {
+        const attachedAfterReclaim = await attachCompatibleHost(baseUrl, 1);
+        if (attachedAfterReclaim) {
+          return attachedAfterReclaim;
+        }
+      } else {
+        throw createRuntimeHostConflictError(basePort);
+      }
+    }
+
+    const occupiedPidAfterLock = await findListeningPidForPort(basePort);
+    if (occupiedPidAfterLock) {
+      if (!await reclaimKnownRuntimeProcess(baseUrl, occupiedPidAfterLock)) {
+        throw createForeignPortConflictError(basePort);
+      }
     }
 
     const authToken = crypto.randomUUID();
@@ -870,7 +757,6 @@ async function ensureRuntimeHost(): Promise<{
       started?.authToken &&
       matchesRuntimeHostIdentity(started, identity)
     ) {
-      scheduleStaleFallbackHostSweep(basePort, identity);
       return cacheAndReturn(baseUrl, started.authToken);
     }
 
@@ -1571,7 +1457,9 @@ async function runChatViaHostAttempt(
     queryPreview: buildTraceTextPreview(options.messages.at(-1)?.content),
   });
   const runtimeReadyStartedAt = Date.now();
-  const { baseUrl, authToken } = await ensureRuntimeHost();
+  const { baseUrl, authToken } = options.fixturePath
+    ? await ensureRuntimeHost()
+    : await ensureRuntimeAiReady();
   traceReplMainThreadForSource(
     options.querySource,
     "client.runtime_ready.done",
@@ -1638,10 +1526,7 @@ async function runChatViaHostAttempt(
         durationMs: Date.now() - fetchStartedAt,
         error: getErrorMessage(error),
       });
-      const shouldRetry = options.permissionMode === "plan" &&
-        attempt < PLAN_MODE_STREAM_RETRY_LIMIT &&
-        isRetryableHostChatStreamError(error);
-      if (shouldRetry) {
+      if (shouldRetryEarlyTransientStreamDrop(error, attempt)) {
         return await runChatViaHostAttempt(options, attempt + 1);
       }
       rethrowAsRuntimeHostError(error);
@@ -1835,7 +1720,12 @@ async function runChatViaHostAttempt(
               retryable: event.retryable,
             },
           );
-          throw createRuntimeHostError(event.message);
+          throw new AgentStreamError(
+            event.message,
+            (event.errorClass ?? "unknown") as ErrorClass,
+            event.retryable ?? false,
+            event.hint ?? null,
+          );
         case "cancelled":
           traceReplMainThreadForSource(
             options.querySource,
@@ -1895,11 +1785,14 @@ async function runChatViaHostAttempt(
       error: getErrorMessage(error),
     });
     await cancelResponseBody(response);
-    const shouldRetry = options.permissionMode === "plan" &&
-      attempt < PLAN_MODE_STREAM_RETRY_LIMIT &&
-      !sawPlanReview &&
-      isRetryableHostChatStreamError(error);
-    if (shouldRetry) {
+    if (
+      shouldRetryEarlyTransientStreamDrop(
+        error,
+        attempt,
+        sawFirstToken,
+        sawPlanReview,
+      )
+    ) {
       await cancel();
       return await runChatViaHostAttempt(options, attempt + 1);
     }

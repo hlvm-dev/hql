@@ -16,9 +16,11 @@ async function withTempHlvmDir(
   const platform = getPlatform();
   const tempDir = await Deno.makeTempDir();
   try {
-    await withEnv("HLVM_DIR", tempDir, async () => {
-      resetHlvmDirCacheForTests();
-      await fn();
+    await withEnv("HLVM_ALLOW_TEST_STATE_ROOT", "1", async () => {
+      await withEnv("HLVM_TEST_STATE_ROOT", tempDir, async () => {
+        resetHlvmDirCacheForTests();
+        await fn();
+      });
     });
   } finally {
     resetHlvmDirCacheForTests();

@@ -124,11 +124,12 @@ curl -fsSL https://hlvm.dev/install.sh | sh
 8. The local fallback tier map is pinned in `embedded-model-tiers.json`.
 9. The runtime uses HLVM-owned storage under `~/.hlvm/.runtime/`.
 10. Ollama binds to `127.0.0.1:11439`, not `11434`.
-11. A bootstrap request must never silently reuse another `HLVM_DIR`'s managed
-    Ollama instance.
-12. A runtime host attachment must match both build identity and `HLVM_DIR`.
-13. `/health.aiReady` is true only after the fallback model is genuinely ready.
-14. The installer is not complete until bootstrap has finished successfully.
+11. HLVM runs as one user-level daemon at `~/.hlvm/`. CLI, macOS GUI, and
+    channel receivers attach to the same runtime host and share the same
+    Ollama. Runtime-host attachment matches by build identity only; the
+    caller's state root is not part of the attach contract.
+12. `/health.aiReady` is true only after the fallback model is genuinely ready.
+13. The installer is not complete until bootstrap has finished successfully.
 
 ### Key Source Files
 
@@ -137,8 +138,8 @@ curl -fsSL https://hlvm.dev/install.sh | sh
 | `src/hlvm/cli/commands/bootstrap.ts`         | Bootstrap orchestration, warmup, readiness probe             |
 | `src/hlvm/runtime/bootstrap-materialize.ts`  | Prepare engine, model, browser, Python, and manifest         |
 | `src/hlvm/runtime/ai-runtime.ts`             | Ollama download and engine lifecycle                         |
-| `src/hlvm/runtime/host-identity.ts`          | Runtime-host identity, including build and `HLVM_DIR`        |
-| `src/hlvm/runtime/host-client.ts`            | Runtime-host attach/start logic with root-aware compatibility |
+| `src/hlvm/runtime/host-identity.ts`          | Runtime-host identity, including build kind and artifact fingerprint |
+| `src/hlvm/runtime/host-client.ts`            | Runtime-host attach/start logic for the single shared daemon |
 | `src/hlvm/runtime/chromium-runtime.ts`       | Chromium download and verification                           |
 | `src/hlvm/runtime/python-runtime.ts`         | uv install, CPython install, venv creation, sidecar pack     |
 | `src/hlvm/runtime/bootstrap-manifest.ts`     | Bootstrap manifest types and read/write                      |
@@ -249,10 +250,10 @@ for the concrete release workflow and smoke path.
 
 Release smoke validation must also isolate runtime ownership:
 
-- temp `HLVM_DIR`
+- temp `HLVM_TEST_STATE_ROOT`
 - dedicated `HLVM_REPL_PORT`
 - no inherited background `hlvm serve` processes
-- no inherited `~/.hlvm` bootstrap state
+- no fallback-port runtime expansion
 
 ## Future
 

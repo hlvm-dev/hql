@@ -34,7 +34,8 @@ cp "${ASSET_DIR}/install.sh" "${SMOKE_ROOT}/install.sh"
 
 echo "==> Running installer (staged, local assets)..."
 BOOTSTRAP_EXIT=0
-HLVM_DIR="$SMOKE_HLVM_DIR" \
+HLVM_TEST_STATE_ROOT="$SMOKE_HLVM_DIR" \
+HLVM_ALLOW_TEST_STATE_ROOT="1" \
 HLVM_REPL_PORT="$SMOKE_RUNTIME_PORT" \
 HLVM_INSTALL_REPO="$REPO" \
 HLVM_INSTALL_VERSION="$TAG" \

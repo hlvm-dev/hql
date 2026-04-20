@@ -1,5 +1,4 @@
 import { VERSION } from "../../common/version.ts";
-import { getHlvmDir } from "../../common/paths.ts";
 import { getPlatform } from "../../platform/platform.ts";
 
 const CLI_ENTRY_URL = new URL("../cli/cli.ts", import.meta.url);
@@ -8,7 +7,6 @@ const RUNTIME_BUILD_ID_OVERRIDE_ENV = "HLVM_RUNTIME_BUILD_ID";
 export interface RuntimeHostIdentity {
   version: string;
   buildId: string;
-  hlvmDir: string;
 }
 
 interface ParsedRuntimeHostBuildId {
@@ -26,10 +24,14 @@ function isDenoExecutable(execPath: string): boolean {
   return /(?:^|\/|\\)deno(?:\.exe)?$/i.test(execPath);
 }
 
+export function isRuntimeHostSourceMode(): boolean {
+  return isDenoExecutable(getPlatform().process.execPath());
+}
+
 function resolveRuntimeHostArtifactPath(): string {
   const platform = getPlatform();
   const execPath = platform.process.execPath();
-  if (!isDenoExecutable(execPath)) {
+  if (!isRuntimeHostSourceMode()) {
     return execPath;
   }
   return platform.path.fromFileUrl(CLI_ENTRY_URL);
@@ -64,7 +66,7 @@ function getSourceFingerprintTargets(): string[] {
 export function buildRuntimeServeCommand(): string[] {
   const platform = getPlatform();
   const execPath = platform.process.execPath();
-  if (!isDenoExecutable(execPath)) {
+  if (!isRuntimeHostSourceMode()) {
     return [execPath, "serve"];
   }
   return [execPath, "run", "-A", resolveRuntimeHostArtifactPath(), "serve"];
@@ -134,14 +136,13 @@ export async function getRuntimeHostIdentity(): Promise<RuntimeHostIdentity> {
         return {
           version: VERSION,
           buildId: overriddenBuildId,
-          hlvmDir: getHlvmDir(),
         };
       }
 
       const artifactPath = resolveRuntimeHostArtifactPath();
       try {
         const info = await platform.fs.stat(artifactPath);
-        const fingerprint = isDenoExecutable(platform.process.execPath())
+        const fingerprint = isRuntimeHostSourceMode()
           ? await computeSourceTreeFingerprint()
           : { size: info.size, mtimeMs: info.mtimeMs ?? 0 };
         return {
@@ -151,13 +152,11 @@ export async function getRuntimeHostIdentity(): Promise<RuntimeHostIdentity> {
             fingerprint.size,
             fingerprint.mtimeMs,
           ),
-          hlvmDir: getHlvmDir(),
         };
       } catch {
         return {
           version: VERSION,
           buildId: buildRuntimeHostFingerprint(artifactPath, 0, 0),
-          hlvmDir: getHlvmDir(),
         };
       }
     })();

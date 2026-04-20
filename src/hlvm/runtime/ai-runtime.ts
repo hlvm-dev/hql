@@ -16,7 +16,6 @@ import { ai } from "../api/ai.ts";
 import { log } from "../api/log.ts";
 import {
   ensureRuntimeDir,
-  getAIEngineLogPath,
   getModelsDir,
   getRuntimeDir,
 } from "../../common/paths.ts";
@@ -31,16 +30,11 @@ import {
 import { http } from "../../common/http-client.ts";
 import {
   findListeningPidForPort,
+  listProcesses,
   terminateProcess,
 } from "./port-process.ts";
 import { KNOWN_LOCAL_FALLBACK_IDENTITIES } from "./bootstrap-manifest.ts";
 
-/**
- * Model IDs that, if served by the Ollama on DEFAULT_OLLAMA_ENDPOINT, identify
- * that Ollama as using an HLVM-owned models directory. If none of these appear
- * in /api/tags, the endpoint is foreign (different OLLAMA_MODELS) and must be
- * reclaimed before HLVM can use it for the local fallback path.
- */
 const EXPECTED_FALLBACK_MODEL_IDS: readonly string[] =
   KNOWN_LOCAL_FALLBACK_IDENTITIES.map((identity) => identity.modelId);
 
@@ -68,32 +62,6 @@ const AI_STARTUP_POLL_INTERVAL_MS = 300;
 const AI_STARTUP_TIMEOUT_MS = 60_000;
 const AI_ENDPOINT_PROBE_TIMEOUT_MS = 500;
 let initPromise: Promise<void> | null = null;
-
-type AIEngineExitListener = () => void;
-const aiEngineExitListeners = new Set<AIEngineExitListener>();
-
-/**
- * Subscribe to managed-AI-engine exit events. The callback fires when an
- * Ollama process we spawned exits (crash, SIGKILL, graceful shutdown, etc.).
- * Callers use this to react to engine death without polling — a single
- * event-driven signal replaces any periodic liveness check.
- */
-export function onAIEngineExit(
-  listener: AIEngineExitListener,
-): () => void {
-  aiEngineExitListeners.add(listener);
-  return () => {
-    aiEngineExitListeners.delete(listener);
-  };
-}
-
-function notifyAIEngineExit(): void {
-  for (const listener of aiEngineExitListeners) {
-    try {
-      listener();
-    } catch { /* best-effort — a misbehaving listener shouldn't block others */ }
-  }
-}
 
 function normalizeCommandOutput(output: {
   stdout: Uint8Array;
@@ -313,15 +281,6 @@ async function isAIRunning(): Promise<boolean> {
   }
 }
 
-/**
- * Probe the running Ollama on DEFAULT_OLLAMA_ENDPOINT for any of the given
- * model IDs. Returns true if at least one expected ID appears in /api/tags.
- *
- * Detects the "foreign Ollama" case: when another HLVM instance or an
- * unrelated tool started Ollama with a different OLLAMA_MODELS directory,
- * the version still matches but the serving dir is wrong — this probe is the
- * lightest portable way to notice without reading the peer process's env.
- */
 async function probeOllamaHasAnyExpectedModel(
   expectedModelIds: readonly string[],
 ): Promise<boolean> {
@@ -597,6 +556,43 @@ function getAIEndpointPort(): string {
   return DEFAULT_OLLAMA_HOST.split(":").at(-1) ?? DEFAULT_OLLAMA_HOST;
 }
 
+function normalizeProcessCommand(command: string): string {
+  return normalizeFsPath(command).toLowerCase();
+}
+
+function isManagedAIProcessCommand(
+  command: string,
+  platform = getPlatform(),
+): boolean {
+  const normalized = normalizeProcessCommand(command);
+  const managedRoot = normalizeFsPath(getRuntimeDir()).toLowerCase();
+  const managedEnginePath = normalizeFsPath(
+    getEmbeddedEnginePath(platform),
+  ).toLowerCase();
+  return normalized.includes(managedRoot) &&
+    (
+      normalized.includes(`${managedEnginePath} serve`) ||
+      normalized.includes(`${managedEnginePath} runner --ollama-engine`)
+    );
+}
+
+async function listManagedAIProcessIds(
+  platform = getPlatform(),
+): Promise<string[]> {
+  const processes = await listProcesses();
+  return processes
+    .filter(({ command }) => isManagedAIProcessCommand(command, platform))
+    .map(({ pid }) => pid)
+    .filter((pid) => pid !== String(platform.process.pid?.() ?? ""));
+}
+
+async function terminateManagedAIProcesses(
+  platform = getPlatform(),
+): Promise<void> {
+  const pids = await listManagedAIProcessIds(platform);
+  await Promise.allSettled(pids.map((pid) => terminateProcess(pid)));
+}
+
 async function getAIEndpointVersion(): Promise<string | null> {
   try {
     const response = await http.fetchRaw(
@@ -635,17 +631,6 @@ export async function getAIEngineBinaryVersion(
   }
 }
 
-/**
- * Decide whether the Ollama at DEFAULT_OLLAMA_ENDPOINT is usable by the
- * current HLVM instance without further reclaim.
- *
- * When `expectedModels` is provided and non-empty, also probe `/api/tags` and
- * require at least one of those models to be served. This catches the case
- * where a peer HLVM (or an unrelated tool) started Ollama with a different
- * OLLAMA_MODELS directory: the version check passes, but requests for our
- * fallback model would 404 forever. Bootstrap callers deliberately omit
- * `expectedModels` because the fallback is pulled *after* engine startup.
- */
 export async function isCompatibleAIRunning(
   expectedVersion?: string,
   expectedModels?: readonly string[],
@@ -735,6 +720,17 @@ export async function reclaimConflictingAIEndpoint(
   return true;
 }
 
+export async function shutdownManagedAIRuntime(
+  platform = getPlatform(),
+): Promise<void> {
+  const pid = await findListeningPidForAIEndpoint();
+  if (pid) {
+    await terminateProcess(pid);
+    await waitForAIEndpointRelease();
+  }
+  await terminateManagedAIProcesses(platform);
+}
+
 async function startAIEngine(platform = getPlatform()): Promise<void> {
   const enginePath = await requireEmbeddedEnginePath(platform);
   const expectedVersion = await getAIEngineBinaryVersion(enginePath, platform);
@@ -764,6 +760,9 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
   await reclaimConflictingAIEndpoint(expectedVersion ?? undefined, {
     expectedModels: EXPECTED_FALLBACK_MODEL_IDS,
   });
+  if (!await isAIRunning()) {
+    await terminateManagedAIProcesses(platform);
+  }
 
   const killProcess = (proc: PlatformCommandProcess | null) => {
     try {
@@ -775,9 +774,6 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
   try {
     const engineEnv = buildAIEngineEnvironment(enginePath, platform);
     if (platform.build.os === "windows") {
-      // Windows: use 'cmd /c start /b' to create a fully detached process.
-      // Without this, the child Ollama process's network socket is closed
-      // when the parent Deno process exits (Windows handle inheritance).
       aiProcess = platform.command.run({
         cmd: ["cmd", "/c", "start", "/b", "", enginePath, "serve"],
         stdout: "null",
@@ -785,24 +781,11 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
         env: engineEnv,
       });
     } else {
-      const logPath = getAIEngineLogPath();
-      try {
-        await platform.fs.mkdir(
-          platform.path.dirname(logPath),
-          { recursive: true },
-        );
-      } catch { /* best-effort */ }
-      // detached:true puts Ollama in its own process group. Required on
-      // macOS because the HLVM binary is ad-hoc signed: when a child Ollama
-      // (hardened-runtime + JIT-using) inherits the HLVM session, macOS
-      // SIGKILLs Ollama's GPU runner subprocess on load due to codesign
-      // inheritance restrictions. A fresh session sidesteps that check.
       aiProcess = platform.command.run({
-        cmd: ["sh", "-c", `exec "$0" serve >> "$1" 2>&1`, enginePath, logPath],
+        cmd: [enginePath, "serve"],
         stdout: "null",
         stderr: "null",
         env: engineEnv,
-        detached: true,
       });
     }
     aiProcess.unref?.();
@@ -815,13 +798,6 @@ async function startAIEngine(platform = getPlatform()): Promise<void> {
       )
     ) {
       log.debug?.(`AI engine started successfully (${enginePath})`);
-      // Event-driven supervision: when this Ollama exits (for whatever
-      // reason — crash, SIGKILL, external `kill`), notify subscribers so
-      // they can flip readiness back to "not ready" and respawn on the
-      // next real request. No polling, no heartbeat timer.
-      aiProcess.status
-        .then(() => notifyAIEngineExit())
-        .catch(() => notifyAIEngineExit());
       return;
     }
     killProcess(aiProcess);

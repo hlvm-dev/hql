@@ -97,7 +97,8 @@ async function recentActivity(
     _setDbForTesting(currentTestDb);
   }
   if (currentHlvmDir) {
-    platform().env.set("HLVM_DIR", currentHlvmDir);
+    platform().env.set("HLVM_TEST_STATE_ROOT", currentHlvmDir);
+    platform().env.set("HLVM_ALLOW_TEST_STATE_ROOT", "1");
     resetHlvmDirCacheForTests();
   }
   return await recentActivityTool(args, "/tmp", options) as ActivityResult;

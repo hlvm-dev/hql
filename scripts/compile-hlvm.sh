@@ -68,17 +68,6 @@ cmd+=(
 
 "${cmd[@]}"
 
-# HLVM is a personal-agent daemon with a companion GUI (HLVM.app); it is not
-# distributed through the Mac App Store and does not ship inside the App
-# Sandbox. It needs JIT, unsigned executable memory, and dyld env variables
-# so the embedded Ollama engine's GPU runner can allocate compute buffers
-# under hardened runtime. Without these entitlements, macOS AMFI SIGKILLs
-# Ollama's runner subprocess a second or two after spawn, leaving the
-# managed daemon stuck on "AI runtime is still initializing".
-#
-# Ad-hoc signing (--sign -) is sufficient for personal + dev-machine use; a
-# full Developer ID + notarization only becomes necessary if this binary is
-# shipped to other users over the internet.
 if [ "$(uname -s)" = "Darwin" ] && [ -z "$TARGET" ]; then
   ENTITLEMENTS="$ROOT_DIR/scripts/hlvm.entitlements"
   if [ -f "$ENTITLEMENTS" ]; then
@@ -88,8 +77,5 @@ if [ "$(uname -s)" = "Darwin" ] && [ -z "$TARGET" ]; then
       --options runtime \
       --entitlements "$ENTITLEMENTS" \
       "$OUTPUT"
-    echo "Signed $OUTPUT ad-hoc with daemon/GUI-agent entitlements." >&2
-  else
-    echo "Warning: $ENTITLEMENTS not found; skipping entitlements sign." >&2
   fi
 fi

@@ -20,7 +20,8 @@ mkdir -p "$INSTALL_BIN" "$SMOKE_HLVM_DIR"
 echo "==> Running public installer..."
 BOOTSTRAP_EXIT=0
 curl -fsSL "https://hlvm.dev/install.sh" | \
-  HLVM_DIR="$SMOKE_HLVM_DIR" \
+  HLVM_TEST_STATE_ROOT="$SMOKE_HLVM_DIR" \
+  HLVM_ALLOW_TEST_STATE_ROOT="1" \
   HLVM_REPL_PORT="$SMOKE_RUNTIME_PORT" \
   HLVM_INSTALL_DIR="$INSTALL_BIN" \
   HLVM_INSTALL_VERSION="${HLVM_SMOKE_TAG:-}" \

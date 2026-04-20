@@ -41,6 +41,7 @@ import {
   isRuntimeAiReadyRetryable,
   isRuntimeReadinessManaged,
   isRuntimeReadyForAiRequests,
+  maybeRecoverRuntimeAiIfNeeded,
   runtimeReadyState,
 } from "../commands/serve.ts";
 import {
@@ -94,6 +95,7 @@ import {
   handleCompanionStatus,
   handleCompanionStream,
 } from "./handlers/companion.ts";
+import { handleReachabilityStatus } from "./handlers/reachability.ts";
 import {
   HLVM_RUNTIME_DEFAULT_PORT,
   resolveHlvmRuntimePort,
@@ -431,7 +433,6 @@ async function handleHealth(): Promise<Response> {
     aiReadyRetryable: isRuntimeAiReadyRetryable(),
     version: identity.version,
     buildId: identity.buildId,
-    hlvmDir: identity.hlvmDir,
     authToken: serverAuthToken,
   });
 }
@@ -521,6 +522,10 @@ async function maybeGateAiRoute(
     if (isRuntimeReadyForAiRequests()) {
       return null;
     }
+  }
+
+  if (await maybeRecoverRuntimeAiIfNeeded()) {
+    return null;
   }
 
   const aiReadyReason = getRuntimeAiReadyReason() ??
@@ -827,6 +832,7 @@ router.add("PATCH", "/api/config", (req) => handlePatchConfig(req));
 router.add("POST", "/api/config/reload", () => handleReloadConfig());
 router.add("POST", "/api/config/reset", () => handleResetConfig());
 router.add("GET", "/api/config/stream", (req) => handleConfigStream(req));
+router.add("GET", "/api/reachability/status", () => handleReachabilityStatus());
 
 router.add("GET", "/api/mcp/servers", () => handleListMcpServers());
 router.add("POST", "/api/mcp/servers", (req) => handleAddMcpServer(req));
@@ -879,10 +885,11 @@ async function handleRequest(req: Request): Promise<Response> {
     return addCorsHeaders(await handleHealth(), origin);
   }
 
-  // Auth check: require Bearer token for all other routes
   if (serverAuthToken) {
     const authHeader = req.headers.get("Authorization") ?? "";
-    if (authHeader !== `Bearer ${serverAuthToken}`) {
+    const authQuery = url.searchParams.get("auth") ?? "";
+    const expectedHeader = `Bearer ${serverAuthToken}`;
+    if (authHeader !== expectedHeader && authQuery !== serverAuthToken) {
       return addCorsHeaders(jsonError("Unauthorized", 401), origin);
     }
   }

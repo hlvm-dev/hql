@@ -25,7 +25,6 @@ await initializeRuntime({ ai: false });
 async function withIsolatedMemoryDir<T>(fn: () => Promise<T>): Promise<T> {
   return await withGlobalTestLock(async () => {
     const platform = getPlatform();
-    const priorHlvmDir = platform.env.get("HLVM_DIR");
     const tempHlvmDir = await platform.fs.makeTempDir({
       prefix: "hlvm-memory-test-",
     });

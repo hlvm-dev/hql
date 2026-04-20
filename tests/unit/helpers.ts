@@ -220,8 +220,9 @@ export async function withTempDir<T>(
 }
 
 /**
- * Execute a function with a temporary HLVM_DIR set in the environment.
- * Saves/restores the previous HLVM_DIR and resets the paths cache.
+ * Execute a function with a temporary HLVM state directory installed via the
+ * in-process `setHlvmDirForTests` seam. Restores and clears the paths cache
+ * afterwards.
  */
 export async function withTempHlvmDir(
   fn: () => Promise<void>,

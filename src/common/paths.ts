@@ -41,9 +41,17 @@ export function getEnvVar(key: string): string | undefined {
 }
 
 function resolveHlvmDir(): string {
-  const override = getEnvVar("HLVM_DIR");
-  if (override) {
-    return resolve(override);
+  const testRoot = getEnvVar("HLVM_TEST_STATE_ROOT");
+  if (testRoot) {
+    const allow = getEnvVar("HLVM_ALLOW_TEST_STATE_ROOT");
+    if (allow !== "1") {
+      throw new RuntimeError(
+        "HLVM_TEST_STATE_ROOT is an internal test hook. " +
+          "Unset it, or set HLVM_ALLOW_TEST_STATE_ROOT=1 alongside it " +
+          "(test harnesses only).",
+      );
+    }
+    return resolve(testRoot);
   }
   const home = getEnvVar("HOME") || getEnvVar("USERPROFILE") || ".";
   return join(home, ".hlvm");
@@ -224,10 +232,6 @@ export function getWebCachePath(): string {
  */
 export function getDebugLogPath(): string {
   return join(getHlvmDir(), "debug.log");
-}
-
-export function getAIEngineLogPath(): string {
-  return join(getHlvmDir(), "logs", "ai-engine.log");
 }
 
 /**

@@ -1,11 +1,13 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import { RuntimeError } from "../../../src/common/error.ts";
 import { ProviderErrorCode } from "../../../src/common/error-codes.ts";
+import { AUTO_MODEL_ID } from "../../../src/common/config/types.ts";
 import {
   createSession,
   getSession,
   insertMessage,
 } from "../../../src/hlvm/store/conversation-store.ts";
+import { __setListAllProviderModelsForTesting } from "../../../src/hlvm/agent/auto-select.ts";
 import {
   _resetActiveConversationForTesting,
   getActiveConversationSessionId,
@@ -494,6 +496,59 @@ Deno.test("handlers: chat surfaces provider auth failures during agent model ver
         );
       } finally {
         (ai.models as { get: typeof ai.models.get }).get = originalGet;
+      }
+    });
+  });
+});
+
+Deno.test("handlers: chat resolves auto before agent capability verification", async () => {
+  await withTempHlvmDir(async () => {
+    await withDb(async () => {
+      const originalGet = ai.models.get;
+      const getCalls: Array<[string, string | undefined]> = [];
+      __setListAllProviderModelsForTesting(async () => [{
+        name: "gpt-4o-mini",
+        displayName: "GPT-4o Mini",
+        capabilities: ["chat", "tools"],
+        contextWindow: 128_000,
+        metadata: {
+          provider: "openai",
+          apiKeyConfigured: true,
+        },
+      }]);
+      (ai.models as { get: typeof ai.models.get }).get = (
+        name: string,
+        provider?: string,
+      ) => {
+        getCalls.push([name, provider]);
+        return Promise.reject(
+          new RuntimeError(
+            "Claude Code OAuth token invalid or expired. Run `claude login` to re-authenticate.",
+            { code: ProviderErrorCode.AUTH_FAILED },
+          ),
+        );
+      };
+
+      try {
+        const response = await handleChat(jsonRequest({
+          mode: "agent",
+          session_id: "session-auto-auth-gate",
+          model: AUTO_MODEL_ID,
+          messages: [{
+            role: "user",
+            content: "list files in src/hlvm/agent",
+          }],
+        }));
+
+        assertEquals(response.status, 503);
+        assertEquals(
+          (await response.json()).error,
+          "[PRV9004] Claude Code OAuth token invalid or expired. Run `claude login` to re-authenticate.",
+        );
+        assertEquals(getCalls[0], ["gpt-4o-mini", "openai"]);
+      } finally {
+        (ai.models as { get: typeof ai.models.get }).get = originalGet;
+        __setListAllProviderModelsForTesting(null);
       }
     });
   });

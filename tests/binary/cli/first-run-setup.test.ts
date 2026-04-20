@@ -32,7 +32,8 @@ binaryTest(
       const piped = await runCLI("ask", ["hello"], {
         cwd: dir,
         env: {
-          HLVM_DIR: dir,
+          HLVM_TEST_STATE_ROOT: dir,
+          HLVM_ALLOW_TEST_STATE_ROOT: "1",
           HLVM_REPL_PORT: String(port),
           HLVM_ASK_FIXTURE_PATH: fixturePath,
         },
@@ -51,7 +52,8 @@ binaryTest(
         {
           cwd: dir,
           env: {
-            HLVM_DIR: dir,
+            HLVM_TEST_STATE_ROOT: dir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_REPL_PORT: String(port),
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
@@ -80,7 +82,8 @@ binaryTest(
       const configured = await runCLI("ask", ["hello"], {
         cwd: dir,
         env: {
-          HLVM_DIR: dir,
+          HLVM_TEST_STATE_ROOT: dir,
+          HLVM_ALLOW_TEST_STATE_ROOT: "1",
           HLVM_REPL_PORT: String(port),
           HLVM_ASK_FIXTURE_PATH: fixturePath,
         },

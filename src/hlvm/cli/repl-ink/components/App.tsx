@@ -364,10 +364,6 @@ function AppContent(
       .catch(() => {});
   }, [init.ready, modelSelection.activeModelId, refreshAiReadiness]);
 
-  // Reactive footer refresh: when an agent turn finishes, re-read the host's
-  // readiness so stale "Starting AI engine / still initializing" text stops
-  // showing once the engine has clearly just responded. The evaluation
-  // completion itself is the event — no periodic polling.
   const wasEvaluatingRef = useRef(false);
   useEffect(() => {
     const wasEvaluating = wasEvaluatingRef.current;

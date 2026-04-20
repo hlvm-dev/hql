@@ -21,7 +21,8 @@ $SmokeRuntimePort = if ($env:HLVM_SMOKE_RUNTIME_PORT) { $env:HLVM_SMOKE_RUNTIME_
 New-Item -ItemType Directory -Path $AssetDir, $InstallBin, $SmokeHlvmDir -Force | Out-Null
 
 try {
-    $env:HLVM_DIR = $SmokeHlvmDir
+    $env:HLVM_TEST_STATE_ROOT = $SmokeHlvmDir
+    $env:HLVM_ALLOW_TEST_STATE_ROOT = "1"
     $env:HLVM_REPL_PORT = $SmokeRuntimePort
 
     if ($Mode -eq "staged") {

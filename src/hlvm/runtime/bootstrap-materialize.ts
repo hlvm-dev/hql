@@ -13,7 +13,6 @@ import {
 import { ensureRuntimeDir, getModelsDir } from "../../common/paths.ts";
 import {
   DEFAULT_OLLAMA_ENDPOINT,
-  DEFAULT_OLLAMA_HOST,
 } from "../../common/config/types.ts";
 import { http } from "../../common/http-client.ts";
 import { log } from "../api/log.ts";
@@ -28,7 +27,6 @@ import {
 } from "./bootstrap-manifest.ts";
 import { getKnownLocalFallbackIdentity, matchesFallbackIdentity } from "./bootstrap-manifest.ts";
 import { selectBootstrapModelForHost } from "./bootstrap-model-selection.ts";
-import { findListeningPidForPort } from "./port-process.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,12 +109,8 @@ async function startEngineForBootstrap(
     waitForAIEngineReady,
   } = await import("./ai-runtime.ts");
   const expectedVersion = await getAIEngineBinaryVersion(enginePath);
-  const forceDedicatedEndpoint = Boolean(getPlatform().env.get("HLVM_DIR"));
 
-  if (
-    !forceDedicatedEndpoint &&
-    await isCompatibleAIRunning(expectedVersion ?? undefined)
-  ) {
+  if (await isCompatibleAIRunning(expectedVersion ?? undefined)) {
     onProgress?.({
       phase: "start_engine",
       message: "Using existing compatible AI engine on the HLVM endpoint.",
@@ -124,20 +118,7 @@ async function startEngineForBootstrap(
     return null;
   }
 
-  await reclaimConflictingAIEndpoint(expectedVersion ?? undefined, {
-    force: forceDedicatedEndpoint,
-  });
-
-  if (forceDedicatedEndpoint) {
-    const port = Number(DEFAULT_OLLAMA_HOST.split(":").at(-1) ?? "11439");
-    const existingPid = await findListeningPidForPort(port);
-    if (existingPid) {
-      throw new Error(
-        "AI engine endpoint was already owned by another runtime root and " +
-          "could not be reclaimed for this bootstrap.",
-      );
-    }
-  }
+  await reclaimConflictingAIEndpoint(expectedVersion ?? undefined);
 
   const proc = getPlatform().command.run({
     cmd: [enginePath, "serve"],

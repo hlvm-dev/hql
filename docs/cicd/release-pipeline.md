@@ -199,14 +199,14 @@ Model identity pins must match the live Ollama registry manifests, not the
 human-facing library detail pages, because those detail pages can lag behind the
 actual pull artifacts.
 
-Bootstrap and first-use runtime attachment are both root-aware:
+Bootstrap and first-use runtime attachment operate on the single user-level
+daemon at `~/.hlvm/`:
 
-- the managed Ollama endpoint on `127.0.0.1:11439` must belong to the same
-  `HLVM_DIR` that requested bootstrap
-- the background HLVM runtime host must match both the build identity and the
-  requesting `HLVM_DIR`
-- clean installs must never silently reuse another runtime root's engine, model
-  store, or background host
+- the managed Ollama endpoint on `127.0.0.1:11439` is always HLVM-owned; a
+  non-HLVM Ollama on that port is reclaimed on bootstrap
+- the background HLVM runtime host matches callers by build identity only
+- there is no per-directory isolation at the user contract; CLI, GUI, and
+  channel receivers share the same runtime host
 
 ---
 
@@ -215,16 +215,20 @@ Bootstrap and first-use runtime attachment are both root-aware:
 Draft smoke tests download staged assets locally and exercise the full install
 contract.
 
-Both staged and public smoke tests run inside an isolated temp `HLVM_DIR` and a
-dedicated runtime-host port so release validation does not inherit the caller's
-existing `~/.hlvm` state or background `hlvm serve` processes.
+Both staged and public smoke tests run inside an isolated temp state root and
+a dedicated runtime-host port so release validation does not inherit the
+caller's existing `~/.hlvm` state or background `hlvm serve` processes. The
+isolation is opt-in via the internal test-only env pair
+`HLVM_TEST_STATE_ROOT` + `HLVM_ALLOW_TEST_STATE_ROOT=1`; this hook is not a
+user-facing feature.
 
 ### Unix staged path
 
 ```
 1. Download draft assets via gh release download
 2. Run install.sh with local file:// overrides
-3. Export isolated `HLVM_DIR` and `HLVM_REPL_PORT`
+3. Export isolated HLVM_TEST_STATE_ROOT (+ HLVM_ALLOW_TEST_STATE_ROOT=1)
+   and HLVM_REPL_PORT
 4. Installer downloads binary and runs bootstrap
 5. Bootstrap installs Ollama + model + Chromium + Python sidecar
 6. `hlvm ask "hello"` runs against the isolated runtime host

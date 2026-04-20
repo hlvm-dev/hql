@@ -18,6 +18,7 @@ import {
 import { RuntimeError } from "../../common/error.ts";
 import {
   getErrorFixes,
+  HLVMErrorCode,
   parseErrorCodeFromMessage,
   stripErrorCodeFromMessage,
   type UnifiedErrorCode,
@@ -30,7 +31,7 @@ function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError";
 }
 
-type ErrorClass =
+export type ErrorClass =
   | "abort"
   | "timeout"
   | "rate_limit"
@@ -376,6 +377,43 @@ export function getRecoveryHint(errorMessage: string): string | null {
   return null;
 }
 
+function isUnexpectedInternalException(err: unknown): err is Error {
+  if (!(err instanceof Error) || err instanceof RuntimeError) {
+    return false;
+  }
+  return err.name === "TypeError" ||
+    err.name === "ReferenceError" ||
+    err.name === "SyntaxError";
+}
+
+/**
+ * Error thrown when the runtime host stream carries a server-side
+ * `{ event: "error" }` event. The server has already classified the
+ * underlying failure via `describeErrorForDisplay`, so the faithful
+ * class / retryable / hint are carried verbatim and must NOT be
+ * re-derived by the client (doing so picks up misleading fallbacks
+ * like the REQUEST_FAILED "Restart HLVM" hint).
+ */
+export class AgentStreamError extends RuntimeError {
+  readonly streamClass: ErrorClass;
+  readonly streamRetryable: boolean;
+  readonly streamHint: string | null;
+
+  constructor(
+    message: string,
+    streamClass: ErrorClass,
+    streamRetryable: boolean,
+    streamHint: string | null,
+  ) {
+    const parsedCode = parseErrorCodeFromMessage(message);
+    super(message, { code: parsedCode ?? HLVMErrorCode.REQUEST_FAILED });
+    this.name = "AgentStreamError";
+    this.streamClass = streamClass;
+    this.streamRetryable = streamRetryable;
+    this.streamHint = streamHint;
+  }
+}
+
 function extractStructuredErrorCode(
   err: unknown,
   rawMessage: string,
@@ -395,8 +433,33 @@ export interface DisplayableError {
 
 export async function describeErrorForDisplay(err: unknown): Promise<DisplayableError> {
   const rawMessage = getErrorMessage(err);
+
+  if (err instanceof AgentStreamError) {
+    const message = stripErrorCodeFromMessage(rawMessage).trim() ||
+      rawMessage.trim() ||
+      "Unknown error";
+    return {
+      message,
+      hint: err.streamHint,
+      class: err.streamClass,
+      retryable: err.streamRetryable,
+    };
+  }
+
   const classified = await classifyError(err);
   const code = extractStructuredErrorCode(err, rawMessage);
+  if (isUnexpectedInternalException(err) && code == null) {
+    const message = stripErrorCodeFromMessage(rawMessage).trim() ||
+      rawMessage.trim() ||
+      "Unknown internal error";
+    return {
+      message: `Internal HLVM error while handling the request: ${message}`,
+      hint:
+        "This looks like an HLVM bug, not a bad command. Retry once; if it persists, keep the exact command and error text.",
+      class: "unknown",
+      retryable: false,
+    };
+  }
   const message = stripErrorCodeFromMessage(rawMessage).trim() ||
     rawMessage.trim() ||
     "Unknown error";

@@ -6,8 +6,10 @@ import {
   NoSuchModelError,
 } from "ai";
 import {
+  AgentStreamError,
   buildEditFileRecovery,
   classifyError,
+  describeErrorForDisplay,
   getRecoveryHint,
   renderEditFileRecoveryPrompt,
 } from "../../../src/hlvm/agent/error-taxonomy.ts";
@@ -47,6 +49,70 @@ Deno.test("error taxonomy: connection-death errors classify as retryable transie
     assertEquals(result.class, "transient", `"${msg}" should be transient`);
     assertEquals(result.retryable, true, `"${msg}" should be retryable`);
   }
+});
+
+Deno.test("error taxonomy: AgentStreamError returns the server's classification verbatim and skips the REQUEST_FAILED fallback hint", async () => {
+  const serverMessage =
+    "Internal HLVM error while handling the request: Cannot read properties of undefined (reading 'type')";
+  const serverHint =
+    "This looks like an HLVM bug, not a bad command. Retry once; if it persists, keep the exact command and error text.";
+
+  const streamed = new AgentStreamError(
+    serverMessage,
+    "unknown",
+    false,
+    serverHint,
+  );
+
+  const described = await describeErrorForDisplay(streamed);
+  assertEquals(described.class, "unknown");
+  assertEquals(described.retryable, false);
+  assertEquals(described.message, serverMessage);
+  assertEquals(described.hint, serverHint);
+});
+
+Deno.test("error taxonomy: AgentStreamError propagates a null hint when the server sent none, without falling back to REQUEST_FAILED", async () => {
+  const streamed = new AgentStreamError(
+    "Provider rejected the request",
+    "permanent",
+    false,
+    null,
+  );
+
+  const described = await describeErrorForDisplay(streamed);
+  assertEquals(described.class, "permanent");
+  assertEquals(described.retryable, false);
+  assertEquals(described.hint, null);
+});
+
+Deno.test("error taxonomy: AgentStreamError preserves structured codes embedded in the server message", () => {
+  const streamed = new AgentStreamError(
+    "[HQL5001] variable foo is not defined",
+    "permanent",
+    false,
+    null,
+  );
+
+  assertEquals(streamed.code, 5001);
+  assertStringIncludes(streamed.message, "[HQL5001]");
+});
+
+Deno.test("error taxonomy: unexpected internal JS exceptions get an honest display message and hint", async () => {
+  const displayed = await describeErrorForDisplay(
+    new TypeError("Cannot read properties of undefined (reading 'type')"),
+  );
+
+  assertEquals(displayed.class, "unknown");
+  assertEquals(displayed.retryable, false);
+  assertStringIncludes(
+    displayed.message,
+    "Internal HLVM error while handling the request:",
+  );
+  assertStringIncludes(
+    displayed.message,
+    "Cannot read properties of undefined (reading 'type')",
+  );
+  assertStringIncludes(displayed.hint ?? "", "HLVM bug");
 });
 
 Deno.test("error taxonomy: APICallError uses structured status codes before string matching", async () => {

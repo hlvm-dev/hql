@@ -30,6 +30,7 @@ import {
 } from "../../../../common/ai-default-model.ts";
 import { AUTO_MODEL_ID, DEFAULT_MODEL_ID } from "../../../../common/config/types.ts";
 import { describeErrorForDisplay } from "../../../agent/error-taxonomy.ts";
+import { RuntimeError } from "../../../../common/error.ts";
 import {
   jsonError,
   ndjsonLine,
@@ -63,6 +64,11 @@ import { AGENT_MODEL_SUFFIX } from "../../../providers/claude-code/provider.ts";
 import { evaluateProviderApproval } from "../../../providers/approval.ts";
 import { supportsAgentExecution } from "../../../agent/constants.ts";
 import { resolveLocalFallbackModelId } from "../../../runtime/local-fallback.ts";
+import { getLocalModelDisplayName } from "../../../runtime/local-llm.ts";
+import {
+  markRuntimeAiRequestFailed,
+  markRuntimeAiRequestSucceeded,
+} from "../../commands/serve.ts";
 
 export { activeRequests, handleChatInteraction } from "./chat-session.ts";
 
@@ -80,7 +86,11 @@ import {
   handleAgentMode,
   handleClaudeCodeAgentMode,
 } from "./chat-agent-mode.ts";
-import { handleChatMode } from "./chat-direct.ts";
+import {
+  handleChatMode,
+  resolveChatModelForRequest,
+  type ResolvedChatModel,
+} from "./chat-direct.ts";
 import {
   buildRequestMessagesToPersist,
   shouldHonorRequestMessages,
@@ -119,6 +129,14 @@ function hasDeprecatedSessionIdField(body: ChatRequest): boolean {
     body as unknown as object,
     "session_id",
   );
+}
+
+function isManagedLocalAiEndpointFailure(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes("127.0.0.1:11439") ||
+    normalized.includes("connection refused") ||
+    normalized.includes("tcp connect error") ||
+    normalized.includes("econnrefused");
 }
 
 function validateCapturedContexts(
@@ -456,6 +474,22 @@ export async function handleChat(req: Request): Promise<Response> {
       ? body.model
       : localFallbackModelId ?? DEFAULT_MODEL_ID)
     : body.model ?? (await ensureInitialModelConfigured()).model;
+  let preResolvedChatModel: ResolvedChatModel | undefined;
+  const pendingStreamEvents: unknown[] = [];
+  if (!isEvalMode && !fixturePath) {
+    preResolvedChatModel = await resolveChatModelForRequest(
+      resolvedModel,
+      body,
+    );
+    if (preResolvedChatModel.autoSelectionReason) {
+      resolvedModel = preResolvedChatModel.effectiveModel;
+      pendingStreamEvents.push({
+        event: "trace",
+        kind: "auto_select",
+        detail: preResolvedChatModel.autoSelectionReason,
+      });
+    }
+  }
   const requestAttachmentIds = getRequestAttachmentIds(body.messages);
   traceReplMainThreadForSource(body.query_source, "server.chat.model_ready", {
     requestId,
@@ -577,7 +611,7 @@ export async function handleChat(req: Request): Promise<Response> {
         );
       }
     }
-    if (requestedMode === "agent") {
+    if (requestedMode === "agent" && !fixturePath) {
       const toolCheck = await modelSupportsTools(
         resolvedModel,
         resolvedModelInfo,
@@ -681,6 +715,9 @@ export async function handleChat(req: Request): Promise<Response> {
 
   let partialText = "";
   let cancellationEmitted = false;
+  const [resolvedProvider] = resolvedModel ? parseModelString(resolvedModel) : [];
+  const tracksManagedLocalAi = !isEvalMode && !fixturePath &&
+    resolvedProvider === "ollama";
   let resultStats:
     | import("../../../runtime/chat-protocol.ts").ChatResultStats
     | null = null;
@@ -695,6 +732,10 @@ export async function handleChat(req: Request): Promise<Response> {
         } catch {
           streamClosed = true;
         }
+      }
+
+      for (const pendingEvent of pendingStreamEvents) {
+        emit(pendingEvent);
       }
 
       const emitCancellationOnce = async () => {
@@ -722,8 +763,11 @@ export async function handleChat(req: Request): Promise<Response> {
         }
       };
 
-      const emitErrorState = async (error: unknown): Promise<void> => {
-        const described = await describeErrorForDisplay(error);
+      const emitErrorState = async (
+        error: unknown,
+        described?: Awaited<ReturnType<typeof describeErrorForDisplay>>,
+      ): Promise<void> => {
+        described ??= await describeErrorForDisplay(error);
         const errorMsg = described.message;
         traceReplMainThreadForSource(body.query_source, "server.chat.error", {
           requestId,
@@ -767,6 +811,7 @@ export async function handleChat(req: Request): Promise<Response> {
           message: errorMsg,
           errorClass: described.class,
           retryable: described.retryable,
+          hint: described.hint,
         });
       };
 
@@ -823,9 +868,12 @@ export async function handleChat(req: Request): Promise<Response> {
               ))
           ? CLAUDE_CODE_AGENT_MODE
           : requestedMode;
+        const canRunAgentMode = fixturePath
+          ? true
+          : supportsAgentExecution(resolvedModel, resolvedModelInfo);
         const runnerHandlesMemoryCapture = !isEvalMode &&
           effectiveMode === "agent" &&
-          supportsAgentExecution(resolvedModel, resolvedModelInfo);
+          canRunAgentMode;
 
         if (
           !isEvalMode &&
@@ -899,7 +947,7 @@ export async function handleChat(req: Request): Promise<Response> {
             onPartial,
           );
         } else if (effectiveMode === "agent") {
-          if (supportsAgentExecution(resolvedModel, resolvedModelInfo)) {
+          if (canRunAgentMode) {
             try {
               resultStats = await handleAgentMode(
                 body,
@@ -939,6 +987,9 @@ export async function handleChat(req: Request): Promise<Response> {
                   onPartial,
                   requestId,
                   resolvedModelInfo,
+                  preResolvedChatModel?.effectiveModel === resolvedModel
+                    ? preResolvedChatModel
+                    : undefined,
                 );
               } else {
                 throw agentError;
@@ -955,6 +1006,9 @@ export async function handleChat(req: Request): Promise<Response> {
               onPartial,
               requestId,
               resolvedModelInfo,
+              preResolvedChatModel?.effectiveModel === resolvedModel
+                ? preResolvedChatModel
+                : undefined,
             );
           }
         } else {
@@ -968,12 +1022,18 @@ export async function handleChat(req: Request): Promise<Response> {
             onPartial,
             requestId,
             resolvedModelInfo,
+            preResolvedChatModel?.effectiveModel === resolvedModel
+              ? preResolvedChatModel
+              : undefined,
           );
         }
 
         if (controller.signal.aborted) {
           emitCancellationOnce();
         } else {
+          if (tracksManagedLocalAi) {
+            markRuntimeAiRequestSucceeded();
+          }
           if (
             !isEvalMode &&
             body.disable_persistent_memory !== true &&
@@ -1033,7 +1093,31 @@ export async function handleChat(req: Request): Promise<Response> {
         if (controller.signal.aborted) {
           emitCancellationOnce();
         } else {
-          await emitErrorState(error);
+          if (
+            error instanceof Error &&
+            !(error instanceof RuntimeError) &&
+            (
+              error.name === "TypeError" ||
+              error.name === "ReferenceError" ||
+              error.name === "SyntaxError"
+            )
+          ) {
+            log.error(
+              `Unhandled internal /api/chat exception (mode=${requestedMode}, model=${resolvedModel ?? "default"})`,
+              error,
+            );
+          }
+          const described = await describeErrorForDisplay(error);
+          if (tracksManagedLocalAi) {
+            const lostManagedEndpoint = isManagedLocalAiEndpointFailure(
+              described.message,
+            );
+            markRuntimeAiRequestFailed(
+              `Local ${getLocalModelDisplayName()} runtime request failed: ${described.message}`,
+              lostManagedEndpoint ? false : described.retryable,
+            );
+          }
+          await emitErrorState(error, described);
         }
       }
 

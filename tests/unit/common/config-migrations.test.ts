@@ -113,3 +113,30 @@ Deno.test("config migrations: stampCurrentConfigVersion normalizes arbitrary con
   assertEquals(stamped.version, CURRENT_CONFIG_VERSION);
   assertEquals(stamped.theme, "sicp");
 });
+
+Deno.test("config migrations: channels survive save/load in unified settings.json", async () => {
+  await withTempHlvmDir(async () => {
+    const config = asConfig({
+      channels: {
+        telegram: {
+          enabled: true,
+          allowedIds: ["123456789"],
+          transport: {
+            mode: "relay",
+            deviceId: "device-1",
+            relayUrl: "wss://relay.hlvm.app",
+            cursor: 42,
+          },
+        },
+      },
+    });
+
+    await saveConfig(config);
+
+    const loaded = await loadConfig();
+    assertEquals(loaded.channels?.telegram?.enabled, true);
+    assertEquals(loaded.channels?.telegram?.allowedIds, ["123456789"]);
+    assertEquals(loaded.channels?.telegram?.transport?.mode, "relay");
+    assertEquals(loaded.channels?.telegram?.transport?.cursor, 42);
+  });
+});

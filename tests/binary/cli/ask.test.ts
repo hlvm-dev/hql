@@ -12,7 +12,8 @@ binaryTest(
       const result = await runCLI("ask", ["--fresh", "inspect the project"], {
         cwd: dir,
         env: {
-          HLVM_DIR: dir,
+          HLVM_TEST_STATE_ROOT: dir,
+          HLVM_ALLOW_TEST_STATE_ROOT: "1",
         },
       });
 
@@ -45,7 +46,8 @@ binaryTest(
         {
           cwd: dir,
           env: {
-            HLVM_DIR: dir,
+            HLVM_TEST_STATE_ROOT: dir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
           },
         },
       );

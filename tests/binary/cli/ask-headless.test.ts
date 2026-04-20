@@ -114,7 +114,8 @@ binaryTest(
         {
           cwd: dir,
           env: {
-            HLVM_DIR: dir,
+            HLVM_TEST_STATE_ROOT: dir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_REPL_PORT: String(port),
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
@@ -125,8 +126,8 @@ binaryTest(
       // Verify ask_user was attempted and blocked
       assertStringIncludes(
         output,
-        "ask_user",
-        "Expected ask_user tool to be attempted",
+        "Ask(\"What should I do?\")",
+        "Expected the ask_user interaction to appear in the transcript",
       );
       // Agent completes successfully because it can work around the blocked tool
       assertEquals(
@@ -158,7 +159,8 @@ binaryTest(
         {
           cwd: dir,
           env: {
-            HLVM_DIR: dir,
+            HLVM_TEST_STATE_ROOT: dir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_REPL_PORT: String(port),
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
@@ -208,7 +210,8 @@ binaryTest(
         {
           cwd: dir,
           env: {
-            HLVM_DIR: dir,
+            HLVM_TEST_STATE_ROOT: dir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_REPL_PORT: String(port),
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
@@ -252,7 +255,8 @@ binaryTest(
         {
           cwd: dir,
           env: {
-            HLVM_DIR: dir,
+            HLVM_TEST_STATE_ROOT: dir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_REPL_PORT: String(port),
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
@@ -296,7 +300,8 @@ binaryTest(
         {
           cwd: dir,
           env: {
-            HLVM_DIR: dir,
+            HLVM_TEST_STATE_ROOT: dir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_REPL_PORT: String(port),
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
@@ -307,8 +312,8 @@ binaryTest(
       // Verify read_file was blocked by explicit --disallowedTools
       assertStringIncludes(
         output,
-        "read_file",
-        "Expected read_file tool to be attempted",
+        "Read(README.md)",
+        "Expected the read_file interaction to appear in the transcript",
       );
       // Agent completes successfully because it can work around the blocked tool
       assertEquals(
@@ -383,7 +388,8 @@ binaryTest(
         {
           cwd: dir,
           env: {
-            HLVM_DIR: dir,
+            HLVM_TEST_STATE_ROOT: dir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_REPL_PORT: String(port),
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
@@ -421,7 +427,8 @@ binaryTest(
         {
           cwd: dir,
           env: {
-            HLVM_DIR: dir,
+            HLVM_TEST_STATE_ROOT: dir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_REPL_PORT: String(port),
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },

@@ -35,9 +35,14 @@ import {
   runRuntimeOllamaSignin,
   uploadRuntimeAttachment,
 } from "../../../src/hlvm/runtime/host-client.ts";
+import { describeErrorForDisplay } from "../../../src/hlvm/agent/error-taxonomy.ts";
 import type { AgentUIEvent } from "../../../src/hlvm/agent/orchestrator.ts";
 import type { AttachmentRecord } from "../../../src/hlvm/attachments/types.ts";
-import { withRuntimePortOverrideForTests } from "../../../src/hlvm/runtime/host-config.ts";
+import {
+  getHlvmRuntimeBaseUrl,
+  setCachedRuntimeBaseUrl,
+  withRuntimePortOverrideForTests,
+} from "../../../src/hlvm/runtime/host-config.ts";
 import { getPlatform, setPlatform } from "../../../src/platform/platform.ts";
 import type { PlatformHttpServerHandle } from "../../../src/platform/types.ts";
 import {
@@ -47,7 +52,6 @@ import {
 } from "../../shared/light-helpers.ts";
 import {
   createRuntimeHostHealthResponse,
-  waitForRuntimeHostShutdown,
 } from "../../shared/runtime-host-test-helpers.ts";
 
 const encoder = new TextEncoder();
@@ -65,6 +69,60 @@ Deno.test("runtime host start lock path is scoped by runtime port", async () => 
   assert(first !== second);
   assertStringIncludes(first, "19143");
   assertStringIncludes(second, "19144");
+});
+
+Deno.test("source-mode host client without HLVM_REPL_PORT refuses to start the shared runtime", async () => {
+  const originalPlatform = getPlatform();
+  const originalBaseUrl = getHlvmRuntimeBaseUrl();
+  const port = await findFreePort();
+  let spawnCount = 0;
+
+  setPlatform({
+    ...originalPlatform,
+    process: {
+      ...originalPlatform.process,
+      execPath: () => "/usr/local/bin/deno",
+    },
+    command: {
+      ...originalPlatform.command,
+      run: () => {
+        spawnCount += 1;
+        return {
+          status: Promise.resolve({
+            success: true,
+            code: 0,
+            signal: undefined,
+          }),
+          unref: () => {},
+        };
+      },
+    },
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", "", async () => {
+      setCachedRuntimeBaseUrl(`http://127.0.0.1:${port}`);
+      const error = await assertRejects(
+        async () =>
+          await runAgentQueryViaHost({
+            query: "source mode should not take over the shared runtime",
+            model: "ollama/llama3.1:8b",
+            callbacks: {},
+          }),
+        RuntimeError,
+      );
+
+      assertStringIncludes(
+        error.message,
+        "Source-mode HLVM will not auto-start or replace the shared runtime without HLVM_REPL_PORT.",
+      );
+      assertEquals(spawnCount, 0);
+      await __testOnlyWaitForStaleFallbackHostSweep();
+    });
+  } finally {
+    setCachedRuntimeBaseUrl(originalBaseUrl);
+    setPlatform(originalPlatform);
+  }
 });
 
 Deno.test("runAgentQueryViaHost streams events, traces, and interaction responses", async () => {
@@ -545,6 +603,79 @@ Deno.test("runAgentQueryViaHost retries an early transient plan-mode stream drop
       assertEquals(result.text, "Plan recovered.");
       assertEquals(chatRequestCount, 2);
       assertEquals(uiEvents.includes("plan_phase_changed"), true);
+      await __testOnlyWaitForStaleFallbackHostSweep();
+    });
+  } finally {
+    await handle.shutdown();
+    await handle.finished;
+  }
+});
+
+Deno.test("runDirectChatViaHost retries an early transient stream drop before the first token", async () => {
+  const port = await findFreePort();
+  const authToken = "test-auth-token";
+  let chatRequestCount = 0;
+
+  const handle = getPlatform().http.serveWithHandle!(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname === "/health") {
+      return Response.json(await createRuntimeHostHealthResponse(authToken));
+    }
+
+    if (url.pathname === "/api/chat") {
+      chatRequestCount += 1;
+      const stream = new ReadableStream({
+        start(controller) {
+          const emit = (obj: unknown) =>
+            controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+          emit({ event: "start", request_id: `req-${chatRequestCount}` });
+          if (chatRequestCount === 1) {
+            controller.error(
+              new TypeError("error reading a body from connection"),
+            );
+            return;
+          }
+          emit({ event: "token", text: "Recovered chat." });
+          emit({
+            event: "complete",
+            request_id: `req-${chatRequestCount}`,
+            session_version: 1,
+          });
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "X-Request-ID": `req-${chatRequestCount}`,
+        },
+      });
+    }
+
+    if (url.pathname === "/api/chat/cancel") {
+      return Response.json({ cancelled: true });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, {
+    hostname: "127.0.0.1",
+    port,
+    onListen: () => {},
+  });
+
+  try {
+    await withEnv("HLVM_REPL_PORT", String(port), async () => {
+      const result = await runDirectChatViaHost({
+        query: "Say hi",
+        callbacks: {
+          onToken: () => {},
+        },
+      });
+
+      assertEquals(result.text, "Recovered chat.");
+      assertEquals(chatRequestCount, 2);
       await __testOnlyWaitForStaleFallbackHostSweep();
     });
   } finally {
@@ -1313,7 +1444,7 @@ Deno.test("runAgentQueryViaHost takes over runtime startup after an abandoned st
   }
 });
 
-Deno.test("runAgentQueryViaHost reclaims an idle incompatible runtime host before expanding to the next port", async () => {
+Deno.test("runAgentQueryViaHost reclaims an idle incompatible runtime host on the base port", async () => {
   const basePort = await findFreePort();
   const incompatibleAuthToken = "idle-incompatible-auth-token";
   const originalPlatform = getPlatform();
@@ -1443,7 +1574,7 @@ Deno.test("runAgentQueryViaHost reclaims an idle incompatible runtime host befor
   }
 });
 
-Deno.test("runAgentQueryViaHost preserves an active incompatible runtime host and expands to the next port", async () => {
+Deno.test("runAgentQueryViaHost fails when an active incompatible runtime host owns the base port", async () => {
   const basePort = await findFreePort();
   const incompatibleAuthToken = "active-incompatible-auth-token";
   const originalPlatform = getPlatform();
@@ -1541,18 +1672,21 @@ Deno.test("runAgentQueryViaHost preserves an active incompatible runtime host an
   });
 
   try {
-    const result = await withRuntimePortOverrideForTests(
-      basePort,
+    await assertRejects(
       async () =>
-        await runAgentQueryViaHost({
-          query: "preserve active incompatible host",
-          model: "ollama/llama3.1:8b",
-          callbacks: {},
-        }),
+        await withRuntimePortOverrideForTests(
+          basePort,
+          async () =>
+            await runAgentQueryViaHost({
+              query: "preserve active incompatible host",
+              model: "ollama/llama3.1:8b",
+              callbacks: {},
+            }),
+        ),
+      RuntimeError,
+      `A different runtime is already using port ${basePort}`,
     );
-
-    assertEquals(result.text, "expanded");
-    assertEquals(spawnedPorts, [basePort + 1]);
+    assertEquals(spawnedPorts, []);
     await __testOnlyWaitForStaleFallbackHostSweep();
   } finally {
     setPlatform(originalPlatform);
@@ -1565,7 +1699,7 @@ Deno.test("runAgentQueryViaHost preserves an active incompatible runtime host an
   }
 });
 
-Deno.test("runAgentQueryViaHost asynchronously sweeps idle incompatible fallback hosts after attaching to a compatible base host", async () => {
+Deno.test("runAgentQueryViaHost leaves unrelated fallback hosts untouched after attaching to a compatible base host", async () => {
   const basePort = await findFreePort();
   const fallbackPort = basePort + 1;
   const fallbackUrl = `http://127.0.0.1:${fallbackPort}`;
@@ -1659,8 +1793,10 @@ Deno.test("runAgentQueryViaHost asynchronously sweeps idle incompatible fallback
     );
 
     assertEquals(result.text, "base");
-    assert(await waitForRuntimeHostShutdown(fallbackUrl));
-    assertEquals(fallbackShutdownRequests, 1);
+    const fallbackHealth = await fetch(fallbackUrl + "/health");
+    assertEquals(fallbackHealth.status, 200);
+    await fallbackHealth.body?.cancel();
+    assertEquals(fallbackShutdownRequests, 0);
     await __testOnlyWaitForStaleFallbackHostSweep();
   } finally {
     await baseHandle.shutdown().catch(() => {});
@@ -2058,6 +2194,86 @@ Deno.test("runtime host client exposes Ollama signin and MCP admin flows through
       "OAuth login complete for MCP server 'github'.",
     );
     assertEquals(logout.removed, true);
+    await __testOnlyWaitForStaleFallbackHostSweep();
+  });
+});
+
+Deno.test("runChatViaHost preserves the server's faithful stream error classification for display", async () => {
+  const serverMessage =
+    "Internal HLVM error while handling the request: Cannot read properties of undefined (reading 'type')";
+  const serverHint =
+    "This looks like an HLVM bug, not a bad command. Retry once; if it persists, keep the exact command and error text.";
+
+  let requestCount = 0;
+
+  await withRuntimeHostServer(async (req) => {
+    const url = new URL(req.url);
+    if (url.pathname !== "/api/chat") {
+      return new Response("Not found", { status: 404 });
+    }
+    requestCount += 1;
+
+    const stream = new ReadableStream({
+      start(controller) {
+        const emit = (obj: unknown) =>
+          controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        emit({ event: "start", request_id: "req-stream-err" });
+        emit({
+          event: "error",
+          message: serverMessage,
+          errorClass: "unknown",
+          retryable: false,
+          hint: serverHint,
+        });
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/x-ndjson",
+        "X-Request-ID": "req-stream-err",
+      },
+    });
+  }, async () => {
+    const caught = await assertRejects(
+      async () =>
+        await runChatViaHost({
+          mode: "agent",
+          querySource: "repl_main_thread",
+          model: "ollama/test-fixture",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      Error,
+    );
+
+    const described = await describeErrorForDisplay(caught);
+
+    assertEquals(
+      described.class,
+      "unknown",
+      "class must match the server's faithful classification",
+    );
+    assertEquals(
+      described.retryable,
+      false,
+      "retryable must match the server's faithful classification",
+    );
+    assertStringIncludes(
+      described.message,
+      "Cannot read properties of undefined (reading 'type')",
+    );
+    assertEquals(
+      described.hint,
+      serverHint,
+      "hint must be the server's faithful hint, not the REQUEST_FAILED 'Restart HLVM' fallback",
+    );
+    assert(
+      !(described.hint ?? "").toLowerCase().includes("restart hlvm"),
+      `hint must not contain the misleading "Restart HLVM" fallback, got: ${described.hint}`,
+    );
+    assertEquals(requestCount, 1);
     await __testOnlyWaitForStaleFallbackHostSweep();
   });
 });

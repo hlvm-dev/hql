@@ -22,7 +22,6 @@ import { getPlatform } from "../../src/platform/platform.ts";
 import type { PlatformCommandProcess } from "../../src/platform/types.ts";
 import {
   getHlvmRuntimeBaseUrl,
-  HLVM_RUNTIME_PORT_SCAN_RANGE,
   resolveHlvmRuntimePort,
   setCachedRuntimeBaseUrl,
 } from "../../src/hlvm/runtime/host-config.ts";
@@ -32,7 +31,7 @@ import {
   buildRuntimeServeCommand,
   getRuntimeHostIdentity,
 } from "../../src/hlvm/runtime/host-identity.ts";
-import { withEnv } from "../shared/light-helpers.ts";
+import { findFreePort, withEnv } from "../shared/light-helpers.ts";
 import { shutdownRuntimeHostIfPresent } from "../shared/runtime-host-test-helpers.ts";
 
 const platform = getPlatform();
@@ -149,28 +148,18 @@ async function ensureExplicitRuntimeHostStarted(): Promise<void> {
     return;
   }
 
-  if (existing === null) {
-    const startedBaseUrl = await tryStartCompatibleRuntimeHost(
-      port,
-      identity.buildId,
+  if (existing !== null) {
+    throw new Error(
+      "A different runtime is already using the isolated smoke-test port.",
     );
-    if (startedBaseUrl) return;
   }
 
-  for (let offset = 1; offset <= HLVM_RUNTIME_PORT_SCAN_RANGE; offset++) {
-    const candidatePort = port + offset;
-    const candidateUrl = `http://127.0.0.1:${candidatePort}`;
-    const health = await readHealth(candidateUrl);
-    if (canUseCompatibleRuntimeHost(health, identity.buildId)) {
-      setCachedRuntimeBaseUrl(candidateUrl);
-      return;
-    }
-    if (health !== null) continue;
-    const startedBaseUrl = await tryStartCompatibleRuntimeHost(
-      candidatePort,
-      identity.buildId,
-    );
-    if (startedBaseUrl) return;
+  const startedBaseUrl = await tryStartCompatibleRuntimeHost(
+    port,
+    identity.buildId,
+  );
+  if (startedBaseUrl) {
+    return;
   }
 
   throw new Error(
@@ -364,29 +353,36 @@ export async function withIsolatedEnv(
   const workspace = await platform.fs.makeTempDir({
     prefix: "hlvm-native-provider-e2e-ws-",
   });
-  const runtimePort = resolveHlvmRuntimePort();
+  const runtimePort = await findFreePort();
   const runtimeBaseUrl = `http://127.0.0.1:${runtimePort}`;
+  const previousBaseUrl = getHlvmRuntimeBaseUrl();
 
   try {
-    await withEnv("HLVM_DIR", hlvmDir, async () => {
-      resetHlvmDirCacheForTests();
-      explicitlyStartedRuntimeBaseUrl = null;
-      explicitlyStartedRuntimeProcess = null;
-      try {
-        try {
-          await fn(workspace);
-        } finally {
-          if (
-            explicitlyStartedRuntimeBaseUrl || explicitlyStartedRuntimeProcess
-          ) {
-            await stopExplicitlyStartedRuntimeHost();
+    await withEnv("HLVM_ALLOW_TEST_STATE_ROOT", "1", async () => {
+      await withEnv("HLVM_TEST_STATE_ROOT", hlvmDir, async () => {
+        await withEnv("HLVM_REPL_PORT", String(runtimePort), async () => {
+          setCachedRuntimeBaseUrl(runtimeBaseUrl);
+          resetHlvmDirCacheForTests();
+          explicitlyStartedRuntimeBaseUrl = null;
+          explicitlyStartedRuntimeProcess = null;
+          try {
+            try {
+              await fn(workspace);
+            } finally {
+              if (
+                explicitlyStartedRuntimeBaseUrl || explicitlyStartedRuntimeProcess
+              ) {
+                await stopExplicitlyStartedRuntimeHost();
+              }
+            }
+          } finally {
+            explicitlyStartedRuntimeBaseUrl = null;
+            explicitlyStartedRuntimeProcess = null;
+            resetHlvmDirCacheForTests();
+            setCachedRuntimeBaseUrl(previousBaseUrl);
           }
-        }
-      } finally {
-        explicitlyStartedRuntimeBaseUrl = null;
-        explicitlyStartedRuntimeProcess = null;
-        resetHlvmDirCacheForTests();
-      }
+        });
+      });
     });
   } finally {
     for (const dir of [workspace, hlvmDir]) {

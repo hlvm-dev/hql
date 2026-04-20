@@ -700,7 +700,8 @@ export async function handleAgentMode(
 
     let finalText = result!.text;
     let usedDirectChatFallback = false;
-    const shouldFallbackToDirectChat = !structuredResponseRequested &&
+    const shouldFallbackToDirectChat = !fixturePath &&
+      !structuredResponseRequested &&
       (
         result!.finalResponseState.suppressFinalResponse ||
         result!.finalResponseState.orchestratorFailureCode !== null ||

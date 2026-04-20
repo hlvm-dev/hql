@@ -8,10 +8,12 @@
  */
 
 import { RuntimeError } from "../../../common/error.ts";
+import { ProviderErrorCode } from "../../../common/error-codes.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { http } from "../../../common/http-client.ts";
 import { parseJsonLine } from "../../../common/jsonl.ts";
 import { createAbortError } from "../../../common/timeout-utils.ts";
+import { DEFAULT_OLLAMA_ENDPOINT } from "../../../common/config/types.ts";
 import { API_TIMEOUT_MS, JSON_HEADERS, throwOnHttpError } from "../common.ts";
 import type {
   ModelInfo,
@@ -19,6 +21,7 @@ import type {
   ProviderStatus,
   PullProgress,
 } from "../types.ts";
+import { aiEngine } from "../../runtime/ai-runtime.ts";
 
 // ============================================================================
 // Response Types
@@ -222,20 +225,31 @@ async function jsonRequest<T>(
   method: "GET" | "POST" | "DELETE" = "POST",
   signal?: AbortSignal,
 ): Promise<T> {
-  const url = `${endpoint}${path}`;
-  const response = await http.fetchRaw(url, {
-    method,
-    headers: JSON_HEADERS,
-    signal,
-    timeout: API_TIMEOUT_MS,
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
+  const request = async (): Promise<T> => {
+    const url = `${endpoint}${path}`;
+    const response = await http.fetchRaw(url, {
+      method,
+      headers: JSON_HEADERS,
+      signal,
+      timeout: API_TIMEOUT_MS,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
 
-  if (!response.ok) {
-    await throwOnHttpError(response, "Ollama");
+    if (!response.ok) {
+      await throwOnHttpError(response, "Ollama");
+    }
+
+    return response.json();
+  };
+
+  try {
+    return await request();
+  } catch (error) {
+    if (!await maybeRecoverManagedOllamaEndpoint(endpoint, error)) {
+      throw error;
+    }
+    return await request();
   }
-
-  return response.json();
 }
 
 // ============================================================================
@@ -327,6 +341,35 @@ async function getLoadedModelContext(
   }
 }
 
+function isMissingOllamaModelError(error: unknown): boolean {
+  return error instanceof RuntimeError &&
+    error.code === ProviderErrorCode.REQUEST_REJECTED &&
+    getErrorMessage(error).toLowerCase().includes("not found");
+}
+
+function isManagedOllamaConnectionFailure(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+  return message.includes("connection refused") ||
+    message.includes("tcp connect error") ||
+    message.includes("econnrefused") ||
+    message.includes("error reading a body from connection") ||
+    message.includes("connection reset") ||
+    message.includes("stream closed");
+}
+
+async function maybeRecoverManagedOllamaEndpoint(
+  endpoint: string,
+  error: unknown,
+): Promise<boolean> {
+  if (endpoint !== DEFAULT_OLLAMA_ENDPOINT) {
+    return false;
+  }
+  if (!isManagedOllamaConnectionFailure(error)) {
+    return false;
+  }
+  return await aiEngine.ensureRunning();
+}
+
 /**
  * Get info about a specific model
  */
@@ -373,7 +416,7 @@ export async function getModel(
       },
       contextWindow,
     };
-  } catch {
+  } catch (error) {
     if (loadedContext) {
       return {
         name,
@@ -381,7 +424,10 @@ export async function getModel(
         contextWindow: loadedContext,
       };
     }
-    return null;
+    if (isMissingOllamaModelError(error)) {
+      return null;
+    }
+    throw error;
   }
 }
 

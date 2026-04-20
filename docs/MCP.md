@@ -10,7 +10,7 @@ configs (see "Cross-tool discovery" below), which is where HLVM's MCP value
 actually lives.
 
 Runtime-host lifecycle is a separate domain. Port ownership, host reuse,
-build-identity compatibility, fallback-port scanning, and host reclamation live
+build-identity compatibility, explicit dev/test isolation, and host reclamation live
 in `src/hlvm/runtime/host-client.ts`, `src/hlvm/cli/commands/serve.ts`, and
 `docs/ARCHITECTURE.md`. This document does not own that behavior.
 

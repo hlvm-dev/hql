@@ -90,7 +90,6 @@ export interface HostHealthResponse {
   aiReadyRetryable?: boolean;
   version: string;
   buildId: string;
-  hlvmDir: string;
   authToken: string | null;
   /** Actual port the server is listening on (may differ from default on port-0 fallback) */
   port?: number | null;
@@ -214,6 +213,8 @@ export type ChatStreamEvent =
     message: string;
     errorClass?: string;
     retryable?: boolean;
+    /** Pre-computed recovery hint from the server's describeErrorForDisplay. */
+    hint?: string | null;
   }
   | { event: "cancelled"; request_id: string; partial_text: string }
   | { event: "heartbeat" };

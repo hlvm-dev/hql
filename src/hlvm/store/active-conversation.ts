@@ -15,6 +15,7 @@ import {
   listSessions,
   setHostStateValue,
 } from "./conversation-store.ts";
+import { isChannelSessionId } from "../channels/core/session-key.ts";
 
 
 const MAX_INACTIVE_SESSIONS = 20;
@@ -34,6 +35,9 @@ function getExistingActiveConversationSession() {
 function bindActiveConversationSession<T extends { id: string }>(
   session: T,
 ): T {
+  if (isChannelSessionId(session.id)) {
+    return session;
+  }
   activeSessionId = session.id;
   setHostStateValue(ACTIVE_CONVERSATION_SESSION_KEY, session.id);
   return session;
@@ -114,7 +118,7 @@ function getPersistedActiveConversationSession() {
 }
 
 function getMostRecentConversationSession() {
-  const sessions = listSessions();
+  const sessions = listSessions().filter((session) => !isChannelSessionId(session.id));
   return sessions[0] ?? null;
 }
 

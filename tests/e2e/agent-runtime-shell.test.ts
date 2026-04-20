@@ -859,7 +859,8 @@ localAskTest({
           "multimodal attachment smoke",
         ],
         {
-          HLVM_DIR: hlvmDir,
+          HLVM_TEST_STATE_ROOT: hlvmDir,
+          HLVM_ALLOW_TEST_STATE_ROOT: "1",
           HLVM_ASK_FIXTURE_PATH: fixturePath,
         },
         undefined,
@@ -897,7 +898,8 @@ localAskTest({
             "reasoning enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
@@ -932,7 +934,8 @@ localAskTest({
             "compression enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
@@ -969,7 +972,8 @@ localAskTest({
             "write verify pass enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
@@ -1010,7 +1014,8 @@ localAskTest({
             "write verify fail enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
@@ -1055,7 +1060,8 @@ localAskTest({
             "write lsp verify pass enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
@@ -1097,7 +1103,8 @@ localAskTest({
             "write lsp verify fail enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
@@ -1146,7 +1153,8 @@ localAskTest({
             "write lsp verify pass enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
@@ -1168,7 +1176,8 @@ localAskTest({
             "write lsp verify fail enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
@@ -1221,7 +1230,8 @@ localAskTest({
             "write external lsp verify pass enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
@@ -1247,7 +1257,8 @@ localAskTest({
             "write external lsp verify fail enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
@@ -1289,7 +1300,8 @@ localAskTest({
             "fix adaptive thinking enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
@@ -1341,7 +1353,8 @@ localAskTest({
             "fix phase pruning enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,
@@ -1379,7 +1392,8 @@ localAskTest({
             "loop recovery enhancement smoke",
           ],
           {
-            HLVM_DIR: hlvmDir,
+            HLVM_TEST_STATE_ROOT: hlvmDir,
+            HLVM_ALLOW_TEST_STATE_ROOT: "1",
             HLVM_ASK_FIXTURE_PATH: fixturePath,
           },
           hlvmDir,

@@ -42,21 +42,42 @@ const LOCAL_FALLBACK_RETRY_MESSAGE =
 const LOCAL_FALLBACK_PREPARING_MESSAGE =
   `Selected model failed, and local ${getLocalModelDisplayName()} is still preparing. Try again in a moment.`;
 
-/** Resolve "auto" to a real model ID with scored fallbacks, or pass through unchanged. */
-async function resolveAutoForChat(
+export interface ResolvedChatModel {
+  effectiveModel: string | undefined;
+  scoredFallbacks: string[];
+  autoSelectionReason?: string;
+}
+
+export async function resolveChatModelForRequest(
   model: string | undefined,
   body: ChatRequest,
-  emit: (obj: unknown) => void,
-): Promise<{ effectiveModel: string | undefined; scoredFallbacks: string[] }> {
-  if (model !== AUTO_MODEL_ID) return { effectiveModel: model, scoredFallbacks: [] };
+): Promise<ResolvedChatModel> {
+  if (model !== AUTO_MODEL_ID) {
+    return { effectiveModel: model, scoredFallbacks: [] };
+  }
 
   const { resolveAutoModel } = await import("../../../agent/auto-select.ts");
   const query = body.messages?.find((m) => m.role === "user")?.content ?? "";
   const autoDecision = await resolveAutoModel(
     typeof query === "string" ? query : "",
   );
-  emit({ event: "trace", kind: "auto_select", detail: autoDecision.reason });
-  return { effectiveModel: autoDecision.model, scoredFallbacks: autoDecision.fallbacks };
+  return {
+    effectiveModel: autoDecision.model,
+    scoredFallbacks: autoDecision.fallbacks,
+    autoSelectionReason: autoDecision.reason,
+  };
+}
+
+function emitAutoSelectionTrace(
+  resolvedModel: ResolvedChatModel,
+  emit: (obj: unknown) => void,
+): void {
+  if (!resolvedModel.autoSelectionReason) return;
+  emit({
+    event: "trace",
+    kind: "auto_select",
+    detail: resolvedModel.autoSelectionReason,
+  });
 }
 
 /** Drain a token iterator with abort support, forwarding each chunk. */
@@ -246,13 +267,14 @@ export async function handleChatMode(
   onPartial: (text: string) => void,
   requestId?: string,
   modelInfo?: ModelInfo | null,
+  preResolvedModel?: ResolvedChatModel,
 ): Promise<void> {
-  // Resolve "auto" to a concrete model before passing to ai.chat()
-  const { effectiveModel, scoredFallbacks } = await resolveAutoForChat(
-    resolvedModel,
-    body,
-    emit,
-  );
+  const chatModel = preResolvedModel ??
+    await resolveChatModelForRequest(resolvedModel, body);
+  if (!preResolvedModel) {
+    emitAutoSelectionTrace(chatModel, emit);
+  }
+  const { effectiveModel, scoredFallbacks } = chatModel;
 
   const requestOverridesStoredHistory = shouldHonorRequestMessages(body.messages);
   const weakLocalDirectChat = isWeakLocalDirectChatModel(
@@ -347,12 +369,9 @@ export async function streamDirectChatFallback(
   onPartial: (text: string) => void,
   modelInfo?: ModelInfo | null,
 ): Promise<string> {
-  // Resolve "auto" to a concrete model before passing to ai.chat()
-  const { effectiveModel, scoredFallbacks } = await resolveAutoForChat(
-    resolvedModel,
-    body,
-    emit,
-  );
+  const chatModel = await resolveChatModelForRequest(resolvedModel, body);
+  emitAutoSelectionTrace(chatModel, emit);
+  const { effectiveModel, scoredFallbacks } = chatModel;
 
   const storedMessages = shouldHonorRequestMessages(requestMessages)
     ? []

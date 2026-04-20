@@ -32,7 +32,6 @@ export async function createRuntimeHostHealthResponse(
       (overrides.aiReady === false),
     version: identity.version,
     buildId: identity.buildId,
-    hlvmDir: identity.hlvmDir,
     authToken: overrides.authToken ?? authToken,
   };
 }

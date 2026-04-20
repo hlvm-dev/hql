@@ -16,6 +16,17 @@ function getTestRuntimePortOverride(): number | undefined {
     : undefined;
 }
 
+export function hasExplicitRuntimePortOverride(): boolean {
+  if (getTestRuntimePortOverride()) {
+    return true;
+  }
+
+  const portOverride = getPlatform().env.get("HLVM_REPL_PORT");
+  if (!portOverride) return false;
+  const parsed = parseInt(portOverride, 10);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535;
+}
+
 export function resolveHlvmRuntimePort(): number {
   const testOverride = getTestRuntimePortOverride();
   if (testOverride) return testOverride;
