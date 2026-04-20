@@ -45,6 +45,7 @@ export interface ChannelStatus {
 export interface ChannelTransportContext {
   receive(message: ChannelMessage): Promise<void>;
   setStatus(status: Partial<ChannelStatus> & Pick<ChannelStatus, "state">): void;
+  updateConfig(patch: Partial<ChannelConfig>): Promise<void>;
 }
 
 export interface ChannelTransport {
@@ -67,4 +68,7 @@ export interface ChannelRuntimeDependencies {
     permissionMode: AgentExecutionMode;
     noInput: boolean;
   }) => Promise<{ text: string }>;
+  patchConfig: (
+    updates: Partial<HlvmConfig>,
+  ) => Promise<HlvmConfig>;
 }

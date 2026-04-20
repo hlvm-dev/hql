@@ -412,7 +412,7 @@ export async function serveCommand(args: string[]): Promise<number> {
         }
 
         runtimeReadyState = "ready";
-        await channelRuntime.start();
+        await channelRuntime.reconfigure();
         emitModelsReadyIfReady();
       },
       {

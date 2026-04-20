@@ -57,6 +57,14 @@ function createConfigApi() {
     "maxTokens",
   ]);
 
+  // Serialize read-modify-write so concurrent writers can't lose updates.
+  let writeChain: Promise<unknown> = Promise.resolve();
+  const withWriteLock = <T>(run: () => Promise<T>): Promise<T> => {
+    const next = writeChain.then(run);
+    writeChain = next.catch(() => {});
+    return next;
+  };
+
   /**
    * Get current config, loading from disk if needed
    */
@@ -178,32 +186,35 @@ function createConfigApi() {
      * Set a config value
      * @example (config.set "model" "ollama/llama3.2")
      */
-    set: async (key: string, value: unknown): Promise<void> => {
-      const updates = buildValidatedConfigUpdates({ [key]: value });
-      const cfg = await ensureConfig();
-      const newConfig = mergeConfigUpdates(cfg, updates);
-      await saveConfig(newConfig);
-      updateCachedConfig(newConfig, true);
-    },
+    set: (key: string, value: unknown): Promise<void> =>
+      withWriteLock(async () => {
+        const updates = buildValidatedConfigUpdates({ [key]: value });
+        const cfg = await ensureConfig();
+        const newConfig = mergeConfigUpdates(cfg, updates);
+        await saveConfig(newConfig);
+        updateCachedConfig(newConfig, true);
+      }),
 
-    patch: async (
+    patch: (
       updates: Partial<Record<ConfigKey, unknown>>,
-    ): Promise<HlvmConfig> => {
-      const cfg = await ensureConfig();
-      const normalizedUpdates = buildValidatedConfigUpdates(updates);
-      const next = mergeConfigUpdates(cfg, normalizedUpdates);
+    ): Promise<HlvmConfig> =>
+      withWriteLock(async () => {
+        const cfg = await ensureConfig();
+        const normalizedUpdates = buildValidatedConfigUpdates(updates);
+        const next = mergeConfigUpdates(cfg, normalizedUpdates);
 
-      await saveConfig(next);
-      return updateCachedConfig(next, true);
-    },
+        await saveConfig(next);
+        return updateCachedConfig(next, true);
+      }),
 
     /**
      * Reset config to defaults
      * @example (config.reset)
      */
-    reset: async (): Promise<HlvmConfig> => {
-      return updateCachedConfig(normalizeConfig(await resetConfig()), true);
-    },
+    reset: (): Promise<HlvmConfig> =>
+      withWriteLock(async () =>
+        updateCachedConfig(normalizeConfig(await resetConfig()), true)
+      ),
 
     /**
      * Get entire config object
@@ -302,13 +313,14 @@ function createConfigApi() {
        * Update a keybinding
        * @example (config.keybindings.set "show-palette" "Ctrl+P")
        */
-      set: async (id: string, combo: string): Promise<void> => {
-        const cfg = await ensureConfig();
-        const newBindings = { ...(cfg.keybindings ?? {}), [id]: combo };
-        const newConfig = { ...cfg, keybindings: newBindings };
-        await saveConfig(newConfig);
-        updateCachedConfig(newConfig);
-      },
+      set: (id: string, combo: string): Promise<void> =>
+        withWriteLock(async () => {
+          const cfg = await ensureConfig();
+          const newBindings = { ...(cfg.keybindings ?? {}), [id]: combo };
+          const newConfig = { ...cfg, keybindings: newBindings };
+          await saveConfig(newConfig);
+          updateCachedConfig(newConfig);
+        }),
 
       /**
        * Get cached keybindings snapshot (sync)

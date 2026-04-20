@@ -100,7 +100,11 @@ import {
   handleCompanionStatus,
   handleCompanionStream,
 } from "./handlers/companion.ts";
-import { handleReachabilityStatus } from "./handlers/reachability.ts";
+import {
+  handleReachabilityEvents,
+  handleReachabilityRebind,
+  handleReachabilityStatus,
+} from "./handlers/reachability.ts";
 import {
   HLVM_RUNTIME_DEFAULT_PORT,
   resolveHlvmRuntimePort,
@@ -838,6 +842,8 @@ router.add("POST", "/api/config/reload", () => handleReloadConfig());
 router.add("POST", "/api/config/reset", () => handleResetConfig());
 router.add("GET", "/api/config/stream", (req) => handleConfigStream(req));
 router.add("GET", "/api/reachability/status", () => handleReachabilityStatus());
+router.add("POST", "/api/reachability/rebind", () => handleReachabilityRebind());
+router.add("GET", "/api/reachability/events", (req) => handleReachabilityEvents(req));
 
 router.add("GET", "/api/mcp/servers", () => handleListMcpServers());
 router.add("POST", "/api/mcp/servers", (req) => handleAddMcpServer(req));
