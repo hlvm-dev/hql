@@ -17,6 +17,7 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { DEFAULT_LOCALHOST } from "../../../common/config/types.ts";
 import { sleep as bridgeSleep } from "../../../common/timeout-utils.ts";
 import { http } from "../../../common/http-client.ts";
+import { buildBearerHeader } from "../../../common/http/auth-headers.ts";
 import { getAgentLogger } from "../logger.ts";
 import { TOOL_CATEGORY, ToolError } from "../error-taxonomy.ts";
 import { TOOL_NAMES } from "../tool-names.ts";
@@ -1156,9 +1157,7 @@ export async function resolveBackend(): Promise<CUBackendResolution> {
       `http://${DEFAULT_LOCALHOST}:${port}/cu/capabilities`,
       {
         timeout: 2000,
-        headers: token.length > 0
-          ? { Authorization: `Bearer ${token}` }
-          : undefined,
+        headers: token.length > 0 ? buildBearerHeader(token) : undefined,
       },
     );
     if (!response.ok) {
@@ -1217,7 +1216,7 @@ async function cuNativeFetch<T>(
       timeout: timeoutMs,
       method: body !== undefined ? "POST" : "GET",
       headers: {
-        ...(token.length > 0 ? { Authorization: `Bearer ${token}` } : {}),
+        ...(token.length > 0 ? buildBearerHeader(token) : {}),
         "Content-Type": "application/json",
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,

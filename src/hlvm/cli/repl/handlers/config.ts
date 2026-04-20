@@ -8,6 +8,7 @@
 import { config } from "../../../api/config.ts";
 import {
   createSSEResponse,
+  formatSSE,
   jsonError,
   jsonErrorFromUnknown,
   parseJsonBody,
@@ -175,7 +176,11 @@ export function handleConfigStream(req: Request): Response {
 
   return createSSEResponse(req, (emit) => {
     const emitConfig = (payload: unknown): void => {
-      emit(`id: ${nextEventId}\nevent: config_updated\ndata: ${JSON.stringify(payload)}\n\n`);
+      emit(formatSSE({
+        id: nextEventId,
+        event_type: "config_updated",
+        data: payload,
+      }));
       nextEventId++;
     };
 

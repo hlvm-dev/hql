@@ -22,6 +22,12 @@ Deno.test("channels: session ids are namespaced and reserved", async () => {
     Error,
     "must not contain ':'",
   );
+  // remoteId containing ':' would break the parser — also rejected.
+  assertThrows(
+    () => formatChannelSessionId("telegram", "remote:id"),
+    Error,
+    "must not contain ':'",
+  );
 });
 
 Deno.test("channels: runtime normalizes inbound chat into one queued agent request and reply", async () => {
@@ -387,6 +393,199 @@ Deno.test("channels: subscribe fires on status transitions and swallows listener
 
   unsubOk();
   unsubBad();
+  await runtime.stop();
+});
+
+Deno.test("channels: transport.start() throwing puts channel in error state", async () => {
+  const runtime = createChannelRuntime({
+    telegram: () => ({
+      channel: "telegram",
+      async start() {
+        throw new Error("start boom");
+      },
+      async send() {},
+      async stop() {},
+    }),
+  }, {
+    loadConfig: async () => ({
+      ...DEFAULT_CONFIG,
+      channels: {
+        telegram: {
+          enabled: true,
+          allowedIds: ["x"],
+          transport: { mode: "relay" },
+        },
+      },
+    }),
+    runQuery: async () => ({ text: "unused" }),
+  });
+
+  await runtime.reconfigure();
+
+  const status = runtime.getStatus("telegram");
+  assertEquals(status?.state, "error");
+  assert(
+    status?.lastError?.includes("start boom"),
+    `expected lastError to contain "start boom", got: ${status?.lastError}`,
+  );
+
+  await runtime.stop();
+});
+
+Deno.test("channels: transport.stop() throwing puts channel in error state", async () => {
+  let stopCalls = 0;
+  const runtime = createChannelRuntime({
+    telegram: () => ({
+      channel: "telegram",
+      async start() {},
+      async send() {},
+      async stop() {
+        stopCalls++;
+        throw new Error("stop boom");
+      },
+    }),
+  }, {
+    loadConfig: async () => ({
+      ...DEFAULT_CONFIG,
+      channels: {
+        telegram: {
+          enabled: true,
+          allowedIds: ["x"],
+          transport: { mode: "relay" },
+        },
+      },
+    }),
+    runQuery: async () => ({ text: "unused" }),
+  });
+
+  await runtime.reconfigure(); // starts
+  assertEquals(runtime.getStatus("telegram")?.state, "connected");
+
+  // runtime.stop() (not reconfigure — which would restart) triggers
+  // stopActiveTransports, which wraps each transport.stop in try/catch
+  // and records the error on status.
+  await runtime.stop();
+
+  assertEquals(stopCalls, 1);
+  const status = runtime.getStatus("telegram");
+  assertEquals(status?.state, "error");
+  assert(
+    status?.lastError?.includes("stop boom"),
+    `expected lastError to contain "stop boom", got: ${status?.lastError}`,
+  );
+});
+
+Deno.test("channels: per-chat queue serializes two inbound messages for same remoteId", async () => {
+  // Two messages for the same remoteId arriving in parallel must process
+  // one-at-a-time (FIFO). This is the core invariant the queue provides.
+  const order: string[] = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let resolveContext!: (context: ChannelTransportContext) => void;
+  const contextPromise = new Promise<ChannelTransportContext>((resolve) => {
+    resolveContext = resolve;
+  });
+
+  const runtime = createChannelRuntime({
+    telegram: () => ({
+      channel: "telegram",
+      async start(ctx) {
+        resolveContext(ctx);
+      },
+      async send() {},
+      async stop() {},
+    }),
+  }, {
+    loadConfig: async () => ({
+      ...DEFAULT_CONFIG,
+      channels: {
+        telegram: {
+          enabled: true,
+          allowedIds: ["approved"],
+          transport: { mode: "relay" },
+        },
+      },
+    }),
+    runQuery: async (opts) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      order.push(`start:${opts.query}`);
+      await new Promise((r) => setTimeout(r, 15));
+      order.push(`end:${opts.query}`);
+      inFlight--;
+      return { text: `Echo: ${opts.query}` };
+    },
+  });
+
+  await runtime.reconfigure();
+  const ctx = await contextPromise;
+
+  // Fire two inbound for the SAME remoteId in parallel.
+  await Promise.all([
+    ctx.receive({ channel: "telegram", remoteId: "approved", text: "first" }),
+    ctx.receive({ channel: "telegram", remoteId: "approved", text: "second" }),
+  ]);
+
+  assertEquals(maxInFlight, 1, "queue must serialize — no concurrent runQuery");
+  assertEquals(order, [
+    "start:first",
+    "end:first",
+    "start:second",
+    "end:second",
+  ], "FIFO order violated");
+
+  await runtime.stop();
+});
+
+Deno.test("channels: queue does NOT serialize across different remoteIds", async () => {
+  // Two messages for DIFFERENT remoteIds in parallel must be allowed
+  // to overlap (per-chat, not global, queue).
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let resolveContext!: (context: ChannelTransportContext) => void;
+  const contextPromise = new Promise<ChannelTransportContext>((resolve) => {
+    resolveContext = resolve;
+  });
+
+  const runtime = createChannelRuntime({
+    telegram: () => ({
+      channel: "telegram",
+      async start(ctx) {
+        resolveContext(ctx);
+      },
+      async send() {},
+      async stop() {},
+    }),
+  }, {
+    loadConfig: async () => ({
+      ...DEFAULT_CONFIG,
+      channels: {
+        telegram: {
+          enabled: true,
+          allowedIds: ["alice", "bob"],
+          transport: { mode: "relay" },
+        },
+      },
+    }),
+    runQuery: async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 15));
+      inFlight--;
+      return { text: "echo" };
+    },
+  });
+
+  await runtime.reconfigure();
+  const ctx = await contextPromise;
+
+  await Promise.all([
+    ctx.receive({ channel: "telegram", remoteId: "alice", text: "hi alice" }),
+    ctx.receive({ channel: "telegram", remoteId: "bob", text: "hi bob" }),
+  ]);
+
+  assertEquals(maxInFlight, 2, "different remoteIds must be allowed to overlap");
+
   await runtime.stop();
 });
 

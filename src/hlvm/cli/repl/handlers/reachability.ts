@@ -2,7 +2,7 @@ import { loadConfig } from "../../../../common/config/storage.ts";
 import { channelRuntime } from "../../../channels/registry.ts";
 import type { ChannelStatus } from "../../../channels/core/types.ts";
 import type { HlvmConfig } from "../../../../common/config/types.ts";
-import { createSSEResponse } from "../http-utils.ts";
+import { createSSEResponse, formatSSE } from "../http-utils.ts";
 
 interface ReachabilityRuntime {
   listStatuses(): ChannelStatus[];
@@ -59,11 +59,11 @@ export function handleReachabilityEvents(
   let seq = 0;
   return createSSEResponse(req, (emit) => {
     const send = (channels: ChannelStatus[]): void => {
-      emit(
-        `id: ${++seq}\nevent: reachability_updated\ndata: ${
-          JSON.stringify({ channels })
-        }\n\n`,
-      );
+      emit(formatSSE({
+        id: ++seq,
+        event_type: "reachability_updated",
+        data: { channels },
+      }));
     };
     send(runtime.listStatuses());
     return runtime.subscribe(send);

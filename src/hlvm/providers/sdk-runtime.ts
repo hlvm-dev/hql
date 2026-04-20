@@ -287,10 +287,11 @@ export async function maybeHandleSdkAuthError(
   ) {
     const body = responseBody;
     if (body.includes("invalid_request_error")) {
-      throw new RuntimeError(
-        "Claude Code OAuth: this model is not available with your current subscription. " +
-          "Try a different model (e.g. claude-haiku-4-5-20251001) or use a console API key.",
-        { code: ProviderErrorCode.AUTH_FAILED },
+      const { claudeCodeAuthError, CLAUDE_CODE_AUTH_MESSAGES } = await import(
+        "./claude-code/errors.ts"
+      );
+      throw claudeCodeAuthError(
+        CLAUDE_CODE_AUTH_MESSAGES.MODEL_NOT_IN_SUBSCRIPTION,
       );
     }
   }

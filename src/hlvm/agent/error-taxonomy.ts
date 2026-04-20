@@ -445,35 +445,71 @@ export function classifyFromApiResponseBody(
   return null;
 }
 
-const DENO_ERROR_NAME_MAP: Record<
-  string,
-  { class: ErrorClass; retryable: boolean; hint: string }
-> = {
-  NotFound: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.FILE_NOT_FOUND },
-  PermissionDenied: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.PERMISSION_DENIED },
-  AlreadyExists: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.FILE_EXISTS },
-  ConnectionRefused: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.CONNECTION_REFUSED },
-  ConnectionReset: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.CONNECTION_CLOSED },
-  ConnectionAborted: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.CONNECTION_CLOSED },
-  BrokenPipe: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.CONNECTION_CLOSED },
-  AddrInUse: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.PORT_IN_USE },
-  TimedOut: { class: ERROR_CLASS.TIMEOUT, retryable: true, hint: HINTS.TIMEOUT },
-  Interrupted: { class: ERROR_CLASS.ABORT, retryable: false, hint: HINTS.INTERRUPTED },
-  NetworkUnreachable: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.NETWORK_UNREACHABLE },
-  IsADirectory: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.IS_DIRECTORY },
-  NotADirectory: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.NOT_DIRECTORY },
-  BadResource: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.BAD_RESOURCE },
-  UnexpectedEof: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.CONNECTION_CLOSED },
-  WriteZero: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.CONNECTION_CLOSED },
-  Busy: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.BAD_RESOURCE },
-  Http: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.CONNECTION_CLOSED },
-  NotSupported: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.INVALID_ARG_VALUE },
-  FilesystemLoop: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.FILE_NOT_FOUND },
+type PlatformClassification = { class: ErrorClass; retryable: boolean; hint: string };
+
+const PLATFORM_CONCEPTS = {
+  FILE_NOT_FOUND: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.FILE_NOT_FOUND },
+  PERMISSION_DENIED: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.PERMISSION_DENIED },
+  FILE_EXISTS: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.FILE_EXISTS },
+  IS_DIRECTORY: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.IS_DIRECTORY },
+  NOT_DIRECTORY: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.NOT_DIRECTORY },
+  DISK_FULL: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.DISK_FULL },
+  PORT_IN_USE: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.PORT_IN_USE },
+  CONNECTION_REFUSED: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.CONNECTION_REFUSED },
+  CONNECTION_CLOSED: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.CONNECTION_CLOSED },
+  DNS_FAILED: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.DNS_FAILED },
+  TIMEOUT: { class: ERROR_CLASS.TIMEOUT, retryable: true, hint: HINTS.TIMEOUT },
+  NETWORK_UNREACHABLE: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.NETWORK_UNREACHABLE },
+  BAD_RESOURCE: { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.BAD_RESOURCE },
+  INTERRUPTED: { class: ERROR_CLASS.ABORT, retryable: false, hint: HINTS.INTERRUPTED },
+  INVALID_ARG: { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.INVALID_ARG_VALUE },
+} as const satisfies Record<string, PlatformClassification>;
+
+const DENO_ERROR_NAME_MAP: Record<string, PlatformClassification> = {
+  NotFound: PLATFORM_CONCEPTS.FILE_NOT_FOUND,
+  PermissionDenied: PLATFORM_CONCEPTS.PERMISSION_DENIED,
+  AlreadyExists: PLATFORM_CONCEPTS.FILE_EXISTS,
+  ConnectionRefused: PLATFORM_CONCEPTS.CONNECTION_REFUSED,
+  ConnectionReset: PLATFORM_CONCEPTS.CONNECTION_CLOSED,
+  ConnectionAborted: PLATFORM_CONCEPTS.CONNECTION_CLOSED,
+  BrokenPipe: PLATFORM_CONCEPTS.CONNECTION_CLOSED,
+  AddrInUse: PLATFORM_CONCEPTS.PORT_IN_USE,
+  TimedOut: PLATFORM_CONCEPTS.TIMEOUT,
+  Interrupted: PLATFORM_CONCEPTS.INTERRUPTED,
+  NetworkUnreachable: PLATFORM_CONCEPTS.NETWORK_UNREACHABLE,
+  IsADirectory: PLATFORM_CONCEPTS.IS_DIRECTORY,
+  NotADirectory: PLATFORM_CONCEPTS.NOT_DIRECTORY,
+  BadResource: PLATFORM_CONCEPTS.BAD_RESOURCE,
+  UnexpectedEof: PLATFORM_CONCEPTS.CONNECTION_CLOSED,
+  WriteZero: PLATFORM_CONCEPTS.CONNECTION_CLOSED,
+  Busy: PLATFORM_CONCEPTS.BAD_RESOURCE,
+  Http: PLATFORM_CONCEPTS.CONNECTION_CLOSED,
+  NotSupported: PLATFORM_CONCEPTS.INVALID_ARG,
+  FilesystemLoop: PLATFORM_CONCEPTS.FILE_NOT_FOUND,
+};
+
+const NODE_ERROR_CODE_MAP: Record<string, PlatformClassification> = {
+  ENOENT: PLATFORM_CONCEPTS.FILE_NOT_FOUND,
+  EACCES: PLATFORM_CONCEPTS.PERMISSION_DENIED,
+  EPERM: PLATFORM_CONCEPTS.PERMISSION_DENIED,
+  EEXIST: PLATFORM_CONCEPTS.FILE_EXISTS,
+  EISDIR: PLATFORM_CONCEPTS.IS_DIRECTORY,
+  ENOTDIR: PLATFORM_CONCEPTS.NOT_DIRECTORY,
+  ENOSPC: PLATFORM_CONCEPTS.DISK_FULL,
+  EADDRINUSE: PLATFORM_CONCEPTS.PORT_IN_USE,
+  ECONNREFUSED: PLATFORM_CONCEPTS.CONNECTION_REFUSED,
+  ECONNRESET: PLATFORM_CONCEPTS.CONNECTION_CLOSED,
+  ECONNABORTED: PLATFORM_CONCEPTS.CONNECTION_CLOSED,
+  EPIPE: PLATFORM_CONCEPTS.CONNECTION_CLOSED,
+  ENOTFOUND: PLATFORM_CONCEPTS.DNS_FAILED,
+  EAI_AGAIN: PLATFORM_CONCEPTS.DNS_FAILED,
+  ETIMEDOUT: PLATFORM_CONCEPTS.TIMEOUT,
+  ENETUNREACH: PLATFORM_CONCEPTS.NETWORK_UNREACHABLE,
 };
 
 export function classifyFromPlatformError(
   err: unknown,
-): { class: ErrorClass; retryable: boolean; hint: string } | null {
+): PlatformClassification | null {
   const seen = new Set<unknown>();
   let current: unknown = err;
   for (let depth = 0; depth < MAX_CHAIN_DEPTH; depth++) {
@@ -489,7 +525,7 @@ export function classifyFromPlatformError(
 
     const code = (current as { code?: unknown }).code;
     if (typeof code === "string") {
-      const mapped = classifyNodeErrorCode(code);
+      const mapped = NODE_ERROR_CODE_MAP[code];
       if (mapped) return mapped;
     }
 
@@ -500,43 +536,6 @@ export function classifyFromPlatformError(
     current = cause ?? original;
   }
   return null;
-}
-
-function classifyNodeErrorCode(
-  code: string,
-): { class: ErrorClass; retryable: boolean; hint: string } | null {
-  switch (code) {
-    case "ENOENT":
-      return { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.FILE_NOT_FOUND };
-    case "EACCES":
-    case "EPERM":
-      return { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.PERMISSION_DENIED };
-    case "EEXIST":
-      return { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.FILE_EXISTS };
-    case "EISDIR":
-      return { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.IS_DIRECTORY };
-    case "ENOTDIR":
-      return { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.NOT_DIRECTORY };
-    case "ENOSPC":
-      return { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.DISK_FULL };
-    case "EADDRINUSE":
-      return { class: ERROR_CLASS.PERMANENT, retryable: false, hint: HINTS.PORT_IN_USE };
-    case "ECONNREFUSED":
-      return { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.CONNECTION_REFUSED };
-    case "ECONNRESET":
-    case "ECONNABORTED":
-    case "EPIPE":
-      return { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.CONNECTION_CLOSED };
-    case "ENOTFOUND":
-    case "EAI_AGAIN":
-      return { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.DNS_FAILED };
-    case "ETIMEDOUT":
-      return { class: ERROR_CLASS.TIMEOUT, retryable: true, hint: HINTS.TIMEOUT };
-    case "ENETUNREACH":
-      return { class: ERROR_CLASS.TRANSIENT, retryable: true, hint: HINTS.NETWORK_UNREACHABLE };
-    default:
-      return null;
-  }
 }
 
 export async function classifyError(err: unknown): Promise<ClassifiedError> {

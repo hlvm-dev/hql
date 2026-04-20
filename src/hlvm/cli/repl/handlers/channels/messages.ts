@@ -1,5 +1,6 @@
 import {
   createSSEResponse,
+  formatSSE,
   jsonError,
   parseJsonBody,
 } from "../../http-utils.ts";
@@ -57,11 +58,11 @@ export function handleMessagesOutbox(req: Request): Response {
   let seq = 0;
   return createSSEResponse(req, (emit) => {
     const send = (reply: ChannelReply): void => {
-      emit(
-        `id: ${++seq}\nevent: messages_outbox\ndata: ${
-          JSON.stringify(reply)
-        }\n\n`,
-      );
+      emit(formatSSE({
+        id: ++seq,
+        event_type: "messages_outbox",
+        data: reply,
+      }));
     };
     return bridge.subscribeOutbox(send);
   });

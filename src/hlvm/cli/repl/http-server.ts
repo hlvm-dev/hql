@@ -5,6 +5,7 @@
  */
 
 import { delay } from "@std/async";
+import { buildBearerHeader } from "../../../common/http/auth-headers.ts";
 import { evaluate } from "./evaluator.ts";
 import { formatPlainValue } from "./formatter.ts";
 import {
@@ -905,7 +906,7 @@ async function handleRequest(req: Request): Promise<Response> {
   if (serverAuthToken) {
     const authHeader = req.headers.get("Authorization") ?? "";
     const authQuery = url.searchParams.get("auth") ?? "";
-    const expectedHeader = `Bearer ${serverAuthToken}`;
+    const expectedHeader = buildBearerHeader(serverAuthToken).Authorization;
     if (authHeader !== expectedHeader && authQuery !== serverAuthToken) {
       return addCorsHeaders(jsonError("Unauthorized", 401), origin);
     }

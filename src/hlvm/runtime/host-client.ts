@@ -1,6 +1,6 @@
 import { delay } from "@std/async";
-import { log } from "../api/log.ts";
 import { http } from "../../common/http-client.ts";
+import { buildBearerHeader } from "../../common/http/auth-headers.ts";
 import {
   HTTP_STATUS,
   isClientError,
@@ -273,7 +273,7 @@ function defaultChatStats(): ChatResultStats {
 }
 
 function authHeaders(authToken: string): Record<string, string> {
-  return { "Authorization": `Bearer ${authToken}` };
+  return buildBearerHeader(authToken);
 }
 
 function createRuntimeHostError(
@@ -835,15 +835,6 @@ async function waitForRuntimeAiReady(
   if (fast?.aiReady || fast?.aiReadyRetryable === false) {
     return fast;
   }
-  // Fast phase exhausted with bootstrap still in progress. Tell the user so a
-  // multi-minute cold bootstrap does not look like a hung command. Use
-  // log.warn so it shows without --verbose; log.info is filtered by default.
-  const reason = fast?.aiReadyReason?.trim();
-  log.warn?.(
-    reason
-      ? `Local AI bootstrap still in progress (${reason}). Continuing to wait; this can take several minutes on first run.`
-      : "Local AI bootstrap still in progress. Continuing to wait; this can take several minutes on first run.",
-  );
   return await pollForAiReady(
     baseUrl,
     AI_READY_SLOW_POLL_ATTEMPTS,

@@ -12,10 +12,13 @@
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
-import { RuntimeError } from "../../../common/error.ts";
-import { ProviderErrorCode } from "../../../common/error-codes.ts";
 import { http } from "../../../common/http-client.ts";
 import { DEFAULT_CLAUDE_CODE_OAUTH_TOKEN_ENDPOINT } from "../../../common/config/types.ts";
+import {
+  CLAUDE_CODE_AUTH_MESSAGES,
+  claudeCodeAuthError,
+  refreshFailedMessage,
+} from "./errors.ts";
 
 // Claude Code OAuth constants (mirrors Claude Code CLI)
 const OAUTH_TOKEN_ENDPOINT = DEFAULT_CLAUDE_CODE_OAUTH_TOKEN_ENDPOINT;
@@ -73,10 +76,7 @@ export async function getClaudeCodeToken(): Promise<string> {
   // 2. Read full credentials (Keychain → filesystem)
   let creds = await readFullCredentials(platform);
   if (!creds?.claudeAiOauth?.accessToken) {
-    throw new RuntimeError(
-      "Claude Code OAuth token not found. Run `claude login` first to authenticate with your Max subscription.",
-      { code: ProviderErrorCode.AUTH_FAILED },
-    );
+    throw claudeCodeAuthError(CLAUDE_CODE_AUTH_MESSAGES.TOKEN_NOT_FOUND);
   }
 
   // 3. Auto-refresh if expired, about to expire, or forced (e.g., after 401)
@@ -127,13 +127,8 @@ async function refreshOAuthToken(
 ): Promise<ClaudeCredentials> {
   const refreshToken = creds.claudeAiOauth?.refreshToken;
   if (!refreshToken) {
-    throw new RuntimeError(
-      "OAuth token expired and no refresh token available. Run `claude login` to re-authenticate.",
-      { code: ProviderErrorCode.AUTH_FAILED },
-    );
+    throw claudeCodeAuthError(CLAUDE_CODE_AUTH_MESSAGES.NO_REFRESH_TOKEN);
   }
-
-  // Token refresh is silent — errors surface as RuntimeError to caller
 
   const response = await http.fetchRaw(OAUTH_TOKEN_ENDPOINT, {
     method: "POST",
@@ -147,10 +142,7 @@ async function refreshOAuthToken(
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new RuntimeError(
-      `OAuth token refresh failed (${response.status}). ${body ? body + " " : ""}Run \`claude login\` to re-authenticate.`,
-      { code: ProviderErrorCode.AUTH_FAILED },
-    );
+    throw claudeCodeAuthError(refreshFailedMessage(response.status, body));
   }
 
   const tokens = await response.json() as {
@@ -171,9 +163,7 @@ async function refreshOAuthToken(
     },
   };
 
-  // Persist refreshed credentials back to store (best-effort)
   await writeCredentials(updated, platform);
-  // Refreshed credentials persisted
   return updated;
 }
 

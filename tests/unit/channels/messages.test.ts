@@ -38,12 +38,34 @@ function buildRuntime(options: {
 async function waitForOutbox(
   replies: ChannelReply[],
   count: number,
-  timeoutMs = 200,
+  timeoutMs = 500,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (replies.length < count && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 2));
   }
+  if (replies.length < count) {
+    throw new Error(
+      `waitForOutbox timeout: expected ${count} replies, got ${replies.length}`,
+    );
+  }
+}
+
+async function waitForState(
+  runtime: { getStatus(ch: string): { state: string; lastError: string | null } | null },
+  channel: string,
+  state: string,
+  timeoutMs = 500,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (runtime.getStatus(channel)?.state === state) return;
+    await new Promise((r) => setTimeout(r, 2));
+  }
+  const actual = runtime.getStatus(channel);
+  throw new Error(
+    `waitForState timeout: ${channel} never reached ${state}, actual=${actual?.state} lastError=${actual?.lastError}`,
+  );
 }
 
 Deno.test("messages: inbound round-trip delivers one reply to outbox subscriber", async () => {
@@ -148,8 +170,8 @@ Deno.test("messages: no-subscriber drop flips status to error", async () => {
     text: "hello",
   });
 
-  // Wait for the queued agent cycle to finish and emitOutbox to fire.
-  await new Promise((r) => setTimeout(r, 30));
+  // Deterministic wait: poll status until error transition or timeout.
+  await waitForState(runtime, "messages", "error");
 
   const status = runtime.getStatus("messages");
   assertEquals(status?.state, "error");
@@ -171,8 +193,7 @@ Deno.test("messages: subscriber re-connects and status recovers to connected", a
     remoteId: "approved",
     text: "first",
   });
-  await new Promise((r) => setTimeout(r, 30));
-  assertEquals(runtime.getStatus("messages")?.state, "error");
+  await waitForState(runtime, "messages", "error");
 
   // A subscriber arrives
   const replies: ChannelReply[] = [];
@@ -232,7 +253,9 @@ Deno.test("messages: outbox listener errors are swallowed", async () => {
 
   const { runtime } = buildRuntime({ allowedIds: ["approved"] });
   const okReplies: ChannelReply[] = [];
+  let badCalled = 0;
   const unsubBad = bridge.subscribeOutbox(() => {
+    badCalled++;
     throw new Error("listener boom");
   });
   const unsubOk = bridge.subscribeOutbox((reply) => okReplies.push(reply));
@@ -245,6 +268,9 @@ Deno.test("messages: outbox listener errors are swallowed", async () => {
   });
   await waitForOutbox(okReplies, 1);
 
+  // The bad listener MUST have been invoked — otherwise the swallow
+  // guarantee is vacuously true.
+  assert(badCalled > 0, "bad listener was never invoked");
   // Good listener still received the reply despite the bad one throwing.
   assertEquals(okReplies.length, 1);
 

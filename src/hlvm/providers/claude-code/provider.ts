@@ -9,6 +9,7 @@ import type { ModelInfo } from "../types.ts";
 import { createCloudProvider } from "../cloud-provider.ts";
 import { DEFAULT_ANTHROPIC_ENDPOINT } from "../../../common/config/types.ts";
 import * as api from "./api.ts";
+import { CLAUDE_CODE_AUTH_MESSAGES } from "./errors.ts";
 
 /** Suffix appended to model IDs to indicate Claude Code full agent passthrough mode */
 export const AGENT_MODEL_SUFFIX = ":agent";
@@ -26,7 +27,7 @@ export const createClaudeCodeProvider = createCloudProvider({
   displayName: "Claude Code (Max Subscription)",
   defaultEndpoint: DEFAULT_ANTHROPIC_ENDPOINT,
   // No envVarName — auth is via OAuth, always "configured"
-  noModelsError: "No Claude Code models available. Run `claude login` to authenticate.",
+  noModelsError: CLAUDE_CODE_AUTH_MESSAGES.NO_MODELS_AVAILABLE,
   publicCatalogProvider: "anthropic",
   allowPublicCatalogFallback: false,
   capabilities: [

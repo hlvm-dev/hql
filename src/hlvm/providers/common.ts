@@ -7,6 +7,7 @@
 
 import { RuntimeError } from "../../common/error.ts";
 import { ProviderErrorCode, getErrorFixes } from "../../common/error-codes.ts";
+import { buildBearerHeader } from "../../common/http/auth-headers.ts";
 import { http } from "../../common/http-client.ts";
 import {
   HTTP_STATUS,
@@ -39,7 +40,7 @@ export const ANTHROPIC_VERSION = "2023-06-01";
 export function bearerAuthHeaders(token: string): Record<string, string> {
   return {
     ...JSON_HEADERS,
-    "Authorization": `Bearer ${token}`,
+    ...buildBearerHeader(token),
   };
 }
 

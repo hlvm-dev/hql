@@ -135,9 +135,9 @@ Deno.test("handler: POST inbound surfaces bridge errors as 500", async () => {
   bridge.resetForTesting();
 });
 
-Deno.test("handler: POST inbound rejects malformed JSON with 4xx", async () => {
+Deno.test("handler: POST inbound rejects malformed JSON with 400", async () => {
   bridge.resetForTesting();
-  const { ctx } = buildFakeContext();
+  const { ctx, received } = buildFakeContext();
   bridge.setActiveContext(ctx);
 
   const req = new Request("http://test.local/api/channels/messages/inbound", {
@@ -146,7 +146,9 @@ Deno.test("handler: POST inbound rejects malformed JSON with 4xx", async () => {
     body: "{not-json",
   });
   const res = await handleMessagesInbound(req);
-  assert(res.status >= 400 && res.status < 500);
+  assertEquals(res.status, 400);
+  // Malformed bodies must never reach the bridge.
+  assertEquals(received.length, 0);
 
   bridge.resetForTesting();
 });

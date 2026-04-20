@@ -16,10 +16,14 @@ import {
 import { RuntimeError } from "../../../common/error.ts";
 import { ProviderErrorCode } from "../../../common/error-codes.ts";
 import { http } from "../../../common/http-client.ts";
-import { isAuthStatus } from "../../../common/http-status.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import type { ModelInfo, ProviderStatus } from "../types.ts";
 import { clearTokenCache, getClaudeCodeToken } from "./auth.ts";
+import {
+  claudeCodeAuthError,
+  forbidden403Message,
+  tokenInvalid401Message,
+} from "./errors.ts";
 
 function oauthHeaders(token: string): Record<string, string> {
   return {
@@ -27,10 +31,6 @@ function oauthHeaders(token: string): Record<string, string> {
     "anthropic-version": ANTHROPIC_VERSION,
     "anthropic-beta": "oauth-2025-04-20",
   };
-}
-
-function isAuthFailureStatus(status: number): boolean {
-  return isAuthStatus(status);
 }
 
 async function fetchWithOAuthRetry(
@@ -60,19 +60,12 @@ async function throwModelListFailure(response: Response): Promise<never> {
   const detail = extractProviderErrorMessage(responseBody) ??
     `${response.status} ${response.statusText}`.trim();
 
-  if (isAuthFailureStatus(response.status)) {
-    const authDetail = detail.length > 0 ? `${detail} ` : "";
-    if (response.status === 403) {
-      throw new RuntimeError(
-        `Claude Code request forbidden (403). ${authDetail}Your OAuth token is valid but your subscription or scopes do not grant access to this resource.`,
-        { code: ProviderErrorCode.AUTH_FAILED },
-      );
-    }
+  if (response.status === 403) {
+    throw claudeCodeAuthError(forbidden403Message(detail));
+  }
+  if (response.status === 401) {
     clearTokenCache();
-    throw new RuntimeError(
-      `Claude Code OAuth token invalid or expired (401). ${authDetail}Run \`claude login\` to re-authenticate.`,
-      { code: ProviderErrorCode.AUTH_FAILED },
-    );
+    throw claudeCodeAuthError(tokenInvalid401Message(detail));
   }
 
   const code = classifyProviderErrorCode(response.status, detail);
@@ -122,14 +115,13 @@ export async function checkStatus(
     // Use model-agnostic endpoint — no hardcoded model IDs
     const url = `${endpoint}/v1/models?limit=1`;
     const response = await fetchWithOAuthRetry(url);
-    return {
-      available: !isAuthFailureStatus(response.status),
-      error: response.status === 403
-        ? "Claude Code request forbidden (403). OAuth token is valid but your subscription or scopes do not grant access."
-        : isAuthFailureStatus(response.status)
-        ? "Claude Code OAuth token invalid or expired (401). Run `claude login` to re-authenticate."
-        : undefined,
-    };
+    if (response.status === 403) {
+      return { available: false, error: forbidden403Message("") };
+    }
+    if (response.status === 401) {
+      return { available: false, error: tokenInvalid401Message("") };
+    }
+    return { available: true };
   } catch (error) {
     return {
       available: false,
