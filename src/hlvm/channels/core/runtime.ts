@@ -57,6 +57,9 @@ export function createChannelRuntime(
   const queue = createSessionQueue();
   const statuses = new Map<string, ChannelStatus>();
   const transports = new Map<string, ChannelTransport>();
+  // In-memory only — a fresh onboarding window always generates a new
+  // code, and server restart should invalidate any armed code.
+  const pairingCodes = new Map<string, string>();
   const loadRuntimeConfig = dependencies.loadConfig ?? loadConfig;
   const patchConfig = dependencies.patchConfig ?? config.patch;
   const runQuery = dependencies.runQuery ?? (async (options) => {
@@ -106,6 +109,59 @@ export function createChannelRuntime(
     emitChange();
   }
 
+  // Anchored to start-of-message (allowing leading whitespace) with a
+  // word boundary after the digits. Rejects "got it, HLVM-1234 sent to
+  // you" (doesn't start with HLVM) and "HLVM-12345" (\b fails after the
+  // 4th digit). The 4-digit code has no regex metachars but we escape
+  // defensively in case the contract loosens later.
+  function pairPattern(code: string): RegExp {
+    const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`^\\s*HLVM-${escaped}\\b`);
+  }
+
+  async function performPairing(
+    transport: ChannelTransport,
+    channel: string,
+    message: ChannelMessage,
+    senderId: string,
+  ): Promise<void> {
+    try {
+      // Record the paired sender via the single-writer config path.
+      // Merge-preserve sibling channels (shallow merge in
+      // mergeConfigUpdates drops other channels otherwise).
+      const current = await loadRuntimeConfig();
+      const existingChannels = current.channels ?? {};
+      const existingChannel = existingChannels[channel] ?? {};
+      await patchConfig({
+        channels: {
+          ...existingChannels,
+          [channel]: {
+            ...existingChannel,
+            allowedIds: [senderId],
+          },
+        },
+      });
+      pairingCodes.delete(channel);
+      // Triggers the reachability SSE snapshot so the onboarding window
+      // sees the channel flip to connected with a populated allowlist.
+      setStatus(channel, { state: "connected", lastError: null });
+      // Canned confirmation reply — short-circuits runAgentQuery so the
+      // pair-code message doesn't burn an agent turn. The real
+      // conversation starts on the user's next message.
+      await transport.send({
+        channel,
+        remoteId: message.remoteId,
+        sessionId: formatChannelSessionId(channel, message.remoteId),
+        text: "✨ You're in. Text me anytime.",
+        replyTo: message.raw,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setStatus(channel, { state: "error", lastError: detail });
+      log.warn?.(`Channel ${channel} pair-code handling failed: ${detail}`);
+    }
+  }
+
   async function handleInboundMessage(
     transport: ChannelTransport,
     message: ChannelMessage,
@@ -116,6 +172,21 @@ export function createChannelRuntime(
     const config = await loadRuntimeConfig();
     const allowed = config.channels?.[channel]?.allowedIds ?? [];
     const senderId = message.sender?.id ?? message.remoteId;
+
+    // Pair-code short-circuit: only runs when allowlist is empty AND a
+    // code is armed. A populated allowlist always wins even if a code
+    // happens to be armed — this prevents an old code from bypassing
+    // the allowlist.
+    if (allowed.length === 0) {
+      const armedCode = pairingCodes.get(channel);
+      if (armedCode && pairPattern(armedCode).test(message.text)) {
+        await performPairing(transport, channel, message, senderId);
+        return;
+      }
+      log.warn?.(`Channel ${channel} rejected unknown sender ${senderId}`);
+      return;
+    }
+
     if (!allowed.includes(senderId)) {
       log.warn?.(`Channel ${channel} rejected unknown sender ${senderId}`);
       return;
@@ -246,6 +317,19 @@ export function createChannelRuntime(
       return () => {
         listeners.delete(listener);
       };
+    },
+
+    armPairCode(channel: string, code: string): void {
+      pairingCodes.set(channel, code);
+    },
+
+    disarmPairCode(channel: string): void {
+      pairingCodes.delete(channel);
+    },
+
+    // Exposed for tests + the HTTP handler's 409 check.
+    hasPairCodeArmed(channel: string): boolean {
+      return pairingCodes.has(channel);
     },
   };
 }

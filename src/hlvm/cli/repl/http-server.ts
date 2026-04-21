@@ -111,6 +111,10 @@ import {
   handleMessagesOutbox,
 } from "./handlers/channels/messages.ts";
 import {
+  handleArmPairCode,
+  handleDisarmPairCode,
+} from "./handlers/channels/pair-code.ts";
+import {
   HLVM_RUNTIME_DEFAULT_PORT,
   resolveHlvmRuntimePort,
 } from "../../runtime/host-config.ts";
@@ -851,6 +855,16 @@ router.add("POST", "/api/reachability/rebind", () => handleReachabilityRebind())
 router.add("GET", "/api/reachability/events", (req) => handleReachabilityEvents(req));
 router.add("POST", "/api/channels/messages/inbound", (req) => handleMessagesInbound(req));
 router.add("GET", "/api/channels/messages/outbox", (req) => handleMessagesOutbox(req));
+router.add(
+  "POST",
+  "/api/channels/:channel/arm-pair-code",
+  (req, p) => handleArmPairCode(req, p),
+);
+router.add(
+  "POST",
+  "/api/channels/:channel/disarm-pair-code",
+  (req, p) => handleDisarmPairCode(req, p),
+);
 
 router.add("GET", "/api/mcp/servers", () => handleListMcpServers());
 router.add("POST", "/api/mcp/servers", (req) => handleAddMcpServer(req));
