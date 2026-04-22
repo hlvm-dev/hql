@@ -301,6 +301,14 @@ export interface AIProvider {
   /** Whether an API key is configured (undefined = not applicable, e.g. Ollama) */
   readonly apiKeyConfigured?: boolean;
 
+  /**
+   * Name of the provider this one supersedes when configured.
+   * When this provider has apiKeyConfigured=true, the named provider's
+   * unconfigured catalog-fallback models are suppressed from the model list.
+   * Example: "claude-code" supersedes "anthropic" (same API, better auth).
+   */
+  readonly supersedesProvider?: string;
+
   /** Capabilities this provider supports */
   readonly capabilities: ProviderCapability[];
 

@@ -43,6 +43,12 @@ export interface CloudProviderSpec {
   publicCatalogProvider: string;
   /** Allow fallback to OpenRouter public catalog when live provider listing is unavailable. */
   allowPublicCatalogFallback?: boolean;
+
+  /**
+   * Provider name this spec supersedes when configured.
+   * See AIProvider.supersedesProvider for semantics.
+   */
+  supersedesProvider?: string;
   /** Provider-level capabilities (defaults to chat+tools+vision+models.list if omitted). */
   capabilities?: ProviderCapability[];
   /** Create the API adapter. For API-key providers, captures apiKey in closures. */
@@ -124,6 +130,7 @@ export function createCloudProvider(
       name: spec.name,
       displayName: spec.displayName,
       apiKeyConfigured,
+      supersedesProvider: spec.supersedesProvider,
       capabilities: spec.capabilities ?? [
         "chat",
         "tools",

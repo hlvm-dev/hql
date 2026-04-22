@@ -10,6 +10,7 @@ import { getBundledModelDiscoverySnapshot } from "./model-discovery-seed.ts";
 import {
   dedupeModelList,
   listAllProviderModels,
+  suppressRedundantUnconfiguredProviders,
   tagModelsForProvider,
 } from "./model-list.ts";
 import {
@@ -169,11 +170,11 @@ export function getModelDiscoveryModels(
   snapshot: ModelDiscoverySnapshot,
   options: ModelDiscoveryModelOptions = {},
 ): ModelInfo[] {
-  return dedupeModelList([
+  return suppressRedundantUnconfiguredProviders(dedupeModelList([
     ...(options.localModels ?? []),
     ...(options.includeRemoteModels === false ? [] : snapshot.remoteModels),
     ...snapshot.cloudModels,
-  ]);
+  ]));
 }
 
 export function createModelDiscoveryStore(

@@ -6,6 +6,7 @@ import {
 import { createChannelRuntime } from "../../../src/hlvm/channels/core/runtime.ts";
 import type {
   ChannelReply,
+  ChannelTransport,
   ChannelTransportContext,
 } from "../../../src/hlvm/channels/core/types.ts";
 
@@ -15,6 +16,7 @@ import type {
 function buildPairingRuntime(options: {
   allowedIds?: string[];
   initialConfig?: Partial<HlvmConfig["channels"]>;
+  transport?: Partial<ChannelTransport>;
 }) {
   const sent: ChannelReply[] = [];
   const runs: string[] = [];
@@ -48,6 +50,7 @@ function buildPairingRuntime(options: {
         sent.push(reply);
       },
       async stop() {},
+      ...options.transport,
     }),
   }, {
     loadConfig: async () => configState,
@@ -304,6 +307,39 @@ Deno.test("pair-code: sender.id takes precedence over remoteId during pairing", 
     ["sender-id-abc"],
     "sender.id wins over remoteId for allowlist recording",
   );
+
+  await runtime.stop();
+});
+
+Deno.test("pair-code: transport override can pair on vendor-native first contact", async () => {
+  const { runtime, sent, runs, patches, contextPromise } = buildPairingRuntime({
+    allowedIds: [],
+    transport: {
+      matchesPairCode(message, code) {
+        return message.raw !== null && typeof message.raw === "object" &&
+          (message.raw as { startCode?: string }).startCode === code;
+      },
+    },
+  });
+  await runtime.reconfigure();
+  const ctx = await contextPromise;
+
+  runtime.armPairCode("telegram", "1234");
+
+  await ctx.receive({
+    channel: "telegram",
+    remoteId: "chat-id-xyz",
+    sender: { id: "sender-id-abc" },
+    text: "",
+    raw: { startCode: "1234" },
+  });
+
+  assertEquals(runs, []);
+  assertEquals(sent.length, 1);
+  assertEquals(sent[0].text, "✨ You're in. Text me anytime.");
+  assertEquals(patches.length, 1);
+  assertEquals(patches[0].channels!.telegram?.allowedIds, ["sender-id-abc"]);
+  assertEquals(runtime.hasPairCodeArmed("telegram"), false);
 
   await runtime.stop();
 });

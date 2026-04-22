@@ -11,14 +11,20 @@ import {
 } from "../../../src/common/error-codes.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../src/common/config/types.ts";
 import { RuntimeError } from "../../../src/common/error.ts";
+import { http } from "../../../src/common/http-client.ts";
 import {
   __testOnlyGetRuntimeStartLockPath,
   __testOnlyWaitForStaleFallbackHostSweep,
   addRuntimeMcpServer,
+  cancelRuntimeTelegramProvisioningSession,
+  completeRuntimeTelegramProvisioningSession,
+  createRuntimeTelegramProvisioningSession,
   deleteRuntimeModel,
   getRuntimeAttachment,
   getRuntimeConfig,
   getRuntimeConfigApi,
+  getRuntimeReachabilityStatus,
+  getRuntimeTelegramProvisioningSession,
   getRuntimeModel,
   getRuntimeModelDiscovery,
   getRuntimeProviderStatus,
@@ -28,11 +34,13 @@ import {
   logoutRuntimeMcpServer,
   pullRuntimeModelViaHost,
   registerRuntimeAttachmentPath,
+  rebindRuntimeReachability,
   removeRuntimeMcpServer,
   runAgentQueryViaHost,
   runChatViaHost,
   runDirectChatViaHost,
   runRuntimeOllamaSignin,
+  streamRuntimeReachabilityEvents,
   uploadRuntimeAttachment,
 } from "../../../src/hlvm/runtime/host-client.ts";
 import { describeErrorForDisplay } from "../../../src/hlvm/agent/error-taxonomy.ts";
@@ -1793,7 +1801,7 @@ Deno.test("runAgentQueryViaHost leaves unrelated fallback hosts untouched after 
     );
 
     assertEquals(result.text, "base");
-    const fallbackHealth = await fetch(fallbackUrl + "/health");
+    const fallbackHealth = await http.fetchRaw(fallbackUrl + "/health");
     assertEquals(fallbackHealth.status, 200);
     await fallbackHealth.body?.cancel();
     assertEquals(fallbackShutdownRequests, 0);
@@ -2090,6 +2098,217 @@ Deno.test("runtime host client exposes config get/patch/reset through the runtim
     assertEquals(seenPatches[1]?.theme, "hlvm");
     assertEquals(reset.model, "ollama/llama3.2:latest");
     assertEquals(reloaded.model, "ollama/llama3.2:latest");
+    await __testOnlyWaitForStaleFallbackHostSweep();
+  });
+});
+
+Deno.test("runtime host client exposes reachability and Telegram provisioning flows through the runtime boundary", async () => {
+  const createRequests: Array<Record<string, unknown>> = [];
+  const completeRequests: Array<Record<string, unknown>> = [];
+  const pendingSession = {
+    sessionId: "session-1",
+    state: "pending" as const,
+    pairCode: "1234",
+    managerBotUsername: "hlvm_manager_bot",
+    botName: "HLVM",
+    botUsername: "hlvm_test_bot",
+    provisionUrl:
+      "https://provision.hlvm.dev/telegram/start?session=session-1",
+    createUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_test_bot?name=HLVM",
+    createdAt: "2026-04-21T00:00:00.000Z",
+    expiresAt: "2026-04-21T00:10:00.000Z",
+  };
+
+  await withRuntimeHostServer(async (req, authToken) => {
+    const url = new URL(req.url);
+    assertEquals(req.headers.get("Authorization"), `Bearer ${authToken}`);
+
+    if (url.pathname === "/api/reachability/status") {
+      return Response.json({
+        channels: [{
+          channel: "telegram",
+          configured: true,
+          enabled: true,
+          state: "connecting",
+          mode: "direct",
+          allowedIds: [],
+          lastError: null,
+        }],
+      });
+    }
+
+    if (url.pathname === "/api/reachability/rebind") {
+      return Response.json({
+        channels: [{
+          channel: "telegram",
+          configured: true,
+          enabled: true,
+          state: "connected",
+          mode: "direct",
+          allowedIds: ["chat-1"],
+          lastError: null,
+        }],
+      });
+    }
+
+    if (
+      url.pathname === "/api/channels/telegram/provisioning/session" &&
+      req.method === "POST"
+    ) {
+      createRequests.push(await req.json() as Record<string, unknown>);
+      return Response.json(pendingSession, { status: 201 });
+    }
+
+    if (
+      url.pathname === "/api/channels/telegram/provisioning/session" &&
+      req.method === "GET"
+    ) {
+      return Response.json(pendingSession);
+    }
+
+    if (
+      url.pathname === "/api/channels/telegram/provisioning/session/complete"
+    ) {
+      completeRequests.push(await req.json() as Record<string, unknown>);
+      return Response.json({
+        session: {
+          ...pendingSession,
+          state: "completed",
+          completedAt: "2026-04-21T00:00:01.000Z",
+        },
+        status: {
+          channel: "telegram",
+          configured: true,
+          enabled: true,
+          state: "connected",
+          mode: "direct",
+          allowedIds: ["chat-1"],
+          lastError: null,
+        },
+      });
+    }
+
+    if (
+      url.pathname === "/api/channels/telegram/provisioning/session/cancel"
+    ) {
+      return Response.json({ cancelled: true });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, async () => {
+    const reachability = await getRuntimeReachabilityStatus();
+    const rebound = await rebindRuntimeReachability();
+    const created = await createRuntimeTelegramProvisioningSession({
+      botName: "HLVM",
+    });
+    const pending = await getRuntimeTelegramProvisioningSession();
+    const completed = await completeRuntimeTelegramProvisioningSession({
+      sessionId: "session-1",
+      token: "123:abc",
+      username: "hlvm_test_bot",
+    });
+    const cancelled = await cancelRuntimeTelegramProvisioningSession();
+
+    assertEquals(reachability.channels[0]?.state, "connecting");
+    assertEquals(rebound.channels[0]?.state, "connected");
+    assertEquals(created.sessionId, "session-1");
+    assertEquals(
+      created.provisionUrl,
+      "https://provision.hlvm.dev/telegram/start?session=session-1",
+    );
+    assertEquals(pending?.pairCode, "1234");
+    assertEquals(completed?.session.state, "completed");
+    assertEquals(completed?.status?.state, "connected");
+    assertEquals(cancelled, true);
+    assertEquals(createRequests, [{ botName: "HLVM" }]);
+    assertEquals(completeRequests, [{
+      sessionId: "session-1",
+      token: "123:abc",
+      username: "hlvm_test_bot",
+    }]);
+    await __testOnlyWaitForStaleFallbackHostSweep();
+  });
+});
+
+Deno.test("runtime host client returns null when Telegram provisioning session is missing", async () => {
+  await withRuntimeHostServer((req, authToken) => {
+    const url = new URL(req.url);
+    assertEquals(req.headers.get("Authorization"), `Bearer ${authToken}`);
+
+    if (url.pathname === "/api/channels/telegram/provisioning/session") {
+      return Response.json({ error: "missing" }, { status: 404 });
+    }
+
+    if (url.pathname === "/api/channels/telegram/provisioning/session/complete") {
+      return Response.json({ error: "missing" }, { status: 404 });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, async () => {
+    const pending = await getRuntimeTelegramProvisioningSession();
+    const completed = await completeRuntimeTelegramProvisioningSession({
+      sessionId: "missing",
+      token: "123:abc",
+    });
+
+    assertEquals(pending, null);
+    assertEquals(completed, null);
+    await __testOnlyWaitForStaleFallbackHostSweep();
+  });
+});
+
+Deno.test("runtime host client streams reachability SSE updates and cancels the stream when the consumer stops", async () => {
+  let streamCancelled = false;
+
+  await withRuntimeHostServer((req, authToken) => {
+    const url = new URL(req.url);
+    assertEquals(req.headers.get("Authorization"), `Bearer ${authToken}`);
+
+    if (url.pathname === "/api/reachability/events") {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode("retry: 3000\n\n"));
+          controller.enqueue(encoder.encode(": heartbeat\n\n"));
+          controller.enqueue(encoder.encode(
+            [
+              "id: 1",
+              "event: reachability_updated",
+              'data: {"channels":[{"channel":"telegram","configured":true,"enabled":true,"state":"connected","mode":"direct","allowedIds":["chat-1"],"lastError":null}]}',
+              "",
+              "",
+            ].join("\n"),
+          ));
+        },
+        cancel() {
+          streamCancelled = true;
+        },
+      });
+
+      return new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
+  }, async () => {
+    const events: Array<{ id?: string; state?: string }> = [];
+
+    for await (const event of streamRuntimeReachabilityEvents()) {
+      events.push({
+        id: event.id,
+        state: event.data.channels[0]?.state,
+      });
+      break;
+    }
+
+    const deadline = Date.now() + 200;
+    while (!streamCancelled && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    assertEquals(events, [{ id: "1", state: "connected" }]);
+    assertEquals(streamCancelled, true);
     await __testOnlyWaitForStaleFallbackHostSweep();
   });
 });

@@ -41,7 +41,7 @@ Deno.test("handleArmPairCode: malformed JSON → 4xx", async () => {
     headers: { "content-type": "application/json" },
     body: "{not-json",
   });
-  const res = await handleArmPairCode(req, { channel: "messages" } as any);
+  const res = await handleArmPairCode(req, { channel: "telegram" } as any);
   assert(res.status >= 400 && res.status < 500);
 });
 

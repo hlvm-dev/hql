@@ -53,6 +53,15 @@ import type {
   RuntimeModelDiscoveryResponse,
   RuntimeModelPullStreamEvent,
 } from "./model-protocol.ts";
+import type {
+  RuntimeReachabilityStatusResponse,
+  RuntimeReachabilityUpdatedEvent,
+  RuntimeTelegramProvisioningCancelResponse,
+  RuntimeTelegramProvisioningCompleteRequest,
+  RuntimeTelegramProvisioningCompletionResult,
+  RuntimeTelegramProvisioningCreateRequest,
+  RuntimeTelegramProvisioningSessionSnapshot,
+} from "./reachability-protocol.ts";
 import type { ModelInfo, ProviderStatus } from "../providers/types.ts";
 import type {
   RuntimeMcpListResponse,
@@ -142,6 +151,101 @@ async function* readNdjsonStream<T>(
     const trailing = pending.trim();
     if (trailing.length > 0) {
       yield parseNdjsonLine<T>(trailing);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+interface RuntimeSseEvent<T> {
+  id?: string;
+  event_type: string;
+  data: T;
+}
+
+function parseRuntimeSseData<T>(text: string): T {
+  try {
+    return JSON.parse(text) as T;
+  } catch (error) {
+    throw createRuntimeHostError(
+      "Failed to parse runtime host SSE event",
+      error instanceof Error ? error : undefined,
+      HLVMErrorCode.STREAM_ERROR,
+    );
+  }
+}
+
+async function* readSseStream<T>(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): AsyncGenerator<RuntimeSseEvent<T>, void, unknown> {
+  const decoder = new TextDecoder();
+  let pending = "";
+  let id: string | undefined;
+  let eventType: string | undefined;
+  let dataLines: string[] = [];
+
+  const flush = (): RuntimeSseEvent<T> | null => {
+    if (!eventType || dataLines.length === 0) {
+      id = undefined;
+      eventType = undefined;
+      dataLines = [];
+      return null;
+    }
+    const event = {
+      ...(id ? { id } : {}),
+      event_type: eventType,
+      data: parseRuntimeSseData<T>(dataLines.join("\n")),
+    };
+    id = undefined;
+    eventType = undefined;
+    dataLines = [];
+    return event;
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+
+      let newlineIndex = pending.indexOf("\n");
+      while (newlineIndex >= 0) {
+        let line = pending.slice(0, newlineIndex);
+        pending = pending.slice(newlineIndex + 1);
+        if (line.endsWith("\r")) {
+          line = line.slice(0, -1);
+        }
+
+        if (line.length === 0) {
+          const event = flush();
+          if (event) yield event;
+          newlineIndex = pending.indexOf("\n");
+          continue;
+        }
+
+        if (!line.startsWith(":")) {
+          const separator = line.indexOf(":");
+          const field = separator >= 0 ? line.slice(0, separator) : line;
+          let value = separator >= 0 ? line.slice(separator + 1) : "";
+          if (value.startsWith(" ")) value = value.slice(1);
+
+          switch (field) {
+            case "id":
+              id = value;
+              break;
+            case "event":
+              eventType = value;
+              break;
+            case "data":
+              dataLines.push(value);
+              break;
+            default:
+              break;
+          }
+        }
+
+        newlineIndex = pending.indexOf("\n");
+      }
     }
   } finally {
     reader.releaseLock();
@@ -1458,6 +1562,104 @@ export function getRuntimeConfigApi(): RuntimeConfigApi {
       return getRuntimeConfig();
     },
   };
+}
+
+export async function getRuntimeReachabilityStatus(): Promise<
+  RuntimeReachabilityStatusResponse
+> {
+  return await fetchRuntimeJson<RuntimeReachabilityStatusResponse>(
+    "/api/reachability/status",
+  );
+}
+
+export async function rebindRuntimeReachability(): Promise<
+  RuntimeReachabilityStatusResponse
+> {
+  const response = await fetchRuntimeChecked("/api/reachability/rebind", {
+    method: "POST",
+  });
+  return await response.json() as RuntimeReachabilityStatusResponse;
+}
+
+export async function* streamRuntimeReachabilityEvents(
+  signal?: AbortSignal,
+): AsyncGenerator<RuntimeReachabilityUpdatedEvent, void, unknown> {
+  const response = await fetchRuntimeChecked("/api/reachability/events", {
+    timeout: STREAM_TIMEOUT_MS,
+    signal,
+    headers: { Accept: "text/event-stream" },
+  });
+
+  const stream = response.body;
+  const reader = stream?.getReader();
+  if (!reader) {
+    throw createRuntimeHostError(
+      "Runtime host returned no reachability event stream.",
+    );
+  }
+
+  try {
+    for await (const event of readSseStream<RuntimeReachabilityStatusResponse>(reader)) {
+      if (event.event_type !== "reachability_updated") continue;
+      yield event as RuntimeReachabilityUpdatedEvent;
+    }
+  } finally {
+    if (stream) {
+      await stream.cancel().catch(() => undefined);
+    }
+  }
+}
+
+export async function createRuntimeTelegramProvisioningSession(
+  input: RuntimeTelegramProvisioningCreateRequest = {},
+): Promise<RuntimeTelegramProvisioningSessionSnapshot> {
+  return await postRuntimeJson<RuntimeTelegramProvisioningSessionSnapshot>(
+    "/api/channels/telegram/provisioning/session",
+    input,
+  );
+}
+
+export async function getRuntimeTelegramProvisioningSession(): Promise<
+  RuntimeTelegramProvisioningSessionSnapshot | null
+> {
+  const response = await fetchRuntimeRaw(
+    "/api/channels/telegram/provisioning/session",
+  );
+  if (response.status === 404) {
+    await response.body?.cancel();
+    return null;
+  }
+  if (!response.ok) await parseErrorResponse(response);
+  return await response.json() as RuntimeTelegramProvisioningSessionSnapshot;
+}
+
+export async function completeRuntimeTelegramProvisioningSession(
+  input: RuntimeTelegramProvisioningCompleteRequest,
+): Promise<RuntimeTelegramProvisioningCompletionResult | null> {
+  const response = await fetchRuntimeRaw(
+    "/api/channels/telegram/provisioning/session/complete",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  if (response.status === 404) {
+    await response.body?.cancel();
+    return null;
+  }
+  if (!response.ok) await parseErrorResponse(response);
+  return await response.json() as RuntimeTelegramProvisioningCompletionResult;
+}
+
+export async function cancelRuntimeTelegramProvisioningSession(): Promise<
+  boolean
+> {
+  const response = await postRuntimeJson<RuntimeTelegramProvisioningCancelResponse>(
+    "/api/channels/telegram/provisioning/session/cancel",
+    {},
+  );
+  return response.cancelled === true;
 }
 
 export async function runRuntimeOllamaSignin(): Promise<

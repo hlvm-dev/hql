@@ -107,13 +107,15 @@ import {
   handleReachabilityStatus,
 } from "./handlers/reachability.ts";
 import {
-  handleMessagesInbound,
-  handleMessagesOutbox,
-} from "./handlers/channels/messages.ts";
-import {
   handleArmPairCode,
   handleDisarmPairCode,
 } from "./handlers/channels/pair-code.ts";
+import {
+  handleTelegramProvisioningCancel,
+  handleTelegramProvisioningComplete,
+  handleTelegramProvisioningCreate,
+  handleTelegramProvisioningGet,
+} from "./handlers/channels/telegram-provisioning.ts";
 import {
   HLVM_RUNTIME_DEFAULT_PORT,
   resolveHlvmRuntimePort,
@@ -853,8 +855,26 @@ router.add("GET", "/api/config/stream", (req) => handleConfigStream(req));
 router.add("GET", "/api/reachability/status", () => handleReachabilityStatus());
 router.add("POST", "/api/reachability/rebind", () => handleReachabilityRebind());
 router.add("GET", "/api/reachability/events", (req) => handleReachabilityEvents(req));
-router.add("POST", "/api/channels/messages/inbound", (req) => handleMessagesInbound(req));
-router.add("GET", "/api/channels/messages/outbox", (req) => handleMessagesOutbox(req));
+router.add(
+  "POST",
+  "/api/channels/telegram/provisioning/session",
+  (req) => handleTelegramProvisioningCreate(req),
+);
+router.add(
+  "GET",
+  "/api/channels/telegram/provisioning/session",
+  (req) => handleTelegramProvisioningGet(req),
+);
+router.add(
+  "POST",
+  "/api/channels/telegram/provisioning/session/complete",
+  (req) => handleTelegramProvisioningComplete(req),
+);
+router.add(
+  "POST",
+  "/api/channels/telegram/provisioning/session/cancel",
+  (req) => handleTelegramProvisioningCancel(req),
+);
 router.add(
   "POST",
   "/api/channels/:channel/arm-pair-code",

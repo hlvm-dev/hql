@@ -1,0 +1,353 @@
+import { http, HttpError } from "../../../common/http-client.ts";
+import type { ChannelConfig } from "../../../common/config/types.ts";
+import { ValidationError } from "../../../common/error.ts";
+import type {
+  ChannelMessage,
+  ChannelReply,
+  ChannelTransport,
+  ChannelTransportContext,
+} from "../core/types.ts";
+
+const TELEGRAM_API_BASE_URL = "https://api.telegram.org";
+const TELEGRAM_POLL_TIMEOUT_SECONDS = 30;
+const TELEGRAM_REQUEST_TIMEOUT_MS = 35_000;
+
+interface TelegramUser {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+}
+
+interface TelegramChat {
+  id: number | string;
+}
+
+interface TelegramMessagePayload {
+  message_id?: number;
+  chat?: TelegramChat;
+  from?: TelegramUser;
+  text?: string;
+}
+
+interface TelegramUpdate {
+  update_id: number;
+  message?: TelegramMessagePayload;
+}
+
+interface TelegramGetMeResult {
+  id: number;
+  username?: string;
+}
+
+interface TelegramApi {
+  getMe(token: string): Promise<TelegramGetMeResult>;
+  getUpdates(
+    token: string,
+    offset: number,
+    signal: AbortSignal,
+  ): Promise<TelegramUpdate[]>;
+  sendMessage(
+    token: string,
+    chatId: string,
+    text: string,
+  ): Promise<void>;
+}
+
+interface TelegramTransportDependencies {
+  api?: TelegramApi;
+  sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+}
+
+class TelegramApiError extends Error {
+  constructor(message: string, readonly fatal: boolean) {
+    super(message);
+    this.name = "TelegramApiError";
+  }
+}
+
+function trimToken(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function trimUsername(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(new DOMException("Aborted", "AbortError"));
+  }
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      signal.removeEventListener("abort", onAbort);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function formatTelegramDisplayName(user: TelegramUser | undefined): string | undefined {
+  if (!user) return undefined;
+  const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
+  if (fullName) return fullName;
+  return user.username?.trim() || undefined;
+}
+
+function matchesDefaultPairCode(text: string, code: string): boolean {
+  const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^\\s*HLVM-${escaped}\\b`).test(text);
+}
+
+function matchesStartPairCode(text: string, code: string): boolean {
+  const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^\\s*/start(?:@\\w+)?\\s+HLVM-${escaped}\\b`).test(text);
+}
+
+function matchesPlainStart(text: string): boolean {
+  return /^\s*\/start(?:@\w+)?\s*$/i.test(text);
+}
+
+function matchesTelegramPairCodeText(text: string, code: string): boolean {
+  return matchesDefaultPairCode(text, code) ||
+    matchesStartPairCode(text, code) ||
+    matchesPlainStart(text);
+}
+
+function toChannelMessage(update: TelegramUpdate): ChannelMessage | null {
+  const message = update.message;
+  const chatId = message?.chat?.id;
+  if (chatId === undefined || chatId === null) return null;
+  return {
+    channel: "telegram",
+    remoteId: String(chatId),
+    text: message?.text ?? "",
+    sender: message?.from
+      ? {
+        id: String(message.from.id),
+        display: formatTelegramDisplayName(message.from),
+      }
+      : undefined,
+    raw: update,
+  };
+}
+
+async function parseTelegramResult<T>(
+  response: Response,
+  url: string,
+): Promise<T> {
+  const text = await response.text();
+  let body: { ok?: boolean; result?: T; description?: string } | null = null;
+  if (text.trim()) {
+    try {
+      body = JSON.parse(text) as { ok?: boolean; result?: T; description?: string };
+    } catch {
+      body = null;
+    }
+  }
+
+  if (!response.ok) {
+    const description = typeof body?.description === "string"
+      ? body.description.trim()
+      : "";
+    const message = description ||
+      `Telegram API HTTP ${response.status}: ${response.statusText}`;
+    throw new TelegramApiError(message, response.status >= 400 && response.status < 500);
+  }
+  if (!body || body.ok !== true) {
+    throw new TelegramApiError(
+      (typeof body?.description === "string" && body.description.trim()) ||
+        "Telegram API request failed",
+      true,
+    );
+  }
+  return body.result as T;
+}
+
+function createTelegramApi(): TelegramApi {
+  async function post<T>(
+    token: string,
+    method: string,
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const url = `${TELEGRAM_API_BASE_URL}/bot${token}/${method}`;
+    const response = await http.fetchRaw(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      timeout: TELEGRAM_REQUEST_TIMEOUT_MS,
+      signal,
+    });
+    return await parseTelegramResult<T>(response, url);
+  }
+
+  return {
+    getMe(token) {
+      return post<TelegramGetMeResult>(token, "getMe", {});
+    },
+    getUpdates(token, offset, signal) {
+      return post<TelegramUpdate[]>(token, "getUpdates", {
+        offset,
+        timeout: TELEGRAM_POLL_TIMEOUT_SECONDS,
+        allowed_updates: ["message"],
+      }, signal);
+    },
+    async sendMessage(token, chatId, text) {
+      await post(token, "sendMessage", {
+        chat_id: chatId,
+        text,
+      });
+    },
+  };
+}
+
+function transportConfigSnapshot(
+  mode: "direct",
+  token: string,
+  username: string | undefined,
+  cursor: number,
+): Record<string, unknown> {
+  return {
+    mode,
+    token,
+    cursor,
+    ...(username ? { username } : {}),
+  };
+}
+
+export function createTelegramTransport(
+  config: ChannelConfig,
+  dependencies: TelegramTransportDependencies = {},
+): ChannelTransport {
+  const api = dependencies.api ?? createTelegramApi();
+  const sleep = dependencies.sleep ?? sleepWithAbort;
+
+  let token = trimToken(config.transport?.token);
+  let username = trimUsername(config.transport?.username);
+  let cursor = typeof config.transport?.cursor === "number" &&
+      Number.isInteger(config.transport.cursor) && config.transport.cursor >= 0
+    ? config.transport.cursor
+    : 0;
+  let pollAbort: AbortController | null = null;
+  let pollLoop: Promise<void> | null = null;
+
+  async function persistTransport(context: ChannelTransportContext): Promise<void> {
+    await context.updateConfig({
+      transport: transportConfigSnapshot("direct", token, username, cursor),
+    });
+  }
+
+  async function runPollingLoop(
+    context: ChannelTransportContext,
+    signal: AbortSignal,
+  ): Promise<void> {
+    let failureCount = 0;
+
+    while (!signal.aborted) {
+      try {
+        const updates = await api.getUpdates(token, cursor + 1, signal);
+        let latestCursor = cursor;
+
+        for (const update of updates) {
+          latestCursor = Math.max(latestCursor, update.update_id);
+          const inbound = toChannelMessage(update);
+          if (!inbound) continue;
+          await context.receive(inbound);
+        }
+
+        if (latestCursor !== cursor) {
+          cursor = latestCursor;
+          await persistTransport(context);
+        }
+
+        failureCount = 0;
+        context.setStatus({ state: "connected", lastError: null });
+      } catch (error) {
+        if (isAbortError(error) || signal.aborted) {
+          return;
+        }
+
+        const fatal = error instanceof TelegramApiError
+          ? error.fatal
+          : error instanceof HttpError && error.status >= 400 && error.status < 500;
+        const detail = error instanceof Error ? error.message : String(error);
+        context.setStatus({ state: "error", lastError: detail });
+        if (fatal) {
+          return;
+        }
+
+        failureCount += 1;
+        const backoffMs = Math.min(5_000, 250 * (2 ** (failureCount - 1)));
+        await sleep(backoffMs, signal);
+      }
+    }
+  }
+
+  return {
+    channel: "telegram",
+
+    matchesPairCode(message, code) {
+      return matchesTelegramPairCodeText(message.text, code);
+    },
+
+    async start(context: ChannelTransportContext): Promise<void> {
+      if (config.transport?.mode !== "direct") {
+        throw new ValidationError(
+          "Telegram transport currently supports only channels.telegram.transport.mode = \"direct\".",
+          "telegram_transport",
+        );
+      }
+      if (!token) {
+        throw new ValidationError(
+          "Telegram direct transport requires channels.telegram.transport.token.",
+          "telegram_transport",
+        );
+      }
+
+      const me = await api.getMe(token);
+      if (!username && me.username) {
+        username = me.username;
+        await persistTransport(context);
+      }
+
+      pollAbort = new AbortController();
+      pollLoop = runPollingLoop(context, pollAbort.signal);
+    },
+
+    async send(message: ChannelReply): Promise<void> {
+      if (!token) {
+        throw new ValidationError(
+          "Telegram direct transport is missing a bot token.",
+          "telegram_transport",
+        );
+      }
+      await api.sendMessage(token, message.remoteId, message.text);
+    },
+
+    async stop(): Promise<void> {
+      pollAbort?.abort();
+      try {
+        await pollLoop;
+      } catch (error) {
+        if (!isAbortError(error)) {
+          throw error;
+        }
+      } finally {
+        pollAbort = null;
+        pollLoop = null;
+      }
+    },
+  };
+}

@@ -30,6 +30,7 @@ export const createClaudeCodeProvider = createCloudProvider({
   noModelsError: CLAUDE_CODE_AUTH_MESSAGES.NO_MODELS_AVAILABLE,
   publicCatalogProvider: "anthropic",
   allowPublicCatalogFallback: false,
+  supersedesProvider: "anthropic",
   capabilities: [
     "chat", "tools", "vision", "models.list",
     "hosted.webSearch", "hosted.codeExecution", "hosted.computerUse",

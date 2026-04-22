@@ -92,6 +92,53 @@ function mergeModelInfo(primary: ModelInfo, secondary: ModelInfo): ModelInfo {
   };
 }
 
+/**
+ * Build a map of { supersededProvider → supersedingProvider } from the registry.
+ * Providers declare supersedesProvider in their spec (e.g. claude-code → anthropic).
+ */
+function buildSupersededByMap(): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const name of listRegisteredProviders()) {
+    const provider = getProvider(name);
+    if (provider?.supersedesProvider) {
+      map[provider.supersedesProvider] = name;
+    }
+  }
+  return map;
+}
+
+/**
+ * Remove unconfigured provider models when a configured superseding provider
+ * covers the same model family.
+ *
+ * Example: if claude-code (OAuth) is active (apiKeyConfigured=true), suppress
+ * anthropic's public-catalog fallback models (apiKeyConfigured=false) since
+ * they're unreachable and the user doesn't need a raw Anthropic API key.
+ */
+export function suppressRedundantUnconfiguredProviders(
+  models: ModelInfo[],
+): ModelInfo[] {
+  const activeConfigured = new Set<string>();
+  for (const m of models) {
+    if (
+      m.metadata?.apiKeyConfigured === true &&
+      typeof m.metadata?.provider === "string"
+    ) {
+      activeConfigured.add(m.metadata.provider);
+    }
+  }
+  if (activeConfigured.size === 0) return models;
+  const supersededBy = buildSupersededByMap();
+  return models.filter((m) => {
+    const provider = typeof m.metadata?.provider === "string"
+      ? m.metadata.provider
+      : null;
+    if (!provider || m.metadata?.apiKeyConfigured !== false) return true;
+    const superseder = supersededBy[provider];
+    return !superseder || !activeConfigured.has(superseder);
+  });
+}
+
 export function dedupeModelList(models: ModelInfo[]): ModelInfo[] {
   const byName = new Map<string, ModelInfo[]>();
   for (const model of models) {
@@ -158,5 +205,5 @@ export async function listAllProviderModels(
       }
     }),
   );
-  return dedupeModelList(results.flat());
+  return suppressRedundantUnconfiguredProviders(dedupeModelList(results.flat()));
 }

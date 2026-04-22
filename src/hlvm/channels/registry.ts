@@ -1,6 +1,6 @@
 import { createChannelRuntime } from "./core/runtime.ts";
-import { createMessagesTransport } from "./messages/plugin.ts";
+import { createTelegramTransport } from "./telegram/transport.ts";
 
 export const channelRuntime = createChannelRuntime({
-  messages: createMessagesTransport,
+  telegram: createTelegramTransport,
 });

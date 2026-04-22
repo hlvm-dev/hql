@@ -2,8 +2,8 @@ import { type ChannelConfig } from "../../../common/config/types.ts";
 import { loadConfig } from "../../../common/config/storage.ts";
 import { config } from "../../api/config.ts";
 import { log } from "../../api/log.ts";
-import { runAgentQuery } from "../../agent/agent-runner.ts";
 import type { AgentExecutionMode } from "../../agent/execution-mode.ts";
+import { runChatViaHost } from "../../runtime/host-client.ts";
 import { createSessionQueue } from "./queue.ts";
 import { formatChannelSessionId } from "./session-key.ts";
 import type {
@@ -63,12 +63,15 @@ export function createChannelRuntime(
   const loadRuntimeConfig = dependencies.loadConfig ?? loadConfig;
   const patchConfig = dependencies.patchConfig ?? config.patch;
   const runQuery = dependencies.runQuery ?? (async (options) => {
-    const result = await runAgentQuery({
-      query: options.query,
-      sessionId: options.sessionId,
+    const result = await runChatViaHost({
+      mode: "chat",
       querySource: options.querySource,
+      messages: [{
+        role: "user",
+        content: options.query,
+        client_turn_id: crypto.randomUUID(),
+      }],
       permissionMode: options.permissionMode,
-      noInput: options.noInput,
       callbacks: {},
     });
     return { text: result.text };
@@ -109,14 +112,20 @@ export function createChannelRuntime(
     emitChange();
   }
 
-  // Anchored to start-of-message (allowing leading whitespace) with a
-  // word boundary after the digits. Rejects "got it, HLVM-1234 sent to
-  // you" (doesn't start with HLVM) and "HLVM-12345" (\b fails after the
-  // 4th digit). The 4-digit code has no regex metachars but we escape
-  // defensively in case the contract loosens later.
-  function pairPattern(code: string): RegExp {
+  function defaultPairPattern(code: string): RegExp {
     const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(`^\\s*HLVM-${escaped}\\b`);
+  }
+
+  async function matchesPairCode(
+    transport: ChannelTransport,
+    message: ChannelMessage,
+    code: string,
+  ): Promise<boolean> {
+    if (transport.matchesPairCode) {
+      return await transport.matchesPairCode(message, code);
+    }
+    return defaultPairPattern(code).test(message.text);
   }
 
   async function performPairing(
@@ -126,17 +135,9 @@ export function createChannelRuntime(
     senderId: string,
   ): Promise<void> {
     try {
-      // Record the paired sender via the single-writer config path.
-      // Merge-preserve sibling channels (shallow merge in
-      // mergeConfigUpdates drops other channels otherwise).
-      const current = await loadRuntimeConfig();
-      const existingChannels = current.channels ?? {};
-      const existingChannel = existingChannels[channel] ?? {};
       await patchConfig({
         channels: {
-          ...existingChannels,
           [channel]: {
-            ...existingChannel,
             allowedIds: [senderId],
           },
         },
@@ -166,8 +167,8 @@ export function createChannelRuntime(
     transport: ChannelTransport,
     message: ChannelMessage,
   ): Promise<void> {
-    if (!message.text.trim()) return;
     const channel = message.channel || transport.channel;
+    const trimmedText = message.text.trim();
 
     const config = await loadRuntimeConfig();
     const allowed = config.channels?.[channel]?.allowedIds ?? [];
@@ -179,10 +180,20 @@ export function createChannelRuntime(
     // the allowlist.
     if (allowed.length === 0) {
       const armedCode = pairingCodes.get(channel);
-      if (armedCode && pairPattern(armedCode).test(message.text)) {
-        await performPairing(transport, channel, message, senderId);
-        return;
+      if (armedCode) {
+        try {
+          if (await matchesPairCode(transport, message, armedCode)) {
+            await performPairing(transport, channel, message, senderId);
+            return;
+          }
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          setStatus(channel, { state: "error", lastError: detail });
+          log.warn?.(`Channel ${channel} pair-code match failed: ${detail}`);
+          return;
+        }
       }
+      if (!trimmedText) return;
       log.warn?.(`Channel ${channel} rejected unknown sender ${senderId}`);
       return;
     }
@@ -191,6 +202,7 @@ export function createChannelRuntime(
       log.warn?.(`Channel ${channel} rejected unknown sender ${senderId}`);
       return;
     }
+    if (!trimmedText) return;
 
     const sessionId = formatChannelSessionId(channel, message.remoteId);
 
@@ -261,17 +273,10 @@ export function createChannelRuntime(
         await transport.start({
           receive: (message) => handleInboundMessage(transport, message),
           setStatus: (status) => setStatus(channel, status),
-          // mergeConfigUpdates in api/config.ts does a shallow merge, so we
-          // must spread existing channels here or a sibling channel
-          // (e.g. telegram) would be dropped when messages updates its cursor.
           updateConfig: async (channelPatch) => {
-            const current = await loadRuntimeConfig();
-            const existingChannels = current.channels ?? {};
-            const existingChannel = existingChannels[channel] ?? {};
             await patchConfig({
               channels: {
-                ...existingChannels,
-                [channel]: { ...existingChannel, ...channelPatch },
+                [channel]: channelPatch,
               },
             });
           },
@@ -310,6 +315,13 @@ export function createChannelRuntime(
     getStatus(channel: string): ChannelStatus | null {
       const status = statuses.get(channel);
       return status ? cloneChannelStatus(status) : null;
+    },
+
+    reportStatus(
+      channel: string,
+      status: Partial<ChannelStatus> & Pick<ChannelStatus, "state">,
+    ): void {
+      setStatus(channel, status);
     },
 
     subscribe(listener: StatusListener): () => void {

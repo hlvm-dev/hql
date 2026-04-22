@@ -14,7 +14,7 @@ import { log } from "../api/log.ts";
 // ---------------------------------------------------------------------------
 
 /** The default local fallback model pulled during bootstrap. */
-export const LOCAL_FALLBACK_MODEL = "qwen3:8b";
+export const LOCAL_FALLBACK_MODEL = "gemma4:e2b";
 
 /**
  * Pinned public identity for the bundled fallback model.
@@ -25,38 +25,32 @@ export const LOCAL_FALLBACK_MODEL = "qwen3:8b";
  */
 export const LOCAL_FALLBACK_IDENTITY = {
   modelId: LOCAL_FALLBACK_MODEL,
-  modelDigestPrefix: "sha256:a3de86cd1c13",
-  publishedTotalSizeBytes: 5_225_387_677,
+  modelDigestPrefix: "sha256:4e30e2665218",
+  publishedTotalSizeBytes: 7_162_394_016,
   sizeToleranceBytes: 512_000_000,
 } as const;
 
 export const TIERED_LOCAL_FALLBACK_IDENTITIES = [
   {
-    modelId: "qwen3:30b",
-    modelDigestPrefix: "sha256:58574f2e94b9",
-    publishedTotalSizeBytes: 19_000_000_000,
-    sizeToleranceBytes: 2_000_000_000,
-  },
-  {
-    modelId: "qwen3:14b",
-    modelDigestPrefix: "sha256:a8cc1361f314",
-    publishedTotalSizeBytes: 9_300_000_000,
-    sizeToleranceBytes: 1_000_000_000,
+    modelId: "gemma4:e4b",
+    modelDigestPrefix: "sha256:4c27e0f5b5ad",
+    publishedTotalSizeBytes: 9_608_350_245,
+    sizeToleranceBytes: 512_000_000,
   },
 ] as const;
 
 export const LEGACY_LOCAL_FALLBACK_IDENTITIES = [
   {
-    modelId: "gemma4:e2b",
-    modelDigestPrefix: "sha256:4e30e2665218",
-    publishedTotalSizeBytes: 7_162_394_016,
+    modelId: "qwen3:8b",
+    modelDigestPrefix: "sha256:a3de86cd1c13",
+    publishedTotalSizeBytes: 5_225_387_677,
     sizeToleranceBytes: 512_000_000,
   },
   {
-    modelId: "gemma4:e4b",
-    modelDigestPrefix: "sha256:4c27e0f5b5ad",
-    publishedTotalSizeBytes: 9_608_350_245,
-    sizeToleranceBytes: 512_000_000,
+    modelId: "qwen3:30b",
+    modelDigestPrefix: "sha256:58574f2e94b9",
+    publishedTotalSizeBytes: 19_000_000_000,
+    sizeToleranceBytes: 2_000_000_000,
   },
 ] as const;
 

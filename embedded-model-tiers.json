@@ -1,13 +1,13 @@
 {
-  "defaultModelId": "qwen3:8b",
+  "defaultModelId": "gemma4:e2b",
   "tiers": [
     {
       "minMemoryGiB": 64,
-      "modelId": "qwen3:30b"
+      "modelId": "gemma4:e4b"
     },
     {
       "minMemoryGiB": 0,
-      "modelId": "qwen3:8b"
+      "modelId": "gemma4:e2b"
     }
   ]
 }

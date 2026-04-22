@@ -125,5 +125,46 @@
     "embed-esbuild-wasm": "deno run -A tools/embed-esbuild-wasm.ts",
     "stdlib:build": "deno run -A scripts/build-stdlib.ts",
     "openapi": "deno run -A scripts/generate-openapi.ts"
+  },
+  "deploy": {
+    "org": "hlvm",
+    "app": "hlvm-telegram-bridge"
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

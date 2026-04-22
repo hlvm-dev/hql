@@ -18,8 +18,8 @@ function buildTestRuntime(config: Partial<HlvmConfig>) {
       async send() {},
       async stop() {},
     }),
-    messages: () => ({
-      channel: "messages",
+    discord: () => ({
+      channel: "discord",
       async start() {},
       async send() {},
       async stop() {},
@@ -38,7 +38,7 @@ Deno.test("reachability handler: status merges config + runtime statuses", async
         allowedIds: ["x"],
         transport: { mode: "relay" },
       },
-      messages: {
+      discord: {
         enabled: false,
         allowedIds: [],
         transport: { mode: "local" },
@@ -56,7 +56,7 @@ Deno.test("reachability handler: status merges config + runtime statuses", async
           allowedIds: ["x"],
           transport: { mode: "relay" },
         },
-        messages: {
+        discord: {
           enabled: false,
           allowedIds: [],
           transport: { mode: "local" },
@@ -70,8 +70,8 @@ Deno.test("reachability handler: status merges config + runtime statuses", async
   const body = await res.json();
   assertEquals(body.channels.length, 2);
 
-  // Sorted by channel name → messages first, then telegram
-  assertEquals(body.channels[0].channel, "messages");
+  // Sorted by channel name → discord first, then telegram
+  assertEquals(body.channels[0].channel, "discord");
   assertEquals(body.channels[0].state, "disabled");
   assertEquals(body.channels[1].channel, "telegram");
   assertEquals(body.channels[1].state, "connected");

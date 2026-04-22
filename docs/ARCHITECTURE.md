@@ -27,6 +27,8 @@ Runtime-first architecture:
   lifecycle
 - **Shells** — macOS app today, CLI now migrating to the same host contract,
   future Windows/Linux shells
+- **Compiler direction** — see `docs/vision/multi-language-platform.md` for
+  the canonical multi-language/compiler-platform plan
 
 ---
 
@@ -802,6 +804,10 @@ AgentEngine interface
 ---
 
 ## HQL Transpiler Pipeline
+
+For the canonical direction on multi-language support, Core IR, `HLVM Swift`,
+and how this pipeline should evolve without replacing the TS/JS + Deno backend,
+see [docs/vision/multi-language-platform.md](./vision/multi-language-platform.md).
 
 ```
 source.hql

@@ -50,6 +50,10 @@ export interface ChannelTransportContext {
 
 export interface ChannelTransport {
   readonly channel: string;
+  matchesPairCode?(
+    message: ChannelMessage,
+    code: string,
+  ): boolean | Promise<boolean>;
   start(context: ChannelTransportContext): Promise<void>;
   send(message: ChannelReply): Promise<void>;
   stop(): Promise<void>;

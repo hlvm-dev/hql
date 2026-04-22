@@ -589,7 +589,7 @@ Deno.test("channels: queue does NOT serialize across different remoteIds", async
   await runtime.stop();
 });
 
-Deno.test("channels: transport updateConfig preserves sibling channels", async () => {
+Deno.test("channels: transport updateConfig sends only the channel-local patch", async () => {
   const patchCalls: Array<Partial<HlvmConfig>> = [];
   let resolveContext!: (context: ChannelTransportContext) => void;
   const contextPromise = new Promise<ChannelTransportContext>((resolve) => {
@@ -614,7 +614,7 @@ Deno.test("channels: transport updateConfig preserves sibling channels", async (
           allowedIds: ["x"],
           transport: { mode: "relay" },
         },
-        messages: {
+        discord: {
           enabled: false,
           allowedIds: ["self"],
           transport: { mode: "local" },
@@ -636,7 +636,6 @@ Deno.test("channels: transport updateConfig preserves sibling channels", async (
   assertEquals(patchCalls.length, 1);
   const patched = patchCalls[0].channels!;
   assertEquals(patched.telegram?.transport?.cursor, 42);
-  assertEquals(patched.messages?.enabled, false, "sibling must be preserved");
-  assertEquals(patched.messages?.transport?.mode, "local");
+  assertEquals(Object.keys(patched), ["telegram"]);
   await runtime.stop();
 });

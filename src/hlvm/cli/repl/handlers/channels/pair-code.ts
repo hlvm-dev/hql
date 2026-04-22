@@ -9,14 +9,17 @@ interface ArmBody {
 /**
  * POST /api/channels/:channel/arm-pair-code
  *
- * Arms a 4-digit pair code for the named channel. While armed, an
- * inbound message whose text matches `^\s*HLVM-<code>\b` and whose
- * channel has an empty allowedIds becomes the paired sender — the
- * runtime records them in allowedIds, clears the code, and emits a
- * canned confirmation reply (see runtime.ts `performPairing`).
+ * Arms a pair code for the named channel. While armed, the first
+ * inbound message that the channel transport recognizes as that code
+ * and whose channel has an empty allowedIds becomes the paired sender
+ * — the runtime records them in allowedIds, clears the code, and emits
+ * a canned confirmation reply (see runtime.ts `performPairing`).
  *
- * The endpoint is per-channel generic so Phase 2.5 (Telegram) and
- * Phase 3 (Discord, etc.) reuse it without new routes.
+ * The default matcher accepts `^\s*HLVM-<code>\b` text. Transports can
+ * override matching for vendor-native first-contact flows.
+ *
+ * The endpoint is per-channel generic so Telegram and later platforms
+ * reuse it without new routes.
  */
 export async function handleArmPairCode(
   req: Request,
