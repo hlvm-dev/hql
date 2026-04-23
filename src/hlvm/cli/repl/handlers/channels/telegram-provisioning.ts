@@ -3,9 +3,9 @@ import {
   type TelegramProvisioningService,
 } from "../../../../channels/telegram/provisioning.ts";
 import type {
-  RuntimeTelegramProvisioningCompleteRequest,
-  RuntimeTelegramProvisioningCreateRequest,
-} from "../../../../runtime/reachability-protocol.ts";
+  TelegramProvisioningCompleteRequest,
+  TelegramProvisioningCreateRequest,
+} from "../../../../channels/telegram/protocol.ts";
 import { jsonError, parseJsonBody } from "../../http-utils.ts";
 
 export interface TelegramProvisioningDeps {
@@ -20,7 +20,7 @@ export async function handleTelegramProvisioningCreate(
   req: Request,
   deps: TelegramProvisioningDeps = {},
 ): Promise<Response> {
-  const parsed = await parseJsonBody<RuntimeTelegramProvisioningCreateRequest>(
+  const parsed = await parseJsonBody<TelegramProvisioningCreateRequest>(
     req,
   );
   if (!parsed.ok) return parsed.response;
@@ -54,7 +54,7 @@ export async function handleTelegramProvisioningComplete(
   req: Request,
   deps: TelegramProvisioningDeps = {},
 ): Promise<Response> {
-  const parsed = await parseJsonBody<RuntimeTelegramProvisioningCompleteRequest>(
+  const parsed = await parseJsonBody<TelegramProvisioningCompleteRequest>(
     req,
   );
   if (!parsed.ok) return parsed.response;

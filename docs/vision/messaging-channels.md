@@ -7,7 +7,10 @@
 > This doc is the SSOT for messaging work. If it disagrees with an older
 > sketch, roadmap note, or implementation comment, this wins.
 >
-> **Last updated**: 2026-04-23 (rev 14)
+> **Last updated**: 2026-04-23 (rev 15)
+>
+> Binary-side architecture SSOT now also lives in:
+> [../messaging-platform-architecture.md](../messaging-platform-architecture.md)
 
 ## Rev 10 decision
 
@@ -23,9 +26,9 @@
   onboarding, and shared "pick your channel" first-launch UX are no longer
   normative.
 
-## Rev 14 status snapshot
+## Rev 15 status snapshot
 
-Rev 10's product decision still stands. Rev 14 is the current execution-state
+Rev 10's product decision still stands. Rev 15 is the current execution-state
 update.
 
 - Telegram Option B is still the only active ship path.
@@ -58,6 +61,21 @@ update.
 - Telegram provisioning defaults are now centralized in
   `src/hlvm/channels/telegram/config.ts` so normal create flow and deleted-bot
   reconnect use the same manager-bot and bridge SSOT.
+- The binary-side multi-platform seam is now implemented:
+  - `ChannelTransport`
+  - `ChannelProvisioner`
+  - `ChannelSetupSession`
+- Telegram setup protocol types now live under
+  `src/hlvm/channels/telegram/protocol.ts` instead of leaking into the shared
+  runtime reachability protocol.
+- The canonical local provisioning API shape is now:
+  - `POST /api/channels/:channel/provisioning/session`
+  - `GET /api/channels/:channel/provisioning/session`
+  - `POST /api/channels/:channel/provisioning/session/complete`
+  - `POST /api/channels/:channel/provisioning/session/cancel`
+- Telegram transport no longer reaches directly into provisioning-bridge env
+  vars or client construction; stale remote reset is now injected through a
+  narrow callback.
 
 So the practical split is now:
 
@@ -211,6 +229,18 @@ to avoid re-implementing the same messaging loop for every platform.
   the first failure mode.
 - The shared runtime client now exposes reachability and Telegram provisioning
   helpers so future shells do not hand-roll onboarding HTTP calls.
+- The shared binary-side messaging architecture now has two clean extension
+  seams:
+  - transport via `ChannelTransport`
+  - provisioning via `ChannelProvisioner`
+- Telegram setup payloads and setup session types now live under
+  `src/hlvm/channels/telegram/protocol.ts` instead of the shared runtime
+  protocol.
+- The public Telegram setup session now uses:
+  - `setupUrl` as the shared base setup link field
+  - `createUrl` as the Telegram-specific create/open link field
+  - `provisionUrl` as the optional Telegram bridge link field
+  - no duplicate public `qrUrl`
 - The macOS app now reuses the existing onboarding shell and renders a single
   Telegram QR path on first launch.
 - The macOS app now renders the direct Telegram managed-bot creation URL in the
@@ -242,10 +272,15 @@ Inside the local codebase and current default hosted bridge, rev 10 is mostly
 implemented and cleaned up:
 
 - Telegram Option B is wired through the shared messaging core.
+- The multi-platform architecture seam now exists in code, not just in docs.
 - The default hosted bridge, manager-bot webhook, and local runtime handoff are
   live.
 - SSOT and code are aligned on the architecture and implementation boundary.
 - The remaining work is not another messaging architecture pass.
+- Small compatibility cleanup still remains:
+  - temporary Telegram-specific provisioning route aliases still exist beside
+    the canonical generic `:channel` routes
+  - some Telegram refactor cleanup is still worth deleting later
 - The remaining uncertainty is now mostly product hardening:
   message-level observability, settings lifecycle UX, and Android validation.
 

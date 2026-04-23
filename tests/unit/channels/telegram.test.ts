@@ -231,6 +231,7 @@ Deno.test("telegram transport: refreshes persisted username when Telegram userna
 });
 
 Deno.test("telegram transport: clears stale local bot state when getMe reports deleted bot", async () => {
+  const resets: Array<{ deviceId?: string; ownerUserId?: number }> = [];
   const transport = createTelegramTransport({
     enabled: true,
     allowedIds: ["8703305947"],
@@ -251,6 +252,9 @@ Deno.test("telegram transport: clears stale local bot state when getMe reports d
         return [];
       },
       async sendMessage() {},
+    },
+    resetProvisioningState: async (input) => {
+      resets.push(input);
     },
   });
 
@@ -273,9 +277,11 @@ Deno.test("telegram transport: clears stale local bot state when getMe reports d
       cursor: 0,
     },
   });
+  assertEquals(resets, [{ deviceId: "device-1", ownerUserId: 8703305947 }]);
 });
 
 Deno.test("telegram transport: clears stale local bot state when polling hits deleted bot", async () => {
+  const resets: Array<{ deviceId?: string; ownerUserId?: number }> = [];
   const transport = createTelegramTransport({
     enabled: true,
     allowedIds: ["8703305947"],
@@ -296,6 +302,9 @@ Deno.test("telegram transport: clears stale local bot state when polling hits de
         throw new HttpError("401 Unauthorized", 401, "Unauthorized", "https://api.telegram.org");
       },
       async sendMessage() {},
+    },
+    resetProvisioningState: async (input) => {
+      resets.push(input);
     },
   });
 
@@ -320,6 +329,7 @@ Deno.test("telegram transport: clears stale local bot state when polling hits de
       cursor: 0,
     },
   });
+  assertEquals(resets, [{ deviceId: "device-1", ownerUserId: 8703305947 }]);
 
   await transport.stop();
 });

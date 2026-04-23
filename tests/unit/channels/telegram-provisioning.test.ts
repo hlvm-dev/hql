@@ -48,7 +48,7 @@ Deno.test("telegram provisioning: createSession returns a prefilled create link 
   assertEquals(session.botUsername, "hlvm_abc123_bot");
   assertEquals(session.qrKind, "create_bot");
   assertEquals(
-    session.qrUrl,
+    session.setupUrl,
     "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
   );
   assertEquals(
@@ -94,7 +94,7 @@ Deno.test("telegram provisioning: createSession defaults to the production manag
     "https://t.me/newbot/hlvm_setup_helper_2_bot/hlvm_abc123_bot?name=HLVM",
   );
   assertEquals(
-    session.qrUrl,
+    session.setupUrl,
     "https://t.me/newbot/hlvm_setup_helper_2_bot/hlvm_abc123_bot?name=HLVM",
   );
 });
@@ -215,7 +215,7 @@ Deno.test("telegram provisioning: createSession reuses an existing direct bot ch
   assertEquals(session.pairCode, "");
   assertEquals(session.botUsername, "hlvm_direct_test_01_bot");
   assertEquals(session.qrKind, "open_bot");
-  assertEquals(session.qrUrl, "tg://resolve?domain=hlvm_direct_test_01_bot");
+  assertEquals(session.setupUrl, "tg://resolve?domain=hlvm_direct_test_01_bot");
   assertEquals(session.createUrl, "tg://resolve?domain=hlvm_direct_test_01_bot");
   assertEquals(session.provisionUrl, undefined);
   assertEquals(armed, []);

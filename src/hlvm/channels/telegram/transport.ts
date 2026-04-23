@@ -1,5 +1,4 @@
 import { http, HttpError } from "../../../common/http-client.ts";
-import { getEnvVar } from "../../../common/paths.ts";
 import type { ChannelConfig } from "../../../common/config/types.ts";
 import { ValidationError } from "../../../common/error.ts";
 import type {
@@ -8,8 +7,7 @@ import type {
   ChannelTransport,
   ChannelTransportContext,
 } from "../core/types.ts";
-import { createTelegramProvisioningBridgeClient } from "./provisioning-bridge-client.ts";
-import { resolveTelegramManagerBotUsername } from "./config.ts";
+import type { TelegramProvisioningStateResetter } from "./provisioning-reset.ts";
 
 const TELEGRAM_API_BASE_URL = "https://api.telegram.org";
 const TELEGRAM_POLL_TIMEOUT_SECONDS = 30;
@@ -60,6 +58,7 @@ interface TelegramApi {
 interface TelegramTransportDependencies {
   api?: TelegramApi;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  resetProvisioningState?: TelegramProvisioningStateResetter;
 }
 
 class TelegramApiError extends Error {
@@ -251,6 +250,7 @@ export function createTelegramTransport(
 ): ChannelTransport {
   const api = dependencies.api ?? createTelegramApi();
   const sleep = dependencies.sleep ?? sleepWithAbort;
+  const resetProvisioningState = dependencies.resetProvisioningState;
 
   let token = trimToken(config.transport?.token);
   let username = trimUsername(config.transport?.username);
@@ -285,21 +285,13 @@ export function createTelegramTransport(
         cursor: 0,
       },
     });
-
-    const provisioningBridgeBaseUrl = getEnvVar("HLVM_TELEGRAM_PROVISIONING_BRIDGE_URL")?.trim();
-    const bridgeAuthToken = getEnvVar("HLVM_TELEGRAM_PROVISIONING_BRIDGE_AUTH_TOKEN")?.trim();
-    if (!provisioningBridgeBaseUrl || !bridgeAuthToken) return;
-
-    const managerBotUsername = resolveTelegramManagerBotUsername();
     try {
-      await createTelegramProvisioningBridgeClient(provisioningBridgeBaseUrl).resetState?.({
+      await resetProvisioningState?.({
         ...(deviceId ? { deviceId } : {}),
-        ...(ownerUserId !== undefined && managerBotUsername
-          ? { ownerUserId, managerBotUsername }
-          : {}),
-      }, bridgeAuthToken);
+        ...(ownerUserId !== undefined ? { ownerUserId } : {}),
+      });
     } catch {
-      // Ignore bridge reset failure — local stale-token cleanup is the critical path.
+      // Best-effort only: local stale-token cleanup is the critical path.
     }
   }
 

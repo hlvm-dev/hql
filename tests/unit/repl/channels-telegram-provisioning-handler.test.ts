@@ -9,14 +9,15 @@ import {
 
 function createSessionSnapshot() {
   return {
+    channel: "telegram" as const,
     sessionId: "abc123",
     state: "pending" as const,
+    setupUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
     pairCode: "1234",
     managerBotUsername: "hlvm_manager_bot",
     botName: "HLVM",
     botUsername: "hlvm_abc123_bot",
     qrKind: "create_bot" as const,
-    qrUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
     createUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
     createdAt: "2026-04-21T00:00:00.000Z",
     expiresAt: "2026-04-21T00:10:00.000Z",
@@ -27,6 +28,7 @@ function serviceStub(
   overrides: Partial<TelegramProvisioningService> = {},
 ): TelegramProvisioningService {
   return {
+    channel: "telegram",
     createSession: async () => createSessionSnapshot(),
     getSession: () => createSessionSnapshot(),
     cancelSession: () => true,

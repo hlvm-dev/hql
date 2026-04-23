@@ -24,6 +24,16 @@ export interface ChannelReply {
   replyTo?: unknown;
 }
 
+export interface ChannelSetupSession {
+  channel: string;
+  sessionId: string;
+  state: "pending" | "completed";
+  setupUrl: string;
+  createdAt: string;
+  expiresAt: string;
+  completedAt?: string;
+}
+
 export type ChannelConnectionState =
   | "connected"
   | "connecting"
@@ -62,6 +72,19 @@ export interface ChannelTransport {
 export type ChannelTransportFactory = (
   config: ChannelConfig,
 ) => ChannelTransport;
+
+export interface ChannelProvisioner<
+  CreateInput = unknown,
+  Session extends ChannelSetupSession = ChannelSetupSession,
+  CompleteInput = unknown,
+  CompletionResult = unknown,
+> {
+  readonly channel: string;
+  createSession(input?: CreateInput): Promise<Session>;
+  getSession(): Session | null;
+  cancelSession(): boolean;
+  completeSession(input: CompleteInput): Promise<CompletionResult | null>;
+}
 
 export interface ChannelRuntimeDependencies {
   loadConfig: () => Promise<HlvmConfig>;

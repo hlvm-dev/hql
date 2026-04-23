@@ -1,6 +1,12 @@
 import { createChannelRuntime } from "./core/runtime.ts";
+import { createTelegramProvisioningStateResetter } from "./telegram/provisioning-reset.ts";
 import { createTelegramTransport } from "./telegram/transport.ts";
 
+const resetTelegramProvisioningState = createTelegramProvisioningStateResetter();
+
 export const channelRuntime = createChannelRuntime({
-  telegram: createTelegramTransport,
+  telegram: (config) =>
+    createTelegramTransport(config, {
+      resetProvisioningState: resetTelegramProvisioningState,
+    }),
 });

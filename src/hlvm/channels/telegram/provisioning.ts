@@ -8,12 +8,6 @@ import { ValidationError } from "../../../common/error.ts";
 import { config } from "../../api/config.ts";
 import { channelRuntime } from "../registry.ts";
 import { log } from "../../api/log.ts";
-import type {
-  RuntimeTelegramProvisioningCompleteRequest,
-  RuntimeTelegramProvisioningCompletionResult,
-  RuntimeTelegramProvisioningCreateRequest,
-  RuntimeTelegramProvisioningSessionSnapshot,
-} from "../../runtime/reachability-protocol.ts";
 import {
   buildTelegramManagedBotCreateUrl,
   buildTelegramProvisioningBridgeUrl,
@@ -22,18 +16,20 @@ import {
   createTelegramProvisioningBridgeClient,
   type TelegramProvisioningBridgeClient,
 } from "./provisioning-bridge-client.ts";
-import type { ChannelStatus } from "../core/types.ts";
+import type {
+  ChannelProvisioner,
+  ChannelStatus,
+} from "../core/types.ts";
 import {
   resolveTelegramManagerBotUsername,
   resolveTelegramProvisioningBridgeBaseUrl,
 } from "./config.ts";
-
-export type {
-  RuntimeTelegramProvisioningCompleteRequest,
-  RuntimeTelegramProvisioningCompletionResult,
-  RuntimeTelegramProvisioningCreateRequest,
-  RuntimeTelegramProvisioningSessionSnapshot,
-} from "../../runtime/reachability-protocol.ts";
+import type {
+  TelegramProvisioningCompleteRequest,
+  TelegramProvisioningCompletionResult,
+  TelegramProvisioningCreateRequest,
+  TelegramSetupSession,
+} from "./protocol.ts";
 
 const DEFAULT_BOT_NAME = "HLVM";
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
@@ -59,8 +55,8 @@ interface TelegramProvisioningSessionInternal {
   completedAtMs?: number;
 }
 
-type CreateSessionInput = RuntimeTelegramProvisioningCreateRequest;
-type CompleteSessionInput = RuntimeTelegramProvisioningCompleteRequest;
+type CreateSessionInput = TelegramProvisioningCreateRequest;
+type CompleteSessionInput = TelegramProvisioningCompleteRequest;
 
 interface TelegramProvisioningDependencies {
   loadConfig?: () => Promise<HlvmConfig>;
@@ -80,14 +76,12 @@ interface TelegramProvisioningDependencies {
   randomCode?: () => string;
 }
 
-export interface TelegramProvisioningService {
-  createSession(input?: CreateSessionInput): Promise<RuntimeTelegramProvisioningSessionSnapshot>;
-  getSession(): RuntimeTelegramProvisioningSessionSnapshot | null;
-  cancelSession(): boolean;
-  completeSession(
-    input: CompleteSessionInput,
-  ): Promise<RuntimeTelegramProvisioningCompletionResult | null>;
-}
+export type TelegramProvisioningService = ChannelProvisioner<
+  CreateSessionInput,
+  TelegramSetupSession,
+  CompleteSessionInput,
+  TelegramProvisioningCompletionResult
+>;
 
 interface ExistingTelegramState {
   channels: ChannelsConfig;
@@ -259,19 +253,20 @@ function buildCompletedTelegramConfigPatch(input: {
 function toSnapshot(
   session: TelegramProvisioningSessionInternal,
   provisioningBridgeBaseUrl: string | undefined,
-): RuntimeTelegramProvisioningSessionSnapshot {
+): TelegramSetupSession {
   const provisionUrl = provisioningBridgeBaseUrl
     ? buildTelegramProvisioningBridgeUrl(provisioningBridgeBaseUrl, session.sessionId)
     : undefined;
   return {
+    channel: "telegram",
     sessionId: session.sessionId,
     state: session.state,
+    setupUrl: session.qrUrl,
     pairCode: session.pairCode,
     managerBotUsername: session.managerBotUsername,
     botName: session.botName,
     botUsername: session.botUsername,
     qrKind: session.qrKind,
-    qrUrl: session.qrUrl,
     ...(provisionUrl ? { provisionUrl } : {}),
     createUrl: session.qrUrl,
     createdAt: new Date(session.createdAtMs).toISOString(),
@@ -442,7 +437,9 @@ export function createTelegramProvisioningService(
   }
 
   const service: TelegramProvisioningService = {
-    async createSession(input = {}): Promise<RuntimeTelegramProvisioningSessionSnapshot> {
+    channel: "telegram",
+
+    async createSession(input = {}): Promise<TelegramSetupSession> {
       clearExpiredSession();
       if (activeSession?.state === "pending") {
         const snapshot = toSnapshot(activeSession, provisioningBridgeBaseUrl);
@@ -569,7 +566,7 @@ export function createTelegramProvisioningService(
       return snapshot;
     },
 
-    getSession(): RuntimeTelegramProvisioningSessionSnapshot | null {
+    getSession(): TelegramSetupSession | null {
       clearExpiredSession();
       return activeSession ? toSnapshot(activeSession, provisioningBridgeBaseUrl) : null;
     },
@@ -587,7 +584,7 @@ export function createTelegramProvisioningService(
 
     async completeSession(
       input: CompleteSessionInput,
-    ): Promise<RuntimeTelegramProvisioningCompletionResult | null> {
+    ): Promise<TelegramProvisioningCompletionResult | null> {
       clearExpiredSession();
       logTelegramProvisioningTrace("complete-session-start", {
         sessionId: input.sessionId,

@@ -2106,12 +2106,15 @@ Deno.test("runtime host client exposes reachability and Telegram provisioning fl
   const createRequests: Array<Record<string, unknown>> = [];
   const completeRequests: Array<Record<string, unknown>> = [];
   const pendingSession = {
+    channel: "telegram",
     sessionId: "session-1",
     state: "pending" as const,
+    setupUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_test_bot?name=HLVM",
     pairCode: "1234",
     managerBotUsername: "hlvm_manager_bot",
     botName: "HLVM",
     botUsername: "hlvm_test_bot",
+    qrKind: "create_bot",
     provisionUrl:
       "https://provision.hlvm.dev/telegram/start?session=session-1",
     createUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_test_bot?name=HLVM",

@@ -56,11 +56,6 @@ import type {
 import type {
   RuntimeReachabilityStatusResponse,
   RuntimeReachabilityUpdatedEvent,
-  RuntimeTelegramProvisioningCancelResponse,
-  RuntimeTelegramProvisioningCompleteRequest,
-  RuntimeTelegramProvisioningCompletionResult,
-  RuntimeTelegramProvisioningCreateRequest,
-  RuntimeTelegramProvisioningSessionSnapshot,
 } from "./reachability-protocol.ts";
 import type { ModelInfo, ProviderStatus } from "../providers/types.ts";
 import type {
@@ -72,6 +67,12 @@ import type {
 } from "./mcp-protocol.ts";
 import type { RuntimeOllamaSigninResponse } from "./provider-protocol.ts";
 import type { AttachmentRecord } from "../attachments/types.ts";
+import type {
+  TelegramProvisioningCompleteRequest,
+  TelegramProvisioningCompletionResult,
+  TelegramProvisioningCreateRequest,
+  TelegramSetupSession,
+} from "../channels/telegram/protocol.ts";
 import {
   areRuntimeHostBuildIdsCompatible,
   buildRuntimeServeCommand,
@@ -93,6 +94,10 @@ import {
 const STREAM_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const HEALTH_POLL_ATTEMPTS = 60;
 const HEALTH_POLL_DELAY_MS = 100;
+
+interface ChannelProvisioningCancelResponse {
+  cancelled: boolean;
+}
 // Cold-root first-run bootstrap (engine extract + Chromium download + Python
 // install + fallback model pull) can take tens of minutes. AI-ready polling
 // runs in two phases: a fast phase covering warm/normal startup, then a slow
@@ -1610,34 +1615,38 @@ export async function* streamRuntimeReachabilityEvents(
   }
 }
 
+function createChannelProvisioningPath(channel: string, suffix = ""): string {
+  return `/api/channels/${encodeURIComponent(channel)}/provisioning/session${suffix}`;
+}
+
 export async function createRuntimeTelegramProvisioningSession(
-  input: RuntimeTelegramProvisioningCreateRequest = {},
-): Promise<RuntimeTelegramProvisioningSessionSnapshot> {
-  return await postRuntimeJson<RuntimeTelegramProvisioningSessionSnapshot>(
-    "/api/channels/telegram/provisioning/session",
+  input: TelegramProvisioningCreateRequest = {},
+): Promise<TelegramSetupSession> {
+  return await postRuntimeJson<TelegramSetupSession>(
+    createChannelProvisioningPath("telegram"),
     input,
   );
 }
 
 export async function getRuntimeTelegramProvisioningSession(): Promise<
-  RuntimeTelegramProvisioningSessionSnapshot | null
+  TelegramSetupSession | null
 > {
   const response = await fetchRuntimeRaw(
-    "/api/channels/telegram/provisioning/session",
+    createChannelProvisioningPath("telegram"),
   );
   if (response.status === 404) {
     await response.body?.cancel();
     return null;
   }
   if (!response.ok) await parseErrorResponse(response);
-  return await response.json() as RuntimeTelegramProvisioningSessionSnapshot;
+  return await response.json() as TelegramSetupSession;
 }
 
 export async function completeRuntimeTelegramProvisioningSession(
-  input: RuntimeTelegramProvisioningCompleteRequest,
-): Promise<RuntimeTelegramProvisioningCompletionResult | null> {
+  input: TelegramProvisioningCompleteRequest,
+): Promise<TelegramProvisioningCompletionResult | null> {
   const response = await fetchRuntimeRaw(
-    "/api/channels/telegram/provisioning/session/complete",
+    createChannelProvisioningPath("telegram", "/complete"),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1649,14 +1658,14 @@ export async function completeRuntimeTelegramProvisioningSession(
     return null;
   }
   if (!response.ok) await parseErrorResponse(response);
-  return await response.json() as RuntimeTelegramProvisioningCompletionResult;
+  return await response.json() as TelegramProvisioningCompletionResult;
 }
 
 export async function cancelRuntimeTelegramProvisioningSession(): Promise<
   boolean
 > {
-  const response = await postRuntimeJson<RuntimeTelegramProvisioningCancelResponse>(
-    "/api/channels/telegram/provisioning/session/cancel",
+  const response = await postRuntimeJson<ChannelProvisioningCancelResponse>(
+    createChannelProvisioningPath("telegram", "/cancel"),
     {},
   );
   return response.cancelled === true;
