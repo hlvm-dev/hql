@@ -22,6 +22,7 @@ interface TelegramProvisioningBridgeSessionInternal {
   sessionId: string;
   claimToken: string;
   deviceId?: string;
+  ownerUserId?: number;
   managerBotUsername: string;
   botName: string;
   botUsername: string;
@@ -31,7 +32,6 @@ interface TelegramProvisioningBridgeSessionInternal {
   state: BridgeSessionState;
   token?: string;
   username?: string;
-  ownerUserId?: number;
   completedAtMs?: number;
 }
 
@@ -42,6 +42,13 @@ interface TelegramProvisioningBridgeUnclaimedBot {
   ownerUserId?: number;
   createdAtMs: number;
   expiresAtMs: number;
+}
+
+interface TelegramProvisioningBridgeOwnerBot {
+  managerBotUsername: string;
+  ownerUserId: number;
+  botUsername: string;
+  updatedAtMs: number;
 }
 
 interface TelegramProvisioningBridgeServiceDeps {
@@ -59,7 +66,13 @@ export interface TelegramProvisioningBridgeService {
     input: TelegramProvisioningBridgeCompletionInput,
   ): Promise<TelegramProvisioningBridgeSessionSnapshot | null>;
   completeSessionForBotUsername(
-    input: { botUsername: string; token: string; username?: string; ownerUserId?: number },
+    input: {
+      botUsername: string;
+      managerBotUsername?: string;
+      token: string;
+      username?: string;
+      ownerUserId?: number;
+    },
   ): Promise<TelegramProvisioningBridgeSessionSnapshot | null>;
   storeUnclaimedManagedBot(
     input: {
@@ -69,6 +82,17 @@ export interface TelegramProvisioningBridgeService {
       ownerUserId?: number;
     },
   ): Promise<void>;
+  resetState(
+    input: {
+      deviceId?: string;
+      ownerUserId?: number;
+      managerBotUsername?: string;
+    },
+  ): Promise<{
+    clearedPendingSessions: number;
+    clearedUnclaimedBots: number;
+    clearedOwnerBot: boolean;
+  }>;
   claimSession(
     input: TelegramProvisioningBridgeClaimRequest,
   ): Promise<TelegramProvisioningBridgeClaimResult>;
@@ -87,6 +111,14 @@ interface TelegramProvisioningBridgeStore {
   getPendingSessionByDeviceId(
     deviceId: string,
   ): Promise<TelegramProvisioningBridgeStoreEntry | null>;
+  getPendingSessionByOwnerUserId(
+    managerBotUsername: string,
+    ownerUserId: number,
+  ): Promise<TelegramProvisioningBridgeStoreEntry | null>;
+  getOwnerBot(
+    managerBotUsername: string,
+    ownerUserId: number,
+  ): Promise<TelegramProvisioningBridgeOwnerBot | null>;
   listUnclaimedManagedBots(
     managerBotUsername: string,
   ): Promise<TelegramProvisioningBridgeUnclaimedBot[]>;
@@ -94,6 +126,8 @@ interface TelegramProvisioningBridgeStore {
   deleteSession(session: TelegramProvisioningBridgeSessionInternal): Promise<void>;
   setUnclaimedManagedBot(bot: TelegramProvisioningBridgeUnclaimedBot): Promise<void>;
   deleteUnclaimedManagedBot(bot: TelegramProvisioningBridgeUnclaimedBot): Promise<void>;
+  setOwnerBot(bot: TelegramProvisioningBridgeOwnerBot): Promise<void>;
+  deleteOwnerBot(managerBotUsername: string, ownerUserId: number): Promise<void>;
   waitForChange(sessionId: string, version: string | null, waitMs: number): Promise<void>;
 }
 
@@ -151,6 +185,26 @@ function deviceIdKey(deviceId: string): PlatformKvKey {
   return ["hlvm", "telegram_provisioning_bridge", "device", deviceId.trim()];
 }
 
+function ownerPendingKey(managerBotUsername: string, ownerUserId: number): PlatformKvKey {
+  return [
+    "hlvm",
+    "telegram_provisioning_bridge",
+    "owner_pending",
+    normalizeTelegramUsername(managerBotUsername),
+    String(ownerUserId),
+  ];
+}
+
+function ownerBotKey(managerBotUsername: string, ownerUserId: number): PlatformKvKey {
+  return [
+    "hlvm",
+    "telegram_provisioning_bridge",
+    "owner_bot",
+    normalizeTelegramUsername(managerBotUsername),
+    String(ownerUserId),
+  ];
+}
+
 function unclaimedManagerPrefix(managerBotUsername: string): PlatformKvKey {
   return [
     "hlvm",
@@ -174,7 +228,9 @@ function createMemoryTelegramProvisioningBridgeStore(): TelegramProvisioningBrid
   >();
   const botUsernames = new Map<string, string>();
   const pendingDeviceIds = new Map<string, string>();
+  const pendingOwnerIds = new Map<string, string>();
   const unclaimedManagedBots = new Map<string, TelegramProvisioningBridgeUnclaimedBot>();
+  const ownerBots = new Map<string, TelegramProvisioningBridgeOwnerBot>();
   const waiters = new Map<string, Set<() => void>>();
   let nextVersion = 1;
 
@@ -204,6 +260,18 @@ function createMemoryTelegramProvisioningBridgeStore(): TelegramProvisioningBrid
       return await this.getSession(sessionId);
     },
 
+    async getPendingSessionByOwnerUserId(managerBotUsername, ownerUserId) {
+      const sessionId = pendingOwnerIds.get(
+        `${normalizeTelegramUsername(managerBotUsername)}:${ownerUserId}`,
+      );
+      if (!sessionId) return null;
+      return await this.getSession(sessionId);
+    },
+
+    async getOwnerBot(managerBotUsername, ownerUserId) {
+      return ownerBots.get(`${normalizeTelegramUsername(managerBotUsername)}:${ownerUserId}`) ?? null;
+    },
+
     async listUnclaimedManagedBots(managerBotUsername) {
       const prefix = `${normalizeTelegramUsername(managerBotUsername)}:`;
       return [...unclaimedManagedBots.entries()]
@@ -222,6 +290,14 @@ function createMemoryTelegramProvisioningBridgeStore(): TelegramProvisioningBrid
           pendingDeviceIds.delete(trimmedDeviceId);
         }
       }
+      if (Number.isInteger(session.ownerUserId)) {
+        const key = `${normalizeTelegramUsername(session.managerBotUsername)}:${session.ownerUserId}`;
+        if (session.state === "pending") {
+          pendingOwnerIds.set(key, session.sessionId);
+        } else if (pendingOwnerIds.get(key) === session.sessionId) {
+          pendingOwnerIds.delete(key);
+        }
+      }
       notifyWaiters(session.sessionId);
     },
 
@@ -234,6 +310,12 @@ function createMemoryTelegramProvisioningBridgeStore(): TelegramProvisioningBrid
       const trimmedDeviceId = session.deviceId?.trim();
       if (trimmedDeviceId && pendingDeviceIds.get(trimmedDeviceId) === session.sessionId) {
         pendingDeviceIds.delete(trimmedDeviceId);
+      }
+      if (Number.isInteger(session.ownerUserId)) {
+        const key = `${normalizeTelegramUsername(session.managerBotUsername)}:${session.ownerUserId}`;
+        if (pendingOwnerIds.get(key) === session.sessionId) {
+          pendingOwnerIds.delete(key);
+        }
       }
       notifyWaiters(session.sessionId);
     },
@@ -250,6 +332,14 @@ function createMemoryTelegramProvisioningBridgeStore(): TelegramProvisioningBrid
         normalizeTelegramUsername(bot.botUsername)
       }`;
       unclaimedManagedBots.delete(key);
+    },
+
+    async setOwnerBot(bot) {
+      ownerBots.set(`${normalizeTelegramUsername(bot.managerBotUsername)}:${bot.ownerUserId}`, bot);
+    },
+
+    async deleteOwnerBot(managerBotUsername, ownerUserId) {
+      ownerBots.delete(`${normalizeTelegramUsername(managerBotUsername)}:${ownerUserId}`);
     },
 
     async waitForChange(sessionId, version, waitMs) {
@@ -301,6 +391,20 @@ export function createKvTelegramProvisioningBridgeStore(
       return await this.getSession(sessionId);
     },
 
+    async getPendingSessionByOwnerUserId(managerBotUsername, ownerUserId) {
+      const ownerEntry = await kv.get<string>(ownerPendingKey(managerBotUsername, ownerUserId));
+      const sessionId = typeof ownerEntry.value === "string" ? ownerEntry.value : null;
+      if (!sessionId) return null;
+      return await this.getSession(sessionId);
+    },
+
+    async getOwnerBot(managerBotUsername, ownerUserId) {
+      const ownerEntry = await kv.get<TelegramProvisioningBridgeOwnerBot>(
+        ownerBotKey(managerBotUsername, ownerUserId),
+      );
+      return ownerEntry.value ?? null;
+    },
+
     async listUnclaimedManagedBots(managerBotUsername) {
       const results: TelegramProvisioningBridgeUnclaimedBot[] = [];
       for await (
@@ -325,6 +429,14 @@ export function createKvTelegramProvisioningBridgeStore(
           op.delete(deviceIdKey(trimmedDeviceId));
         }
       }
+      const ownerUserId = Number.isInteger(session.ownerUserId) ? session.ownerUserId : undefined;
+      if (ownerUserId !== undefined) {
+        if (session.state === "pending") {
+          op.set(ownerPendingKey(session.managerBotUsername, ownerUserId), session.sessionId);
+        } else {
+          op.delete(ownerPendingKey(session.managerBotUsername, ownerUserId));
+        }
+      }
       await op.commit();
     },
 
@@ -336,6 +448,10 @@ export function createKvTelegramProvisioningBridgeStore(
       if (trimmedDeviceId) {
         op.delete(deviceIdKey(trimmedDeviceId));
       }
+      const ownerUserId = Number.isInteger(session.ownerUserId) ? session.ownerUserId : undefined;
+      if (ownerUserId !== undefined) {
+        op.delete(ownerPendingKey(session.managerBotUsername, ownerUserId));
+      }
       await op.commit();
     },
 
@@ -345,6 +461,14 @@ export function createKvTelegramProvisioningBridgeStore(
 
     async deleteUnclaimedManagedBot(bot) {
       await kv.delete(unclaimedManagedBotKey(bot.managerBotUsername, bot.botUsername));
+    },
+
+    async setOwnerBot(bot) {
+      await kv.set(ownerBotKey(bot.managerBotUsername, bot.ownerUserId), bot);
+    },
+
+    async deleteOwnerBot(managerBotUsername, ownerUserId) {
+      await kv.delete(ownerBotKey(managerBotUsername, ownerUserId));
     },
 
     async waitForChange(sessionId, version, waitMs) {
@@ -498,6 +622,17 @@ export function createTelegramProvisioningBridgeService(
       completedAtMs,
     };
     await store.setSession(completed);
+    const completedOwnerUserId = Number.isInteger(completed.ownerUserId)
+      ? completed.ownerUserId
+      : undefined;
+    if (completedOwnerUserId !== undefined) {
+      await store.setOwnerBot({
+        managerBotUsername: session.managerBotUsername,
+        ownerUserId: completedOwnerUserId,
+        botUsername: username,
+        updatedAtMs: completedAtMs,
+      });
+    }
     logTelegramProvisioningBridge("complete-success", {
       sessionId: input.sessionId,
       botUsername: completed.botUsername,
@@ -515,6 +650,7 @@ export function createTelegramProvisioningBridgeService(
         sessionId: input.sessionId,
         claimToken: input.claimToken,
         ...(trimNonEmptyString(input.deviceId) ? { deviceId: trimNonEmptyString(input.deviceId)! } : {}),
+        ...(Number.isInteger(input.ownerUserId) ? { ownerUserId: input.ownerUserId } : {}),
         managerBotUsername: input.managerBotUsername,
         botName: input.botName,
         botUsername: input.botUsername,
@@ -539,10 +675,27 @@ export function createTelegramProvisioningBridgeService(
           });
         }
       }
+      const ownerUserId = Number.isInteger(session.ownerUserId) ? session.ownerUserId : undefined;
+      if (ownerUserId !== undefined) {
+        const previousEntry = await store.getPendingSessionByOwnerUserId(
+          session.managerBotUsername,
+          ownerUserId,
+        );
+        const previous = previousEntry?.session;
+        if (previous && previous.sessionId !== session.sessionId && previous.state === "pending") {
+          await store.deleteSession(previous);
+          logTelegramProvisioningBridge("register-supersede-owner-pending", {
+            sessionId: session.sessionId,
+            ownerUserId,
+            previousSessionId: previous.sessionId,
+          });
+        }
+      }
       await store.setSession(session);
       logTelegramProvisioningBridge("register", {
         sessionId: session.sessionId,
         deviceId: session.deviceId ?? null,
+        ownerUserId: Number.isInteger(session.ownerUserId) ? session.ownerUserId : null,
         managerBotUsername: session.managerBotUsername,
         botUsername: session.botUsername,
       });
@@ -570,13 +723,32 @@ export function createTelegramProvisioningBridgeService(
 
     async completeSessionForBotUsername(input) {
       const targetUsername = normalizeTelegramUsername(input.botUsername);
-      const entry = await store.getSessionByBotUsername(targetUsername);
-      const session = entry?.session;
+      let entry = await store.getSessionByBotUsername(targetUsername);
+      let session = entry?.session;
       logTelegramProvisioningBridge("complete-for-bot-lookup", {
         botUsername: targetUsername,
         found: !!session,
         sessionId: session?.sessionId ?? null,
       });
+      if (
+        !session &&
+        input.managerBotUsername &&
+        Number.isInteger(input.ownerUserId)
+      ) {
+        const ownerUserId = input.ownerUserId as number;
+        entry = await store.getPendingSessionByOwnerUserId(
+          input.managerBotUsername,
+          ownerUserId,
+        );
+        session = entry?.session;
+        logTelegramProvisioningBridge("complete-for-owner-lookup", {
+          botUsername: targetUsername,
+          managerBotUsername: input.managerBotUsername,
+          ownerUserId,
+          found: !!session,
+          sessionId: session?.sessionId ?? null,
+        });
+      }
       if (!session) return null;
       if (session.expiresAtMs <= now()) {
         await store.deleteSession(session);
@@ -612,6 +784,13 @@ export function createTelegramProvisioningBridgeService(
         createdAtMs: now(),
         expiresAtMs: now() + UNCLAIMED_MANAGED_BOT_TTL_MS,
       };
+      if (Number.isInteger(unclaimed.ownerUserId)) {
+        for (const existing of await listActiveUnclaimedManagedBots(managerBotUsername)) {
+          if (existing.ownerUserId === unclaimed.ownerUserId) {
+            await store.deleteUnclaimedManagedBot(existing);
+          }
+        }
+      }
       await store.setUnclaimedManagedBot(unclaimed);
       logTelegramProvisioningBridge("unclaimed-store", {
         managerBotUsername,
@@ -619,6 +798,55 @@ export function createTelegramProvisioningBridgeService(
         ownerUserId: Number.isInteger(input.ownerUserId) ? input.ownerUserId : null,
         tokenLength: token.length,
       });
+    },
+
+    async resetState(input) {
+      let clearedPendingSessions = 0;
+      let clearedUnclaimedBots = 0;
+      let clearedOwnerBot = false;
+
+      const deviceId = trimNonEmptyString(input.deviceId);
+      const managerBotUsername = trimNonEmptyString(input.managerBotUsername);
+      const ownerUserId = Number.isInteger(input.ownerUserId) ? input.ownerUserId : undefined;
+
+      const deletedSessionIds = new Set<string>();
+      if (deviceId) {
+        const entry = await store.getPendingSessionByDeviceId(deviceId);
+        if (entry?.session?.state === "pending") {
+          await store.deleteSession(entry.session);
+          deletedSessionIds.add(entry.session.sessionId);
+          clearedPendingSessions += 1;
+        }
+      }
+      if (managerBotUsername && ownerUserId !== undefined) {
+        const entry = await store.getPendingSessionByOwnerUserId(managerBotUsername, ownerUserId);
+        if (entry?.session?.state === "pending" && !deletedSessionIds.has(entry.session.sessionId)) {
+          await store.deleteSession(entry.session);
+          deletedSessionIds.add(entry.session.sessionId);
+          clearedPendingSessions += 1;
+        }
+        const ownerBot = await store.getOwnerBot(managerBotUsername, ownerUserId);
+        if (ownerBot) {
+          await store.deleteOwnerBot(managerBotUsername, ownerUserId);
+          clearedOwnerBot = true;
+        }
+        for (const bot of await listActiveUnclaimedManagedBots(managerBotUsername)) {
+          if (bot.ownerUserId === ownerUserId) {
+            await store.deleteUnclaimedManagedBot(bot);
+            clearedUnclaimedBots += 1;
+          }
+        }
+      }
+
+      logTelegramProvisioningBridge("reset-state", {
+        deviceId: deviceId ?? null,
+        managerBotUsername: managerBotUsername ?? null,
+        ownerUserId: ownerUserId ?? null,
+        clearedPendingSessions,
+        clearedUnclaimedBots,
+        clearedOwnerBot,
+      });
+      return { clearedPendingSessions, clearedUnclaimedBots, clearedOwnerBot };
     },
 
     async claimSession(input) {
@@ -737,6 +965,9 @@ export async function handleTelegramProvisioningBridgeRegister(
   const sessionId = trimNonEmptyString(body?.sessionId);
   const claimToken = trimNonEmptyString(body?.claimToken);
   const deviceId = trimNonEmptyString(body?.deviceId) ?? undefined;
+  const ownerUserId = typeof body?.ownerUserId === "number" && Number.isInteger(body.ownerUserId)
+    ? body.ownerUserId
+    : undefined;
   const managerBotUsername = trimNonEmptyString(body?.managerBotUsername);
   const botName = trimNonEmptyString(body?.botName);
   const botUsername = trimNonEmptyString(body?.botUsername);
@@ -754,6 +985,7 @@ export async function handleTelegramProvisioningBridgeRegister(
     sessionId,
     claimToken,
     ...(deviceId ? { deviceId } : {}),
+    ...(ownerUserId !== undefined ? { ownerUserId } : {}),
     managerBotUsername,
     botName,
     botUsername,
@@ -798,7 +1030,6 @@ export async function handleTelegramProvisioningBridgeComplete(
   const ownerUserId = typeof body?.ownerUserId === "number" && Number.isInteger(body.ownerUserId)
     ? body.ownerUserId
     : undefined;
-
   if (!sessionId || !token) {
     return json({ error: "Body must include sessionId and token." }, 400);
   }
@@ -820,6 +1051,38 @@ export async function handleTelegramProvisioningBridgeComplete(
       400,
     );
   }
+}
+
+export async function handleTelegramProvisioningBridgeReset(
+  req: Request,
+  deps: TelegramProvisioningBridgeServiceDepsWrapper = {},
+): Promise<Response> {
+  logTelegramProvisioningBridge("route-reset-request", {
+    method: req.method,
+    authorized: true,
+  });
+  const body = await parseJson(req) as Record<string, unknown> | null;
+  const deviceId = trimNonEmptyString(body?.deviceId) ?? undefined;
+  const managerBotUsername = trimNonEmptyString(body?.managerBotUsername) ?? undefined;
+  const ownerUserId = typeof body?.ownerUserId === "number" && Number.isInteger(body.ownerUserId)
+    ? body.ownerUserId
+    : undefined;
+
+  if (!deviceId && ownerUserId === undefined) {
+    return json({ error: "Body must include deviceId or ownerUserId." }, 400);
+  }
+  if (ownerUserId !== undefined && !managerBotUsername) {
+    return json({ error: "managerBotUsername is required when ownerUserId is provided." }, 400);
+  }
+
+  return json(
+    await (await getService(deps)).resetState({
+      ...(deviceId ? { deviceId } : {}),
+      ...(managerBotUsername ? { managerBotUsername } : {}),
+      ...(ownerUserId !== undefined ? { ownerUserId } : {}),
+    }),
+    200,
+  );
 }
 
 export async function handleTelegramProvisioningBridgeClaim(

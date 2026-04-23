@@ -53,6 +53,9 @@ Rev 10's product decision still stands. Rev 13 is an execution-status update.
 - The hosted bridge now keeps short-lived unmatched managed bots and
   auto-adopts a sole safe candidate for the waiting Mac session when Telegram
   created a bot under an edited child username.
+- The bridge and local runtime now preserve a known Telegram `ownerUserId`
+  when it is available, so bridge registration, completion, reset, and direct
+  transport config can stay owner-aware instead of device-only.
 
 So the practical split is now:
 
@@ -434,6 +437,9 @@ iPhone Telegram opens managed-bot create flow
     │   Deno Deploy bridge
     │   - keeps one active pending session per local install
     │   - supersedes older pending bridge sessions for that same install
+    │   - when owner identity is known, also keeps one active pending session
+    │     per Telegram owner for that manager bot
+    │   - remembers one long-lived bot record per known Telegram owner
     │   - fetches child token
     │   - marks session completed
     │   - or stores unmatched created bot as recoverable
@@ -491,6 +497,14 @@ one local Mac install
 → one active pending provisioning session
 ```
 
+When HLVM already knows the Telegram owner identity, the bridge also enforces:
+
+```text
+one Telegram owner + one manager bot
+→ one active pending provisioning session on the bridge
+→ one remembered long-lived bot record on the bridge
+```
+
 That means:
 
 ```text
@@ -544,6 +558,21 @@ username in Telegram's create sheet. It is still not a mathematically perfect
 correlation scheme for arbitrary concurrent unmatched creations under the same
 manager bot, because the raw documented `t.me/newbot/...` route exposes no
 opaque session parameter we can round-trip through Telegram.
+
+When the runtime already knows the Telegram owner identity from an existing
+direct connection, the bridge now also falls back by owner:
+
+```text
+no exact username match
+→ manager webhook includes ownerUserId
+→ bridge checks the pending session already bound to that owner
+→ complete that owner-bound session directly
+```
+
+That makes renamed child usernames deterministic for reconnect/reset flows that
+start from an already-known Telegram owner. The first-ever raw
+`t.me/newbot/...` create flow is still limited by Telegram's callback shape
+when HLVM does not yet know the owner before create.
 
 ## Product rules
 
@@ -660,6 +689,9 @@ In this repo, the runtime-host side of that handoff now exists end-to-end when
 - local runtime registers that session with the shared bridge service
 - bridge registration includes a stable local transport `deviceId`
 - bridge keeps only the newest pending session for that `deviceId`
+- bridge also keeps only the newest pending session for a known Telegram owner
+  under the same manager bot
+- bridge stores one long-lived owner→bot record for known Telegram owners
 - onboarding renders either:
   - the direct Telegram managed-bot creation URL for first-time create, or
   - a Telegram app deep link to reopen the existing bot chat
@@ -675,13 +707,15 @@ The bridge service itself is also runnable from this repo now:
 - manager webhook route: `POST /api/telegram/manager/webhook`
 - complete route: `POST /api/telegram/provisioning/session/complete`
 - claim route: `POST /api/telegram/provisioning/session/claim`
+- reset route: `POST /api/telegram/provisioning/reset`
 
 Its completion route is bearer-protected with
 `HLVM_TELEGRAM_PROVISIONING_BRIDGE_AUTH_TOKEN`.
 
 Its manager-bot webhook consumes Telegram's `managed_bot` update, calls
 `getManagedBotToken`, and completes the matching pending provisioning session
-by the created bot's username. This route requires:
+by the created bot's username and, when already known, by the Telegram owner
+identity. This route requires:
 
 - `HLVM_TELEGRAM_MANAGER_BOT_TOKEN`
 - `HLVM_TELEGRAM_MANAGER_BOT_WEBHOOK_SECRET`
@@ -689,6 +723,14 @@ by the created bot's username. This route requires:
 The local runtime defaults the manager bot username from
 `HLVM_TELEGRAM_MANAGER_BOT_USERNAME` so onboarding does not rely on the
 placeholder `hlvm_manager_bot` name in real deployments.
+
+The reset route is bearer-protected with the same auth token and is intended
+for explicit "start over" or clean-test cleanup. It can clear:
+
+- the pending provisioning session for a local `deviceId`
+- the pending provisioning session for a known Telegram owner
+- the remembered owner→bot record
+- short-lived unmatched created bots for that owner
 
 It is **not** the long-lived message path. After provisioning, the user's Mac
 talks to Telegram directly using the child bot token.

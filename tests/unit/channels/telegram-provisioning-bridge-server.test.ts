@@ -61,6 +61,13 @@ Deno.test("telegram provisioning bridge server: exposes health, register, start,
   );
   assertEquals(unauthorizedComplete.status, 401);
 
+  const unauthorizedReset = await handler(
+    jsonRequest("https://provision.hlvm.dev/api/telegram/provisioning/reset", {
+      deviceId: "device-1",
+    }),
+  );
+  assertEquals(unauthorizedReset.status, 401);
+
   const complete = await handler(
     jsonRequest(
       "https://provision.hlvm.dev/api/telegram/provisioning/session/complete",
@@ -82,6 +89,17 @@ Deno.test("telegram provisioning bridge server: exposes health, register, start,
   const claimed = await claim.json();
   assertEquals(claim.status, 200);
   assertEquals(claimed.token, "123:abc");
+
+  const reset = await handler(
+    jsonRequest(
+      "https://provision.hlvm.dev/api/telegram/provisioning/reset",
+      {
+        deviceId: "device-1",
+      },
+      buildBearerHeader("bridge-secret"),
+    ),
+  );
+  assertEquals(reset.status, 200);
 });
 
 Deno.test("telegram provisioning bridge server: manager webhook completes a matching pending session", async () => {

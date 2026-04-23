@@ -264,6 +264,44 @@ Deno.test("telegram provisioning bridge: auto-adopts a sole unmatched managed bo
   assertEquals(claimed.session.state, "claimed");
 });
 
+Deno.test("telegram provisioning bridge: owner-bound pending session completes when created username changed", async () => {
+  const service = createTelegramProvisioningBridgeService({
+    now: () => Date.parse("2026-04-21T00:00:00.000Z"),
+  });
+
+  await service.registerSession({
+    sessionId: "session-1",
+    claimToken: "claim-1",
+    deviceId: "device-1",
+    ownerUserId: 42,
+    managerBotUsername: "hlvm_setup_helper_2_bot",
+    botName: "HLVM",
+    botUsername: "hlvm_prefilled_bot",
+    expiresAt: "2026-04-21T00:10:00.000Z",
+  });
+
+  const completed = await service.completeSessionForBotUsername({
+    botUsername: "hlvm_jssbot",
+    managerBotUsername: "hlvm_setup_helper_2_bot",
+    token: "123:abc",
+    username: "hlvm_jssbot",
+    ownerUserId: 42,
+  });
+  assertEquals(completed?.state, "completed");
+
+  const claim = await handleTelegramProvisioningBridgeClaim(
+    jsonRequest("https://provision.hlvm.dev/api/telegram/provisioning/session/claim", {
+      sessionId: "session-1",
+      claimToken: "claim-1",
+    }),
+    { service },
+  );
+  const claimed = await claim.json();
+  assertEquals(claim.status, 200);
+  assertEquals(claimed.username, "hlvm_jssbot");
+  assertEquals(claimed.ownerUserId, 42);
+});
+
 Deno.test("telegram provisioning bridge: a new device session supersedes the older pending session", async () => {
   const service = createTelegramProvisioningBridgeService({
     now: () => Date.parse("2026-04-21T00:00:00.000Z"),
@@ -332,4 +370,45 @@ Deno.test("telegram provisioning bridge: expired sessions disappear", async () =
 
   assertEquals(await service.getSession("session-1"), null);
   assertEquals(await service.getStartRedirect("session-1"), null);
+});
+
+Deno.test("telegram provisioning bridge: reset clears pending session, owner record, and unclaimed bot", async () => {
+  const service = createTelegramProvisioningBridgeService({
+    now: () => Date.parse("2026-04-21T00:00:00.000Z"),
+  });
+
+  await service.registerSession({
+    sessionId: "session-1",
+    claimToken: "claim-1",
+    deviceId: "device-1",
+    ownerUserId: 42,
+    managerBotUsername: "hlvm_setup_helper_2_bot",
+    botName: "HLVM",
+    botUsername: "hlvm_prefilled_bot",
+    expiresAt: "2026-04-21T00:10:00.000Z",
+  });
+  await service.completeSessionForBotUsername({
+    botUsername: "hlvm_prefilled_bot",
+    managerBotUsername: "hlvm_setup_helper_2_bot",
+    token: "123:abc",
+    username: "hlvm_prefilled_bot",
+    ownerUserId: 42,
+  });
+  await service.storeUnclaimedManagedBot({
+    managerBotUsername: "hlvm_setup_helper_2_bot",
+    botUsername: "hlvm_orphan_bot",
+    token: "123:xyz",
+    ownerUserId: 42,
+  });
+
+  const reset = await service.resetState({
+    deviceId: "device-1",
+    managerBotUsername: "hlvm_setup_helper_2_bot",
+    ownerUserId: 42,
+  });
+  assertEquals(reset, {
+    clearedPendingSessions: 0,
+    clearedUnclaimedBots: 1,
+    clearedOwnerBot: true,
+  });
 });

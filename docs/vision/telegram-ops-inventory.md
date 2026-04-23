@@ -52,11 +52,15 @@ Private operational note. No tokens or secret values are recorded here.
   - register pending provisioning session
   - keep one active pending session per local install via stable `deviceId`
   - supersede stale pending sessions for the same install
+  - when the Telegram owner is already known, keep one active pending session
+    per owner for that manager bot
   - receive manager-bot webhook
   - call Telegram managed-bot token fetch
   - store completion in Deno KV
+  - remember one owner→bot record for known Telegram owners
   - store unmatched created bots temporarily for recovery
   - hand token back to the waiting Mac exactly once
+  - expose an authenticated reset route for clean-test / start-over cleanup
 
 ### Telegram webhook route
 
@@ -137,11 +141,14 @@ Setup-time only. Not daily chat traffic.
 Stored in Deno KV:
 
 - pending provisioning session id
+- pending provisioning session indexed by local `deviceId`
+- pending provisioning session indexed by known Telegram owner
 - claim token
 - target child bot username
 - target child bot display name
 - completion state
 - one-time child bot token until claimed by the Mac
+- one long-lived owner→bot record when Telegram owner is known
 - short-lived unmatched created managed bots for edited-username recovery
 
 The intended setup model is now:
@@ -153,6 +160,14 @@ one local install  -> one active pending provisioning session
 
 The session is temporary. The saved bot identity is the long-lived reopen
 target after pairing succeeds.
+
+When HLVM already knows the Telegram owner, the bridge also keeps:
+
+```text
+one Telegram owner + one manager bot
+-> one active pending provisioning session
+-> one remembered bot record
+```
 
 Not stored there for the direct path:
 
@@ -171,10 +186,14 @@ Not stored there for the direct path:
 - persisted existing-bot scan reopen after onboarding dismissal
 - pending-session reuse inside the local runtime
 - bridge-side superseding of stale pending sessions for the same local install
+- bridge-side superseding of stale pending sessions for the same known Telegram
+  owner
 - hosted provisioning bridge architecture
 - full managed-bot create flow on a fresh Telegram account
 - auto-adoption of a sole unmatched created managed bot when the user edited the
   prefilled child username during create
+- owner-aware completion when Telegram returns a changed child username for a
+  session already bound to a known owner
 
 ### Not ready
 

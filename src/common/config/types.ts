@@ -159,6 +159,7 @@ export const CHANNEL_TRANSPORT_MODES: ChannelTransportMode[] = [
 export interface ChannelTransportConfig {
   mode?: ChannelTransportMode;
   deviceId?: string;
+  ownerUserId?: number;
   relayUrl?: string;
   token?: string;
   cursor?: number;

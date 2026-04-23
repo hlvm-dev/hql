@@ -15,6 +15,7 @@ import {
   handleTelegramProvisioningBridgeClaim,
   handleTelegramProvisioningBridgeComplete,
   handleTelegramProvisioningBridgeRegister,
+  handleTelegramProvisioningBridgeReset,
   handleTelegramProvisioningBridgeStart,
   type TelegramProvisioningBridgeService,
 } from "./provisioning-bridge-service.ts";
@@ -95,6 +96,14 @@ export function createTelegramProvisioningBridgeHandler(
     (req) =>
       isAuthorized(req, authToken)
         ? handleTelegramProvisioningBridgeComplete(req, deps)
+        : unauthorizedResponse(),
+  );
+  router.add(
+    "POST",
+    "/api/telegram/provisioning/reset",
+    (req) =>
+      isAuthorized(req, authToken)
+        ? handleTelegramProvisioningBridgeReset(req, deps)
         : unauthorizedResponse(),
   );
   router.add(

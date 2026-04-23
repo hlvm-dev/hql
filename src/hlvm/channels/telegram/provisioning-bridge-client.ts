@@ -5,6 +5,8 @@ import type {
   TelegramProvisioningBridgeClaimRequest,
   TelegramProvisioningBridgeClaimResult,
   TelegramProvisioningBridgeRegistration,
+  TelegramProvisioningBridgeResetRequest,
+  TelegramProvisioningBridgeResetResult,
   TelegramProvisioningBridgeSessionSnapshot,
 } from "./provisioning-bridge-protocol.ts";
 
@@ -16,6 +18,10 @@ export interface TelegramProvisioningBridgeClient {
   registerSession(
     input: TelegramProvisioningBridgeRegistration,
   ): Promise<TelegramProvisioningBridgeSessionSnapshot>;
+  resetState?(
+    input: TelegramProvisioningBridgeResetRequest,
+    authToken: string,
+  ): Promise<TelegramProvisioningBridgeResetResult>;
   claimSession(
     input: TelegramProvisioningBridgeClaimRequest,
     signal?: AbortSignal,
@@ -73,6 +79,30 @@ export function createTelegramProvisioningBridgeClient(
         );
       }
       return await response.json() as TelegramProvisioningBridgeSessionSnapshot;
+    },
+
+    async resetState(input, authToken) {
+      const response = await fetchRaw(
+        createUrl(normalizedBaseUrl, "/api/telegram/provisioning/reset"),
+        {
+          method: "POST",
+          timeout: 30_000,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken.trim()}`,
+          },
+          body: JSON.stringify(input),
+        },
+      );
+      if (!response.ok) {
+        const body = await parseJson(response);
+        throw new RuntimeError(
+          typeof body?.error === "string"
+            ? body.error
+            : "Telegram provisioning bridge reset failed.",
+        );
+      }
+      return await response.json() as TelegramProvisioningBridgeResetResult;
     },
 
     async claimSession(input, signal) {

@@ -2,6 +2,7 @@ export interface TelegramProvisioningBridgeRegistration {
   sessionId: string;
   claimToken: string;
   deviceId?: string;
+  ownerUserId?: number;
   managerBotUsername: string;
   botName: string;
   botUsername: string;
@@ -26,6 +27,18 @@ export interface TelegramProvisioningBridgeCompletionInput {
   token: string;
   username?: string;
   ownerUserId?: number;
+}
+
+export interface TelegramProvisioningBridgeResetRequest {
+  deviceId?: string;
+  ownerUserId?: number;
+  managerBotUsername?: string;
+}
+
+export interface TelegramProvisioningBridgeResetResult {
+  clearedPendingSessions: number;
+  clearedUnclaimedBots: number;
+  clearedOwnerBot: boolean;
 }
 
 export interface TelegramProvisioningBridgeClaimRequest {

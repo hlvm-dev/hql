@@ -40,6 +40,7 @@ interface TelegramProvisioningSessionInternal {
   sessionId: string;
   claimToken?: string;
   deviceId?: string;
+  ownerUserId?: number;
   state: ProvisioningState;
   pairCode: string;
   managerBotUsername: string;
@@ -128,6 +129,10 @@ function sanitizeBotUsername(value: string | undefined, seed: string): string {
 
 function trimTransportDeviceId(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function trimKnownOwnerUserId(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
 }
 
 function toSnapshot(
@@ -327,10 +332,17 @@ export function createTelegramProvisioningService(
       const current = await loadCurrentConfig();
       const existingTelegram = current.channels?.telegram;
       const existingTransport = existingTelegram?.transport;
+      const existingAllowedIds = existingTelegram?.allowedIds ?? [];
       const existingUsername = typeof existingTransport?.username === "string"
         ? existingTransport.username.trim().replace(/^@+/, "")
         : "";
       let deviceId = trimTransportDeviceId(existingTransport?.deviceId);
+      const ownerUserId = trimKnownOwnerUserId(existingTransport?.ownerUserId) ??
+        (() => {
+          if (existingAllowedIds.length !== 1) return undefined;
+          const parsed = Number(existingAllowedIds[0]);
+          return Number.isInteger(parsed) ? parsed : undefined;
+        })();
       if (!deviceId) {
         deviceId = randomId().replace(/-/g, "");
         await patchConfig({
@@ -360,6 +372,7 @@ export function createTelegramProvisioningService(
         activeSession = {
           sessionId,
           deviceId,
+          ...(ownerUserId !== undefined ? { ownerUserId } : {}),
           state: "completed",
           pairCode: "",
           managerBotUsername,
@@ -383,6 +396,7 @@ export function createTelegramProvisioningService(
         sessionId,
         claimToken: bridgeEnabled ? randomId().replace(/-/g, "") : undefined,
         deviceId,
+        ...(ownerUserId !== undefined ? { ownerUserId } : {}),
         state: "pending",
         pairCode,
         managerBotUsername,
@@ -416,6 +430,9 @@ export function createTelegramProvisioningService(
             sessionId: activeSession.sessionId,
             claimToken: activeSession.claimToken,
             ...(activeSession.deviceId ? { deviceId: activeSession.deviceId } : {}),
+            ...(activeSession.ownerUserId !== undefined
+              ? { ownerUserId: activeSession.ownerUserId }
+              : {}),
             managerBotUsername: activeSession.managerBotUsername,
             botName: activeSession.botName,
             botUsername: activeSession.botUsername,
@@ -522,6 +539,7 @@ export function createTelegramProvisioningService(
               ...existingTransport,
               mode: "direct",
               ...(activeSession.deviceId ? { deviceId: activeSession.deviceId } : {}),
+              ...(Number.isInteger(input.ownerUserId) ? { ownerUserId: input.ownerUserId } : {}),
               token,
               username,
               cursor: 0,

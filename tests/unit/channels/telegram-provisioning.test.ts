@@ -235,6 +235,7 @@ Deno.test("telegram provisioning: completeSession writes direct telegram config 
     {
       mode: "direct",
       deviceId: "device-1",
+      ownerUserId: 8689778203,
       token: "123:abc",
       username: "hlvm_real_bot",
       cursor: 0,
@@ -327,6 +328,7 @@ Deno.test("telegram provisioning: completeSession preserves existing telegram al
   });
 
   assertEquals(patches[0].channels?.telegram?.allowedIds, ["existing-user"]);
+  assertEquals(patches[0].channels?.telegram?.transport?.ownerUserId, 999);
 });
 
 Deno.test("telegram provisioning: completeSession is idempotent after the first successful completion", async () => {

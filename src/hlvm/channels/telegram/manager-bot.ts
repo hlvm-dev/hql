@@ -173,6 +173,7 @@ export async function handleTelegramManagerBotWebhook(
     });
     const session = await options.service.completeSessionForBotUsername({
       botUsername,
+      managerBotUsername: botUsernameForRecovery,
       token,
       username: botUsername,
       ...(Number.isInteger(ownerUserId) ? { ownerUserId: ownerUserId as number } : {}),
