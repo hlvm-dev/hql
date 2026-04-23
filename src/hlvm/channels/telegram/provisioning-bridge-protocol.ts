@@ -1,6 +1,7 @@
 export interface TelegramProvisioningBridgeRegistration {
   sessionId: string;
   claimToken: string;
+  deviceId?: string;
   managerBotUsername: string;
   botName: string;
   botUsername: string;
@@ -24,6 +25,7 @@ export interface TelegramProvisioningBridgeCompletionInput {
   sessionId: string;
   token: string;
   username?: string;
+  ownerUserId?: number;
 }
 
 export interface TelegramProvisioningBridgeClaimRequest {
@@ -41,6 +43,7 @@ export type TelegramProvisioningBridgeClaimResult =
     session: TelegramProvisioningBridgeSessionSnapshot;
     token: string;
     username: string;
+    ownerUserId?: number;
   }
   | {
     ok: false;

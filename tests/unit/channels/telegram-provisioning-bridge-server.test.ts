@@ -90,6 +90,7 @@ Deno.test("telegram provisioning bridge server: manager webhook completes a matc
   });
   const handler = createTelegramProvisioningBridgeHandler({
     authToken: "bridge-secret",
+    managerBotUsername: "hlvm_setup_helper_bot",
     managerBotToken: "manager-token",
     managerBotWebhookSecret: "manager-secret",
     managerBotApi: {
@@ -138,6 +139,66 @@ Deno.test("telegram provisioning bridge server: manager webhook completes a matc
   const claimed = await claim.json();
   assertEquals(claim.status, 200);
   assertEquals(claimed.token, "123:abc");
+});
+
+Deno.test("telegram provisioning bridge server: manager webhook stores unmatched managed bot for later auto-adoption", async () => {
+  const service = createTelegramProvisioningBridgeService({
+    now: () => Date.parse("2026-04-21T00:00:00.000Z"),
+  });
+  const handler = createTelegramProvisioningBridgeHandler({
+    authToken: "bridge-secret",
+    managerBotUsername: "hlvm_setup_helper_bot",
+    managerBotToken: "manager-token",
+    managerBotWebhookSecret: "manager-secret",
+    managerBotApi: {
+      async getManagedBotToken(token, managedBotUserId) {
+        assertEquals(token, "manager-token");
+        assertEquals(managedBotUserId, 9002);
+        return "123:xyz";
+      },
+    },
+    service,
+  });
+
+  await handler(
+    jsonRequest("https://provision.hlvm.dev/api/telegram/provisioning/session", {
+      sessionId: "session-1",
+      claimToken: "claim-1",
+      managerBotUsername: "hlvm_setup_helper_bot",
+      botName: "HLVM",
+      botUsername: "hlvm_prefilled_bot",
+      expiresAt: "2026-04-21T00:10:00.000Z",
+    }),
+  );
+
+  const webhook = await handler(
+    jsonRequest(
+      "https://provision.hlvm.dev/api/telegram/manager/webhook",
+      {
+        update_id: 2,
+        managed_bot: {
+          user: { id: 77 },
+          bot: { id: 9002, username: "hlvm_jssbot" },
+        },
+      },
+      { "X-Telegram-Bot-Api-Secret-Token": "manager-secret" },
+    ),
+  );
+  const webhookBody = await webhook.json();
+
+  assertEquals(webhook.status, 200);
+  assertEquals(webhookBody.matched, false);
+
+  const claim = await handler(
+    jsonRequest("https://provision.hlvm.dev/api/telegram/provisioning/session/claim", {
+      sessionId: "session-1",
+      claimToken: "claim-1",
+    }),
+  );
+  const claimed = await claim.json();
+  assertEquals(claim.status, 200);
+  assertEquals(claimed.token, "123:xyz");
+  assertEquals(claimed.username, "hlvm_jssbot");
 });
 
 Deno.test("telegram provisioning bridge server: returns 404 for unknown routes", async () => {

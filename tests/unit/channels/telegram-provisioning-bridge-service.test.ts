@@ -211,6 +211,7 @@ Deno.test("telegram provisioning bridge: manager completion matches by created b
     botUsername: "@testhlvmbot",
     token: "123:abc",
     username: "TestHLVMBot",
+    ownerUserId: 777,
   });
   assertEquals(completed?.state, "completed");
 
@@ -224,6 +225,91 @@ Deno.test("telegram provisioning bridge: manager completion matches by created b
   const claimed = await claim.json();
   assertEquals(claim.status, 200);
   assertEquals(claimed.token, "123:abc");
+  assertEquals(claimed.ownerUserId, 777);
+});
+
+Deno.test("telegram provisioning bridge: auto-adopts a sole unmatched managed bot for the waiting session", async () => {
+  const nowMs = Date.parse("2026-04-21T00:00:00.000Z");
+  const service = createTelegramProvisioningBridgeService({
+    now: () => nowMs,
+  });
+
+  await service.registerSession({
+    sessionId: "session-1",
+    claimToken: "claim-1",
+    managerBotUsername: "hlvm_setup_helper_2_bot",
+    botName: "HLVM",
+    botUsername: "hlvm_prefilled_bot",
+    expiresAt: "2026-04-21T00:10:00.000Z",
+  });
+
+  await service.storeUnclaimedManagedBot({
+    managerBotUsername: "hlvm_setup_helper_2_bot",
+    botUsername: "hlvm_jssbot",
+    token: "123:abc",
+    ownerUserId: 42,
+  });
+
+  const claim = await handleTelegramProvisioningBridgeClaim(
+    jsonRequest("https://provision.hlvm.dev/api/telegram/provisioning/session/claim", {
+      sessionId: "session-1",
+      claimToken: "claim-1",
+    }),
+    { service },
+  );
+  const claimed = await claim.json();
+  assertEquals(claim.status, 200);
+  assertEquals(claimed.token, "123:abc");
+  assertEquals(claimed.username, "hlvm_jssbot");
+  assertEquals(claimed.session.state, "claimed");
+});
+
+Deno.test("telegram provisioning bridge: a new device session supersedes the older pending session", async () => {
+  const service = createTelegramProvisioningBridgeService({
+    now: () => Date.parse("2026-04-21T00:00:00.000Z"),
+  });
+
+  await service.registerSession({
+    sessionId: "session-1",
+    claimToken: "claim-1",
+    deviceId: "device-1",
+    managerBotUsername: "hlvm_manager_bot",
+    botName: "HLVM",
+    botUsername: "hlvm_old_bot",
+    expiresAt: "2026-04-21T00:10:00.000Z",
+  });
+
+  await service.registerSession({
+    sessionId: "session-2",
+    claimToken: "claim-2",
+    deviceId: "device-1",
+    managerBotUsername: "hlvm_manager_bot",
+    botName: "HLVM",
+    botUsername: "hlvm_new_bot",
+    expiresAt: "2026-04-21T00:10:00.000Z",
+  });
+
+  assertEquals(await service.getSession("session-1"), null);
+  assertEquals((await service.getSession("session-2"))?.state, "pending");
+
+  const oldClaim = await handleTelegramProvisioningBridgeClaim(
+    jsonRequest("https://provision.hlvm.dev/api/telegram/provisioning/session/claim", {
+      sessionId: "session-1",
+      claimToken: "claim-1",
+    }),
+    { service },
+  );
+  assertEquals(oldClaim.status, 404);
+
+  const redirect = await handleTelegramProvisioningBridgeStart(
+    new Request("https://provision.hlvm.dev/telegram/start?session=session-2"),
+    { service },
+  );
+  assertEquals(redirect.status, 302);
+  assertEquals(
+    redirect.headers.get("location"),
+    "https://t.me/newbot/hlvm_manager_bot/hlvm_new_bot?name=HLVM",
+  );
 });
 
 Deno.test("telegram provisioning bridge: expired sessions disappear", async () => {

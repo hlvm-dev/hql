@@ -27,6 +27,7 @@ export interface TelegramProvisioningBridgeServerOptions {
   hostname?: string;
   service?: TelegramProvisioningBridgeService;
   managerBotToken?: string;
+  managerBotUsername?: string;
   managerBotWebhookSecret?: string;
   managerBotApi?: TelegramManagerBotApi;
 }
@@ -61,10 +62,17 @@ export function createTelegramProvisioningBridgeHandler(
   }
 
   const managerBotToken = options.managerBotToken?.trim() ?? "";
+  const managerBotUsername = options.managerBotUsername?.trim() ?? "";
   const managerBotWebhookSecret = options.managerBotWebhookSecret?.trim() ?? "";
   if (!!managerBotToken !== !!managerBotWebhookSecret) {
     throw new ValidationError(
       "Telegram manager bot webhook requires both managerBotToken and managerBotWebhookSecret.",
+      "telegram_provisioning_bridge_server",
+    );
+  }
+  if (managerBotToken && !managerBotUsername) {
+    throw new ValidationError(
+      "Telegram manager bot webhook requires managerBotUsername when managerBotToken is set.",
       "telegram_provisioning_bridge_server",
     );
   }
@@ -101,6 +109,7 @@ export function createTelegramProvisioningBridgeHandler(
       async (req) =>
         await handleTelegramManagerBotWebhook(req, {
           botToken: managerBotToken,
+          botUsername: managerBotUsername,
           webhookSecret: managerBotWebhookSecret,
           service: options.service ?? await getDefaultTelegramProvisioningBridgeService(),
           api: options.managerBotApi ?? createTelegramManagerBotApi(),
@@ -182,6 +191,7 @@ export function resolveTelegramProvisioningBridgeServerOptionsFromEnv():
     port: parsePort(getEnvVar("PORT")),
     hostname,
     managerBotToken: getEnvVar("HLVM_TELEGRAM_MANAGER_BOT_TOKEN")?.trim() ?? undefined,
+    managerBotUsername: getEnvVar("HLVM_TELEGRAM_MANAGER_BOT_USERNAME")?.trim() ?? undefined,
     managerBotWebhookSecret: getEnvVar("HLVM_TELEGRAM_MANAGER_BOT_WEBHOOK_SECRET")?.trim() ??
       undefined,
   };

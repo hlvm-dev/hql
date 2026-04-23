@@ -50,9 +50,12 @@ Private operational note. No tokens or secret values are recorded here.
 - base URL: `https://hlvm-telegram-bridge.hlvm.deno.net`
 - role:
   - register pending provisioning session
+  - keep one active pending session per local install via stable `deviceId`
+  - supersede stale pending sessions for the same install
   - receive manager-bot webhook
   - call Telegram managed-bot token fetch
   - store completion in Deno KV
+  - store unmatched created bots temporarily for recovery
   - hand token back to the waiting Mac exactly once
 
 ### Telegram webhook route
@@ -139,6 +142,17 @@ Stored in Deno KV:
 - target child bot display name
 - completion state
 - one-time child bot token until claimed by the Mac
+- short-lived unmatched created managed bots for edited-username recovery
+
+The intended setup model is now:
+
+```text
+one Telegram owner -> one long-lived HLVM bot
+one local install  -> one active pending provisioning session
+```
+
+The session is temporary. The saved bot identity is the long-lived reopen
+target after pairing succeeds.
 
 Not stored there for the direct path:
 
@@ -155,8 +169,12 @@ Not stored there for the direct path:
 - centralized host chat pipeline
 - existing-bot scan reopen flow
 - persisted existing-bot scan reopen after onboarding dismissal
+- pending-session reuse inside the local runtime
+- bridge-side superseding of stale pending sessions for the same local install
 - hosted provisioning bridge architecture
 - full managed-bot create flow on a fresh Telegram account
+- auto-adoption of a sole unmatched created managed bot when the user edited the
+  prefilled child username during create
 
 ### Not ready
 

@@ -254,6 +254,33 @@ export interface PlatformHttpServerHandle {
   shutdown(): Promise<void>;
 }
 
+export type PlatformKvKeyPart = string | number | bigint | boolean | Uint8Array;
+export type PlatformKvKey = readonly PlatformKvKeyPart[];
+
+export interface PlatformKvEntry<T> {
+  value: T | null;
+  versionstamp: string | null;
+}
+
+export interface PlatformKvListEntry<T> {
+  value: T;
+}
+
+export interface PlatformKvAtomicOperation {
+  set(key: PlatformKvKey, value: unknown): PlatformKvAtomicOperation;
+  delete(key: PlatformKvKey): PlatformKvAtomicOperation;
+  commit(): Promise<void>;
+}
+
+export interface PlatformKv {
+  get<T>(key: PlatformKvKey): Promise<PlatformKvEntry<T>>;
+  set<T>(key: PlatformKvKey, value: T): Promise<void>;
+  delete(key: PlatformKvKey): Promise<void>;
+  list<T>(selector: { prefix: PlatformKvKey }): AsyncIterable<PlatformKvListEntry<T>>;
+  atomic(): PlatformKvAtomicOperation;
+  waitForChange(key: PlatformKvKey, signal?: AbortSignal): Promise<void>;
+}
+
 export interface PlatformHttp {
   serve(
     handler: (req: Request) => Response | Promise<Response>,
@@ -301,6 +328,9 @@ export interface Platform {
 
   /** HTTP server operations */
   http: PlatformHttp;
+
+  /** Optional key-value store support for Deno-backed runtime paths */
+  openKv?(): Promise<PlatformKv>;
 
   /** Open URL in system browser */
   openUrl(url: string): Promise<void>;

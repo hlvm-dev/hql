@@ -7,7 +7,7 @@
 > This doc is the SSOT for messaging work. If it disagrees with an older
 > sketch, roadmap note, or implementation comment, this wins.
 >
-> **Last updated**: 2026-04-22 (rev 12)
+> **Last updated**: 2026-04-23 (rev 13)
 
 ## Rev 10 decision
 
@@ -23,9 +23,9 @@
   onboarding, and shared "pick your channel" first-launch UX are no longer
   normative.
 
-## Rev 12 status snapshot
+## Rev 13 status snapshot
 
-Rev 10's product decision still stands. Rev 12 is an execution-status update.
+Rev 10's product decision still stands. Rev 13 is an execution-status update.
 
 - Telegram Option B is still the only active ship path.
 - The direct Telegram path **after a bot already exists** is now proven on a
@@ -50,6 +50,9 @@ Rev 10's product decision still stands. Rev 12 is an execution-status update.
 - The runtime, bridge service, and manager webhook now emit one unified trace
   to `/tmp/hlvm-telegram-e2e.log` so any future failure can be classified by
   exact transition.
+- The hosted bridge now keeps short-lived unmatched managed bots and
+  auto-adopts a sole safe candidate for the waiting Mac session when Telegram
+  created a bot under an edited child username.
 
 So the practical split is now:
 
@@ -280,12 +283,11 @@ state, not the core HLVM path.
 - No confirmed hard-limit number yet for that original-account failure state;
   the current observed symptom is only: button disabled, no webhook, no
   explicit Telegram error.
-- No pending-session reuse yet. Reopening onboarding can mint a fresh suggested
-  bot instead of reusing one live pending session.
-- No "reuse the existing child bot/chat" UX yet after first successful
-  onboarding.
 - No re-pair flow in Settings.
 - No shared-bot relay service.
+- Pure raw `t.me/newbot/...` onboarding still has an ambiguity edge case if
+  multiple unmatched managed bots are created for the same manager bot within
+  the same recovery window.
 
 ### Practical meaning
 
@@ -325,7 +327,9 @@ local model / tools / memory
               │                      │ - register pending session               │
               │                      │ - Deno KV                               │
               │                      │ - getManagedBotToken                    │
-              │                      │ - complete + one-time claim             │
+              │                      │ - complete exact match                  │
+              │                      │ - store unmatched candidates            │
+              │                      │ - one-time claim / auto-adopt           │
               │                      └───────────────────┬──────────────────────┘
               │                                          │
               │                                          │ claim completed token
@@ -371,6 +375,8 @@ It stores short-lived provisioning state in Deno KV:
 - intended child bot name
 - session completion state
 - one-time completed child bot token until the waiting Mac claims it
+- short-lived unmatched managed-bot candidates created under an edited child
+  username, so the waiting Mac can auto-adopt the sole safe candidate
 
 It does not store or relay everyday Telegram chat history for the direct path.
 
@@ -426,12 +432,16 @@ iPhone Telegram opens managed-bot create flow
     │       │
     │       ▼
     │   Deno Deploy bridge
-    │   - looks up pending session in KV
+    │   - keeps one active pending session per local install
+    │   - supersedes older pending bridge sessions for that same install
     │   - fetches child token
     │   - marks session completed
+    │   - or stores unmatched created bot as recoverable
     │       │
     │       ▼
     │   local hlvm claims completion
+    │   - exact-match happy path
+    │   - or auto-adopts the sole safe unmatched candidate
     │   - writes local direct Telegram config
     │   - starts direct transport
     │   - future scan path becomes open_bot
@@ -468,6 +478,72 @@ for our scan-to-chat UX.
 The saved bot identity now survives onboarding dismissal, so rescan no longer
 falls back to a fresh `newbot/...` QR just because the shell marked onboarding
 as dismissed.
+
+### Session discipline now
+
+Telegram provisioning is intentionally modeled as:
+
+```text
+one Telegram owner
+→ one long-lived HLVM bot
+
+one local Mac install
+→ one active pending provisioning session
+```
+
+That means:
+
+```text
+scan while a pending session already exists
+→ reuse the same pending session and QR
+
+app restart or fresh register from the same install
+→ bridge supersedes the older pending session for that install
+
+successful pairing
+→ pending session ends
+→ saved bot identity becomes the long-lived reopen target
+```
+
+The important SSOT split is:
+
+```text
+session = temporary setup state
+bot     = long-lived Telegram identity after pairing
+```
+
+The session is only there to get a child bot token onto the Mac. After
+pairing, the saved direct bot record becomes the thing rescan and steady-state
+chat should follow.
+
+### Edited-username recovery path now
+
+```text
+QR pre-fills child username = @hlvm_xxx_bot
+    │
+    ▼
+user edits final child username in Telegram create UI
+    │
+    ▼
+Telegram creates @hlvm_jssbot
+    │
+    ▼
+managed_bot webhook arrives with final created username + token
+    │
+    ├─ exact username match exists
+    │    → complete normally
+    │
+    └─ no exact username match
+         → bridge stores unmatched created bot temporarily
+         → waiting Mac claim checks for a sole safe candidate
+         → if exactly one candidate exists, auto-adopt it
+```
+
+This reduces the main failure mode when users edit the prefilled child bot
+username in Telegram's create sheet. It is still not a mathematically perfect
+correlation scheme for arbitrary concurrent unmatched creations under the same
+manager bot, because the raw documented `t.me/newbot/...` route exposes no
+opaque session parameter we can round-trip through Telegram.
 
 ## Product rules
 
@@ -529,6 +605,8 @@ scan. HLVM does not add its own extra wizard, tabs, or setup modes on top.
 
 - One onboarding path only: Telegram Option B.
 - One QR only on first launch.
+- One active pending session per local install.
+- One long-lived bot identity per Telegram owner.
 - One pre-filled bot identity per pairing attempt.
 - One local direct transport after provisioning.
 - One re-pair surface later in Settings for already-installed users.
@@ -577,7 +655,11 @@ In this repo, the runtime-host side of that handoff now exists end-to-end when
 `HLVM_TELEGRAM_PROVISIONING_BRIDGE_URL` is configured:
 
 - local runtime creates a provisioning session
+- local runtime reuses the current pending provisioning session instead of
+  minting a second one for the same install
 - local runtime registers that session with the shared bridge service
+- bridge registration includes a stable local transport `deviceId`
+- bridge keeps only the newest pending session for that `deviceId`
 - onboarding renders either:
   - the direct Telegram managed-bot creation URL for first-time create, or
   - a Telegram app deep link to reopen the existing bot chat

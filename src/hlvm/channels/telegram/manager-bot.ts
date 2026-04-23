@@ -39,6 +39,7 @@ export interface TelegramManagerBotApi {
 
 export interface TelegramManagerBotHandlerOptions {
   botToken: string;
+  botUsername: string;
   webhookSecret: string;
   service: TelegramProvisioningBridgeService;
   api?: TelegramManagerBotApi;
@@ -103,6 +104,7 @@ export async function handleTelegramManagerBotWebhook(
   options: TelegramManagerBotHandlerOptions,
 ): Promise<Response> {
   const botToken = options.botToken.trim();
+  const botUsernameForRecovery = options.botUsername.trim();
   const webhookSecret = options.webhookSecret.trim();
   if (!botToken) {
     throw new ValidationError(
@@ -113,6 +115,12 @@ export async function handleTelegramManagerBotWebhook(
   if (!webhookSecret) {
     throw new ValidationError(
       "Telegram manager bot webhook requires a non-empty webhook secret.",
+      "telegram_manager_bot",
+    );
+  }
+  if (!botUsernameForRecovery) {
+    throw new ValidationError(
+      "Telegram manager bot webhook requires a non-empty bot username.",
       "telegram_manager_bot",
     );
   }
@@ -167,9 +175,17 @@ export async function handleTelegramManagerBotWebhook(
       botUsername,
       token,
       username: botUsername,
+      ...(Number.isInteger(ownerUserId) ? { ownerUserId: ownerUserId as number } : {}),
     });
     if (!session) {
+      await options.service.storeUnclaimedManagedBot({
+        managerBotUsername: botUsernameForRecovery,
+        botUsername,
+        token,
+        ...(Number.isInteger(ownerUserId) ? { ownerUserId: ownerUserId as number } : {}),
+      });
       logTelegramManagerWebhook("complete-unmatched", {
+        managerBotUsername: botUsernameForRecovery,
         botUsername,
       });
       return Response.json({ ok: true, matched: false }, { status: 200 });

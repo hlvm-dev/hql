@@ -24,6 +24,8 @@ import type {
   PlatformHttp,
   PlatformHttpServeOptions,
   PlatformHttpServerHandle,
+  PlatformKv,
+  PlatformKvAtomicOperation,
   PlatformMakeTempDirOptions,
   PlatformPath,
   PlatformProcess,
@@ -386,6 +388,63 @@ const DenoHttp: PlatformHttp = {
   },
 };
 
+async function openDenoKv(): Promise<PlatformKv> {
+  const kv = await Deno.openKv();
+  return {
+    get: (key) => kv.get(key),
+    set: async (key, value) => {
+      await kv.set(key, value);
+    },
+    delete: async (key) => {
+      await kv.delete(key);
+    },
+    list: <T>(selector: { prefix: readonly (string | number | bigint | boolean | Uint8Array)[] }) => ({
+      async *[Symbol.asyncIterator](): AsyncIterableIterator<{ value: T }> {
+        for await (const entry of kv.list<T>(selector)) {
+          yield { value: entry.value };
+        }
+      },
+    }),
+    atomic: (): PlatformKvAtomicOperation => {
+      const op = kv.atomic();
+      return {
+        set(key, value) {
+          op.set(key, value);
+          return this;
+        },
+        delete(key) {
+          op.delete(key);
+          return this;
+        },
+        async commit() {
+          await op.commit();
+        },
+      };
+    },
+    waitForChange: async (key, signal) => {
+      if (signal?.aborted) return;
+      const reader = kv.watch([key]).getReader();
+      let onAbort: (() => void) | undefined;
+      try {
+        if (!signal) {
+          await reader.read();
+          return;
+        }
+        await Promise.race([
+          reader.read(),
+          new Promise<void>((resolve) => {
+            onAbort = () => resolve();
+            signal.addEventListener("abort", onAbort, { once: true });
+          }),
+        ]);
+      } finally {
+        if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+        reader.releaseLock();
+      }
+    },
+  };
+}
+
 // =============================================================================
 // Main Platform Implementation
 // =============================================================================
@@ -403,5 +462,6 @@ export const DenoPlatform: Platform = {
   build: DenoBuild,
   command: DenoCommand,
   http: DenoHttp,
+  openKv: openDenoKv,
   openUrl: (url: string): Promise<void> => runOpenUrlCommands(url),
 };

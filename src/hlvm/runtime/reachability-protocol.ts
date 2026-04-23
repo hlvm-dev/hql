@@ -47,6 +47,7 @@ export interface RuntimeTelegramProvisioningCompleteRequest {
   sessionId: string;
   token: string;
   username?: string;
+  ownerUserId?: number;
 }
 
 export interface RuntimeTelegramProvisioningCompletionResult {

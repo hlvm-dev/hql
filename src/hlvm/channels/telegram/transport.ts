@@ -317,8 +317,9 @@ export function createTelegramTransport(
       }
 
       const me = await api.getMe(token);
-      if (!username && me.username) {
-        username = me.username;
+      const canonicalUsername = trimUsername(me.username);
+      if (canonicalUsername && canonicalUsername !== username) {
+        username = canonicalUsername;
         await persistTransport(context);
       }
 

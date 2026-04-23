@@ -193,3 +193,38 @@ Deno.test("telegram transport: polls updates, normalizes inbound messages, and p
 
   await transport.stop();
 });
+
+Deno.test("telegram transport: refreshes persisted username when Telegram username changes", async () => {
+  const transport = createTelegramTransport({
+    enabled: true,
+    transport: { mode: "direct", token: "123:abc", username: "old_hlvm_bot", cursor: 0 },
+  }, {
+    api: {
+      async getMe() {
+        return { id: 99, username: "hlvm_renamed_bot" };
+      },
+      async getUpdates(_token, _offset, signal) {
+        return await new Promise<TelegramUpdate[]>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+      async sendMessage() {},
+    },
+  });
+
+  const { context, patches } = createTestContext();
+  await transport.start(context);
+
+  await waitFor(() =>
+    patches.some((patch) =>
+      (patch.transport as { username?: string } | undefined)?.username ===
+        "hlvm_renamed_bot"
+    )
+  );
+
+  await transport.stop();
+});
