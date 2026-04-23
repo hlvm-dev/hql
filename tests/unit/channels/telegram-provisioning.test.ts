@@ -142,7 +142,6 @@ Deno.test("telegram provisioning: createSession reuses the active pending sessio
   const service = createTelegramProvisioningService({
     provisioningBridgeBaseUrl: "https://provision.hlvm.dev",
     loadConfig: async () => withTelegramDeviceId(),
-    sleep: async () => {},
     randomId: (() => {
       const values = ["abc123def456", "claim789ghi012", "zzz999yyy888", "claim222333"];
       return () => values.shift() ?? "fallback";
@@ -516,7 +515,6 @@ Deno.test("telegram provisioning: bridge claim retries pending slices until comp
     randomCode: () => "1234",
     armPairCode: () => {},
     disarmPairCode: () => {},
-    sleep: async () => {},
     bridgeClient: {
       async registerSession(input) {
         return {
@@ -572,7 +570,7 @@ Deno.test("telegram provisioning: bridge claim retries pending slices until comp
 
   const completed = service.getSession();
   assertEquals(claimCalls, 3);
-  assertEquals(waitMsCalls, [0, 0, 0]);
+  assertEquals(waitMsCalls, [1_000, 1_000, 1_000]);
   assertEquals(completed?.state, "completed");
   assertEquals(completed?.botUsername, "hlvm_real_bot");
 });
