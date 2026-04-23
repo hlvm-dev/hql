@@ -1,59 +1,40 @@
-import type {
-  ChannelConfig,
-  ChannelTransportConfig,
-  ChannelsConfig,
-  HlvmConfig,
-} from "../../../common/config/types.ts";
+import type { HlvmConfig } from "../../../common/config/types.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { config } from "../../api/config.ts";
 import { channelRuntime } from "../registry.ts";
 import { log } from "../../api/log.ts";
-import {
-  buildTelegramManagedBotCreateUrl,
-  buildTelegramProvisioningBridgeUrl,
-} from "./provisioning-bridge.ts";
+import { buildTelegramManagedBotCreateUrl } from "./provisioning-bridge.ts";
 import {
   createTelegramProvisioningBridgeClient,
   type TelegramProvisioningBridgeClient,
 } from "./provisioning-bridge-client.ts";
-import type {
-  ChannelProvisioner,
-  ChannelStatus,
-} from "../core/types.ts";
+import type { ChannelProvisioner, ChannelStatus } from "../core/types.ts";
 import {
   resolveTelegramManagerBotUsername,
   resolveTelegramProvisioningBridgeBaseUrl,
 } from "./config.ts";
+import { createTelegramBridgeClaimWaiter } from "./provisioning-claim.ts";
+import { applyTelegramBotBranding } from "./branding.ts";
 import type {
   TelegramProvisioningCompleteRequest,
   TelegramProvisioningCompletionResult,
   TelegramProvisioningCreateRequest,
   TelegramSetupSession,
 } from "./protocol.ts";
+import {
+  buildCompletedTelegramConfigPatch,
+  buildOpenTelegramBotSession,
+  buildPendingTelegramCreateSession,
+  readExistingTelegramState,
+  sanitizeTelegramBotName,
+  sanitizeTelegramBotUsername,
+  shouldOpenExistingTelegramBot,
+  type TelegramProvisioningSessionInternal,
+  toTelegramSetupSession,
+  trimTelegramTransportDeviceId,
+} from "./provisioning-session.ts";
 
-const DEFAULT_BOT_NAME = "HLVM";
-const DEFAULT_TTL_MS = 10 * 60 * 1000;
 const BRIDGE_CLAIM_POLL_INTERVAL_MS = 1_000;
-
-type ProvisioningState = "completed" | "pending";
-type ProvisioningQrKind = "create_bot" | "open_bot";
-
-interface TelegramProvisioningSessionInternal {
-  sessionId: string;
-  claimToken?: string;
-  deviceId?: string;
-  ownerUserId?: number;
-  state: ProvisioningState;
-  pairCode: string;
-  managerBotUsername: string;
-  botName: string;
-  botUsername: string;
-  qrKind: ProvisioningQrKind;
-  qrUrl: string;
-  createdAtMs: number;
-  expiresAtMs: number;
-  completedAtMs?: number;
-}
 
 type CreateSessionInput = TelegramProvisioningCreateRequest;
 type CompleteSessionInput = TelegramProvisioningCompleteRequest;
@@ -74,6 +55,7 @@ interface TelegramProvisioningDependencies {
   now?: () => number;
   randomId?: () => string;
   randomCode?: () => string;
+  applyBranding?: (token: string) => Promise<void>;
 }
 
 export type TelegramProvisioningService = ChannelProvisioner<
@@ -83,207 +65,20 @@ export type TelegramProvisioningService = ChannelProvisioner<
   TelegramProvisioningCompletionResult
 >;
 
-interface ExistingTelegramState {
-  channels: ChannelsConfig;
-  channel: ChannelConfig;
-  transport: ChannelTransportConfig;
-  allowedIds: string[];
-  username: string;
-  ownerUserId?: number;
-}
-
 function logTelegramProvisioningTrace(event: string, data: unknown): void {
   log.ns("telegram").debug(`[provisioning] ${event} ${JSON.stringify(data)}`);
-}
-
-function sanitizeBotName(value: string | undefined): string {
-  return value?.trim() || DEFAULT_BOT_NAME;
-}
-
-function defaultBotUsername(seed: string): string {
-  return `hlvm_${seed}_bot`;
-}
-
-function buildTelegramBotChatUrl(username: string): string {
-  return `tg://resolve?domain=${username.replace(/^@+/, "")}`;
-}
-
-function sanitizeBotUsername(value: string | undefined, seed: string): string {
-  const trimmed = value?.trim().replace(/^@+/, "") || "";
-  if (/^[A-Za-z][A-Za-z0-9_]{4,31}bot$/i.test(trimmed)) {
-    return trimmed;
-  }
-  return defaultBotUsername(seed);
-}
-
-function trimTransportDeviceId(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function trimKnownOwnerUserId(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
-}
-
-function readConfiguredTelegramUsername(transport: ChannelTransportConfig): string {
-  return typeof transport.username === "string"
-    ? transport.username.trim().replace(/^@+/, "")
-    : "";
-}
-
-function resolveKnownOwnerUserId(
-  transport: ChannelTransportConfig,
-  allowedIds: string[],
-): number | undefined {
-  const knownOwnerUserId = trimKnownOwnerUserId(transport.ownerUserId);
-  if (knownOwnerUserId !== undefined) {
-    return knownOwnerUserId;
-  }
-  if (allowedIds.length !== 1) {
-    return undefined;
-  }
-  const parsed = Number(allowedIds[0]);
-  return Number.isInteger(parsed) ? parsed : undefined;
-}
-
-function readExistingTelegramState(current: HlvmConfig): ExistingTelegramState {
-  const channels = current.channels ?? {};
-  const channel = channels.telegram ?? {};
-  const transport = channel.transport ?? {};
-  const allowedIds = channel.allowedIds ?? [];
-  return {
-    channels,
-    channel,
-    transport,
-    allowedIds,
-    username: readConfiguredTelegramUsername(transport),
-    ownerUserId: resolveKnownOwnerUserId(transport, allowedIds),
-  };
-}
-
-function shouldOpenExistingBot(transport: ChannelTransportConfig, username: string): boolean {
-  return transport.mode === "direct" && username.length > 0;
-}
-
-function buildOpenBotSession(input: {
-  sessionId: string;
-  deviceId: string;
-  ownerUserId?: number;
-  managerBotUsername: string;
-  botName: string;
-  username: string;
-  nowMs: number;
-}): TelegramProvisioningSessionInternal {
-  return {
-    sessionId: input.sessionId,
-    deviceId: input.deviceId,
-    ...(input.ownerUserId !== undefined ? { ownerUserId: input.ownerUserId } : {}),
-    state: "completed",
-    pairCode: "",
-    managerBotUsername: input.managerBotUsername,
-    botName: input.botName,
-    botUsername: input.username,
-    qrKind: "open_bot",
-    qrUrl: buildTelegramBotChatUrl(input.username),
-    createdAtMs: input.nowMs,
-    expiresAtMs: input.nowMs + DEFAULT_TTL_MS,
-    completedAtMs: input.nowMs,
-  };
-}
-
-function buildPendingCreateSession(input: {
-  sessionId: string;
-  claimToken?: string;
-  deviceId: string;
-  ownerUserId?: number;
-  pairCode: string;
-  managerBotUsername: string;
-  botName: string;
-  botUsername: string;
-  qrUrl: string;
-  nowMs: number;
-}): TelegramProvisioningSessionInternal {
-  return {
-    sessionId: input.sessionId,
-    ...(input.claimToken ? { claimToken: input.claimToken } : {}),
-    deviceId: input.deviceId,
-    ...(input.ownerUserId !== undefined ? { ownerUserId: input.ownerUserId } : {}),
-    state: "pending",
-    pairCode: input.pairCode,
-    managerBotUsername: input.managerBotUsername,
-    botName: input.botName,
-    botUsername: input.botUsername,
-    qrKind: "create_bot",
-    qrUrl: input.qrUrl,
-    createdAtMs: input.nowMs,
-    expiresAtMs: input.nowMs + DEFAULT_TTL_MS,
-  };
-}
-
-function buildCompletedTelegramConfigPatch(input: {
-  state: ExistingTelegramState;
-  session: TelegramProvisioningSessionInternal;
-  token: string;
-  username: string;
-  ownerUserId?: number;
-}): Partial<HlvmConfig> {
-  const nextAllowedIds = Number.isInteger(input.ownerUserId)
-    ? [String(input.ownerUserId)]
-    : input.state.allowedIds;
-  return {
-    channels: {
-      ...input.state.channels,
-      telegram: {
-        ...input.state.channel,
-        enabled: true,
-        ...(nextAllowedIds.length > 0 ? { allowedIds: nextAllowedIds } : {}),
-        transport: {
-          ...input.state.transport,
-          mode: "direct",
-          ...(input.session.deviceId ? { deviceId: input.session.deviceId } : {}),
-          ...(Number.isInteger(input.ownerUserId) ? { ownerUserId: input.ownerUserId } : {}),
-          token: input.token,
-          username: input.username,
-          cursor: 0,
-        },
-      },
-    },
-  };
-}
-
-function toSnapshot(
-  session: TelegramProvisioningSessionInternal,
-  provisioningBridgeBaseUrl: string | undefined,
-): TelegramSetupSession {
-  const provisionUrl = provisioningBridgeBaseUrl
-    ? buildTelegramProvisioningBridgeUrl(provisioningBridgeBaseUrl, session.sessionId)
-    : undefined;
-  return {
-    channel: "telegram",
-    sessionId: session.sessionId,
-    state: session.state,
-    setupUrl: session.qrUrl,
-    pairCode: session.pairCode,
-    managerBotUsername: session.managerBotUsername,
-    botName: session.botName,
-    botUsername: session.botUsername,
-    qrKind: session.qrKind,
-    ...(provisionUrl ? { provisionUrl } : {}),
-    createUrl: session.qrUrl,
-    createdAt: new Date(session.createdAtMs).toISOString(),
-    expiresAt: new Date(session.expiresAtMs).toISOString(),
-    ...(session.completedAtMs
-      ? { completedAt: new Date(session.completedAtMs).toISOString() }
-      : {}),
-  };
 }
 
 export function createTelegramProvisioningService(
   dependencies: TelegramProvisioningDependencies = {},
 ): TelegramProvisioningService {
-  const loadCurrentConfig = dependencies.loadConfig ?? (async () => await config.all);
+  const loadCurrentConfig = dependencies.loadConfig ??
+    (async () => await config.all);
   const patchConfig = dependencies.patchConfig ?? config.patch;
-  const reconfigure = dependencies.reconfigure ?? (() => channelRuntime.reconfigure());
-  const getStatus = dependencies.getStatus ?? ((channel) => channelRuntime.getStatus(channel));
+  const reconfigure = dependencies.reconfigure ??
+    (() => channelRuntime.reconfigure());
+  const getStatus = dependencies.getStatus ??
+    ((channel) => channelRuntime.getStatus(channel));
   const reportStatus = dependencies.reportStatus ??
     ((channel, status) => channelRuntime.reportStatus(channel, status));
   const armPairCode = dependencies.armPairCode ??
@@ -301,6 +96,7 @@ export function createTelegramProvisioningService(
     (provisioningBridgeBaseUrl
       ? createTelegramProvisioningBridgeClient(provisioningBridgeBaseUrl)
       : undefined);
+  const applyBranding = dependencies.applyBranding ?? applyTelegramBotBranding;
   const bridgeEnabled = !!(provisioningBridgeBaseUrl && bridgeClient);
 
   let activeSession: TelegramProvisioningSessionInternal | null = null;
@@ -322,7 +118,8 @@ export function createTelegramProvisioningService(
   }
 
   function isActivePendingSession(sessionId: string): boolean {
-    return activeSession?.sessionId === sessionId && activeSession.state === "pending";
+    return activeSession?.sessionId === sessionId &&
+      activeSession.state === "pending";
   }
 
   function failActiveSession(sessionId: string, detail: string): void {
@@ -335,106 +132,18 @@ export function createTelegramProvisioningService(
     activeSession = null;
     reportStatus("telegram", { state: "error", lastError: detail });
   }
-
-  async function startBridgeClaimWait(session: TelegramProvisioningSessionInternal): Promise<void> {
-    if (!bridgeClient || !session.claimToken) return;
-    stopBridgeWait();
-    const controller = new AbortController();
-    activeBridgeAbort = controller;
-    try {
-      logTelegramProvisioningTrace("bridge-claim-start", {
-        sessionId: session.sessionId,
-        totalWaitMs: Math.max(0, session.expiresAtMs - now()),
-        pollIntervalMs: BRIDGE_CLAIM_POLL_INTERVAL_MS,
-      });
-      let attempt = 0;
-      while (true) {
-        if (!isActivePendingSession(session.sessionId)) return;
-        const remainingWaitMs = Math.max(0, session.expiresAtMs - now());
-        const waitMs = Math.min(remainingWaitMs, BRIDGE_CLAIM_POLL_INTERVAL_MS);
-        const result = await bridgeClient.claimSession(
-          waitMs > 0
-            ? {
-            sessionId: session.sessionId,
-            claimToken: session.claimToken,
-              waitMs,
-            }
-            : {
-              sessionId: session.sessionId,
-              claimToken: session.claimToken,
-            },
-          controller.signal,
-        );
-        logTelegramProvisioningTrace("bridge-claim-result", {
-          sessionId: session.sessionId,
-          attempt,
-          remainingWaitMs,
-          waitMs,
-          ok: result.ok,
-          ...(result.ok
-            ? {
-              username: result.username,
-              tokenLength: result.token.length,
-              ownerUserId: Number.isInteger(result.ownerUserId) ? result.ownerUserId : null,
-            }
-            : { reason: result.reason }),
-        });
-        if (!isActivePendingSession(session.sessionId)) return;
-        if (!result.ok) {
-          if (result.reason === "pending" && remainingWaitMs > 0) {
-            attempt++;
-            continue;
-          }
-          if (result.reason === "pending" || result.reason === "missing") {
-            failActiveSession(session.sessionId, "Telegram provisioning session expired.");
-            return;
-          }
-          failActiveSession(
-            session.sessionId,
-            "Telegram provisioning bridge rejected the session.",
-          );
-          return;
-        }
-        logTelegramProvisioningTrace("bridge-claim-complete-start", {
-          sessionId: session.sessionId,
-          username: result.username,
-          ownerUserId: Number.isInteger(result.ownerUserId) ? result.ownerUserId : null,
-        });
-        const completion = await service.completeSession({
-          sessionId: session.sessionId,
-          token: result.token,
-          username: result.username,
-          ...(Number.isInteger(result.ownerUserId) ? { ownerUserId: result.ownerUserId } : {}),
-        });
-        logTelegramProvisioningTrace("bridge-claim-complete-result", {
-          sessionId: session.sessionId,
-          completed: !!completion,
-          sessionState: completion?.session.state ?? null,
-          statusState: completion?.status?.state ?? null,
-          statusError: completion?.status?.lastError ?? null,
-        });
-        if (!completion || completion.session.state !== "completed") {
-          failActiveSession(
-            session.sessionId,
-            completion?.status?.lastError ?? "Telegram provisioning failed.",
-          );
-        }
-        return;
-      }
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      const detail = error instanceof Error ? error.message : String(error);
-      logTelegramProvisioningTrace("bridge-claim-error", {
-        sessionId: session.sessionId,
-        detail,
-      });
-      failActiveSession(session.sessionId, detail);
-    } finally {
-      if (activeBridgeAbort === controller) {
-        activeBridgeAbort = null;
-      }
-    }
-  }
+  const waitForBridgeClaim = bridgeClient
+    ? createTelegramBridgeClaimWaiter({
+      bridgeClient,
+      now,
+      pollIntervalMs: BRIDGE_CLAIM_POLL_INTERVAL_MS,
+      trace: logTelegramProvisioningTrace,
+      isActivePendingSession,
+      failActiveSession,
+      completeClaimedSession: async (input) =>
+        await service.completeSession(input),
+    })
+    : null;
 
   const service: TelegramProvisioningService = {
     channel: "telegram",
@@ -442,7 +151,10 @@ export function createTelegramProvisioningService(
     async createSession(input = {}): Promise<TelegramSetupSession> {
       clearExpiredSession();
       if (activeSession?.state === "pending") {
-        const snapshot = toSnapshot(activeSession, provisioningBridgeBaseUrl);
+        const snapshot = toTelegramSetupSession(
+          activeSession,
+          provisioningBridgeBaseUrl,
+        );
         logTelegramProvisioningTrace(
           "create-session-reuse-pending",
           snapshot,
@@ -452,8 +164,8 @@ export function createTelegramProvisioningService(
       stopBridgeWait();
 
       const existing = readExistingTelegramState(await loadCurrentConfig());
-      let deviceId = trimTransportDeviceId(existing.transport.deviceId);
-      const ownerUserId = existing.ownerUserId;
+      let deviceId = trimTelegramTransportDeviceId(existing.transport.deviceId);
+      const knownOwnerUserId = existing.ownerUserId;
       if (!deviceId) {
         deviceId = randomId().replace(/-/g, "");
         await patchConfig({
@@ -464,15 +176,20 @@ export function createTelegramProvisioningService(
           },
         });
       }
-      const openExistingBot = shouldOpenExistingBot(existing.transport, existing.username);
+      const openExistingBot = shouldOpenExistingTelegramBot(
+        existing.transport,
+        existing.username,
+      );
 
       const rawId = randomId().replace(/-/g, "");
       const seed = rawId.slice(0, 6).toLowerCase();
       const sessionId = rawId;
       const pairCode = randomCode();
-      const managerBotUsername = resolveTelegramManagerBotUsername(input.managerBotUsername);
-      const botName = sanitizeBotName(input.botName);
-      const botUsername = sanitizeBotUsername(input.botUsername, seed);
+      const managerBotUsername = resolveTelegramManagerBotUsername(
+        input.managerBotUsername,
+      );
+      const botName = sanitizeTelegramBotName(input.botName);
+      const botUsername = sanitizeTelegramBotUsername(input.botUsername, seed);
       const createUrl = buildTelegramManagedBotCreateUrl(
         managerBotUsername,
         botUsername,
@@ -482,16 +199,16 @@ export function createTelegramProvisioningService(
       const nowMs = now();
 
       if (openExistingBot) {
-        activeSession = buildOpenBotSession({
+        activeSession = buildOpenTelegramBotSession({
           sessionId,
           deviceId,
-          ownerUserId,
+          ownerUserId: knownOwnerUserId,
           managerBotUsername,
           botName,
           username: existing.username,
           nowMs,
         });
-        const snapshot = toSnapshot(activeSession, undefined);
+        const snapshot = toTelegramSetupSession(activeSession, undefined);
         logTelegramProvisioningTrace(
           "create-session-existing-bot",
           snapshot,
@@ -499,11 +216,10 @@ export function createTelegramProvisioningService(
         return snapshot;
       }
 
-      activeSession = buildPendingCreateSession({
+      activeSession = buildPendingTelegramCreateSession({
         sessionId,
         claimToken: bridgeEnabled ? randomId().replace(/-/g, "") : undefined,
         deviceId,
-        ownerUserId,
         pairCode,
         managerBotUsername,
         botName,
@@ -533,7 +249,9 @@ export function createTelegramProvisioningService(
           await bridgeClient.registerSession({
             sessionId: activeSession.sessionId,
             claimToken: activeSession.claimToken,
-            ...(activeSession.deviceId ? { deviceId: activeSession.deviceId } : {}),
+            ...(activeSession.deviceId
+              ? { deviceId: activeSession.deviceId }
+              : {}),
             ...(activeSession.ownerUserId !== undefined
               ? { ownerUserId: activeSession.ownerUserId }
               : {}),
@@ -555,10 +273,25 @@ export function createTelegramProvisioningService(
           failActiveSession(activeSession.sessionId, detail);
           throw error;
         }
-        void startBridgeClaimWait(activeSession);
+        if (waitForBridgeClaim) {
+          stopBridgeWait();
+          const controller = new AbortController();
+          activeBridgeAbort = controller;
+          const sessionForClaim = activeSession;
+          void waitForBridgeClaim(sessionForClaim, controller.signal).finally(
+            () => {
+              if (activeBridgeAbort === controller) {
+                activeBridgeAbort = null;
+              }
+            },
+          );
+        }
       }
 
-      const snapshot = toSnapshot(activeSession, provisioningBridgeBaseUrl);
+      const snapshot = toTelegramSetupSession(
+        activeSession,
+        provisioningBridgeBaseUrl,
+      );
       logTelegramProvisioningTrace(
         "create-session-snapshot",
         snapshot,
@@ -568,7 +301,9 @@ export function createTelegramProvisioningService(
 
     getSession(): TelegramSetupSession | null {
       clearExpiredSession();
-      return activeSession ? toSnapshot(activeSession, provisioningBridgeBaseUrl) : null;
+      return activeSession
+        ? toTelegramSetupSession(activeSession, provisioningBridgeBaseUrl)
+        : null;
     },
 
     cancelSession(): boolean {
@@ -590,7 +325,9 @@ export function createTelegramProvisioningService(
         sessionId: input.sessionId,
         username: input.username,
         tokenLength: input.token.trim().length,
-        ownerUserId: Number.isInteger(input.ownerUserId) ? input.ownerUserId : null,
+        ownerUserId: Number.isInteger(input.ownerUserId)
+          ? input.ownerUserId
+          : null,
       });
       if (!activeSession || activeSession.sessionId !== input.sessionId) {
         logTelegramProvisioningTrace("complete-session-miss", {
@@ -608,7 +345,10 @@ export function createTelegramProvisioningService(
           statusError: status?.lastError ?? null,
         });
         return {
-          session: toSnapshot(activeSession, provisioningBridgeBaseUrl),
+          session: toTelegramSetupSession(
+            activeSession,
+            provisioningBridgeBaseUrl,
+          ),
           ...(status ? { status } : {}),
         };
       }
@@ -622,14 +362,19 @@ export function createTelegramProvisioningService(
         );
       }
 
-      const username = sanitizeBotUsername(input.username, activeSession.sessionId.slice(0, 6));
+      const username = sanitizeTelegramBotUsername(
+        input.username,
+        activeSession.sessionId.slice(0, 6),
+      );
       const existing = readExistingTelegramState(await loadCurrentConfig());
       const nextConfigPatch = buildCompletedTelegramConfigPatch({
         state: existing,
         session: activeSession,
         token,
         username,
-        ...(Number.isInteger(input.ownerUserId) ? { ownerUserId: input.ownerUserId } : {}),
+        ...(Number.isInteger(input.ownerUserId)
+          ? { ownerUserId: input.ownerUserId }
+          : {}),
       });
 
       await patchConfig(nextConfigPatch);
@@ -642,6 +387,22 @@ export function createTelegramProvisioningService(
       logTelegramProvisioningTrace("complete-session-reconfigured", {
         sessionId: input.sessionId,
       });
+      void applyBranding(token).then(
+        () => {
+          logTelegramProvisioningTrace("complete-session-branding-applied", {
+            sessionId: input.sessionId,
+            username,
+          });
+        },
+        (error) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          logTelegramProvisioningTrace("complete-session-branding-error", {
+            sessionId: input.sessionId,
+            username,
+            detail,
+          });
+        },
+      );
 
       activeSession = {
         ...activeSession,
@@ -664,7 +425,10 @@ export function createTelegramProvisioningService(
       });
 
       return {
-        session: toSnapshot(activeSession, provisioningBridgeBaseUrl),
+        session: toTelegramSetupSession(
+          activeSession,
+          provisioningBridgeBaseUrl,
+        ),
         ...(status ? { status } : {}),
       };
     },

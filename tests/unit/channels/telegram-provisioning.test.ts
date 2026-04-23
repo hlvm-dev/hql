@@ -2,7 +2,10 @@ import { assertEquals, assertRejects } from "jsr:@std/assert";
 import {
   createTelegramProvisioningService,
 } from "../../../src/hlvm/channels/telegram/provisioning.ts";
-import { DEFAULT_CONFIG, type HlvmConfig } from "../../../src/common/config/types.ts";
+import {
+  DEFAULT_CONFIG,
+  type HlvmConfig,
+} from "../../../src/common/config/types.ts";
 
 function withTelegramDeviceId(
   config: HlvmConfig = DEFAULT_CONFIG,
@@ -38,7 +41,9 @@ Deno.test("telegram provisioning: createSession returns a prefilled create link 
     getStatus: () => null,
   });
 
-  const session = await service.createSession({ managerBotUsername: "@hlvm_manager_bot" });
+  const session = await service.createSession({
+    managerBotUsername: "@hlvm_manager_bot",
+  });
 
   assertEquals(session.sessionId, "abc123def456");
   assertEquals(session.state, "pending");
@@ -71,7 +76,10 @@ Deno.test("telegram provisioning: createSession defaults to the production manag
           managerBotUsername: input.managerBotUsername,
           botName: input.botName,
           botUsername: input.botUsername,
-          createUrl: `https://t.me/newbot/${input.managerBotUsername}/${input.botUsername}?name=${encodeURIComponent(input.botName)}`,
+          createUrl:
+            `https://t.me/newbot/${input.managerBotUsername}/${input.botUsername}?name=${
+              encodeURIComponent(input.botName)
+            }`,
           createdAt: input.createdAt ?? "2026-04-21T00:00:00.000Z",
           expiresAt: input.expiresAt,
         };
@@ -113,7 +121,8 @@ Deno.test("telegram provisioning: createSession includes a bridge provisioning U
           managerBotUsername: input.managerBotUsername,
           botName: input.botName,
           botUsername: input.botUsername,
-          createUrl: "https://t.me/newbot/hlvm_setup_helper_2_bot/hlvm_abc123_bot?name=HLVM",
+          createUrl:
+            "https://t.me/newbot/hlvm_setup_helper_2_bot/hlvm_abc123_bot?name=HLVM",
           createdAt: input.createdAt ?? "2026-04-21T00:00:00.000Z",
           expiresAt: input.expiresAt,
         };
@@ -143,7 +152,12 @@ Deno.test("telegram provisioning: createSession reuses the active pending sessio
     provisioningBridgeBaseUrl: "https://provision.hlvm.dev",
     loadConfig: async () => withTelegramDeviceId(),
     randomId: (() => {
-      const values = ["abc123def456", "claim789ghi012", "zzz999yyy888", "claim222333"];
+      const values = [
+        "abc123def456",
+        "claim789ghi012",
+        "zzz999yyy888",
+        "claim222333",
+      ];
       return () => values.shift() ?? "fallback";
     })(),
     randomCode: () => "1234",
@@ -161,7 +175,8 @@ Deno.test("telegram provisioning: createSession reuses the active pending sessio
           managerBotUsername: input.managerBotUsername,
           botName: input.botName,
           botUsername: input.botUsername,
-          createUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
+          createUrl:
+            "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
           createdAt: input.createdAt ?? "2026-04-21T00:00:00.000Z",
           expiresAt: input.expiresAt,
         };
@@ -176,8 +191,63 @@ Deno.test("telegram provisioning: createSession reuses the active pending sessio
   const second = await service.createSession();
 
   assertEquals(second, first);
-  assertEquals(registrations, [{ sessionId: "abc123def456", deviceId: "device-1" }]);
+  assertEquals(registrations, [{
+    sessionId: "abc123def456",
+    deviceId: "device-1",
+  }]);
   assertEquals(armed, [{ channel: "telegram", code: "1234" }]);
+  assertEquals(service.cancelSession(), true);
+});
+
+Deno.test("telegram provisioning: createSession does not inherit stale owner binding into a fresh create flow", async () => {
+  let registeredOwnerUserId: number | undefined;
+  const service = createTelegramProvisioningService({
+    provisioningBridgeBaseUrl: "https://provision.hlvm.dev",
+    loadConfig: async () => ({
+      ...withTelegramDeviceId(),
+      channels: {
+        telegram: {
+          enabled: false,
+          allowedIds: ["8703305947"],
+          transport: {
+            mode: "direct",
+            deviceId: "device-1",
+            ownerUserId: 8703305947,
+            token: "",
+            username: "",
+          },
+        },
+      },
+    }),
+    randomId: (() => {
+      const values = ["abc123def456", "claim789ghi012"];
+      return () => values.shift() ?? "fallback";
+    })(),
+    randomCode: () => "1234",
+    bridgeClient: {
+      async registerSession(input) {
+        registeredOwnerUserId = input.ownerUserId;
+        return {
+          sessionId: input.sessionId,
+          state: "pending",
+          managerBotUsername: input.managerBotUsername,
+          botName: input.botName,
+          botUsername: input.botUsername,
+          createUrl:
+            "https://t.me/newbot/hlvm_setup_helper_2_bot/hlvm_abc123_bot?name=HLVM",
+          createdAt: input.createdAt ?? "2026-04-21T00:00:00.000Z",
+          expiresAt: input.expiresAt,
+        };
+      },
+      async claimSession() {
+        return { ok: false as const, reason: "pending" as const };
+      },
+    },
+  });
+
+  await service.createSession();
+
+  assertEquals(registeredOwnerUserId, undefined);
   assertEquals(service.cancelSession(), true);
 });
 
@@ -216,7 +286,10 @@ Deno.test("telegram provisioning: createSession reuses an existing direct bot ch
   assertEquals(session.botUsername, "hlvm_direct_test_01_bot");
   assertEquals(session.qrKind, "open_bot");
   assertEquals(session.setupUrl, "tg://resolve?domain=hlvm_direct_test_01_bot");
-  assertEquals(session.createUrl, "tg://resolve?domain=hlvm_direct_test_01_bot");
+  assertEquals(
+    session.createUrl,
+    "tg://resolve?domain=hlvm_direct_test_01_bot",
+  );
   assertEquals(session.provisionUrl, undefined);
   assertEquals(armed, []);
 });
@@ -376,6 +449,64 @@ Deno.test("telegram provisioning: completeSession replaces stale telegram allowe
   assertEquals(patches[0].channels?.telegram?.transport?.ownerUserId, 999);
 });
 
+Deno.test("telegram provisioning: completeSession clears stale owner binding when create flow completes without owner metadata", async () => {
+  const patches: Array<Partial<HlvmConfig>> = [];
+  const service = createTelegramProvisioningService({
+    provisioningBridgeBaseUrl: "",
+    now: () => Date.parse("2026-04-21T00:00:00.000Z"),
+    randomId: () => "abc123def456",
+    randomCode: () => "1234",
+    armPairCode: () => {},
+    disarmPairCode: () => {},
+    loadConfig: async () => ({
+      ...withTelegramDeviceId(),
+      channels: {
+        telegram: {
+          enabled: false,
+          allowedIds: ["8703305947"],
+          transport: {
+            mode: "direct",
+            deviceId: "device-1",
+            ownerUserId: 8703305947,
+            token: "",
+            username: "",
+          },
+        },
+      },
+    }),
+    patchConfig: async (updates) => {
+      patches.push(updates);
+      return { ...withTelegramDeviceId(), ...updates } as HlvmConfig;
+    },
+    reconfigure: async () => {},
+    getStatus: () => ({
+      channel: "telegram",
+      configured: true,
+      enabled: true,
+      state: "connected",
+      mode: "direct",
+      allowedIds: [],
+      lastError: null,
+    }),
+  });
+
+  const session = await service.createSession({
+    managerBotUsername: "hlvm_manager_bot",
+    botUsername: "hlvm_new_bot",
+  });
+  await service.completeSession({
+    sessionId: session.sessionId,
+    token: "123:abc",
+    username: "hlvm_new_bot",
+  });
+
+  assertEquals(patches[0].channels?.telegram?.allowedIds, []);
+  assertEquals(
+    patches[0].channels?.telegram?.transport?.ownerUserId,
+    undefined,
+  );
+});
+
 Deno.test("telegram provisioning: completeSession is idempotent after the first successful completion", async () => {
   const patches: Array<Partial<HlvmConfig>> = [];
   let reconfigureCalls = 0;
@@ -453,7 +584,8 @@ Deno.test("telegram provisioning: createSession registers with bridge and auto-c
           managerBotUsername: input.managerBotUsername,
           botName: input.botName,
           botUsername: input.botUsername,
-          createUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
+          createUrl:
+            "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
           createdAt: input.createdAt ?? "2026-04-21T00:00:00.000Z",
           expiresAt: input.expiresAt,
         };
@@ -467,7 +599,8 @@ Deno.test("telegram provisioning: createSession registers with bridge and auto-c
             managerBotUsername: "hlvm_manager_bot",
             botName: "HLVM",
             botUsername: "hlvm_abc123_bot",
-            createUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
+            createUrl:
+              "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
             createdAt: "2026-04-21T00:00:00.000Z",
             expiresAt: "2026-04-21T00:10:00.000Z",
             completedAt: "2026-04-21T00:00:01.000Z",
@@ -477,7 +610,8 @@ Deno.test("telegram provisioning: createSession registers with bridge and auto-c
         };
       },
     },
-    patchConfig: async (updates) => ({ ...withTelegramDeviceId(), ...updates }) as HlvmConfig,
+    patchConfig: async (updates) =>
+      ({ ...withTelegramDeviceId(), ...updates }) as HlvmConfig,
     reconfigure: async () => {},
     getStatus: () => ({
       channel: "telegram",
@@ -494,7 +628,10 @@ Deno.test("telegram provisioning: createSession registers with bridge and auto-c
   await new Promise((resolve) => setTimeout(resolve, 0));
   const completed = service.getSession();
 
-  assertEquals(session.provisionUrl, "https://provision.hlvm.dev/telegram/start?session=abc123def456");
+  assertEquals(
+    session.provisionUrl,
+    "https://provision.hlvm.dev/telegram/start?session=abc123def456",
+  );
   assertEquals(registrations.length, 1);
   assertEquals(registrations[0]?.claimToken, "claim789ghi012");
   assertEquals(statusEvents[0], "connecting");
@@ -523,7 +660,8 @@ Deno.test("telegram provisioning: bridge claim retries pending slices until comp
           managerBotUsername: input.managerBotUsername,
           botName: input.botName,
           botUsername: input.botUsername,
-          createUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
+          createUrl:
+            "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
           createdAt: input.createdAt ?? "2026-04-21T00:00:00.000Z",
           expiresAt: input.expiresAt,
         };
@@ -542,7 +680,8 @@ Deno.test("telegram provisioning: bridge claim retries pending slices until comp
             managerBotUsername: "hlvm_manager_bot",
             botName: "HLVM",
             botUsername: "hlvm_abc123_bot",
-            createUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
+            createUrl:
+              "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
             createdAt: "2026-04-21T00:00:00.000Z",
             expiresAt: "2026-04-21T00:10:00.000Z",
             completedAt: "2026-04-21T00:00:01.000Z",
@@ -552,7 +691,8 @@ Deno.test("telegram provisioning: bridge claim retries pending slices until comp
         };
       },
     },
-    patchConfig: async (updates) => ({ ...withTelegramDeviceId(), ...updates }) as HlvmConfig,
+    patchConfig: async (updates) =>
+      ({ ...withTelegramDeviceId(), ...updates }) as HlvmConfig,
     reconfigure: async () => {},
     getStatus: () => ({
       channel: "telegram",
@@ -571,6 +711,79 @@ Deno.test("telegram provisioning: bridge claim retries pending slices until comp
   const completed = service.getSession();
   assertEquals(claimCalls, 3);
   assertEquals(waitMsCalls, [1_000, 1_000, 1_000]);
+  assertEquals(completed?.state, "completed");
+  assertEquals(completed?.botUsername, "hlvm_real_bot");
+});
+
+Deno.test("telegram provisioning: bridge claim retries transient aborts before completion", async () => {
+  let claimCalls = 0;
+  const service = createTelegramProvisioningService({
+    provisioningBridgeBaseUrl: "https://provision.hlvm.dev",
+    loadConfig: async () => withTelegramDeviceId(),
+    randomId: (() => {
+      const values = ["abc123def456", "claim789ghi012"];
+      return () => values.shift() ?? "fallback";
+    })(),
+    randomCode: () => "1234",
+    armPairCode: () => {},
+    disarmPairCode: () => {},
+    bridgeClient: {
+      async registerSession(input) {
+        return {
+          sessionId: input.sessionId,
+          state: "pending",
+          managerBotUsername: input.managerBotUsername,
+          botName: input.botName,
+          botUsername: input.botUsername,
+          createUrl:
+            "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
+          createdAt: input.createdAt ?? "2026-04-21T00:00:00.000Z",
+          expiresAt: input.expiresAt,
+        };
+      },
+      async claimSession() {
+        claimCalls++;
+        if (claimCalls === 1) {
+          throw new Error("The signal has been aborted");
+        }
+        return {
+          ok: true as const,
+          session: {
+            sessionId: "abc123def456",
+            state: "claimed" as const,
+            managerBotUsername: "hlvm_manager_bot",
+            botName: "HLVM",
+            botUsername: "hlvm_abc123_bot",
+            createUrl:
+              "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
+            createdAt: "2026-04-21T00:00:00.000Z",
+            expiresAt: "2026-04-21T00:10:00.000Z",
+            completedAt: "2026-04-21T00:00:01.000Z",
+          },
+          token: "123:abc",
+          username: "hlvm_real_bot",
+        };
+      },
+    },
+    patchConfig: async (updates) =>
+      ({ ...withTelegramDeviceId(), ...updates }) as HlvmConfig,
+    reconfigure: async () => {},
+    getStatus: () => ({
+      channel: "telegram",
+      configured: true,
+      enabled: true,
+      state: "connected",
+      mode: "direct",
+      allowedIds: [],
+      lastError: null,
+    }),
+  });
+
+  await service.createSession();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const completed = service.getSession();
+  assertEquals(claimCalls, 2);
   assertEquals(completed?.state, "completed");
   assertEquals(completed?.botUsername, "hlvm_real_bot");
 });
@@ -595,7 +808,8 @@ Deno.test("telegram provisioning: bridge auto-complete seeds telegram allowedIds
           managerBotUsername: input.managerBotUsername,
           botName: input.botName,
           botUsername: input.botUsername,
-          createUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
+          createUrl:
+            "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
           createdAt: input.createdAt ?? "2026-04-21T00:00:00.000Z",
           expiresAt: input.expiresAt,
         };
@@ -609,7 +823,8 @@ Deno.test("telegram provisioning: bridge auto-complete seeds telegram allowedIds
             managerBotUsername: "hlvm_manager_bot",
             botName: "HLVM",
             botUsername: "hlvm_abc123_bot",
-            createUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
+            createUrl:
+              "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
             createdAt: "2026-04-21T00:00:00.000Z",
             expiresAt: "2026-04-21T00:10:00.000Z",
             completedAt: "2026-04-21T00:00:01.000Z",
@@ -707,7 +922,8 @@ Deno.test("telegram provisioning: auto-claim fails closed when local telegram re
           managerBotUsername: input.managerBotUsername,
           botName: input.botName,
           botUsername: input.botUsername,
-          createUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
+          createUrl:
+            "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
           createdAt: input.createdAt ?? "2026-04-21T00:00:00.000Z",
           expiresAt: input.expiresAt,
         };
@@ -721,7 +937,8 @@ Deno.test("telegram provisioning: auto-claim fails closed when local telegram re
             managerBotUsername: "hlvm_manager_bot",
             botName: "HLVM",
             botUsername: "hlvm_abc123_bot",
-            createUrl: "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
+            createUrl:
+              "https://t.me/newbot/hlvm_manager_bot/hlvm_abc123_bot?name=HLVM",
             createdAt: "2026-04-21T00:00:00.000Z",
             expiresAt: "2026-04-21T00:10:00.000Z",
             completedAt: "2026-04-21T00:00:01.000Z",
@@ -731,7 +948,8 @@ Deno.test("telegram provisioning: auto-claim fails closed when local telegram re
         };
       },
     },
-    patchConfig: async (updates) => ({ ...withTelegramDeviceId(), ...updates }) as HlvmConfig,
+    patchConfig: async (updates) =>
+      ({ ...withTelegramDeviceId(), ...updates }) as HlvmConfig,
     reconfigure: async () => {},
     getStatus: () => ({
       channel: "telegram",

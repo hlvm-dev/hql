@@ -13,7 +13,12 @@ interface TelegramUpdate {
     message_id?: number;
     text?: string;
     chat?: { id: number | string };
-    from?: { id: number; first_name?: string; last_name?: string; username?: string };
+    from?: {
+      id: number;
+      first_name?: string;
+      last_name?: string;
+      username?: string;
+    };
   };
 }
 
@@ -40,7 +45,8 @@ function waitFor(
 
 function createTestContext() {
   const received: ChannelMessage[] = [];
-  const statuses: Array<Partial<ChannelStatus> & Pick<ChannelStatus, "state">> = [];
+  const statuses: Array<Partial<ChannelStatus> & Pick<ChannelStatus, "state">> =
+    [];
   const patches: Array<Record<string, unknown>> = [];
   const context: ChannelTransportContext = {
     async receive(message) {
@@ -137,15 +143,17 @@ Deno.test("telegram transport: polls updates, normalizes inbound messages, and p
         pollOffsets.push(offset);
         if (firstPoll) {
           firstPoll = false;
-          return [{
-            update_id: 41,
-            message: {
-              message_id: 7,
-              text: "/start HLVM-1234",
-              chat: { id: 555 },
-              from: { id: 777, first_name: "Alice" },
-            },
-          } satisfies TelegramUpdate];
+          return [
+            {
+              update_id: 41,
+              message: {
+                message_id: 7,
+                text: "/start HLVM-1234",
+                chat: { id: 555 },
+                from: { id: 777, first_name: "Alice" },
+              },
+            } satisfies TelegramUpdate,
+          ];
         }
         return await new Promise<TelegramUpdate[]>((_resolve, reject) => {
           signal.addEventListener(
@@ -198,7 +206,12 @@ Deno.test("telegram transport: polls updates, normalizes inbound messages, and p
 Deno.test("telegram transport: refreshes persisted username when Telegram username changes", async () => {
   const transport = createTelegramTransport({
     enabled: true,
-    transport: { mode: "direct", token: "123:abc", username: "old_hlvm_bot", cursor: 0 },
+    transport: {
+      mode: "direct",
+      token: "123:abc",
+      username: "old_hlvm_bot",
+      cursor: 0,
+    },
   }, {
     api: {
       async getMe() {
@@ -246,7 +259,12 @@ Deno.test("telegram transport: clears stale local bot state when getMe reports d
   }, {
     api: {
       async getMe() {
-        throw new HttpError("401 Unauthorized", 401, "Unauthorized", "https://api.telegram.org");
+        throw new HttpError(
+          "401 Unauthorized",
+          401,
+          "Unauthorized",
+          "https://api.telegram.org",
+        );
       },
       async getUpdates() {
         return [];
@@ -272,6 +290,7 @@ Deno.test("telegram transport: clears stale local bot state when getMe reports d
     transport: {
       mode: "direct",
       deviceId: "device-1",
+      ownerUserId: undefined,
       token: "",
       username: "",
       cursor: 0,
@@ -299,7 +318,12 @@ Deno.test("telegram transport: clears stale local bot state when polling hits de
         return { id: 99, username: "hlvm_deleted_bot" };
       },
       async getUpdates() {
-        throw new HttpError("401 Unauthorized", 401, "Unauthorized", "https://api.telegram.org");
+        throw new HttpError(
+          "401 Unauthorized",
+          401,
+          "Unauthorized",
+          "https://api.telegram.org",
+        );
       },
       async sendMessage() {},
     },
@@ -324,6 +348,7 @@ Deno.test("telegram transport: clears stale local bot state when polling hits de
     transport: {
       mode: "direct",
       deviceId: "device-1",
+      ownerUserId: undefined,
       token: "",
       username: "",
       cursor: 0,
@@ -349,7 +374,12 @@ Deno.test("telegram transport: does not clear local bot state on generic 404", a
   }, {
     api: {
       async getMe() {
-        throw new HttpError("404 Not Found", 404, "Not Found", "https://api.telegram.org");
+        throw new HttpError(
+          "404 Not Found",
+          404,
+          "Not Found",
+          "https://api.telegram.org",
+        );
       },
       async getUpdates() {
         return [];

@@ -104,9 +104,12 @@ function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-function formatTelegramDisplayName(user: TelegramUser | undefined): string | undefined {
+function formatTelegramDisplayName(
+  user: TelegramUser | undefined,
+): string | undefined {
   if (!user) return undefined;
-  const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
+  const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ")
+    .trim();
   if (fullName) return fullName;
   return user.username?.trim() || undefined;
 }
@@ -157,7 +160,11 @@ async function parseTelegramResult<T>(
   let body: { ok?: boolean; result?: T; description?: string } | null = null;
   if (text.trim()) {
     try {
-      body = JSON.parse(text) as { ok?: boolean; result?: T; description?: string };
+      body = JSON.parse(text) as {
+        ok?: boolean;
+        result?: T;
+        description?: string;
+      };
     } catch {
       body = null;
     }
@@ -261,7 +268,8 @@ export function createTelegramTransport(
   let pollAbort: AbortController | null = null;
   let pollLoop: Promise<void> | null = null;
   let activeContext: ChannelTransportContext | null = null;
-  const deviceId = typeof config.transport?.deviceId === "string" && config.transport.deviceId.trim()
+  const deviceId = typeof config.transport?.deviceId === "string" &&
+      config.transport.deviceId.trim()
     ? config.transport.deviceId.trim()
     : undefined;
   const ownerUserId = typeof config.transport?.ownerUserId === "number" &&
@@ -269,7 +277,9 @@ export function createTelegramTransport(
     ? config.transport.ownerUserId
     : undefined;
 
-  async function clearStaleBotState(context: ChannelTransportContext): Promise<void> {
+  async function clearStaleBotState(
+    context: ChannelTransportContext,
+  ): Promise<void> {
     token = "";
     username = undefined;
     cursor = 0;
@@ -280,6 +290,7 @@ export function createTelegramTransport(
       transport: {
         mode: "direct",
         ...(deviceId ? { deviceId } : {}),
+        ownerUserId: undefined,
         token: "",
         username: "",
         cursor: 0,
@@ -295,7 +306,9 @@ export function createTelegramTransport(
     }
   }
 
-  async function persistTransport(context: ChannelTransportContext): Promise<void> {
+  async function persistTransport(
+    context: ChannelTransportContext,
+  ): Promise<void> {
     await context.updateConfig({
       transport: transportConfigSnapshot("direct", token, username, cursor),
     });
@@ -333,7 +346,8 @@ export function createTelegramTransport(
 
         const fatal = error instanceof TelegramApiError
           ? error.fatal
-          : error instanceof HttpError && error.status >= 400 && error.status < 500;
+          : error instanceof HttpError && error.status >= 400 &&
+            error.status < 500;
         const detail = error instanceof Error ? error.message : String(error);
         if (fatal) {
           if (isStaleBotError(error)) {
@@ -364,7 +378,7 @@ export function createTelegramTransport(
       activeContext = context;
       if (config.transport?.mode !== "direct") {
         throw new ValidationError(
-          "Telegram transport currently supports only channels.telegram.transport.mode = \"direct\".",
+          'Telegram transport currently supports only channels.telegram.transport.mode = "direct".',
           "telegram_transport",
         );
       }

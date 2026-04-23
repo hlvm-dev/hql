@@ -9,7 +9,7 @@ How do we support Telegram now and add Slack / Discord / KakaoTalk / WhatsApp la
 without rewriting the messaging runtime each time?
 ```
 
-**Last updated**: 2026-04-23
+**Last updated**: 2026-04-24
 
 ## Current conclusion
 
@@ -63,6 +63,53 @@ shared provisioning contract: done
 Telegram as first vendor implementation: done
 second platform implementation: not started yet
 ```
+
+## macOS app integration
+
+The binary-side provisioning architecture is only half of the real onboarding
+flow. The macOS app must also treat onboarding windows as session-scoped UI,
+not as reusable shells around stale state.
+
+Current rule:
+
+```text
+new onboarding window
+→ start a fresh provisioning flow
+
+window close / dismiss
+→ cancel the active provisioning flow
+```
+
+Do not reuse an old in-memory "waiting for Telegram" state across later window
+presentations. That can show a stale QR while no live local provisioning session
+exists.
+
+This app-side rule now lives in:
+
+- `HLVM/Messages/Onboarding/OnboardingWindow.swift`
+
+## Telegram completion behavior
+
+Telegram bot branding is applied only after setup completes locally.
+
+Current rule:
+
+```text
+createSession
+→ returns setup session quickly
+
+completeSession
+→ writes config
+→ reconfigures runtime
+→ applies Telegram branding asynchronously, best-effort
+```
+
+That means:
+
+- no local completion
+  - no reply path
+  - no branding update
+- branding failure must not break an otherwise successful bot setup
 
 ## System map
 
