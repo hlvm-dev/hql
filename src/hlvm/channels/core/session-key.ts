@@ -1,3 +1,5 @@
+import { ValidationError } from "../../../common/error.ts";
+
 const CHANNEL_SESSION_PREFIX = "channel:";
 
 export function isChannelSessionId(sessionId: string | null | undefined): boolean {
@@ -8,10 +10,10 @@ export function isChannelSessionId(sessionId: string | null | undefined): boolea
 function normalizeKeyPart(value: string, label: "channel" | "remoteId"): string {
   const trimmed = value.trim();
   if (!trimmed) {
-    throw new Error(`Channel session ${label} must not be empty.`);
+    throw new ValidationError(`Channel session ${label} must not be empty.`);
   }
   if (trimmed.includes(":")) {
-    throw new Error(`Channel session ${label} must not contain ':'.`);
+    throw new ValidationError(`Channel session ${label} must not contain ':'.`);
   }
   return trimmed;
 }

@@ -1,9 +1,4 @@
-/**
- * Tool result formatting, deduplication, and display helpers.
- * Extracted from orchestrator.ts for modularity.
- */
-
-import { basename } from "node:path";
+import { getPlatform } from "../../platform/platform.ts";
 import {
   getTool,
   getToolPresentationKind,
@@ -39,7 +34,6 @@ import {
   summarizeToolResult,
 } from "./tool-result-summary.ts";
 import { parseShellCommand } from "../../common/shell-parser.ts";
-import { getPlatform } from "../../platform/platform.ts";
 import {
   buildToolFailureMetadata,
   normalizeToolFailureMessageForDisplay,
@@ -243,7 +237,7 @@ async function maybePersistOversizedToolResult(options: {
     return {
       llmContent: options.config.context.truncateResult(persistedBody),
       summaryDisplay: truncate(
-        `Large result persisted to ${basename(sidecar.path)} (${sizeLabel}).`,
+        `Large result persisted to ${getPlatform().path.basename(sidecar.path)} (${sizeLabel}).`,
         limits.summaryChars,
       ),
       returnDisplay: persistedBody,
@@ -565,12 +559,6 @@ export async function buildToolResultOutputs(
   };
 }
 
-// ============================================================
-// Smart per-tool compression — keeps signal, drops noise.
-// truncateResult() remains the safety net after this.
-// ============================================================
-
-/** read_file: keep first 80 + last 30 lines — head+tail is more useful than blind truncation. */
 function compressFileContent(result: string): string {
   const lines = result.split("\n");
   if (lines.length <= 120) return result;
@@ -582,7 +570,6 @@ function compressFileContent(result: string): string {
   );
 }
 
-/** shell_exec: keep head (command context), error/warning lines, and tail (result). */
 function compressShellOutput(result: string): string {
   const lines = result.split("\n");
   if (lines.length <= 40) return result;
@@ -591,7 +578,6 @@ function compressShellOutput(result: string): string {
     /error|warn|fail|exception|panic/i.test(l)
   );
   const tail = lines.slice(-20);
-  // Deduplicate while preserving order
   const seen = new Set<string>();
   const kept: string[] = [];
   for (const l of [...head, ...important, ...tail]) {
@@ -607,7 +593,6 @@ function compressShellOutput(result: string): string {
   return kept.join("\n");
 }
 
-/** git_diff: keep diff/hunk headers and changed lines, limit context to 2 lines. */
 function compressDiffOutput(result: string): string {
   const lines = result.split("\n");
   if (lines.length <= 80) return result;
@@ -628,8 +613,6 @@ function compressDiffOutput(result: string): string {
   return compressed.join("\n");
 }
 
-/** Check if tool result content indicates failure despite no exception.
- *  Only matches small, explicit {success: false, error: "..."} payloads. */
 function isToolResultFailure(content: string): boolean {
   if (
     !content.startsWith("{") ||

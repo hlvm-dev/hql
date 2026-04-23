@@ -7,7 +7,7 @@
 > This doc is the SSOT for messaging work. If it disagrees with an older
 > sketch, roadmap note, or implementation comment, this wins.
 >
-> **Last updated**: 2026-04-23 (rev 13)
+> **Last updated**: 2026-04-23 (rev 14)
 
 ## Rev 10 decision
 
@@ -23,46 +23,50 @@
   onboarding, and shared "pick your channel" first-launch UX are no longer
   normative.
 
-## Rev 13 status snapshot
+## Rev 14 status snapshot
 
-Rev 10's product decision still stands. Rev 13 is an execution-status update.
+Rev 10's product decision still stands. Rev 14 is the current execution-state
+update.
 
 - Telegram Option B is still the only active ship path.
-- The direct Telegram path **after a bot already exists** is now proven on a
-  real iPhone:
+- The direct Telegram path after a bot already exists is proven:
   `Telegram → existing bot → local HLVM on Mac → reply`.
-- Existing-bot scan now uses a Telegram app deep link instead of the old
+- Existing-bot scan uses a Telegram app deep link instead of the old
   `https://t.me/...` web landing page.
-- The runtime config merge now preserves `channels.telegram.transport` when
-  the shell only patches `channels.telegram.onboardingDismissed`, so dismissing
+- First-time managed-bot create is proven on the active test flow:
+  `scan → Create → Start → first reply`.
+- Deleted-bot recovery is also proven:
+  `delete child bot in Telegram → first Telegram API 401 → stale local bot
+  state cleared → same QR UI reopens immediately → recreate succeeds`.
+- The latest recreate test also proved the edited-child-username path:
+  the QR prefilled one child username, the user edited both display name and
+  `@username` in Telegram's create sheet, and HLVM adopted the final created
+  bot identity correctly.
+- The runtime config merge preserves `channels.telegram.transport` when the
+  shell only patches `channels.telegram.onboardingDismissed`, so dismissing
   onboarding no longer erases the saved bot identity on disk.
-- The bridge now stores provisioning state in persistent Deno KV and is no
-  longer process-memory only.
+- The bridge stores provisioning state in persistent Deno KV and is no longer
+  process-memory only.
 - The old long claim wait that produced `[HQL5002]` on Deno Deploy is no
-  longer the primary blocker.
-- First-time managed-bot creation is now split more precisely:
-  - on the original Telegram account used during debugging, Telegram's mobile
-    create step can still block creation before HLVM receives any
-    `managed_bot` webhook; the observed symptom is a disabled `Create` button
-    with no Telegram-side error surfaced to HLVM
-  - on a fresh Telegram account, the same managed-bot path completed and
-    reached connected direct transport on the Mac
-- The runtime, bridge service, and manager webhook now emit one unified trace
-  to `/tmp/hlvm-telegram-e2e.log` so any future failure can be classified by
-  exact transition.
-- The hosted bridge now keeps short-lived unmatched managed bots and
-  auto-adopts a sole safe candidate for the waiting Mac session when Telegram
-  created a bot under an edited child username.
-- The bridge and local runtime now preserve a known Telegram `ownerUserId`
-  when it is available, so bridge registration, completion, reset, and direct
-  transport config can stay owner-aware instead of device-only.
+  longer a lead issue.
+- The hosted bridge keeps short-lived unmatched managed bots and auto-adopts a
+  sole safe candidate for the waiting Mac session when Telegram created a bot
+  under an edited child username.
+- The bridge and local runtime preserve a known Telegram `ownerUserId` when it
+  is available, so bridge registration, completion, reset, and direct
+  transport config stay owner-aware instead of device-only.
+- Telegram provisioning defaults are now centralized in
+  `src/hlvm/channels/telegram/config.ts` so normal create flow and deleted-bot
+  reconnect use the same manager-bot and bridge SSOT.
 
 So the practical split is now:
 
 ```text
-backend/runtime after a bot exists: proven
-first-time user bot creation on a fresh account: proven
-first-time user bot creation on the original debugging account: blocked at Telegram create
+create → chat: proven
+relaunch → reopen existing bot chat: proven
+delete bot → immediate reconnect QR → recreate → chat: proven
+message-level Telegram observability: still thin
+settings lifecycle UX for reconnect/disconnect: still missing
 ```
 
 ## Why this exists
@@ -227,10 +231,10 @@ to avoid re-implementing the same messaging loop for every platform.
 - Real iPhone validation also confirmed the direct existing-bot path works
   end-to-end with a plain BotFather bot:
   Telegram message → local HLVM on Mac → reply back through Telegram.
-- Real account-split validation now confirmed:
-  - original Telegram account can still stall at the managed create step with
-    no webhook reaching HLVM
-  - fresh Telegram account can complete the same managed create flow end-to-end
+- Earlier account-split debugging observed that one Telegram account could
+  stall at the managed create step while another could complete the same flow.
+  That history is still useful, but it is no longer the lead description of
+  the current product state.
 
 ### Current repo and hosted status
 
@@ -242,61 +246,81 @@ implemented and cleaned up:
   live.
 - SSOT and code are aligned on the architecture and implementation boundary.
 - The remaining work is not another messaging architecture pass.
-- The remaining uncertainty sits at the real Telegram mobile-client boundary.
+- The remaining uncertainty is now mostly product hardening:
+  message-level observability, settings lifecycle UX, and Android validation.
 
 ### Current observed result
 
-The latest live validation produced the cleanest split so far:
+The latest real-device validation now covers the full loop we actually care
+about:
 
 ```text
-same hosted bridge
-same local runtime
-same product QR flow
+first create
+→ scan QR
+→ Telegram managed create sheet opens with prefilled child bot data
+→ user creates the bot
+→ user starts the bot chat
+→ local HLVM reaches connected direct transport
+→ chat reply works
 
-original Telegram account
-→ create sheet shows disabled Create button with no surfaced error
-→ never completes
-→ no managed_bot webhook reaches HLVM
+later reopen
+→ relaunch app
+→ scan QR
+→ existing bot chat reopens directly
+→ chat reply works
 
-fresh Telegram account
-→ create completes
-→ managed_bot webhook arrives
-→ token is claimed locally
-→ direct bot config is written
-→ transport reaches connected
+deleted-bot recovery
+→ user deletes the child bot in BotFather
+→ first Telegram API call fails with 401
+→ HLVM clears stale local bot state
+→ same QR window reopens immediately with reconnect copy
+→ user scans again
+→ Telegram managed create sheet opens again with prefilled data
+→ user edits both display name and @username
+→ bridge returns the final created bot identity
+→ local HLVM adopts that final bot identity
+→ chat reply works again
 ```
 
-This removes several earlier debugging hypotheses:
+The important internal proof from the latest recreate run is:
 
-- not a stale embedded binary
-- not a broken GUI ↔ runtime link
-- not a broken hosted bridge
-- not a broken post-create token handoff
-- not proof that managed bots are fake or unusable
+```text
+expected prefilled child username: hlvm_ddaf56_bot
+actual adopted created username:   my_bot_brobot
+result: connected direct transport with owner allowlist updated
+```
 
-The current evidence points at the original Telegram account's managed-create
-state, not the core HLVM path.
+So the live evidence now says:
+
+- managed-bot create is real and working in the active flow
+- reopen of an existing bot chat is working
+- deleted-bot reactive recovery is working
+- edited final child username is working in the tested recreate flow
+- the remaining work is no longer "does Telegram onboarding work at all?"
 
 ### Not implemented yet
 
 - No Android validation yet.
-- No confirmed Telegram-internal explanation yet for why the original
-  Telegram account's iPhone create sheet can block `Create` before creation
-  completes.
-- No confirmed hard-limit number yet for that original-account failure state;
-  the current observed symptom is only: button disabled, no webhook, no
-  explicit Telegram error.
-- No re-pair flow in Settings.
-- No shared-bot relay service.
+- No Telegram settings lifecycle UI yet, such as:
+  - `Open Chat`
+  - `Reconnect`
+  - `Disconnect This Mac`
+- No post-create branding step yet for photo / about / description.
+- Message-level Telegram observability is still thin. Provisioning and
+  reconnect state transitions are easy to prove, but per-message tracing is
+  still not strong enough to answer every "was the first message dropped?" type
+  question from logs alone.
 - Pure raw `t.me/newbot/...` onboarding still has an ambiguity edge case if
   multiple unmatched managed bots are created for the same manager bot within
-  the same recovery window.
+  the same recovery window and HLVM does not already know the Telegram owner
+  identity.
+- No shared-bot relay service. That remains future Option A territory only.
 
 ### Practical meaning
 
 We are **past architecture debate** and **past backend de-risking**. The
-remaining work is account-specific managed-create reliability and
-onboarding-state cleanup, not another round of messaging architecture.
+remaining work is product hardening around the proven path, not another round
+of messaging architecture.
 
 ## Current architecture and communication
 
@@ -735,42 +759,28 @@ for explicit "start over" or clean-test cleanup. It can clear:
 It is **not** the long-lived message path. After provisioning, the user's Mac
 talks to Telegram directly using the child bot token.
 
-### Current blocker in the live pipeline
+### Current remaining weakness in the live pipeline
 
-The live pipeline now has two clearly separated states:
-
-```text
-A. direct existing-bot path
-   works
-
-B. first-time managed create path
-   still blocks before webhook/token handoff
-```
-
-The unresolved failure is now the first-time create boundary:
+The main flow is now working. The current weaknesses are narrower:
 
 ```text
-local session created
-→ bridge register succeeds
-→ Telegram create flow opens
-→ Telegram iPhone create step sometimes does not complete
-→ no managed_bot webhook arrives
-→ no token can be handed back
-→ local direct transport is never configured for that new bot
+A. provisioning / reopen / deleted-bot recovery
+   proven
+
+B. message-level observability
+   still weak
+
+C. product lifecycle UI around an already-connected Telegram bot
+   still missing
 ```
 
-This is important:
+So the remaining work is now:
 
-- the old bridge-isolate bug is no longer the lead explanation
-- the old long Deno claim timeout is no longer the lead explanation
-- when the manager webhook receives a `managed_bot` update, our side can now
-  observe and handle the token path
-- when the iPhone create step never completes, Telegram emits nothing and our
-  backend cannot see the internal reason
-
-So the remaining blocker is **not** another proven local runtime or bridge bug
-first. It is the reliability of Telegram's real mobile create step for the
-current managed-bot session.
+- better message-level Telegram logs through the existing logger SSOT
+- explicit Telegram settings / reconnect lifecycle UX
+- Android validation
+- if needed later, stronger owner-prebinding before create for a perfect
+  product-wide answer to concurrent edited-username creates
 
 ### Mobile constraint found in validation
 
@@ -782,8 +792,9 @@ Real-device validation on 2026-04-21 and 2026-04-22 found two important facts:
 - if Telegram is installed and Bot Management Mode is enabled, the managed-bot
   QR opens Telegram's native create sheet with the bot name and username
   pre-filled, then lands in the new child bot chat after creation
-- if the iPhone create sheet does not complete creation, HLVM receives no
-  webhook or token signal at all; this is the current unresolved E2E boundary
+- if the child bot is later deleted in Telegram, the next real Telegram API
+  request returns `401`, HLVM clears stale local bot state, and the same QR UI
+  can reopen immediately in reconnect mode
 - for an already-configured bot, scan should now use a Telegram app deep link
   and reopen the existing chat directly instead of using a `t.me` web landing
   page
@@ -890,22 +901,18 @@ old iMessage-first assumptions remain binding.
 
 ## Roadmap after rev 10
 
-1. Complete one real iOS run of:
-   `scan → Create → Start → first reply`.
-2. Complete one real Android run of the same flow.
-3. Stabilize or explain the iPhone create-sheet failure mode when `Create`
-   becomes disabled before submission.
-4. Reuse one pending provisioning session instead of minting a fresh suggested
-   bot on every reopened onboarding window.
-5. After first successful onboarding, default to reusing the existing child
-   bot/chat instead of creating another bot.
-6. Add a clear re-pair surface only when the provisioning service can drive it
-   honestly.
-7. Keep scan as a top-level reopen affordance for existing-bot chat, not just a
-   one-shot first-launch artifact.
-8. Only then decide whether Option A is worth building.
+1. Keep the current proven iOS flow stable:
+   `scan → Create → Start → first reply → relaunch reopen → delete bot →
+   reconnect QR → recreate → first reply`.
+2. Add message-level Telegram observability through the existing logger SSOT.
+3. Add explicit Telegram lifecycle UI for already-connected users:
+   `Open Chat`, `Reconnect`, `Disconnect This Mac`.
+4. Complete one real Android run of the same create / reconnect flow.
+5. Add optional post-create bot branding if it still feels worth the product
+   surface.
+6. Only then decide whether Option A is worth building.
 
-Until step 1 is done:
+Until then:
 
 - no shared-bot relay work
 - no iMessage work

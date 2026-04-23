@@ -4,7 +4,6 @@ import { getEnvVar } from "../../../common/paths.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { createRouter } from "../../cli/repl/http-router.ts";
-import { logTelegramE2ETrace } from "./e2e-trace.ts";
 import {
   createTelegramManagerBotApi,
   handleTelegramManagerBotWebhook,
@@ -34,7 +33,7 @@ export interface TelegramProvisioningBridgeServerOptions {
 }
 
 function unauthorizedResponse(): Response {
-  logTelegramE2ETrace("bridge-server", "unauthorized-complete-request", {});
+  log.ns("telegram").debug("[bridge-server] unauthorized-complete-request {}");
   return Response.json(
     { error: "Unauthorized bridge completion request." },
     {
@@ -128,16 +127,10 @@ export function createTelegramProvisioningBridgeHandler(
 
   return async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
-    logTelegramE2ETrace("bridge-server", "incoming-request", {
-      method: req.method,
-      path: url.pathname,
-    });
+    log.ns("telegram").debug(`[bridge-server] incoming-request ${JSON.stringify({ method: req.method, path: url.pathname })}`);
     const match = router.match(req.method, url.pathname);
     if (!match) {
-      logTelegramE2ETrace("bridge-server", "route-miss", {
-        method: req.method,
-        path: url.pathname,
-      });
+      log.ns("telegram").debug(`[bridge-server] route-miss ${JSON.stringify({ method: req.method, path: url.pathname })}`);
       return Response.json({ error: "Not found" }, { status: 404 });
     }
     return await match.handler(req, match.params);

@@ -1,5 +1,6 @@
 import { stringWidth } from '../ink/stringWidth.ts'
 import { wrapAnsi } from '../ink/wrapAnsi.ts'
+import { RuntimeError } from '../../../common/error.ts'
 import {
   firstGrapheme,
   getGraphemeSegmenter,
@@ -352,93 +353,37 @@ export class Cursor {
 
   up(): Cursor {
     const { line, column } = this.getPosition()
-    if (line === 0) {
-      return this
-    }
+    if (line === 0) return this
 
     const prevLine = this.measuredText.getWrappedText()[line - 1]
-    if (prevLine === undefined) {
-      return this
-    }
+    if (prevLine === undefined) return this
 
-    const prevLineDisplayWidth = stringWidth(prevLine)
-    if (column > prevLineDisplayWidth) {
-      const newOffset = this.getOffset({
-        line: line - 1,
-        column: prevLineDisplayWidth,
-      })
-      return new Cursor(this.measuredText, newOffset, 0)
-    }
-
-    const newOffset = this.getOffset({ line: line - 1, column })
+    const newOffset = this.getOffset({
+      line: line - 1,
+      column: Math.min(column, stringWidth(prevLine)),
+    })
     return new Cursor(this.measuredText, newOffset, 0)
   }
 
   down(): Cursor {
     const { line, column } = this.getPosition()
-    if (line >= this.measuredText.lineCount - 1) {
-      return this
-    }
+    if (line >= this.measuredText.lineCount - 1) return this
 
-    // If there is no next line, stay on the current line,
-    // and let the caller handle it (e.g. for prompt input,
-    // we move to the next history entry)
+    // If there is no next line, let the caller handle it (e.g. move to next history entry)
     const nextLine = this.measuredText.getWrappedText()[line + 1]
-    if (nextLine === undefined) {
-      return this
-    }
+    if (nextLine === undefined) return this
 
-    // If the current column is past the end of the next line,
-    // move to the end of the next line
-    const nextLineDisplayWidth = stringWidth(nextLine)
-    if (column > nextLineDisplayWidth) {
-      const newOffset = this.getOffset({
-        line: line + 1,
-        column: nextLineDisplayWidth,
-      })
-      return new Cursor(this.measuredText, newOffset, 0)
-    }
-
-    // Otherwise, move to the same column on the next line
     const newOffset = this.getOffset({
       line: line + 1,
-      column,
+      column: Math.min(column, stringWidth(nextLine)),
     })
     return new Cursor(this.measuredText, newOffset, 0)
   }
 
-  /**
-   * Move to the start of the current line (column 0).
-   * This is the raw version used internally by startOfLine.
-   */
-  private startOfCurrentLine(): Cursor {
-    const { line } = this.getPosition()
-    return new Cursor(
-      this.measuredText,
-      this.getOffset({
-        line,
-        column: 0,
-      }),
-      0,
-    )
-  }
-
   startOfLine(): Cursor {
     const { line, column } = this.getPosition()
-
-    // If already at start of line and not at first line, move to previous line
-    if (column === 0 && line > 0) {
-      return new Cursor(
-        this.measuredText,
-        this.getOffset({
-          line: line - 1,
-          column: 0,
-        }),
-        0,
-      )
-    }
-
-    return this.startOfCurrentLine()
+    const targetLine = column === 0 && line > 0 ? line - 1 : line
+    return new Cursor(this.measuredText, this.getOffset({ line: targetLine, column: 0 }), 0)
   }
 
   firstNonBlankInLine(): Cursor {
@@ -859,8 +804,7 @@ export class Cursor {
   }
 
   insert(insertString: string): Cursor {
-    const newCursor = this.modifyText(this, insertString)
-    return newCursor
+    return this.modifyText(this, insertString)
   }
 
   del(): Cursor {
@@ -1125,7 +1069,8 @@ class WrappedLine {
 export class MeasuredText {
   private _wrappedLines?: WrappedLine[]
   public readonly text: string
-  private navigationCache: Map<string, number>
+  private nextOffsetCache: Map<number, number>
+  private prevOffsetCache: Map<number, number>
   private graphemeBoundaries?: number[]
 
   constructor(
@@ -1133,7 +1078,8 @@ export class MeasuredText {
     readonly columns: number,
   ) {
     this.text = text.normalize('NFC')
-    this.navigationCache = new Map()
+    this.nextOffsetCache = new Map()
+    this.prevOffsetCache = new Map()
   }
 
   /**
@@ -1339,7 +1285,7 @@ export class MeasuredText {
         const startOffset = this.text.indexOf(text, searchOffset)
 
         if (startOffset === -1) {
-          throw new Error('Failed to find wrapped line in text')
+          throw new RuntimeError('Failed to find wrapped line in text')
         }
 
         searchOffset = startOffset + text.length
@@ -1484,29 +1430,21 @@ export class MeasuredText {
     return this.wrappedLines.length
   }
 
-  private withCache<T>(key: string, compute: () => T): T {
-    const cached = this.navigationCache.get(key)
-    if (cached !== undefined) return cached as T
-
-    const result = compute()
-    this.navigationCache.set(key, result as number)
-    return result
-  }
-
   nextOffset(offset: number): number {
-    return this.withCache(`next:${offset}`, () => {
-      const boundaries = this.getGraphemeBoundaries()
-      return this.binarySearchBoundary(boundaries, offset, true)
-    })
+    const cached = this.nextOffsetCache.get(offset)
+    if (cached !== undefined) return cached
+    const result = this.binarySearchBoundary(this.getGraphemeBoundaries(), offset, true)
+    this.nextOffsetCache.set(offset, result)
+    return result
   }
 
   prevOffset(offset: number): number {
     if (offset <= 0) return 0
-
-    return this.withCache(`prev:${offset}`, () => {
-      const boundaries = this.getGraphemeBoundaries()
-      return this.binarySearchBoundary(boundaries, offset, false)
-    })
+    const cached = this.prevOffsetCache.get(offset)
+    if (cached !== undefined) return cached
+    const result = this.binarySearchBoundary(this.getGraphemeBoundaries(), offset, false)
+    this.prevOffsetCache.set(offset, result)
+    return result
   }
 
   /**

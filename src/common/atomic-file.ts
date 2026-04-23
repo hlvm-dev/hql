@@ -1,5 +1,6 @@
 import { getPlatform } from "../platform/platform.ts";
 import type { PlatformFileInfo } from "../platform/types.ts";
+import { ValidationError } from "./error.ts";
 import { generateUUID, isFileNotFoundError } from "./utils.ts";
 
 function buildTempPath(filePath: string): string {
@@ -17,7 +18,7 @@ function assertNoSymlinkTarget(
   info: { isSymlink: boolean } | null,
 ): void {
   if (!info?.isSymlink) return;
-  throw new Error(
+  throw new ValidationError(
     `Atomic writes refuse symlink targets: ${filePath}`,
   );
 }

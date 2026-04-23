@@ -1,9 +1,4 @@
-/**
- * HLVM Update Command
- *
- * Checks for and installs the latest GitHub release.
- */
-
+import { RuntimeError } from "../../../common/error.ts";
 import { VERSION } from "../../../common/version.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
@@ -47,7 +42,7 @@ async function runInstaller(version: string): Promise<void> {
   });
   const status = await process.status;
   if (!status.success) {
-    throw new Error(`Installer exited with code ${status.code}`);
+    throw new RuntimeError(`Installer exited with code ${status.code}`);
   }
 }
 

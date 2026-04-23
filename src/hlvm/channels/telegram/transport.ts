@@ -1,4 +1,5 @@
 import { http, HttpError } from "../../../common/http-client.ts";
+import { getEnvVar } from "../../../common/paths.ts";
 import type { ChannelConfig } from "../../../common/config/types.ts";
 import { ValidationError } from "../../../common/error.ts";
 import type {
@@ -7,6 +8,8 @@ import type {
   ChannelTransport,
   ChannelTransportContext,
 } from "../core/types.ts";
+import { createTelegramProvisioningBridgeClient } from "./provisioning-bridge-client.ts";
+import { resolveTelegramManagerBotUsername } from "./config.ts";
 
 const TELEGRAM_API_BASE_URL = "https://api.telegram.org";
 const TELEGRAM_POLL_TIMEOUT_SECONDS = 30;
@@ -60,7 +63,11 @@ interface TelegramTransportDependencies {
 }
 
 class TelegramApiError extends Error {
-  constructor(message: string, readonly fatal: boolean) {
+  constructor(
+    message: string,
+    readonly fatal: boolean,
+    readonly status?: number,
+  ) {
     super(message);
     this.name = "TelegramApiError";
   }
@@ -163,7 +170,11 @@ async function parseTelegramResult<T>(
       : "";
     const message = description ||
       `Telegram API HTTP ${response.status}: ${response.statusText}`;
-    throw new TelegramApiError(message, response.status >= 400 && response.status < 500);
+    throw new TelegramApiError(
+      message,
+      response.status >= 400 && response.status < 500,
+      response.status,
+    );
   }
   if (!body || body.ok !== true) {
     throw new TelegramApiError(
@@ -173,6 +184,13 @@ async function parseTelegramResult<T>(
     );
   }
   return body.result as T;
+}
+
+function isStaleBotError(error: unknown): boolean {
+  if (error instanceof TelegramApiError) {
+    return error.status === 401;
+  }
+  return error instanceof HttpError && error.status === 401;
 }
 
 function createTelegramApi(): TelegramApi {
@@ -242,6 +260,48 @@ export function createTelegramTransport(
     : 0;
   let pollAbort: AbortController | null = null;
   let pollLoop: Promise<void> | null = null;
+  let activeContext: ChannelTransportContext | null = null;
+  const deviceId = typeof config.transport?.deviceId === "string" && config.transport.deviceId.trim()
+    ? config.transport.deviceId.trim()
+    : undefined;
+  const ownerUserId = typeof config.transport?.ownerUserId === "number" &&
+      Number.isInteger(config.transport.ownerUserId)
+    ? config.transport.ownerUserId
+    : undefined;
+
+  async function clearStaleBotState(context: ChannelTransportContext): Promise<void> {
+    token = "";
+    username = undefined;
+    cursor = 0;
+    await context.updateConfig({
+      onboardingDismissed: false,
+      enabled: false,
+      allowedIds: [],
+      transport: {
+        mode: "direct",
+        ...(deviceId ? { deviceId } : {}),
+        token: "",
+        username: "",
+        cursor: 0,
+      },
+    });
+
+    const provisioningBridgeBaseUrl = getEnvVar("HLVM_TELEGRAM_PROVISIONING_BRIDGE_URL")?.trim();
+    const bridgeAuthToken = getEnvVar("HLVM_TELEGRAM_PROVISIONING_BRIDGE_AUTH_TOKEN")?.trim();
+    if (!provisioningBridgeBaseUrl || !bridgeAuthToken) return;
+
+    const managerBotUsername = resolveTelegramManagerBotUsername();
+    try {
+      await createTelegramProvisioningBridgeClient(provisioningBridgeBaseUrl).resetState?.({
+        ...(deviceId ? { deviceId } : {}),
+        ...(ownerUserId !== undefined && managerBotUsername
+          ? { ownerUserId, managerBotUsername }
+          : {}),
+      }, bridgeAuthToken);
+    } catch {
+      // Ignore bridge reset failure — local stale-token cleanup is the critical path.
+    }
+  }
 
   async function persistTransport(context: ChannelTransportContext): Promise<void> {
     await context.updateConfig({
@@ -283,11 +343,17 @@ export function createTelegramTransport(
           ? error.fatal
           : error instanceof HttpError && error.status >= 400 && error.status < 500;
         const detail = error instanceof Error ? error.message : String(error);
-        context.setStatus({ state: "error", lastError: detail });
         if (fatal) {
+          if (isStaleBotError(error)) {
+            await clearStaleBotState(context);
+            context.setStatus({ state: "disconnected", lastError: detail });
+            return;
+          }
+          context.setStatus({ state: "error", lastError: detail });
           return;
         }
 
+        context.setStatus({ state: "error", lastError: detail });
         failureCount += 1;
         const backoffMs = Math.min(5_000, 250 * (2 ** (failureCount - 1)));
         await sleep(backoffMs, signal);
@@ -303,6 +369,7 @@ export function createTelegramTransport(
     },
 
     async start(context: ChannelTransportContext): Promise<void> {
+      activeContext = context;
       if (config.transport?.mode !== "direct") {
         throw new ValidationError(
           "Telegram transport currently supports only channels.telegram.transport.mode = \"direct\".",
@@ -316,7 +383,18 @@ export function createTelegramTransport(
         );
       }
 
-      const me = await api.getMe(token);
+      let me: TelegramGetMeResult;
+      try {
+        me = await api.getMe(token);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        if (isStaleBotError(error)) {
+          await clearStaleBotState(context);
+          context.setStatus({ state: "disconnected", lastError: detail });
+          return;
+        }
+        throw error;
+      }
       const canonicalUsername = trimUsername(me.username);
       if (canonicalUsername && canonicalUsername !== username) {
         username = canonicalUsername;
@@ -334,7 +412,17 @@ export function createTelegramTransport(
           "telegram_transport",
         );
       }
-      await api.sendMessage(token, message.remoteId, message.text);
+      try {
+        await api.sendMessage(token, message.remoteId, message.text);
+      } catch (error) {
+        if (isStaleBotError(error) && activeContext) {
+          const detail = error instanceof Error ? error.message : String(error);
+          await clearStaleBotState(activeContext);
+          activeContext.setStatus({ state: "disconnected", lastError: detail });
+          return;
+        }
+        throw error;
+      }
     },
 
     async stop(): Promise<void> {
@@ -348,6 +436,7 @@ export function createTelegramTransport(
       } finally {
         pollAbort = null;
         pollLoop = null;
+        activeContext = null;
       }
     },
   };

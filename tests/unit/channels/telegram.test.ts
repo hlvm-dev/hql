@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert";
+import { HttpError } from "../../../src/common/http-client.ts";
 import { createTelegramTransport } from "../../../src/hlvm/channels/telegram/transport.ts";
 import type {
   ChannelMessage,
@@ -227,4 +228,131 @@ Deno.test("telegram transport: refreshes persisted username when Telegram userna
   );
 
   await transport.stop();
+});
+
+Deno.test("telegram transport: clears stale local bot state when getMe reports deleted bot", async () => {
+  const transport = createTelegramTransport({
+    enabled: true,
+    allowedIds: ["8703305947"],
+    transport: {
+      mode: "direct",
+      deviceId: "device-1",
+      ownerUserId: 8703305947,
+      token: "123:abc",
+      username: "hlvm_deleted_bot",
+      cursor: 99,
+    },
+  }, {
+    api: {
+      async getMe() {
+        throw new HttpError("401 Unauthorized", 401, "Unauthorized", "https://api.telegram.org");
+      },
+      async getUpdates() {
+        return [];
+      },
+      async sendMessage() {},
+    },
+  });
+
+  const { context, patches, statuses } = createTestContext();
+  await transport.start(context);
+
+  assertEquals(statuses.at(-1), {
+    state: "disconnected",
+    lastError: "401 Unauthorized",
+  });
+  assertEquals(patches.at(-1), {
+    onboardingDismissed: false,
+    enabled: false,
+    allowedIds: [],
+    transport: {
+      mode: "direct",
+      deviceId: "device-1",
+      token: "",
+      username: "",
+      cursor: 0,
+    },
+  });
+});
+
+Deno.test("telegram transport: clears stale local bot state when polling hits deleted bot", async () => {
+  const transport = createTelegramTransport({
+    enabled: true,
+    allowedIds: ["8703305947"],
+    transport: {
+      mode: "direct",
+      deviceId: "device-1",
+      ownerUserId: 8703305947,
+      token: "123:abc",
+      username: "hlvm_deleted_bot",
+      cursor: 99,
+    },
+  }, {
+    api: {
+      async getMe() {
+        return { id: 99, username: "hlvm_deleted_bot" };
+      },
+      async getUpdates() {
+        throw new HttpError("401 Unauthorized", 401, "Unauthorized", "https://api.telegram.org");
+      },
+      async sendMessage() {},
+    },
+  });
+
+  const { context, patches, statuses } = createTestContext();
+  await transport.start(context);
+
+  await waitFor(() => statuses.at(-1)?.state === "disconnected");
+
+  assertEquals(statuses.at(-1), {
+    state: "disconnected",
+    lastError: "401 Unauthorized",
+  });
+  assertEquals(patches.at(-1), {
+    onboardingDismissed: false,
+    enabled: false,
+    allowedIds: [],
+    transport: {
+      mode: "direct",
+      deviceId: "device-1",
+      token: "",
+      username: "",
+      cursor: 0,
+    },
+  });
+
+  await transport.stop();
+});
+
+Deno.test("telegram transport: does not clear local bot state on generic 404", async () => {
+  const transport = createTelegramTransport({
+    enabled: true,
+    allowedIds: ["8703305947"],
+    transport: {
+      mode: "direct",
+      deviceId: "device-1",
+      ownerUserId: 8703305947,
+      token: "123:abc",
+      username: "hlvm_deleted_bot",
+      cursor: 99,
+    },
+  }, {
+    api: {
+      async getMe() {
+        throw new HttpError("404 Not Found", 404, "Not Found", "https://api.telegram.org");
+      },
+      async getUpdates() {
+        return [];
+      },
+      async sendMessage() {},
+    },
+  });
+
+  const { context, patches } = createTestContext();
+  await assertRejects(
+    () => transport.start(context),
+    HttpError,
+    "404 Not Found",
+  );
+  assertEquals(patches, []);
 });

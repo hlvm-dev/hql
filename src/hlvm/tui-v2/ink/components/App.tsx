@@ -1,11 +1,10 @@
 // @ts-nocheck
 import { setImmediate as setImmediateTimer } from 'node:timers';
+import { RuntimeError } from '../../../../common/error.ts';
 import React, { PureComponent, type ReactNode } from 'react';
 import { updateLastInteractionTime } from '../../stubs/state.ts';
 import { logForDebugging } from '../../stubs/debug.ts';
-import { stopCapturingEarlyInput } from '../../stubs/utils.ts';
-import { isEnvTruthy } from '../../stubs/utils.ts';
-import { isMouseClicksDisabled } from '../../stubs/utils.ts';
+import { isEnvTruthy, isMouseClicksDisabled, stopCapturingEarlyInput } from '../../stubs/utils.ts';
 import { logError } from '../../stubs/log.ts';
 import { EventEmitter } from '../events/emitter.ts';
 import { InputEvent } from '../events/input-event.ts';
@@ -93,6 +92,9 @@ type Props = {
 // position tolerance allows for trackpad jitter between clicks.
 const MULTI_CLICK_TIMEOUT_MS = 500;
 const MULTI_CLICK_DISTANCE = 1;
+// Timeout durations for incomplete escape sequences (ms)
+const NORMAL_TIMEOUT = 50;
+const PASTE_TIMEOUT = 500;
 type State = {
   readonly error?: Error;
 };
@@ -118,9 +120,6 @@ export default class App extends PureComponent<Props, State> {
   keyParseState = INITIAL_STATE;
   // Timer for flushing incomplete escape sequences
   incompleteEscapeTimer: NodeJS.Timeout | null = null;
-  // Timeout durations for incomplete sequences (ms)
-  readonly NORMAL_TIMEOUT = 50; // Short timeout for regular esc sequences
-  readonly PASTE_TIMEOUT = 500; // Longer timeout for paste operations
 
   // Terminal query/response dispatch. Responses arrive on stdin (parsed
   // out by parse-keypress) and are routed to pending promise resolvers.
@@ -214,9 +213,9 @@ export default class App extends PureComponent<Props, State> {
     } = this.props;
     if (!this.isRawModeSupported()) {
       if (stdin === process.stdin) {
-        throw new Error('Raw mode is not supported on the current process.stdin, which Ink uses as input stream by default.\nRead about how to prevent this error on https://github.com/vadimdemedes/ink/#israwmodesupported');
+        throw new RuntimeError('Raw mode is not supported on the current process.stdin, which Ink uses as input stream by default.\nRead about how to prevent this error on https://github.com/vadimdemedes/ink/#israwmodesupported');
       } else {
-        throw new Error('Raw mode is not supported on the stdin provided to Ink.\nRead about how to prevent this error on https://github.com/vadimdemedes/ink/#israwmodesupported');
+        throw new RuntimeError('Raw mode is not supported on the stdin provided to Ink.\nRead about how to prevent this error on https://github.com/vadimdemedes/ink/#israwmodesupported');
       }
     }
     stdin.setEncoding('utf8');
@@ -298,7 +297,7 @@ export default class App extends PureComponent<Props, State> {
     // drain stdin next and clear this timer. Prevents both the spurious
     // Escape key and the lost scroll event.
     if (this.props.stdin.readableLength > 0) {
-      this.incompleteEscapeTimer = setTimeout(this.flushIncomplete, this.NORMAL_TIMEOUT);
+      this.incompleteEscapeTimer = setTimeout(this.flushIncomplete, NORMAL_TIMEOUT);
       return;
     }
 
@@ -328,7 +327,7 @@ export default class App extends PureComponent<Props, State> {
       if (this.incompleteEscapeTimer) {
         clearTimeout(this.incompleteEscapeTimer);
       }
-      this.incompleteEscapeTimer = setTimeout(this.flushIncomplete, this.keyParseState.mode === 'IN_PASTE' ? this.PASTE_TIMEOUT : this.NORMAL_TIMEOUT);
+      this.incompleteEscapeTimer = setTimeout(this.flushIncomplete, this.keyParseState.mode === 'IN_PASTE' ? PASTE_TIMEOUT : NORMAL_TIMEOUT);
     }
   };
   handleReadable = (): void => {

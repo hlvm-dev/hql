@@ -11,7 +11,7 @@ Private operational note. No tokens or secret values are recorded here.
 - role: Telegram managed-bot setup manager
 - status:
   - used in earlier managed-bot creation tests
-  - still appears in the latest observed local create-session URL
+  - no longer the current production-default manager identity
 
 ### Manager bot, fresh replacement
 
@@ -22,7 +22,31 @@ Private operational note. No tokens or secret values are recorded here.
   - Bot Management Mode enabled
   - webhook configured on the hosted bridge
   - bridge environment updated to this manager identity
-  - fresh-account managed create completed successfully through this manager bot
+  - current production-default manager identity
+  - latest create and reconnect/recreate tests completed successfully through
+    this manager bot
+
+### Current live child bot
+
+- name: user-edited during latest recreate flow
+- username: `@my_bot_brobot`
+- role: current direct Telegram bot connected to this local HLVM install
+- status:
+  - created through the reactive reconnect flow after the previous child bot
+    was deleted in Telegram
+  - latest recreate test changed both the prefilled display name and the
+    prefilled child `@username`
+  - bridge returned the final created username and local HLVM adopted it
+    correctly
+
+### Deleted child bot from reconnect test
+
+- name: `HLVM`
+- username: `@hlvm_6d5e93_bot`
+- role: previous direct child bot used before Telegram-side deletion testing
+- status:
+  - deleted in BotFather during the reactive recovery test
+  - used to prove the `401 → stale-state cleanup → reconnect QR` path
 
 ### Direct test bot
 
@@ -110,29 +134,36 @@ Mac scan window
 The old `https://t.me/<existing_bot>` web landing page is no longer needed for
 this path.
 
-## Current blocked path
+## Current proven path additions
 
-### First-time managed-bot create
+### Proven path C: first-time managed-bot create
 
 ```text
 Mac scan window
 → QR = https://t.me/newbot/<manager>/<child>?name=HLVM
-→ Telegram managed create flow
-→ Create does not always complete
-→ no managed_bot webhook arrives
-→ no token handoff happens
-→ no new direct bot config is written locally
+→ Telegram managed create flow opens with prefilled child bot identity
+→ user creates the child bot
+→ manager webhook receives managed_bot
+→ bridge gets child token
+→ local runtime claims completion
+→ local direct Telegram transport reaches connected
+→ chat works
 ```
 
-This is still the unresolved path.
+### Proven path D: deleted-bot reactive recovery
 
-Observed original-account symptom:
-
-- Telegram create sheet opens
-- `Create` button is disabled
-- no Telegram-side error is surfaced to HLVM
-- no `managed_bot` webhook arrives
-- hard limit / gating cause is still unknown
+```text
+user deletes child bot in BotFather
+→ first real Telegram API call returns 401
+→ HLVM clears stale local bot state
+→ same scan QR window reopens immediately with reconnect copy
+→ user scans again
+→ Telegram managed create flow opens with prefilled child bot identity
+→ user can edit final display name and child @username
+→ bridge returns the final created bot identity
+→ local runtime adopts that final bot identity
+→ chat works again
+```
 
 ## What Deno stores
 
@@ -182,21 +213,29 @@ Not stored there for the direct path:
 - backend/runtime after a bot already exists
 - local embedded hlvm direct Telegram transport
 - centralized host chat pipeline
+- first-time managed-bot create on the active tested path
 - existing-bot scan reopen flow
+- deleted-bot reactive recovery
+- immediate reconnect QR after stale/deleted bot detection
 - persisted existing-bot scan reopen after onboarding dismissal
 - pending-session reuse inside the local runtime
 - bridge-side superseding of stale pending sessions for the same local install
 - bridge-side superseding of stale pending sessions for the same known Telegram
   owner
 - hosted provisioning bridge architecture
-- full managed-bot create flow on a fresh Telegram account
 - auto-adoption of a sole unmatched created managed bot when the user edited the
   prefilled child username during create
 - owner-aware completion when Telegram returns a changed child username for a
   session already bound to a known owner
+- centralized Telegram provisioning defaults for manager bot + bridge URL
+- stale-bot cleanup on Telegram `401`
 
 ### Not ready
 
-- first-time managed-bot creation on the original debugging Telegram account
-- a Telegram-internal explanation for the disabled-Create state on that
-  original account
+- Android validation
+- Telegram settings lifecycle UI such as `Open Chat`, `Reconnect`, and
+  `Disconnect This Mac`
+- automatic post-create bot branding such as photo / about / description
+- stronger message-level observability for inbound Telegram updates and replies
+- a perfect product-wide answer to concurrent edited-username first creates
+  before HLVM already knows the Telegram owner identity

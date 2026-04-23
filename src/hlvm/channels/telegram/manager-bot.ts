@@ -2,7 +2,6 @@ import { http } from "../../../common/http-client.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { log } from "../../api/log.ts";
 import type { TelegramProvisioningBridgeService } from "./provisioning-bridge-service.ts";
-import { logTelegramE2ETrace } from "./e2e-trace.ts";
 
 const TELEGRAM_API_BASE_URL = "https://api.telegram.org";
 const TELEGRAM_REQUEST_TIMEOUT_MS = 30_000;
@@ -46,8 +45,7 @@ export interface TelegramManagerBotHandlerOptions {
 }
 
 function logTelegramManagerWebhook(event: string, data: Record<string, unknown>): void {
-  logTelegramE2ETrace("manager-webhook", event, data);
-  log.raw.log(`[telegram-manager-webhook] ${event} ${JSON.stringify(data)}`);
+  log.ns("telegram").debug(`[manager-webhook] ${event} ${JSON.stringify(data)}`);
 }
 
 function parseTelegramApiResponse<T>(
@@ -66,7 +64,7 @@ function parseTelegramApiResponse<T>(
       const description = typeof body?.description === "string"
         ? body.description.trim()
         : "";
-      throw new Error(
+      throw new ValidationError(
         description || `Telegram manager bot API failed with HTTP ${response.status}.`,
       );
     }

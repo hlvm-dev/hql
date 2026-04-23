@@ -1,9 +1,8 @@
 import type { HlvmConfig } from "../../../common/config/types.ts";
 import { ValidationError } from "../../../common/error.ts";
-import { getDebugLogPath, getEnvVar } from "../../../common/paths.ts";
 import { config } from "../../api/config.ts";
 import { channelRuntime } from "../registry.ts";
-import { getPlatform } from "../../../platform/platform.ts";
+import { log } from "../../api/log.ts";
 import type {
   RuntimeTelegramProvisioningCompleteRequest,
   RuntimeTelegramProvisioningCompletionResult,
@@ -19,7 +18,10 @@ import {
   type TelegramProvisioningBridgeClient,
 } from "./provisioning-bridge-client.ts";
 import type { ChannelStatus } from "../core/types.ts";
-import { logTelegramE2ETrace } from "./e2e-trace.ts";
+import {
+  resolveTelegramManagerBotUsername,
+  resolveTelegramProvisioningBridgeBaseUrl,
+} from "./config.ts";
 
 export type {
   RuntimeTelegramProvisioningCompleteRequest,
@@ -28,7 +30,6 @@ export type {
   RuntimeTelegramProvisioningSessionSnapshot,
 } from "../../runtime/reachability-protocol.ts";
 
-const DEFAULT_MANAGER_BOT_USERNAME = "hlvm_manager_bot";
 const DEFAULT_BOT_NAME = "HLVM";
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 const BRIDGE_CLAIM_POLL_INTERVAL_MS = 1_000;
@@ -85,26 +86,7 @@ export interface TelegramProvisioningService {
 }
 
 function logTelegramProvisioningTrace(event: string, data: Record<string, unknown>): void {
-  logTelegramE2ETrace("runtime", event, data);
-  try {
-    const line = `[${new Date().toISOString()}] [telegram-provisioning] ${event} ${
-      JSON.stringify(data)
-    }\n`;
-    getPlatform().fs.writeTextFileSync(getDebugLogPath(), line, { append: true });
-  } catch {
-    // Ignore debug logging failures.
-  }
-}
-
-function sanitizeManagerBotUsername(value: string | undefined): string {
-  const configured = getEnvVar("HLVM_TELEGRAM_MANAGER_BOT_USERNAME")?.trim().replace(/^@+/, "");
-  const trimmed = value?.trim().replace(/^@+/, "") || configured || DEFAULT_MANAGER_BOT_USERNAME;
-  logTelegramProvisioningTrace("sanitize-manager-bot-username", {
-    input: value ?? null,
-    env: configured ?? null,
-    resolved: trimmed || DEFAULT_MANAGER_BOT_USERNAME,
-  });
-  return trimmed || DEFAULT_MANAGER_BOT_USERNAME;
+  log.ns("telegram").debug(`[provisioning] ${event} ${JSON.stringify(data)}`);
 }
 
 function sanitizeBotName(value: string | undefined): string {
@@ -174,9 +156,9 @@ export function createTelegramProvisioningService(
     ((channel, code) => channelRuntime.armPairCode(channel, code));
   const disarmPairCode = dependencies.disarmPairCode ??
     ((channel) => channelRuntime.disarmPairCode(channel));
-  const provisioningBridgeBaseUrl = dependencies.provisioningBridgeBaseUrl?.trim() ||
-    getEnvVar("HLVM_TELEGRAM_PROVISIONING_BRIDGE_URL")?.trim() ||
-    undefined;
+  const provisioningBridgeBaseUrl = resolveTelegramProvisioningBridgeBaseUrl(
+    dependencies.provisioningBridgeBaseUrl,
+  );
   const now = dependencies.now ?? Date.now;
   const randomId = dependencies.randomId ?? (() => crypto.randomUUID());
   const randomCode = dependencies.randomCode ??
@@ -359,7 +341,7 @@ export function createTelegramProvisioningService(
       const seed = rawId.slice(0, 6).toLowerCase();
       const sessionId = rawId;
       const pairCode = randomCode();
-      const managerBotUsername = sanitizeManagerBotUsername(input.managerBotUsername);
+      const managerBotUsername = resolveTelegramManagerBotUsername(input.managerBotUsername);
       const botName = sanitizeBotName(input.botName);
       const botUsername = sanitizeBotUsername(input.botUsername, seed);
       const createUrl = buildTelegramManagedBotCreateUrl(
@@ -524,9 +506,9 @@ export function createTelegramProvisioningService(
       const existingChannel = existingChannels.telegram ?? {};
       const existingTransport = existingChannel.transport ?? {};
       const existingAllowedIds = existingChannel.allowedIds ?? [];
-      const nextAllowedIds = existingAllowedIds.length > 0
-        ? existingAllowedIds
-        : (Number.isInteger(input.ownerUserId) ? [String(input.ownerUserId)] : []);
+      const nextAllowedIds = Number.isInteger(input.ownerUserId)
+        ? [String(input.ownerUserId)]
+        : existingAllowedIds;
 
       await patchConfig({
         channels: {

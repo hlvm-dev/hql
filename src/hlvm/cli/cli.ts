@@ -1,8 +1,4 @@
 #!/usr/bin/env -S deno run -A
-/**
- * HLVM CLI - Main entry point
- * Dispatches to appropriate command handlers
- */
 
 import { getPlatform } from "../../platform/platform.ts";
 import { log } from "../api/log.ts";
@@ -26,12 +22,10 @@ import { bootstrapCommand, showBootstrapHelp } from "./commands/bootstrap.ts";
 import { chromeExtCommand, showChromeExtHelp } from "./commands/chrome-ext.ts";
 
 import { run as runCommand } from "./run.ts";
-const loadOldRepl = () =>
-  import("./repl-ink/index.tsx").then((m) => m.startInkRepl);
 import { VERSION } from "../../common/version.ts";
 import { HLVM_RUNTIME_DEFAULT_PORT } from "../runtime/host-config.ts";
 import { ensureDenoAvailable } from "./utils/toolchain.ts";
-import { ValidationError } from "../../common/error.ts";
+import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { stripErrorCodeFromMessage } from "../../common/error-codes.ts";
 
 interface ParsedReplArgs {
@@ -71,11 +65,7 @@ function parseReplArgs(args: string[]): ParsedReplArgs {
   return parsed;
 }
 
-/**
- * Handle `hlvm repl` command
- */
 async function replCommand(args: string[]): Promise<number> {
-  // Handle help
   if (hasHelpFlag(args)) {
     log.raw.log(`
 HLVM Interactive Shell - HQL/JS Read-Eval-Print Loop
@@ -104,7 +94,6 @@ EXAMPLES:
     return 0;
   }
 
-  // Handle version
   if (args.includes("--version")) {
     log.raw.log(`HLVM REPL v${VERSION}`);
     return 0;
@@ -123,7 +112,9 @@ EXAMPLES:
     return await launchTuiV2Baseline(args);
   }
 
-  const startInkRepl = await loadOldRepl();
+  const startInkRepl = await import("./repl-ink/index.tsx").then((m) =>
+    m.startInkRepl
+  );
 
   return await startInkRepl({
     showBanner: parsedArgs.showBanner,
@@ -179,14 +170,11 @@ async function resolveTuiV2LaunchPaths(): Promise<{
     }
   }
 
-  throw new Error(
+  throw new RuntimeError(
     "TUI v2 entry files not found. Expected src/hlvm/tui-v2/{main.tsx,deno.json}.",
   );
 }
 
-/**
- * Display main CLI help
- */
 function showHelp(): void {
   log.raw.log(`
 HLVM - AI-native runtime infrastructure
@@ -225,9 +213,6 @@ For command-specific help:
 `);
 }
 
-/**
- * Show version information
- */
 function showVersion(): void {
   log.raw.log(`HLVM version ${VERSION}`);
 }
@@ -260,9 +245,6 @@ function exitIfNonZero(result: unknown): void {
   }
 }
 
-/**
- * Main CLI entry point
- */
 async function main(): Promise<void> {
   const args = platformGetArgs();
 
@@ -276,7 +258,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Default: start REPL when no arguments (for GUI compatibility)
   if (args.length === 0) {
     exitIfNonZero(await replCommand([]));
     return;
@@ -298,7 +279,6 @@ async function main(): Promise<void> {
 
   const entry = COMMANDS[command];
   if (!entry) {
-    // Default: assume it's a file or expression to run
     exitIfNonZero(await runCommand(args));
     return;
   }
@@ -313,7 +293,6 @@ async function main(): Promise<void> {
   }
 }
 
-// Run if executed directly
 if (import.meta.main) {
   main().catch((error) => {
     const args = platformGetArgs();

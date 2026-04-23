@@ -1,5 +1,6 @@
 import type { DOMElement } from './dom.ts'
 import { FocusEvent } from './events/focus-event.ts'
+import { RuntimeError } from '../../../common/error.ts'
 
 const MAX_FOCUS_STACK = 32
 
@@ -169,13 +170,9 @@ export function getRootNode(node: DOMElement): DOMElement {
     if (current.focusManager) return current
     current = current.parentNode
   }
-  throw new Error('Node is not in a tree with a FocusManager')
+  throw new RuntimeError('Node is not in a tree with a FocusManager')
 }
 
-/**
- * Walk up to root and return its FocusManager.
- * Like browser's `node.ownerDocument` — focus belongs to the root.
- */
 export function getFocusManager(node: DOMElement): FocusManager {
   return getRootNode(node).focusManager!
 }

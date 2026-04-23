@@ -1,5 +1,7 @@
 import { stringWidth } from "../ink/stringWidth.ts";
 import { wrapAnsi } from "../ink/wrapAnsi.ts";
+import { RuntimeError } from "../../../common/error.ts";
+import { getGraphemeSegmenter } from "../stubs/intl.ts";
 
 type WrappedLine = {
   text: string;
@@ -20,17 +22,6 @@ type Position = {
   line: number;
   column: number;
 };
-
-let graphemeSegmenter: Intl.Segmenter | null = null;
-
-function getGraphemeSegmenter(): Intl.Segmenter {
-  if (!graphemeSegmenter) {
-    graphemeSegmenter = new Intl.Segmenter(undefined, {
-      granularity: "grapheme",
-    });
-  }
-  return graphemeSegmenter;
-}
 
 function prevOffset(text: string, offset: number): number {
   if (offset <= 0) return 0;
@@ -121,7 +112,7 @@ function measureWrappedLines(text: string, columns: number): WrappedLine[] {
 
     const startOffset = text.indexOf(line, searchOffset);
     if (startOffset === -1) {
-      throw new Error("Failed to map wrapped prompt line to source input");
+      throw new RuntimeError("Failed to map wrapped prompt line to source input");
     }
 
     searchOffset = startOffset + line.length;

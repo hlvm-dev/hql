@@ -1,4 +1,5 @@
 import { useContext } from "react";
+import { RuntimeError } from "../../../common/error.ts";
 import {
   TerminalSizeContext,
   type TerminalSize,
@@ -8,7 +9,7 @@ export function useTerminalSize(): TerminalSize {
   const size = useContext(TerminalSizeContext);
 
   if (!size) {
-    throw new Error("useTerminalSize must be used within an Ink App component");
+    throw new RuntimeError("useTerminalSize must be used within an Ink App component");
   }
 
   return size;

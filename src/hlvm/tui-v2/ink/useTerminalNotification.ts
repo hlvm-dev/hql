@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo } from 'react'
+import { RuntimeError } from '../../../common/error.ts'
 import { isProgressReportingAvailable, type Progress } from './terminal.ts'
 import { BEL } from './termio/ansi.ts'
 import { ITERM2, OSC, osc, PROGRESS, wrapForMultiplexer } from './termio/osc.ts'
@@ -25,7 +26,7 @@ export type TerminalNotification = {
 export function useTerminalNotification(): TerminalNotification {
   const writeRaw = useContext(TerminalWriteContext)
   if (!writeRaw) {
-    throw new Error(
+    throw new RuntimeError(
       'useTerminalNotification must be used within TerminalWriteProvider',
     )
   }
@@ -110,9 +111,6 @@ export function useTerminalNotification(): TerminalNotification {
               osc(OSC.ITERM2, ITERM2.PROGRESS, PROGRESS.SET, pct),
             ),
           )
-          break
-        case null:
-          // Handled by the if guard above
           break
       }
     },

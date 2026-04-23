@@ -1,27 +1,10 @@
 #!/usr/bin/env -S deno run --allow-read
-/**
- * SSOT (Single Source of Truth) Enforcement Script
- *
- * Validates that the codebase adheres to SSOT principles:
- * 1. Console usage only in logger.ts and log.ts
- * 2. Fetch calls only in http-client.ts and providers/
- * 3. Deno.* calls only in src/platform/
- * 4. Raw Error throws are minimized (warning only)
- *
- * See docs/SSOT-CONTRACT.md for full documentation.
- */
 
 import { walk } from "jsr:@std/fs/walk";
 import { join, relative } from "jsr:@std/path";
 import { getPlatform } from "../src/platform/platform.ts";
 
 const platform = getPlatform();
-
-// ============================================================================
-// Console Allowlist (Permanent Special Cases)
-// ============================================================================
-// Files that legitimately need direct console access for technical reasons.
-// See docs/SSOT-CONTRACT.md for details on each exception.
 
 const CONSOLE_ALLOWLIST = [
   // Bootstrap guard: typeof console !== "undefined" check
@@ -35,10 +18,6 @@ const CONSOLE_ALLOWLIST = [
   // Chrome extension JS runs in Chrome, not HLVM — no platform abstraction available
   "src/hlvm/agent/chrome-ext/extension/",
 ];
-
-// ============================================================================
-// Rule Definitions
-// ============================================================================
 
 interface Rule {
   name: string;
@@ -58,7 +37,6 @@ const RULES: Rule[] = [
       "src/hlvm/api/log.ts",
       ...CONSOLE_ALLOWLIST,
     ],
-    // Note: log.ts uses console.* internally - this is the SSOT implementation
     excludePatterns: [
       /\/\/.*console\./, // Single-line comments
       /^\s*\*.*console\./, // JSDoc content lines (start with *)
@@ -129,6 +107,8 @@ const RULES: Rule[] = [
       // Platform layer - cannot import error.ts due to circular dependency
       "src/platform/deno-platform.ts",
       "src/platform/node-platform.ts",
+      // Chrome extension runs in browser JS — cannot import TypeScript typed errors
+      "src/hlvm/agent/chrome-ext/extension/",
     ],
     excludePatterns: [
       /\/\/.*throw\s+new\s+Error/, // Comments
@@ -156,11 +136,6 @@ const RULES: Rule[] = [
   },
 ];
 
-// ============================================================================
-// Global Exclusions
-// ============================================================================
-
-// Directories to exclude from checking
 const EXCLUDED_DIRS = [
   "node_modules",
   ".git",
@@ -168,19 +143,13 @@ const EXCLUDED_DIRS = [
   "vendor",
 ];
 
-// Provider directories are allowed to use fetch directly
 const PROVIDER_PATHS = [
   "src/hlvm/providers/",
 ];
 
-// Stdlib JS files are allowed to use fetch (utility code)
 const STDLIB_JS_PATHS = [
   "src/hql/lib/stdlib/js/",
 ];
-
-// ============================================================================
-// Types
-// ============================================================================
 
 interface Violation {
   rule: string;
@@ -190,10 +159,6 @@ interface Violation {
   severity: "error" | "warn";
   message: string;
 }
-
-// ============================================================================
-// Checking Logic
-// ============================================================================
 
 function isInProviderPath(filePath: string): boolean {
   return PROVIDER_PATHS.some((p) => filePath.includes(p));
@@ -286,24 +251,10 @@ function isAllowedPath(filePath: string, rule: Rule): boolean {
 }
 
 function checkLine(line: string, rule: Rule): boolean {
-  // Reset pattern lastIndex
   rule.pattern.lastIndex = 0;
-
-  // Check if line matches the forbidden pattern
-  if (!rule.pattern.test(line)) {
-    return false; // No violation
-  }
-
-  // Reset again for exclude check
+  if (!rule.pattern.test(line)) return false;
   rule.pattern.lastIndex = 0;
-
-  // Check if it matches any acceptable exclusion pattern
-  const isExcluded = rule.excludePatterns.some((pattern) => pattern.test(line));
-  if (isExcluded) {
-    return false; // Acceptable, no violation
-  }
-
-  return true; // Violation found
+  return !rule.excludePatterns.some((pattern) => pattern.test(line));
 }
 
 async function checkFile(
@@ -315,7 +266,6 @@ async function checkFile(
   const lines = content.split("\n");
 
   for (const rule of RULES) {
-    // Skip if file is in allowed paths for this rule
     if (isAllowedPath(relativePath, rule)) {
       continue;
     }
@@ -328,7 +278,7 @@ async function checkFile(
           rule: rule.name,
           file: relativePath,
           line: i + 1,
-          content: line.trim().slice(0, 100), // Truncate long lines
+          content: line.trim().slice(0, 100),
           severity: rule.severity,
           message: rule.message,
         });
@@ -339,9 +289,33 @@ async function checkFile(
   return violations;
 }
 
-// ============================================================================
-// Main
-// ============================================================================
+function groupByRule(violations: Violation[]): Map<string, Violation[]> {
+  const byRule = new Map<string, Violation[]>();
+  for (const v of violations) {
+    const list = byRule.get(v.rule) ?? [];
+    list.push(v);
+    byRule.set(v.rule, list);
+  }
+  return byRule;
+}
+
+function printByRule(
+  violations: Violation[],
+  limit: number,
+  actionLabel: string,
+): void {
+  for (const [rule, group] of groupByRule(violations)) {
+    console.log(`  \x1b[1m${rule}\x1b[0m (${group.length}):`);
+    for (const v of group.slice(0, limit)) {
+      console.log(`    ${v.file}:${v.line}`);
+      console.log(`      ${v.content}`);
+    }
+    if (group.length > limit) {
+      console.log(`    ... and ${group.length - limit} more`);
+    }
+    console.log(`    ${actionLabel} ${group[0].message}\n`);
+  }
+}
 
 async function main() {
   const projectRoot = platform.process.cwd();
@@ -349,13 +323,11 @@ async function main() {
   const errors: Violation[] = [];
   const warnings: Violation[] = [];
 
-  // Directories to scan for SSOT compliance
   const scanDirs = ["src", "scripts", "tests"];
 
   for (const dir of scanDirs) {
     const dirPath = join(projectRoot, dir);
 
-    // Walk through directory
     for await (
       const entry of walk(dirPath, {
         exts: [".ts", ".tsx", ".js"],
@@ -366,7 +338,6 @@ async function main() {
 
       const relativePath = relative(projectRoot, entry.path);
 
-      // Skip test files within src/ (they have their own patterns)
       if (
         dir === "src" && (
           relativePath.includes(".test.") || relativePath.includes("_test.") ||
@@ -388,61 +359,18 @@ async function main() {
     }
   }
 
-  // Report results
   console.log("\n=== SSOT Enforcement Check ===\n");
 
   if (errors.length > 0) {
     console.log(`\x1b[31m✗ ${errors.length} error(s) found:\x1b[0m\n`);
-
-    // Group by rule
-    const byRule = new Map<string, Violation[]>();
-    for (const e of errors) {
-      const list = byRule.get(e.rule) || [];
-      list.push(e);
-      byRule.set(e.rule, list);
-    }
-
-    for (const [rule, violations] of byRule) {
-      console.log(`  \x1b[1m${rule}\x1b[0m (${violations.length}):`);
-      for (const v of violations.slice(0, 10)) {
-        // Show first 10
-        console.log(`    ${v.file}:${v.line}`);
-        console.log(`      ${v.content}`);
-      }
-      if (violations.length > 10) {
-        console.log(`    ... and ${violations.length - 10} more`);
-      }
-      console.log(`    Fix: ${violations[0].message}\n`);
-    }
+    printByRule(errors, 10, "Fix:");
   }
 
   if (warnings.length > 0) {
-    console.log(
-      `\x1b[33m⚠ ${warnings.length} warning(s) found:\x1b[0m\n`,
-    );
-
-    // Group by rule
-    const byRule = new Map<string, Violation[]>();
-    for (const w of warnings) {
-      const list = byRule.get(w.rule) || [];
-      list.push(w);
-      byRule.set(w.rule, list);
-    }
-
-    for (const [rule, violations] of byRule) {
-      console.log(`  \x1b[1m${rule}\x1b[0m (${violations.length}):`);
-      for (const v of violations.slice(0, 20)) {
-        console.log(`    ${v.file}:${v.line}`);
-        console.log(`      ${v.content}`);
-      }
-      if (violations.length > 20) {
-        console.log(`    ... and ${violations.length - 20} more`);
-      }
-      console.log(`    Consider: ${violations[0].message}\n`);
-    }
+    console.log(`\x1b[33m⚠ ${warnings.length} warning(s) found:\x1b[0m\n`);
+    printByRule(warnings, 20, "Consider:");
   }
 
-  // Summary
   console.log("=== Summary ===\n");
 
   if (errors.length === 0 && warnings.length === 0) {
@@ -453,7 +381,7 @@ async function main() {
     console.log("\x1b[32m✓ No errors found.\x1b[0m");
     console.log(`\x1b[33m⚠ ${warnings.length} warnings to review.\x1b[0m\n`);
     console.log("See docs/SSOT-CONTRACT.md for guidance.\n");
-    platform.process.exit(0); // Warnings don't fail the check
+    platform.process.exit(0);
   } else {
     console.log(`\x1b[31m✗ ${errors.length} error(s) must be fixed.\x1b[0m`);
     console.log(`\x1b[33m⚠ ${warnings.length} warnings to review.\x1b[0m\n`);

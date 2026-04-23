@@ -5,7 +5,7 @@ import { ValidationError } from "../../../common/error.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import type { PlatformKv, PlatformKvKey } from "../../../platform/types.ts";
 import { log } from "../../api/log.ts";
-import { logTelegramE2ETrace } from "./e2e-trace.ts";
+
 import type {
   TelegramProvisioningBridgeClaimRequest,
   TelegramProvisioningBridgeClaimResult,
@@ -132,8 +132,7 @@ interface TelegramProvisioningBridgeStore {
 }
 
 function logTelegramProvisioningBridge(event: string, data: Record<string, unknown>): void {
-  logTelegramE2ETrace("bridge", event, data);
-  log.raw.log(`[telegram-provisioning-bridge] ${event} ${JSON.stringify(data)}`);
+  log.ns("telegram").debug(`[bridge] ${event} ${JSON.stringify(data)}`);
 }
 
 function parseIsoTimestamp(
@@ -901,12 +900,6 @@ export function createTelegramProvisioningBridgeService(
         });
         return { ok: false, reason: "claimed" };
       }
-      if (session.claimToken !== input.claimToken) {
-        logTelegramProvisioningBridge("claim-forbidden-after-wait", {
-          sessionId: input.sessionId,
-        });
-        return { ok: false, reason: "forbidden" };
-      }
       const claimed: TelegramProvisioningBridgeSessionInternal = {
         ...session,
         state: "claimed",
@@ -928,9 +921,6 @@ export function createTelegramProvisioningBridgeService(
     },
   };
 }
-
-export const telegramProvisioningBridgeService =
-  createTelegramProvisioningBridgeService();
 
 let defaultTelegramProvisioningBridgeServicePromise:
   Promise<TelegramProvisioningBridgeService> | null = null;
@@ -995,7 +985,7 @@ export async function handleTelegramProvisioningBridgeRegister(
   return json(session, 201);
 }
 
-export function handleTelegramProvisioningBridgeStart(
+export async function handleTelegramProvisioningBridgeStart(
   req: Request,
   deps: TelegramProvisioningBridgeServiceDepsWrapper = {},
 ): Promise<Response> {
@@ -1004,15 +994,13 @@ export function handleTelegramProvisioningBridgeStart(
   });
   const sessionId = new URL(req.url).searchParams.get("session")?.trim() ?? "";
   if (!sessionId) {
-    return Promise.resolve(json({ error: "session query parameter is required" }, 400));
+    return json({ error: "session query parameter is required" }, 400);
   }
-  return getService(deps).then(async (service) => {
-    const redirectUrl = await service.getStartRedirect(sessionId);
-    if (!redirectUrl) {
-      return json({ error: "Telegram provisioning session not found" }, 404);
-    }
-    return Response.redirect(redirectUrl, 302);
-  });
+  const redirectUrl = await (await getService(deps)).getStartRedirect(sessionId);
+  if (!redirectUrl) {
+    return json({ error: "Telegram provisioning session not found" }, 404);
+  }
+  return Response.redirect(redirectUrl, 302);
 }
 
 export async function handleTelegramProvisioningBridgeComplete(

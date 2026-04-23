@@ -2,6 +2,7 @@
 /* eslint-disable custom-rules/no-top-level-side-effects */
 
 import { appendFileSync } from "node:fs";
+import { RuntimeError } from "../../../common/error.ts";
 import createReconciler from "react-reconciler";
 import { log } from "../../api/log.ts";
 import { getYogaCounters } from "../yoga/index.ts";
@@ -104,8 +105,6 @@ const cleanupYogaNode = (node: DOMElement | TextNode): void => {
   }
 };
 
-// --
-
 type Props = Record<string, unknown>;
 
 type HostContext = {
@@ -142,8 +141,6 @@ function applyProp(node: DOMElement, key: string, value: unknown): void {
 
   setAttribute(node, key, value as DOMNodeAttribute);
 }
-
-// --
 
 // react-reconciler's Fiber shape — only the fields we walk. The 5th arg to
 // createInstance is the Fiber (`workInProgress` in react-reconciler.dev.js).
@@ -186,7 +183,6 @@ export function isDebugRepaintsEnabled(): boolean {
 
 export const dispatcher = new Dispatcher();
 
-// --- COMMIT INSTRUMENTATION (temp debugging) ---
 // eslint-disable-next-line custom-rules/no-process-env-top-level -- debug instrumentation, read-once is fine
 const COMMIT_LOG = process.env.CLAUDE_CODE_COMMIT_LOG;
 let _commits = 0;
@@ -195,10 +191,9 @@ let _lastCommitAt = 0;
 let _maxGapMs = 0;
 let _createCount = 0;
 let _prepareAt = 0;
-// --- END ---
 
-// --- SCROLL PROFILING (bench/scroll-e2e.sh reads via getLastYogaMs) ---
 // Set by onComputeLayout wrapper in ink.tsx; read by onRender for phases.
+// bench/scroll-e2e.sh reads via getLastYogaMs.
 let _lastYogaMs = 0;
 let _lastCommitMs = 0;
 let _commitStart = 0;
@@ -219,7 +214,6 @@ export function resetProfileCounters(): void {
   _lastCommitMs = 0;
   _commitStart = 0;
 }
-// --- END ---
 
 const reconciler = createReconciler<
   ElementNames,
@@ -342,7 +336,7 @@ const reconciler = createReconciler<
     internalHandle?: unknown,
   ): DOMElement {
     if (hostContext.isInsideText && originalType === "ink-box") {
-      throw new Error(`<Box> can't be nested inside <Text> component`);
+      throw new RuntimeError(`<Box> can't be nested inside <Text> component`);
     }
 
     const type = originalType === "ink-text" && hostContext.isInsideText
@@ -368,7 +362,7 @@ const reconciler = createReconciler<
     hostContext: HostContext,
   ): TextNode {
     if (!hostContext.isInsideText) {
-      throw new Error(
+      throw new RuntimeError(
         `Text string "${text}" must be rendered inside <Text> component`,
       );
     }
