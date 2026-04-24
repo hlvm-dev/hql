@@ -4,10 +4,10 @@
 > reachable from the messaging apps people already live in, with setup that
 > feels like no setup.
 >
-> This doc is the SSOT for messaging work. If it disagrees with an older
-> sketch, roadmap note, or implementation comment, this wins.
+> This doc is the SSOT for messaging work. If it disagrees with an older sketch,
+> roadmap note, or implementation comment, this wins.
 >
-> **Last updated**: 2026-04-23 (rev 15)
+> **Last updated**: 2026-04-24 (rev 16)
 >
 > Binary-side architecture SSOT now also lives in:
 > [../messaging-platform-architecture.md](../messaging-platform-architecture.md)
@@ -16,8 +16,8 @@
 
 - Ship **Telegram Option B** first and only.
 - **Option B** means: create a **user-owned Telegram bot** through Telegram's
-  official managed-bot flow, then run that bot from the user's Mac in
-  `direct` mode.
+  official managed-bot flow, then run that bot from the user's Mac in `direct`
+  mode.
 - **Option A** means: use a **shared HLVM bot** plus an HLVM-run relay. It
   remains a **future candidate only**. Do not build it in this rev.
 - The earlier **iMessage-first** plan failed to reach a reliable, shippable
@@ -26,9 +26,9 @@
   onboarding, and shared "pick your channel" first-launch UX are no longer
   normative.
 
-## Rev 15 status snapshot
+## Rev 16 status snapshot
 
-Rev 10's product decision still stands. Rev 15 is the current execution-state
+Rev 10's product decision still stands. Rev 16 is the current execution-state
 update.
 
 - Telegram Option B is still the only active ship path.
@@ -41,23 +41,23 @@ update.
 - Deleted-bot recovery is also proven:
   `delete child bot in Telegram → first Telegram API 401 → stale local bot
   state cleared → same QR UI reopens immediately → recreate succeeds`.
-- The latest recreate test also proved the edited-child-username path:
-  the QR prefilled one child username, the user edited both display name and
-  `@username` in Telegram's create sheet, and HLVM adopted the final created
-  bot identity correctly.
+- The latest recreate test also proved the edited-child-username path: the QR
+  prefilled one child username, the user edited both display name and
+  `@username` in Telegram's create sheet, and HLVM adopted the final created bot
+  identity correctly.
 - The runtime config merge preserves `channels.telegram.transport` when the
   shell only patches `channels.telegram.onboardingDismissed`, so dismissing
   onboarding no longer erases the saved bot identity on disk.
 - The bridge stores provisioning state in persistent Deno KV and is no longer
   process-memory only.
-- The old long claim wait that produced `[HQL5002]` on Deno Deploy is no
-  longer a lead issue.
+- The old long claim wait that produced `[HQL5002]` on Deno Deploy is no longer
+  a lead issue.
 - The hosted bridge keeps short-lived unmatched managed bots and auto-adopts a
   sole safe candidate for the waiting Mac session when Telegram created a bot
   under an edited child username.
 - The bridge and local runtime preserve a known Telegram `ownerUserId` when it
-  is available, so bridge registration, completion, reset, and direct
-  transport config stay owner-aware instead of device-only.
+  is available, so bridge registration, completion, reset, and direct transport
+  config stay owner-aware instead of device-only.
 - Telegram provisioning defaults are now centralized in
   `src/hlvm/channels/telegram/config.ts` so normal create flow and deleted-bot
   reconnect use the same manager-bot and bridge SSOT.
@@ -76,6 +76,14 @@ update.
 - Telegram transport no longer reaches directly into provisioning-bridge env
   vars or client construction; stale remote reset is now injected through a
   narrow callback.
+- Telegram bot branding now exists as a post-completion best-effort step for
+  profile photo, description, and short description.
+- The macOS onboarding window now treats each presentation as a fresh
+  provisioning session and cancels the active flow on dismiss/close, so a new
+  window does not reuse stale in-memory "waiting for Telegram" state.
+- Message-level Telegram observability now exists at the transport and shared
+  runtime boundaries: update id, message id, sender id, allow/reject reason, run
+  start, run completion, and reply send are logged without message content.
 
 So the practical split is now:
 
@@ -83,7 +91,7 @@ So the practical split is now:
 create → chat: proven
 relaunch → reopen existing bot chat: proven
 delete bot → immediate reconnect QR → recreate → chat: proven
-message-level Telegram observability: still thin
+message-level Telegram observability: implemented at transport/runtime boundary
 settings lifecycle UX for reconnect/disconnect: still missing
 ```
 
@@ -108,35 +116,35 @@ multiple half-plans at once.
 **One brain, many doors.**
 
 ```text
-   Telegram      KakaoTalk      Line      Slack      Discord      future
-      │             │             │           │           │           │
-      └─────────────┴─────────────┴───────────┴───────────┴───────────┘
-                                    │
-                          ┌─────────▼──────────┐
-                          │   message door     │
-                          │   (in hlvm binary) │
-                          └─────────┬──────────┘
-                                    │
-                      sessionKey = "channel:<platform>:<stable_id>"
-                                    │
-                         ┌──────────▼──────────┐
-                         │   HLVM brain        │
-                         │   (unchanged)       │
-                         │   memory · tools    │
-                         │   @auto · subagents │
-                         └──────────┬──────────┘
-                                    │
-                                  reply
-                                    │
-                         back out the same door
+Telegram      KakaoTalk      Line      Slack      Discord      future
+   │             │             │           │           │           │
+   └─────────────┴─────────────┴───────────┴───────────┴───────────┘
+                                 │
+                       ┌─────────▼──────────┐
+                       │   message door     │
+                       │   (in hlvm binary) │
+                       └─────────┬──────────┘
+                                 │
+                   sessionKey = "channel:<platform>:<stable_id>"
+                                 │
+                      ┌──────────▼──────────┐
+                      │   HLVM brain        │
+                      │   (unchanged)       │
+                      │   memory · tools    │
+                      │   @auto · subagents │
+                      └──────────┬──────────┘
+                                 │
+                               reply
+                                 │
+                      back out the same door
 ```
 
-Messaging edges are ingress and egress around the existing runtime. They are
-not a separate product and not a separate agent.
+Messaging edges are ingress and egress around the existing runtime. They are not
+a separate product and not a separate agent.
 
 This stays aligned with [docs/ARCHITECTURE.md](../ARCHITECTURE.md): shells own
-onboarding and presentation, the runtime host owns local protocol and
-lifecycle, and the core engine owns message execution and state.
+onboarding and presentation, the runtime host owns local protocol and lifecycle,
+and the core engine owns message execution and state.
 
 ## Foundation rule
 
@@ -202,8 +210,7 @@ to avoid re-implementing the same messaging loop for every platform.
 - Channel sessions are prevented from hijacking the GUI or public active chat
   surface.
 - Allowlist enforcement exists in the core before `runAgentQuery` runs.
-- `channelRuntime.reconfigure()` is live behind
-  `POST /api/reachability/rebind`.
+- `channelRuntime.reconfigure()` is live behind `POST /api/reachability/rebind`.
 - Config writes are serialized through the single-writer config path.
 - Live reachability events exist through `channelRuntime.subscribe(listener)`
   and `GET /api/reachability/events`.
@@ -211,8 +218,8 @@ to avoid re-implementing the same messaging loop for every platform.
 - Telegram first-contact pairing now plugs into the shared pairing core instead
   of requiring a text-only matcher.
 - The runtime host exposes Telegram provisioning-session endpoints and local
-  runtime-side bridge registration / one-shot claim handling for the manager
-  bot handoff.
+  runtime-side bridge registration / one-shot claim handling for the manager bot
+  handoff.
 - Provisioning sessions can now expose an optional bridge-owned QR URL so the
   scanned link can carry the local session identity into a shared manager-bot
   service without requiring the cloud to reach the user's Mac.
@@ -252,19 +259,19 @@ to avoid re-implementing the same messaging loop for every platform.
 - The active runtime path for Telegram inbound messages now funnels through the
   same host chat pipeline used by the app shell instead of a second bespoke
   message-execution path.
-- The runtime, bridge service, and manager webhook now emit a unified live
-  trace to `/tmp/hlvm-telegram-e2e.log` for post-failure diagnosis.
+- The runtime, bridge service, and manager webhook now emit a unified live trace
+  to `/tmp/hlvm-telegram-e2e.log` for post-failure diagnosis.
 - The old iMessage / Messages transport edge is removed from active code and
   tests. It remains only as retired history in this doc.
 - Real iPhone validation confirmed the managed-bot link opens Telegram's native
   create sheet with pre-filled bot identity and then lands in the new bot chat.
 - Real iPhone validation also confirmed the direct existing-bot path works
-  end-to-end with a plain BotFather bot:
-  Telegram message → local HLVM on Mac → reply back through Telegram.
-- Earlier account-split debugging observed that one Telegram account could
-  stall at the managed create step while another could complete the same flow.
-  That history is still useful, but it is no longer the lead description of
-  the current product state.
+  end-to-end with a plain BotFather bot: Telegram message → local HLVM on Mac →
+  reply back through Telegram.
+- Earlier account-split debugging observed that one Telegram account could stall
+  at the managed create step while another could complete the same flow. That
+  history is still useful, but it is no longer the lead description of the
+  current product state.
 
 ### Current repo and hosted status
 
@@ -277,12 +284,10 @@ implemented and cleaned up:
   live.
 - SSOT and code are aligned on the architecture and implementation boundary.
 - The remaining work is not another messaging architecture pass.
-- Small compatibility cleanup still remains:
-  - temporary Telegram-specific provisioning route aliases still exist beside
-    the canonical generic `:channel` routes
-  - some Telegram refactor cleanup is still worth deleting later
-- The remaining uncertainty is now mostly product hardening:
-  message-level observability, settings lifecycle UX, and Android validation.
+- The old Telegram-specific local provisioning route aliases are gone; local
+  provisioning now uses the canonical generic `:channel` route shape.
+- The remaining uncertainty is now mostly product hardening: settings lifecycle
+  UX and Android validation.
 
 ### Current observed result
 
@@ -340,11 +345,9 @@ So the live evidence now says:
   - `Open Chat`
   - `Reconnect`
   - `Disconnect This Mac`
-- No post-create branding step yet for photo / about / description.
-- Message-level Telegram observability is still thin. Provisioning and
-  reconnect state transitions are easy to prove, but per-message tracing is
-  still not strong enough to answer every "was the first message dropped?" type
-  question from logs alone.
+- No explicit branding-completion UX yet. Branding now runs best-effort after
+  local completion, but the app does not surface a separate success state for it
+  and Telegram client refresh timing can still make it look delayed.
 - Pure raw `t.me/newbot/...` onboarding still has an ambiguity edge case if
   multiple unmatched managed bots are created for the same manager bot within
   the same recovery window and HLVM does not already know the Telegram owner
@@ -354,8 +357,53 @@ So the live evidence now says:
 ### Practical meaning
 
 We are **past architecture debate** and **past backend de-risking**. The
-remaining work is product hardening around the proven path, not another round
-of messaging architecture.
+remaining work is product hardening around the proven path, not another round of
+messaging architecture.
+
+## Next platform priority
+
+The current architecture can support more vendors, but that does not mean all
+next vendors are equally good choices.
+
+The product bar is not "can a technical user configure this eventually." The bar
+is:
+
+```text
+scan / click / approve
+→ then chat
+```
+
+HLVM should only ship a small number of channels where setup can be made close
+to that bar. OpenClaw proves the broad gateway model is possible, but OpenClaw
+also accepts more per-channel setup burden: plugins, QR login, developer tokens,
+external daemons, webhook URLs, and bridge services. HLVM should not become a
+raw gateway clone unless the product goal changes.
+
+Current recommendation:
+
+- build **Slack** next if the goal is the cleanest next engineering step
+- consider **WhatsApp** the biggest global reach target, but not the easiest
+  next build
+- treat **Email** as a future async channel, not as the next real-time chat
+- keep **LINE** as the strongest Asia chat candidate after Slack because it has
+  an official Messaging API webhook model
+- keep **Discord** as a good developer / community option, but not the cleanest
+  consumer onboarding surface
+- treat **KakaoTalk** as possible but difficult: strategically relevant in
+  Korea, but the official surface is more channel / business oriented and less
+  Telegram-like
+
+Reason:
+
+- Slack is the cleanest next adapter for HLVM's current architecture and product
+  shape
+- WhatsApp has the biggest user reach, but the official path is more
+  business-heavy, webhook-first, and operationally stricter than Telegram's
+  direct bot model
+- Email is possible, but it belongs to a different interaction model
+- LINE is technically cleaner than KakaoTalk for bot-style chat
+- KakaoTalk is not impossible, but it should not be treated as a drop-in
+  Telegram clone
 
 ## Current architecture and communication
 
@@ -585,9 +633,9 @@ session = temporary setup state
 bot     = long-lived Telegram identity after pairing
 ```
 
-The session is only there to get a child bot token onto the Mac. After
-pairing, the saved direct bot record becomes the thing rescan and steady-state
-chat should follow.
+The session is only there to get a child bot token onto the Mac. After pairing,
+the saved direct bot record becomes the thing rescan and steady-state chat
+should follow.
 
 ### Edited-username recovery path now
 
@@ -629,9 +677,9 @@ no exact username match
 ```
 
 That makes renamed child usernames deterministic for reconnect/reset flows that
-start from an already-known Telegram owner. The first-ever raw
-`t.me/newbot/...` create flow is still limited by Telegram's callback shape
-when HLVM does not yet know the owner before create.
+start from an already-known Telegram owner. The first-ever raw `t.me/newbot/...`
+create flow is still limited by Telegram's callback shape when HLVM does not yet
+know the owner before create.
 
 ## Product rules
 
@@ -648,13 +696,13 @@ when HLVM does not yet know the owner before create.
 7. Scan visibility is user-controlled. Reopening the scan surface for an
    already-configured bot should not silently consume or dismiss the QR on its
    own.
-8. No BotFather chat, no token copy/paste, no hidden Telegram Web automation,
-   no manual tunnel setup, and no operator-first wizard.
+8. No BotFather chat, no token copy/paste, no hidden Telegram Web automation, no
+   manual tunnel setup, and no operator-first wizard.
 9. All inbound channel traffic stays behind core allowlist enforcement.
 10. No periodic liveness loops. Telegram `direct` mode uses Telegram's update
-   stream and reactive retry only.
+    stream and reactive retry only.
 11. Option A stays documented so we do not forget it, but it is not active
-   scope.
+    scope.
 12. iMessage is historical context only. It is not part of the active roadmap.
 13. New platforms must plug into the same core messaging pipeline unless they
     expose a real shared primitive missing from that pipeline.
@@ -676,8 +724,8 @@ First launch is a single Mac window with one QR.
 └──────────────────────────────────────────────────────────┘
 ```
 
-Scanning that QR hands the user into Telegram's managed-bot flow. The
-committed user-visible path is:
+Scanning that QR hands the user into Telegram's managed-bot flow. The committed
+user-visible path is:
 
 ```text
 scan
@@ -754,8 +802,8 @@ In this repo, the runtime-host side of that handoff now exists end-to-end when
 - onboarding renders either:
   - the direct Telegram managed-bot creation URL for first-time create, or
   - a Telegram app deep link to reopen the existing bot chat
-- local runtime reacts to bridge completion through bounded short polls for
-  that exact session
+- local runtime reacts to bridge completion through bounded short polls for that
+  exact session
 - bridge service marks the session completed when Telegram returns the child bot
 - local runtime claims the completed token once and commits it locally
 
@@ -772,8 +820,8 @@ Its completion route is bearer-protected with
 `HLVM_TELEGRAM_PROVISIONING_BRIDGE_AUTH_TOKEN`.
 
 Its manager-bot webhook consumes Telegram's `managed_bot` update, calls
-`getManagedBotToken`, and completes the matching pending provisioning session
-by the created bot's username and, when already known, by the Telegram owner
+`getManagedBotToken`, and completes the matching pending provisioning session by
+the created bot's username and, when already known, by the Telegram owner
 identity. This route requires:
 
 - `HLVM_TELEGRAM_MANAGER_BOT_TOKEN`
@@ -783,8 +831,8 @@ The local runtime defaults the manager bot username from
 `HLVM_TELEGRAM_MANAGER_BOT_USERNAME` so onboarding does not rely on the
 placeholder `hlvm_manager_bot` name in real deployments.
 
-The reset route is bearer-protected with the same auth token and is intended
-for explicit "start over" or clean-test cleanup. It can clear:
+The reset route is bearer-protected with the same auth token and is intended for
+explicit "start over" or clean-test cleanup. It can clear:
 
 - the pending provisioning session for a local `deviceId`
 - the pending provisioning session for a known Telegram owner
@@ -803,7 +851,8 @@ A. provisioning / reopen / deleted-bot recovery
    proven
 
 B. message-level observability
-   still weak
+   implemented for update id, message id, sender id, allow/reject reason,
+   run start, run completion, and reply send
 
 C. product lifecycle UI around an already-connected Telegram bot
    still missing
@@ -811,7 +860,6 @@ C. product lifecycle UI around an already-connected Telegram bot
 
 So the remaining work is now:
 
-- better message-level Telegram logs through the existing logger SSOT
 - explicit Telegram settings / reconnect lifecycle UX
 - Android validation
 - if needed later, stronger owner-prebinding before create for a perfect
@@ -837,8 +885,8 @@ Real-device validation on 2026-04-21 and 2026-04-22 found two important facts:
 Rev 10 should treat this as a product constraint, not as a reason to add more
 local architecture. The practical implication is simple:
 
-- onboarding copy must tell the truth: Telegram must already be installed on
-  the phone
+- onboarding copy must tell the truth: Telegram must already be installed on the
+  phone
 - future bridge pages may improve the missing-app fallback, but that is not a
   prerequisite for the local runtime design
 
@@ -939,13 +987,10 @@ old iMessage-first assumptions remain binding.
 1. Keep the current proven iOS flow stable:
    `scan → Create → Start → first reply → relaunch reopen → delete bot →
    reconnect QR → recreate → first reply`.
-2. Add message-level Telegram observability through the existing logger SSOT.
-3. Add explicit Telegram lifecycle UI for already-connected users:
-   `Open Chat`, `Reconnect`, `Disconnect This Mac`.
-4. Complete one real Android run of the same create / reconnect flow.
-5. Add optional post-create bot branding if it still feels worth the product
-   surface.
-6. Only then decide whether Option A is worth building.
+2. Add explicit Telegram lifecycle UI for already-connected users: `Open Chat`,
+   `Reconnect`, `Disconnect This Mac`.
+3. Complete one real Android run of the same create / reconnect flow.
+4. Only then decide whether Option A is worth building.
 
 Until then:
 

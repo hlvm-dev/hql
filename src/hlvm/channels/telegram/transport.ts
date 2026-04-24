@@ -1,6 +1,7 @@
 import { http, HttpError } from "../../../common/http-client.ts";
 import type { ChannelConfig } from "../../../common/config/types.ts";
 import { ValidationError } from "../../../common/error.ts";
+import { log } from "../../api/log.ts";
 import type {
   ChannelMessage,
   ChannelReply,
@@ -54,6 +55,8 @@ interface TelegramApi {
     text: string,
   ): Promise<void>;
 }
+
+const telegramLog = log.ns("telegram");
 
 interface TelegramTransportDependencies {
   api?: TelegramApi;
@@ -150,6 +153,25 @@ function toChannelMessage(update: TelegramUpdate): ChannelMessage | null {
       : undefined,
     raw: update,
   };
+}
+
+function traceTelegramTransport(
+  event: string,
+  data: Record<string, unknown>,
+): void {
+  telegramLog.debug(`[transport] ${event} ${JSON.stringify(data)}`);
+}
+
+function traceTelegramUpdate(event: string, update: TelegramUpdate): void {
+  const message = update.message;
+  traceTelegramTransport(event, {
+    updateId: update.update_id,
+    messageId: message?.message_id ?? null,
+    chatId: message?.chat?.id ?? null,
+    senderId: message?.from?.id ?? null,
+    hasText: typeof message?.text === "string" && message.text.length > 0,
+    textLength: message?.text?.length ?? 0,
+  });
 }
 
 async function parseTelegramResult<T>(
@@ -327,8 +349,19 @@ export function createTelegramTransport(
 
         for (const update of updates) {
           latestCursor = Math.max(latestCursor, update.update_id);
+          traceTelegramUpdate("update-received", update);
           const inbound = toChannelMessage(update);
-          if (!inbound) continue;
+          if (!inbound) {
+            traceTelegramUpdate("update-skipped", update);
+            continue;
+          }
+          traceTelegramTransport("inbound-normalized", {
+            updateId: update.update_id,
+            remoteId: inbound.remoteId,
+            senderId: inbound.sender?.id ?? null,
+            hasText: inbound.text.length > 0,
+            textLength: inbound.text.length,
+          });
           await context.receive(inbound);
         }
 
@@ -420,6 +453,11 @@ export function createTelegramTransport(
       }
       try {
         await api.sendMessage(token, message.remoteId, message.text);
+        traceTelegramTransport("reply-sent", {
+          remoteId: message.remoteId,
+          sessionId: message.sessionId,
+          textLength: message.text.length,
+        });
       } catch (error) {
         if (isStaleBotError(error) && activeContext) {
           const detail = error instanceof Error ? error.message : String(error);

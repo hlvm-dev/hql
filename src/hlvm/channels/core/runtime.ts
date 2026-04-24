@@ -7,11 +7,11 @@ import { runChatViaHost } from "../../runtime/host-client.ts";
 import { createSessionQueue } from "./queue.ts";
 import { formatChannelSessionId } from "./session-key.ts";
 import type {
+  ChannelMessage,
   ChannelRuntimeDependencies,
   ChannelStatus,
   ChannelTransport,
   ChannelTransportFactory,
-  ChannelMessage,
 } from "./types.ts";
 
 function cloneChannelStatus(status: ChannelStatus): ChannelStatus {
@@ -48,6 +48,13 @@ function resolveRemotePermissionMode(
     default:
       return "default";
   }
+}
+
+function traceChannelRuntime(
+  event: string,
+  data: Record<string, unknown>,
+): void {
+  log.ns("channels").debug(`[runtime] ${event} ${JSON.stringify(data)}`);
 }
 
 export function createChannelRuntime(
@@ -135,6 +142,11 @@ export function createChannelRuntime(
     senderId: string,
   ): Promise<void> {
     try {
+      traceChannelRuntime("pair-code-accepted", {
+        channel,
+        remoteId: message.remoteId,
+        senderId,
+      });
       await patchConfig({
         channels: {
           [channel]: {
@@ -174,6 +186,15 @@ export function createChannelRuntime(
     const allowed = config.channels?.[channel]?.allowedIds ?? [];
     const senderId = message.sender?.id ?? message.remoteId;
 
+    traceChannelRuntime("inbound-received", {
+      channel,
+      remoteId: message.remoteId,
+      senderId,
+      allowedCount: allowed.length,
+      hasText: trimmedText.length > 0,
+      textLength: message.text.length,
+    });
+
     // Pair-code short-circuit: only runs when allowlist is empty AND a
     // code is armed. A populated allowlist always wins even if a code
     // happens to be armed — this prevents an old code from bypassing
@@ -186,6 +207,11 @@ export function createChannelRuntime(
             await performPairing(transport, channel, message, senderId);
             return;
           }
+          traceChannelRuntime("pair-code-rejected", {
+            channel,
+            remoteId: message.remoteId,
+            senderId,
+          });
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           setStatus(channel, { state: "error", lastError: detail });
@@ -193,27 +219,76 @@ export function createChannelRuntime(
           return;
         }
       }
-      if (!trimmedText) return;
+      if (!trimmedText) {
+        traceChannelRuntime("inbound-dropped", {
+          channel,
+          remoteId: message.remoteId,
+          senderId,
+          reason: "empty_text_unpaired",
+        });
+        return;
+      }
+      traceChannelRuntime("inbound-rejected", {
+        channel,
+        remoteId: message.remoteId,
+        senderId,
+        reason: "no_allowed_sender",
+      });
       log.warn?.(`Channel ${channel} rejected unknown sender ${senderId}`);
       return;
     }
 
     if (!allowed.includes(senderId)) {
+      traceChannelRuntime("inbound-rejected", {
+        channel,
+        remoteId: message.remoteId,
+        senderId,
+        reason: "sender_not_allowed",
+        allowedCount: allowed.length,
+      });
       log.warn?.(`Channel ${channel} rejected unknown sender ${senderId}`);
       return;
     }
-    if (!trimmedText) return;
+    if (!trimmedText) {
+      traceChannelRuntime("inbound-dropped", {
+        channel,
+        remoteId: message.remoteId,
+        senderId,
+        reason: "empty_text",
+      });
+      return;
+    }
 
     const sessionId = formatChannelSessionId(channel, message.remoteId);
 
+    traceChannelRuntime("inbound-accepted", {
+      channel,
+      remoteId: message.remoteId,
+      senderId,
+      sessionId,
+    });
+
     try {
       await queue.run(sessionId, async () => {
+        traceChannelRuntime("run-query-start", {
+          channel,
+          remoteId: message.remoteId,
+          senderId,
+          sessionId,
+        });
         const result = await runQuery({
           query: message.text,
           sessionId,
           querySource: `channel:${channel}`,
           permissionMode: resolveRemotePermissionMode(config.permissionMode),
           noInput: true,
+        });
+        traceChannelRuntime("run-query-done", {
+          channel,
+          remoteId: message.remoteId,
+          senderId,
+          sessionId,
+          textLength: result.text.length,
         });
         await transport.send({
           channel,
@@ -222,12 +297,21 @@ export function createChannelRuntime(
           text: result.text,
           replyTo: message.raw,
         });
+        traceChannelRuntime("reply-sent", {
+          channel,
+          remoteId: message.remoteId,
+          senderId,
+          sessionId,
+          textLength: result.text.length,
+        });
         setStatus(channel, { state: "connected", lastError: null });
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       setStatus(channel, { state: "error", lastError: detail });
-      log.warn?.(`Channel ${channel} failed to handle inbound message: ${detail}`);
+      log.warn?.(
+        `Channel ${channel} failed to handle inbound message: ${detail}`,
+      );
     }
   }
 
@@ -253,7 +337,9 @@ export function createChannelRuntime(
     statuses.clear();
 
     const config = await loadRuntimeConfig();
-    for (const [channel, channelConfig] of Object.entries(config.channels ?? {})) {
+    for (
+      const [channel, channelConfig] of Object.entries(config.channels ?? {})
+    ) {
       setStatus(channel, buildChannelStatus(channel, channelConfig));
 
       if (!channelConfig.enabled) {

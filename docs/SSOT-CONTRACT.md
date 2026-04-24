@@ -25,6 +25,127 @@ This prevents fragmentation, simplifies maintenance, and enables consistent beha
 | **Local Fallback Substrate** | `materializeBootstrap()` + `verifyBootstrap()` | `src/hlvm/runtime/bootstrap-*.ts` | None |
 | **Runtime Host Lifecycle** | `ensureRuntimeHost()` + `serveCommand()` | `src/hlvm/runtime/host-client.ts`, `src/hlvm/cli/commands/serve.ts` | None |
 | **MCP Discovery + Registration** | `loadMcpConfigMultiScope()` + session `ensureMcpLoaded()` | `src/hlvm/agent/mcp/config.ts`, `src/hlvm/agent/session.ts` | None |
+| **Skills Discovery + Prompting** | `loadSkillSnapshot()` + `formatSkillsForPrompt()` + `readSkillBody()` | `src/hlvm/agent/skills/store.ts`, `src/hlvm/agent/skills/prompt.ts` | None |
+| **Channel Runtime** | `createChannelRuntime()` | `src/hlvm/channels/core/runtime.ts` | None |
+| **Channel Vendor Contracts** | `ChannelTransport`, `ChannelProvisioner`, `ChannelSetupSession` | `src/hlvm/channels/core/types.ts` | None |
+| **Channel Wiring** | `channelRuntime` (transport factory registry) | `src/hlvm/channels/registry.ts` | None |
+
+## Skills Architecture
+
+Skills are prompt-side procedural knowledge. A skill is not a tool, not memory,
+not MCP, and not an executable plugin. Skill files can guide real work, but the
+agent still performs that work only through the normal agent loop and existing
+tool safety.
+
+The long-term skills system is layered. The core discovery/prompting substrate
+comes first and remains the required foundation for all higher-level surfaces:
+CLI authoring, slash invocation, bundled skills, skill packs, distribution,
+policy, and user-reviewed skill generation. Higher layers may add UX or sources,
+but they must not bypass the core store/prompt boundary.
+
+```
+skill roots
+  ~/.hlvm/skills/*/SKILL.md
+  <cwd>/.hlvm/skills/*/SKILL.md
+  bundled skills, if packaged
+    → loadSkillSnapshot()        ← scan frontmatter only
+      → formatSkillsForPrompt()  ← compact <available_skills> XML
+        → orchestrator context   ← one Pre-LLM injection hook
+          → model reads SKILL.md through normal read tools when useful
+            → model uses normal tools for edits/commands
+```
+
+### Skills SSOT files
+
+| File | Responsibility |
+|------|----------------|
+| `src/common/paths.ts` | Canonical skills root paths: user, project, and bundled path helpers. |
+| `src/hlvm/agent/skills/types.ts` | Skill data contracts: source, index entry, snapshot, duplicate/shadow metadata. |
+| `src/hlvm/agent/skills/store.ts` | Root scanning, frontmatter parsing, validation, precedence, duplicate handling, body reads. |
+| `src/hlvm/agent/skills/prompt.ts` | XML serialization and prompt-budget formatting. |
+| `src/hlvm/cli/commands/skill.ts` | Local CLI surface: `list`, `new`, `info`, optional `edit`. |
+| `src/hlvm/cli/repl/commands.ts` | Dynamic `/skill-name` command resolution only; no skill storage logic. |
+| `src/hlvm/agent/orchestrator.ts` | Calls the skills prompt hook; does not scan roots directly. |
+
+### Forbidden in skills modules
+
+- Executing skill scripts during discovery or prompt injection
+- Adding a new skill-specific script execution path
+- Treating skills as MCP tools or registering them in the tool registry
+- Writing skills into memory or reading memory as a skills source
+- Calling providers, `fetch()`, or runtime endpoints from skills loading code
+- Reading/writing files outside `getPlatform()` and `src/common/paths.ts`
+- Adding registry/install/update behavior inside the core store/prompt layer
+- Adding env/secrets/config injection without a dedicated SSOT update
+- Adding hot-reload watchers, recurring timers, or background reconciliation loops
+
+### Skill layers
+
+All future skills work should fit one of these layers:
+
+| Layer | Responsibility | SSOT requirement |
+|-------|----------------|------------------|
+| Core substrate | Discover `SKILL.md`, parse frontmatter, resolve precedence, format prompt index, read body | Must live in `src/hlvm/agent/skills/` |
+| Local UX | `hlvm skill ...`, REPL slash activation, completion/catalog display | Must call the core substrate |
+| Bundled skills | Foundational built-in `SKILL.md` folders | Must be exposed as a source to the core substrate |
+| Skill packs | Optional domain packs such as browser, GitHub, release, or messaging workflows | Must be plain skills or explicitly documented package sources |
+| Distribution | Install/search/update/remove from Git, paths, archives, or a registry | Requires a new SSOT entry before implementation |
+| Policy and safety | Dependency checks, dangerous-code scans, allowlists, per-agent scoping | Requires a new SSOT entry before implementation |
+| Assisted authoring | User-reviewed skill suggestions or workflow-to-skill drafts | Requires a new SSOT entry before implementation |
+
+### Adding or expanding skill support
+
+The first implementation should use only these integration points:
+
+1. Add canonical path helpers in `src/common/paths.ts`.
+2. Add the `src/hlvm/agent/skills/` subsystem.
+3. Add one orchestrator hook that injects the compact skills index.
+4. Add `hlvm skill ...` CLI commands.
+5. Add REPL slash-command routing to resolve `/skill-name`.
+
+Everything else must remain in its current SSOT: tools execute tools, MCP loads
+MCP servers, memory stores memories, and providers call models.
+
+If a later phase adds distribution, policy, installers, generated skills, or
+another source of skills, update this contract first with the new SSOT entry and
+its allowed boundaries.
+
+## Channel Architecture
+
+All inbound messages from any chat vendor flow through a single enforced pipeline.
+No vendor transport can reach the HLVM brain directly.
+
+```
+vendor transport.receive(ChannelMessage)
+  → runtime.handleInboundMessage()    ← allowlist check (runtime.ts)
+    → queue.run(sessionId, ...)       ← per-session serialization (queue.ts)
+      → runQuery()                    ← one brain entry point (host-client.ts)
+    → transport.send(ChannelReply)    ← reply via same transport
+```
+
+### Adding a new vendor (e.g. Slack)
+
+Provide exactly two implementations and two wiring lines:
+
+| File | What to implement |
+|------|-------------------|
+| `src/hlvm/channels/slack/transport.ts` | `ChannelTransport` — start/stop/send/receive |
+| `src/hlvm/channels/slack/provisioning.ts` | `ChannelProvisioner` — createSession/completeSession |
+| `src/hlvm/channels/slack/protocol.ts` | `SlackSetupSession extends ChannelSetupSession` |
+
+Wire in:
+- `src/hlvm/channels/registry.ts` — add `slack: createSlackTransport`
+- `src/hlvm/cli/repl/handlers/channels/provisioning.ts` — add `"slack"` dispatch entry
+
+Everything else (allowlist, queue, pairing, runQuery, config writeback, HTTP routes) is
+reused automatically. No other files need to change.
+
+### Forbidden in vendor transport modules
+
+- Calling `runQuery` or `runChatViaHost` directly
+- Importing from `src/hlvm/runtime/host-client.ts`
+- Writing to config outside `context.updateConfig()`
+- Bypassing `context.receive()` to handle messages inline
 
 ## Forbidden Patterns
 
@@ -202,8 +323,8 @@ This checks for:
 
 When adding a new domain:
 1. Create the SSOT implementation file
-2. Export via `src/hlvm/api/index.ts`
-3. Register on `globalThis` in `registerApis()`
+2. Export through the domain's intended module boundary
+3. Register on `globalThis` in `registerApis()` only for REPL-accessible APIs
 4. Update this contract document
 5. Add guardrail rules to `scripts/ssot-check.ts`
 
@@ -236,3 +357,5 @@ When adding a new domain:
 | Date | Change |
 |------|--------|
 | 2025-01-19 | Initial contract created |
+| 2026-04-23 | Added channel runtime, vendor contracts, and multi-vendor extension rules |
+| 2026-04-24 | Added skills discovery, prompting, and execution-boundary rules |

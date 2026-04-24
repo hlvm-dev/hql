@@ -48,8 +48,7 @@ has the core seam in place:
 - Telegram setup session types in `src/hlvm/channels/telegram/protocol.ts`
 - generic channel provisioning route handlers in
   `src/hlvm/cli/repl/handlers/channels/provisioning.ts`
-- generic `:channel` provisioning routes in
-  `src/hlvm/cli/repl/http-server.ts`
+- generic `:channel` provisioning routes in `src/hlvm/cli/repl/http-server.ts`
 - Telegram transport stale-reset dependency injection through:
   - `src/hlvm/channels/telegram/provisioning-reset.ts`
   - `src/hlvm/channels/registry.ts`
@@ -67,8 +66,8 @@ second platform implementation: not started yet
 ## macOS app integration
 
 The binary-side provisioning architecture is only half of the real onboarding
-flow. The macOS app must also treat onboarding windows as session-scoped UI,
-not as reusable shells around stale state.
+flow. The macOS app must also treat onboarding windows as session-scoped UI, not
+as reusable shells around stale state.
 
 Current rule:
 
@@ -111,37 +110,51 @@ That means:
   - no branding update
 - branding failure must not break an otherwise successful bot setup
 
+The macOS onboarding window must also treat each presentation as a fresh local
+session:
+
+```text
+open onboarding window
+→ create or resume a live local provisioning session
+
+close onboarding window
+→ cancel that active local flow
+```
+
+Do not reuse stale in-memory "waiting for Telegram" state across later manual
+reopens.
+
 ## System map
 
 ```text
-                         ┌──────────────────────┐
-                         │      HLVM Brain      │
-                         │ memory · tools · AI  │
-                         └──────────▲───────────┘
-                                    │
-                              runQuery(...)
-                                    │
-                    ┌───────────────┴────────────────┐
-                    │ Channel Runtime (shared)       │
-                    │                                │
-                    │ - per-chat queue               │
-                    │ - allowlist                    │
-                    │ - pair-code handling           │
-                    │ - reachability status          │
-                    │ - config writeback + rebind    │
-                    └───────▲────────────────▲───────┘
-                            │                │
-                            │                │
-                 ChannelTransport     ChannelProvisioner
-                    (shared)             (shared)
-                            │                │
-            ┌───────────────┘                └───────────────┐
-            │                                                │
-            ▼                                                ▼
-  telegram/transport.ts                            telegram/provisioning.ts
-  slack/transport.ts                               slack/provisioning.ts
-  discord/transport.ts                             discord/provisioning.ts
-  ...                                              ...
+                       ┌──────────────────────┐
+                       │      HLVM Brain      │
+                       │ memory · tools · AI  │
+                       └──────────▲───────────┘
+                                  │
+                            runQuery(...)
+                                  │
+                  ┌───────────────┴────────────────┐
+                  │ Channel Runtime (shared)       │
+                  │                                │
+                  │ - per-chat queue               │
+                  │ - allowlist                    │
+                  │ - pair-code handling           │
+                  │ - reachability status          │
+                  │ - config writeback + rebind    │
+                  └───────▲────────────────▲───────┘
+                          │                │
+                          │                │
+               ChannelTransport     ChannelProvisioner
+                  (shared)             (shared)
+                          │                │
+          ┌───────────────┘                └───────────────┐
+          │                                                │
+          ▼                                                ▼
+telegram/transport.ts                            telegram/provisioning.ts
+slack/transport.ts                               slack/provisioning.ts
+discord/transport.ts                             discord/provisioning.ts
+...                                              ...
 ```
 
 ## Shared contracts
@@ -196,8 +209,7 @@ Example:
   - `createUrl`
   - `provisionUrl`
 
-The public Telegram setup session no longer exposes a duplicate `qrUrl`.
-Use:
+The public Telegram setup session no longer exposes a duplicate `qrUrl`. Use:
 
 ```text
 setupUrl   = generic URL field from the shared base type
@@ -227,12 +239,7 @@ This is a small lookup, not a second runtime subsystem.
 Current repo nuance:
 
 - the generic `:channel` routes are implemented
-- old Telegram-specific compatibility aliases still also exist in
-  `src/hlvm/cli/repl/http-server.ts`
-- because the router prefers the more-static match, those aliases still win for
-  Telegram today
-
-That is not breaking Telegram. It is just one remaining cleanup item.
+- the old Telegram-specific compatibility aliases have been removed
 
 ## Platform protocol rule
 
@@ -318,7 +325,7 @@ Current code status:
 
 ```text
 generic route shape exists and is the canonical design
-Telegram compatibility aliases still remain temporarily
+Telegram-specific compatibility aliases are gone
 ```
 
 ## Adding the next platform
@@ -337,6 +344,31 @@ Then wire:
 registry transport entry
 provisioning dispatch entry
 ```
+
+Current priority guidance:
+
+- **Slack** is the best next engineering target
+- **WhatsApp** is the biggest reach target, but not as developer-friendly as
+  Telegram
+- **Email** is possible later, but it is an async channel, not the next chat
+  adapter
+- **LINE** is the strongest Asia chat candidate after Slack because it has an
+  official Messaging API webhook model
+- **KakaoTalk** is possible but difficult; its official surface is more channel
+  / business oriented and less Telegram-like
+
+The product bar for any new channel is:
+
+```text
+scan / click / approve
+→ then chat
+```
+
+Do not add a channel only because a gateway product can technically support it.
+OpenClaw proves that a broad multi-channel gateway can work, but that model
+accepts per-channel setup burden such as plugins, QR login, developer tokens,
+external daemons, webhook URLs, and bridge services. HLVM should ship fewer
+channels with productized onboarding.
 
 The following should not need redesign:
 
@@ -378,18 +410,14 @@ per-vendor:
 - vendor bridge / oauth / webhook logic
 ```
 
-If a future vendor needs a genuinely new primitive, add that primitive once to the
-shared contract. Do not fork the runtime.
+If a future vendor needs a genuinely new primitive, add that primitive once to
+the shared contract. Do not fork the runtime.
 
 ## Remaining cleanup only
 
 These are the meaningful architecture-adjacent leftovers now:
 
-1. remove the temporary Telegram-specific provisioning route aliases once callers
-   no longer need them
-2. delete dead Telegram provisioning re-exports that were left behind during the
-   refactor
-3. keep future vendor-specific setup fields inside that vendor folder instead of
+1. keep future vendor-specific setup fields inside that vendor folder instead of
    drifting back into shared runtime protocol files
 
 These are cleanup items. They do not change the current Telegram behavior.
