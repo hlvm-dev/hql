@@ -153,7 +153,8 @@ Read these files before changing the plan again:
   - One main loader/command path.
   - Loads directory-format skills: `<root>/<skill-name>/SKILL.md`.
   - Indexes frontmatter, keeps full body for invocation, estimates prompt cost from compact metadata.
-  - Discovers managed/user/project/additional roots, dedupes by realpath, memoizes results.
+  - Discovers multiple root classes in CC, dedupes by realpath, memoizes results.
+  - HLVM must copy only the global user-root shape. Project/additional roots do not fit HLVM's global assistant model.
   - Has advanced CC-only polish: legacy `/commands` compatibility, dynamic nested discovery, `paths:` conditional skills, prompt shell execution, model/effort/hooks frontmatter.
   - HLVM should copy the core shape, not the full command/frontmatter surface.
 - `~/dev/openclaw-main/src/agents/skills/local-loader.ts`
@@ -164,7 +165,7 @@ Read these files before changing the plan again:
   - HLVM should keep the XML compact and include `name`, `description`, and `location`.
 - `~/dev/openclaw-main/src/agents/skills/workspace.ts`
   - Good reference for precedence, prompt limits, compact fallback, path compaction, and suspicious-large-root caps.
-  - HLVM should start smaller: project > user > bundled, scan once per session, no watcher.
+  - HLVM should start smaller: user > bundled, scan once per session, no watcher.
 - `~/dev/openclaw-main/src/agents/skills/command-specs.ts`
   - Good reference for slash command name sanitization and collision handling.
   - HLVM v1 slash commands should still become normal user turns, not OpenClaw `command-dispatch: tool`.
@@ -180,7 +181,7 @@ The key mistake to avoid is treating "skills support" and "full OpenClaw parity"
 
 - Standard `agentskills.io` folder and `SKILL.md` support
 - Parse frontmatter (`name`, `description`)
-- Scan user/project roots
+- Scan global user roots
 - Simple precedence and duplicate resolution
 - Compact `<available_skills>` prompt injection
 - On-demand skill body load
@@ -246,8 +247,8 @@ build a registry
 | Feature | Notes |
 |---|---|
 | SKILL.md parsing | Standard agentskills.io frontmatter. Plain YAML. |
-| Skill roots | `~/.hlvm/skills/` + `<cwd>/.hlvm/skills/` + bundled (shipped in binary). |
-| Three-tier precedence | workspace > user > bundled. Keep it simple. |
+| Skill roots | `~/.hlvm/skills/` + bundled (shipped in binary). Runtime directories are targets only. |
+| Precedence | user > bundled. Keep it simple. |
 | On-demand body load | Index frontmatter at startup. Body read via existing Read tool on match. |
 | `<available_skills>` XML injection | New hook in orchestrator Stage 3, alongside `maybeInjectMemoryRecall`. |
 | Scripts / references / assets | No new code needed. Skill body references paths; existing shell/read tools handle them. |
@@ -327,21 +328,20 @@ Add canonical path helpers only:
 ```typescript
 export const HLVM_SKILLS_SEGMENT = "skills";
 export function getUserSkillsDir(): string;
-export function getProjectSkillsDir(workspace: string): string;
 ```
 
 Rules:
 
 - Use `getHlvmDir()` for the user root.
-- Use `getPlatform().path` for project paths.
-- Do not create directories just by resolving project paths. Creation belongs to `hlvm skill new`.
+- Use `getPlatform().path` for filesystem paths.
+- Do not create directories just by resolving runtime target paths. Creation belongs to `hlvm skill new`.
 
 #### `src/hlvm/agent/skills/types.ts`
 
 Keep the data model boring and inspectable:
 
 ```typescript
-export type SkillSource = "project" | "user" | "bundled";
+export type SkillSource = "user" | "bundled";
 
 export type SkillEntry = {
   name: string;
@@ -371,8 +371,8 @@ Public API:
 
 ```typescript
 export async function loadSkillSnapshot(options?: {
-  workspace?: string;
   includeBundled?: boolean;
+  runtimeTarget?: string;
 }): Promise<SkillSnapshot>;
 
 export async function readSkillBody(entry: SkillEntry): Promise<string>;
@@ -389,7 +389,7 @@ Rules:
 - Parse only frontmatter for the prompt index.
 - Require `name` and `description` strings.
 - Validate names as kebab-case, 1-64 chars.
-- Resolve duplicates by precedence: `project > user > bundled`.
+- Resolve duplicates by precedence: `user > bundled`.
 - Preserve duplicate/shadow metadata for CLI display or debug logs.
 - Use platform filesystem/path APIs only.
 - Do not execute scripts, inspect `scripts/`, or read `references/` during scanning.
@@ -455,13 +455,13 @@ Rules:
 - `list` shows name, source, path, and description.
 - `new` creates `<target>/<name>/SKILL.md` with valid frontmatter and a minimal body.
 - `info` shows frontmatter and a short body preview.
-- Default `new` target is project `.hlvm/skills`; add `--user` only if that follows existing CLI option style cleanly.
+- Default `new` target is `~/.hlvm/skills`; no project/local target.
 - No registry, install, update, dependency checks, env injection, or auto-generation.
 
 ### B1 acceptance criteria
 
-- A project skill at `.hlvm/skills/debug/SKILL.md` appears in `hlvm skill list`.
-- A user skill at `~/.hlvm/skills/debug/SKILL.md` is shadowed by the project skill with the same name.
+- A user skill at `~/.hlvm/skills/debug/SKILL.md` appears in `hlvm skill list`.
+- A runtime-target skill at `./.hlvm/skills/debug/SKILL.md` is ignored.
 - The orchestrator injects a compact `<available_skills>` block containing only name, description, and location.
 - The full `SKILL.md` body is not injected unless the model or slash command explicitly reads/invokes it.
 - `hlvm skill new example-skill` creates a valid agentskills.io folder.
@@ -479,7 +479,6 @@ Rules:
 ```
 startup (cached)
   scan ~/.hlvm/skills/*/SKILL.md
-  scan <cwd>/.hlvm/skills/*/SKILL.md
   scan bundled
   parse frontmatter only  →  skillIndex: [{name, description, filePath, source}, ...]
 
@@ -558,7 +557,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` complete, `[?]` decision poi
 - [ ] Reuse the existing Ink `SKILL_MARKER` path to submit `/skill-name <args>` as an agent turn with recipe text attached.
 - [ ] Add completion/catalog tests for dynamic skill slash entries.
 - [ ] Add REPL command tests for skill invocation and missing-skill behavior.
-- [ ] Verify with a local project skill from `.hlvm/skills/<name>/SKILL.md`.
+- [ ] Verify that a runtime-target skill from `.hlvm/skills/<name>/SKILL.md` is ignored.
 - [ ] Run `deno task ssot:check`.
 
 ### Phase 3 — foundational bundled skills
@@ -570,8 +569,8 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` complete, `[?]` decision poi
 - [ ] Add `plan`.
 - [ ] Add `write-docs`.
 - [ ] Add `skill-author`.
-- [ ] Ensure user/project skills can override bundled skills by name.
-- [ ] Add tests proving bundled skills do not block user/project precedence.
+- [ ] Ensure user skills can override bundled skills by name.
+- [ ] Add tests proving bundled skills do not block user precedence.
 - [ ] Run `deno task ssot:check`.
 
 ### Phase 4 — hardening and polish
@@ -634,7 +633,7 @@ This section updates the original brief against the current HLVM tree so the nex
 
 - `src/common/frontmatter.ts` already provides the YAML frontmatter parsing needed for `SKILL.md`.
 - `src/hlvm/agent/orchestrator.ts` still has the exact kind of prompt-injection seam this feature needs: `maybeInjectMemoryRecall(...)` plus a call site in the main loop.
-- `src/common/paths.ts` already models user/project directories for adjacent concepts (`~/.hlvm/agents`, `.hlvm/agents`), so skills should mirror that pattern rather than inventing a new path system.
+- `src/common/paths.ts` models global assistant directories (`~/.hlvm/agents`, `~/.hlvm/skills`, `~/.hlvm/worktrees`). Skills should use those helpers and must not mirror runtime-target `.hlvm` directories.
 - `src/hlvm/cli/cli.ts` still uses a simple command registry, so adding `hlvm skill ...` is straightforward.
 - `src/hlvm/cli/repl-ink/components/App.tsx` still contains a `SKILL_MARKER` re-submit path. That means slash-skill execution can piggyback on an existing UI affordance instead of inventing a new one.
 
@@ -652,7 +651,7 @@ This section updates the original brief against the current HLVM tree so the nex
 - Keep the open `agentskills.io` `SKILL.md` contract unchanged in v1. No HLVM-specific frontmatter keys.
 - Follow **CC as the primary runtime role model**. Use OpenClaw only as a selective donor for a few practical pieces, not as the product template for the whole subsystem.
 - Slash commands should use the simple v1 behavior: `/skill-name <args>` becomes a normal user turn with the skill recipe injected, not a special tool-dispatch path.
-- Precedence should stay simple: `project > user > bundled` if bundled skills exist. Duplicate names resolve by precedence, not by showing both.
+- Precedence should stay simple: `user > bundled` if bundled skills exist. Duplicate names resolve by precedence, not by showing both.
 - No registry in v1.
 - No Hermes-style trajectory-to-skill auto-generation in v1.
 - Bundled skills are **optional** for the first merge, but the core bundled set should be foundational when it lands: `verify`, `debug`, `code-review`, `plan`, `write-docs`, `skill-author`.
@@ -667,7 +666,7 @@ This section updates the original brief against the current HLVM tree so the nex
 
 ### Recommended build sequence
 
-1. Add path helpers in `src/common/paths.ts`: `HLVM_SKILLS_SEGMENT`, `getUserSkillsDir()`, `getProjectSkillsDir(workspace)`.
+1. Add path helpers in `src/common/paths.ts`: `HLVM_SKILLS_SEGMENT`, `getUserSkillsDir()`.
 2. Add `src/hlvm/agent/skills/` with `types.ts`, `store.ts`, and `prompt.ts`. Reuse `parseFrontmatter()` from `src/common/frontmatter.ts`.
 3. Implement frontmatter-only scanning of `<root>/<skill-name>/SKILL.md`, source tagging, validation, and precedence resolution in `store.ts`.
 4. Add `maybeInjectSkills(...)` beside `maybeInjectMemoryRecall(...)` in [src/hlvm/agent/orchestrator.ts](/Users/seoksoonjang/dev/hql/src/hlvm/agent/orchestrator.ts). Inject only the compact index, not full skill bodies.
@@ -713,7 +712,6 @@ User creates or installs skills:
 
   ~/.hlvm/skills/verify/SKILL.md
   ~/.hlvm/skills/debug/SKILL.md
-  <project>/.hlvm/skills/release-notes/SKILL.md
 
 User can inspect and author them:
 
@@ -770,7 +768,7 @@ User can force activation in the REPL:
 
   Complete HLVM Skills =
     portable SKILL.md support
-    + project/user/bundled roots
+    + global user/bundled roots
     + compact prompt awareness
     + on-demand body loading
     + CLI authoring/inspection

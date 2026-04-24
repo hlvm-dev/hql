@@ -14,9 +14,15 @@ The product model is now:
 - one visible conversation surface
 - one daemon-owned active conversation by default
 - hidden backend sessions as internal runtime/storage boundaries
+- one global assistant home at `~/.hlvm`
 - durable memory that persists across visible conversation resets
 
 This is intentionally closer to a global assistant than to a workspace-bound coding transcript.
+
+Runtime directories are targets, not scopes. If the user asks HLVM to inspect
+`~/dev/hql`, HLVM may read files and run tools there for that turn, but it must
+not load assistant instructions, agents, skills, memory, or settings from that
+directory.
 
 ## Original goal
 
@@ -286,6 +292,7 @@ HLVM's global assistant direction is different:
 
 - user-centric, not transcript-centric
 - ambient and low-ceremony
+- assistant state and instructions come from `~/.hlvm`, not a project root
 - less "manage the conversation"
 - more "talk to the assistant"
 

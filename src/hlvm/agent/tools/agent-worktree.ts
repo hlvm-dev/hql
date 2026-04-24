@@ -6,7 +6,7 @@
  *
  * Flow (CC-faithful):
  * 1. Find git root
- * 2. Create worktree at .hlvm/worktrees/{slug}
+ * 2. Create worktree under ~/.hlvm/worktrees/{repo-id}/{slug}
  * 3. Agent works in isolated copy
  * 4. On completion: check for changes
  *    - No changes → remove worktree
@@ -17,10 +17,7 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
 import { TOOL_CATEGORY, ToolError } from "../error-taxonomy.ts";
 import { TOOL_NAMES } from "../tool-names.ts";
-import {
-  getWorktreePath,
-  getWorktreesDir,
-} from "../../../common/paths.ts";
+import { getWorktreePath, getWorktreesDir } from "../../../common/paths.ts";
 
 const log = getAgentLogger();
 
@@ -54,8 +51,7 @@ function flattenSlug(slug: string): string {
 
 /**
  * Worktree path for a given slug.
- * CC: {gitRoot}/.claude/worktrees/{flatSlug}
- * HLVM: {gitRoot}/.hlvm/worktrees/{flatSlug}
+ * HLVM: ~/.hlvm/worktrees/{repo-id}/{flatSlug}
  */
 function worktreePathFor(gitRoot: string, slug: string): string {
   return getWorktreePath(gitRoot, flattenSlug(slug));
@@ -121,7 +117,7 @@ async function getHeadSha(cwd: string): Promise<string | null> {
  *
  * Algorithm:
  * 1. Find git root
- * 2. Create .hlvm/worktrees/ dir
+ * 2. Create ~/.hlvm/worktrees/{repo-id}/ dir
  * 3. Get HEAD commit for later change detection
  * 4. Create worktree with `git worktree add`
  * 5. Return worktree info

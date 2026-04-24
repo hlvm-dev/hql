@@ -837,7 +837,9 @@ export function findMcpServersForExactToolName<T extends McpServerConfig>(
 
   if (matches.length === 0) return [];
 
-  const longestPrefix = Math.max(...matches.map((match) => match.prefix.length));
+  const longestPrefix = Math.max(
+    ...matches.map((match) => match.prefix.length),
+  );
   return matches
     .filter((match) => match.prefix.length === longestPrefix)
     .map((match) => match.server);
@@ -855,7 +857,7 @@ const SCOPE_LABELS: Record<McpScope, string> = {
 
 /** Full-sentence scope descriptions, used in `hlvm mcp get` output. */
 const SCOPE_DESCRIPTIONS: Record<McpScope, string> = {
-  "user": "User config (available in all your projects)",
+  "user": "User config (available everywhere)",
   "cursor": "Cursor config (inherited from ~/.cursor/mcp.json)",
   "windsurf":
     "Windsurf config (inherited from ~/.codeium/windsurf/mcp_config.json)",

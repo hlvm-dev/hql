@@ -57,6 +57,5 @@ export const EXPLORE_AGENT: BuiltInAgentDefinition = {
     "write_file",
   ],
   source: "built-in",
-  omitClaudeMd: true,
   getSystemPrompt: getExploreSystemPrompt,
 };

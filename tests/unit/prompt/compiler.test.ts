@@ -10,7 +10,7 @@ function agentInput(
 ): PromptCompilerInput {
   return {
     mode: "agent",
-    tier: "standard",
+    capability: "tool",
     tools: {},
     ...overrides,
   };
@@ -32,7 +32,7 @@ function segmentHash(
 Deno.test("compiler: backward compat — compilePrompt agent mode matches generateSystemPrompt for same inputs", () => {
   // generateSystemPrompt() now delegates to compilePrompt internally.
   // With the same default options, output text must be identical.
-  const compiled = compilePrompt(agentInput());
+  const compiled = compilePrompt(agentInput({ capability: "agent" }));
   const legacy = generateSystemPrompt();
 
   // Both must include core content
@@ -49,7 +49,7 @@ Deno.test("compiler: backward compat — compilePrompt agent mode matches genera
 Deno.test("compiler: chat mode produces minimal 2-section prompt", () => {
   const result = compilePrompt({
     mode: "chat",
-    tier: "standard",
+    capability: "chat",
     tools: {},
   });
 
@@ -65,7 +65,7 @@ Deno.test("compiler: chat mode produces minimal 2-section prompt", () => {
 });
 
 Deno.test("compiler: agent mode produces full section set", () => {
-  const result = compilePrompt(agentInput({ tier: "enhanced" }));
+  const result = compilePrompt(agentInput({ capability: "agent" }));
 
   assertEquals(result.mode, "agent");
   const sectionIds = result.sections.map((s) => s.id);
@@ -111,43 +111,46 @@ Deno.test("compiler: agent mode produces full section set", () => {
 });
 
 // ============================================================
-// Tier Filtering
+// Capability Filtering
 // ============================================================
 
-Deno.test("compiler: constrained tier skips standard/enhanced sections like Tips", () => {
-  const constrained = compilePrompt(agentInput({ tier: "constrained" }));
-  const sectionIds = constrained.sections.map((s) => s.id);
+Deno.test("compiler: chat-capability agent mode skips tool-only sections like Tips", () => {
+  const chat = compilePrompt(agentInput({ capability: "chat" }));
+  const sectionIds = chat.sections.map((s) => s.id);
 
-  // Tips has minTier: "standard" — should be excluded
+  // Tips has minCapability: "tool" — should be excluded at chat capability
   assertEquals(sectionIds.includes("tips"), false);
-  // Examples has minTier: "constrained" — should be included
+  // Examples has minCapability: "chat" — should be included
   assertEquals(sectionIds.includes("examples"), true);
 });
 
-Deno.test("compiler: standard tier includes standard sections like Tips", () => {
-  const standard = compilePrompt(agentInput({ tier: "standard" }));
-  const sectionIds = standard.sections.map((s) => s.id);
+Deno.test("compiler: tool capability includes tool-gated sections like Tips", () => {
+  const tool = compilePrompt(agentInput({ capability: "tool" }));
+  const sectionIds = tool.sections.map((s) => s.id);
 
   assertEquals(sectionIds.includes("tips"), true);
   assertEquals(sectionIds.includes("examples"), true);
 });
 
-Deno.test("compiler: enhanced tier includes all sections", () => {
-  const enhanced = compilePrompt(agentInput({ tier: "enhanced" }));
-  const sectionIds = enhanced.sections.map((s) => s.id);
+Deno.test("compiler: agent capability includes everything tool capability includes", () => {
+  const tool = compilePrompt(agentInput({ capability: "tool" }));
+  const agent = compilePrompt(agentInput({ capability: "agent" }));
 
-  assertEquals(sectionIds.includes("tips"), true);
-  assertEquals(sectionIds.includes("examples"), true);
-  assertEquals(sectionIds.includes("footer"), true);
+  const toolIds = new Set(tool.sections.map((s) => s.id));
+  const agentIds = new Set(agent.sections.map((s) => s.id));
+
+  for (const id of toolIds) {
+    assertEquals(agentIds.has(id), true, `agent missing section ${id}`);
+  }
 });
 
-Deno.test("compiler: constrained < standard < enhanced in text length for agent mode", () => {
-  const constrained = compilePrompt(agentInput({ tier: "constrained" }));
-  const standard = compilePrompt(agentInput({ tier: "standard" }));
-  const enhanced = compilePrompt(agentInput({ tier: "enhanced" }));
+Deno.test("compiler: chat capability produces shorter text than tool/agent capability in agent mode", () => {
+  const chat = compilePrompt(agentInput({ capability: "chat" }));
+  const tool = compilePrompt(agentInput({ capability: "tool" }));
+  const agent = compilePrompt(agentInput({ capability: "agent" }));
 
-  assertEquals(constrained.text.length < standard.text.length, true);
-  assertEquals(enhanced.text.length >= standard.text.length, true);
+  assertEquals(chat.text.length < tool.text.length, true);
+  assertEquals(agent.text.length >= tool.text.length, true);
 });
 
 // ============================================================
@@ -165,20 +168,20 @@ Deno.test("compiler: different mode produces different signatureHash", () => {
   const agent = compilePrompt(agentInput({ mode: "agent" }));
   const chat = compilePrompt({
     mode: "chat",
-    tier: "standard",
+    capability: "chat",
     tools: {},
   });
 
   assertEquals(agent.signatureHash === chat.signatureHash, false);
 });
 
-Deno.test("compiler: signatureHash format is mode:tier:hex", () => {
+Deno.test("compiler: signatureHash format is mode:capability:hex", () => {
   const result = compilePrompt(agentInput());
 
   const parts = result.signatureHash.split(":");
   assertEquals(parts.length, 3);
   assertEquals(parts[0], "agent");
-  assertEquals(parts[1], "standard");
+  assertEquals(parts[1], "tool");
   assertEquals(/^[0-9a-f]{8}$/.test(parts[2]), true);
 });
 
@@ -214,14 +217,14 @@ Deno.test("compiler: section manifest charCounts sum approximately to text lengt
 // collectSections
 // ============================================================
 
-Deno.test("compiler: collectSections returns PromptSection[] with id, content, minTier", () => {
+Deno.test("compiler: collectSections returns PromptSection[] with id, content, minCapability", () => {
   const sections = collectSections(agentInput());
 
   for (const section of sections) {
     assertEquals(typeof section.id, "string");
     assertEquals(typeof section.content, "string");
     assertEquals(
-      ["constrained", "standard", "enhanced"].includes(section.minTier),
+      ["chat", "tool", "agent"].includes(section.minCapability),
       true,
     );
     assertEquals(
@@ -269,12 +272,12 @@ Deno.test("compiler: cacheSegments collapse adjacent sections with the same stab
   );
 });
 
-Deno.test("compiler: tier changes churn the static cache segment hash", () => {
-  const constrained = agentInput({ tier: "constrained" });
-  const standard = agentInput({ tier: "standard" });
+Deno.test("compiler: capability changes churn the static cache segment hash", () => {
+  const chat = agentInput({ capability: "chat" });
+  const tool = agentInput({ capability: "tool" });
 
   assertEquals(
-    segmentHash(constrained, "static") === segmentHash(standard, "static"),
+    segmentHash(chat, "static") === segmentHash(tool, "static"),
     false,
   );
 });

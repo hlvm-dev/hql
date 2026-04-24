@@ -502,14 +502,6 @@ Deno.test("built-in: Plan prompt contains READ-ONLY", () => {
   assertStringIncludes(prompt, "READ-ONLY");
 });
 
-Deno.test("built-in: Explore has omitClaudeMd=true", () => {
-  assertEquals(EXPLORE_AGENT.omitClaudeMd, true);
-});
-
-Deno.test("built-in: Plan has omitClaudeMd=true", () => {
-  assertEquals(PLAN_AGENT.omitClaudeMd, true);
-});
-
 Deno.test("built-in: getBuiltInAgents returns all 3", () => {
   const agents = getBuiltInAgents();
   assertEquals(agents.length, 3);
@@ -695,7 +687,7 @@ Deno.test("getActiveAgentsFromList: deduplicates by agentType", () => {
   assertEquals(active[0].whenToUse, "user"); // user overrides built-in
 });
 
-Deno.test("getActiveAgentsFromList: project overrides user", () => {
+Deno.test("getActiveAgentsFromList: user overrides built-in", () => {
   const agents: AgentDefinition[] = [
     {
       agentType: "test",
@@ -709,17 +701,11 @@ Deno.test("getActiveAgentsFromList: project overrides user", () => {
       source: "user",
       getSystemPrompt: () => "v2",
     },
-    {
-      agentType: "test",
-      whenToUse: "project",
-      source: "project",
-      getSystemPrompt: () => "v3",
-    },
   ];
 
   const active = getActiveAgentsFromList(agents);
   assertEquals(active.length, 1);
-  assertEquals(active[0].whenToUse, "project"); // project wins
+  assertEquals(active[0].whenToUse, "user");
 });
 
 Deno.test("getActiveAgentsFromList: different types coexist", () => {

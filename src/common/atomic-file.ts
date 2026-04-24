@@ -20,6 +20,7 @@ function assertNoSymlinkTarget(
   if (!info?.isSymlink) return;
   throw new ValidationError(
     `Atomic writes refuse symlink targets: ${filePath}`,
+    "atomic_file",
   );
 }
 
@@ -75,9 +76,11 @@ export async function atomicWriteTextFile(
 
   try {
     await platform.fs.ensureDir(platform.path.dirname(filePath));
-    await platform.fs.writeTextFile(tempPath, content, existingInfo?.mode
-      ? { mode: existingInfo.mode }
-      : undefined);
+    await platform.fs.writeTextFile(
+      tempPath,
+      content,
+      existingInfo?.mode ? { mode: existingInfo.mode } : undefined,
+    );
     if (existingInfo?.mode !== undefined) {
       await platform.fs.chmod(tempPath, existingInfo.mode);
     }
@@ -98,9 +101,11 @@ export function atomicWriteTextFileSync(
 
   try {
     platform.fs.mkdirSync(platform.path.dirname(filePath), { recursive: true });
-    platform.fs.writeTextFileSync(tempPath, content, existingInfo?.mode
-      ? { mode: existingInfo.mode }
-      : undefined);
+    platform.fs.writeTextFileSync(
+      tempPath,
+      content,
+      existingInfo?.mode ? { mode: existingInfo.mode } : undefined,
+    );
     if (existingInfo?.mode !== undefined) {
       platform.fs.chmodSync(tempPath, existingInfo.mode);
     }

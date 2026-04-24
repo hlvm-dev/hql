@@ -53,7 +53,7 @@ Homebrew work — "self-bootstrapping binary."
 ### User Constraints (must respect)
 
 ```
-1. SSOT discipline (from CLAUDE.md):
+1. SSOT discipline (from `AGENTS.md` and `docs/SSOT-CONTRACT.md`):
    - NEVER silently route to system Ollama
    - HLVM-managed Ollama on port 11439 only
    - No hidden fallbacks or compatibility shortcuts
@@ -78,7 +78,7 @@ Embed everything (10 GB binary)       No        Windows PE32+ can't
                                                 load, macOS untested
 Separate Deno install (~10 MB)        No        Breaks one-command UX
 Rustup-style tiny bootstrapper        No        Bootstrapper isn't HLVM
-Use system Ollama if present          No        Forbidden by CLAUDE.md
+Use system Ollama if present          No        Forbidden by local AI rules
 Current (lean binary, chosen)         Yes       Best tradeoff
 ```
 
@@ -88,7 +88,7 @@ Current (lean binary, chosen)         Yes       Best tradeoff
 - `docs/cicd/release-pipeline.md` — pipeline reference (updated for lean)
 - `docs/BUILD.md` — local build instructions (updated)
 - `docs/ARCHITECTURE.md` — system architecture
-- `CLAUDE.md` — project rules (SSOT, local AI MANDATORY, etc.)
+- `AGENTS.md` — project rules (SSOT, local AI MANDATORY, etc.)
 
 ### Secrets Required in GitHub Actions
 

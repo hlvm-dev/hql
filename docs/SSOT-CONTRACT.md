@@ -25,6 +25,7 @@ This prevents fragmentation, simplifies maintenance, and enables consistent beha
 | **Local Fallback Substrate** | `materializeBootstrap()` + `verifyBootstrap()` | `src/hlvm/runtime/bootstrap-*.ts` | None |
 | **Runtime Host Lifecycle** | `ensureRuntimeHost()` + `serveCommand()` | `src/hlvm/runtime/host-client.ts`, `src/hlvm/cli/commands/serve.ts` | None |
 | **MCP Discovery + Registration** | `loadMcpConfigMultiScope()` + session `ensureMcpLoaded()` | `src/hlvm/agent/mcp/config.ts`, `src/hlvm/agent/session.ts` | None |
+| **Global Assistant Instructions** | `loadHlvmInstructionsSystemMessage()` | `src/hlvm/agent/global-instructions.ts` | None |
 | **Skills Discovery + Prompting** | `loadSkillSnapshot()` + `formatSkillsForPrompt()` + `readSkillBody()` | `src/hlvm/agent/skills/store.ts`, `src/hlvm/agent/skills/prompt.ts` | None |
 | **Channel Runtime** | `createChannelRuntime()` | `src/hlvm/channels/core/runtime.ts` | None |
 | **Channel Vendor Contracts** | `ChannelTransport`, `ChannelProvisioner`, `ChannelSetupSession` | `src/hlvm/channels/core/types.ts` | None |
@@ -46,7 +47,6 @@ but they must not bypass the core store/prompt boundary.
 ```
 skill roots
   ~/.hlvm/skills/*/SKILL.md
-  <cwd>/.hlvm/skills/*/SKILL.md
   bundled skills, if packaged
     → loadSkillSnapshot()        ← scan frontmatter only
       → formatSkillsForPrompt()  ← compact <available_skills> XML
@@ -59,8 +59,8 @@ skill roots
 
 | File | Responsibility |
 |------|----------------|
-| `src/common/paths.ts` | Canonical skills root paths: user, project, and bundled path helpers. |
-| `src/hlvm/agent/skills/types.ts` | Skill data contracts: source, index entry, snapshot, duplicate/shadow metadata. |
+| `src/common/paths.ts` | Canonical skills root paths: global user and bundled path helpers. |
+| `src/hlvm/agent/skills/types.ts` | Skill data contracts: source, index entry, snapshot, duplicate metadata. |
 | `src/hlvm/agent/skills/store.ts` | Root scanning, frontmatter parsing, validation, precedence, duplicate handling, body reads. |
 | `src/hlvm/agent/skills/prompt.ts` | XML serialization and prompt-budget formatting. |
 | `src/hlvm/cli/commands/skill.ts` | Local CLI surface: `list`, `new`, `info`, optional `edit`. |

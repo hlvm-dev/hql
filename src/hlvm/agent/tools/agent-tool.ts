@@ -167,16 +167,16 @@ async function prepareAgentMcpRuntime(opts: {
     options?.signal,
   );
 
-    return {
-      allTools: getAllTools(loadResult.ownerId),
-      inheritedConfig: {
-        ...inheritedConfig,
-        toolOwnerId: loadResult.ownerId,
-        ensureMcpLoaded: async () => false,
-      },
-      cleanup: loadResult.dispose,
-    };
-  }
+  return {
+    allTools: getAllTools(loadResult.ownerId),
+    inheritedConfig: {
+      ...inheritedConfig,
+      toolOwnerId: loadResult.ownerId,
+      ensureMcpLoaded: async () => false,
+    },
+    cleanup: loadResult.dispose,
+  };
+}
 
 export function getBackgroundAgentSnapshots(): BackgroundAgentSnapshot[] {
   return Array.from(getAgentToolRuntimeState().backgroundAgents.values()).map(
@@ -367,7 +367,7 @@ const agentToolFn: ToolFunction = async (
   }
 
   // Step 1: Load agent definitions
-  const { activeAgents } = await loadAgentDefinitions(workspace);
+  const { activeAgents } = await loadAgentDefinitions();
 
   // Step 2: Resolve agent definition (CC: agent lookup logic)
   const effectiveType = subagent_type ?? "general-purpose";

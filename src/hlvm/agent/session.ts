@@ -32,9 +32,9 @@ import {
   findMcpServersForExactToolName,
   loadMcpConfigMultiScope,
   loadMcpToolsForServers,
+  type McpHandlers,
   normalizeServerName,
   rankMcpServersForQuery,
-  type McpHandlers,
 } from "./mcp/mod.ts";
 import { getAgentLogger } from "./logger.ts";
 import { generateUUID } from "../../common/utils.ts";
@@ -60,6 +60,10 @@ import {
   isPersistentMemoryEnabled,
   loadMemorySystemMessage,
 } from "../memory/mod.ts";
+import {
+  isHlvmInstructionsSystemMessage,
+  loadHlvmInstructionsSystemMessage,
+} from "./global-instructions.ts";
 import { cloneToolList } from "./orchestrator-state.ts";
 import { releaseToolOwner } from "./registry.ts";
 import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
@@ -275,6 +279,20 @@ async function injectPersistentMemoryContext(options: {
   }
 }
 
+async function injectHlvmInstructionsContext(
+  context: ContextManager,
+): Promise<void> {
+  try {
+    const instructionsMessage = await loadHlvmInstructionsSystemMessage();
+    if (instructionsMessage) {
+      context.addMessage(instructionsMessage);
+    }
+  } catch {
+    // Global instructions are best-effort; invalid filesystem state should not
+    // prevent a session from starting.
+  }
+}
+
 function isTransientReusableSystemMessage(content: string): boolean {
   return content.startsWith("Allowed file roots:");
 }
@@ -305,12 +323,14 @@ export async function refreshReusableAgentSession(
     role: "system",
     content: promptArtifacts.systemPromptText,
   });
+  await injectHlvmInstructionsContext(context);
 
   const previousPromptText = session.llmConfig?.compiledPrompt?.text;
   for (const message of session.context.getMessages()) {
     if (
       message.role !== "system" ||
       message.content === previousPromptText ||
+      isHlvmInstructionsSystemMessage(message.content) ||
       isMemorySystemMessage(message.content) ||
       isTransientReusableSystemMessage(message.content)
     ) {
@@ -461,7 +481,8 @@ export async function createAgentSession(
       const abortPromise = new Promise<never>((_, reject) => {
         const onAbort = () => reject(new Error("MCP load aborted"));
         signal.addEventListener("abort", onAbort, { once: true });
-        removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+        removeAbortListener = () =>
+          signal.removeEventListener("abort", onAbort);
       });
       return await Promise.race([promise, abortPromise]);
     } finally {
@@ -610,6 +631,7 @@ export async function createAgentSession(
     role: "system",
     content: promptArtifacts.systemPromptText,
   });
+  await injectHlvmInstructionsContext(context);
 
   // Inject memory as a SEPARATE system message (not embedded in main prompt).
   // This allows reusable-session refresh to replace it without duplicating stale memory.

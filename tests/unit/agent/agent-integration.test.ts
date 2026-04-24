@@ -19,8 +19,10 @@ import {
   assertStringIncludes,
 } from "jsr:@std/assert";
 import {
+  getHlvmInstructionsPath,
   getHlvmTasksDir,
   getMcpConfigPath,
+  getUserAgentsDir,
 } from "../../../src/common/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { runAgent } from "../../../src/hlvm/agent/tools/run-agent.ts";
@@ -149,6 +151,21 @@ function extractLastUserText(messages: unknown[]): string {
     "role" in message && (message as { role?: unknown }).role === "user"
   ) as { content?: unknown } | undefined;
   return typeof lastUser?.content === "string" ? lastUser.content : "";
+}
+
+function hasSystemMessageContaining(
+  messages: unknown[],
+  ...fragments: string[]
+): boolean {
+  return messages.some((message) => {
+    if (typeof message !== "object" || message === null) return false;
+    const typed = message as { role?: unknown; content?: unknown };
+    const content = typed.content;
+    if (typed.role !== "system" || typeof content !== "string") {
+      return false;
+    }
+    return fragments.every((fragment) => content.includes(fragment));
+  });
 }
 
 /** Create mock tool registry */
@@ -447,6 +464,50 @@ Deno.test({
   sanitizeResources: false,
 });
 
+Deno.test({
+  name: "runAgent: read-only sub-agents receive global HLVM.md instructions",
+  async fn() {
+    await withTempHlvmDir(async () => {
+      await platform.fs.writeTextFile(
+        getHlvmInstructionsPath(),
+        "Always apply global instructions inside sub-agents.",
+      );
+
+      let capturedMessages: unknown[] = [];
+      const captureLLM: LLMFunction = async (messages) => {
+        capturedMessages = messages;
+        return { content: "Found it.", toolCalls: [] };
+      };
+      const tools = mockToolRegistry("read_file", "search_code");
+
+      await ensureDir(TEST_WORKSPACE);
+      try {
+        await runAgent({
+          agentDefinition: EXPLORE_AGENT,
+          prompt: "Find auth",
+          workspace: TEST_WORKSPACE,
+          llmFunction: captureLLM,
+          allTools: tools,
+          agentId: "test-explore-global-instructions",
+        });
+
+        assertEquals(
+          hasSystemMessageContaining(
+            capturedMessages,
+            "# Global HLVM Instructions",
+            "Always apply global instructions inside sub-agents.",
+          ),
+          true,
+        );
+      } finally {
+        await cleanDir(TEST_WORKSPACE);
+      }
+    });
+  },
+  sanitizeOps: false,
+  sanitizeResources: false,
+});
+
 // ============================================================
 // 2. agent-tool.ts — tool function call
 // ============================================================
@@ -665,30 +726,28 @@ Deno.test({
 Deno.test({
   name: "loadAgentDefinitions: returns built-in agents when no .md files",
   async fn() {
-    await ensureDir(TEST_WORKSPACE);
-    try {
-      const result = await loadAgentDefinitions(TEST_WORKSPACE);
+    await withTempHlvmDir(async () => {
+      const result = await loadAgentDefinitions();
       assertEquals(result.activeAgents.length >= 3, true); // GP + Explore + Plan
       const types = result.activeAgents.map((a) => a.agentType);
       assertEquals(types.includes("general-purpose"), true);
       assertEquals(types.includes("Explore"), true);
       assertEquals(types.includes("Plan"), true);
-    } finally {
-      await cleanDir(TEST_WORKSPACE);
-    }
+    });
   },
   sanitizeOps: false,
   sanitizeResources: false,
 });
 
 Deno.test({
-  name: "loadAgentDefinitions: loads .md agents from project dir",
+  name: "loadAgentDefinitions: loads .md agents from global user dir",
   async fn() {
-    const agentsDir = `${TEST_WORKSPACE}/.hlvm/agents`;
-    await ensureDir(agentsDir);
-    await platform.fs.writeTextFile(
-      `${agentsDir}/custom-test.md`,
-      `---
+    await withTempHlvmDir(async () => {
+      const agentsDir = getUserAgentsDir();
+      await ensureDir(agentsDir);
+      await platform.fs.writeTextFile(
+        `${agentsDir}/custom-test.md`,
+        `---
 name: custom-test
 description: A custom test agent
 tools:
@@ -696,50 +755,77 @@ tools:
 ---
 
 You are a custom test agent.`,
-    );
+      );
 
-    try {
-      const result = await loadAgentDefinitions(TEST_WORKSPACE);
+      const result = await loadAgentDefinitions();
       const custom = result.activeAgents.find(
         (a) => a.agentType === "custom-test",
       );
       assertExists(custom);
       assertEquals(custom!.whenToUse, "A custom test agent");
       assertStringIncludes(custom!.getSystemPrompt(), "custom test agent");
-    } finally {
-      await cleanDir(TEST_WORKSPACE);
-    }
+    });
   },
   sanitizeOps: false,
   sanitizeResources: false,
 });
 
 Deno.test({
-  name: "loadAgentDefinitions: project agent overrides built-in with same name",
+  name:
+    "loadAgentDefinitions: global user agent overrides built-in with same name",
   async fn() {
-    const agentsDir = `${TEST_WORKSPACE}/.hlvm/agents`;
-    await ensureDir(agentsDir);
-    await platform.fs.writeTextFile(
-      `${agentsDir}/explore-override.md`,
-      `---
+    await withTempHlvmDir(async () => {
+      const agentsDir = getUserAgentsDir();
+      await ensureDir(agentsDir);
+      await platform.fs.writeTextFile(
+        `${agentsDir}/explore-override.md`,
+        `---
 name: Explore
 description: Custom Explore agent
 ---
 
 Custom explore prompt.`,
-    );
+      );
 
-    try {
-      const result = await loadAgentDefinitions(TEST_WORKSPACE);
+      const result = await loadAgentDefinitions();
       const explore = result.activeAgents.find(
         (a) => a.agentType === "Explore",
       );
       assertExists(explore);
-      // Project overrides built-in
+      // User global overrides built-in
       assertEquals(explore!.whenToUse, "Custom Explore agent");
-    } finally {
-      await cleanDir(TEST_WORKSPACE);
-    }
+    });
+  },
+  sanitizeOps: false,
+  sanitizeResources: false,
+});
+
+Deno.test({
+  name: "loadAgentDefinitions: ignores workspace .hlvm agents",
+  async fn() {
+    await withTempHlvmDir(async () => {
+      const agentsDir = `${TEST_WORKSPACE}/.hlvm/agents`;
+      await ensureDir(agentsDir);
+      await platform.fs.writeTextFile(
+        `${agentsDir}/local-only.md`,
+        `---
+name: local-only
+description: Must not load
+---
+
+Local prompt.`,
+      );
+
+      try {
+        const result = await loadAgentDefinitions(TEST_WORKSPACE);
+        const local = result.activeAgents.find(
+          (a) => a.agentType === "local-only",
+        );
+        assertEquals(local, undefined);
+      } finally {
+        await cleanDir(TEST_WORKSPACE);
+      }
+    });
   },
   sanitizeOps: false,
   sanitizeResources: false,
@@ -996,76 +1082,78 @@ Deno.test({
   name:
     "agent-tool: isolation='worktree' creates worktree and passes it as workspace",
   async fn() {
-    // This test needs a real git repo as workspace
-    const testRepo = "/tmp/hlvm-test-agent-worktree-integration";
-    await ensureDir(testRepo);
-    await platform.command.output({
-      cmd: ["git", "init"],
-      cwd: testRepo,
-      stdout: "piped",
-      stderr: "piped",
-    });
-    await platform.command.output({
-      cmd: ["git", "config", "user.email", "t@t.com"],
-      cwd: testRepo,
-      stdout: "piped",
-      stderr: "piped",
-    });
-    await platform.command.output({
-      cmd: ["git", "config", "user.name", "T"],
-      cwd: testRepo,
-      stdout: "piped",
-      stderr: "piped",
-    });
-    await platform.fs.writeTextFile(`${testRepo}/file.txt`, "original");
-    await platform.command.output({
-      cmd: ["git", "add", "file.txt"],
-      cwd: testRepo,
-      stdout: "piped",
-      stderr: "piped",
-    });
-    await platform.command.output({
-      cmd: ["git", "commit", "-m", "init"],
-      cwd: testRepo,
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    try {
-      let capturedWorkspace = "";
-      // Mock LLM that captures what workspace (cwd context) it receives
-      const captureLLM: LLMFunction = async (messages) => {
-        // The system message or user message should reflect the workspace
-        // But more importantly, the runReActLoop is called with the worktree path
-        capturedWorkspace = "called"; // Just verify it was called
-        return { content: "Done in worktree.", toolCalls: [] };
-      };
-
-      const agentToolMeta = AGENT_TOOL["Agent"];
-      const result = await agentToolMeta.fn(
-        {
-          prompt: "Do work in isolation",
-          description: "worktree test",
-          isolation: "worktree",
-        },
-        testRepo,
-        { llmFunction: captureLLM },
-      ) as AgentToolResult;
-
-      assertEquals(result.status, "completed");
-      assertEquals(capturedWorkspace, "called");
-      // Agent made no changes → worktree should be cleaned up (no worktreePath)
-      assertEquals(result.worktreePath, undefined);
-    } finally {
-      // Clean up any leftover worktrees
+    await withTempHlvmDir(async () => {
+      // This test needs a real git repo as workspace
+      const testRepo = "/tmp/hlvm-test-agent-worktree-integration";
+      await ensureDir(testRepo);
       await platform.command.output({
-        cmd: ["git", "worktree", "prune"],
+        cmd: ["git", "init"],
         cwd: testRepo,
         stdout: "piped",
         stderr: "piped",
       });
-      await cleanDir(testRepo);
-    }
+      await platform.command.output({
+        cmd: ["git", "config", "user.email", "t@t.com"],
+        cwd: testRepo,
+        stdout: "piped",
+        stderr: "piped",
+      });
+      await platform.command.output({
+        cmd: ["git", "config", "user.name", "T"],
+        cwd: testRepo,
+        stdout: "piped",
+        stderr: "piped",
+      });
+      await platform.fs.writeTextFile(`${testRepo}/file.txt`, "original");
+      await platform.command.output({
+        cmd: ["git", "add", "file.txt"],
+        cwd: testRepo,
+        stdout: "piped",
+        stderr: "piped",
+      });
+      await platform.command.output({
+        cmd: ["git", "commit", "-m", "init"],
+        cwd: testRepo,
+        stdout: "piped",
+        stderr: "piped",
+      });
+
+      try {
+        let capturedWorkspace = "";
+        // Mock LLM that captures what workspace (cwd context) it receives
+        const captureLLM: LLMFunction = async (messages) => {
+          // The system message or user message should reflect the workspace
+          // But more importantly, the runReActLoop is called with the worktree path
+          capturedWorkspace = "called"; // Just verify it was called
+          return { content: "Done in worktree.", toolCalls: [] };
+        };
+
+        const agentToolMeta = AGENT_TOOL["Agent"];
+        const result = await agentToolMeta.fn(
+          {
+            prompt: "Do work in isolation",
+            description: "worktree test",
+            isolation: "worktree",
+          },
+          testRepo,
+          { llmFunction: captureLLM },
+        ) as AgentToolResult;
+
+        assertEquals(result.status, "completed");
+        assertEquals(capturedWorkspace, "called");
+        // Agent made no changes → worktree should be cleaned up (no worktreePath)
+        assertEquals(result.worktreePath, undefined);
+      } finally {
+        // Clean up any leftover worktrees
+        await platform.command.output({
+          cmd: ["git", "worktree", "prune"],
+          cwd: testRepo,
+          stdout: "piped",
+          stderr: "piped",
+        });
+        await cleanDir(testRepo);
+      }
+    });
   },
   sanitizeOps: false,
   sanitizeResources: false,
@@ -1175,7 +1263,7 @@ Deno.test({
         "fixtures",
         "mcp-server.ts",
       );
-      const agentsDir = `${TEST_WORKSPACE}/.hlvm/agents`;
+      const agentsDir = getUserAgentsDir();
 
       setAgentEngine(testEngine);
       await ensureDir(agentsDir);
@@ -1237,7 +1325,10 @@ Use MCP tools only.`,
           true,
         );
         assertMatch(capturedConfigs[0].toolOwnerId ?? "", /^agent:/);
-        assertStringIncludes(getAgentToolResultText(result), "agent-mcp-loaded");
+        assertStringIncludes(
+          getAgentToolResultText(result),
+          "agent-mcp-loaded",
+        );
       } finally {
         resetAgentEngine();
         await cleanDir(TEST_WORKSPACE);
@@ -1512,7 +1603,10 @@ Deno.test({
 
       assertEquals(capturedConfigs.length, 1);
       assertEquals(capturedConfigs[0].model, "override-model-123");
-      assertStringIncludes(getAgentToolResultText(result), "child-override-used");
+      assertStringIncludes(
+        getAgentToolResultText(result),
+        "child-override-used",
+      );
     } finally {
       resetAgentEngine();
       await cleanDir(TEST_WORKSPACE);

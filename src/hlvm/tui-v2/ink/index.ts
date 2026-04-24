@@ -10,9 +10,9 @@ export type { Props as BoxProps } from "./components/Box.tsx";
 export { default as Text } from "./components/Text.tsx";
 export type { Props as TextProps } from "./components/Text.tsx";
 export {
-  renderSync as render,
   type Instance,
   type RenderOptions,
+  renderSync as render,
   type Root,
 } from "./root.ts";
 export type { Key } from "./events/input-event.ts";
@@ -42,9 +42,8 @@ export function useStdout(): {
       ? new TextEncoder().encode(data)
       : data;
     try {
-      // Route through the platform abstraction per SSOT (CLAUDE.md:
-      // "Platform APIs: getPlatform().*"). Bypassing this with
-      // `Deno.stdout.writeSync` trips the deno-leak SSOT check.
+      // Route through the platform abstraction per SSOT. Bypassing this
+      // with `Deno.stdout.writeSync` trips the deno-leak SSOT check.
       _getPlatformForStdout().terminal.stdout.writeSync(bytes);
     } catch {
       // swallow — never re-enter TUI rendering path

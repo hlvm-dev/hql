@@ -193,7 +193,7 @@ This keeps Auto deterministic and debuggable.
 | Source | Proprietary | Open source |
 
 Note: Policy inputs (cheap, quality, localOnly, noUpload, allow/block) are **internal inputs**
-to the selection algorithm, not committed CLI flags. Per CLAUDE.md CLI-simplicity rule,
+to the selection algorithm, not committed CLI flags. Per `AGENTS.md` CLI-simplicity rule,
 new user-facing switches are only added when explicitly requested.
 These may surface as config options or CLI flags later if needed.
 

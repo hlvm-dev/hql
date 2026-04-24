@@ -18,7 +18,7 @@ function makeTraces(input: {
     {
       type: "prompt_compiled",
       mode: "agent",
-      tier: "enhanced",
+      capability: "agent",
       sections: [],
       cacheSegments: [],
       stableCacheProfile: {

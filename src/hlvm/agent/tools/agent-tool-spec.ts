@@ -6,8 +6,8 @@
  * of truth for the Agent tool description/args.
  *
  * The fallback description is computed once at module load from the built-in
- * agent registry — this is the SSOT. When a workspace is known,
- * resolveAgentToolDescription() recomputes from built-ins + custom .md agents.
+ * agent registry. resolveAgentToolDescription() recomputes from built-ins plus
+ * global user agents in ~/.hlvm/agents.
  */
 
 import { getAgentToolPrompt } from "./agent-prompt.ts";
@@ -35,15 +35,11 @@ export function getAgentToolFallbackDescription(): string {
 }
 
 export async function resolveAgentToolDescription(
-  workspace?: string,
+  _runtimeTarget?: string,
 ): Promise<string> {
-  if (!workspace) {
-    return AGENT_TOOL_FALLBACK_DESCRIPTION;
-  }
-
   try {
     const { loadAgentDefinitions } = await import("./agent-definitions.ts");
-    const { activeAgents } = await loadAgentDefinitions(workspace);
+    const { activeAgents } = await loadAgentDefinitions();
     return getAgentToolPrompt(activeAgents);
   } catch {
     return AGENT_TOOL_FALLBACK_DESCRIPTION;

@@ -27,6 +27,7 @@ import {
   isPersistentMemoryEnabled,
   loadMemorySystemMessage,
 } from "../../../memory/mod.ts";
+import { loadHlvmInstructionsSystemMessage } from "../../../agent/global-instructions.ts";
 import type {
   Message as ProviderMessage,
   ModelInfo,
@@ -177,16 +178,12 @@ export async function buildChatProviderMessages(
   const replayWithPrefix = options.prependReplayMessages?.length
     ? [...options.prependReplayMessages, ...replayMessages]
     : replayMessages;
-  const replayWithMemory = isPersistentMemoryEnabled(
-      options.disablePersistentMemory,
-    )
-    ? await injectMemoryReplayMessage(
-      replayWithPrefix,
-      resolvedContextBudget.budget,
-      options.requestMessages[options.requestMessages.length - 1]?.content ??
-        "",
-    )
-    : replayWithPrefix;
+  const replayWithMemory = await injectGlobalReplayMessages(
+    replayWithPrefix,
+    resolvedContextBudget.budget,
+    options.requestMessages[options.requestMessages.length - 1]?.content ?? "",
+    isPersistentMemoryEnabled(options.disablePersistentMemory),
+  );
   const trimmed = trimReplayMessages(
     replayWithMemory,
     resolvedContextBudget.budget,
@@ -647,14 +644,28 @@ export async function resolveAttachments(
   return await materializeConversationAttachments(attachmentIds, options);
 }
 
-async function injectMemoryReplayMessage(
+async function injectGlobalReplayMessages(
   messages: ReplayMessage[],
   budget: number,
   currentUserRequest: string,
+  includePersistentMemory: boolean,
 ): Promise<ReplayMessage[]> {
   const replayMessages = [...messages];
+  const injected: ReplayMessage[] = [];
   try {
-    const injected: ReplayMessage[] = [];
+    const instructionsMessage = await loadHlvmInstructionsSystemMessage();
+    if (instructionsMessage) {
+      injected.push(instructionsMessage);
+    }
+  } catch {
+    log.debug("Failed to load global HLVM instructions for chat mode");
+  }
+  if (!includePersistentMemory) {
+    return injected.length > 0
+      ? [...injected, ...replayMessages]
+      : replayMessages;
+  }
+  try {
     const memoryMessage = await loadMemorySystemMessage(budget);
     if (memoryMessage) {
       injected.push(memoryMessage);
@@ -663,13 +674,12 @@ async function injectMemoryReplayMessage(
     if (recall) {
       injected.push(recall.message);
     }
-    if (injected.length > 0) {
-      return [...injected, ...replayMessages];
-    }
   } catch {
     log.debug("Failed to load memory context for chat mode");
   }
-  return replayMessages;
+  return injected.length > 0
+    ? [...injected, ...replayMessages]
+    : replayMessages;
 }
 
 function toProviderReplayMessages(

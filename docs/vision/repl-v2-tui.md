@@ -616,7 +616,7 @@ reconciler@0.29 in the graph) · `make build-fast` builds ./hlvm · compiled
 tmux-backed PTY audit.
 
 **Quality gates still pending:** `deno task test:unit` (never run in this
-session per CLAUDE.md concurrent-agent rule) · runtime-round-trip PTY
+session per `AGENTS.md` concurrent-agent rule) · runtime-round-trip PTY
 audit (would require a configured local model) · CI wiring of
 `deno task check:tui-v2`.
 **Created:** 2026-04-16 **Last updated:** 2026-04-19 (strategy override:
@@ -2676,7 +2676,7 @@ When every row is `(O)`:
   ink bridge is gone (J1) and every reused component has been ported
   into `src/hlvm/tui-v2/` proper.
 - Phase 4 of §8 closes.
-- CLAUDE.md / user-facing docs drop the "experimental" language.
+- `AGENTS.md` / user-facing docs drop the "experimental" language.
 
 Until then, every merge that touches `src/hlvm/tui-v2/` updates this
 matrix in the same commit: either flips row(s) `(X)` → `(O)`, or

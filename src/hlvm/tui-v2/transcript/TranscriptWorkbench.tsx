@@ -6,10 +6,10 @@ import {
 import { ensureError } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import {
-  expandTextAttachmentReferences,
-  filterReferencedAttachments,
   type AnyAttachment,
   type Attachment,
+  expandTextAttachmentReferences,
+  filterReferencedAttachments,
 } from "../../cli/repl/attachment.ts";
 import { resolveAtMentions } from "../../cli/repl/mention-resolver.ts";
 import type {
@@ -447,7 +447,7 @@ export function TranscriptWorkbench(): React.ReactNode {
       conversation.addInfo("exiting…");
       queueMicrotask(() => {
         try {
-          // Route through platform abstraction per SSOT (CLAUDE.md).
+          // Route through platform abstraction per SSOT.
           getPlatform().process.exit(0);
         } catch {
           // If exit is unavailable (e.g. under a test runtime), fall
@@ -513,10 +513,11 @@ export function TranscriptWorkbench(): React.ReactNode {
         submission.attachments,
       );
       const resolvedText = await resolveAtMentions(expandedText);
-      const { attachmentIds, attachments } = prepareConversationAttachmentPayload(
-        submission.attachments,
-        trimmed,
-      );
+      const { attachmentIds, attachments } =
+        prepareConversationAttachmentPayload(
+          submission.attachments,
+          trimmed,
+        );
 
       setRuntimeBusy(true);
       setFooterLabel(undefined);
@@ -687,18 +688,21 @@ export function TranscriptWorkbench(): React.ReactNode {
     ],
   );
 
-  const handlePromptSubmit = React.useCallback((submission: PromptSubmission) => {
-    if (submission.value.trim().length === 0) {
-      return false;
-    }
+  const handlePromptSubmit = React.useCallback(
+    (submission: PromptSubmission) => {
+      if (submission.value.trim().length === 0) {
+        return false;
+      }
 
-    if (runtimeBusy) {
-      return false;
-    }
+      if (runtimeBusy) {
+        return false;
+      }
 
-    void runPromptSubmission(submission);
-    return true;
-  }, [runPromptSubmission, runtimeBusy]);
+      void runPromptSubmission(submission);
+      return true;
+    },
+    [runPromptSubmission, runtimeBusy],
+  );
 
   useInput((input, key) => {
     if (key.escape && runtimeBusy && !pendingInteraction && !searchOpen) {
@@ -777,7 +781,6 @@ export function TranscriptWorkbench(): React.ReactNode {
       jumpRef.current?.prevMatch();
       return;
     }
-
   }, { isActive: true });
 
   const searchInputState = React.useMemo<BaseInputState>(() => {
@@ -955,27 +958,25 @@ export function TranscriptWorkbench(): React.ReactNode {
           scrollRef={scrollRef}
           scrollable={
             <Box flexDirection="column">
-              {messages.length === 0
-                ? null
-                : (
-                  <Messages
-                    messages={messages}
-                    scrollRef={scrollRef}
-                    columns={effectiveColumns}
-                    selectedIndex={selectedIndex}
-                    cursor={cursor}
-                    setCursor={setCursor}
-                    cursorNavRef={cursorNavRef}
-                    jumpRef={jumpRef}
-                    trackStickyPrompt
-                    onSearchMatchesChange={(count, current) => {
-                      setSearchCount(count);
-                      setSearchCurrent(current);
-                    }}
-                    scanElement={scanElement}
-                    setPositions={setPositions}
-                  />
-                )}
+              {messages.length === 0 ? null : (
+                <Messages
+                  messages={messages}
+                  scrollRef={scrollRef}
+                  columns={effectiveColumns}
+                  selectedIndex={selectedIndex}
+                  cursor={cursor}
+                  setCursor={setCursor}
+                  cursorNavRef={cursorNavRef}
+                  jumpRef={jumpRef}
+                  trackStickyPrompt
+                  onSearchMatchesChange={(count, current) => {
+                    setSearchCount(count);
+                    setSearchCurrent(current);
+                  }}
+                  scanElement={scanElement}
+                  setPositions={setPositions}
+                />
+              )}
               <LiveTurnStatus active={runtimeBusy} />
               <HorizontalRule />
               <PromptInput

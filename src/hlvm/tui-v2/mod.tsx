@@ -16,12 +16,15 @@ export interface TuiV2Options {
 // stop the "garbage text overlay" class of bug the user reported. We no
 // longer need a custom console.error → log-file redirect (that path
 // required direct Deno.openSync / FsFile, which violates the
-// SSOT/platform-abstraction rule in CLAUDE.md).
+// SSOT/platform-abstraction rule).
 export async function startTuiV2(options: TuiV2Options): Promise<number> {
-  const { waitUntilExit } = renderSync(<App showBanner={options.showBanner} />, {
-    patchConsole: true,
-    exitOnCtrlC: true,
-  });
+  const { waitUntilExit } = renderSync(
+    <App showBanner={options.showBanner} />,
+    {
+      patchConsole: true,
+      exitOnCtrlC: true,
+    },
+  );
   await waitUntilExit();
   return 0;
 }

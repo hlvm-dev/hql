@@ -5,7 +5,6 @@
  * Loads agent definitions from:
  * 1. Built-in agents (code-defined)
  * 2. User agents (~/.hlvm/agents/*.md)
- * 3. Project agents (.hlvm/agents/*.md)
  *
  * .md files use YAML frontmatter for configuration, body is the system prompt.
  */
@@ -14,10 +13,7 @@ import { parseFrontmatter } from "../../../common/frontmatter.ts";
 import { PERMISSION_MODES_SET } from "../../../common/config/types.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
-import {
-  getProjectAgentsDir,
-  getUserAgentsDir,
-} from "../../../common/paths.ts";
+import { getUserAgentsDir } from "../../../common/paths.ts";
 import { getAgentLogger } from "../logger.ts";
 import type { AgentExecutionMode } from "../execution-mode.ts";
 import type {
@@ -130,7 +126,7 @@ export type ParseAgentResult =
 export function parseAgentFromMarkdownDetailed(
   filePath: string,
   content: string,
-  source: "user" | "project",
+  source: "user",
 ): ParseAgentResult {
   try {
     const { meta, body } = parseFrontmatter<Record<string, unknown>>(content);
@@ -188,12 +184,6 @@ export function parseAgentFromMarkdownDetailed(
       ? "worktree" as const
       : undefined;
 
-    // Parse omitClaudeMd
-    const omitClaudeMdRaw = meta["omitClaudeMd"];
-    const omitClaudeMd = omitClaudeMdRaw === true || omitClaudeMdRaw === "true"
-      ? true
-      : undefined;
-
     // Parse permissionMode
     const permissionModeRaw = meta["permissionMode"];
     const permissionMode = typeof permissionModeRaw === "string" &&
@@ -248,7 +238,6 @@ export function parseAgentFromMarkdownDetailed(
         ...(maxTurns !== undefined ? { maxTurns } : {}),
         ...(background ? { background } : {}),
         ...(isolation ? { isolation } : {}),
-        ...(omitClaudeMd ? { omitClaudeMd } : {}),
         ...(permissionMode ? { permissionMode } : {}),
         ...(initialPrompt ? { initialPrompt } : {}),
         ...(mcpServers ? { mcpServers } : {}),
@@ -268,7 +257,7 @@ export function parseAgentFromMarkdownDetailed(
 export function parseAgentFromMarkdown(
   filePath: string,
   content: string,
-  source: "user" | "project",
+  source: "user",
 ): CustomAgentDefinition | null {
   const result = parseAgentFromMarkdownDetailed(filePath, content, source);
   return result.ok ? result.agent : null;
@@ -283,29 +272,17 @@ export function parseAgentFromMarkdown(
  * CC: getAgentDefinitionsWithOverrides() — simplified (no plugins, no policy, no memoize)
  *
  * Searches:
- * - ~/.hlvm/agents/*.md (user agents)
- * - .hlvm/agents/*.md in workspace (project agents)
+ * - ~/.hlvm/agents/*.md (global user agents)
  */
 export async function loadAgentDefinitions(
-  workspace: string,
+  _runtimeTarget?: string,
 ): Promise<AgentDefinitionsResult> {
   const fs = getPlatform().fs;
   const failedFiles: Array<{ path: string; error: string }> = [];
   const customAgents: CustomAgentDefinition[] = [];
 
-  // Load user agents (~/.hlvm/agents/)
   const userAgentsDir = getUserAgentsDir();
   await loadAgentsFromDir(userAgentsDir, "user", customAgents, failedFiles, fs);
-
-  // Load project agents (.hlvm/agents/ in workspace)
-  const projectAgentsDir = getProjectAgentsDir(workspace);
-  await loadAgentsFromDir(
-    projectAgentsDir,
-    "project",
-    customAgents,
-    failedFiles,
-    fs,
-  );
 
   const builtInAgents = getBuiltInAgents();
 
@@ -330,7 +307,7 @@ export async function loadAgentDefinitions(
  */
 async function loadAgentsFromDir(
   dir: string,
-  source: "user" | "project",
+  source: "user",
   agents: CustomAgentDefinition[],
   failedFiles: Array<{ path: string; error: string }>,
   fs: ReturnType<typeof getPlatform>["fs"],
@@ -370,19 +347,18 @@ async function loadAgentsFromDir(
  * Deduplicate agents by agentType. Later sources override earlier.
  * CC: getActiveAgentsFromList() — same logic
  *
- * Priority order (last wins): built-in → user → project
+ * Priority order (last wins): built-in → user
  */
 export function getActiveAgentsFromList(
   allAgents: AgentDefinition[],
 ): AgentDefinition[] {
   const builtIn = allAgents.filter((a) => a.source === "built-in");
   const user = allAgents.filter((a) => a.source === "user");
-  const project = allAgents.filter((a) => a.source === "project");
 
   // CC pattern: iterate groups in order, Map.set overwrites → last wins
   const agentMap = new Map<string, AgentDefinition>();
 
-  for (const agents of [builtIn, user, project]) {
+  for (const agents of [builtIn, user]) {
     for (const agent of agents) {
       agentMap.set(agent.agentType, agent);
     }

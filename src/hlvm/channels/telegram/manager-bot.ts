@@ -66,6 +66,7 @@ function parseTelegramApiResponse<T>(
         : "";
       throw new ValidationError(
         description || `Telegram manager bot API failed with HTTP ${response.status}.`,
+        "telegram_manager_bot",
       );
     }
     return body.result;

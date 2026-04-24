@@ -7,6 +7,7 @@
 
 import { getPlatform } from "../platform/platform.ts";
 import { RuntimeError } from "./error.ts";
+import { fnv1aHex } from "./hash.ts";
 
 // SSOT: Use platform layer for all file/path operations
 const path = () => getPlatform().path;
@@ -557,20 +558,26 @@ export async function ensureModelsDir(): Promise<void> {
   await getPlatform().fs.mkdir(getModelsDir(), { recursive: true });
 }
 
-export const HLVM_PROJECT_DIR_SEGMENT = ".hlvm";
 export const HLVM_AGENTS_SEGMENT = "agents";
+export const HLVM_SKILLS_SEGMENT = "skills";
 export const HLVM_WORKTREES_SEGMENT = "worktrees";
 
-export function getUserAgentsDir(): string {
-  return join(homeDir(), HLVM_PROJECT_DIR_SEGMENT, HLVM_AGENTS_SEGMENT);
+export function getHlvmInstructionsPath(): string {
+  return join(getHlvmDir(), "HLVM.md");
 }
 
-export function getProjectAgentsDir(workspace: string): string {
-  return join(workspace, HLVM_PROJECT_DIR_SEGMENT, HLVM_AGENTS_SEGMENT);
+export function getUserAgentsDir(): string {
+  return join(getHlvmDir(), HLVM_AGENTS_SEGMENT);
+}
+
+export function getUserSkillsDir(): string {
+  return join(getHlvmDir(), HLVM_SKILLS_SEGMENT);
 }
 
 export function getWorktreesDir(gitRoot: string): string {
-  return join(gitRoot, HLVM_PROJECT_DIR_SEGMENT, HLVM_WORKTREES_SEGMENT);
+  const repoName = sanitizeRuntimePathSegment(path().basename(gitRoot));
+  const repoId = `${repoName}-${fnv1aHex(resolve(gitRoot))}`;
+  return join(getHlvmDir(), HLVM_WORKTREES_SEGMENT, repoId);
 }
 
 export function getWorktreePath(gitRoot: string, flatSlug: string): string {

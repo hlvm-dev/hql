@@ -27,6 +27,7 @@ import { resolveAgentTools } from "./agent-tool-utils.ts";
 import { UsageTracker } from "../usage.ts";
 import { getAgentLogger } from "../logger.ts";
 import { createAgent } from "../agent.ts";
+import { loadHlvmInstructionsSystemMessage } from "../global-instructions.ts";
 import { enhanceSystemPromptWithEnvDetails } from "./prompt-env.ts";
 import { truncate } from "../../../common/utils.ts";
 import {
@@ -143,7 +144,9 @@ function normalizeAgentToolDetail(
 
 type AgentGroupedActivityKind = "search" | "read" | "other";
 
-function classifyGroupedAgentActivity(toolName: string): AgentGroupedActivityKind {
+function classifyGroupedAgentActivity(
+  toolName: string,
+): AgentGroupedActivityKind {
   switch (toolName) {
     case "search_web":
     case "search_code":
@@ -168,20 +171,24 @@ function buildGroupedAgentActivitySummary(
   const parts: string[] = [];
   if (searchCount > 0) {
     parts.push(
-      `${parts.length === 0
-        ? active ? "Searching for" : "Searched for"
-        : active ? "searching for" : "searched for"} ${searchCount} ${
-        searchCount === 1 ? "query" : "queries"
-      }`,
+      `${
+        parts.length === 0
+          ? active ? "Searching for" : "Searched for"
+          : active
+          ? "searching for"
+          : "searched for"
+      } ${searchCount} ${searchCount === 1 ? "query" : "queries"}`,
     );
   }
   if (readCount > 0) {
     parts.push(
-      `${parts.length === 0
-        ? active ? "Reading" : "Read"
-        : active ? "reading" : "read"} ${readCount} ${
-        readCount === 1 ? "file" : "files"
-      }`,
+      `${
+        parts.length === 0
+          ? active ? "Reading" : "Read"
+          : active
+          ? "reading"
+          : "read"
+      } ${readCount} ${readCount === 1 ? "file" : "files"}`,
     );
   }
   return parts.length > 0 ? parts.join(", ") : undefined;
@@ -370,6 +377,16 @@ export async function runAgent(
   );
   for (const msg of enhanced) {
     context.addMessage({ role: "system", content: msg });
+  }
+  try {
+    const instructionsMessage = await loadHlvmInstructionsSystemMessage();
+    if (instructionsMessage) {
+      context.addMessage(instructionsMessage);
+    }
+  } catch {
+    log.debug(
+      `[Agent:${agentDefinition.agentType}] Failed to load global HLVM instructions`,
+    );
   }
 
   // Step 4: Build isolated OrchestratorConfig (CC: agentOptions + query params)

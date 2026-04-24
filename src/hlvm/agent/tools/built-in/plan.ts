@@ -75,6 +75,5 @@ export const PLAN_AGENT: BuiltInAgentDefinition = {
   ],
   source: "built-in",
   model: "inherit",
-  omitClaudeMd: true,
   getSystemPrompt: getPlanSystemPrompt,
 };

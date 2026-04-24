@@ -5,7 +5,7 @@
 import { ValidationError } from "../../common/error.ts";
 import { splitFrontmatter } from "../../common/frontmatter.ts";
 import { getPlatform } from "../../platform/platform.ts";
-import { getProjectAgentsDir } from "../../common/paths.ts";
+import { getUserAgentsDir } from "../../common/paths.ts";
 import { parse as parseYaml } from "npm:yaml@2.0.0-1";
 
 export interface AgentProfile {
@@ -133,26 +133,20 @@ function normalizeAgentProfile(profile: AgentProfile): AgentProfile {
   };
 }
 
-function validateProjectAgentProfile(
+function validateUserAgentProfile(
   profile: AgentProfile,
   sourcePath: string,
   toolValidator?: (toolName: string) => boolean,
 ): AgentProfile {
   if (!profile.name) {
     throw new ValidationError(
-      `Project agent in ${sourcePath} is missing a non-empty name`,
+      `User agent in ${sourcePath} is missing a non-empty name`,
       "agent_registry",
     );
   }
   if (!profile.description) {
     throw new ValidationError(
-      `Project agent "${profile.name}" in ${sourcePath} is missing a description`,
-      "agent_registry",
-    );
-  }
-  if (profile.tools.length === 0) {
-    throw new ValidationError(
-      `Project agent "${profile.name}" in ${sourcePath} must declare at least one tool`,
+      `User agent "${profile.name}" in ${sourcePath} is missing a description`,
       "agent_registry",
     );
   }
@@ -161,7 +155,7 @@ function validateProjectAgentProfile(
     : [];
   if (unknownTools.length > 0) {
     throw new ValidationError(
-      `Project agent "${profile.name}" in ${sourcePath} uses unknown tools: ${
+      `User agent "${profile.name}" in ${sourcePath} uses unknown tools: ${
         unknownTools.join(", ")
       }`,
       "agent_registry",
@@ -173,7 +167,7 @@ function validateProjectAgentProfile(
       profile.temperature > 2)
   ) {
     throw new ValidationError(
-      `Project agent "${profile.name}" in ${sourcePath} has invalid temperature`,
+      `User agent "${profile.name}" in ${sourcePath} has invalid temperature`,
       "agent_registry",
     );
   }
@@ -182,14 +176,14 @@ function validateProjectAgentProfile(
     (!Number.isInteger(profile.maxTokens) || profile.maxTokens <= 0)
   ) {
     throw new ValidationError(
-      `Project agent "${profile.name}" in ${sourcePath} has invalid maxTokens`,
+      `User agent "${profile.name}" in ${sourcePath} has invalid maxTokens`,
       "agent_registry",
     );
   }
   return profile;
 }
 
-async function loadProjectAgentProfileFile(
+async function loadUserAgentProfileFile(
   path: string,
   toolValidator?: (toolName: string) => boolean,
 ): Promise<AgentProfile> {
@@ -205,7 +199,7 @@ async function loadProjectAgentProfileFile(
     body,
   ].filter((part) => part.length > 0);
 
-  return validateProjectAgentProfile(
+  return validateUserAgentProfile(
     normalizeAgentProfile({
       name: typeof record.name === "string" ? record.name : "",
       description: typeof record.description === "string"
@@ -231,52 +225,51 @@ async function loadProjectAgentProfileFile(
 }
 
 export async function loadAgentProfiles(
-  workspace?: string,
+  _runtimeTarget?: string,
   options?: {
     toolValidator?: (toolName: string) => boolean;
   },
 ): Promise<readonly AgentProfile[]> {
-  if (!workspace) return AGENT_PROFILES;
   const platform = getPlatform();
-  const agentsDir = getProjectAgentsDir(workspace);
+  const agentsDir = getUserAgentsDir();
   if (!(await platform.fs.exists(agentsDir))) {
     return AGENT_PROFILES;
   }
 
   const builtInNames = new Set(AGENT_PROFILES.map((profile) => profile.name));
-  const seenProjectNames = new Set<string>();
-  const projectFiles: string[] = [];
+  const seenUserNames = new Set<string>();
+  const userFiles: string[] = [];
   for await (const entry of platform.fs.readDir(agentsDir)) {
     if (!entry.isFile) continue;
     const ext = platform.path.extname(entry.name).toLowerCase();
     if (!MARKDOWN_EXTENSIONS.has(ext)) continue;
-    projectFiles.push(platform.path.join(agentsDir, entry.name));
+    userFiles.push(platform.path.join(agentsDir, entry.name));
   }
-  projectFiles.sort((a, b) => a.localeCompare(b));
+  userFiles.sort((a, b) => a.localeCompare(b));
 
-  const projectProfiles: AgentProfile[] = [];
-  for (const file of projectFiles) {
-    const profile = await loadProjectAgentProfileFile(
+  const userProfiles: AgentProfile[] = [];
+  for (const file of userFiles) {
+    const profile = await loadUserAgentProfileFile(
       file,
       options?.toolValidator,
     );
     if (builtInNames.has(profile.name)) {
       throw new ValidationError(
-        `Project agent "${profile.name}" in ${file} duplicates a built-in agent profile`,
+        `User agent "${profile.name}" in ${file} duplicates a built-in agent profile`,
         "agent_registry",
       );
     }
-    if (seenProjectNames.has(profile.name)) {
+    if (seenUserNames.has(profile.name)) {
       throw new ValidationError(
-        `Duplicate project agent profile "${profile.name}" detected in ${file}`,
+        `Duplicate user agent profile "${profile.name}" detected in ${file}`,
         "agent_registry",
       );
     }
-    seenProjectNames.add(profile.name);
-    projectProfiles.push(profile);
+    seenUserNames.add(profile.name);
+    userProfiles.push(profile);
   }
 
-  return [...AGENT_PROFILES, ...projectProfiles];
+  return [...AGENT_PROFILES, ...userProfiles];
 }
 
 /** Common aliases LLMs use for built-in profile names. */

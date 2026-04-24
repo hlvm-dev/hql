@@ -1,8 +1,7 @@
 import { assertEquals, assertExists } from "jsr:@std/assert";
 import {
+  getHlvmInstructionsPath,
   getMemoryMdPath,
-  resetHlvmDirCacheForTests,
-  setHlvmDirForTests,
 } from "../../../src/common/paths.ts";
 import type { MessageRow } from "../../../src/hlvm/store/types.ts";
 import { registerAttachmentFromPath } from "../../../src/hlvm/attachments/service.ts";
@@ -18,7 +17,6 @@ import {
 } from "../../../src/hlvm/cli/repl/handlers/chat-context.ts";
 import { insertFact } from "../../../src/hlvm/memory/mod.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
-import { withGlobalTestLock } from "../_shared/global-test-lock.ts";
 
 function createStoredMessage(
   id: number,
@@ -229,169 +227,187 @@ Deno.test("chat context: persistence keeps compact display text separate from su
   }]);
 });
 
-Deno.test({ name: "chat context: mixed attachments survive replay for chat and agent builders", sanitizeOps: false, sanitizeResources: false, async fn() {
-  await withTempHlvmDir(async () => {
-    const platform = getPlatform();
-    const tmpDir = await platform.fs.makeTempDir({ prefix: "chat-ctx-" });
-    const imagePath = platform.path.join(tmpDir, "test.png");
-    const pdfPath = platform.path.join(tmpDir, "test.pdf");
-    const textPath = platform.path.join(tmpDir, "notes.txt");
-    await platform.fs.writeFile(
-      imagePath,
-      new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
-    );
-    await platform.fs.writeFile(
-      pdfPath,
-      new Uint8Array([0x25, 0x50, 0x44, 0x46]),
-    );
-    await platform.fs.writeTextFile(
-      textPath,
-      "Attachment-backed notes\nSecond line",
-    );
+Deno.test({
+  name:
+    "chat context: mixed attachments survive replay for chat and agent builders",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTempHlvmDir(async () => {
+      const platform = getPlatform();
+      const tmpDir = await platform.fs.makeTempDir({ prefix: "chat-ctx-" });
+      const imagePath = platform.path.join(tmpDir, "test.png");
+      const pdfPath = platform.path.join(tmpDir, "test.pdf");
+      const textPath = platform.path.join(tmpDir, "notes.txt");
+      await platform.fs.writeFile(
+        imagePath,
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      );
+      await platform.fs.writeFile(
+        pdfPath,
+        new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+      );
+      await platform.fs.writeTextFile(
+        textPath,
+        "Attachment-backed notes\nSecond line",
+      );
 
-    try {
-      const imageAttachment = await registerAttachmentFromPath(imagePath);
-      const pdfAttachment = await registerAttachmentFromPath(pdfPath);
-      const textAttachment = await registerAttachmentFromPath(textPath);
-      const requestMessages = [{
+      try {
+        const imageAttachment = await registerAttachmentFromPath(imagePath);
+        const pdfAttachment = await registerAttachmentFromPath(pdfPath);
+        const textAttachment = await registerAttachmentFromPath(textPath);
+        const requestMessages = [{
+          role: "system" as const,
+          content: "retain explicit history",
+        }, {
+          role: "user" as const,
+          content: "see image",
+          attachment_ids: [
+            imageAttachment.id,
+            pdfAttachment.id,
+            textAttachment.id,
+          ],
+        }];
+
+        const chat = await buildChatProviderMessages({
+          requestMessages,
+          storedMessages: [],
+          modelKey: "test-chat/plain",
+        });
+        const chatUser = chat.messages.find((message) =>
+          message.role === "user"
+        );
+        assertExists(chatUser);
+        assertEquals(chatUser.attachments?.length, 3);
+        assertEquals(
+          chatUser.attachments?.map((attachment) =>
+            `${attachment.mode}:${attachment.mimeType}`
+          ),
+          [
+            "binary:image/png",
+            "binary:application/pdf",
+            "text:text/plain",
+          ],
+        );
+
+        const agent = await buildAgentHistoryMessages({
+          requestMessages,
+          storedMessages: [],
+          maxGroups: 4,
+          modelKey: "test-chat/plain",
+        });
+        const agentUser = agent.find((message) => message.role === "user");
+        assertExists(agentUser);
+        assertEquals(
+          agentUser.attachments?.map((attachment) =>
+            `${attachment.mode}:${attachment.mimeType}`
+          ),
+          [
+            "binary:image/png",
+            "binary:application/pdf",
+            "text:text/plain",
+          ],
+        );
+        const imagePayload = agentUser.attachments?.[0];
+        const pdfPayload = agentUser.attachments?.[1];
+        const textPayload = agentUser.attachments?.[2];
+        assertEquals(
+          imagePayload?.mode === "binary" &&
+            imagePayload.data.length > 0,
+          true,
+        );
+        assertEquals(
+          pdfPayload?.mode === "binary" &&
+            pdfPayload.data.length > 0,
+          true,
+        );
+        assertEquals(
+          textPayload?.mode === "text" &&
+            textPayload.text.includes("Attachment-backed notes"),
+          true,
+        );
+      } finally {
+        await platform.fs.remove(tmpDir, { recursive: true });
+      }
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "chat context: PDF attachments fall back to extracted text for text-only models",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTempHlvmDir(async () => {
+      const requestMessages: Array<{
+        role: "system" | "user";
+        content: string;
+        attachment_ids?: string[];
+      }> = [{
         role: "system" as const,
         content: "retain explicit history",
       }, {
         role: "user" as const,
-        content: "see image",
-        attachment_ids: [
-          imageAttachment.id,
-          pdfAttachment.id,
-          textAttachment.id,
-        ],
+        content: "summarize this pdf",
       }];
-
-      const chat = await buildChatProviderMessages({
-        requestMessages,
-        storedMessages: [],
-        modelKey: "test-chat/plain",
-      });
-      const chatUser = chat.messages.find((message) => message.role === "user");
-      assertExists(chatUser);
-      assertEquals(chatUser.attachments?.length, 3);
-      assertEquals(
-        chatUser.attachments?.map((attachment) =>
-          `${attachment.mode}:${attachment.mimeType}`
-        ),
-        [
-          "binary:image/png",
-          "binary:application/pdf",
-          "text:text/plain",
-        ],
-      );
-
-      const agent = await buildAgentHistoryMessages({
-        requestMessages,
-        storedMessages: [],
-        maxGroups: 4,
-        modelKey: "test-chat/plain",
-      });
-      const agentUser = agent.find((message) => message.role === "user");
-      assertExists(agentUser);
-      assertEquals(
-        agentUser.attachments?.map((attachment) =>
-          `${attachment.mode}:${attachment.mimeType}`
-        ),
-        [
-          "binary:image/png",
-          "binary:application/pdf",
-          "text:text/plain",
-        ],
-      );
-      const imagePayload = agentUser.attachments?.[0];
-      const pdfPayload = agentUser.attachments?.[1];
-      const textPayload = agentUser.attachments?.[2];
-      assertEquals(
-        imagePayload?.mode === "binary" &&
-          imagePayload.data.length > 0,
-        true,
-      );
-      assertEquals(
-        pdfPayload?.mode === "binary" &&
-          pdfPayload.data.length > 0,
-        true,
-      );
-      assertEquals(
-        textPayload?.mode === "text" &&
-          textPayload.text.includes("Attachment-backed notes"),
-        true,
-      );
-    } finally {
-      await platform.fs.remove(tmpDir, { recursive: true });
-    }
-  });
-} });
-
-Deno.test({ name: "chat context: PDF attachments fall back to extracted text for text-only models", sanitizeOps: false, sanitizeResources: false, async fn() {
-  await withTempHlvmDir(async () => {
-    const requestMessages: Array<{
-      role: "system" | "user";
-      content: string;
-      attachment_ids?: string[];
-    }> = [{
-      role: "system" as const,
-      content: "retain explicit history",
-    }, {
-      role: "user" as const,
-      content: "summarize this pdf",
-    }];
-    const platform = getPlatform();
-    const tmpDir = await platform.fs.makeTempDir({ prefix: "chat-ctx-pdf-" });
-    const pdfPath = platform.path.join(tmpDir, "report.pdf");
-    await platform.fs.writeTextFile(
-      pdfPath,
-      `%PDF-1.4
+      const platform = getPlatform();
+      const tmpDir = await platform.fs.makeTempDir({ prefix: "chat-ctx-pdf-" });
+      const pdfPath = platform.path.join(tmpDir, "report.pdf");
+      await platform.fs.writeTextFile(
+        pdfPath,
+        `%PDF-1.4
 1 0 obj
 (Hello PDF fallback)
 endobj
 %%EOF`,
-    );
-
-    try {
-      const attachment = await registerAttachmentFromPath(pdfPath);
-      requestMessages[1].attachment_ids = [attachment.id];
-
-      const chat = await buildChatProviderMessages({
-        requestMessages,
-        storedMessages: [],
-        modelKey: "ollama/llama3.2",
-      });
-      const userMessage = chat.messages.find((message) =>
-        message.role === "user"
       );
-      assertExists(userMessage);
-      assertEquals(userMessage.attachments?.[0]?.mode, "text");
-      assertEquals(
-        userMessage.attachments?.[0]?.mode === "text" &&
-          userMessage.attachments[0].text.length > 0,
-        true,
-      );
-    } finally {
-      await platform.fs.remove(tmpDir, { recursive: true });
-    }
-  });
-} });
 
-Deno.test({ name: "chat context: disablePersistentMemory suppresses memory injection for plain chat", sanitizeOps: false, sanitizeResources: false, async fn() {
-  await withGlobalTestLock(async () => {
-    const platform = getPlatform();
-    const tmpDir = await platform.fs.makeTempDir({
-      prefix: "chat-ctx-memory-",
+      try {
+        const attachment = await registerAttachmentFromPath(pdfPath);
+        requestMessages[1].attachment_ids = [attachment.id];
+
+        const chat = await buildChatProviderMessages({
+          requestMessages,
+          storedMessages: [],
+          modelKey: "ollama/llama3.2",
+        });
+        const userMessage = chat.messages.find((message) =>
+          message.role === "user"
+        );
+        assertExists(userMessage);
+        assertEquals(userMessage.attachments?.[0]?.mode, "text");
+        assertEquals(
+          userMessage.attachments?.[0]?.mode === "text" &&
+            userMessage.attachments[0].text.length > 0,
+          true,
+        );
+      } finally {
+        await platform.fs.remove(tmpDir, { recursive: true });
+      }
     });
-    setHlvmDirForTests(tmpDir);
+  },
+});
 
-    try {
+Deno.test({
+  name:
+    "chat context: disablePersistentMemory suppresses memory but keeps global instructions for plain chat",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTempHlvmDir(async () => {
+      const platform = getPlatform();
+
       await platform.fs.mkdir(platform.path.dirname(getMemoryMdPath()), {
         recursive: true,
       });
       await platform.fs.writeTextFile(
         getMemoryMdPath(),
         "Explicit note for chat",
+      );
+      await platform.fs.writeTextFile(
+        getHlvmInstructionsPath(),
+        "Always answer with global policy.",
       );
 
       const enabled = await buildChatProviderMessages({
@@ -420,39 +436,50 @@ Deno.test({ name: "chat context: disablePersistentMemory suppresses memory injec
         ),
         false,
       );
-    } finally {
-      resetHlvmDirCacheForTests();
-      await platform.fs.remove(tmpDir, { recursive: true });
-    }
-  });
-} });
-
-Deno.test({ name: "chat context: query-matched relevant memory is injected for plain chat", sanitizeOps: false, sanitizeResources: false, async fn() {
-  await withTempHlvmDir(async () => {
-    await insertFact({
-      content: "User prefers Deno for all new projects",
-      category: "Preferences",
+      assertEquals(
+        disabled.messages.some((message) =>
+          message.role === "system" &&
+          message.content?.includes("# Global HLVM Instructions") &&
+          message.content.includes("Always answer with global policy.")
+        ),
+        true,
+      );
     });
+  },
+});
 
-    const chat = await buildChatProviderMessages({
-      requestMessages: [{
-        role: "user",
-        content: "What runtime do I prefer for new projects?",
-      }],
-      storedMessages: [],
-      modelKey: "test-chat/plain",
+Deno.test({
+  name:
+    "chat context: query-matched relevant memory is injected for plain chat",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  async fn() {
+    await withTempHlvmDir(async () => {
+      await insertFact({
+        content: "User prefers Deno for all new projects",
+        category: "Preferences",
+      });
+
+      const chat = await buildChatProviderMessages({
+        requestMessages: [{
+          role: "user",
+          content: "What runtime do I prefer for new projects?",
+        }],
+        storedMessages: [],
+        modelKey: "test-chat/plain",
+      });
+
+      assertEquals(
+        chat.messages.some((message) =>
+          message.role === "system" &&
+          message.content.includes("[Memory Recall]") &&
+          message.content.includes("User prefers Deno")
+        ),
+        true,
+      );
     });
-
-    assertEquals(
-      chat.messages.some((message) =>
-        message.role === "system" &&
-        message.content.includes("[Memory Recall]") &&
-        message.content.includes("User prefers Deno")
-      ),
-      true,
-    );
-  });
-} });
+  },
+});
 
 Deno.test("chat context: agent replay reconstructs prior tool results and reorders them before the final assistant reply", async () => {
   const history = await buildAgentHistoryMessages({
@@ -521,24 +548,29 @@ Deno.test("chat context: resolves chat memory/context budget from model metadata
   assertEquals(resolved.source, "model_info");
 });
 
-Deno.test({ name: "chat context: trims by token budget instead of raw message count", sanitizeOps: false, sanitizeResources: false, fn() {
-  const trimmed = trimReplayMessages(
-    [
-      { role: "user", content: "a".repeat(500) },
-      { role: "assistant", content: "b".repeat(500) },
-      { role: "user", content: "keep-me" },
-    ],
-    110,
-    "test-chat/plain",
-  );
+Deno.test({
+  name: "chat context: trims by token budget instead of raw message count",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn() {
+    const trimmed = trimReplayMessages(
+      [
+        { role: "user", content: "a".repeat(500) },
+        { role: "assistant", content: "b".repeat(500) },
+        { role: "user", content: "keep-me" },
+      ],
+      110,
+      "test-chat/plain",
+    );
 
-  assertEquals(
-    trimmed.some((message) => message.content === "a".repeat(500)),
-    false,
-  );
-  assertEquals(
-    trimmed.some((message) => message.content === "b".repeat(500)),
-    false,
-  );
-  assertEquals(trimmed[trimmed.length - 1]?.content, "keep-me");
-} });
+    assertEquals(
+      trimmed.some((message) => message.content === "a".repeat(500)),
+      false,
+    );
+    assertEquals(
+      trimmed.some((message) => message.content === "b".repeat(500)),
+      false,
+    );
+    assertEquals(trimmed[trimmed.length - 1]?.content, "keep-me");
+  },
+});

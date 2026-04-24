@@ -12,7 +12,7 @@ import type { McpServerConfig } from "../mcp/types.ts";
 // Agent Definition Types (CC: loadAgentsDir.ts)
 // ============================================================
 
-export type AgentSource = "built-in" | "user" | "project";
+export type AgentSource = "built-in" | "user";
 
 /**
  * Per-agent MCP server specification.
@@ -47,8 +47,6 @@ export interface BaseAgentDefinition {
   background?: boolean;
   /** Run in isolated git worktree */
   isolation?: "worktree";
-  /** Skip loading CLAUDE.md context for this agent */
-  omitClaudeMd?: boolean;
   /** Permission mode override for child execution */
   permissionMode?: AgentExecutionMode;
   /** Sticky prompt prepended ahead of the invocation prompt */
@@ -64,7 +62,7 @@ export interface BuiltInAgentDefinition extends BaseAgentDefinition {
 
 /** Custom agent loaded from .md file. CC: CustomAgentDefinition */
 export interface CustomAgentDefinition extends BaseAgentDefinition {
-  source: "user" | "project";
+  source: "user";
   /** Original filename without .md extension */
   filename?: string;
 }

@@ -25,6 +25,8 @@ import {
   unregisterTool,
 } from "../../../src/hlvm/agent/registry.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
+import { getUserAgentsDir } from "../../../src/common/paths.ts";
+import { withTempHlvmDir } from "../helpers.ts";
 
 Deno.test("LLM integration: default prompt includes core role, tools, and concision guidance", () => {
   const prompt = generateSystemPrompt();
@@ -302,33 +304,47 @@ Deno.test("LLM integration: buildToolDefinitions caches until the registry chang
   }
 });
 
-Deno.test("LLM integration: Agent tool description includes custom workspace agents by name", async () => {
-  clearToolDefCache();
-  const platform = getPlatform();
-  const tempDir = await platform.fs.makeTempDir({ prefix: "hlvm-agent-desc-" });
-  const agentsDir = platform.path.join(tempDir, ".hlvm", "agents");
+Deno.test("LLM integration: Agent tool description includes global user agents and ignores workspace agents", async () => {
+  await withTempHlvmDir(async () => {
+    clearToolDefCache();
+    const platform = getPlatform();
+    const tempDir = await platform.fs.makeTempDir({
+      prefix: "hlvm-agent-desc-",
+    });
+    const userAgentsDir = getUserAgentsDir();
+    const workspaceAgentsDir = platform.path.join(tempDir, ".hlvm", "agents");
 
-  try {
-    await platform.fs.mkdir(agentsDir, { recursive: true });
-    await platform.fs.writeTextFile(
-      platform.path.join(agentsDir, "probe-counter.md"),
-      `---
+    try {
+      await platform.fs.mkdir(userAgentsDir, { recursive: true });
+      await platform.fs.writeTextFile(
+        platform.path.join(userAgentsDir, "probe-counter.md"),
+        `---
 name: probe-counter
 description: Count files for tests
 tools: [list_files]
 ---
 You count files.`,
-    );
+      );
+      await platform.fs.mkdir(workspaceAgentsDir, { recursive: true });
+      await platform.fs.writeTextFile(
+        platform.path.join(workspaceAgentsDir, "local-only-agent.md"),
+        `---
+name: local-only-agent
+description: Must not appear
+tools: [list_files]
+---
+You must not load.`,
+      );
 
-    const defs = await buildToolDefinitions({ workspace: tempDir });
-    const agentTool = defs.find((tool) => tool.function.name === "Agent");
-    assertEquals(Boolean(agentTool), true);
-    assertStringIncludes(
-      agentTool!.function.description ?? "",
-      "probe-counter",
-    );
-  } finally {
-    await platform.fs.remove(tempDir, { recursive: true });
-    clearToolDefCache();
-  }
+      const defs = await buildToolDefinitions({ workspace: tempDir });
+      const agentTool = defs.find((tool) => tool.function.name === "Agent");
+      const description = agentTool?.function.description ?? "";
+      assertEquals(Boolean(agentTool), true);
+      assertStringIncludes(description, "probe-counter");
+      assertEquals(description.includes("local-only-agent"), false);
+    } finally {
+      await platform.fs.remove(tempDir, { recursive: true });
+      clearToolDefCache();
+    }
+  });
 });

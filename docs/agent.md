@@ -476,9 +476,9 @@ const PROFILE_ALIASES = {
 
 Lookup: exact match first, then alias fallback.
 
-### Custom Project Profiles
+### Custom User Profiles
 
-Place `.md` files in `.hlvm/agents/` with YAML frontmatter:
+Place `.md` files in `~/.hlvm/agents/` with YAML frontmatter:
 
 ```markdown
 ---
@@ -852,9 +852,11 @@ the same state.
 
 ```
 ~/.hlvm/                        # Data root
+~/.hlvm/HLVM.md                 # Global assistant instructions
 ~/.hlvm/settings.json           # Unified config
 ~/.hlvm/memory/                 # Memory database
-<workspace>/.hlvm/agents/       # Custom agent profiles
+~/.hlvm/agents/                 # Global custom agent profiles
+~/.hlvm/worktrees/              # Global agent worktree storage
 ```
 
 ---
@@ -874,8 +876,7 @@ the same state.
 
 **In scope — non-experimental CC production surface:**
 single `Agent` tool (LLM-driven dispatch); built-ins `Explore`, `Plan`,
-`general-purpose`; custom agents from `~/.hlvm/agents/*.md` and
-`<workspace>/.hlvm/agents/*.md`; sync + async (`run_in_background: true`)
+`general-purpose`; custom agents from `~/.hlvm/agents/*.md`; sync + async (`run_in_background: true`)
 execution; worktree isolation (`isolation: "worktree"`); per-agent MCP;
 per-agent tool allow/deny; TUI lifecycle (`agent_spawn/progress/complete`).
 
@@ -907,12 +908,12 @@ have not yet fixed.
 | Dimension | Status |
 |---|---|
 | Tool name + schema (`description`/`prompt`/`subagent_type`/`model`/`run_in_background`/`isolation`/`cwd`) | same |
-| Agent discovery (user + project `.md`, built-in priority) | same |
+| Agent discovery (global user `.md` + built-in priority) | **diverge (intentional)** — HLVM is a global assistant and never loads agents from a runtime/workspace directory. |
 | Spawn flow (validate → resolve def → resolve tools → build system prompt → isolate context → run → result) | same |
 | Child system prompt (`[agentPrompt, notes, envInfo]` with verbatim CC `Notes:` text and `<env>` block, **child's effective cwd under worktree / cwd-override**) | same |
 | Tool filtering (MCP → universal disallow → custom disallow → async allowlist → **parent `toolAllowlist`/`toolDenylist` intersection** → wildcard/explicit) | same |
 | `disallowedTools` + `tools` spec parsing (`"Tool"` / `"Tool(pattern)"` / `"Tool(*)"` / escaped parens) | same |
-| Worktree isolation (`.hlvm/worktrees/{slug}`, branch `worktree-{slug}`, cleanup-on-clean) | same |
+| Worktree isolation (`~/.hlvm/worktrees/{repo-id}/{slug}`, branch `worktree-{slug}`, cleanup-on-clean) | **diverge (intentional)** — storage is global; the repo path is only the runtime target for the git worktree. |
 | Sync result raw shape — `content: Array<{type:'text', text:string}>`, `usage` object with `input_tokens/output_tokens/cache_creation_input_tokens/cache_read_input_tokens/server_tool_use/service_tier/cache_creation` | same. HLVM populates `input_tokens`/`output_tokens` from the usage tracker; the remaining cache/server fields are `null` (HLVM's engine doesn't report cache-tier breakdown). Helper `getAgentToolResultText(result)` extracts concatenated text for internal consumers. |
 | Async result shape (`status: "async_launched"`, `agentId`, `description`, `prompt`, `outputFile`, `canReadOutputFile`) | same |
 | ONE_SHOT trailer stripping for Explore/Plan | same |
@@ -1032,7 +1033,7 @@ const enhanced = await enhanceSystemPromptWithEnvDetails(
 
 ## A.8 Worktree isolation
 
-Creation path `<gitRoot>/.hlvm/worktrees/agent-<slugHash>` (flatten `/`→`+`),
+Creation path `~/.hlvm/worktrees/{repo-id}/agent-<slugHash>` (flatten `/`→`+`),
 branch `worktree-{slug}`, `git worktree add -B branch path HEAD`. On
 completion: if clean (via `git status --porcelain` + `git rev-list`) →
 remove worktree + branch; else return `{worktreePath, worktreeBranch}` in
