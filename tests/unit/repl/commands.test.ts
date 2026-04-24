@@ -2,8 +2,20 @@
  * Unit tests for REPL slash commands
  */
 
-import { assertEquals } from "jsr:@std/assert@1";
-import { isCommand, commands } from "../../../src/hlvm/cli/repl/commands.ts";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
+import {
+  COMMAND_CATALOG,
+  commands,
+  getFullCommandCatalog,
+  isCommand,
+  runCommand,
+  SKILL_COMMAND_MARKER,
+} from "../../../src/hlvm/cli/repl/commands.ts";
+import { isReservedSkillName } from "../../../src/hlvm/agent/skills/reserved.ts";
+import { ReplState } from "../../../src/hlvm/cli/repl/state.ts";
+import { getUserSkillsDir } from "../../../src/common/paths.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
+import { withTempHlvmDir } from "../helpers.ts";
 
 Deno.test("isCommand - slash prefix", () => {
   assertEquals(isCommand("/help"), true);
@@ -63,4 +75,108 @@ Deno.test("commands registry - omits retired legacy commands from the active con
   for (const cmd of removedCommands) {
     assertEquals(cmd in commands, false, `Unexpected command: ${cmd}`);
   }
+});
+
+Deno.test("commands registry - built-in slash names are reserved for skills", () => {
+  for (const command of COMMAND_CATALOG) {
+    assertEquals(
+      isReservedSkillName(command.name.slice(1)),
+      true,
+      `Slash command should be reserved for skills: ${command.name}`,
+    );
+  }
+});
+
+Deno.test("runCommand - activates user skill as slash command", async () => {
+  await withTempHlvmDir(async () => {
+    const platform = getPlatform();
+    const skillDir = platform.path.join(getUserSkillsDir(), "debug-flow");
+    await platform.fs.mkdir(skillDir, { recursive: true });
+    await platform.fs.writeTextFile(
+      platform.path.join(skillDir, "SKILL.md"),
+      `---
+name: debug-flow
+description: Debug workflow
+---
+
+# Debug Flow
+
+Inspect the failing path before changing code.
+`,
+    );
+
+    const output: string[] = [];
+    const result = await runCommand(
+      "/debug-flow ask hangs",
+      new ReplState(),
+      { onOutput: (line) => output.push(line) },
+    );
+
+    assertEquals(result.handled, true);
+    assertEquals(output.length, 1);
+    assertEquals(output[0].startsWith(SKILL_COMMAND_MARKER), true);
+    assertStringIncludes(output[0], "Use the debug-flow skill");
+    assertStringIncludes(output[0], "Inspect the failing path");
+    assertStringIncludes(output[0], "Request: ask hangs");
+  });
+});
+
+Deno.test("runCommand - built-in slash commands win over colliding skills", async () => {
+  await withTempHlvmDir(async () => {
+    const platform = getPlatform();
+    const skillDir = platform.path.join(getUserSkillsDir(), "help");
+    await platform.fs.mkdir(skillDir, { recursive: true });
+    await platform.fs.writeTextFile(
+      platform.path.join(skillDir, "SKILL.md"),
+      `---
+name: help
+description: Skill that collides with help
+---
+
+This body should not be activated.
+`,
+    );
+
+    const catalog = await getFullCommandCatalog();
+    const helpItems = catalog.filter((item) => item.name === "/help");
+    assertEquals(helpItems.length, 1);
+    assertEquals(helpItems[0].description, "Show help message");
+
+    const output: string[] = [];
+    const result = await runCommand(
+      "/help now",
+      new ReplState(),
+      { onOutput: (line) => output.push(line) },
+    );
+
+    assertEquals(result.handled, true);
+    assertEquals(
+      output.some((line) => line.startsWith(SKILL_COMMAND_MARKER)),
+      false,
+    );
+    assertStringIncludes(output.join("\n"), "HLVM REPL Functions");
+  });
+});
+
+Deno.test("getFullCommandCatalog - includes skills as slash commands", async () => {
+  await withTempHlvmDir(async () => {
+    const platform = getPlatform();
+    const skillDir = platform.path.join(getUserSkillsDir(), "release-check");
+    await platform.fs.mkdir(skillDir, { recursive: true });
+    await platform.fs.writeTextFile(
+      platform.path.join(skillDir, "SKILL.md"),
+      `---
+name: release-check
+description: Release readiness checklist
+---
+
+# Release Check
+`,
+    );
+
+    const catalog = await getFullCommandCatalog();
+    const skillCommand = catalog.find((item) => item.name === "/release-check");
+
+    assertEquals(skillCommand?.description, "Release readiness checklist");
+  });
 });

@@ -104,6 +104,8 @@ export interface LoopState {
   memoryFlushedThisCycle: boolean;
   /** Whether automatic memory recall has already been injected for this user turn */
   memoryRecallInjected: boolean;
+  /** Whether available skills have already been injected for this user turn */
+  skillsInjected: boolean;
   /** Indexed citation candidates extracted from recent web tool results. */
   passageIndex?: CitationSourceEntry[];
   /** Counter for consecutive transient network retries at the loop level */
@@ -197,6 +199,7 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     iterationsSinceReminder: 3, // Start at cooldown to avoid immediate reminder
     memoryFlushedThisCycle: false,
     memoryRecallInjected: false,
+    skillsInjected: false,
     passageIndex: [],
     lastToolNames: [],
     loopRecoveryStep: 0,

@@ -18,6 +18,7 @@ import { ollamaCommand, showOllamaHelp } from "./commands/ollama.ts";
 import { serveCommand, showServeHelp } from "./commands/serve.ts";
 import { mcpCommand, showMcpHelp } from "./commands/mcp.ts";
 import { modelCommand, showModelHelp } from "./commands/model.ts";
+import { showSkillHelp, skillCommand } from "./commands/skill.ts";
 import { bootstrapCommand, showBootstrapHelp } from "./commands/bootstrap.ts";
 import { chromeExtCommand, showChromeExtHelp } from "./commands/chrome-ext.ts";
 
@@ -193,6 +194,7 @@ Commands:
   ai                 Setup and manage AI models
   ollama serve       Explicit compatibility bridge to system Ollama
   mcp                Manage MCP tool servers
+  skill              Manage agent skills
   update             Update HLVM to the latest version
   uninstall          Uninstall HLVM
 
@@ -234,6 +236,7 @@ const COMMANDS: Record<string, CommandEntry> = {
   ollama: { run: ollamaCommand, help: showOllamaHelp },
   serve: { run: serveCommand, help: showServeHelp },
   mcp: { run: mcpCommand, help: showMcpHelp },
+  skill: { run: skillCommand, help: showSkillHelp },
   model: { run: modelCommand, help: showModelHelp },
   bootstrap: { run: bootstrapCommand, help: showBootstrapHelp },
   "chrome-ext": { run: chromeExtCommand, help: showChromeExtHelp },

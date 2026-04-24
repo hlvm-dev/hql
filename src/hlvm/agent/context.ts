@@ -441,7 +441,12 @@ export class ContextManager {
       this.compactionRevision++;
       this.setMessages(
         this.config.preserveSystem
-          ? [...system, summaryMessage, ...restorationMessages, ...recentMessages]
+          ? [
+            ...system,
+            summaryMessage,
+            ...restorationMessages,
+            ...recentMessages,
+          ]
           : [summaryMessage, ...restorationMessages, ...recentMessages],
       );
       // Postcondition: guarantee fit even if summary + recent still over budget
@@ -495,6 +500,20 @@ export class ContextManager {
    */
   getMessages(): Message[] {
     return [...this.messages];
+  }
+
+  /**
+   * Remove messages matching a predicate and recompute cached context stats.
+   *
+   * Used for generated runtime context blocks that are refreshed across turns.
+   */
+  removeMessagesWhere(predicate: (message: Message) => boolean): number {
+    const nextMessages = this.messages.filter((message) => !predicate(message));
+    const removed = this.messages.length - nextMessages.length;
+    if (removed > 0) {
+      this.setMessages(nextMessages);
+    }
+    return removed;
   }
 
   /**
@@ -719,7 +738,9 @@ export class ContextManager {
       return;
     }
 
-    const summary = this.buildSummary(this.prepareMessagesForCompaction(toSummarize));
+    const summary = this.buildSummary(
+      this.prepareMessagesForCompaction(toSummarize),
+    );
     const summaryMessage: Message = {
       role: "assistant",
       content: summary,
@@ -742,10 +763,10 @@ export class ContextManager {
     const userAsks = messages
       .filter((m) => m.role === "user")
       .slice(-5)
-      .map((m) =>
-        `- ${truncate(m.content.replace(/\s+/g, " ").trim(), 300)}`
-      );
-    if (userAsks.length) sections.push("User requests:\n" + userAsks.join("\n"));
+      .map((m) => `- ${truncate(m.content.replace(/\s+/g, " ").trim(), 300)}`);
+    if (userAsks.length) {
+      sections.push("User requests:\n" + userAsks.join("\n"));
+    }
 
     // Files and symbols referenced
     const files = collectFiles(messages);
@@ -759,22 +780,16 @@ export class ContextManager {
 
     // Errors
     const errors = messages
-      .filter((m) =>
-        /\b(error|failed|exception|timeout)\b/i.test(m.content)
-      )
+      .filter((m) => /\b(error|failed|exception|timeout)\b/i.test(m.content))
       .slice(-3)
-      .map((m) =>
-        `- ${truncate(m.content.replace(/\s+/g, " ").trim(), 200)}`
-      );
+      .map((m) => `- ${truncate(m.content.replace(/\s+/g, " ").trim(), 200)}`);
     if (errors.length) sections.push("Errors:\n" + errors.join("\n"));
 
     // Last assistant state
     const lastAssistant = messages
       .filter((m) => m.role === "assistant")
       .slice(-2)
-      .map((m) =>
-        `- ${truncate(m.content.replace(/\s+/g, " ").trim(), 200)}`
-      );
+      .map((m) => `- ${truncate(m.content.replace(/\s+/g, " ").trim(), 200)}`);
     if (lastAssistant.length) {
       sections.push("Last state:\n" + lastAssistant.join("\n"));
     }
@@ -801,8 +816,9 @@ export class ContextManager {
       [];
     return hints.map((hint) => ({
       role: "assistant" as const,
-      content:
-        `Restored file context: ${hint.path}\n\n${truncateMiddle(hint.content, hint.estimatedTokens * 4)}`,
+      content: `Restored file context: ${hint.path}\n\n${
+        truncateMiddle(hint.content, hint.estimatedTokens * 4)
+      }`,
       timestamp: Date.now(),
     }));
   }

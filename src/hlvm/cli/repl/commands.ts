@@ -11,9 +11,7 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { normalizeModelId } from "../../../common/config/types.ts";
 import { persistSelectedModelConfig } from "../../../common/config/model-selection.ts";
-import {
-  listRuntimeMcpServers,
-} from "../../runtime/host-client.ts";
+import { listRuntimeMcpServers } from "../../runtime/host-client.ts";
 import {
   getTaskManager,
   isEvalTask,
@@ -25,11 +23,19 @@ import {
   formatProgressBar,
 } from "../repl-ink/utils/formatting.ts";
 import { STATUS_GLYPHS } from "../repl-ink/ui-constants.ts";
+import {
+  findSkillByName,
+  loadSkillSnapshot,
+  readSkillBody,
+} from "../../agent/skills/store.ts";
+import { isReservedSkillName } from "../../agent/skills/reserved.ts";
+import type { SkillEntry } from "../../agent/skills/types.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
 // Pre-compiled whitespace pattern for command parsing
 const WHITESPACE_SPLIT_REGEX = /\s+/;
+export const SKILL_COMMAND_MARKER = "\x00SKILL\x00";
 
 interface Command {
   description: string;
@@ -46,6 +52,11 @@ interface CommandContext {
 
 interface RunCommandOptions {
   onOutput?: (line: string) => void;
+}
+
+interface CommandCatalogItem {
+  name: string;
+  description: string;
 }
 
 function stringifyOutputArg(value: unknown): string {
@@ -73,8 +84,7 @@ function createOutputWriter(
 }
 
 // Commands handled by App.tsx (not in the `commands` record below)
-const APP_HANDLED_COMMANDS: readonly { name: string; description: string }[] = [
-];
+const APP_HANDLED_COMMANDS: readonly CommandCatalogItem[] = [];
 
 /** Generate help text dynamically using keybinding registry */
 function generateHelpText(): string {
@@ -313,24 +323,31 @@ export const commands: Record<string, Command> = {
       }
     },
   },
-
 };
 
 /** Unified catalog of all slash commands (derived from `commands` + App-handled commands). */
-export const COMMAND_CATALOG: readonly { name: string; description: string }[] =
-  [
-    ...Object.entries(commands).map(([name, cmd]) => ({
-      name,
-      description: cmd.description,
-    })),
-    ...APP_HANDLED_COMMANDS,
-  ];
+export const COMMAND_CATALOG: readonly CommandCatalogItem[] = [
+  ...Object.entries(commands).map(([name, cmd]) => ({
+    name,
+    description: cmd.description,
+  })),
+  ...APP_HANDLED_COMMANDS,
+];
 
-/** Extended catalog (skills removed). */
+/** Extended catalog including available skills as CC-style slash commands. */
 export function getFullCommandCatalog(
-  _workspace?: string,
-): Promise<readonly { name: string; description: string }[]> {
-  return Promise.resolve(COMMAND_CATALOG);
+  workspace?: string,
+): Promise<readonly CommandCatalogItem[]> {
+  void workspace;
+  return loadSkillSnapshot().then((snapshot) => [
+    ...COMMAND_CATALOG,
+    ...snapshot.skills
+      .filter((skill) => !isReservedSkillName(skill.name))
+      .map((skill) => ({
+        name: `/${skill.name}`,
+        description: skill.description,
+      })),
+  ]).catch(() => COMMAND_CATALOG);
 }
 
 /** Check if input is a slash command */
@@ -342,6 +359,50 @@ export function isCommand(input: string): boolean {
 /** Result from running a command. */
 export interface RunCommandResult {
   handled: boolean;
+}
+
+function stripSlashCommandName(commandName: string): string | null {
+  if (!commandName.startsWith("/")) return null;
+  const name = commandName.slice(1);
+  return name.length > 0 ? name : null;
+}
+
+function formatSkillActivation(
+  skill: SkillEntry,
+  body: string,
+  args: string,
+): string {
+  const request = args.trim() || "Apply this skill.";
+  return [
+    `Use the ${skill.name} skill for this request.`,
+    "",
+    `Skill: ${skill.name}`,
+    `Source: ${skill.source}`,
+    `Path: ${skill.filePath}`,
+    "",
+    "Skill instructions:",
+    body.trim(),
+    "",
+    `Request: ${request}`,
+  ].join("\n");
+}
+
+async function maybeRunSkillCommand(
+  commandName: string,
+  args: string,
+  output: (...args: unknown[]) => void,
+): Promise<boolean> {
+  const skillName = stripSlashCommandName(commandName);
+  if (!skillName) return false;
+  if (isReservedSkillName(skillName)) return false;
+
+  const snapshot = await loadSkillSnapshot();
+  const skill = findSkillByName(snapshot, skillName);
+  if (!skill) return false;
+
+  const body = await readSkillBody(skill);
+  output(SKILL_COMMAND_MARKER + formatSkillActivation(skill, body, args));
+  return true;
 }
 
 /** Run a command. */
@@ -357,6 +418,10 @@ export async function runCommand(
   const command = commands[cmdName];
   if (command) {
     await command.handler(state, args.join(" "), { output });
+    return { handled: true };
+  }
+
+  if (await maybeRunSkillCommand(cmdName, args.join(" "), output)) {
     return { handled: true };
   }
 

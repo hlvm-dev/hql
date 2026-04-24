@@ -73,6 +73,11 @@ import type { AgentExecutionMode } from "./execution-mode.ts";
 import { isPlanExecutionMode } from "./execution-mode.ts";
 import { getAgentLogger } from "./logger.ts";
 import { buildRelevantMemoryRecall } from "../memory/mod.ts";
+import { loadSkillSnapshot } from "./skills/store.ts";
+import {
+  AVAILABLE_SKILLS_PROMPT_SENTINEL,
+  formatSkillsForPrompt,
+} from "./skills/prompt.ts";
 import { resetWebToolBudget } from "./tools/web-tools.ts";
 import type { Citation } from "./tools/web/search-provider.ts";
 import type { TodoState } from "./todo-state.ts";
@@ -953,6 +958,34 @@ function maybeInjectMemoryRecall(
   }
 }
 
+async function maybeInjectSkills(
+  state: LoopState,
+  userRequest: string,
+  config: OrchestratorConfig,
+): Promise<void> {
+  if (state.skillsInjected) return;
+  state.skillsInjected = true;
+
+  const trimmed = userRequest.trim();
+  if (!trimmed) return;
+
+  try {
+    const snapshot = await loadSkillSnapshot();
+    const prompt = formatSkillsForPrompt(snapshot);
+    config.context.removeMessagesWhere((message) =>
+      message.role === "system" &&
+      message.content.includes(AVAILABLE_SKILLS_PROMPT_SENTINEL)
+    );
+    if (!prompt) return;
+    addContextMessage(config, {
+      role: "system",
+      content: prompt,
+    });
+  } catch {
+    // Best-effort only; skills should never block a normal agent turn.
+  }
+}
+
 /**
  * Inject a runtime directive if conditions are met.
  * Returns true if a reminder was injected (caller should increment cooldown).
@@ -1512,6 +1545,7 @@ export async function runReActLoop(
       config.onAgentEvent?.({ type: "thinking", iteration: state.iterations });
 
       maybeInjectReminder(state, lc, config);
+      await maybeInjectSkills(state, userRequest, config);
       if (autoMemoryRecall) {
         maybeInjectMemoryRecall(state, userRequest, config);
       }

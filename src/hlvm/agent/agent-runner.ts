@@ -37,11 +37,7 @@ import { getAgentEngine } from "./engine.ts";
 import { loadAgentProfiles } from "./agent-registry.ts";
 import { runtimeDirective } from "./runtime-messages.ts";
 import { resolveExistingMentionedFiles } from "./request-paths.ts";
-import {
-  getDeferredToolNames,
-  hasTool,
-  resolveTools,
-} from "./registry.ts";
+import { getDeferredToolNames, hasTool, resolveTools } from "./registry.ts";
 import {
   type AgentLoopResult,
   type AgentStopReason,
@@ -141,6 +137,7 @@ import {
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
+  "~/.hlvm/skills",
   "~/Downloads",
   "~/Desktop",
   "~/Documents",
@@ -693,7 +690,9 @@ export async function runAgentQuery(
     });
   }
 
-  if (!options.fixturePath && !supportsAgentExecution(model, options.modelInfo)) {
+  if (
+    !options.fixturePath && !supportsAgentExecution(model, options.modelInfo)
+  ) {
     // Configured model is constrained — fall back to guaranteed local default
     const fallbackModelId = await resolveLocalFallbackModelId();
     if (
