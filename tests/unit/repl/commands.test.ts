@@ -8,6 +8,7 @@ import {
   commands,
   getFullCommandCatalog,
   isCommand,
+  parseSkillCommandPayload,
   runCommand,
   SKILL_COMMAND_MARKER,
 } from "../../../src/hlvm/cli/repl/commands.ts";
@@ -115,9 +116,14 @@ Inspect the failing path before changing code.
     assertEquals(result.handled, true);
     assertEquals(output.length, 1);
     assertEquals(output[0].startsWith(SKILL_COMMAND_MARKER), true);
-    assertStringIncludes(output[0], "Use the debug-flow skill");
-    assertStringIncludes(output[0], "Inspect the failing path");
-    assertStringIncludes(output[0], "Request: ask hangs");
+    const payload = parseSkillCommandPayload(
+      output[0].slice(SKILL_COMMAND_MARKER.length),
+    );
+    assertEquals(payload.name, "debug-flow");
+    assertEquals(payload.source, "user");
+    assertStringIncludes(payload.prompt, "Use the debug-flow skill");
+    assertStringIncludes(payload.prompt, "Inspect the failing path");
+    assertStringIncludes(payload.prompt, "Request: ask hangs");
   });
 });
 

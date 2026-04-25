@@ -71,6 +71,7 @@ hlvm repl [options]
 | ------------- | ---------------------------------------------- |
 | `--ink`       | Force Ink REPL (requires interactive terminal) |
 | `--no-banner` | Skip the startup banner                        |
+| `--port <N>`  | Use a dedicated runtime port for dev/test isolation |
 | `--help, -h`  | Show help                                      |
 | `--version`   | Show version                                   |
 
@@ -104,6 +105,7 @@ hlvm ask "<query>"
 | `--usage`                        | Show token usage summary after execution                       |
 | `--attach <path>`                | Attach a file input (repeatable)                               |
 | `--model <provider/model>`       | Use a specific AI model                                        |
+| `--port <N>`                     | Use a dedicated runtime port for dev/test isolation            |
 | `--no-session-persistence`       | Use an isolated hidden session for this run only               |
 | `--permission-mode <mode>`       | Set permission mode (see below)                                |
 | `--allowedTools <name>`          | Allow specific tool (repeatable)                               |
@@ -604,17 +606,29 @@ Supported user-facing environment variables:
 | `HLVM_FORCE_SETUP`     | Force first-run setup                      |
 | `HLVM_NO_UPDATE_CHECK` | Disable the startup update check           |
 
-HLVM's state lives at `~/.hlvm/` — this is fixed and not configurable.
-HLVM runs as a single user-level daemon, shared by the CLI, the macOS
-GUI, and any messaging-channel receivers; there is no per-directory
-isolation at the user contract. Internal test and diagnostics hooks
-exist, but they are not part of the stable CLI surface.
+HLVM's state lives at `~/.hlvm/` — this is fixed and not configurable. HLVM runs
+as a single user-level daemon, shared by the CLI, the macOS GUI, and any
+messaging-channel receivers; there is no per-directory isolation at the user
+contract.
 
-Internal-only runtime isolation hook:
+Runtime port isolation:
+
+```bash
+hlvm --port 18442 ask "test against an isolated runtime"
+hlvm ask --port 18442 "same isolation, command-local form"
+hlvm repl --port 18442
+```
+
+The default `11435` port is the shared product runtime. Use `--port` only for
+source-mode work, E2E tests, or diagnostics where touching the GUI runtime would
+be wrong. HLVM does not silently auto-increment ports because that would split
+runtime state without making the isolation explicit.
+
+Internal equivalent used by tests and spawned runtime hosts:
 
 | Variable         | Description |
 | ---------------- | ----------- |
-| `HLVM_REPL_PORT` | Override the runtime-host port for explicit dev/test isolation only |
+| `HLVM_REPL_PORT` | Environment form of `--port` for explicit dev/test isolation only |
 
 ---
 

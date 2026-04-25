@@ -53,7 +53,10 @@ import {
   getAllKnownIdentifiers,
   initializeIdentifiers,
 } from "../../../../common/known-identifiers.ts";
-import { COMMAND_CATALOG } from "../../repl/commands.ts";
+import {
+  COMMAND_CATALOG,
+  type CommandCatalogItem,
+} from "../../repl/commands.ts";
 
 /**
  * Classify an identifier into a completion type.
@@ -594,13 +597,15 @@ export const FileProvider: CompletionProvider = {
  */
 function createCommandApplyAction(
   name: string,
+  options?: { executeOnSelect?: boolean },
 ): (action: CompletionAction, context: ApplyContext) => ApplyResult {
   return (action: CompletionAction, ctx: ApplyContext): ApplyResult => {
     const before = ctx.text.slice(0, ctx.anchorPosition);
     const after = ctx.text.slice(ctx.cursorPosition);
+    const shouldExecute = options?.executeOnSelect ?? true;
 
-    // INSERT: Just insert the command text (user can edit and press Enter to execute)
-    if (action === "INSERT") {
+    // INSERT, and SELECT for skill commands: insert text so the user can add args.
+    if (action === "INSERT" || !shouldExecute) {
       const insertText = name + " ";
       return {
         text: before + insertText + after,
@@ -642,11 +647,11 @@ function createCommandRenderSpec(
  * Provider for slash command completions.
  */
 async function getOrLoadFullCatalog(): Promise<
-  readonly { name: string; description: string }[]
+  readonly CommandCatalogItem[]
 > {
   try {
     const { getFullCommandCatalog } = await import(
-      "../../../repl/commands.ts"
+      "../../repl/commands.ts"
     );
     return await getFullCommandCatalog();
   } catch {
@@ -688,6 +693,7 @@ export const CommandProvider: CompletionProvider = {
 
       const score = COMPLETION_SCORES.COMMAND_BASE + (matchResult?.score ?? 0);
       const matchIndices = matchResult?.indices.map((i) => i + 1);
+      const isSkillCommand = cmd.kind === "skill";
 
       items.push({
         id: generateItemId("command"),
@@ -697,7 +703,9 @@ export const CommandProvider: CompletionProvider = {
         score,
         matchIndices,
         availableActions: ["SELECT"] as const,
-        applyAction: createCommandApplyAction(cmd.name),
+        applyAction: createCommandApplyAction(cmd.name, {
+          executeOnSelect: !isSkillCommand,
+        }),
         getRenderSpec: createCommandRenderSpec(
           cmd.name,
           cmd.description,

@@ -1,9 +1,9 @@
 # HLVM Skills System
 
-**Status**: Phase 1 foundation implemented as of 2026-04-25. **Owner**: skills
+**Status**: V1 foundation implemented as of 2026-04-25. **Owner**: skills
 foundation **Target scope for v1**: `agentskills.io`-compatible core, CC-style
-runtime behavior, small CLI surface, global user skills, no registry, no
-auto-generation.
+runtime behavior, small CLI surface, global user skills, REPL/ask activation,
+no registry, no auto-generation.
 
 This doc is a complete cold-start briefing. If you are a new AI or engineer with
 zero prior context, read top-to-bottom once and you will know exactly what to
@@ -603,8 +603,9 @@ LLM executes
 4. **Bundled content is foundational.** Start with general coding-agent building
    blocks such as `verify`, `debug`, `code-review`, `plan`, `write-docs`, and
    `skill-author`.
-5. **Precedence is simple.** Project overrides user, user overrides bundled.
-   Duplicate names resolve by precedence.
+5. **Precedence is simple.** User overrides bundled. There are no CWD-local,
+   project-local, or walk-up skill roots in v1. Duplicate names resolve by
+   precedence.
 6. **No platform expansion.** No registry, installer orchestration,
    secrets/config layer, GUI manager, watcher, plugin merge, or auto-generation
    in v1.
@@ -618,8 +619,9 @@ LLM executes
 3. **Duplicate reporting.** Prefer `hlvm skill list` surfacing shadowed
    duplicates in a compact note, plus a debug log. If that adds churn, log-only
    is acceptable for B1.
-4. **TUI v2 parity.** Ink REPL support is required for B2. TUI v2 parity can
-   follow unless the live command surface makes it cheap.
+4. **TUI v2 parity.** Ink REPL and `hlvm ask --verbose` skill activity display
+   are implemented. TUI v2/full GUI parity can follow if that surface exposes
+   skills directly.
 
 ---
 
@@ -644,34 +646,35 @@ point.
 
 ### Phase 1 — B1 core runtime and CLI
 
-- [ ] Add skills path helpers in `src/common/paths.ts`.
-- [ ] Add `src/hlvm/agent/skills/types.ts`.
-- [ ] Add `src/hlvm/agent/skills/store.ts` for frontmatter-only scanning,
+- [x] Add skills path helpers in `src/common/paths.ts`.
+- [x] Add `src/hlvm/agent/skills/types.ts`.
+- [x] Add `src/hlvm/agent/skills/store.ts` for frontmatter-only scanning,
       validation, source tagging, precedence, and duplicate handling.
-- [ ] Add `src/hlvm/agent/skills/prompt.ts` for compact `<available_skills>`
+- [x] Add `src/hlvm/agent/skills/prompt.ts` for compact `<available_skills>`
       XML.
-- [ ] Hook `maybeInjectSkills(...)` beside `maybeInjectMemoryRecall(...)`.
-- [ ] Add `src/hlvm/cli/commands/skill.ts`.
-- [ ] Register `hlvm skill list`.
-- [ ] Register `hlvm skill new <name>`.
-- [ ] Register `hlvm skill info <name>`.
-- [ ] Add narrow unit tests for parsing, scanning, precedence, and prompt
+- [x] Hook `maybeInjectSkills(...)` beside `maybeInjectMemoryRecall(...)`.
+- [x] Add `src/hlvm/cli/commands/skill.ts`.
+- [x] Register `hlvm skill list`.
+- [x] Register `hlvm skill new <name>`.
+- [x] Register `hlvm skill info <name>`.
+- [x] Add narrow unit tests for parsing, scanning, precedence, and prompt
       serialization.
-- [ ] Run relevant narrow `deno test ...` targets.
-- [ ] Run `deno task ssot:check`.
+- [x] Run relevant narrow `deno test ...` targets.
+- [x] Run `deno task ssot:check`.
 
 ### Phase 2 — B2 REPL invocation
 
-- [ ] Extend `getFullCommandCatalog()` with discovered skills.
-- [ ] Resolve unknown slash commands against the skill index before returning
+- [x] Extend `getFullCommandCatalog()` with discovered skills.
+- [x] Resolve unknown slash commands against the skill index before returning
       "unknown command."
-- [ ] Reuse the existing Ink `SKILL_MARKER` path to submit `/skill-name <args>`
+- [x] Reuse the existing Ink `SKILL_MARKER` path to submit `/skill-name <args>`
       as an agent turn with recipe text attached.
-- [ ] Add completion/catalog tests for dynamic skill slash entries.
-- [ ] Add REPL command tests for skill invocation and missing-skill behavior.
-- [ ] Verify that a runtime-target skill from `.hlvm/skills/<name>/SKILL.md` is
+- [x] Add completion/catalog tests for dynamic skill slash entries.
+- [x] Add REPL command tests for skill invocation and missing-skill behavior.
+- [x] Verify that a runtime-target skill from `.hlvm/skills/<name>/SKILL.md` is
       ignored.
-- [ ] Run `deno task ssot:check`.
+- [x] Add CC-like skill activity rows in Ink and verbose ask output.
+- [x] Run `deno task ssot:check`.
 
 ### Phase 3 — foundational bundled skills
 
@@ -924,12 +927,12 @@ User can force activation in the REPL:
   Phase 0             Phase 1             Phase 2
   Direction           Core Runtime         REPL Invocation
   ---------           ------------         ---------------
-  [x] SSOT read       [ ] path helpers     [ ] catalog entries
-  [x] CC read         [ ] scan roots       [ ] slash resolve
-  [x] OpenClaw read   [ ] parse SKILL.md   [ ] SKILL_MARKER
-  [x] role model      [ ] precedence       [ ] invocation tests
-        |             [ ] prompt XML              |
-        |             [ ] skill CLI               |
+  [x] SSOT read       [x] path helpers     [x] catalog entries
+  [x] CC read         [x] scan roots       [x] slash resolve
+  [x] OpenClaw read   [x] parse SKILL.md   [x] SKILL_MARKER
+  [x] role model      [x] precedence       [x] invocation tests
+        |             [x] prompt XML              |
+        |             [x] skill CLI               |
         v                    |                    v
   +--------------------------+--------------------+
   |        agentskills.io-compatible HLVM core    |

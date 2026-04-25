@@ -635,22 +635,22 @@ function cacheAndReturn(baseUrl: string, authToken: string): {
 function createSourceModeRuntimeIsolationError(): RuntimeError {
   return createRuntimeHostError(
     "Source-mode HLVM will not auto-start or replace the shared runtime " +
-      "without HLVM_REPL_PORT. Use ./hlvm for the shared user daemon or set " +
-      "HLVM_REPL_PORT for dev/test isolation.",
+      "without an explicit runtime port. Use ./hlvm for the shared user " +
+      "daemon, or pass --port <port> for dev/test isolation.",
   );
 }
 
 function createRuntimeHostConflictError(port: number): RuntimeError {
   return createRuntimeHostError(
     `A different runtime is already using port ${port}. ` +
-      "Stop that runtime or use HLVM_REPL_PORT for dev/test isolation.",
+      "Stop that runtime or pass --port <port> for dev/test isolation.",
   );
 }
 
 function createForeignPortConflictError(port: number): RuntimeError {
   return createRuntimeHostError(
     `Port ${port} is occupied by a non-HLVM process. ` +
-      "Stop that process or use HLVM_REPL_PORT for dev/test isolation.",
+      "Stop that process or pass --port <port> for dev/test isolation.",
   );
 }
 

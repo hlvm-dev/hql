@@ -54,6 +54,7 @@ Runtime-first architecture:
 └─────────────────────────────────────┬───────────────────────────────────┘
                                       │
                                       │  HTTP localhost:11435
+                                      │  (shared default; `--port` is explicit dev/test isolation)
                                       │  Auth: Bearer token (UUID)
                                       │  CORS: localhost only
                                       │
@@ -111,8 +112,11 @@ The rule is:
 - the core engine owns intelligence and state
 
 SSOT for runtime-host lifecycle is `src/hlvm/runtime/host-client.ts` on the
-client side and `src/hlvm/cli/commands/serve.ts` on the host side. MCP docs do
-not own port selection, host reuse, or host reclamation behavior.
+client side, `src/hlvm/cli/commands/serve.ts` on the host side, and
+`src/hlvm/runtime/host-config.ts` for the default port constant. The macOS GUI
+does not own or hardcode the default; it resolves the port by running the
+bundled `hlvm __runtime-default-port`. MCP docs do not own port selection or
+host reuse behavior.
 
 That keeps GUI, CLI, and future shells aligned around one runtime instead of
 duplicating agent logic per surface.
@@ -128,12 +132,13 @@ as the canonical spec.
 
 Runtime-host attachment and startup follow one rule set:
 
-- prefer the configured base port
+- prefer the configured port, which defaults to the shared user runtime on
+  `11435`
 - reuse a compatible host when build identity matches
-- fall back to nearby ports only when the base port is occupied by an active
-  incompatible host
-- reclaim idle incompatible fallback hosts in the background so stale source /
-  binary mixes do not accumulate forever
+- source-mode runs must use an explicit runtime port (`hlvm --port <port> ...`
+  or `HLVM_REPL_PORT`) instead of auto-starting over the shared runtime
+- do not auto-increment to nearby ports; a conflict is surfaced as an actionable
+  error so users do not accidentally split runtime state
 
 ### How GUI Spawns the Server
 
@@ -159,7 +164,9 @@ Menu bar: 🔥 icon appears. App is idle. Zero CPU.
    ▼
 ReplServerManager.startServer()
    │
-   ├── ① Probe runtime port
+   ├── ① Resolve and probe runtime port
+   │     Port source: bundled `hlvm __runtime-default-port`
+   │     Override: HLVM_REPL_PORT, only for explicit dev/test isolation
    │     TCP connect 127.0.0.1:11435
    │
    │     if occupied:

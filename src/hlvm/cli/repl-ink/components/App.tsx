@@ -76,7 +76,11 @@ import { getPersistentAgentExecutionModeLabel } from "../../../agent/execution-m
 import { clearTerminal } from "../../ansi.ts";
 import type { AnyAttachment } from "../hooks/useAttachments.ts";
 import { DEFAULT_TERMINAL_WIDTH } from "../ui-constants.ts";
-import { runCommand } from "../../repl/commands.ts";
+import {
+  parseSkillCommandPayload,
+  runCommand,
+  SKILL_COMMAND_MARKER,
+} from "../../repl/commands.ts";
 import { isBalanced } from "../../repl/syntax.ts";
 import { ensureError, truncate } from "../../../../common/utils.ts";
 import {
@@ -503,7 +507,9 @@ function AppContent(
   }, [pendingInteraction?.mode, repinTranscriptScroll]);
   const previousRepinnedOverlayRef = useRef<OverlayPanel>(activeOverlay);
   useLayoutEffect(() => {
-    const wasRepinned = shouldRepinForOverlay(previousRepinnedOverlayRef.current);
+    const wasRepinned = shouldRepinForOverlay(
+      previousRepinnedOverlayRef.current,
+    );
     const isRepinned = shouldRepinForOverlay(activeOverlay);
     if (wasRepinned !== isRepinned) {
       repinTranscriptScroll();
@@ -1052,13 +1058,18 @@ function AppContent(
         const output = await handleCommand(code, exit, replState);
         if (output !== null) {
           // Skill activation: re-submit as agent query with skill instructions
-          const SKILL_MARKER = "\x00SKILL\x00";
-          if (output.startsWith(SKILL_MARKER)) {
-            const skillMessage = output.slice(SKILL_MARKER.length);
-            conversationRef.current.addUserMessage(
-              `${code}\n\n${skillMessage}`,
-              { startTurn: true },
+          if (output.startsWith(SKILL_COMMAND_MARKER)) {
+            const skill = parseSkillCommandPayload(
+              output.slice(SKILL_COMMAND_MARKER.length),
             );
+            void runConversation(skill.prompt, undefined, {
+              displayText: trimmedInput,
+              skillActivity: {
+                name: skill.name,
+                source: skill.source,
+                filePath: skill.filePath,
+              },
+            });
             return;
           }
           conversationRef.current.addHqlEval(code, {
@@ -1639,7 +1650,10 @@ function AppContent(
     pendingInteraction,
   ]);
   const currentTurnTone = useMemo(() => {
-    if (!hasConversationContext || pendingInteraction || !isConversationTaskRunning) {
+    if (
+      !hasConversationContext || pendingInteraction ||
+      !isConversationTaskRunning
+    ) {
       return undefined;
     }
     return deriveLiveTurnStatus({
@@ -1790,9 +1804,7 @@ function AppContent(
       />
     );
   } else if (activeOverlay === "shortcuts-overlay") {
-    overlayNode = (
-      <ShortcutsOverlay onClose={() => setActiveOverlay("none")} />
-    );
+    overlayNode = <ShortcutsOverlay onClose={() => setActiveOverlay("none")} />;
   } else if (activeOverlay === "transcript-history") {
     overlayNode = (
       <TranscriptViewerOverlay
@@ -1846,7 +1858,7 @@ function AppContent(
 
         <FullscreenLayout
           scrollRef={transcriptScrollRef}
-          scrollable={(
+          scrollable={
             <Box flexDirection="column">
               {!hasStandaloneSurface && renderShellLanes && (
                 <RenderErrorBoundary>
@@ -1870,7 +1882,8 @@ function AppContent(
                 </RenderErrorBoundary>
               )}
 
-              {(!blockingInteractionActive && !isOverlayOpen && isInputVisible) && (
+              {(!blockingInteractionActive && !isOverlayOpen &&
+                isInputVisible) && (
                 <Box
                   flexDirection="column"
                   marginTop={SHELL_LAYOUT.transcriptToComposerGap}
@@ -1954,8 +1967,8 @@ function AppContent(
                 (
                   <FooterHint
                     statusMessage={footerStatusMessage ||
-                      (!composerShellState.hasSubmitText
-                        && !isConversationTaskRunning
+                      (!composerShellState.hasSubmitText &&
+                          !isConversationTaskRunning
                         ? startupFooterMessage
                         : "")}
                     planningPhase={hasConversationContext
@@ -1980,7 +1993,8 @@ function AppContent(
                       pendingInteraction?.mode === "question"}
                     suppressInteractionHints={hasConversationContext &&
                       pickerInteractionActive}
-                    conversationQueueCount={composerShellState.queuePreviewRows >
+                    conversationQueueCount={composerShellState
+                        .queuePreviewRows >
                         0
                       ? 0
                       : composerShellState.queuedDraftCount}
@@ -1993,8 +2007,8 @@ function AppContent(
                   />
                 )}
             </Box>
-          )}
-          bottom={(
+          }
+          bottom={
             <Box flexDirection="column">
               {showBottomDialog && (
                 <RenderErrorBoundary>
@@ -2009,7 +2023,7 @@ function AppContent(
                 </RenderErrorBoundary>
               )}
             </Box>
-          )}
+          }
         />
 
         {overlayNode}

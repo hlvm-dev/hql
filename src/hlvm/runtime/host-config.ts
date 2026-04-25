@@ -1,8 +1,11 @@
 import { getPlatform } from "../../platform/platform.ts";
 import { DEFAULT_LOCALHOST } from "../../common/config/types.ts";
 
+/**
+ * Shared user runtime port used by GUI and installed CLI unless explicitly
+ * overridden.
+ */
 export const HLVM_RUNTIME_DEFAULT_PORT = 11435;
-export const HLVM_RUNTIME_PORT_SCAN_RANGE = 10;
 const TEST_RUNTIME_PORT_OVERRIDE_KEY = "__HLVM_RUNTIME_PORT_OVERRIDE__";
 
 type RuntimeHostConfigGlobal = typeof globalThis & {
@@ -10,8 +13,10 @@ type RuntimeHostConfigGlobal = typeof globalThis & {
 };
 
 function getTestRuntimePortOverride(): number | undefined {
-  const override = (globalThis as RuntimeHostConfigGlobal)[TEST_RUNTIME_PORT_OVERRIDE_KEY];
-  return typeof override === "number" && Number.isInteger(override) && override > 0
+  const override =
+    (globalThis as RuntimeHostConfigGlobal)[TEST_RUNTIME_PORT_OVERRIDE_KEY];
+  return typeof override === "number" && Number.isInteger(override) &&
+      override > 0
     ? override
     : undefined;
 }
@@ -49,7 +54,8 @@ export function setCachedRuntimeBaseUrl(url: string): void {
 }
 
 export function getHlvmRuntimeBaseUrl(): string {
-  return cachedRuntimeBaseUrl ?? `http://${DEFAULT_LOCALHOST}:${resolveHlvmRuntimePort()}`;
+  return cachedRuntimeBaseUrl ??
+    `http://${DEFAULT_LOCALHOST}:${resolveHlvmRuntimePort()}`;
 }
 
 export async function withRuntimePortOverrideForTests<T>(

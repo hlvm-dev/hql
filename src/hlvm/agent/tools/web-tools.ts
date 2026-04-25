@@ -319,8 +319,9 @@ export const WEB_SEARCH_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
         : { message, tone: event.tone };
     }
     if (event.phase === "start") {
+      const query = event.argsSummary.trim();
       return {
-        message: "Searching the web",
+        message: query ? `Searching: ${query}` : "Searching the web",
         tone: "running",
       };
     }

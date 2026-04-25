@@ -117,15 +117,17 @@ function createNamespacedLog(namespace: string): NamespacedLog {
  */
 export const log: LogApi = {
   debug(message: string, ...args: unknown[]): void {
-    globalLogger.debug(formatMessage(message, args));
+    if (!globalLogger.enabled) return;
+    globalLogger.debug(args.length ? formatMessage(message, args) : message);
   },
 
   info(message: string, ...args: unknown[]): void {
-    globalLogger.info(formatMessage(message, args));
+    if (!globalLogger.enabled) return;
+    globalLogger.info(args.length ? formatMessage(message, args) : message);
   },
 
   warn(message: string, ...args: unknown[]): void {
-    globalLogger.warn(formatMessage(message, args));
+    globalLogger.warn(args.length ? formatMessage(message, args) : message);
   },
 
   error(message: string, error?: unknown): void {

@@ -377,7 +377,7 @@ liveTopologyTest(
       assertEquals(sourceAsk.success, false);
       assertStringIncludes(
         normalizeCliOutput(sourceAsk.stdout + sourceAsk.stderr),
-        "Source-mode HLVM will not auto-start or replace the shared runtime without HLVM_REPL_PORT.",
+        "Source-mode HLVM will not auto-start or replace the shared runtime without an explicit runtime port.",
       );
 
       const finalSnapshot = await readRuntimeTopologySnapshot();

@@ -26,6 +26,7 @@ import {
 import type {
   AssistantCitation,
   ConversationAttachmentRef,
+  SkillActivityInput,
   TurnCompletionStatus,
 } from "../types.ts";
 import { createConversationAttachmentRef } from "../types.ts";
@@ -110,8 +111,11 @@ async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isFinishedLocalAgentStatus(status: LocalAgentEntry["status"]): boolean {
-  return status === "completed" || status === "failed" || status === "cancelled";
+function isFinishedLocalAgentStatus(
+  status: LocalAgentEntry["status"],
+): boolean {
+  return status === "completed" || status === "failed" ||
+    status === "cancelled";
 }
 
 function countActiveLocalAgents(entries: readonly LocalAgentEntry[]): number {
@@ -276,7 +280,9 @@ function buildLocalAgentProgressFromBackgroundAgent(
     : agent.cancelled === true
     ? normalizeLocalAgentStatusText(agent.error ?? "Cancelled by user")
     : agent.status === "errored"
-    ? normalizeLocalAgentStatusText(agent.error ?? agent.resultPreview ?? "Failed")
+    ? normalizeLocalAgentStatusText(
+      agent.error ?? agent.resultPreview ?? "Failed",
+    )
     : agent.lastToolInfo?.trim()
     ? normalizeLocalAgentStatusText(agent.lastToolInfo)
     : existingProgress?.activityText;
@@ -318,7 +324,9 @@ function mapBackgroundAgentToLocalAgentEntry(
       : status === "cancelled"
       ? normalizeLocalAgentStatusText(agent.error ?? "Cancelled by user")
       : status === "failed"
-      ? normalizeLocalAgentStatusText(agent.error ?? agent.resultPreview ?? "Failed")
+      ? normalizeLocalAgentStatusText(
+        agent.error ?? agent.resultPreview ?? "Failed",
+      )
       : existing?.detail ?? "Starting...",
     interruptible: status === "running",
     foregroundable: false,
@@ -374,7 +382,7 @@ function cancelActiveLocalAgents(
 ): LocalAgentEntry[] {
   return prev.map((entry) =>
     entry.status === "running" || entry.status === "waiting" ||
-        entry.status === "blocked" || entry.status === "idle"
+      entry.status === "blocked" || entry.status === "idle"
       ? {
         ...entry,
         status: "cancelled",
@@ -459,6 +467,7 @@ export interface UseAgentRunnerResult {
     options?: {
       displayText?: string;
       skipTranscriptSeed?: boolean;
+      skillActivity?: SkillActivityInput;
     },
   ) => Promise<void>;
   submitConversationDraft: (
@@ -511,9 +520,11 @@ export function useAgentRunner(
     [],
   );
   const previousLocalAgentEntriesRef = useRef<LocalAgentEntry[]>([]);
-  const hasActiveLocalAgents = localAgentEntries.some((entry: LocalAgentEntry) =>
+  const hasActiveLocalAgents = localAgentEntries.some((
+    entry: LocalAgentEntry,
+  ) =>
     entry.status === "running" || entry.status === "waiting" ||
-      entry.status === "blocked" || entry.status === "idle"
+    entry.status === "blocked" || entry.status === "idle"
   );
   const pendingInteraction = interactionQueue[0];
 
@@ -663,6 +674,7 @@ export function useAgentRunner(
     options?: {
       displayText?: string;
       skipTranscriptSeed?: boolean;
+      skillActivity?: SkillActivityInput;
     },
   ) => {
     // Guard: prevent double agent start — set ref atomically before any async work
@@ -692,6 +704,11 @@ export function useAgentRunner(
       )
       : conversationRef.current.activeTurnId;
     activeRunTurnIdRef.current = runTurnId;
+    if (options?.skillActivity) {
+      conversationRef.current.addSkillLoaded(options.skillActivity, {
+        turnId: runTurnId,
+      });
+    }
     if (!options?.skipTranscriptSeed) {
       conversationRef.current.addAssistantText("", true, undefined, {
         turnId: runTurnId,
@@ -958,7 +975,10 @@ export function useAgentRunner(
             },
             onInteraction: (event) => {
               if (controller.signal.aborted || !isActiveConversationRun()) {
-                throw new DOMException("Agent interaction aborted", "AbortError");
+                throw new DOMException(
+                  "Agent interaction aborted",
+                  "AbortError",
+                );
               }
               const interactionEvent: InteractionRequestEvent = {
                 type: "interaction_request",
@@ -974,7 +994,9 @@ export function useAgentRunner(
               };
               setInteractionQueue((prev: InteractionRequestEvent[]) => {
                 if (
-                  prev.some((item) => item.requestId === interactionEvent.requestId)
+                  prev.some((item) =>
+                    item.requestId === interactionEvent.requestId
+                  )
                 ) return prev;
                 return [...prev, interactionEvent];
               });
@@ -982,7 +1004,9 @@ export function useAgentRunner(
                 let settled = false;
                 const finalizeRequest = () => {
                   if (
-                    !interactionResolversRef.current.has(interactionEvent.requestId)
+                    !interactionResolversRef.current.has(
+                      interactionEvent.requestId,
+                    )
                   ) return;
                   interactionResolversRef.current.delete(
                     interactionEvent.requestId,
@@ -1314,7 +1338,9 @@ export function useAgentRunner(
     controller.abort();
     interactionResolversRef.current.clear();
     setInteractionQueue([]);
-    setLocalAgentEntries((prev: LocalAgentEntry[]) => cancelActiveLocalAgents(prev));
+    setLocalAgentEntries((prev: LocalAgentEntry[]) =>
+      cancelActiveLocalAgents(prev)
+    );
     setIsEvaluating(false);
     setFooterContextUsageLabel("");
     contextPressureLevelRef.current = "normal";

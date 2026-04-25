@@ -469,7 +469,7 @@ export function showServeHelp(): void {
 HLVM Serve - HTTP REPL Server
 
 USAGE:
-  hlvm serve
+  hlvm serve [--port <port>]
 
 ENDPOINTS:
   POST /api/chat          Submit chat, eval, or agent turns
@@ -479,12 +479,14 @@ ENDPOINTS:
 
 DESCRIPTION:
   Starts the local HLVM runtime host on port 11435.
+  Use --port for an isolated dev/test runtime without touching the GUI runtime.
   Used by GUI clients and host-backed CLI surfaces.
   GUI-visible top-level submission flows through POST /api/chat.
   Internal compatibility primitives remain available but are not part of the public contract.
 
 EXAMPLES:
   hlvm serve                                  # Start server
+  hlvm serve --port 18442                     # Start isolated dev/test server
   curl http://localhost:11435/health          # Health check
   curl -X POST http://localhost:11435/api/chat \\
     -H "Content-Type: application/json" \\

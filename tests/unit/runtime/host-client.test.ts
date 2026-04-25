@@ -79,7 +79,7 @@ Deno.test("runtime host start lock path is scoped by runtime port", async () => 
   assertStringIncludes(second, "19144");
 });
 
-Deno.test("source-mode host client without HLVM_REPL_PORT refuses to start the shared runtime", async () => {
+Deno.test("source-mode host client without explicit port refuses to start the shared runtime", async () => {
   const originalPlatform = getPlatform();
   const originalBaseUrl = getHlvmRuntimeBaseUrl();
   const port = await findFreePort();
@@ -122,7 +122,7 @@ Deno.test("source-mode host client without HLVM_REPL_PORT refuses to start the s
 
       assertStringIncludes(
         error.message,
-        "Source-mode HLVM will not auto-start or replace the shared runtime without HLVM_REPL_PORT.",
+        "Source-mode HLVM will not auto-start or replace the shared runtime without an explicit runtime port.",
       );
       assertEquals(spawnCount, 0);
       await __testOnlyWaitForStaleFallbackHostSweep();

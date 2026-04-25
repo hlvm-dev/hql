@@ -27,6 +27,7 @@ interface ToolResultProps {
   maxLines?: number;
   expanded?: boolean;
   tone?: "default" | "error";
+  defaultColor?: string;
   meta?: ToolEventMeta;
   toolName?: string;
   argsSummary?: string;
@@ -93,13 +94,13 @@ export function tryFormatJson(text: string): string | null {
 }
 
 function extractSummaryCount(text: string): number | undefined {
-  const match = /(\d+)\s+(match|result|symbol|entry|item|file|query)/i.exec(text);
+  const match = /(\d+)\s+(match|result|symbol|entry|item|file|query)/i.exec(
+    text,
+  );
   if (!match) return undefined;
   const value = Number(match[1]);
   return Number.isFinite(value) ? value : undefined;
 }
-
-
 
 function isUrlLike(line: string): boolean {
   return /^https?:\/\//i.test(line.trim());
@@ -110,6 +111,7 @@ function resolveStructuredToneColor(
   tone: "default" | "error",
   lineTone: StructuredTone,
   contentType: ContentType,
+  defaultColor?: string,
 ): string {
   if (tone === "error") return sc.status.error;
   switch (lineTone) {
@@ -125,7 +127,9 @@ function resolveStructuredToneColor(
       return sc.status.error;
     case "default":
     default:
-      return contentType === "json" ? sc.status.success : sc.text.secondary;
+      return contentType === "json"
+        ? sc.status.success
+        : defaultColor ?? sc.text.secondary;
   }
 }
 
@@ -148,11 +152,14 @@ function buildKindHeader(
     case "web": {
       const parts: string[] = [];
       const resultCount = meta?.webSearch?.sourceGuard?.resultCount;
-      const fetchedEvidenceCount = meta?.webSearch?.sourceGuard?.fetchedEvidenceCount;
+      const fetchedEvidenceCount = meta?.webSearch?.sourceGuard
+        ?.fetchedEvidenceCount;
       if (typeof resultCount === "number" && resultCount > 0) {
         parts.push(`${resultCount} ${pluralize("result", resultCount)}`);
       }
-      if (typeof fetchedEvidenceCount === "number" && fetchedEvidenceCount > 0) {
+      if (
+        typeof fetchedEvidenceCount === "number" && fetchedEvidenceCount > 0
+      ) {
         parts.push(`${fetchedEvidenceCount} fetched`);
       }
       if (target) {
@@ -273,11 +280,13 @@ export const ToolResult = memo(function ToolResult({
   maxLines = 10,
   expanded = false,
   tone = "default",
+  defaultColor,
   meta,
   toolName,
   argsSummary,
 }: ToolResultProps): React.ReactElement {
   const sc = useSemanticColors();
+  const defaultLineColor = defaultColor ?? sc.text.secondary;
   const sanitized = escapeAnsiCtrlCodes(text);
   const safeTruncated = truncateTranscriptBlock(sanitized, MAX_RESULT_CHARS);
   const contentType = detectContentType(safeTruncated);
@@ -333,7 +342,13 @@ export const ToolResult = memo(function ToolResult({
         if (activeSection === "stderr") {
           return tone === "error" ? sc.status.error : sc.status.warning;
         }
-        return resolveStructuredToneColor(sc, tone, "default", contentType);
+        return resolveStructuredToneColor(
+          sc,
+          tone,
+          "default",
+          contentType,
+          defaultLineColor,
+        );
       },
     );
 
@@ -368,7 +383,9 @@ export const ToolResult = memo(function ToolResult({
           (/^(ERROR|WARN|HINT)\b/.test(line.trim()) ||
             /\bnot assignable\b/i.test(line))
         ) {
-          return /\bWARN|HINT\b/.test(line) ? sc.status.warning : sc.status.error;
+          return /\bWARN|HINT\b/.test(line)
+            ? sc.status.warning
+            : sc.status.error;
         }
         if (
           presentationKind === "read" &&
@@ -376,7 +393,13 @@ export const ToolResult = memo(function ToolResult({
         ) {
           return sc.chrome.sectionLabel;
         }
-        return resolveStructuredToneColor(sc, tone, "default", contentType);
+        return resolveStructuredToneColor(
+          sc,
+          tone,
+          "default",
+          contentType,
+          defaultLineColor,
+        );
       },
     );
 
@@ -386,7 +409,9 @@ export const ToolResult = memo(function ToolResult({
           <Text color={sc.chrome.sectionLabel}>{headerLabel}</Text>
         )}
         {toolName && presentationKind === "meta" && argsSummary?.trim() && (
-          <Text color={sc.text.muted}>{`${toolName} · ${argsSummary.trim()}`}</Text>
+          <Text color={sc.text.muted}>
+            {`${toolName} · ${argsSummary.trim()}`}
+          </Text>
         )}
         {body}
         {truncated && (
@@ -409,7 +434,7 @@ export const ToolResult = memo(function ToolResult({
                 ? sc.status.error
                 : line.tone === "muted"
                 ? sc.text.muted
-                : sc.text.secondary}
+                : defaultLineColor}
             >
               {truncateLine(line.text, width)}
             </Text>
@@ -433,7 +458,7 @@ export const ToolResult = memo(function ToolResult({
               ? sc.status.error
               : contentType === "json"
               ? sc.status.success
-              : sc.text.secondary}
+              : defaultLineColor}
           >
             {truncateLine(line, width)}
           </Text>

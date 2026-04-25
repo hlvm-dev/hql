@@ -28,12 +28,23 @@ import { HLVM_RUNTIME_DEFAULT_PORT } from "../runtime/host-config.ts";
 import { ensureDenoAvailable } from "./utils/toolchain.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { stripErrorCodeFromMessage } from "../../common/error-codes.ts";
+import {
+  extractLeadingRuntimePortFlag,
+  extractRuntimePortFlag,
+  RUNTIME_PORT_ENV,
+} from "./utils/runtime-port-flag.ts";
 
 interface ParsedReplArgs {
   debug: boolean;
   showBanner: boolean;
   useNewTui: boolean;
 }
+
+const RUNTIME_PORT_COMMANDS = new Set([
+  "ask",
+  "repl",
+  "serve",
+]);
 
 function parseReplArgs(args: string[]): ParsedReplArgs {
   const parsed: ParsedReplArgs = {
@@ -77,6 +88,7 @@ USAGE:
 OPTIONS:
   --new             Use TUI v2 (experimental)
   --ink             Force Ink REPL (interactive terminal only)
+  --port <port>     Use a dedicated local runtime port
   --debug           Show internal agent trace rows in the REPL transcript
   --no-banner       Skip the startup banner
   --help, -h        Show this help
@@ -201,6 +213,7 @@ Commands:
 Options:
   -h, --help         Show this help message
   -v, --version      Show version information
+  --port <port>      Use a dedicated local runtime port
 
 Examples:
   hlvm run hello.hql           Run an HQL file
@@ -209,6 +222,7 @@ Examples:
   hlvm hql compile app.hql     Compile to JavaScript
   hlvm chat "hello"            Plain chat
   hlvm ask "refactor main.ts"  Run AI agent task
+  hlvm --port 18442 ask "test" Use a dedicated runtime port
 
 For command-specific help:
   hlvm <command> --help
@@ -249,7 +263,13 @@ function exitIfNonZero(result: unknown): void {
 }
 
 async function main(): Promise<void> {
-  const args = platformGetArgs();
+  const platform = getPlatform();
+  let args = platformGetArgs();
+  const globalPort = extractLeadingRuntimePortFlag(args);
+  args = globalPort.args;
+  if (globalPort.port) {
+    platform.env.set(RUNTIME_PORT_ENV, globalPort.port);
+  }
 
   if (args[0] === "-h" || args[0] === "--help") {
     showHelp();
@@ -267,7 +287,14 @@ async function main(): Promise<void> {
   }
 
   const command = args[0];
-  const commandArgs = args.slice(1);
+  let commandArgs = args.slice(1);
+  if (RUNTIME_PORT_COMMANDS.has(command)) {
+    const commandPort = extractRuntimePortFlag(commandArgs);
+    commandArgs = commandPort.args;
+    if (commandPort.port) {
+      platform.env.set(RUNTIME_PORT_ENV, commandPort.port);
+    }
+  }
 
   if (command === "__runtime-default-port") {
     log.raw.log(String(HLVM_RUNTIME_DEFAULT_PORT));

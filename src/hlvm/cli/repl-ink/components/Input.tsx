@@ -3741,7 +3741,7 @@ export function Input({
               ),
             )}
             {chunk.isLastVisual && ghostText && (
-              <Text dimColor>{ghostText}</Text>
+              <Text color={sc.text.muted} dimColor>{ghostText}</Text>
             )}
           </Text>
         </Box>

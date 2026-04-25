@@ -65,6 +65,7 @@ import {
 import { ANSI_COLORS } from "../ansi.ts";
 import {
   buildToolTranscriptInvocationLabel,
+  resolveSkillToolDisplayName,
   resolveToolTranscriptDisplayName,
   resolveToolTranscriptProgress,
   resolveToolTranscriptResult,
@@ -77,6 +78,14 @@ import {
 
 const { DIM, RESET, GREEN, RED } = ANSI_COLORS;
 const CLEAR_LINE = "\r\x1b[K";
+
+function resolveAskToolDisplayName(
+  toolName: string,
+  argsSummary: string,
+): string {
+  return resolveSkillToolDisplayName(toolName, argsSummary) ??
+    resolveToolTranscriptDisplayName(toolName);
+}
 
 export function showAskHelp(): void {
   log.raw.log(`
@@ -119,6 +128,7 @@ OPTIONS:
   --usage                      Show token usage summary after execution
   --attach <path>              Attach a file input (repeatable)
   --model <provider/model>     Use a specific AI model (e.g., openai/gpt-4o)
+  --port <port>                Use a dedicated local runtime port
   --no-session-persistence     Use an isolated hidden session for this run only
 
   Permission Mode:
@@ -244,7 +254,11 @@ function formatAgentCompletion(options: {
   totalTokens?: number;
   durationMs?: number;
 }): string {
-  const status = options.cancelled ? "Cancelled" : options.success ? "Done" : "Failed";
+  const status = options.cancelled
+    ? "Cancelled"
+    : options.success
+    ? "Done"
+    : "Failed";
   const tools = `${options.toolUseCount} tool use${
     options.toolUseCount === 1 ? "" : "s"
   }`;
@@ -555,7 +569,9 @@ export async function askCommand(args: string[]): Promise<void> {
   const isEphemeralTestMode = !!getPlatform().env.get("HLVM_TEST_STATE_ROOT");
   const cleanupEphemeralHost = async (): Promise<void> => {
     if (!isEphemeralTestMode) return;
-    try { await shutdownLocalRuntimeHostIfPresent(); } catch { /* best-effort */ }
+    try {
+      await shutdownLocalRuntimeHostIfPresent();
+    } catch { /* best-effort */ }
   };
 
   const attachmentIds = await resolveAskAttachmentIds(attachmentArgs);
@@ -716,7 +732,10 @@ export async function askCommand(args: string[]): Promise<void> {
             `\n[Tool] ${
               buildToolTranscriptInvocationLabel({
                 name: event.name,
-                displayName: resolveToolTranscriptDisplayName(event.name),
+                displayName: resolveAskToolDisplayName(
+                  event.name,
+                  event.argsSummary,
+                ),
                 argsSummary: event.argsSummary,
               })
             }\n`,
@@ -734,7 +753,7 @@ export async function askCommand(args: string[]): Promise<void> {
           flushStream();
           log.raw.log(
             `\n[Tool] ${
-              resolveToolTranscriptDisplayName(event.name)
+              resolveAskToolDisplayName(event.name, event.argsSummary)
             }\n${progress.message}\n`,
           );
           break;
@@ -760,9 +779,9 @@ export async function askCommand(args: string[]): Promise<void> {
               meta: event.meta,
             });
             log.raw.log(
-              `\n[${label}] ${resolveToolTranscriptDisplayName(event.name)}\n${
-                transcriptResult.detailText ?? event.content
-              }\n`,
+              `\n[${label}] ${
+                resolveAskToolDisplayName(event.name, event.argsSummary)
+              }\n${transcriptResult.detailText ?? event.content}\n`,
             );
           }
           break;
@@ -855,7 +874,10 @@ export async function askCommand(args: string[]): Promise<void> {
           `  ${DIM}\u2847 ${
             buildToolTranscriptInvocationLabel({
               name: event.name,
-              displayName: resolveToolTranscriptDisplayName(event.name),
+              displayName: resolveAskToolDisplayName(
+                event.name,
+                event.argsSummary,
+              ),
               argsSummary: truncate(event.argsSummary, 60),
             })
           }${RESET}`,
@@ -883,7 +905,7 @@ export async function askCommand(args: string[]): Promise<void> {
         });
         const toolLabel = buildToolTranscriptInvocationLabel({
           name: event.name,
-          displayName: resolveToolTranscriptDisplayName(event.name),
+          displayName: resolveAskToolDisplayName(event.name, event.argsSummary),
           argsSummary: event.argsSummary,
         });
         if (toolInProgress) {
@@ -915,7 +937,7 @@ export async function askCommand(args: string[]): Promise<void> {
           if (!event.success) {
             log.raw.log(
               `[${
-                resolveToolTranscriptDisplayName(event.name)
+                resolveAskToolDisplayName(event.name, event.argsSummary)
               }] Error: ${summary}\n`,
             );
           } else if (summary) {

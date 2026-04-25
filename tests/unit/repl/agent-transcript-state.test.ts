@@ -139,6 +139,106 @@ Deno.test("agent transcript state inserts debug trace lines before the pending a
   }
 });
 
+Deno.test("agent transcript state renders explicit skill load as a tool-style row", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "user_message",
+    text: "/debug-flow ask hangs",
+    startTurn: true,
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "skill_loaded",
+    skill: {
+      name: "debug-flow",
+      source: "user",
+      filePath: "~/.hlvm/skills/debug-flow/SKILL.md",
+    },
+  });
+
+  assertEquals(state.items.map((item) => item.type), [
+    "user",
+    "tool_group",
+    "assistant",
+  ]);
+  const group = state.items[1];
+  assertEquals(group?.type, "tool_group");
+  if (group?.type === "tool_group") {
+    assertEquals(group.tools[0]?.name, "skill");
+    assertEquals(group.tools[0]?.displayName, "Skill(debug-flow)");
+    assertEquals(
+      group.tools[0]?.resultSummaryText,
+      "Successfully loaded skill",
+    );
+  }
+});
+
+Deno.test("agent transcript state presents skill file reads as skill loads", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "user_message",
+    text: "use the debug skill",
+    startTurn: true,
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "tool_start",
+      name: "read_file",
+      argsSummary: "~/.hlvm/skills/debug-flow/SKILL.md",
+      toolIndex: 1,
+      toolTotal: 1,
+    },
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "tool_end",
+      name: "read_file",
+      success: true,
+      content: "# Debug Flow",
+      summary: "Read 3 lines",
+      durationMs: 12,
+      argsSummary: "~/.hlvm/skills/debug-flow/SKILL.md",
+    },
+  });
+
+  const group = state.items.find((item) => item.type === "tool_group");
+  assertEquals(group?.type, "tool_group");
+  if (group?.type === "tool_group") {
+    assertEquals(group.tools[0]?.displayName, "Skill(debug-flow)");
+    assertEquals(
+      group.tools[0]?.resultSummaryText,
+      "Successfully loaded skill",
+    );
+  }
+});
+
+Deno.test("agent transcript state does not treat cwd-local skill-shaped paths as loaded skills", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "user_message",
+    text: "inspect this project file",
+    startTurn: true,
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "tool_start",
+      name: "read_file",
+      argsSummary: "/tmp/project/.hlvm/skills/debug-flow/SKILL.md",
+      toolIndex: 1,
+      toolTotal: 1,
+    },
+  });
+
+  const group = state.items.find((item) => item.type === "tool_group");
+  assertEquals(group?.type, "tool_group");
+  if (group?.type === "tool_group") {
+    assertEquals(group.tools[0]?.displayName, "Read");
+  }
+});
+
 Deno.test("agent transcript state targets assistant streaming to the requested turn", () => {
   const state = {
     ...createTranscriptState(),
@@ -1365,7 +1465,7 @@ Deno.test("agent transcript state tracks web-search progress and transcript summ
 
   assertEquals(
     state.activeTool?.progressText,
-    'Found 10 results for "react 19 release notes"',
+    "10 results",
   );
 
   state = reduceTranscriptState(state, {

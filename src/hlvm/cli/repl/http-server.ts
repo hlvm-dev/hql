@@ -127,14 +127,13 @@ import { normalizeComparableFilePath } from "./file-search.ts";
 /**
  * REPL HTTP Server Port
  *
- * CRITICAL SSOT: Default port (11435) MUST match Swift's ReplHttpClient.
- * Located at: HLVM/REPL/Infrastructure/ReplHttpClient.swift
+ * CRITICAL SSOT: TypeScript owns the default runtime port.
+ * GUI resolves it by running the bundled `hlvm __runtime-default-port`.
  *
- * Contract: Port 11435 is the standard HLVM REPL HTTP endpoint.
- * - TypeScript server listens on this port
- * - Swift client connects to this port
+ * Contract: 11435 is the shared user-level HLVM runtime endpoint.
+ * - GUI and installed CLI share this port by default
  * - Port chosen to avoid conflict with Ollama (11434)
- * - Can be overridden via HLVM_REPL_PORT environment variable (for testing)
+ * - Can be overridden explicitly via `--port` / HLVM_REPL_PORT for dev/test
  */
 const AI_READY_WAIT_MS = 150;
 const platform = getPlatform();

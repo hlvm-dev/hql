@@ -357,11 +357,50 @@ Current priority guidance:
 - **KakaoTalk** is possible but difficult; its official surface is more channel
   / business oriented and less Telegram-like
 
-The product bar for any new channel is:
+The product bar for any new messaging channel is mobile QR-first:
 
 ```text
-scan / click / approve
+scan with phone
+→ approve / add / open in the native mobile app
 → then chat
+```
+
+The UI should stay consistent:
+
+```text
+Connect <Platform>
+→ show QR
+→ wait for <Platform>
+→ connected
+```
+
+The macOS QR window should become channel-generic:
+
+```text
+┌────────────────────────────────────────────┐
+│ Scan with <Platform>                       │
+│                                            │
+│                   QR                       │
+│                                            │
+│ scan to open your HLVM <platform surface>  │
+│                                            │
+│ Telegram | LINE | Slack | ...              │
+└────────────────────────────────────────────┘
+```
+
+Platform selection should update the same window in place. The goal is fewer
+screens and fewer steps to the first mobile "hello world" message reaching HLVM,
+not a separate onboarding wizard for each vendor.
+
+The QR payload is platform-specific and belongs behind `ChannelProvisioner`:
+
+```text
+Telegram → Telegram create/open bot URL
+LINE     → LINE add-friend / Official Account URL
+Slack    → Slack OAuth install URL
+Discord  → Discord OAuth/install URL
+Gmail    → Google OAuth URL
+WhatsApp → WhatsApp link/session flow, only if that route is accepted
 ```
 
 Do not add a channel only because a gateway product can technically support it.

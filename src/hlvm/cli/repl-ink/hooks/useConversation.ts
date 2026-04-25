@@ -23,6 +23,7 @@ import type {
   ConversationItem,
   EvalResult,
   ShellHistoryEntry,
+  SkillActivityInput,
   StreamingState,
   TurnCompletionStatus,
 } from "../types.ts";
@@ -77,6 +78,10 @@ export interface UseConversationResult {
   addInfo: (
     text: string,
     options?: { isTransient?: boolean; turnId?: string },
+  ) => void;
+  addSkillLoaded: (
+    skill: SkillActivityInput,
+    options?: { turnId?: string },
   ) => void;
   addDebugTrace: (
     lines: readonly TracePresentationLine[],
@@ -201,6 +206,17 @@ export function useConversation(): UseConversationResult {
     });
   }, []);
 
+  const addSkillLoaded = useCallback((
+    skill: SkillActivityInput,
+    options?: { turnId?: string },
+  ) => {
+    updateState(stateRef, setState, {
+      type: "skill_loaded",
+      skill,
+      turnId: options?.turnId,
+    });
+  }, []);
+
   const addDebugTrace = useCallback((
     lines: readonly TracePresentationLine[],
     options?: { turnId?: string },
@@ -258,6 +274,7 @@ export function useConversation(): UseConversationResult {
 
     addError,
     addInfo,
+    addSkillLoaded,
     addDebugTrace,
     replaceItems,
     resetStatus,
@@ -273,6 +290,7 @@ export function useConversation(): UseConversationResult {
 
     addError,
     addInfo,
+    addSkillLoaded,
     addDebugTrace,
     replaceItems,
     resetStatus,

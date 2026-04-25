@@ -14,7 +14,6 @@ import { ToolResult } from "./ToolResult.tsx";
 import type { ToolCallDisplay } from "../../types.ts";
 import { buildToolCallTextLayout } from "./layout.ts";
 import { getToolDurationTone } from "./conversation-chrome.ts";
-import { isProminentToolName } from "./turn-activity.ts";
 import { buildToolTranscriptInvocationLabel } from "./tool-transcript.ts";
 import { truncate } from "../../../../../common/utils.ts";
 
@@ -69,6 +68,9 @@ export const ToolCallItem = React.memo(function ToolCallItem(
   const sc = useSemanticColors();
   const presentationKind = tool.resultMeta?.presentation?.kind;
   const displayName = tool.displayName ?? tool.name;
+  const isSkillActivity = tool.name === "skill" ||
+    displayName.startsWith("Skill(");
+  const activityMarkerColor = sc.banner.logoStart;
   const invocationLabel = buildToolTranscriptInvocationLabel({
     name: tool.name,
     displayName,
@@ -76,7 +78,11 @@ export const ToolCallItem = React.memo(function ToolCallItem(
   });
   const resultText = resolveToolResultText(tool, expanded);
   const inlineSummary = tool.status === "running"
-    ? isInlineSecondaryTextAllowed(tool.progressText, presentationKind, expanded)
+    ? isInlineSecondaryTextAllowed(
+        tool.progressText,
+        presentationKind,
+        expanded,
+      )
       ? tool.progressText.trim()
       : undefined
     : tool.status === "pending"
@@ -95,9 +101,7 @@ export const ToolCallItem = React.memo(function ToolCallItem(
 
   const labelColor = tool.status === "error"
     ? sc.status.error
-    : presentationKind === "shell" || isProminentToolName(tool.name)
-    ? sc.text.primary
-    : sc.text.secondary;
+    : sc.text.primary;
   const durationTone = getToolDurationTone(tool.durationMs);
   const durationColor = durationTone === "error"
     ? sc.status.error
@@ -111,7 +115,7 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     ? sc.status.warning
     : tool.progressTone === "success"
     ? sc.status.success
-    : sc.text.secondary;
+    : sc.text.primary;
   const queuedColor = sc.text.muted;
   const inlineSummaryColor = tool.status === "error"
     ? sc.status.error
@@ -119,8 +123,8 @@ export const ToolCallItem = React.memo(function ToolCallItem(
     ? progressColor
     : tool.status === "pending"
     ? sc.text.muted
-    : sc.text.secondary;
-  const showInlineSummary = Boolean(layout.suffixText);
+    : sc.text.primary;
+  const showInlineSummary = !isSkillActivity && Boolean(layout.suffixText);
   const shouldRenderResult = tool.status !== "running";
   const resultMaxLines = tool.status === "error"
     ? 12
@@ -140,8 +144,16 @@ export const ToolCallItem = React.memo(function ToolCallItem(
   return (
     <Box flexDirection="column">
       <Box>
-        <ToolStatusIcon status={tool.status} animate={animateStatusIcon} />
-        <Text> </Text>
+        {isSkillActivity
+          ? <Text color={activityMarkerColor}>●</Text>
+          : (
+            <ToolStatusIcon
+              status={tool.status}
+              animate={animateStatusIcon}
+              activityColor={activityMarkerColor}
+            />
+          )}
+        <Text>{" "}</Text>
         <Text color={labelColor} bold wrap="truncate-end">
           {layout.labelText}
         </Text>
@@ -156,14 +168,15 @@ export const ToolCallItem = React.memo(function ToolCallItem(
         )}
       </Box>
 
-      {tool.status === "running" && runningProgressText && !showInlineSummary && (
-        <Box marginLeft={2} flexDirection="row">
-          <Text color={resultGutterColor}>{"⎿  "}</Text>
-          <Text color={progressColor} wrap="truncate-end">
-            {runningProgressText}
-          </Text>
-        </Box>
-      )}
+      {tool.status === "running" && runningProgressText && !showInlineSummary &&
+        (
+          <Box marginLeft={2} flexDirection="row">
+            <Text color={resultGutterColor}>{"⎿  "}</Text>
+            <Text color={progressColor} wrap="truncate-end">
+              {runningProgressText}
+            </Text>
+          </Box>
+        )}
 
       {tool.status === "pending" && queuedText && !showInlineSummary && (
         <Box marginLeft={2} flexDirection="row">
@@ -187,6 +200,7 @@ export const ToolCallItem = React.memo(function ToolCallItem(
               maxLines={resultMaxLines}
               expanded={expanded}
               tone={tool.status === "error" ? "error" : "default"}
+              defaultColor={sc.text.primary}
               meta={tool.resultMeta}
               toolName={tool.name}
               argsSummary={tool.argsSummary}

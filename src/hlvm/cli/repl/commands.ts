@@ -37,6 +37,13 @@ const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 const WHITESPACE_SPLIT_REGEX = /\s+/;
 export const SKILL_COMMAND_MARKER = "\x00SKILL\x00";
 
+export interface SkillCommandPayload {
+  name: string;
+  source: SkillEntry["source"];
+  filePath: string;
+  prompt: string;
+}
+
 interface Command {
   description: string;
   handler: (
@@ -54,9 +61,10 @@ interface RunCommandOptions {
   onOutput?: (line: string) => void;
 }
 
-interface CommandCatalogItem {
+export interface CommandCatalogItem {
   name: string;
   description: string;
+  kind?: "skill";
 }
 
 function stringifyOutputArg(value: unknown): string {
@@ -346,6 +354,7 @@ export function getFullCommandCatalog(
       .map((skill) => ({
         name: `/${skill.name}`,
         description: skill.description,
+        kind: "skill" as const,
       })),
   ]).catch(() => COMMAND_CATALOG);
 }
@@ -387,6 +396,51 @@ function formatSkillActivation(
   ].join("\n");
 }
 
+function formatSkillCommandPayload(
+  skill: SkillEntry,
+  body: string,
+  args: string,
+): string {
+  const payload: SkillCommandPayload = {
+    name: skill.name,
+    source: skill.source,
+    filePath: skill.filePath,
+    prompt: formatSkillActivation(skill, body, args),
+  };
+  return JSON.stringify(payload);
+}
+
+export function parseSkillCommandPayload(raw: string): SkillCommandPayload {
+  try {
+    const parsed = JSON.parse(raw) as Partial<SkillCommandPayload>;
+    if (
+      typeof parsed.name === "string" &&
+      typeof parsed.source === "string" &&
+      typeof parsed.filePath === "string" &&
+      typeof parsed.prompt === "string"
+    ) {
+      return {
+        name: parsed.name,
+        source: parsed.source as SkillEntry["source"],
+        filePath: parsed.filePath,
+        prompt: parsed.prompt,
+      };
+    }
+  } catch {
+    // Backward compatibility for stale in-memory command output during dev.
+  }
+
+  const name = raw.match(/^Skill:\s*(.+)$/m)?.[1]?.trim() || "unknown";
+  const source = raw.match(/^Source:\s*(.+)$/m)?.[1]?.trim() || "user";
+  const filePath = raw.match(/^Path:\s*(.+)$/m)?.[1]?.trim() || "";
+  return {
+    name,
+    source: source as SkillEntry["source"],
+    filePath,
+    prompt: raw,
+  };
+}
+
 async function maybeRunSkillCommand(
   commandName: string,
   args: string,
@@ -401,7 +455,7 @@ async function maybeRunSkillCommand(
   if (!skill) return false;
 
   const body = await readSkillBody(skill);
-  output(SKILL_COMMAND_MARKER + formatSkillActivation(skill, body, args));
+  output(SKILL_COMMAND_MARKER + formatSkillCommandPayload(skill, body, args));
   return true;
 }
 

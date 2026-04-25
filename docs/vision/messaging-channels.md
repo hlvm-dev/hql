@@ -365,11 +365,12 @@ messaging architecture.
 The current architecture can support more vendors, but that does not mean all
 next vendors are equally good choices.
 
-The product bar is not "can a technical user configure this eventually." The bar
-is:
+The product bar is not "can a technical user configure this eventually." For
+messaging channels, the bar is mobile QR-first:
 
 ```text
-scan / click / approve
+scan with phone
+→ approve / add / open in the native mobile app
 → then chat
 ```
 
@@ -378,6 +379,56 @@ to that bar. OpenClaw proves the broad gateway model is possible, but OpenClaw
 also accepts more per-channel setup burden: plugins, QR login, developer tokens,
 external daemons, webhook URLs, and bridge services. HLVM should not become a
 raw gateway clone unless the product goal changes.
+
+The user-facing shell should stay consistent across vendors:
+
+```text
+Connect <Platform>
+→ show QR
+→ wait for <Platform>
+→ connected
+```
+
+The near-term macOS implementation should simplify the current Telegram-specific
+QR window into one generic channel onboarding surface:
+
+```text
+┌────────────────────────────────────────────┐
+│ Scan with <Platform>                       │
+│                                            │
+│                   QR                       │
+│                                            │
+│ scan to open your HLVM <platform surface>  │
+│                                            │
+│ Telegram | LINE | Slack | ...              │
+└────────────────────────────────────────────┘
+```
+
+Selecting a platform should update the same window in place. Do not add a
+platform picker screen before the QR screen unless a real platform requires it.
+The core product metric for onboarding is:
+
+```text
+fewest screens and fewest user actions
+→ user sends first "hello world" from a mobile chat app
+→ HLVM GUI/runtime receives it and replies
+```
+
+The platform provisioner owns the different payload behind that QR:
+
+```text
+Telegram → Telegram create/open bot URL
+LINE     → LINE add-friend / Official Account URL
+Slack    → Slack OAuth install URL
+Discord  → Discord OAuth/install URL
+Gmail    → Google OAuth URL
+WhatsApp → WhatsApp link/session flow, only if that route is accepted
+```
+
+This is the main product difference from OpenClaw. OpenClaw has guided setup and
+broad channel support, but its channel docs still mostly assume operator setup:
+tokens, developer apps, config, QR login commands, pairing approvals, or
+external bridges. HLVM should absorb that setup burden where possible.
 
 Current recommendation:
 

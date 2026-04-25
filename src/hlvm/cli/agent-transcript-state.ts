@@ -19,6 +19,7 @@ import {
   type InfoItem,
   type MemoryActivityDetail,
   type MemoryActivityItem,
+  type SkillActivityInput,
   type StreamingState,
   StreamingState as ConversationStreamingState,
   type ThinkingItem,
@@ -33,6 +34,7 @@ import {
   summarizeTurnCompletion,
 } from "./repl-ink/components/conversation/turn-activity.ts";
 import {
+  resolveSkillToolDisplayName,
   resolveToolTranscriptDisplayName,
   resolveToolTranscriptProgress,
   resolveToolTranscriptResult,
@@ -99,6 +101,7 @@ export type TranscriptInput =
     retryable?: boolean;
   }
   | { type: "info"; text: string; isTransient?: boolean; turnId?: string }
+  | { type: "skill_loaded"; skill: SkillActivityInput; turnId?: string }
   | {
     type: "debug_trace";
     lines: readonly TracePresentationLine[];
@@ -332,6 +335,68 @@ function appendInfoItem(
       item,
       turnId ?? state.currentTurnId,
     ),
+  };
+}
+
+const SKILL_LOADED_RESULT_TEXT = "Successfully loaded skill";
+
+function buildSkillLoadedTool(
+  id: string,
+  skill: SkillActivityInput,
+): ToolCallDisplay {
+  return {
+    id,
+    name: "skill",
+    displayName: `Skill(${skill.name})`,
+    argsSummary: "",
+    status: "success",
+    resultSummaryText: SKILL_LOADED_RESULT_TEXT,
+    resultDetailText: SKILL_LOADED_RESULT_TEXT,
+    resultText: SKILL_LOADED_RESULT_TEXT,
+    toolIndex: 1,
+    toolTotal: 1,
+  };
+}
+
+function appendSkillLoadedItem(
+  state: TranscriptState,
+  skill: SkillActivityInput,
+  turnId?: string,
+): TranscriptState {
+  const targetTurnId = turnId ?? state.currentTurnId;
+  let nextState = state;
+  let toolId: string;
+  [nextState, toolId] = nextItemId(nextState);
+  const tool = buildSkillLoadedTool(toolId, skill);
+
+  const trailingToolGroupIdx = findTrailingToolGroupIndex(nextState.items);
+  const trailingToolGroup = trailingToolGroupIdx >= 0
+    ? nextState.items[trailingToolGroupIdx]
+    : undefined;
+  if (
+    trailingToolGroup?.type === "tool_group" &&
+    trailingToolGroup.turnId === targetTurnId
+  ) {
+    const nextItems = [...nextState.items];
+    nextItems[trailingToolGroupIdx] = {
+      ...trailingToolGroup,
+      tools: [...trailingToolGroup.tools, tool],
+    };
+    return { ...nextState, items: nextItems };
+  }
+
+  let groupId: string;
+  [nextState, groupId] = nextItemId(nextState);
+  const group: ToolGroupItem = {
+    type: "tool_group",
+    id: groupId,
+    tools: [tool],
+    ts: Date.now(),
+    turnId: targetTurnId,
+  };
+  return {
+    ...nextState,
+    items: insertBeforePendingAssistant(nextState.items, group, targetTurnId),
   };
 }
 
@@ -709,7 +774,9 @@ export function reduceTranscriptState(
         case "tool_start": {
           if (event.name.startsWith("memory_")) return state;
           if (event.name === AGENT_TOOL_NAME) return state;
-          const displayName = resolveToolTranscriptDisplayName(event.name);
+          const displayName =
+            resolveSkillToolDisplayName(event.name, event.argsSummary) ??
+              resolveToolTranscriptDisplayName(event.name);
           const initialProgress = resolveToolTranscriptProgress(event.name, {
             toolCallId: event.toolCallId,
             name: event.name,
@@ -1110,6 +1177,8 @@ export function reduceTranscriptState(
     }
     case "debug_trace":
       return appendDebugTraceItems(state, input.lines, input.turnId);
+    case "skill_loaded":
+      return appendSkillLoadedItem(state, input.skill, input.turnId);
     case "hql_eval": {
       let nextState = state;
       let turnId = state.currentTurnId;

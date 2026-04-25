@@ -1,7 +1,7 @@
 import {
+  type FormattedToolTranscriptResult,
   getTool,
   hasTool,
-  type FormattedToolTranscriptResult,
   type ToolProgressTone,
   type ToolTranscriptAdapter,
   type ToolTranscriptCallSummary,
@@ -13,6 +13,7 @@ import {
   WEB_FETCH_TRANSCRIPT_ADAPTER,
   WEB_SEARCH_TRANSCRIPT_ADAPTER,
 } from "../../../../agent/tools/web-tools.ts";
+import { getUserSkillsDir } from "../../../../../common/paths.ts";
 import { summarizePathLabel } from "./activity-labels.ts";
 
 type InvocationToolLike = {
@@ -99,6 +100,45 @@ const PATH_ARGUMENT_TOOL_NAMES = new Set([
   "move_to_trash",
 ]);
 
+const TILDE_USER_SKILLS_PREFIX = "~/.hlvm/skills/";
+const SKILL_FILE_SUFFIX_PATTERN = /^([^/]+)\/SKILL\.md$/i;
+
+function normalizeToolPath(path: string): string {
+  return path.trim().replaceAll("\\", "/");
+}
+
+function extractSkillNameFromSkillFilePath(path: string): string | undefined {
+  const normalized = normalizeToolPath(path);
+  const resolvedUserSkillsPrefix = `${
+    normalizeToolPath(getUserSkillsDir()).replace(/\/+$/, "")
+  }/`;
+  const relativePath = normalized.startsWith(TILDE_USER_SKILLS_PREFIX)
+    ? normalized.slice(TILDE_USER_SKILLS_PREFIX.length)
+    : normalized.startsWith(resolvedUserSkillsPrefix)
+    ? normalized.slice(resolvedUserSkillsPrefix.length)
+    : undefined;
+  if (!relativePath) return undefined;
+  const match = relativePath.match(SKILL_FILE_SUFFIX_PATTERN);
+  return match?.[1]?.trim() || undefined;
+}
+
+function extractReadSkillName(
+  toolName: string,
+  argsSummary: string,
+): string | undefined {
+  return toolName === "read_file"
+    ? extractSkillNameFromSkillFilePath(argsSummary)
+    : undefined;
+}
+
+export function resolveSkillToolDisplayName(
+  toolName: string,
+  argsSummary: string,
+): string | undefined {
+  const skillName = extractReadSkillName(toolName, argsSummary);
+  return skillName ? `Skill(${skillName})` : undefined;
+}
+
 export function resolveToolTranscriptDisplayName(
   toolName: string,
   ownerId?: string,
@@ -113,6 +153,9 @@ export function buildToolTranscriptInvocationLabel(
   const displayName = tool.displayName?.trim() || tool.name;
   const argsSummary = tool.argsSummary.trim();
   if (!argsSummary) return displayName;
+
+  const skillDisplayName = resolveSkillToolDisplayName(tool.name, argsSummary);
+  if (skillDisplayName) return skillDisplayName;
 
   if (
     tool.name === "search_web" ||
@@ -173,6 +216,13 @@ export function resolveToolTranscriptResult(
   event: ToolTranscriptResultEvent,
   ownerId?: string,
 ): FormattedToolTranscriptResult {
+  if (extractReadSkillName(toolName, event.argsSummary)) {
+    return {
+      summaryText: "Successfully loaded skill",
+      detailText: "Successfully loaded skill",
+    };
+  }
+
   const adapter = getTranscriptAdapter(toolName, ownerId);
   const formatted = adapter?.formatResult?.(event) ?? null;
   if (formatted) {
@@ -219,8 +269,6 @@ export function resolveToolTranscriptGroupSummary(
     case "open_path":
       return `Opened ${count} path${count === 1 ? "" : "s"}`;
     default:
-      return count === 1
-        ? displayName
-        : `${displayName} ×${count}`;
+      return count === 1 ? displayName : `${displayName} ×${count}`;
   }
 }

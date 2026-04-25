@@ -102,6 +102,12 @@ export interface ToolGroupItem {
   turnId?: string;
 }
 
+export interface SkillActivityInput {
+  name: string;
+  source?: string;
+  filePath?: string;
+}
+
 export type TurnCompletionStatus = "completed" | "cancelled" | "failed";
 
 /** Turn completion statistics */
