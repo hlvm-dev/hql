@@ -127,6 +127,16 @@ vendor transport.receive(ChannelMessage)
     → transport.send(ChannelReply)    ← reply via same transport
 ```
 
+External channel ownership is also centralized. The default shared runtime on
+`127.0.0.1:11435` is the only process that may start Telegram, LINE, or future
+external channel transports. Explicit `hlvm serve --port <non-default>` runtimes
+are isolated local HTTP/testing surfaces and must not poll Telegram, attach LINE
+event streams, or consume mobile updates.
+
+Do not use runtime ports as chat, bot, endpoint, or agent identities. If HLVM
+needs multiple Telegram bots or multiple chat agents, add endpoint records under
+the shared channel runtime instead of spawning multiple runtime owners.
+
 ### Adding a new vendor (e.g. Slack)
 
 Provide exactly two implementations and two wiring lines:
@@ -379,3 +389,4 @@ When adding a new domain:
 | 2025-01-19 | Initial contract created                                                  |
 | 2026-04-23 | Added channel runtime, vendor contracts, and multi-vendor extension rules |
 | 2026-04-24 | Added skills discovery, prompting, and execution-boundary rules           |
+| 2026-04-26 | Added external channel runtime ownership and endpoint identity rule       |

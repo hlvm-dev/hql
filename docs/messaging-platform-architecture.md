@@ -9,7 +9,7 @@ How do we support Telegram and LINE now, then add Slack / Discord / KakaoTalk / 
 without rewriting the messaging runtime each time?
 ```
 
-**Last updated**: 2026-04-25
+**Last updated**: 2026-04-26
 
 ## Current conclusion
 
@@ -68,8 +68,37 @@ shared provisioning contract: done
 Telegram as first vendor implementation: done
 LINE source implementation: done
 LINE live E2E: requires configured LINE Official Account + deployed bridge
+external channel ownership: default shared runtime only
 Slack implementation: not started yet
 ```
+
+## Runtime ownership rule
+
+External messaging transports are owned by the default shared HLVM runtime only:
+
+```text
+127.0.0.1:11435
+→ may start Telegram / LINE / future external channel transports
+```
+
+Explicit isolated runtimes must not own external messaging transports:
+
+```text
+hlvm serve --port <non-default>
+→ local HTTP/testing surface only
+→ must not poll Telegram
+→ must not attach LINE event streams
+→ must not steal mobile updates from the shared GUI runtime
+```
+
+This prevents split-brain behavior where a dev/test process consumes Telegram or
+LINE updates while the macOS GUI is connected to the normal runtime. Multiple
+GUI windows should behave as clients of the same shared runtime, not as
+independent owners of the same mobile channel.
+
+Do not use `--port` as an agent identity, chat identity, or bot identity. Future
+multi-agent chat support needs endpoint records inside the shared runtime, not
+one runtime process per bot.
 
 ## macOS app integration
 
@@ -94,6 +123,25 @@ exists.
 This app-side rule now lives in:
 
 - `HLVM/Messages/Onboarding/OnboardingWindow.swift`
+
+## macOS realtime sync rule
+
+The GUI is a thin client of the runtime transcript. A Telegram or LINE turn can
+arrive when the user is not actively typing in the macOS chat surface, so remote
+SSE events must still update the visible message store.
+
+Current rule:
+
+```text
+runtime receives Telegram / LINE message
+→ runtime appends user + assistant messages to the active conversation
+→ SSE snapshot/message events reach macOS
+→ macOS hydrates the message store even when no local chat run is active
+```
+
+Do not guard remote `snapshot`, `messageAdded`, or `messageUpdated` handling on
+a local "chat active" flag. That flag is only safe for local UI run-state, not
+for deciding whether runtime-owned messages exist.
 
 ## Telegram completion behavior
 
@@ -500,6 +548,37 @@ HLVM_LINE_PROVISIONING_BRIDGE_URL
 HLVM_LINE_OFFICIAL_ACCOUNT_ID      optional local override
 ```
 
+LINE live E2E is blocked until the service-side bridge/account setup exists.
+This is a one-time developer/operator setup, not a user-facing onboarding step.
+Production user flow must still stay:
+
+```text
+select LINE
+→ scan QR
+→ LINE opens on phone
+→ send the prefilled pair text
+→ HLVM is connected
+```
+
+Operator setup checklist:
+
+```text
+1. Create a LINE Official Account / Messaging API channel for HLVM testing.
+   Use the free/unverified path when possible; do not require a business
+   verification flow for local development.
+2. Deploy the HLVM LINE bridge on HTTPS.
+3. Configure the LINE Developer Console webhook URL:
+   https://<bridge-host>/api/line/webhook
+4. Set bridge secrets:
+   HLVM_LINE_OFFICIAL_ACCOUNT_ID
+   HLVM_LINE_CHANNEL_ACCESS_TOKEN
+   HLVM_LINE_CHANNEL_SECRET
+5. Set or bake the local runtime bridge target:
+   HLVM_LINE_PROVISIONING_BRIDGE_URL=https://<bridge-host>
+   HLVM_LINE_OFFICIAL_ACCOUNT_ID=<official-account-id>
+6. Rebuild/relaunch the GUI and test through the generic QR window.
+```
+
 Bridge requirements:
 
 ```text
@@ -621,6 +700,52 @@ per-vendor:
 
 If a future vendor needs a genuinely new primitive, add that primitive once to
 the shared contract. Do not fork the runtime.
+
+## Future multi-endpoint direction
+
+Current Telegram support is intentionally a single endpoint: one configured bot
+token, one owner, one allowlist, one cursor, and one status. That is enough for
+the current product.
+
+The future "scan QR multiple times to create multiple independent Telegram
+agents" feature must introduce first-class endpoint records. Do not bolt extra
+fields onto the current singleton and do not start one runtime process per bot.
+
+Target model:
+
+```text
+platform = telegram
+endpointId = tg_ep_abc123
+agentId = agent_build_buddy
+remoteId = Telegram chat/user id
+
+session key = channel:telegram:<endpointId>:<remoteId>
+```
+
+Each endpoint owns its own:
+
+- token
+- username
+- cursor
+- status
+- allowlist
+- provisioning/reconnect state
+- agent/persona binding
+
+Runtime shape:
+
+```text
+shared runtime on 11435
+→ endpoint tg_ep_1 polls Telegram token A
+→ endpoint tg_ep_2 polls Telegram token B
+→ inbound message includes platform + endpointId + remoteId
+→ queue/session key includes endpointId
+→ reply is sent through the same endpoint transport
+```
+
+This is the correct way to support many Telegram bots / agents from one iOS
+Telegram account while keeping transcripts isolated. It is a future feature, not
+part of the current LINE prep.
 
 ## Remaining cleanup only
 

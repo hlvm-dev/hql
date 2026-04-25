@@ -18,7 +18,14 @@ import { getLocalModelDisplayName } from "../../runtime/local-llm.ts";
 import { http } from "../../../common/http-client.ts";
 import { DEFAULT_OLLAMA_ENDPOINT } from "../../../common/config/types.ts";
 import { channelRuntime } from "../../channels/registry.ts";
-import { aiEngine, shutdownManagedAIRuntime } from "../../runtime/ai-runtime.ts";
+import {
+  aiEngine,
+  shutdownManagedAIRuntime,
+} from "../../runtime/ai-runtime.ts";
+import {
+  HLVM_RUNTIME_DEFAULT_PORT,
+  resolveHlvmRuntimePort,
+} from "../../runtime/host-config.ts";
 
 /** Resolves when runtime is initialized; rejects permanently if all retries fail. */
 let runtimeReady: Promise<void> | null = null;
@@ -34,6 +41,10 @@ let runtimeAiReadyReason: string | null = "AI runtime is still initializing.";
 let runtimeAiReadyRetryable = true;
 let runtimeServeStartedAt = 0;
 let runtimeAiRecovery: Promise<boolean> | null = null;
+
+function runtimeOwnsExternalChannels(): boolean {
+  return resolveHlvmRuntimePort() === HLVM_RUNTIME_DEFAULT_PORT;
+}
 
 function emitModelsReadyEvent(): void {
   pushSSEEvent("__models__", "models_updated", { reason: "runtime_ready" });
@@ -73,7 +84,10 @@ export function getRuntimeHostUptimeMs(): number | null {
 }
 
 export function markRuntimeAiRequestSucceeded(): void {
-  if (!runtimeReadinessManaged || runtimeReadyState !== "ready" || !bootstrapVerified) {
+  if (
+    !runtimeReadinessManaged || runtimeReadyState !== "ready" ||
+    !bootstrapVerified
+  ) {
     return;
   }
   localFallbackReady = true;
@@ -314,25 +328,29 @@ export async function serveCommand(args: string[]): Promise<number> {
             "Bootstrap verification is degraded. Recovery is in progress.",
             true,
           );
-          recoverBootstrap(verification.manifest, verification).then(async (r) => {
-            if (r.success) {
-              bootstrapVerified = true;
-              // Bootstrap reclaimed and killed production ollama while
-              // materializing. Restart it before probing for fallback
-              // readiness, else the probe sees Connection refused.
-              await aiEngine.ensureRunning();
-              localFallbackReady = await ensureLocalFallbackReady();
-              log.info?.("Bootstrap recovery completed.");
-              emitModelsReadyIfReady();
-            } else {
-              setRuntimeAiReadyState(
-                `Bootstrap recovery failed: ${r.message}. Run 'hlvm bootstrap --repair' to fix.`,
-                false,
-              );
-              log.warn?.(`Bootstrap recovery failed: ${r.message}. ` +
-                `Run 'hlvm bootstrap --repair' to fix.`);
-            }
-          }).catch((err) => {
+          recoverBootstrap(verification.manifest, verification).then(
+            async (r) => {
+              if (r.success) {
+                bootstrapVerified = true;
+                // Bootstrap reclaimed and killed production ollama while
+                // materializing. Restart it before probing for fallback
+                // readiness, else the probe sees Connection refused.
+                await aiEngine.ensureRunning();
+                localFallbackReady = await ensureLocalFallbackReady();
+                log.info?.("Bootstrap recovery completed.");
+                emitModelsReadyIfReady();
+              } else {
+                setRuntimeAiReadyState(
+                  `Bootstrap recovery failed: ${r.message}. Run 'hlvm bootstrap --repair' to fix.`,
+                  false,
+                );
+                log.warn?.(
+                  `Bootstrap recovery failed: ${r.message}. ` +
+                    `Run 'hlvm bootstrap --repair' to fix.`,
+                );
+              }
+            },
+          ).catch((err) => {
             setRuntimeAiReadyState(
               `Bootstrap recovery error: ${(err as Error).message}`,
               false,
@@ -370,30 +388,36 @@ export async function serveCommand(args: string[]): Promise<number> {
                   "Embedded engine found without a verified bootstrap. " +
                     `Starting ${getLocalModelDisplayName()}-first local AI bootstrap in the background...`,
                 );
-                recoverBootstrap(verification.manifest, verification).then(async (r) => {
-                  if (r.success) {
-                    bootstrapVerified = true;
-                    // Bootstrap reclaimed and killed production ollama while
-                    // materializing. Restart it before probing for fallback
-                    // readiness, else the probe sees Connection refused.
-                    await aiEngine.ensureRunning();
-                    localFallbackReady = await ensureLocalFallbackReady();
-                    log.info?.("Bootstrap materialization completed.");
-                    emitModelsReadyIfReady();
-                  } else {
-                    setRuntimeAiReadyState(
-                      `Bootstrap auto-setup failed: ${r.message}. Run 'hlvm bootstrap --repair' to retry.`,
-                      false,
-                    );
-                    log.warn?.(`Bootstrap auto-setup failed: ${r.message}. ` +
-                      `Run 'hlvm bootstrap --repair' to retry.`);
-                  }
-                }).catch((err) => {
+                recoverBootstrap(verification.manifest, verification).then(
+                  async (r) => {
+                    if (r.success) {
+                      bootstrapVerified = true;
+                      // Bootstrap reclaimed and killed production ollama while
+                      // materializing. Restart it before probing for fallback
+                      // readiness, else the probe sees Connection refused.
+                      await aiEngine.ensureRunning();
+                      localFallbackReady = await ensureLocalFallbackReady();
+                      log.info?.("Bootstrap materialization completed.");
+                      emitModelsReadyIfReady();
+                    } else {
+                      setRuntimeAiReadyState(
+                        `Bootstrap auto-setup failed: ${r.message}. Run 'hlvm bootstrap --repair' to retry.`,
+                        false,
+                      );
+                      log.warn?.(
+                        `Bootstrap auto-setup failed: ${r.message}. ` +
+                          `Run 'hlvm bootstrap --repair' to retry.`,
+                      );
+                    }
+                  },
+                ).catch((err) => {
                   setRuntimeAiReadyState(
                     `Bootstrap auto-setup error: ${(err as Error).message}`,
                     false,
                   );
-                  log.warn?.(`Bootstrap auto-setup error: ${(err as Error).message}`);
+                  log.warn?.(
+                    `Bootstrap auto-setup error: ${(err as Error).message}`,
+                  );
                 });
               } else {
                 setRuntimeAiReadyState(
@@ -402,7 +426,7 @@ export async function serveCommand(args: string[]): Promise<number> {
                 );
                 log.warn?.(
                   "Compiled HLVM build does not have a verified embedded AI runtime. " +
-                  "Run 'hlvm bootstrap' after reinstalling the AI-enabled binary.",
+                    "Run 'hlvm bootstrap' after reinstalling the AI-enabled binary.",
                 );
               }
             }
@@ -413,14 +437,22 @@ export async function serveCommand(args: string[]): Promise<number> {
               }`,
               false,
             );
-            log.warn?.(`Failed to determine embedded engine status: ${
-              error instanceof Error ? error.message : String(error)
-            }`);
+            log.warn?.(
+              `Failed to determine embedded engine status: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
           }
         }
 
         runtimeReadyState = "ready";
-        await channelRuntime.reconfigure();
+        if (runtimeOwnsExternalChannels()) {
+          await channelRuntime.reconfigure();
+        } else {
+          log.info(
+            `Skipping external channel transports on isolated runtime port ${resolveHlvmRuntimePort()}; shared port ${HLVM_RUNTIME_DEFAULT_PORT} owns Telegram/LINE.`,
+          );
+        }
         emitModelsReadyIfReady();
       },
       {
@@ -428,7 +460,10 @@ export async function serveCommand(args: string[]): Promise<number> {
         initialDelayMs: 1000,
         backoffFactor: 1, // linear: 1s, 1s (matches original 1s * attempt pattern closely enough)
         onRetry: (error, attempt) => {
-          log.error(`Runtime initialization attempt ${attempt}/3 failed`, error);
+          log.error(
+            `Runtime initialization attempt ${attempt}/3 failed`,
+            error,
+          );
         },
       },
     ).catch((error) => {
@@ -448,7 +483,9 @@ export async function serveCommand(args: string[]): Promise<number> {
       await serverDone;
       return 0;
     } finally {
-      await channelRuntime.stop();
+      if (runtimeOwnsExternalChannels()) {
+        await channelRuntime.stop();
+      }
       if (serverStarted) {
         await shutdownManagedAIRuntime().catch((error) => {
           log.warn("Failed to shut down managed AI runtime", error);
