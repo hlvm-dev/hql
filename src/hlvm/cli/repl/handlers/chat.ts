@@ -25,6 +25,7 @@ import {
 } from "../../../store/conversation-store.ts";
 import { resolveConversationSessionId } from "../../../store/active-conversation.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
+import { pushGuiLiveTranscriptEvent } from "../../../store/gui-live-transcript.ts";
 import {
   ensureInitialModelConfigured,
 } from "../../../../common/ai-default-model.ts";
@@ -135,6 +136,12 @@ function hasDeprecatedSessionIdField(body: ChatRequest): boolean {
   );
 }
 
+function shouldMirrorChatRequestToGuiLiveTranscript(
+  body: ChatRequest,
+): boolean {
+  return body.stateless !== true;
+}
+
 function isManagedLocalAiEndpointFailure(message: string): boolean {
   const normalized = message.toLowerCase();
   return normalized.includes(DEFAULT_OLLAMA_HOST) ||
@@ -155,7 +162,9 @@ function validateCapturedContexts(
     if (!context || typeof context !== "object" || Array.isArray(context)) {
       return "captured_contexts entries must be objects";
     }
-    if (typeof context.source !== "string" || context.source.trim().length === 0) {
+    if (
+      typeof context.source !== "string" || context.source.trim().length === 0
+    ) {
       return "captured_contexts.source must be a non-empty string";
     }
     if (typeof context.name !== "string" || context.name.trim().length === 0) {
@@ -199,7 +208,9 @@ function requestWantsBinaryAgentMode(body: ChatRequest): boolean {
     body.computer_use === true;
 }
 
-function resolveRequestedMode(body: ChatRequest): NonNullable<ChatRequest["mode"]> {
+function resolveRequestedMode(
+  body: ChatRequest,
+): NonNullable<ChatRequest["mode"]> {
   if (body.mode && isChatMode(body.mode)) {
     return body.mode;
   }
@@ -369,6 +380,9 @@ export async function handleChat(req: Request): Promise<Response> {
   if (!parsed.ok) return parsed.response;
 
   const body = parsed.value;
+  const mirrorToGuiLiveTranscript = shouldMirrorChatRequestToGuiLiveTranscript(
+    body,
+  );
   if (!body.messages?.length) {
     return jsonError("Missing messages", 400);
   }
@@ -571,7 +585,9 @@ export async function handleChat(req: Request): Promise<Response> {
       // Only error if both the configured model AND the default are missing
       if (resolvedModelInfo === null) {
         return jsonError(
-          `Model not found: ${body.model ?? resolvedModel}. Default model (${defaultModelId}) also unavailable.`,
+          `Model not found: ${
+            body.model ?? resolvedModel
+          }. Default model (${defaultModelId}) also unavailable.`,
           400,
         );
       }
@@ -695,9 +711,15 @@ export async function handleChat(req: Request): Promise<Response> {
         : message.senderType,
       attachment_ids: message.attachmentIds,
     });
+    const runtimeMessage = await toRuntimeSessionMessage(inserted);
     pushSSEEvent(session.id, "message_added", {
-      message: await toRuntimeSessionMessage(inserted),
+      message: runtimeMessage,
     });
+    if (mirrorToGuiLiveTranscript) {
+      pushGuiLiveTranscriptEvent("message_added", {
+        message: runtimeMessage,
+      });
+    }
     pushConversationUpdatedEvent(session.id);
   }
 
@@ -731,14 +753,22 @@ export async function handleChat(req: Request): Promise<Response> {
     sender_detail: resolvedModel ?? "default",
   });
   const assistantMessageId = assistantMsg.id;
+  const runtimeAssistantMessage = await toRuntimeSessionMessage(assistantMsg);
   pushSSEEvent(session.id, "message_added", {
-    message: await toRuntimeSessionMessage(assistantMsg),
+    message: runtimeAssistantMessage,
   });
+  if (mirrorToGuiLiveTranscript) {
+    pushGuiLiveTranscriptEvent("message_added", {
+      message: runtimeAssistantMessage,
+    });
+  }
   pushConversationUpdatedEvent(session.id);
 
   let partialText = "";
   let cancellationEmitted = false;
-  const [resolvedProvider] = resolvedModel ? parseModelString(resolvedModel) : [];
+  const [resolvedProvider] = resolvedModel
+    ? parseModelString(resolvedModel)
+    : [];
   const tracksManagedLocalAi = !isEvalMode && !fixturePath &&
     resolvedProvider === "ollama";
   let resultStats:
@@ -780,6 +810,7 @@ export async function handleChat(req: Request): Promise<Response> {
             sessionId,
             requestId,
             emit,
+            mirrorToGuiLiveTranscript,
           );
         } catch (error) {
           log.warn("Failed to emit chat cancellation state", error);
@@ -812,14 +843,20 @@ export async function handleChat(req: Request): Promise<Response> {
 
         try {
           const updatedAssistant = getMessage(assistantMessageId);
+          const runtimeMessage = updatedAssistant
+            ? await toRuntimeSessionMessage(updatedAssistant)
+            : {
+              id: assistantMessageId,
+              content: displayContent,
+            };
           pushSSEEvent(sessionId, "message_updated", {
-            message: updatedAssistant
-              ? await toRuntimeSessionMessage(updatedAssistant)
-              : {
-                id: assistantMessageId,
-                content: displayContent,
-              },
+            message: runtimeMessage,
           });
+          if (mirrorToGuiLiveTranscript) {
+            pushGuiLiveTranscriptEvent("message_updated", {
+              message: runtimeMessage,
+            });
+          }
           pushConversationUpdatedEvent(sessionId);
         } catch (pushError) {
           log.warn("Failed to publish chat error update", pushError);
@@ -947,14 +984,20 @@ export async function handleChat(req: Request): Promise<Response> {
 
           updateMessage(assistantMessageId, { content: output });
           const updatedAssistant = getMessage(assistantMessageId);
+          const runtimeMessage = updatedAssistant
+            ? await toRuntimeSessionMessage(updatedAssistant)
+            : {
+              id: assistantMessageId,
+              content: output,
+            };
           pushSSEEvent(sessionId, "message_updated", {
-            message: updatedAssistant
-              ? await toRuntimeSessionMessage(updatedAssistant)
-              : {
-                id: assistantMessageId,
-                content: output,
-              },
+            message: runtimeMessage,
           });
+          if (mirrorToGuiLiveTranscript) {
+            pushGuiLiveTranscriptEvent("message_updated", {
+              message: runtimeMessage,
+            });
+          }
           pushConversationUpdatedEvent(sessionId);
 
           if (output.length > 0) {
@@ -968,6 +1011,7 @@ export async function handleChat(req: Request): Promise<Response> {
             controller.signal,
             emit,
             onPartial,
+            mirrorToGuiLiveTranscript,
           );
         } else if (effectiveMode === "agent") {
           if (canRunAgentMode) {
@@ -983,6 +1027,7 @@ export async function handleChat(req: Request): Promise<Response> {
                 requestId,
                 preTurnSessionVersion,
                 resolvedModelInfo,
+                mirrorToGuiLiveTranscript,
               );
             } catch (agentError) {
               // Auto-downgrade: if agent mode fails on first call (model
@@ -1015,6 +1060,7 @@ export async function handleChat(req: Request): Promise<Response> {
                   preResolvedChatModel?.effectiveModel === resolvedModel
                     ? preResolvedChatModel
                     : undefined,
+                  mirrorToGuiLiveTranscript,
                 );
               } else {
                 throw agentError;
@@ -1034,6 +1080,7 @@ export async function handleChat(req: Request): Promise<Response> {
               preResolvedChatModel?.effectiveModel === resolvedModel
                 ? preResolvedChatModel
                 : undefined,
+              mirrorToGuiLiveTranscript,
             );
           }
         } else {
@@ -1050,6 +1097,7 @@ export async function handleChat(req: Request): Promise<Response> {
             preResolvedChatModel?.effectiveModel === resolvedModel
               ? preResolvedChatModel
               : undefined,
+            mirrorToGuiLiveTranscript,
           );
         }
 
@@ -1128,7 +1176,9 @@ export async function handleChat(req: Request): Promise<Response> {
             )
           ) {
             log.error(
-              `Unhandled internal /api/chat exception (mode=${requestedMode}, model=${resolvedModel ?? "default"})`,
+              `Unhandled internal /api/chat exception (mode=${requestedMode}, model=${
+                resolvedModel ?? "default"
+              })`,
               error,
             );
           }

@@ -30,6 +30,7 @@ import {
   updateSession,
 } from "../../../store/conversation-store.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
+import { pushGuiLiveTranscriptEvent } from "../../../store/gui-live-transcript.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
 import { toRuntimeSessionMessage } from "../../../runtime/session-protocol.ts";
@@ -106,6 +107,7 @@ export async function handleAgentMode(
   requestId: string,
   preTurnSessionVersion: number,
   modelInfo?: ModelInfo | null,
+  mirrorToGuiLiveTranscript = false,
 ): Promise<ChatResultStats> {
   const handlerStartedAt = Date.now();
   const effectiveToolDenylist = body.tool_denylist?.length
@@ -120,7 +122,9 @@ export async function handleAgentMode(
     sessionId,
     model: resolvedModel,
     fixturePath: !!fixturePath,
-    queryPreview: buildTraceTextPreview(getLastUserMessage(body.messages)?.content),
+    queryPreview: buildTraceTextPreview(
+      getLastUserMessage(body.messages)?.content,
+    ),
   });
   if (!fixturePath) {
     const agentReadyStartedAt = Date.now();
@@ -137,12 +141,16 @@ export async function handleAgentMode(
       setAgentReadyPromise(resolvedModel, agentReadyPromise);
     }
     await agentReadyPromise;
-    traceReplMainThreadForSource(body.query_source, "server.agent.ensure_ready.done", {
-      requestId,
-      sessionId,
-      durationMs: Date.now() - agentReadyStartedAt,
-      model: resolvedModel,
-    });
+    traceReplMainThreadForSource(
+      body.query_source,
+      "server.agent.ensure_ready.done",
+      {
+        requestId,
+        sessionId,
+        durationMs: Date.now() - agentReadyStartedAt,
+        model: resolvedModel,
+      },
+    );
   }
 
   const workingDirectory = getPlatform().process.cwd();
@@ -162,7 +170,9 @@ export async function handleAgentMode(
     getPermissionMode(config.snapshot) ??
     "default";
   const mainThreadQuery = isMainThreadQuerySource(body.query_source);
-  const requestOverridesStoredHistory = shouldHonorRequestMessages(body.messages);
+  const requestOverridesStoredHistory = shouldHonorRequestMessages(
+    body.messages,
+  );
   const pendingBackgroundNotifications = drainCompletionNotifications();
   const hotSessionReusableTurn = mainThreadQuery &&
     !fixturePath &&
@@ -236,31 +246,41 @@ export async function handleAgentMode(
   const publishFinalText = async (finalText: string): Promise<void> => {
     updateMessage(assistantMessageId, { content: finalText });
     const updatedAssistant = getMessage(assistantMessageId);
+    const runtimeMessage = updatedAssistant
+      ? await toRuntimeSessionMessage(updatedAssistant)
+      : {
+        id: assistantMessageId,
+        content: finalText,
+      };
     pushSSEEvent(sessionId, "message_updated", {
-      message: updatedAssistant
-        ? await toRuntimeSessionMessage(updatedAssistant)
-        : {
-          id: assistantMessageId,
-          content: finalText,
-        },
+      message: runtimeMessage,
     });
+    if (mirrorToGuiLiveTranscript) {
+      pushGuiLiveTranscriptEvent("message_updated", {
+        message: runtimeMessage,
+      });
+    }
     pushConversationUpdatedEvent(sessionId);
   };
 
   let streamedFinalText = false;
   let successfulToolCalls = 0;
   let failedToolCalls = 0;
-  traceReplMainThreadForSource(body.query_source, "server.agent.context_ready", {
-    requestId,
-    sessionId,
-    historyCount: history.length,
-    historyStrategy,
-    hotSessionReuse: historyStrategy === "live_session",
-    hotSessionInvalidationReason: hotSessionInvalidationReason ?? null,
-    attachmentCount: attachments.length,
-    toolAllowlistCount: toolAllowlist?.length ?? 0,
-    toolDenylistCount: effectiveToolDenylist.length,
-  });
+  traceReplMainThreadForSource(
+    body.query_source,
+    "server.agent.context_ready",
+    {
+      requestId,
+      sessionId,
+      historyCount: history.length,
+      historyStrategy,
+      hotSessionReuse: historyStrategy === "live_session",
+      hotSessionInvalidationReason: hotSessionInvalidationReason ?? null,
+      attachmentCount: attachments.length,
+      toolAllowlistCount: toolAllowlist?.length ?? 0,
+      toolDenylistCount: effectiveToolDenylist.length,
+    },
+  );
 
   const structuredResponseRequested = !!body.response_schema;
   const localAgentStallFallbackEnabled = !fixturePath &&
@@ -340,74 +360,98 @@ export async function handleAgentMode(
           }
           switch (event.type) {
             case "tool_start":
-              traceReplMainThreadForSource(body.query_source, "server.agent.tool_start", {
-                requestId,
-                sessionId,
-                name: event.name,
-                toolCallId: event.toolCallId,
-                toolIndex: event.toolIndex,
-                toolTotal: event.toolTotal,
-                argsSummary: event.argsSummary,
-              });
+              traceReplMainThreadForSource(
+                body.query_source,
+                "server.agent.tool_start",
+                {
+                  requestId,
+                  sessionId,
+                  name: event.name,
+                  toolCallId: event.toolCallId,
+                  toolIndex: event.toolIndex,
+                  toolTotal: event.toolTotal,
+                  argsSummary: event.argsSummary,
+                },
+              );
               break;
             case "agent_spawn":
-              traceReplMainThreadForSource(body.query_source, "server.agent.spawn", {
-                requestId,
-                sessionId,
-                agentId: event.agentId,
-                agentType: event.agentType,
-                description: event.description,
-                isAsync: event.isAsync,
-              });
+              traceReplMainThreadForSource(
+                body.query_source,
+                "server.agent.spawn",
+                {
+                  requestId,
+                  sessionId,
+                  agentId: event.agentId,
+                  agentType: event.agentType,
+                  description: event.description,
+                  isAsync: event.isAsync,
+                },
+              );
               break;
             case "agent_progress":
-              traceReplMainThreadForSource(body.query_source, "server.agent.progress", {
-                requestId,
-                sessionId,
-                agentId: event.agentId,
-                agentType: event.agentType,
-                toolUseCount: event.toolUseCount,
-                durationMs: event.durationMs,
-                tokenCount: event.tokenCount,
-                lastToolInfo: event.lastToolInfo,
-              });
+              traceReplMainThreadForSource(
+                body.query_source,
+                "server.agent.progress",
+                {
+                  requestId,
+                  sessionId,
+                  agentId: event.agentId,
+                  agentType: event.agentType,
+                  toolUseCount: event.toolUseCount,
+                  durationMs: event.durationMs,
+                  tokenCount: event.tokenCount,
+                  lastToolInfo: event.lastToolInfo,
+                },
+              );
               break;
             case "agent_complete":
-              traceReplMainThreadForSource(body.query_source, "server.agent.complete", {
-                requestId,
-                sessionId,
-                agentId: event.agentId,
-                agentType: event.agentType,
-                success: event.success,
-                durationMs: event.durationMs,
-                toolUseCount: event.toolUseCount,
-              });
+              traceReplMainThreadForSource(
+                body.query_source,
+                "server.agent.complete",
+                {
+                  requestId,
+                  sessionId,
+                  agentId: event.agentId,
+                  agentType: event.agentType,
+                  success: event.success,
+                  durationMs: event.durationMs,
+                  toolUseCount: event.toolUseCount,
+                },
+              );
               break;
             case "tool_end":
-              traceReplMainThreadForSource(body.query_source, "server.agent.tool_end", {
-                requestId,
-                sessionId,
-                name: event.name,
-                toolCallId: event.toolCallId,
-                success: event.success,
-                durationMs: event.durationMs,
-                summary: event.summary,
-              });
+              traceReplMainThreadForSource(
+                body.query_source,
+                "server.agent.tool_end",
+                {
+                  requestId,
+                  sessionId,
+                  name: event.name,
+                  toolCallId: event.toolCallId,
+                  success: event.success,
+                  durationMs: event.durationMs,
+                  summary: event.summary,
+                },
+              );
               break;
             case "turn_stats":
-              traceReplMainThreadForSource(body.query_source, "server.agent.turn_stats", {
-                requestId,
-                sessionId,
-                iteration: event.iteration,
-                toolCount: event.toolCount,
-                durationMs: event.durationMs,
-                inputTokens: event.inputTokens,
-                outputTokens: event.outputTokens,
-                modelId: event.modelId,
-                continuedThisTurn: event.continuedThisTurn,
-                continuationCount: event.continuationCount,
-                compactionReason: event.compactionReason,
-              });
+              traceReplMainThreadForSource(
+                body.query_source,
+                "server.agent.turn_stats",
+                {
+                  requestId,
+                  sessionId,
+                  iteration: event.iteration,
+                  toolCount: event.toolCount,
+                  durationMs: event.durationMs,
+                  inputTokens: event.inputTokens,
+                  outputTokens: event.outputTokens,
+                  modelId: event.modelId,
+                  continuedThisTurn: event.continuedThisTurn,
+                  continuationCount: event.continuationCount,
+                  compactionReason: event.compactionReason,
+                },
+              );
               break;
           }
           switch (event.type) {
@@ -486,6 +530,11 @@ export async function handleAgentMode(
               pushSSEEvent(sessionId, "message_added", {
                 message: toolMsg,
               });
+              if (mirrorToGuiLiveTranscript) {
+                pushGuiLiveTranscriptEvent("message_added", {
+                  message: toolMsg,
+                });
+              }
               pushConversationUpdatedEvent(sessionId);
               emit({
                 event: "tool_end",
@@ -575,11 +624,15 @@ export async function handleAgentMode(
         },
         onTrace: body.trace
           ? (trace) => {
-            traceReplMainThreadForSource(body.query_source, "server.agent.trace", {
-              requestId,
-              sessionId,
-              ...summarizeTraceEvent(trace),
-            });
+            traceReplMainThreadForSource(
+              body.query_source,
+              "server.agent.trace",
+              {
+                requestId,
+                sessionId,
+                ...summarizeTraceEvent(trace),
+              },
+            );
             emit({ event: "trace", trace });
           }
           : undefined,
@@ -593,7 +646,10 @@ export async function handleAgentMode(
     if (hotSessionReusableTurn) {
       invalidateReplLiveAgentSession(sessionId);
     }
-    if (localAgentStallFallbackEnabled && localAgentStallTriggered && !signal.aborted) {
+    if (
+      localAgentStallFallbackEnabled && localAgentStallTriggered &&
+      !signal.aborted
+    ) {
       traceReplMainThreadForSource(
         body.query_source,
         "server.agent.local_stall_fallback.start",
@@ -621,15 +677,19 @@ export async function handleAgentMode(
           modelInfo,
         );
       } catch (fallbackError) {
-        traceReplMainThreadForSource(body.query_source, "server.agent.handle.error", {
-          requestId,
-          sessionId,
-          durationMs: Date.now() - handlerStartedAt,
-          error: fallbackError instanceof Error
-            ? fallbackError.message
-            : String(fallbackError),
-          directChatFallback: true,
-        });
+        traceReplMainThreadForSource(
+          body.query_source,
+          "server.agent.handle.error",
+          {
+            requestId,
+            sessionId,
+            durationMs: Date.now() - handlerStartedAt,
+            error: fallbackError instanceof Error
+              ? fallbackError.message
+              : String(fallbackError),
+            directChatFallback: true,
+          },
+        );
         throw fallbackError;
       }
       streamedFinalText = earlyDirectChatFallbackText.trim().length > 0;
@@ -644,12 +704,16 @@ export async function handleAgentMode(
         },
       );
     } else {
-      traceReplMainThreadForSource(body.query_source, "server.agent.handle.error", {
-        requestId,
-        sessionId,
-        durationMs: Date.now() - handlerStartedAt,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      traceReplMainThreadForSource(
+        body.query_source,
+        "server.agent.handle.error",
+        {
+          requestId,
+          sessionId,
+          durationMs: Date.now() - handlerStartedAt,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
       throw error;
     }
   } finally {
@@ -659,22 +723,30 @@ export async function handleAgentMode(
   }
 
   if (earlyDirectChatFallbackText !== null) {
-    traceReplMainThreadForSource(body.query_source, "server.agent.handle.done", {
-      requestId,
-      sessionId,
-      durationMs: Date.now() - handlerStartedAt,
-      directChatFallback: true,
-      textChars: earlyDirectChatFallbackText.length,
-    });
+    traceReplMainThreadForSource(
+      body.query_source,
+      "server.agent.handle.done",
+      {
+        requestId,
+        sessionId,
+        durationMs: Date.now() - handlerStartedAt,
+        directChatFallback: true,
+        textChars: earlyDirectChatFallbackText.length,
+      },
+    );
   } else if (result) {
-    traceReplMainThreadForSource(body.query_source, "server.agent.handle.done", {
-      requestId,
-      sessionId,
-      durationMs: Date.now() - handlerStartedAt,
-      textChars: result.text.length,
-      successfulToolCalls,
-      failedToolCalls,
-    });
+    traceReplMainThreadForSource(
+      body.query_source,
+      "server.agent.handle.done",
+      {
+        requestId,
+        sessionId,
+        durationMs: Date.now() - handlerStartedAt,
+        textChars: result.text.length,
+        successfulToolCalls,
+        failedToolCalls,
+      },
+    );
   }
 
   if (!signal.aborted) {
@@ -708,10 +780,14 @@ export async function handleAgentMode(
         (failedToolCalls > 0 && successfulToolCalls === 0 && !finalText.trim())
       );
     if (shouldFallbackToDirectChat) {
-      traceReplMainThreadForSource(body.query_source, "server.agent.direct_chat_fallback.start", {
-        requestId,
-        sessionId,
-      });
+      traceReplMainThreadForSource(
+        body.query_source,
+        "server.agent.direct_chat_fallback.start",
+        {
+          requestId,
+          sessionId,
+        },
+      );
       const fallbackText = await streamDirectChatFallback(
         body.messages,
         sessionId,
@@ -728,11 +804,15 @@ export async function handleAgentMode(
         streamedFinalText = true;
         usedDirectChatFallback = true;
       }
-      traceReplMainThreadForSource(body.query_source, "server.agent.direct_chat_fallback.done", {
-        requestId,
-        sessionId,
-        textChars: fallbackText.length,
-      });
+      traceReplMainThreadForSource(
+        body.query_source,
+        "server.agent.direct_chat_fallback.done",
+        {
+          requestId,
+          sessionId,
+          textChars: fallbackText.length,
+        },
+      );
     }
 
     if (finalText.trim().length === 0) {
@@ -760,7 +840,8 @@ export async function handleAgentMode(
       const updatedSession = getSession(sessionId);
       setReplLiveAgentSession(sessionId, {
         session: result!.liveSession,
-        lastSessionVersion: updatedSession?.session_version ?? preTurnSessionVersion,
+        lastSessionVersion: updatedSession?.session_version ??
+          preTurnSessionVersion,
         model: resolvedModel,
         querySource: body.query_source,
         permissionMode,
@@ -784,6 +865,7 @@ export async function handleClaudeCodeAgentMode(
   signal: AbortSignal,
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
+  mirrorToGuiLiveTranscript = false,
 ): Promise<void> {
   const lastUserMessage = getLastUserMessage(body.messages);
   const query = lastUserMessage?.content ?? "";
@@ -820,6 +902,7 @@ export async function handleClaudeCodeAgentMode(
     signal,
     emit,
     onPartial,
+    mirrorToGuiLiveTranscript,
   );
 
   if (!result.success && !signal.aborted) {
@@ -841,6 +924,7 @@ export async function handleClaudeCodeAgentMode(
         signal,
         emit,
         onPartial,
+        mirrorToGuiLiveTranscript,
       );
       if (!retryResult.success && !signal.aborted) {
         throw new RuntimeError(
@@ -949,6 +1033,7 @@ async function spawnClaudeCodeProcess(
   signal: AbortSignal,
   emit: (obj: unknown) => void,
   onPartial: (text: string) => void,
+  mirrorToGuiLiveTranscript: boolean,
 ): Promise<{ success: boolean; error?: string }> {
   const platform = getPlatform();
 
@@ -1049,14 +1134,20 @@ async function spawnClaudeCodeProcess(
   if (!signal.aborted) {
     updateMessage(assistantMessageId, { content: fullText });
     const updatedAssistant = getMessage(assistantMessageId);
+    const runtimeMessage = updatedAssistant
+      ? await toRuntimeSessionMessage(updatedAssistant)
+      : {
+        id: assistantMessageId,
+        content: fullText,
+      };
     pushSSEEvent(hlvmSessionId, "message_updated", {
-      message: updatedAssistant
-        ? await toRuntimeSessionMessage(updatedAssistant)
-        : {
-          id: assistantMessageId,
-          content: fullText,
-        },
+      message: runtimeMessage,
     });
+    if (mirrorToGuiLiveTranscript) {
+      pushGuiLiveTranscriptEvent("message_updated", {
+        message: runtimeMessage,
+      });
+    }
     pushConversationUpdatedEvent(hlvmSessionId);
   }
 

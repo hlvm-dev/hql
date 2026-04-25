@@ -5,6 +5,7 @@
 
 import { LRUCache } from "../../../../common/lru-cache.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
+import { pushGuiLiveTranscriptEvent } from "../../../store/gui-live-transcript.ts";
 import {
   cancelRequestMessages,
   getMessage,
@@ -101,6 +102,7 @@ export async function emitCancellation(
   sessionId: string,
   requestId: string,
   emit: (obj: unknown) => void,
+  mirrorToGuiLiveTranscript = false,
 ): Promise<void> {
   const cancelled = cancelRequestMessages(sessionId, requestId, {
     assistantMessageId,
@@ -113,15 +115,21 @@ export async function emitCancellation(
     });
   }
   const updatedAssistant = getMessage(assistantMessageId);
+  const runtimeMessage = updatedAssistant
+    ? await toRuntimeSessionMessage(updatedAssistant)
+    : {
+      id: assistantMessageId,
+      content: partialText,
+      cancelled: true,
+    };
   pushSSEEvent(sessionId, "message_updated", {
-    message: updatedAssistant
-      ? await toRuntimeSessionMessage(updatedAssistant)
-      : {
-        id: assistantMessageId,
-        content: partialText,
-        cancelled: true,
-      },
+    message: runtimeMessage,
   });
+  if (mirrorToGuiLiveTranscript) {
+    pushGuiLiveTranscriptEvent("message_updated", {
+      message: runtimeMessage,
+    });
+  }
   pushConversationUpdatedEvent(sessionId);
   emit({
     event: "cancelled",

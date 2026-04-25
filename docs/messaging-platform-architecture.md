@@ -135,13 +135,18 @@ Current rule:
 ```text
 runtime receives Telegram / LINE message
 → runtime appends user + assistant messages to the active conversation
-→ SSE snapshot/message events reach macOS
-→ macOS hydrates the message store even when no local chat run is active
+→ runtime mirrors live user + assistant events to the GUI live transcript stream
+→ macOS hydrates only the current live presentation from that stream
 ```
 
 Do not guard remote `snapshot`, `messageAdded`, or `messageUpdated` handling on
 a local "chat active" flag. That flag is only safe for local UI run-state, not
 for deciding whether runtime-owned messages exist.
+
+The GUI live transcript is not durable chat history. A fresh GUI connection gets
+an empty `snapshot`; durable messages remain available through
+`/api/chat/messages` for memory/context/history features but must not be
+auto-rendered into the Siri-style bubble.
 
 ## Telegram completion behavior
 

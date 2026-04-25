@@ -79,6 +79,7 @@ export function createChannelRuntime(
         client_turn_id: crypto.randomUUID(),
       }],
       permissionMode: options.permissionMode,
+      skipSessionHistory: true,
       callbacks: {},
     });
     return { text: result.text };

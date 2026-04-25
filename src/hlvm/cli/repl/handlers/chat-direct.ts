@@ -12,11 +12,15 @@ import {
   updateMessage,
 } from "../../../store/conversation-store.ts";
 import { pushSSEEvent } from "../../../store/sse-store.ts";
+import { pushGuiLiveTranscriptEvent } from "../../../store/gui-live-transcript.ts";
 import { config } from "../../../api/config.ts";
 import { loadAllMessages } from "../../../store/message-utils.ts";
 import type { ModelInfo } from "../../../providers/types.ts";
 import { toRuntimeSessionMessage } from "../../../runtime/session-protocol.ts";
-import { pushConversationUpdatedEvent, type ChatRequest } from "./chat-session.ts";
+import {
+  type ChatRequest,
+  pushConversationUpdatedEvent,
+} from "./chat-session.ts";
 import {
   buildChatProviderMessages,
   shouldHonorRequestMessages,
@@ -128,7 +132,9 @@ async function drainTokenStream(
 }
 
 function createChatTokenIterator(
-  providerMessages: Awaited<ReturnType<typeof buildChatProviderMessages>>["messages"],
+  providerMessages: Awaited<
+    ReturnType<typeof buildChatProviderMessages>
+  >["messages"],
   modelId: string | undefined,
   body: ChatRequest,
   weakContextRawLimit: number | undefined,
@@ -147,7 +153,9 @@ function createChatTokenIterator(
 }
 
 async function streamChatWithFallback(
-  providerMessages: Awaited<ReturnType<typeof buildChatProviderMessages>>["messages"],
+  providerMessages: Awaited<
+    ReturnType<typeof buildChatProviderMessages>
+  >["messages"],
   resolvedModel: string | undefined,
   body: ChatRequest,
   signal: AbortSignal,
@@ -157,7 +165,9 @@ async function streamChatWithFallback(
   scoredFallbacks: string[] = [],
 ): Promise<string> {
   const localFallbackModelId = await resolveLocalFallbackModelId();
-  if (resolvedModel === localFallbackModelId && !(await isLocalFallbackReady())) {
+  if (
+    resolvedModel === localFallbackModelId && !(await isLocalFallbackReady())
+  ) {
     throw new RuntimeError(LOCAL_FALLBACK_READY_MESSAGE);
   }
 
@@ -170,7 +180,13 @@ async function streamChatWithFallback(
 
   const tryStream = (model: string | undefined) =>
     drainTokenStream(
-      createChatTokenIterator(providerMessages, model, body, weakContextRawLimit, signal),
+      createChatTokenIterator(
+        providerMessages,
+        model,
+        body,
+        weakContextRawLimit,
+        signal,
+      ),
       signal,
       forwardChunk,
     );
@@ -212,7 +228,9 @@ function buildCapturedContextSystemMessage(
 ) {
   if (!capturedContexts?.length) return null;
 
-  const toPromptEntry = (context: NonNullable<ChatRequest["captured_contexts"]>[number]) => {
+  const toPromptEntry = (
+    context: NonNullable<ChatRequest["captured_contexts"]>[number],
+  ) => {
     const entry: Record<string, string> = {
       type: context.source,
       name: context.name,
@@ -272,6 +290,7 @@ export async function handleChatMode(
   requestId?: string,
   modelInfo?: ModelInfo | null,
   preResolvedModel?: ResolvedChatModel,
+  mirrorToGuiLiveTranscript = false,
 ): Promise<void> {
   const chatModel = preResolvedModel ??
     await resolveChatModelForRequest(resolvedModel, body);
@@ -280,7 +299,9 @@ export async function handleChatMode(
   }
   const { effectiveModel, scoredFallbacks } = chatModel;
 
-  const requestOverridesStoredHistory = shouldHonorRequestMessages(body.messages);
+  const requestOverridesStoredHistory = shouldHonorRequestMessages(
+    body.messages,
+  );
   const weakLocalDirectChat = isWeakLocalDirectChatModel(
     effectiveModel,
     modelInfo,
@@ -297,15 +318,15 @@ export async function handleChatMode(
     : weakContext?.storedMessages ?? loadAllMessages(sessionId);
   const { messages: providerMessages, resolvedContextBudget } =
     await buildChatProviderMessages({
-    requestMessages: body.messages,
-    storedMessages,
-    assistantMessageId,
-    disablePersistentMemory: body.disable_persistent_memory === true,
-    modelInfo,
-    modelKey: effectiveModel,
-    prependReplayMessages: weakContext?.prependReplayMessages,
-    contextBudgetOverride: weakContext?.resolvedContextBudget,
-  });
+      requestMessages: body.messages,
+      storedMessages,
+      assistantMessageId,
+      disablePersistentMemory: body.disable_persistent_memory === true,
+      modelInfo,
+      modelKey: effectiveModel,
+      prependReplayMessages: weakContext?.prependReplayMessages,
+      contextBudgetOverride: weakContext?.resolvedContextBudget,
+    });
   providerMessages.unshift({
     role: "system",
     content: getChatSystemPrompt(),
@@ -317,7 +338,9 @@ export async function handleChatMode(
     const lastUserIndex = providerMessages.findLastIndex((message) =>
       message.role === "user"
     );
-    const insertionIndex = lastUserIndex >= 0 ? lastUserIndex : providerMessages.length;
+    const insertionIndex = lastUserIndex >= 0
+      ? lastUserIndex
+      : providerMessages.length;
     providerMessages.splice(insertionIndex, 0, capturedContextMessage);
   }
   traceReplMainThreadForSource(body.query_source, "server.chat.context_ready", {
@@ -347,14 +370,20 @@ export async function handleChatMode(
   if (!signal.aborted) {
     updateMessage(assistantMessageId, { content: fullText });
     const updatedAssistant = getMessage(assistantMessageId);
+    const runtimeMessage = updatedAssistant
+      ? await toRuntimeSessionMessage(updatedAssistant)
+      : {
+        id: assistantMessageId,
+        content: fullText,
+      };
     pushSSEEvent(sessionId, "message_updated", {
-      message: updatedAssistant
-        ? await toRuntimeSessionMessage(updatedAssistant)
-        : {
-          id: assistantMessageId,
-          content: fullText,
-        },
+      message: runtimeMessage,
     });
+    if (mirrorToGuiLiveTranscript) {
+      pushGuiLiveTranscriptEvent("message_updated", {
+        message: runtimeMessage,
+      });
+    }
     pushConversationUpdatedEvent(sessionId);
     if (weakContext) {
       scheduleWeakDirectChatSummaryMaintenance(sessionId);

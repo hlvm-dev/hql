@@ -324,10 +324,12 @@ async function postChatNdjson(body: unknown): Promise<{
   };
 }
 
-async function fetchActiveChatMessages(): Promise<Array<{
-  role: string;
-  content: string;
-}>> {
+async function fetchActiveChatMessages(): Promise<
+  Array<{
+    role: string;
+    content: string;
+  }>
+> {
   const { baseUrl, authToken } = await ensureServerRunning();
   const response = await fetch(
     `${baseUrl}/api/chat/messages?limit=50&offset=0&sort=asc`,
@@ -343,12 +345,14 @@ async function fetchActiveChatMessages(): Promise<Array<{
   return body.messages;
 }
 
-async function fetchActiveChatMessageRows(): Promise<Array<{
-  role: string;
-  content: string;
-  request_id: string | null;
-  sender_type: string | null;
-}>> {
+async function fetchActiveChatMessageRows(): Promise<
+  Array<{
+    role: string;
+    content: string;
+    request_id: string | null;
+    sender_type: string | null;
+  }>
+> {
   const { baseUrl, authToken } = await ensureServerRunning();
   const response = await fetch(
     `${baseUrl}/api/chat/messages?limit=50&offset=0&sort=asc`,
@@ -373,8 +377,28 @@ async function readFirstActiveConversationStreamEvent(): Promise<{
   event: string;
   data: unknown;
 }> {
+  const stream = await openActiveConversationStream();
+  try {
+    return await readNextSSEEvent(stream);
+  } finally {
+    await closeActiveConversationStream(stream);
+  }
+}
+
+interface ActiveConversationStream {
+  reader: ReadableStreamDefaultReader<Uint8Array>;
+  decoder: TextDecoder;
+  buffer: string;
+  controller: AbortController;
+}
+
+async function openActiveConversationStream(): Promise<
+  ActiveConversationStream
+> {
   const { baseUrl, authToken } = await ensureServerRunning();
+  const controller = new AbortController();
   const response = await fetch(`${baseUrl}/api/chat/stream`, {
+    signal: controller.signal,
     headers: {
       Authorization: `Bearer ${authToken}`,
     },
@@ -389,38 +413,50 @@ async function readFirstActiveConversationStreamEvent(): Promise<{
   const reader = response.body?.getReader();
   assertExists(reader);
 
-  const decoder = new TextDecoder();
-  let buffer = "";
+  return {
+    reader,
+    decoder: new TextDecoder(),
+    buffer: "",
+    controller,
+  };
+}
 
-  try {
+async function closeActiveConversationStream(
+  stream: ActiveConversationStream,
+): Promise<void> {
+  stream.controller.abort();
+  await stream.reader.cancel().catch(() => {});
+}
+
+async function readNextSSEEvent(stream: ActiveConversationStream): Promise<{
+  event: string;
+  data: unknown;
+}> {
+  while (true) {
+    const { value, done } = await stream.reader.read();
+    if (done) break;
+    stream.buffer += stream.decoder.decode(value, { stream: true });
     while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      while (true) {
-        const boundary = buffer.indexOf("\n\n");
-        if (boundary < 0) {
-          break;
-        }
-        const rawEvent = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        const event = rawEvent.split("\n").find((line) =>
-          line.startsWith("event: ")
-        )?.slice("event: ".length);
-        if (!event) {
-          continue;
-        }
-        const data = rawEvent.split("\n").find((line) =>
-          line.startsWith("data: ")
-        )?.slice("data: ".length) ?? "null";
-        return {
-          event,
-          data: JSON.parse(data),
-        };
+      const boundary = stream.buffer.indexOf("\n\n");
+      if (boundary < 0) {
+        break;
       }
+      const rawEvent = stream.buffer.slice(0, boundary);
+      stream.buffer = stream.buffer.slice(boundary + 2);
+      const event = rawEvent.split("\n").find((line) =>
+        line.startsWith("event: ")
+      )?.slice("event: ".length);
+      if (!event) {
+        continue;
+      }
+      const data = rawEvent.split("\n").find((line) =>
+        line.startsWith("data: ")
+      )?.slice("data: ".length) ?? "null";
+      return {
+        event,
+        data: JSON.parse(data),
+      };
     }
-  } finally {
-    await reader.cancel().catch(() => {});
   }
 
   throw new Error("No SSE event received");
@@ -628,7 +664,8 @@ Deno.test({
   sanitizeOps: false,
   async fn() {
     await withIsolatedServerTest(async () => {
-      const sessionId = `integration-chat-durable-system-${crypto.randomUUID()}`;
+      const sessionId =
+        `integration-chat-durable-system-${crypto.randomUUID()}`;
 
       const first = await postChatNdjson({
         mode: "chat",
@@ -694,7 +731,7 @@ Deno.test({
 
 Deno.test({
   name:
-    "http server: eval turns persist as one active transcript and restore across runtime restart",
+    "http server: durable active transcript persists while live GUI stream starts fresh",
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -742,19 +779,59 @@ Deno.test({
           sender_type: string | null;
         }>;
       };
-      assertEquals(
-        snapshot.messages.map((message) => [
-          message.role,
-          message.content,
-          message.sender_type,
-        ]),
-        [
-          ["user", "hello", "user"],
-          ["assistant", "reply:hello", "llm"],
-          ["user", "(+ 1 2)", "eval"],
-          ["assistant", "3", "eval"],
-        ],
-      );
+      assertEquals(snapshot.messages, []);
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "http server: channel-originated chat publishes to the live GUI transcript stream",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withIsolatedServerTest(async () => {
+      const stream = await openActiveConversationStream();
+      try {
+        const snapshot = await readNextSSEEvent(stream);
+        assertEquals(snapshot.event, "snapshot");
+        assertEquals((snapshot.data as { messages: unknown[] }).messages, []);
+
+        const chat = await postChatNdjson({
+          mode: "chat",
+          model: "test-chat/plain",
+          query_source: "channel:telegram",
+          skip_session_history: true,
+          messages: [{ role: "user", content: "from phone" }],
+        });
+        assertEquals(chat.status, 200);
+
+        const userAdded = await readNextSSEEvent(stream);
+        const assistantAdded = await readNextSSEEvent(stream);
+        const assistantUpdated = await readNextSSEEvent(stream);
+
+        assertEquals(userAdded.event, "message_added");
+        const userMessage =
+          (userAdded.data as { message: { role: string; content: string } })
+            .message;
+        assertEquals(
+          [userMessage.role, userMessage.content],
+          ["user", "from phone"],
+        );
+        assertEquals(assistantAdded.event, "message_added");
+        assertEquals(
+          (assistantAdded.data as { message: { role: string } }).message.role,
+          "assistant",
+        );
+        assertEquals(assistantUpdated.event, "message_updated");
+        assertEquals(
+          (assistantUpdated.data as { message: { content: string } }).message
+            .content,
+          "reply:from phone",
+        );
+      } finally {
+        await closeActiveConversationStream(stream);
+      }
     });
   },
 });
@@ -882,12 +959,16 @@ Deno.test({
         .map((event) => String(event.text ?? ""))
         .join("");
       assertStringIncludes(firstText, "integration-background-launched");
-      assertExists(first.events.find((event) =>
-        event.event === "tool_start" && event.name === "Agent"
-      ));
-      assertExists(first.events.find((event) =>
-        event.event === "tool_end" && event.name === "Agent"
-      ));
+      assertExists(
+        first.events.find((event) =>
+          event.event === "tool_start" && event.name === "Agent"
+        ),
+      );
+      assertExists(
+        first.events.find((event) =>
+          event.event === "tool_end" && event.name === "Agent"
+        ),
+      );
 
       const firstToolEnd = first.events.find((event) =>
         event.event === "tool_end" && event.name === "Agent"
@@ -896,7 +977,9 @@ Deno.test({
       const toolContent = String(firstToolEnd.content ?? "");
       const outputFileMatch = toolContent.match(/^output_file:\s*(.+)$/m);
       if (!outputFileMatch) {
-        throw new Error(`Missing output_file in Agent tool content: ${toolContent}`);
+        throw new Error(
+          `Missing output_file in Agent tool content: ${toolContent}`,
+        );
       }
       const outputFile = outputFileMatch![1]!.trim();
 
