@@ -1,5 +1,12 @@
 import type { RouteParams } from "../../http-router.ts";
 import { jsonError } from "../../http-utils.ts";
+import { traceChannelDiagnostic } from "../../../../channels/core/trace.ts";
+import {
+  handleLineProvisioningCancel,
+  handleLineProvisioningComplete,
+  handleLineProvisioningCreate,
+  handleLineProvisioningGet,
+} from "./line-provisioning.ts";
 import {
   handleTelegramProvisioningCancel,
   handleTelegramProvisioningComplete,
@@ -19,6 +26,12 @@ export interface ChannelProvisioningRouteDeps {
 }
 
 const defaultHandlers: Record<string, ChannelProvisioningRouteHandlers> = {
+  line: {
+    create: handleLineProvisioningCreate,
+    get: handleLineProvisioningGet,
+    complete: handleLineProvisioningComplete,
+    cancel: handleLineProvisioningCancel,
+  },
   telegram: {
     create: handleTelegramProvisioningCreate,
     get: handleTelegramProvisioningGet,
@@ -27,6 +40,15 @@ const defaultHandlers: Record<string, ChannelProvisioningRouteHandlers> = {
   },
 };
 
+function traceProvisioningRoute(
+  params: RouteParams,
+  event: string,
+  data: Record<string, unknown> = {},
+): void {
+  if (!params.channel) return;
+  traceChannelDiagnostic(params.channel, "http-provisioning", event, data);
+}
+
 function resolveHandlers(
   params: RouteParams,
   deps: ChannelProvisioningRouteDeps,
@@ -34,7 +56,10 @@ function resolveHandlers(
   const channel = params.channel;
   if (!channel) return jsonError("Missing :channel path parameter", 400);
   const handlers = (deps.handlers ?? defaultHandlers)[channel];
-  if (!handlers) return jsonError(`Unsupported channel provisioning route: ${channel}`, 404);
+  if (!handlers) {
+    traceProvisioningRoute(params, "unsupported-channel", { channel });
+    return jsonError(`Unsupported channel provisioning route: ${channel}`, 404);
+  }
   return handlers;
 }
 
@@ -43,6 +68,7 @@ export async function handleChannelProvisioningCreate(
   params: RouteParams,
   deps: ChannelProvisioningRouteDeps = {},
 ): Promise<Response> {
+  traceProvisioningRoute(params, "create");
   const handlers = resolveHandlers(params, deps);
   if (handlers instanceof Response) return handlers;
   return await handlers.create(req);
@@ -53,6 +79,7 @@ export async function handleChannelProvisioningGet(
   params: RouteParams,
   deps: ChannelProvisioningRouteDeps = {},
 ): Promise<Response> {
+  traceProvisioningRoute(params, "get");
   const handlers = resolveHandlers(params, deps);
   if (handlers instanceof Response) return handlers;
   return await handlers.get(req);
@@ -63,6 +90,7 @@ export async function handleChannelProvisioningComplete(
   params: RouteParams,
   deps: ChannelProvisioningRouteDeps = {},
 ): Promise<Response> {
+  traceProvisioningRoute(params, "complete");
   const handlers = resolveHandlers(params, deps);
   if (handlers instanceof Response) return handlers;
   return await handlers.complete(req);
@@ -73,6 +101,7 @@ export async function handleChannelProvisioningCancel(
   params: RouteParams,
   deps: ChannelProvisioningRouteDeps = {},
 ): Promise<Response> {
+  traceProvisioningRoute(params, "cancel");
   const handlers = resolveHandlers(params, deps);
   if (handlers instanceof Response) return handlers;
   return await handlers.cancel(req);

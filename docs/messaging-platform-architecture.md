@@ -5,7 +5,7 @@ This is the binary-side architecture SSOT for messaging platforms in HLVM.
 It answers one question:
 
 ```text
-How do we support Telegram now and add Slack / Discord / KakaoTalk / WhatsApp later
+How do we support Telegram and LINE now, then add Slack / Discord / KakaoTalk / WhatsApp later
 without rewriting the messaging runtime each time?
 ```
 
@@ -25,8 +25,9 @@ The existing shared runtime is already the right foundation:
 
 The missing seam was provisioning/setup, not transport execution.
 
-That seam is now implemented in the codebase. The remaining work is small
-cleanup, not another runtime redesign.
+That seam is now implemented in the codebase. LINE is the first non-Telegram
+implementation using that seam. The remaining work is deployment/configuration
+and product hardening, not another runtime redesign.
 
 ## Core rule
 
@@ -52,6 +53,11 @@ has the core seam in place:
 - Telegram transport stale-reset dependency injection through:
   - `src/hlvm/channels/telegram/provisioning-reset.ts`
   - `src/hlvm/channels/registry.ts`
+- LINE setup session types in `src/hlvm/channels/line/protocol.ts`
+- LINE provisioner in `src/hlvm/channels/line/provisioning.ts`
+- LINE relay transport in `src/hlvm/channels/line/transport.ts`
+- LINE bridge server/client/service in `src/hlvm/channels/line/`
+- ordered channel E2E trace helper in `src/hlvm/channels/core/trace.ts`
 
 So the status is:
 
@@ -60,7 +66,9 @@ shared runtime core: done
 shared transport contract: done
 shared provisioning contract: done
 Telegram as first vendor implementation: done
-second platform implementation: not started yet
+LINE source implementation: done
+LINE live E2E: requires configured LINE Official Account + deployed bridge
+Slack implementation: not started yet
 ```
 
 ## macOS app integration
@@ -152,6 +160,7 @@ reopens.
           │                                                │
           ▼                                                ▼
 telegram/transport.ts                            telegram/provisioning.ts
+line/transport.ts                                line/provisioning.ts
 slack/transport.ts                               slack/provisioning.ts
 discord/transport.ts                             discord/provisioning.ts
 ...                                              ...
@@ -214,6 +223,18 @@ The public Telegram setup session no longer exposes a duplicate `qrUrl`. Use:
 ```text
 setupUrl   = generic URL field from the shared base type
 createUrl  = Telegram-specific create/open link
+```
+
+LINE extends the base session with:
+
+- `pairCode`
+- `qrKind = "connect_account"`
+- `officialAccountId`
+
+For LINE:
+
+```text
+setupUrl = https://line.me/R/oaMessage/<official-account-id>/?HLVM-<pair-code>
 ```
 
 ## HTTP boundary
@@ -347,9 +368,11 @@ provisioning dispatch entry
 
 Current priority guidance:
 
-- **LINE is next** because it best matches the mobile-first QR product shape.
-- **Slack follows LINE** because its official API is strong, but onboarding is
-  workspace OAuth / admin oriented rather than personal-chat oriented.
+- **LINE is implemented in source** because it best matches the mobile-first QR
+  product shape.
+- **Slack follows LINE validation** because its official API is strong, but
+  onboarding is workspace OAuth / admin oriented rather than personal-chat
+  oriented.
 - **WhatsApp** remains the biggest reach target, but not the next easiest
   implementation.
 - **Email** is possible later, but it is an async channel, not the next chat
@@ -362,10 +385,10 @@ Official API reality as of 2026-04-25:
 ```text
 LINE:
   feasible: yes
-  best UX: QR opens/adds an HLVM LINE Official Account
+  implemented shape: QR opens HLVM LINE Official Account with prefilled pair text
   transport: webhook events from LINE Platform to an HTTPS bot server
   blocker: no Telegram-style "create user-owned bot from QR" flow
-  implication: use an HLVM-managed LINE Official Account + bridge first
+  implication: use an HLVM-managed LINE Official Account + bridge
 
 Slack:
   feasible: yes
@@ -386,10 +409,8 @@ Primary official references:
   `https://developers.line.biz/en/docs/messaging-api/sharing-bot/`
 - Slack OAuth install:
   `https://docs.slack.dev/authentication/installing-with-oauth`
-- Slack Events API:
-  `https://docs.slack.dev/apis/events-api/`
-- Slack Socket Mode:
-  `https://docs.slack.dev/apis/events-api/using-socket-mode`
+- Slack Events API: `https://docs.slack.dev/apis/events-api/`
+- Slack Socket Mode: `https://docs.slack.dev/apis/events-api/using-socket-mode`
 - Slack `chat.postMessage`:
   `https://docs.slack.dev/reference/methods/chat.postMessage`
 
@@ -453,6 +474,119 @@ The following should not need redesign:
 - session-key format
 - host chat execution path
 - provisioning route shape
+
+## LINE implementation contract
+
+LINE is not Telegram Option B. LINE does not create a user-owned bot from the
+QR. The implemented product shape is:
+
+```text
+macOS HLVM
+→ POST /api/channels/line/provisioning/session
+→ LINE bridge registers a pending session
+→ QR opens LINE Official Account chat with prefilled HLVM-#### text
+→ user sends that text in LINE
+→ LINE webhook reaches bridge
+→ bridge binds LINE user id to local device id
+→ local LINE relay transport receives the event over SSE
+→ shared channel runtime pairs allowlist and runs HLVM
+→ replies go through bridge push-message API
+```
+
+Local runtime requirements:
+
+```text
+HLVM_LINE_PROVISIONING_BRIDGE_URL
+HLVM_LINE_OFFICIAL_ACCOUNT_ID      optional local override
+```
+
+Bridge requirements:
+
+```text
+HLVM_LINE_OFFICIAL_ACCOUNT_ID
+HLVM_LINE_CHANNEL_ACCESS_TOKEN
+HLVM_LINE_CHANNEL_SECRET
+```
+
+Bridge endpoints:
+
+```text
+GET  /health
+POST /api/line/provisioning/session
+GET  /api/line/events?deviceId=...&clientToken=...
+POST /api/line/message/push
+POST /api/line/webhook
+```
+
+The LINE Developer Console webhook URL must point at:
+
+```text
+https://<bridge-host>/api/line/webhook
+```
+
+The bridge verifies `x-line-signature` using the raw request body and the LINE
+channel secret. The local transport does not poll LINE; it listens to the bridge
+event stream for events produced by LINE webhooks.
+
+The bridge queues events per local device before delivering them over SSE. It
+uses LINE `webhookEventId` as the event id when available, so webhook redelivery
+does not create duplicate HLVM turns. The local transport also keeps a bounded
+recent-event id cache to avoid duplicate processing after bridge redelivery or
+stream replay.
+
+LINE diagnostics are intentionally file-backed for real-device E2E debugging:
+
+```text
+/tmp/hlvm-line-e2e.jsonl
+```
+
+This file is written through the shared JSONL/platform FS helper, not ad-hoc
+`Deno.*` calls. Records include `seq`, timestamp, process id, scope, event, and
+safe metadata. They must not include access tokens, channel secrets,
+authorization headers, signatures, or message text. Message payloads are logged
+as lengths only.
+
+The macOS app already mirrors DEBUG logs through its existing `HlvmLogger` file
+sink:
+
+```text
+/tmp/hlvm-gui-debug.log
+```
+
+During LINE E2E, inspect both files plus the bridge platform logs. The useful
+sequence should look like:
+
+```text
+http-provisioning create
+provisioning create-session-start
+bridge-client register-session-start
+bridge session-register
+provisioning reconfigure-done
+bridge event-stream-open
+bridge webhook-ingest
+bridge pair-message-delivered
+bridge event-stream-send
+transport event-received
+transport pair-code-match
+transport send-start
+bridge send-message-done
+transport send-done
+```
+
+LINE backend coverage lives in:
+
+```text
+tests/unit/channels/line-provisioning.test.ts
+tests/unit/channels/line-provisioning-bridge-service.test.ts
+tests/unit/channels/line.test.ts
+tests/unit/repl/channels-provisioning-handler.test.ts
+```
+
+These tests intentionally exercise the shared seams: `ChannelProvisioner`,
+generic `/api/channels/:channel/provisioning/...` dispatch, bridge registration,
+LINE webhook ingestion, queued SSE delivery, `ChannelTransport` normalization,
+pair-code matching, duplicate event dropping, and reply send. Do not add a
+parallel LINE-only route or direct runtime bypass to make a test easier.
 
 ## Non-goals
 
