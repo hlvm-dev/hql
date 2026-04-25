@@ -9,7 +9,7 @@ How do we support Telegram now and add Slack / Discord / KakaoTalk / WhatsApp la
 without rewriting the messaging runtime each time?
 ```
 
-**Last updated**: 2026-04-24
+**Last updated**: 2026-04-25
 
 ## Current conclusion
 
@@ -347,15 +347,51 @@ provisioning dispatch entry
 
 Current priority guidance:
 
-- **Slack** is the best next engineering target
-- **WhatsApp** is the biggest reach target, but not as developer-friendly as
-  Telegram
+- **LINE is next** because it best matches the mobile-first QR product shape.
+- **Slack follows LINE** because its official API is strong, but onboarding is
+  workspace OAuth / admin oriented rather than personal-chat oriented.
+- **WhatsApp** remains the biggest reach target, but not the next easiest
+  implementation.
 - **Email** is possible later, but it is an async channel, not the next chat
-  adapter
-- **LINE** is the strongest Asia chat candidate after Slack because it has an
-  official Messaging API webhook model
-- **KakaoTalk** is possible but difficult; its official surface is more channel
-  / business oriented and less Telegram-like
+  adapter.
+- **KakaoTalk** remains possible but difficult; its official surface is more
+  channel / business oriented and less Telegram-like.
+
+Official API reality as of 2026-04-25:
+
+```text
+LINE:
+  feasible: yes
+  best UX: QR opens/adds an HLVM LINE Official Account
+  transport: webhook events from LINE Platform to an HTTPS bot server
+  blocker: no Telegram-style "create user-owned bot from QR" flow
+  implication: use an HLVM-managed LINE Official Account + bridge first
+
+Slack:
+  feasible: yes
+  best UX: QR opens Slack OAuth install / authorization
+  transport: Events API over HTTPS for broad distribution
+  alternate: Socket Mode for dev/private installs only
+  blocker: workspace install/admin consent and OAuth token storage
+  implication: Slack is a workplace channel, not a personal-mobile clone
+```
+
+Primary official references:
+
+- LINE Messaging API overview:
+  `https://developers.line.biz/en/docs/messaging-api/overview/`
+- LINE bot setup and webhook URL requirements:
+  `https://developers.line.biz/en/docs/messaging-api/building-bot/`
+- LINE add-friend QR/link surfaces:
+  `https://developers.line.biz/en/docs/messaging-api/sharing-bot/`
+- Slack OAuth install:
+  `https://docs.slack.dev/authentication/installing-with-oauth`
+- Slack Events API:
+  `https://docs.slack.dev/apis/events-api/`
+- Slack Socket Mode:
+  `https://docs.slack.dev/apis/events-api/using-socket-mode`
+- Slack `chat.postMessage`:
+  `https://docs.slack.dev/reference/methods/chat.postMessage`
 
 The product bar for any new messaging channel is mobile QR-first:
 

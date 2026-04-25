@@ -7,7 +7,7 @@
 > This doc is the SSOT for messaging work. If it disagrees with an older sketch,
 > roadmap note, or implementation comment, this wins.
 >
-> **Last updated**: 2026-04-24 (rev 16)
+> **Last updated**: 2026-04-25 (rev 17)
 >
 > Binary-side architecture SSOT now also lives in:
 > [../messaging-platform-architecture.md](../messaging-platform-architecture.md)
@@ -26,10 +26,11 @@
   onboarding, and shared "pick your channel" first-launch UX are no longer
   normative.
 
-## Rev 16 status snapshot
+## Rev 17 status snapshot
 
-Rev 10's product decision still stands. Rev 16 is the current execution-state
-update.
+Rev 10's Telegram product decision still stands. Rev 17 adds the official
+platform research result for the next two real channels: LINE first, Slack
+second.
 
 - Telegram Option B is still the only active ship path.
 - The direct Telegram path after a bot already exists is proven:
@@ -81,9 +82,16 @@ update.
 - The macOS onboarding window now treats each presentation as a fresh
   provisioning session and cancels the active flow on dismiss/close, so a new
   window does not reuse stale in-memory "waiting for Telegram" state.
+- The macOS onboarding UI is now platform-generic at the shell layer: Telegram,
+  LINE, and Slack share one scan surface with platform icons. Telegram is the
+  only active backend; LINE and Slack are placeholders until their provisioners
+  and transports are implemented.
 - Message-level Telegram observability now exists at the transport and shared
   runtime boundaries: update id, message id, sender id, allow/reject reason, run
   start, run completion, and reply send are logged without message content.
+- Official API research now sets the next implementation order:
+  - **LINE first**
+  - **Slack second**
 
 So the practical split is now:
 
@@ -432,29 +440,455 @@ external bridges. HLVM should absorb that setup burden where possible.
 
 Current recommendation:
 
-- build **Slack** next if the goal is the cleanest next engineering step
-- consider **WhatsApp** the biggest global reach target, but not the easiest
-  next build
-- treat **Email** as a future async channel, not as the next real-time chat
-- keep **LINE** as the strongest Asia chat candidate after Slack because it has
-  an official Messaging API webhook model
-- keep **Discord** as a good developer / community option, but not the cleanest
-  consumer onboarding surface
-- treat **KakaoTalk** as possible but difficult: strategically relevant in
-  Korea, but the official surface is more channel / business oriented and less
-  Telegram-like
+1. **LINE next**
+2. **Slack after LINE**
 
 Reason:
 
-- Slack is the cleanest next adapter for HLVM's current architecture and product
-  shape
-- WhatsApp has the biggest user reach, but the official path is more
-  business-heavy, webhook-first, and operationally stricter than Telegram's
-  direct bot model
-- Email is possible, but it belongs to a different interaction model
-- LINE is technically cleaner than KakaoTalk for bot-style chat
-- KakaoTalk is not impossible, but it should not be treated as a drop-in
-  Telegram clone
+- LINE best matches HLVM's mobile-first onboarding promise.
+- Slack has excellent official APIs, but the product path is workspace
+  installation and OAuth, not personal chat setup.
+- WhatsApp has larger global reach, but its official path is more
+  business-heavy and operationally stricter.
+- Email is possible, but it belongs to a different async interaction model.
+- Discord remains a good community/developer option, but less important than
+  LINE for mobile chat reach.
+- KakaoTalk is strategically relevant in Korea, but its official path is less
+  Telegram-like and should not be treated as a drop-in clone.
+
+## Official API research: LINE
+
+Research date: 2026-04-25.
+
+Official sources:
+
+- Messaging API overview:
+  `https://developers.line.biz/en/docs/messaging-api/overview/`
+- Build a bot:
+  `https://developers.line.biz/en/docs/messaging-api/building-bot/`
+- Receive messages with webhooks:
+  `https://developers.line.biz/en/docs/messaging-api/receiving-messages/`
+- Verify webhook signature:
+  `https://developers.line.biz/en/docs/messaging-api/verify-webhook-signature/`
+- Send messages:
+  `https://developers.line.biz/en/docs/messaging-api/sending-messages/`
+- Gain friends / QR / add-friend links:
+  `https://developers.line.biz/en/docs/messaging-api/sharing-bot/`
+- Channel access tokens:
+  `https://developers.line.biz/en/docs/basics/channel-access-token/`
+- Official SDKs:
+  `https://developers.line.biz/en/docs/messaging-api/line-bot-sdk/`
+
+### LINE feasibility
+
+LINE is feasible through the official Messaging API.
+
+The official model is:
+
+```text
+user sends message to LINE Official Account
+→ LINE Platform sends webhook event to bot server
+→ bot server replies through LINE Messaging API
+```
+
+This maps cleanly to HLVM:
+
+```text
+LINE webhook event
+→ line/transport.ts normalizes ChannelMessage
+→ shared channel runtime runs allowlist / queue / HLVM brain
+→ line/transport.ts replies through LINE Messaging API
+```
+
+### LINE onboarding reality
+
+LINE does not give us Telegram's exact "scan QR and create a user-owned bot"
+primitive.
+
+Official LINE setup assumes:
+
+```text
+developer has a LINE Official Account
+developer has a Messaging API channel
+developer has a channel access token
+developer has a public HTTPS webhook URL
+user adds the Official Account as a friend
+```
+
+LINE does support QR / add-friend surfaces for an existing Official Account:
+
+```text
+scan QR
+→ open/add HLVM LINE Official Account
+→ user sends first message
+→ webhook carries LINE user id
+→ HLVM pairs that user id to the local Mac session
+```
+
+So the first HLVM LINE product should be:
+
+```text
+HLVM-managed LINE Official Account
+→ HLVM bridge receives webhooks
+→ QR points to add/open that Official Account
+→ local Mac claims/pairs the LINE user id
+```
+
+Do not start with "user creates their own LINE Official Account" as the default
+product path. That would recreate the gateway/operator setup burden HLVM is
+trying to avoid.
+
+### LINE blockers and constraints
+
+- LINE requires a public HTTPS webhook URL with a trusted certificate; local Mac
+  direct inbound webhooks are not enough.
+- A Messaging API channel has one configured webhook URL, so a hosted HLVM
+  bridge is the right first architecture.
+- Webhook signatures must be verified with the channel secret using the raw
+  request body.
+- The LINE Platform does not disclose webhook source IPs; signature validation
+  is the security boundary.
+- Channel access tokens are required to call the Messaging API.
+- Long-lived tokens exist, but LINE recommends channel access token v2.1 where
+  appropriate.
+- LINE text content should be processed from the webhook event; there is no API
+  to retrieve the same text later after receiving it.
+- Webhook redelivery can duplicate events and change delivery order, so the LINE
+  transport must dedupe by webhook event id and use timestamps only as context.
+- Message sending has pricing/quota implications depending on Official Account
+  region and plan; reply messages are the safest initial path.
+
+### LINE target architecture
+
+```text
+MOBILE ONBOARDING
+
+iPhone LINE app
+    │ scan QR
+    ▼
+HLVM LINE Official Account add/open URL
+    │
+    ▼
+user sends first message
+    │
+    ▼
+LINE Platform webhook
+    │
+    ▼
+HLVM LINE bridge
+    │ verify x-line-signature
+    │ correlate pending setup session
+    │ store line user id / destination / source ids
+    ▼
+local HLVM runtime
+    │ completeSession()
+    │ write channels.line config
+    │ reconfigure()
+    ▼
+connected
+```
+
+```text
+STEADY STATE
+
+LINE webhook
+    │
+    ▼
+line/transport.ts
+    │
+    ▼
+ChannelMessage {
+  channel: "line",
+  remoteId: source.userId | groupId | roomId,
+  text,
+  sender.id: userId,
+  raw: line event
+}
+    │
+    ▼
+shared channel runtime
+    │
+    ▼
+LINE reply/push API
+```
+
+### LINE implementation plan
+
+1. Add `src/hlvm/channels/line/protocol.ts`.
+2. Add `src/hlvm/channels/line/provisioning.ts`.
+3. Add `src/hlvm/channels/line/transport.ts`.
+4. Add a hosted LINE bridge endpoint:
+   - `POST /line/webhook`
+   - raw-body signature verification
+   - setup-session correlation
+   - event forwarding/claim path to local runtime
+5. Add config shape for `channels.line`.
+6. Add `line` to the channel runtime registry only after the transport exists.
+7. Add macOS active LINE QR payload:
+   - initially `setupUrl = add/open HLVM LINE Official Account`
+   - keep the same generic scan window
+8. Test on real iOS LINE:
+   - scan
+   - add/open Official Account
+   - send first message
+   - local HLVM receives
+   - reply appears in LINE
+
+### LINE SDK decision
+
+Official LINE SDKs exist for Node.js, Java, PHP, Python, Go, and Ruby. HLVM's
+runtime is Deno/TypeScript, so the first implementation should use raw HTTPS
+calls and small local types unless the official Node SDK proves Deno-compatible
+without build/runtime friction.
+
+Do not introduce a heavy SDK just to wrap:
+
+```text
+verify signature
+parse webhook event
+reply message
+push message
+get bot info
+```
+
+Those are small enough to keep behind `line/transport.ts` and
+`line/provisioning.ts`.
+
+## Official API research: Slack
+
+Research date: 2026-04-25.
+
+Official sources:
+
+- OAuth installation:
+  `https://docs.slack.dev/authentication/installing-with-oauth`
+- Events API:
+  `https://docs.slack.dev/apis/events-api/`
+- Request verification:
+  `https://docs.slack.dev/authentication/verifying-requests-from-slack/`
+- URL verification:
+  `https://docs.slack.dev/reference/events/url_verification`
+- Socket Mode:
+  `https://docs.slack.dev/apis/events-api/using-socket-mode`
+- `app_mention` event:
+  `https://docs.slack.dev/reference/events/app_mention/`
+- `message.im` event:
+  `https://docs.slack.dev/reference/events/message.im`
+- `chat.postMessage`:
+  `https://docs.slack.dev/reference/methods/chat.postMessage`
+- Node Slack SDK:
+  `https://docs.slack.dev/tools/node-slack-sdk/`
+
+### Slack feasibility
+
+Slack is feasible through official OAuth + Events API + Web API.
+
+The official model is:
+
+```text
+user installs Slack app through OAuth
+→ Slack grants bot token/scopes for that workspace
+→ Slack sends Events API callbacks to an HTTPS Request URL
+→ app replies with chat.postMessage
+```
+
+This maps cleanly to HLVM:
+
+```text
+Slack event
+→ slack/transport.ts normalizes ChannelMessage
+→ shared channel runtime runs allowlist / queue / HLVM brain
+→ slack/transport.ts replies with chat.postMessage
+```
+
+### Slack onboarding reality
+
+Slack onboarding is not personal-chat QR in the Telegram/LINE sense. It is
+workspace app installation:
+
+```text
+scan QR
+→ open Slack OAuth authorize URL
+→ user/admin approves workspace install
+→ Slack redirects to HLVM bridge callback with code/state
+→ bridge exchanges code for bot token
+→ local Mac claims installation
+→ HLVM can receive Slack events and reply
+```
+
+So the UI can still be QR-first, but the QR means "authorize/install this Slack
+app", not "open a personal chat room."
+
+### Slack blockers and constraints
+
+- OAuth requires a Slack app with client id/secret and HTTPS redirect URI.
+- Workspace installation may require admin approval depending on workspace
+  policy.
+- The bridge must store per-workspace installation records and bot tokens.
+- Events API over HTTP requires a public Request URL and URL verification.
+- Slack requests should be verified using the signing secret and raw request
+  body.
+- To receive DMs, subscribe to `message.im` with `im:history`.
+- To receive channel mentions, subscribe to `app_mention` with the required app
+  mention scope.
+- To reply, the bot token needs `chat:write`.
+- Socket Mode avoids a public Request URL but requires app-level tokens and
+  persistent WebSocket management; it is also not allowed for public Slack
+  Marketplace apps, so it is not the first product path.
+
+### Slack target architecture
+
+```text
+MOBILE ONBOARDING
+
+iPhone camera / Slack app
+    │ scan QR
+    ▼
+Slack OAuth authorize URL
+    │
+    ▼
+workspace install / approval
+    │
+    ▼
+HLVM Slack bridge callback
+    │ verify state
+    │ exchange OAuth code
+    │ store team/bot token/bot user id
+    ▼
+local HLVM runtime
+    │ completeSession()
+    │ write channels.slack config
+    │ reconfigure()
+    ▼
+connected
+```
+
+```text
+STEADY STATE
+
+Slack Events API Request URL
+    │
+    ▼
+HLVM Slack bridge
+    │ verify X-Slack-Signature
+    │ route event to installation/local session
+    ▼
+slack/transport.ts
+    │
+    ▼
+ChannelMessage {
+  channel: "slack",
+  remoteId: teamId:channelId,
+  text,
+  sender.id: userId,
+  raw: slack event
+}
+    │
+    ▼
+shared channel runtime
+    │
+    ▼
+chat.postMessage
+```
+
+### Slack implementation plan
+
+1. Add `src/hlvm/channels/slack/protocol.ts`.
+2. Add `src/hlvm/channels/slack/provisioning.ts`.
+3. Add `src/hlvm/channels/slack/transport.ts`.
+4. Add hosted Slack bridge endpoints:
+   - `GET /slack/oauth/start`
+   - `GET /slack/oauth/callback`
+   - `POST /slack/events`
+5. Implement OAuth state binding to local provisioning session.
+6. Store installation:
+   - team id
+   - enterprise id if present
+   - bot user id
+   - bot token / refresh metadata if token rotation is enabled later
+7. Subscribe initially to:
+   - `message.im`
+   - `app_mention`
+8. Request initial bot scopes:
+   - `chat:write`
+   - `im:history`
+   - app mention read scope required by current Slack docs
+9. Add config shape for `channels.slack`.
+10. Add macOS active Slack QR payload:
+    - `setupUrl = Slack OAuth start URL`
+    - keep the same generic scan window
+11. Test:
+    - scan QR from phone
+    - install into dev workspace
+    - DM app
+    - mention app in channel
+    - local HLVM replies
+
+### Slack SDK decision
+
+Slack has official Node SDK packages:
+
+```text
+@slack/web-api
+@slack/oauth
+@slack/socket-mode
+```
+
+HLVM should not adopt Socket Mode first. Use raw HTTP or the minimal Web API /
+OAuth helper only if it works cleanly under the bridge runtime. For Deno Deploy,
+raw OAuth exchange, signature verification, and `chat.postMessage` are small
+enough to own directly.
+
+Use the SDK later only if it reduces real duplicated complexity around:
+
+```text
+OAuth state handling
+token rotation
+rate limit retry policy
+pagination
+Socket Mode, if we ever support private/dev Slack installs
+```
+
+## LINE vs Slack conclusion
+
+```text
+LINE:
+  product fit: high
+  mobile-first fit: high
+  setup friction: medium
+  distribution model: HLVM-managed Official Account first
+  main blocker: public webhook bridge + Official Account/channel setup
+  implementation priority: 1
+
+Slack:
+  product fit: medium
+  mobile-first fit: medium
+  developer API quality: high
+  setup friction: medium/high
+  distribution model: OAuth install into workspace
+  main blocker: workspace/admin consent + OAuth/token storage
+  implementation priority: 2
+```
+
+The important architecture decision:
+
+```text
+Do not try to force LINE or Slack into Telegram Option B.
+Telegram = user-owned bot can be created from QR.
+LINE    = HLVM-managed Official Account + webhook bridge first.
+Slack   = HLVM Slack app + OAuth install + Events API bridge first.
+```
+
+The user-facing shell can stay unified:
+
+```text
+Connect <Platform>
+→ show QR
+→ wait for <Platform>
+→ connected
+```
+
+But the platform provisioner decides what that QR actually means.
 
 ## Current architecture and communication
 
