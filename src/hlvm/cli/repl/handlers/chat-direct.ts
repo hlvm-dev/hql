@@ -6,6 +6,7 @@
 import { ai } from "../../../api/ai.ts";
 import { AUTO_MODEL_ID } from "../../../../common/config/types.ts";
 import { RuntimeError } from "../../../../common/error.ts";
+import { TextAccumulator } from "../../../../common/stream-utils.ts";
 import {
   getMessage,
   getSession,
@@ -94,7 +95,7 @@ async function drainTokenStream(
   signal: AbortSignal,
   onChunk: (token: string) => void,
 ): Promise<string> {
-  let fullText = "";
+  const fullText = new TextAccumulator();
   const waitForAbort: Promise<"aborted"> = signal.aborted
     ? Promise.resolve("aborted")
     : new Promise((resolve) => {
@@ -119,7 +120,7 @@ async function drainTokenStream(
       if (nextOrAbort.result.done) break;
 
       const token = nextOrAbort.result.value;
-      fullText += token;
+      fullText.append(token);
       onChunk(token);
     }
   } finally {
@@ -128,7 +129,7 @@ async function drainTokenStream(
     } catch { /* already closed */ }
   }
 
-  return fullText;
+  return fullText.text;
 }
 
 function createChatTokenIterator(

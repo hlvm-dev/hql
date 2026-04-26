@@ -23,6 +23,7 @@ import { normalizeToolArgs } from "../agent/validation.ts";
 import { generateToolCallId } from "../agent/tool-call.ts";
 import { getPlatform } from "../../platform/platform.ts";
 import { RuntimeError, ValidationError } from "../../common/error.ts";
+import { TextAccumulator } from "../../common/stream-utils.ts";
 import { getErrorMessage, isObjectValue } from "../../common/utils.ts";
 import {
   HTTP_STATUS,
@@ -1510,7 +1511,7 @@ export async function chatStructuredWithSdk(
   await traceProviderPackedAttachments(spec, messages);
   if (hasGoogleVideoAttachments(spec, messages)) {
     const onToken = options?.onToken;
-    let content = "";
+    const content = new TextAccumulator();
     for await (
       const chunk of streamGoogleVideoRequest(
         spec,
@@ -1519,11 +1520,11 @@ export async function chatStructuredWithSdk(
         signal,
       )
     ) {
-      content += chunk;
+      content.append(chunk);
       await onToken?.(chunk);
     }
     return {
-      content,
+      content: content.text,
     };
   }
   const sdkMessages = convertToSdkMessages(messages);

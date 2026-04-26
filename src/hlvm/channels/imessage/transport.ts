@@ -442,6 +442,13 @@ function resolveReplyTarget(
   fallbackRecipientId: string,
   allowedRecipientIds: string[],
 ): { kind: "chat" | "buddy"; id: string } {
+  if (replyTo && typeof replyTo === "object" && "chatIdentifier" in replyTo) {
+    const chatIdentifier = (replyTo as { chatIdentifier?: unknown })
+      .chatIdentifier;
+    if (typeof chatIdentifier === "string" && chatIdentifier.trim()) {
+      return { kind: "chat", id: chatIdentifier };
+    }
+  }
   if (replyTo && typeof replyTo === "object" && "handleId" in replyTo) {
     const handleId = (replyTo as { handleId?: unknown }).handleId;
     if (

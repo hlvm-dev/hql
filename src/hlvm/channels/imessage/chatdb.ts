@@ -149,13 +149,12 @@ export function readNewIMessageRows(
     config.recipientId,
     config.recipientIds,
   );
-  const scopedChatId = config.chatId ??
-    findFirstNewIMessageSelfChatId(db, recipientIds, currentCursor);
-  const messageScope = buildMessageScopeSql(scopedChatId);
+  const messageScope = buildMessageScopeSql(recipientIds);
   if (!messageScope) {
     return {
       rows: [],
       cursor: currentCursor,
+      ...(config.chatId ? { chatId: config.chatId } : {}),
     };
   }
 
@@ -167,7 +166,7 @@ export function readNewIMessageRows(
       c.chat_identifier AS chatIdentifier,
       m.text AS text,
       m.is_from_me AS isFromMe,
-      h.id AS handleId,
+      sender_h.id AS handleId,
       ${
     selectOptionalColumn(messageColumns, "associated_message_type", "0")
   } AS associatedMessageType,
@@ -182,7 +181,9 @@ export function readNewIMessageRows(
     FROM message m
     JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
     JOIN chat c ON c.ROWID = cmj.chat_id
-    LEFT JOIN handle h ON h.ROWID = m.handle_id
+    JOIN chat_handle_join chj ON chj.chat_id = c.ROWID
+    JOIN handle chat_h ON chat_h.ROWID = chj.handle_id
+    LEFT JOIN handle sender_h ON sender_h.ROWID = m.handle_id
     WHERE m.ROWID > ?
       AND (${messageScope.sql})
     ORDER BY m.ROWID ASC
@@ -202,7 +203,7 @@ export function readNewIMessageRows(
   }>;
 
   let nextCursor = currentCursor;
-  let nextChatId = scopedChatId;
+  let nextChatId = config.chatId;
   const messages: IMessageInboundRow[] = [];
   for (const row of rows) {
     const rowId = normalizeRowId(row.rowId);
@@ -239,12 +240,22 @@ export function readNewIMessageRows(
 }
 
 function buildMessageScopeSql(
-  chatId: number | undefined,
+  recipientIds: string[],
 ): { sql: string; params: Array<string | number> } | null {
-  if (chatId) {
-    return { sql: "c.ROWID = ?", params: [chatId] };
-  }
-  return null;
+  if (recipientIds.length === 0) return null;
+  const placeholders = recipientIds.map(() => "?").join(", ");
+  return {
+    sql: `
+      chat_h.id IN (${placeholders})
+      AND COALESCE(sender_h.id, chat_h.id) IN (${placeholders})
+      AND (
+        SELECT COUNT(*)
+        FROM chat_handle_join count_chj
+        WHERE count_chj.chat_id = c.ROWID
+      ) = 1
+    `,
+    params: [...recipientIds, ...recipientIds],
+  };
 }
 
 function normalizeRowId(value: number | bigint | null | undefined): number {

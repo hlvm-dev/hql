@@ -40,6 +40,7 @@ import { getPlatform } from "../../../../platform/platform.ts";
 import { RuntimeError, ValidationError } from "../../../../common/error.ts";
 import { AI_NO_OUTPUT_FALLBACK_TEXT } from "../../../../common/ai-messages.ts";
 import { getPermissionMode } from "../../../../common/config/selectors.ts";
+import { TextAccumulator } from "../../../../common/stream-utils.ts";
 import { combineSignals } from "../../../../common/timeout-utils.ts";
 import {
   buildClaudeCodeCommand,
@@ -939,7 +940,7 @@ export async function handleClaudeCodeAgentMode(
 
 function processClaudeCodeJsonLine(
   trimmed: string,
-  state: { fullText: string },
+  state: { fullText: TextAccumulator },
   sessionMemoryEnabled: boolean,
   claudeCodeSessionId: string | null,
   existingMeta: Record<string, unknown>,
@@ -964,18 +965,18 @@ function processClaudeCodeJsonLine(
     if (event.type === "assistant" && event.message?.content) {
       for (const block of event.message.content) {
         if (block.type === "text" && block.text) {
-          state.fullText += block.text;
+          state.fullText.append(block.text);
           onPartial(block.text);
           emit({ event: "token", text: block.text });
         }
       }
     } else if (event.type === "content_block_delta" && event.delta?.text) {
-      state.fullText += event.delta.text;
+      state.fullText.append(event.delta.text);
       onPartial(event.delta.text);
       emit({ event: "token", text: event.delta.text });
     } else if (event.type === "result" && event.result) {
       if (typeof event.result === "string" && event.result.length > 0) {
-        state.fullText = event.result;
+        state.fullText.replace(event.result);
       }
     }
   } catch (e) {
@@ -992,9 +993,10 @@ function processClaudeCodeJsonLine(
           message: "Unparseable JSON in Claude Code stream",
         });
       }
-      state.fullText += trimmed + "\n";
-      onPartial(trimmed + "\n");
-      emit({ event: "token", text: trimmed + "\n" });
+      const text = trimmed + "\n";
+      state.fullText.append(text);
+      onPartial(text);
+      emit({ event: "token", text });
     }
   }
 }
@@ -1051,6 +1053,7 @@ async function spawnClaudeCodeProcess(
   signal.addEventListener("abort", onAbort, { once: true });
 
   let fullText = "";
+  const textState = { fullText: new TextAccumulator() };
 
   try {
     const stdout = proc.stdout as ReadableStream<Uint8Array> | undefined;
@@ -1078,7 +1081,6 @@ async function spawnClaudeCodeProcess(
     const reader = stdout.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    const textState = { fullText };
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -1119,7 +1121,7 @@ async function spawnClaudeCodeProcess(
       );
     }
 
-    fullText = textState.fullText;
+    fullText = textState.fullText.text;
 
     const result = await proc.status;
     if (!result.success && !signal.aborted) {

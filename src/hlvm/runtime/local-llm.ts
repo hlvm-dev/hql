@@ -11,6 +11,7 @@
  */
 
 import { getErrorMessage } from "../../common/utils.ts";
+import { TextAccumulator } from "../../common/stream-utils.ts";
 import { log } from "../api/log.ts";
 import {
   LOCAL_FALLBACK_MODEL_ID,
@@ -89,7 +90,7 @@ async function collectChatResult(
       const { ai } = await import("../api/ai.ts");
       const messages = [{ role: "user" as const, content: prompt }];
       const localFallbackModelId = await resolveLocalFallbackModelId();
-      let result = "";
+      const result = new TextAccumulator();
       for await (
         const token of ai.chat(messages, {
           model: localFallbackModelId,
@@ -97,16 +98,17 @@ async function collectChatResult(
           maxTokens: opts.maxTokens ?? 64,
         })
       ) {
-        result += token;
+        result.append(token);
       }
-      if (!result.trim()) {
+      const text = result.text;
+      if (!text.trim()) {
         return {
           ok: false,
           failureKind: "empty_response",
           errorMessage: "Local model returned no text",
         };
       }
-      return { ok: true, text: result };
+      return { ok: true, text };
     } catch (error) {
       return {
         ok: false,

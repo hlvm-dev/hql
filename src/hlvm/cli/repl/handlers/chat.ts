@@ -29,6 +29,7 @@ import { pushGuiLiveTranscriptEvent } from "../../../store/gui-live-transcript.t
 import {
   ensureInitialModelConfigured,
 } from "../../../../common/ai-default-model.ts";
+import { TextAccumulator } from "../../../../common/stream-utils.ts";
 import {
   AUTO_MODEL_ID,
   DEFAULT_MODEL_ID,
@@ -764,7 +765,7 @@ export async function handleChat(req: Request): Promise<Response> {
   }
   pushConversationUpdatedEvent(session.id);
 
-  let partialText = "";
+  const partialText = new TextAccumulator();
   let cancellationEmitted = false;
   const [resolvedProvider] = resolvedModel
     ? parseModelString(resolvedModel)
@@ -806,7 +807,7 @@ export async function handleChat(req: Request): Promise<Response> {
         try {
           await emitCancellation(
             assistantMessageId,
-            partialText,
+            partialText.text,
             sessionId,
             requestId,
             emit,
@@ -831,8 +832,9 @@ export async function handleChat(req: Request): Promise<Response> {
           retryable: described.retryable,
           partialTextChars: partialText.length,
         });
+        const currentText = partialText.text;
         const displayContent = partialText.length > 0
-          ? `${partialText}\n\n[Error: ${errorMsg}]`
+          ? `${currentText}\n\n[Error: ${errorMsg}]`
           : `Error: ${errorMsg}`;
 
         try {
@@ -908,7 +910,7 @@ export async function handleChat(req: Request): Promise<Response> {
         );
 
         const onPartial = (text: string) => {
-          partialText += text;
+          partialText.append(text);
         };
 
         const isAgentModel = resolvedModel?.endsWith(AGENT_MODEL_SUFFIX) ??
@@ -980,7 +982,7 @@ export async function handleChat(req: Request): Promise<Response> {
             "value",
           );
           const output = hasValue ? formatPlainValue(evalResult.value) : "";
-          partialText = output;
+          partialText.replace(output);
 
           updateMessage(assistantMessageId, { content: output });
           const updatedAssistant = getMessage(assistantMessageId);
@@ -1115,7 +1117,7 @@ export async function handleChat(req: Request): Promise<Response> {
             try {
               await persistConversationFacts({
                 userMessage: currentUserMessage.content,
-                assistantMessage: partialText,
+                assistantMessage: partialText.text,
               });
             } catch (error) {
               log.warn("Failed to persist conversation memory", error);

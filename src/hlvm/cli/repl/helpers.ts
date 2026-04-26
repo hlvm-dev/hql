@@ -12,6 +12,7 @@ import { memory } from "../../api/memory.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
+import { TextAccumulator } from "../../../common/stream-utils.ts";
 import { getGlobalRecord } from "./string-utils.ts";
 import { appendExplicitMemoryNote, getExplicitMemoryPath } from "../../memory/mod.ts";
 
@@ -132,15 +133,15 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
       const response = aiApi.chat(messages);
 
       const encoder = new TextEncoder();
-      let explanation = "";
+      const explanation = new TextAccumulator();
       for await (const chunk of response) {
         if (typeof chunk === "string") {
           getPlatform().terminal.stdout.writeSync(encoder.encode(chunk));
-          explanation += chunk;
+          explanation.append(chunk);
         }
       }
       log.raw.log();
-      return { ...info, explanation };
+      return { ...info, explanation: explanation.text };
     } catch (error) {
       const errMsg = getErrorMessage(error);
       log.raw.log(`${YELLOW}AI error: ${errMsg}${RESET}`);

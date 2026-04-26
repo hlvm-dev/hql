@@ -210,7 +210,7 @@ Deno.test("imessage chatdb: follows alias thread only after it is explicitly bou
   }
 });
 
-Deno.test("imessage chatdb: unbound reader binds first new self-alias chat", () => {
+Deno.test("imessage chatdb: unbound reader accepts every configured self-alias chat", () => {
   const db = createMessagesFixture();
   try {
     insertMessage(db, {
@@ -232,15 +232,18 @@ Deno.test("imessage chatdb: unbound reader binds first new self-alias chat", () 
       cursor: 7,
     });
 
-    assertEquals(result.chatId, 30);
-    assertEquals(result.cursor, 8);
-    assertEquals(result.rows.map((row) => row.text), ["newer phone alias"]);
+    assertEquals(result.chatId, 10);
+    assertEquals(result.cursor, 9);
+    assertEquals(result.rows.map((row) => row.text), [
+      "newer phone alias",
+      "primary email",
+    ]);
   } finally {
     db.close();
   }
 });
 
-Deno.test("imessage chatdb: bound chatId ignores other self-alias chats", () => {
+Deno.test("imessage chatdb: accepts configured self-alias chats after a chatId exists", () => {
   const db = createMessagesFixture();
   try {
     insertMessage(db, {
@@ -269,9 +272,12 @@ Deno.test("imessage chatdb: bound chatId ignores other self-alias chats", () => 
       chatId: 10,
     });
 
-    assertEquals(result.chatId, 10);
-    assertEquals(result.cursor, 8);
-    assertEquals(result.rows.map((row) => row.text), ["bound self"]);
+    assertEquals(result.chatId, 30);
+    assertEquals(result.cursor, 9);
+    assertEquals(result.rows.map((row) => row.text), [
+      "bound self",
+      "phone alias self",
+    ]);
   } finally {
     db.close();
   }
@@ -533,7 +539,7 @@ Deno.test("imessage transport: requires configured local recipient", async () =>
   );
 });
 
-Deno.test("imessage transport: replies to the inbound handle as a buddy", async () => {
+Deno.test("imessage transport: replies to the exact inbound Messages chat", async () => {
   const sends: Array<{ kind: "buddy" | "chat"; id: string; text: string }> = [];
   const transport = createIMessageTransport({
     enabled: true,
@@ -570,7 +576,7 @@ Deno.test("imessage transport: replies to the inbound handle as a buddy", async 
   await flushChannelDiagnostics();
 
   assertEquals(sends, [{
-    kind: "buddy",
+    kind: "chat",
     id: "user@example.com",
     text: "🤖 hello",
   }]);

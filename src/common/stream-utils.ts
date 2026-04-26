@@ -89,6 +89,40 @@ export async function collectAsyncGenerator(
   return chunks.join("");
 }
 
+export class TextAccumulator {
+  private chunks: string[] = [];
+  private cachedText: string | null = "";
+  private lengthValue = 0;
+
+  get length(): number {
+    return this.lengthValue;
+  }
+
+  get text(): string {
+    if (this.cachedText !== null) {
+      return this.cachedText;
+    }
+    this.cachedText = this.chunks.join("");
+    return this.cachedText;
+  }
+
+  append(text: string): void {
+    if (text.length === 0) return;
+    this.chunks.push(text);
+    this.cachedText = null;
+    this.lengthValue += text.length;
+  }
+
+  replace(text: string): void {
+    this.chunks.length = 0;
+    this.lengthValue = text.length;
+    this.cachedText = text;
+    if (text.length > 0) {
+      this.chunks.push(text);
+    }
+  }
+}
+
 /**
  * Read a process stream to completion, returning the full content as bytes.
  *

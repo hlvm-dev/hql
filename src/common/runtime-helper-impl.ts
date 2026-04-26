@@ -533,14 +533,12 @@ export async function __hql_consume_async_iter(
     typeof awaited === "object" &&
     Symbol.asyncIterator in awaited
   ) {
-    // Consume the async iterator and concatenate results
-    let result = "";
+    const chunks: string[] = [];
     const iter = awaited as AsyncIterable<unknown>;
     for await (const chunk of iter) {
-      // Convert each chunk to string and concatenate
-      result += String(chunk);
+      chunks.push(String(chunk));
     }
-    return result;
+    return chunks.join("");
   }
 
   // Not an async iterator - return as-is
