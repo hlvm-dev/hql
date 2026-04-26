@@ -1,5 +1,8 @@
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
-import { getUserSkillsDir } from "../../../src/common/paths.ts";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
+import {
+  getBundledSkillsDir,
+  getUserSkillsDir,
+} from "../../../src/common/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import {
   isValidSkillName,
@@ -7,6 +10,7 @@ import {
   readSkillBody,
 } from "../../../src/hlvm/agent/skills/store.ts";
 import { formatSkillsForPrompt } from "../../../src/hlvm/agent/skills/prompt.ts";
+import { resolveToolPath } from "../../../src/hlvm/agent/path-utils.ts";
 import { withTempDir, withTempHlvmDir } from "../helpers.ts";
 
 async function writeSkill(
@@ -40,16 +44,52 @@ Deno.test("skills store: loads user-global skills", async () => {
     );
 
     const snapshot = await loadSkillSnapshot();
+    const debug = snapshot.skills.find((skill) => skill.name === "debug");
 
-    assertEquals(snapshot.skills.length, 1);
-    assertEquals(snapshot.skills[0].name, "debug");
-    assertEquals(snapshot.skills[0].source, "user");
-    assertEquals(snapshot.skills[0].description, "User debug workflow");
-    assertEquals(snapshot.duplicates.length, 0);
+    assertEquals(debug?.name, "debug");
+    assertEquals(debug?.source, "user");
+    assertEquals(debug?.description, "User debug workflow");
     assertEquals(
-      await readSkillBody(snapshot.skills[0]),
+      snapshot.duplicates.some((duplicate) => duplicate.name === "debug"),
+      true,
+    );
+    assertEquals(
+      await readSkillBody(debug!),
       "Use the user workflow.",
     );
+  });
+});
+
+Deno.test("skills store: loads bundled skills by default", async () => {
+  await withTempHlvmDir(async () => {
+    const snapshot = await loadSkillSnapshot();
+    const names = snapshot.skills.map((skill) => skill.name);
+
+    assertEquals(names.includes("debug"), true);
+    assertEquals(names.includes("verify"), true);
+    assertEquals(names.includes("code-review"), true);
+    assertEquals(names.includes("refactor"), true);
+    assertEquals(names.includes("plan"), true);
+    assertEquals(names.includes("write-docs"), true);
+    assertEquals(names.includes("skill-author"), true);
+
+    const debug = snapshot.skills.find((skill) => skill.name === "debug");
+    assertEquals(debug?.source, "bundled");
+    assertEquals(debug?.filePath.startsWith(getBundledSkillsDir()), true);
+    assertStringIncludes(await readSkillBody(debug!), "Use this skill");
+  });
+});
+
+Deno.test("skills store: bundled skill files are readable through the tool path sandbox", async () => {
+  await withTempHlvmDir(async () => {
+    await withTempDir(async (workspace) => {
+      const snapshot = await loadSkillSnapshot();
+      const debug = snapshot.skills.find((skill) => skill.name === "debug");
+
+      const resolved = await resolveToolPath(debug!.filePath, workspace);
+
+      assertEquals(resolved, debug!.filePath);
+    });
   });
 });
 
@@ -89,7 +129,18 @@ Body
 
     const snapshot = await loadSkillSnapshot();
 
-    assertEquals(snapshot.skills.map((skill) => skill.name), ["valid-skill"]);
+    assertEquals(
+      snapshot.skills.some((skill) => skill.name === "valid-skill"),
+      true,
+    );
+    assertEquals(
+      snapshot.skills.some((skill) => skill.name === "bad-skill"),
+      false,
+    );
+    assertEquals(
+      snapshot.skills.some((skill) => skill.name === "missing-description"),
+      false,
+    );
     assertEquals(isValidSkillName("valid-skill"), true);
     assertEquals(isValidSkillName("Invalid"), false);
     assertEquals(isValidSkillName("bad_name"), false);
@@ -115,7 +166,10 @@ ${"x".repeat(300_000)}
 
     const snapshot = await loadSkillSnapshot();
 
-    assertEquals(snapshot.skills, []);
+    assertEquals(
+      snapshot.skills.some((skill) => skill.name === "large-skill"),
+      false,
+    );
   });
 });
 
@@ -141,7 +195,10 @@ Deno.test("skills store: skips symlinked skill directories", async () => {
 
       const snapshot = await loadSkillSnapshot();
 
-      assertEquals(snapshot.skills, []);
+      assertEquals(
+        snapshot.skills.some((skill) => skill.name === "linked-skill"),
+        false,
+      );
     } finally {
       await platform.fs.remove(externalRoot, { recursive: true });
     }
@@ -160,7 +217,10 @@ Deno.test("skills store: ignores cwd-local skill directories", async () => {
 
       const snapshot = await loadSkillSnapshot();
 
-      assertEquals(snapshot.skills, []);
+      assertEquals(
+        snapshot.skills.some((skill) => skill.name === "local-only"),
+        false,
+      );
     });
   });
 });

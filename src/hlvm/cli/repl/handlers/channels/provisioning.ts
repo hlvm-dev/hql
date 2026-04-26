@@ -2,12 +2,6 @@ import type { RouteParams } from "../../http-router.ts";
 import { jsonError } from "../../http-utils.ts";
 import { traceChannelDiagnostic } from "../../../../channels/core/trace.ts";
 import {
-  handleLineProvisioningCancel,
-  handleLineProvisioningComplete,
-  handleLineProvisioningCreate,
-  handleLineProvisioningGet,
-} from "./line-provisioning.ts";
-import {
   handleTelegramProvisioningCancel,
   handleTelegramProvisioningComplete,
   handleTelegramProvisioningCreate,
@@ -26,12 +20,6 @@ export interface ChannelProvisioningRouteDeps {
 }
 
 const defaultHandlers: Record<string, ChannelProvisioningRouteHandlers> = {
-  line: {
-    create: handleLineProvisioningCreate,
-    get: handleLineProvisioningGet,
-    complete: handleLineProvisioningComplete,
-    cancel: handleLineProvisioningCancel,
-  },
   telegram: {
     create: handleTelegramProvisioningCreate,
     get: handleTelegramProvisioningGet,

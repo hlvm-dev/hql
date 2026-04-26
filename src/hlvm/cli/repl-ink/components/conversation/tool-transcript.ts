@@ -13,7 +13,10 @@ import {
   WEB_FETCH_TRANSCRIPT_ADAPTER,
   WEB_SEARCH_TRANSCRIPT_ADAPTER,
 } from "../../../../agent/tools/web-tools.ts";
-import { getUserSkillsDir } from "../../../../../common/paths.ts";
+import {
+  getBundledSkillsDir,
+  getUserSkillsDir,
+} from "../../../../../common/paths.ts";
 import { summarizePathLabel } from "./activity-labels.ts";
 
 type InvocationToolLike = {
@@ -101,6 +104,7 @@ const PATH_ARGUMENT_TOOL_NAMES = new Set([
 ]);
 
 const TILDE_USER_SKILLS_PREFIX = "~/.hlvm/skills/";
+const TILDE_BUNDLED_SKILLS_PREFIX = "~/.hlvm/.runtime/bundled-skills/";
 const SKILL_FILE_SUFFIX_PATTERN = /^([^/]+)\/SKILL\.md$/i;
 
 function normalizeToolPath(path: string): string {
@@ -112,10 +116,17 @@ function extractSkillNameFromSkillFilePath(path: string): string | undefined {
   const resolvedUserSkillsPrefix = `${
     normalizeToolPath(getUserSkillsDir()).replace(/\/+$/, "")
   }/`;
+  const resolvedBundledSkillsPrefix = `${
+    normalizeToolPath(getBundledSkillsDir()).replace(/\/+$/, "")
+  }/`;
   const relativePath = normalized.startsWith(TILDE_USER_SKILLS_PREFIX)
     ? normalized.slice(TILDE_USER_SKILLS_PREFIX.length)
+    : normalized.startsWith(TILDE_BUNDLED_SKILLS_PREFIX)
+    ? normalized.slice(TILDE_BUNDLED_SKILLS_PREFIX.length)
     : normalized.startsWith(resolvedUserSkillsPrefix)
     ? normalized.slice(resolvedUserSkillsPrefix.length)
+    : normalized.startsWith(resolvedBundledSkillsPrefix)
+    ? normalized.slice(resolvedBundledSkillsPrefix.length)
     : undefined;
   if (!relativePath) return undefined;
   const match = relativePath.match(SKILL_FILE_SUFFIX_PATTERN);

@@ -75,6 +75,7 @@ import {
   formatTraceLineForTerminal,
   presentTraceEvent,
 } from "../../agent/trace-presentation.ts";
+import { resolveSkillSlashInput } from "../../agent/skills/activation.ts";
 
 const { DIM, RESET, GREEN, RED } = ANSI_COLORS;
 const CLEAR_LINE = "\r\x1b[K";
@@ -575,6 +576,8 @@ export async function askCommand(args: string[]): Promise<void> {
   };
 
   const attachmentIds = await resolveAskAttachmentIds(attachmentArgs);
+  const skillActivation = await resolveSkillSlashInput(query);
+  const agentQuery = skillActivation?.prompt ?? query;
   if (
     !fixturePath && attachmentIds?.length && modelOverride &&
     !isAutoModel(modelOverride)
@@ -980,6 +983,11 @@ export async function askCommand(args: string[]): Promise<void> {
 
   if (verbose) {
     log.raw.log(`\nAgent: ${query}\n`);
+    if (skillActivation) {
+      log.raw.log(
+        `[Tool] Skill(${skillActivation.name})\nSuccessfully loaded skill\n`,
+      );
+    }
   }
 
   // Resolve permission mode: CLI flag > config > default
@@ -989,7 +997,7 @@ export async function askCommand(args: string[]): Promise<void> {
 
   const executeQuery = async () => {
     const result = await runAgentQueryViaHost({
-      query,
+      query: agentQuery,
       attachmentIds,
       model: resolvedModel,
       fixturePath,

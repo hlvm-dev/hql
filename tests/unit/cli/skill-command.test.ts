@@ -2,7 +2,7 @@ import {
   assertEquals,
   assertRejects,
   assertStringIncludes,
-} from "jsr:@std/assert";
+} from "jsr:@std/assert@1";
 import { getUserSkillsDir } from "../../../src/common/paths.ts";
 import { ValidationError } from "../../../src/common/error.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
@@ -84,12 +84,13 @@ Deno.test("skill command: list and info show user skills", async () => {
   });
 });
 
-Deno.test("skill command: list explains empty state", async () => {
+Deno.test("skill command: list shows bundled skills by default", async () => {
   await withTempHlvmDir(async () => {
     await withCapturedOutput(async (output) => {
       await skillCommand(["list"]);
-      assertStringIncludes(output(), "No skills found.");
-      assertStringIncludes(output(), "hlvm skill new <name>");
+      assertStringIncludes(output(), "debug");
+      assertStringIncludes(output(), "verify");
+      assertStringIncludes(output(), "bundled");
     });
   });
 });

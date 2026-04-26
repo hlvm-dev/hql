@@ -450,7 +450,7 @@ export async function serveCommand(args: string[]): Promise<number> {
           await channelRuntime.reconfigure();
         } else {
           log.info(
-            `Skipping external channel transports on isolated runtime port ${resolveHlvmRuntimePort()}; shared port ${HLVM_RUNTIME_DEFAULT_PORT} owns Telegram/LINE.`,
+            `Skipping external channel transports on isolated runtime port ${resolveHlvmRuntimePort()}; shared port ${HLVM_RUNTIME_DEFAULT_PORT} owns Telegram and any future external channels.`,
           );
         }
         emitModelsReadyIfReady();

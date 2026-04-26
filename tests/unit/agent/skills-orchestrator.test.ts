@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
 import { getUserSkillsDir } from "../../../src/common/paths.ts";
 import {
   ContextManager,

@@ -1,7 +1,11 @@
-import { getUserSkillsDir } from "../../../common/paths.ts";
+import {
+  getBundledSkillsDir,
+  getUserSkillsDir,
+} from "../../../common/paths.ts";
 import { parseFrontmatter } from "../../../common/frontmatter.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { getPlatform } from "../../../platform/platform.ts";
+import { getBundledSkillNames, materializeBundledSkills } from "./bundled.ts";
 import { isReservedSkillName } from "./reserved.ts";
 import type {
   SkillDuplicate,
@@ -20,6 +24,8 @@ interface SkillRoot {
   dir: string;
   source: SkillSource;
   precedence: number;
+  candidateNames?: readonly string[];
+  prepare?: () => Promise<void>;
 }
 
 interface LoadedSkill {
@@ -102,6 +108,15 @@ async function loadSkillRoot(root: SkillRoot): Promise<LoadedSkill[]> {
   const entries: LoadedSkill[] = [];
 
   try {
+    await root.prepare?.();
+    if (root.candidateNames) {
+      for (const name of root.candidateNames) {
+        const skill = await readCandidateSkill(root, name);
+        if (skill) entries.push(skill);
+      }
+      return entries;
+    }
+
     for await (const entry of platform.fs.readDir(root.dir)) {
       if (!entry.isDirectory) continue;
       if (entry.name.startsWith(".")) continue;
@@ -149,15 +164,27 @@ function resolveDuplicates(skills: LoadedSkill[]): SkillSnapshot {
 function getSkillRoots(): SkillRoot[] {
   const roots: SkillRoot[] = [
     { dir: getUserSkillsDir(), source: "user", precedence: 20 },
+    {
+      dir: getBundledSkillsDir(),
+      source: "bundled",
+      precedence: 10,
+      candidateNames: getBundledSkillNames(),
+      prepare: materializeBundledSkills,
+    },
   ];
 
-  // Bundled skills are a source in the contract, but no bundled asset pipeline
-  // exists yet. Keep the source model ready without inventing packaging here.
   return roots;
 }
 
 function getSkillSnapshotCacheKey(roots: SkillRoot[]): string {
-  return roots.map((root) => `${root.source}:${root.precedence}:${root.dir}`)
+  return roots.map((root) =>
+    [
+      root.source,
+      root.precedence,
+      root.dir,
+      root.candidateNames?.join(",") ?? "*",
+    ].join(":")
+  )
     .join("\n");
 }
 

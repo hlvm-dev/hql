@@ -23,13 +23,10 @@ import {
   formatProgressBar,
 } from "../repl-ink/utils/formatting.ts";
 import { STATUS_GLYPHS } from "../repl-ink/ui-constants.ts";
-import {
-  findSkillByName,
-  loadSkillSnapshot,
-  readSkillBody,
-} from "../../agent/skills/store.ts";
+import { loadSkillSnapshot } from "../../agent/skills/store.ts";
 import { isReservedSkillName } from "../../agent/skills/reserved.ts";
 import type { SkillEntry } from "../../agent/skills/types.ts";
+import { resolveSkillActivation } from "../../agent/skills/activation.ts";
 
 const { CYAN, GREEN, YELLOW, DIM_GRAY, RESET, BOLD } = ANSI_COLORS;
 
@@ -370,42 +367,14 @@ export interface RunCommandResult {
   handled: boolean;
 }
 
-function stripSlashCommandName(commandName: string): string | null {
-  if (!commandName.startsWith("/")) return null;
-  const name = commandName.slice(1);
-  return name.length > 0 ? name : null;
-}
-
-function formatSkillActivation(
-  skill: SkillEntry,
-  body: string,
-  args: string,
-): string {
-  const request = args.trim() || "Apply this skill.";
-  return [
-    `Use the ${skill.name} skill for this request.`,
-    "",
-    `Skill: ${skill.name}`,
-    `Source: ${skill.source}`,
-    `Path: ${skill.filePath}`,
-    "",
-    "Skill instructions:",
-    body.trim(),
-    "",
-    `Request: ${request}`,
-  ].join("\n");
-}
-
 function formatSkillCommandPayload(
-  skill: SkillEntry,
-  body: string,
-  args: string,
+  activation: SkillCommandPayload,
 ): string {
   const payload: SkillCommandPayload = {
-    name: skill.name,
-    source: skill.source,
-    filePath: skill.filePath,
-    prompt: formatSkillActivation(skill, body, args),
+    name: activation.name,
+    source: activation.source,
+    filePath: activation.filePath,
+    prompt: activation.prompt,
   };
   return JSON.stringify(payload);
 }
@@ -446,16 +415,9 @@ async function maybeRunSkillCommand(
   args: string,
   output: (...args: unknown[]) => void,
 ): Promise<boolean> {
-  const skillName = stripSlashCommandName(commandName);
-  if (!skillName) return false;
-  if (isReservedSkillName(skillName)) return false;
-
-  const snapshot = await loadSkillSnapshot();
-  const skill = findSkillByName(snapshot, skillName);
-  if (!skill) return false;
-
-  const body = await readSkillBody(skill);
-  output(SKILL_COMMAND_MARKER + formatSkillCommandPayload(skill, body, args));
+  const activation = await resolveSkillActivation(commandName, args);
+  if (!activation) return false;
+  output(SKILL_COMMAND_MARKER + formatSkillCommandPayload(activation));
   return true;
 }
 

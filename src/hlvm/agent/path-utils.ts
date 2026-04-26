@@ -6,7 +6,7 @@
 
 import { validatePath } from "./security/path-sandbox.ts";
 import { expandCommonHomePath } from "../../common/home-folders.ts";
-import { getUserSkillsDir } from "../../common/paths.ts";
+import { getBundledSkillsDir, getUserSkillsDir } from "../../common/paths.ts";
 import { getPlatform } from "../../platform/platform.ts";
 
 /**
@@ -21,5 +21,8 @@ export async function resolveToolPath(
     inputPath,
     platform.env.get("HOME") ?? "",
   );
-  return await validatePath(expandedPath, workspace, [getUserSkillsDir()]);
+  return await validatePath(expandedPath, workspace, [
+    getUserSkillsDir(),
+    getBundledSkillsDir(),
+  ]);
 }

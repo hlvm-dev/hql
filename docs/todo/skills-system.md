@@ -612,14 +612,8 @@ LLM executes
 
 ### Still open while implementing
 
-1. **Bundled skills timing.** First PR can ship with zero bundled skills if
-   packaging would slow the loader/CLI merge. The foundational pack should
-   follow immediately.
-2. **`hlvm skill edit`.** Optional for first PR. `list/new/info` are required.
-3. **Duplicate reporting.** Prefer `hlvm skill list` surfacing shadowed
-   duplicates in a compact note, plus a debug log. If that adds churn, log-only
-   is acceptable for B1.
-4. **TUI v2 parity.** Ink REPL and `hlvm ask --verbose` skill activity display
+1. **`hlvm skill edit`.** Optional. `list/new/info` are implemented.
+2. **TUI v2 parity.** Ink REPL and `hlvm ask --verbose` skill activity display
    are implemented. TUI v2/full GUI parity can follow if that surface exposes
    skills directly.
 
@@ -678,16 +672,19 @@ point.
 
 ### Phase 3 — foundational bundled skills
 
-- [ ] Decide the bundled-skill asset path and binary packaging mechanism.
-- [ ] Add `verify`.
-- [ ] Add `debug`.
-- [ ] Add `code-review`.
-- [ ] Add `plan`.
-- [ ] Add `write-docs`.
-- [ ] Add `skill-author`.
-- [ ] Ensure user skills can override bundled skills by name.
-- [ ] Add tests proving bundled skills do not block user precedence.
-- [ ] Run `deno task ssot:check`.
+- [x] Decide the bundled-skill asset path and binary packaging mechanism:
+      embedded `SKILL.md` strings materialized to
+      `~/.hlvm/.runtime/bundled-skills`.
+- [x] Add `verify`.
+- [x] Add `debug`.
+- [x] Add `code-review`.
+- [x] Add `refactor`.
+- [x] Add `plan`.
+- [x] Add `write-docs`.
+- [x] Add `skill-author`.
+- [x] Ensure user skills can override bundled skills by name.
+- [x] Add tests proving bundled skills do not block user precedence.
+- [x] Run `deno task ssot:check`.
 
 ### Phase 4 — hardening and polish
 
@@ -792,14 +789,14 @@ next person can build from repo truth, not just product intent.
 - The proposed test layout should follow existing repo structure:
   `tests/unit/agent/...` and `tests/unit/cli/...`, not brand-new top-level
   `tests/unit/skills/` and `tests/smoke/skills/` buckets.
-- "Bundled skills in binary" is not a free add-on. HLVM does have embedded asset
-  patterns elsewhere, but there is no existing skill-specific markdown asset
-  pipeline. Do not let bundled skills block the first merge.
+- Bundled skills are embedded as TypeScript string constants and materialized to
+  `~/.hlvm/.runtime/bundled-skills` so compiled binaries remain self-contained
+  and the agent can still read concrete `SKILL.md` files.
 
 ### Working decisions now
 
-- Build **tier B**, but do it in two cuts: `B1 core` first, `B2 ergonomics`
-  second.
+- Build **tier B** as the stable base: `B1 core`, `B2 ergonomics`, and the
+  Phase 3 foundational bundled pack are implemented.
 - Keep the open `agentskills.io` `SKILL.md` contract unchanged in v1. No
   HLVM-specific frontmatter keys.
 - Follow **CC as the primary runtime role model**. Use OpenClaw only as a
@@ -812,22 +809,17 @@ next person can build from repo truth, not just product intent.
   Duplicate names resolve by precedence, not by showing both.
 - No registry in v1.
 - No Hermes-style trajectory-to-skill auto-generation in v1.
-- Bundled skills are **optional** for the first merge, but the core bundled set
-  should be foundational when it lands: `verify`, `debug`, `code-review`,
-  `plan`, `write-docs`, `skill-author`.
+- Bundled skills are foundational and intentionally small: `verify`, `debug`,
+  `code-review`, `refactor`, `plan`, `write-docs`, `skill-author`.
 - OpenClaw-only platform pieces (`ClawHub`, `metadata.openclaw.*`,
   `skills.entries.*`, gateway skills RPC, watcher, sandbox mirroring) are
   **not** required for HLVM v1.
 
 ### Still not fully decided
 
-- Whether first ship should include `0` bundled skills or the foundational
-  starter set. Do not ship product/domain examples as the first bundled set.
-- Whether `hlvm skill edit` belongs in the first merge or follows
-  `list/new/info`.
-- Whether v1 must wire dynamic skill commands into both Ink REPL and TUI v2
-  immediately, or whether Ink first is acceptable and v2 parity follows right
-  after.
+- Whether `hlvm skill edit` is worth adding soon or should wait for user demand.
+- Whether TUI v2/full GUI should expose skills directly beyond the current Ink
+  REPL and `hlvm ask --verbose` display.
 
 ### Recommended build sequence
 
@@ -861,27 +853,27 @@ next person can build from repo truth, not just product intent.
 9. [done] Verify with narrow commands only: relevant `deno test ...` targets,
    `deno check`, `deno task ssot:check`, and `git diff --check`.
 
-### Suggested first PR cut
+### Landed first cut
 
 - Core loader
 - Prompt injection
 - `hlvm skill list`
 - `hlvm skill new`
 - `hlvm skill info`
-- No bundled skills
 - No `edit`
 - No Hermes-style generation
 
 This is the smallest useful merge. It creates real interoperability and a real
-authoring surface without dragging asset packaging or REPL polish into the
-critical path.
+authoring surface without dragging registry or auto-generation into the critical
+path.
 
-### Suggested second PR cut
+### Landed follow-up cuts
 
 - Dynamic skill entries in slash-command catalog
 - `/skill-name` activation path using the existing marker plumbing
-- Optional `hlvm skill edit`
-- Optional bundled-skill packaging spike if it is straightforward
+- Shared explicit activation path for REPL and `hlvm ask`
+- Foundational bundled skills materialized to
+  `~/.hlvm/.runtime/bundled-skills`
 
 ---
 
@@ -942,12 +934,13 @@ User can force activation in the REPL:
   Phase 3             Phase 4             Phase 5
   Bundled Core        Hardening            Later Advanced
   ------------        ---------            --------------
-  [ ] verify          [ ] path escape      [?] dynamic discovery
-  [ ] debug           [ ] size caps        [?] paths: filters
-  [ ] code-review     [ ] prompt budget    [?] registry/install
-  [ ] plan            [ ] duplicate UX     [?] dependency gating
-  [ ] write-docs      [ ] edit command     [?] skill suggestions
-  [ ] skill-author          |                    |
+  [x] verify          [x] path escape      [?] dynamic discovery
+  [x] debug           [x] size caps        [?] paths: filters
+  [x] code-review     [ ] prompt budget    [?] registry/install
+  [x] refactor        [x] duplicate UX     [?] dependency gating
+  [x] plan            [ ] edit command     [?] skill suggestions
+  [x] write-docs            |                    |
+  [x] skill-author          |                    |
         |                   v                    v
         +---------->  Complete HLVM Skills  <----+
 

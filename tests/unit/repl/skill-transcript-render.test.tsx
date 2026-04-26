@@ -1,6 +1,7 @@
-import { assertStringIncludes } from "jsr:@std/assert";
+import { assertStringIncludes } from "jsr:@std/assert@1";
 import React from "react";
 import { render } from "ink";
+import process from "node:process";
 import { Writable } from "node:stream";
 import { resetHlvmDirCacheForTests } from "../../../src/common/paths.ts";
 import { ThemeProvider } from "../../../src/hlvm/cli/theme/index.ts";
@@ -8,7 +9,9 @@ import type { ToolCallDisplay } from "../../../src/hlvm/cli/repl-ink/types.ts";
 
 function stripAnsi(text: string): string {
   return text
+    // deno-lint-ignore no-control-regex -- ANSI stripping for terminal render output.
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    // deno-lint-ignore no-control-regex -- OSC escape stripping for terminal render output.
     .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
     .replace(/\r/g, "");
 }

@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "jsr:@std/assert@1";
 import { FakeTime } from "jsr:@std/testing@1/time";
 import {
   createTranscriptState,
@@ -8,8 +8,8 @@ import type { Plan } from "../../../src/hlvm/agent/planning.ts";
 import {
   type ConversationItem,
   createConversationAttachmentRefs,
-  StreamingState,
 } from "../../../src/hlvm/cli/repl-ink/types.ts";
+import { getBundledSkillsDir } from "../../../src/common/paths.ts";
 
 function withItems(items: ConversationItem[]) {
   return {
@@ -211,6 +211,31 @@ Deno.test("agent transcript state presents skill file reads as skill loads", () 
       group.tools[0]?.resultSummaryText,
       "Successfully loaded skill",
     );
+  }
+});
+
+Deno.test("agent transcript state presents bundled skill file reads as skill loads", () => {
+  let state = reduceTranscriptState(createTranscriptState(), {
+    type: "user_message",
+    text: "use the bundled debug skill",
+    startTurn: true,
+  });
+
+  state = reduceTranscriptState(state, {
+    type: "agent_event",
+    event: {
+      type: "tool_start",
+      name: "read_file",
+      argsSummary: `${getBundledSkillsDir()}/debug/SKILL.md`,
+      toolIndex: 1,
+      toolTotal: 1,
+    },
+  });
+
+  const group = state.items.find((item) => item.type === "tool_group");
+  assertEquals(group?.type, "tool_group");
+  if (group?.type === "tool_group") {
+    assertEquals(group.tools[0]?.displayName, "Skill(debug)");
   }
 });
 

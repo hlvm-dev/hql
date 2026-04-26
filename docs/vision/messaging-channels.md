@@ -7,7 +7,7 @@
 > This doc is the SSOT for messaging work. If it disagrees with an older sketch,
 > roadmap note, or implementation comment, this wins.
 >
-> **Last updated**: 2026-04-25 (rev 18)
+> **Last updated**: 2026-04-26 (rev 19)
 >
 > Binary-side architecture SSOT now also lives in:
 > [../messaging-platform-architecture.md](../messaging-platform-architecture.md)
@@ -26,11 +26,13 @@
   onboarding, and shared "pick your channel" first-launch UX are no longer
   normative.
 
-## Rev 18 status snapshot
+## Rev 19 status snapshot
 
-Rev 10's Telegram product decision still stands. Rev 18 adds the first
-non-Telegram source implementation: LINE through an HLVM-managed LINE Official
-Account and hosted bridge.
+Rev 10's Telegram product decision still stands. Rev 18 added LINE as the first
+non-Telegram source implementation. Rev 19 reverses that decision: LINE
+violates the channel scope rule (free forever, per-user ceiling, no relay) and
+has been removed from source. The next non-Telegram target is iMessage via the
+self-message pattern.
 
 - Telegram Option B is still the only active ship path.
 - The direct Telegram path after a bot already exists is proven:
@@ -82,32 +84,21 @@ Account and hosted bridge.
 - The macOS onboarding window now treats each presentation as a fresh
   provisioning session and cancels the active flow on dismiss/close, so a new
   window does not reuse stale in-memory "waiting for Telegram" state.
-- The macOS onboarding UI is now platform-generic at the shell layer: Telegram,
-  LINE, and Slack share one scan surface with platform icons. Telegram and LINE
-  are active at the source level. Slack is still a placeholder until its
-  provisioner and transport are implemented.
-- LINE now has a source-level provisioner, relay transport, bridge client,
-  bridge service, and bridge server under `src/hlvm/channels/line/`.
-- LINE onboarding uses the official LINE URL scheme:
-  `https://line.me/R/oaMessage/<official-account-id>/?HLVM-<pair-code>`.
-  Scanning opens the HLVM LINE Official Account with the pair text prefilled;
-  the user must send that message to complete pairing.
-- LINE live E2E still requires deployment/configuration:
-  `HLVM_LINE_PROVISIONING_BRIDGE_URL` locally, plus
-  `HLVM_LINE_OFFICIAL_ACCOUNT_ID`, `HLVM_LINE_CHANNEL_ACCESS_TOKEN`, and
-  `HLVM_LINE_CHANNEL_SECRET` on the bridge.
-- LINE does not and cannot mirror Telegram's user-owned bot creation flow. It
-  uses one HLVM-managed LINE Official Account plus bridge routing.
-- LINE real-device E2E now has ordered binary-side diagnostics at
-  `/tmp/hlvm-line-e2e.jsonl`, written through the shared JSONL/platform FS
-  helper. The macOS DEBUG app log remains `/tmp/hlvm-gui-debug.log` through
-  `HlvmLogger`.
+- The macOS onboarding UI is platform-generic at the shell layer: vendors share
+  one scan surface with platform icons. Only Telegram is active at the source
+  level today; iMessage, Slack, and Gmail are placeholders.
 - Message-level Telegram observability now exists at the transport and shared
   runtime boundaries: update id, message id, sender id, allow/reject reason, run
   start, run completion, and reply send are logged without message content.
-- Official API research and implementation now set the next order:
-  - **validate LINE live E2E first**
-  - **implement Slack second**
+- Channel scope rule (rev 19): a vendor only ships when it is **free forever**
+  with **per-user ceiling** and **HLVM never on the data path at runtime**.
+  Telegram, iMessage self-message, Slack Socket Mode, and Gmail meet the bar.
+  WhatsApp, Messenger, KakaoTalk, WeChat, LINE-with-push, iMessage cloud-Mac,
+  and Discord (centralized bot) do not.
+- The next non-Telegram source implementation is **iMessage via the
+  self-message pattern**: user iMessages a prefixed message to their own Apple
+  ID, the local Mac watches the Messages store and treats those as bot turns,
+  no HLVM relay anywhere. Slack Socket Mode and Gmail follow.
 
 So the practical split is now:
 
@@ -116,7 +107,10 @@ create → chat: proven
 relaunch → reopen existing bot chat: proven
 delete bot → immediate reconnect QR → recreate → chat: proven
 message-level Telegram observability: implemented at transport/runtime boundary
-LINE source implementation: implemented, live bridge config required for E2E
+LINE source implementation: removed in rev 19 (violates channel scope rule)
+iMessage self-message: not started; next target
+Slack Socket Mode: not started; planned after iMessage
+Gmail: not started; planned after Slack
 settings lifecycle UX for reconnect/disconnect: still missing
 ```
 
@@ -141,9 +135,9 @@ multiple half-plans at once.
 **One brain, many doors.**
 
 ```text
-Telegram      KakaoTalk      Line      Slack      Discord      future
-   │             │             │           │           │           │
-   └─────────────┴─────────────┴───────────┴───────────┴───────────┘
+Telegram      iMessage       Slack       Gmail        future
+   │             │             │           │             │
+   └─────────────┴─────────────┴───────────┴─────────────┘
                                  │
                        ┌─────────▼──────────┐
                        │   message door     │
@@ -177,8 +171,8 @@ Rev 10 is Telegram-first, but the foundation is intentionally **platform
 generic**.
 
 That does **not** mean "design every platform now." It means the architecture
-must let us add Slack, Discord, KakaoTalk, Line, and later platforms without
-rewriting the core each time.
+must let us add iMessage, Slack, Gmail, and later platforms without rewriting
+the core each time.
 
 The rule is:
 
@@ -276,13 +270,9 @@ to avoid re-implementing the same messaging loop for every platform.
 - The macOS app now reuses the existing onboarding shell and renders a single
   Telegram QR path on first launch.
 - The macOS onboarding shell can now request platform-generic provisioning
-  sessions from `/api/channels/:channel/provisioning/session`, and LINE is
-  enabled in the platform selector.
-- A LINE source implementation now exists:
-  - `src/hlvm/channels/line/provisioning.ts`
-  - `src/hlvm/channels/line/transport.ts`
-  - `src/hlvm/channels/line/protocol.ts`
-  - `src/hlvm/channels/line/provisioning-bridge-*.ts`
+  sessions from `/api/channels/:channel/provisioning/session`. The platform
+  selector renders future targets (iMessage, Slack, Gmail) as placeholders;
+  Telegram is the only active source-level vendor today.
 - The macOS app now renders the direct Telegram managed-bot creation URL in the
   QR for first-time creation instead of an extra bridge-owned landing page,
   because the bridge hop did not improve the user-visible flow.
@@ -313,17 +303,15 @@ implemented and cleaned up:
 
 - Telegram Option B is wired through the shared messaging core.
 - The multi-platform architecture seam now exists in code, not just in docs.
-- LINE is wired into the generic provisioning dispatch and transport registry.
 - The default hosted bridge, manager-bot webhook, and local runtime handoff are
   live.
 - SSOT and code are aligned on the architecture and implementation boundary.
 - The remaining work is not another messaging architecture pass.
 - The old Telegram-specific local provisioning route aliases are gone; local
   provisioning now uses the canonical generic `:channel` route shape.
-- LINE is not live by default until a LINE bridge is deployed and the local
-  runtime is launched with `HLVM_LINE_PROVISIONING_BRIDGE_URL`.
 - The remaining uncertainty is now mostly product hardening: settings lifecycle
-  UX, Android validation, and first real-device LINE validation.
+  UX, Android validation, and beginning the iMessage self-message
+  implementation.
 
 ### Current observed result
 
@@ -377,9 +365,9 @@ So the live evidence now says:
 ### Not implemented yet
 
 - No Android validation yet.
-- No live LINE real-device validation yet in this repo state. The source path is
-  implemented, but it requires a configured LINE Official Account, bridge
-  deployment, LINE webhook URL, and secrets before E2E can pass.
+- No iMessage self-message implementation yet. Source-level work has not
+  started; only the architecture contract exists. See
+  `docs/messaging-platform-architecture.md` for the iMessage shape.
 - No Telegram settings lifecycle UI yet, such as:
   - `Open Chat`
   - `Reconnect`
@@ -439,7 +427,7 @@ QR window into one generic channel onboarding surface:
 │                                            │
 │ scan to open your HLVM <platform surface>  │
 │                                            │
-│ Telegram | LINE | Slack | ...              │
+│ Telegram | iMessage | Slack | Gmail | ...  │
 └────────────────────────────────────────────┘
 ```
 
@@ -456,344 +444,133 @@ fewest screens and fewest user actions
 The platform provisioner owns the different payload behind that QR:
 
 ```text
-Telegram → Telegram create/open bot URL
-LINE     → LINE add-friend / Official Account URL
-Slack    → Slack OAuth install URL
-Discord  → Discord OAuth/install URL
-Gmail    → Google OAuth URL
-WhatsApp → WhatsApp link/session flow, only if that route is accepted
+Telegram  → Telegram create/open bot URL (BotFather or pre-prepared bot)
+iMessage  → imessage:?body=<prefilled pair text> to user's own Apple ID
+Slack     → Slack OAuth install URL with state=<pair-code>
+Gmail     → Google OAuth URL with state=<pair-code>
 ```
 
-This is the main product difference from OpenClaw. OpenClaw has guided setup and
-broad channel support, but its channel docs still mostly assume operator setup:
-tokens, developer apps, config, QR login commands, pairing approvals, or
-external bridges. HLVM should absorb that setup burden where possible.
+This is the main product difference from OpenClaw. OpenClaw has guided setup
+and broad channel support, but accepts per-channel operator setup: tokens,
+developer apps, config, QR login commands, pairing approvals, or external
+bridges. HLVM ships fewer channels with productized onboarding, gated by the
+channel scope rule (free forever, per-user ceiling, no relay).
 
 Current recommendation:
 
-1. **validate LINE live E2E next**
-2. **Slack after LINE validation**
+1. **implement iMessage self-message next** (no infra; user's Mac is the
+   runtime; treats prefixed self-messages as bot turns)
+2. **Slack Socket Mode after iMessage** (per-workspace OAuth install; Mac
+   connects directly to Slack via WebSocket; HLVM hosts only the OAuth
+   callback)
+3. **Gmail after Slack** (per-user OAuth; Mac uses IMAP IDLE + SMTP/Gmail API
+   directly; HLVM hosts only the OAuth callback)
 
-Reason:
+Out of scope for the default roadmap (fail at least one channel scope rule
+constraint): WhatsApp, Messenger, LINE-with-push, KakaoTalk, WeChat, iMessage
+cloud-Mac fleet, Discord (centralized bot).
 
-- LINE best matches HLVM's mobile-first onboarding promise and now has the first
-  source implementation.
-- Slack has excellent official APIs, but the product path is workspace
-  installation and OAuth, not personal chat setup.
-- WhatsApp has larger global reach, but its official path is more business-heavy
-  and operationally stricter.
-- Email is possible, but it belongs to a different async interaction model.
-- Discord remains a good community/developer option, but less important than
-  LINE for mobile chat reach.
-- KakaoTalk is strategically relevant in Korea, but its official path is less
-  Telegram-like and should not be treated as a drop-in clone.
+## Official API research: iMessage self-message
 
-## Official API research: LINE
+Research date: 2026-04-26.
 
-Research date: 2026-04-25.
+iMessage has no public bot API. Apple does not sanction running automated
+"bot" accounts. The cloud-Mac-fleet model (Sendblue / LoopMessage style)
+violates the channel scope rule on cost, ownership, and ToS.
 
-Official sources:
+The pattern HLVM will use instead is **self-message**: the user iMessages
+themselves with a prefixed body. The local Mac watches the Messages store and
+treats matching self-messages as bot turns. There is no central HLVM Apple ID,
+no cloud Mac, no relay.
 
-- Messaging API overview:
-  `https://developers.line.biz/en/docs/messaging-api/overview/`
-- Build a bot: `https://developers.line.biz/en/docs/messaging-api/building-bot/`
-- Receive messages with webhooks:
-  `https://developers.line.biz/en/docs/messaging-api/receiving-messages/`
-- Verify webhook signature:
-  `https://developers.line.biz/en/docs/messaging-api/verify-webhook-signature/`
-- Send messages:
-  `https://developers.line.biz/en/docs/messaging-api/sending-messages/`
-- Gain friends / QR / add-friend links:
-  `https://developers.line.biz/en/docs/messaging-api/sharing-bot/`
-- Channel access tokens:
-  `https://developers.line.biz/en/docs/basics/channel-access-token/`
-- Official SDKs:
-  `https://developers.line.biz/en/docs/messaging-api/line-bot-sdk/`
+### iMessage self-message feasibility
 
-### LINE feasibility
+The Mac is already wired into the user's iMessage account through iCloud
+Messages. Inbound messages are persisted to `~/Library/Messages/chat.db`.
+Outbound messages can be sent via Shortcuts URL schemes or AppleScript Messages
+scripting bridge — both are sanctioned local automation paths for the user's
+own account, the same shape as Hazel, Keyboard Maestro, or BetterTouchTool.
 
-LINE is feasible through the official Messaging API.
-
-The official model is:
+Mapping to the existing channel runtime:
 
 ```text
-user sends message to LINE Official Account
-→ LINE Platform sends webhook event to bot server
-→ bot server replies through LINE Messaging API
-```
-
-This maps cleanly to HLVM:
-
-```text
-LINE webhook event
-→ line/transport.ts normalizes ChannelMessage
+user iMessages "@hlvm hello" to their own Apple ID from iPhone
+→ message syncs through iCloud to Mac Messages store
+→ imessage/transport.ts observes chat.db, filters by self-recipient + prefix
 → shared channel runtime runs allowlist / queue / HLVM brain
-→ line/transport.ts replies through LINE Messaging API
+→ imessage/transport.ts sends reply via Shortcuts or AppleScript back to the
+  user's own Apple ID, which appears on their phone
 ```
 
-### LINE onboarding reality
+### iMessage onboarding reality
 
-LINE does not give us Telegram's exact "scan QR and create a user-owned bot"
-primitive.
+There is no QR-creates-bot flow. Onboarding is essentially "the user already
+has an Apple ID; arm a pair code; user sends the pair code via self-message
+once."
 
-Official LINE setup assumes:
-
-```text
-developer has a LINE Official Account
-developer has a Messaging API channel
-developer has a channel access token
-developer has a public HTTPS webhook URL
-user adds the Official Account as a friend
-```
-
-LINE does support QR / add-friend surfaces for an existing Official Account:
-
-```text
-scan QR
-→ open/add HLVM LINE Official Account
-→ user sends first message
-→ webhook carries LINE user id
-→ HLVM pairs that user id to the local Mac session
-```
-
-So the first HLVM LINE product should be:
-
-```text
-HLVM-managed LINE Official Account
-→ HLVM bridge receives webhooks
-→ QR points to add/open that Official Account
-→ local Mac claims/pairs the LINE user id
-```
-
-Do not start with "user creates their own LINE Official Account" as the default
-product path. That would recreate the gateway/operator setup burden HLVM is
-trying to avoid.
-
-### LINE blockers and constraints
-
-- LINE requires a public HTTPS webhook URL with a trusted certificate; local Mac
-  direct inbound webhooks are not enough.
-- A Messaging API channel has one configured webhook URL, so a hosted HLVM
-  bridge is the right first architecture.
-- Webhook signatures must be verified with the channel secret using the raw
-  request body.
-- The LINE Platform does not disclose webhook source IPs; signature validation
-  is the security boundary.
-- Channel access tokens are required to call the Messaging API.
-- Long-lived tokens exist, but LINE recommends channel access token v2.1 where
-  appropriate.
-- LINE text content should be processed from the webhook event; there is no API
-  to retrieve the same text later after receiving it.
-- Webhook redelivery can duplicate events and change delivery order, so the LINE
-  transport must dedupe by webhook event id and use timestamps only as context.
-- Message sending has pricing/quota implications depending on Official Account
-  region and plan; reply messages are the safest initial path.
-
-### LINE target architecture
-
-```text
-MOBILE ONBOARDING
-
-iPhone LINE app
-    │ scan QR
-    ▼
-HLVM LINE Official Account add/open URL
-    │
-    ▼
-user sends first message
-    │
-    ▼
-LINE Platform webhook
-    │
-    ▼
-HLVM LINE bridge
-    │ verify x-line-signature
-    │ correlate pending setup session
-    │ store line user id / destination / source ids
-    ▼
-local HLVM runtime
-    │ completeSession()
-    │ write channels.line config
-    │ reconfigure()
-    ▼
-connected
-```
-
-```text
-STEADY STATE
-
-LINE webhook
-    │
-    ▼
-line/transport.ts
-    │
-    ▼
-ChannelMessage {
-  channel: "line",
-  remoteId: source.userId | groupId | roomId,
-  text,
-  sender.id: userId,
-  raw: line event
-}
-    │
-    ▼
-shared channel runtime
-    │
-    ▼
-LINE reply/push API
-```
-
-### LINE implementation status
-
-The source implementation exists now.
-
-Implemented files:
-
-- `src/hlvm/channels/line/protocol.ts`
-- `src/hlvm/channels/line/provisioning.ts`
-- `src/hlvm/channels/line/transport.ts`
-- `src/hlvm/channels/line/provisioning-bridge-client.ts`
-- `src/hlvm/channels/line/provisioning-bridge-protocol.ts`
-- `src/hlvm/channels/line/provisioning-bridge-server.ts`
-- `src/hlvm/channels/line/provisioning-bridge-service.ts`
-- `src/hlvm/cli/repl/handlers/channels/line-provisioning.ts`
-
-Runtime wiring:
-
-- `line` is registered in `src/hlvm/channels/registry.ts`.
-- `line` is registered in the generic provisioning dispatch map.
-- macOS onboarding can request `POST /api/channels/line/provisioning/session`.
-- The macOS platform selector enables LINE.
-
-Implemented onboarding flow:
+Pair flow:
 
 ```text
 macOS app
-→ create LINE provisioning session
-→ local runtime registers pending session with LINE bridge
-→ local runtime writes channels.line relay config
-→ local runtime starts LINE transport
-→ QR opens LINE Official Account chat with prefilled HLVM-#### text
-→ user sends the text in LINE
-→ LINE webhook reaches bridge
-→ bridge binds LINE user id to local device id
-→ bridge queues the event for that local device
-→ local SSE relay delivers queued events to line/transport.ts
-→ shared runtime sees pair-code message and authorizes that LINE user id
-→ future LINE messages from that user route to the same local runtime
+→ create iMessage provisioning session
+→ runtime arms pair-code listener on chat.db for the local user
+→ QR opens Messages.app on phone with prefilled "@hlvm HLVM-#### hello"
+  addressed to the user's own Apple ID
+→ user taps send on phone
+→ message syncs to Mac
+→ transport observes pair-code match, binds local device to that Apple ID
+→ subsequent self-messages prefixed with @hlvm flow through shared runtime
 ```
 
-Bridge delivery behavior:
+### iMessage blockers and constraints
 
-- LINE `webhookEventId` is used as the event id when available.
-- The bridge queues per-device events so rapid messages do not overwrite each
-  other before the local SSE reader consumes them.
-- The local transport keeps a bounded recent-event id cache to drop webhook
-  redelivery duplicates.
+- Apple has no public bot API; HLVM must not impersonate a separate Apple ID
+  or run a centralized iMessage account.
+- The transport must NOT treat every self-message as a bot turn. A configurable
+  prefix (default `@hlvm`) distinguishes bot turns from genuine note-to-self.
+- Mac-originated self-messages must be filtered out to prevent reply loops
+  (`is_from_me = 1` originating from this device).
+- iCloud Messages must be enabled on the Mac for sync.
+- Messages.app must be signed in with the same Apple ID the pair code expects.
+- Full Disk Access is required to read `~/Library/Messages/chat.db`.
+- macOS schema and Shortcuts/AppleScript send paths can change between OS
+  versions; the transport must version-check at start and surface clear errors
+  rather than silently fail.
+- The Mac must be awake to receive and respond. Messages queue at iCloud
+  while the Mac sleeps and deliver on wake — acceptable for an assistant-style
+  product, but document the latency expectation.
+- iMessage is macOS-only. The transport is platform-gated; Linux and future
+  Windows builds report it as unavailable.
 
-Diagnostics:
+### iMessage privacy rule
 
-- Binary-side LINE E2E trace file: `/tmp/hlvm-line-e2e.jsonl`
-- macOS DEBUG app log: `/tmp/hlvm-gui-debug.log`
-- Trace records are ordered per process with `seq` and include scope/event
-  metadata only. Do not log tokens, secrets, signatures, authorization headers,
-  or message text.
-- The expected first-pairing sequence is:
+The iMessage transport has read access to the entire Messages store, but is
+only allowed to act on or surface self-addressed messages matching the
+configured prefix. It must not log, index, store, or forward any other
+conversation. The macOS onboarding flow must explicitly disclose this access
+to the user before requesting Full Disk Access.
 
-```text
-http-provisioning create
-provisioning create-session-start
-bridge-client register-session-start
-bridge session-register
-provisioning reconfigure-done
-bridge event-stream-open
-bridge webhook-ingest
-bridge pair-message-delivered
-bridge event-stream-send
-transport event-received
-transport pair-code-match
-transport send-start
-bridge send-message-done
-transport send-done
-```
+### iMessage implementation status
 
-Backend unit coverage for that expected LINE pipeline lives in:
+Not started. The architecture contract for the vendor folder
+`src/hlvm/channels/imessage/` is documented in
+[../messaging-platform-architecture.md](../messaging-platform-architecture.md).
 
-```text
-tests/unit/channels/line-provisioning.test.ts
-tests/unit/channels/line-provisioning-bridge-service.test.ts
-tests/unit/channels/line.test.ts
-tests/unit/repl/channels-provisioning-handler.test.ts
-```
+Required vendor files when implementation begins:
 
-The tests cover the central SSOT path, not a LINE-only bypass: generic
-`:channel` provisioning dispatch, `ChannelProvisioner`, bridge registration,
-LINE signature-gated webhook ingestion, queued SSE delivery, `ChannelTransport`
-normalization, pair-code matching, duplicate event dropping, and reply send.
+- `src/hlvm/channels/imessage/protocol.ts`
+- `src/hlvm/channels/imessage/provisioning.ts`
+- `src/hlvm/channels/imessage/transport.ts`
 
-Bridge endpoints:
+Required wiring:
 
-```text
-GET  /health
-POST /api/line/provisioning/session
-GET  /api/line/events?deviceId=...&clientToken=...
-POST /api/line/message/push
-POST /api/line/webhook
-```
+- `imessage` registered in `src/hlvm/channels/registry.ts`
+- `imessage` registered in the generic provisioning dispatch map
+- macOS platform selector enables `imessage` only on macOS
 
-Required local env:
-
-```text
-HLVM_LINE_PROVISIONING_BRIDGE_URL
-HLVM_LINE_OFFICIAL_ACCOUNT_ID      optional local override
-```
-
-Required bridge env:
-
-```text
-HLVM_LINE_OFFICIAL_ACCOUNT_ID
-HLVM_LINE_CHANNEL_ACCESS_TOKEN
-HLVM_LINE_CHANNEL_SECRET
-```
-
-LINE Developer Console requirement:
-
-```text
-webhook URL = https://<bridge-host>/api/line/webhook
-Use webhook = enabled
-```
-
-Still required before claiming LINE is product-live:
-
-1. Deploy the LINE bridge with the required env.
-2. Configure the LINE Developer Console webhook URL.
-3. Launch local HLVM with `HLVM_LINE_PROVISIONING_BRIDGE_URL`.
-4. Test on real iOS LINE:
-   - scan
-   - LINE opens the Official Account chat
-   - send the prefilled `HLVM-####` message
-   - macOS HLVM receives and pairs
-   - reply appears in LINE
-
-### LINE SDK decision
-
-Official LINE SDKs exist for Node.js, Java, PHP, Python, Go, and Ruby. HLVM's
-runtime is Deno/TypeScript, so the first implementation should use raw HTTPS
-calls and small local types unless the official Node SDK proves Deno-compatible
-without build/runtime friction.
-
-Do not introduce a heavy SDK just to wrap:
-
-```text
-verify signature
-parse webhook event
-reply message
-push message
-get bot info
-```
-
-Those are small enough to keep behind `line/transport.ts` and
-`line/provisioning.ts`.
+There is no HLVM-hosted bridge. There are no required environment variables.
+There is no operator setup checklist. The only deployment burden is shipping
+the vendor folder and wiring entries.
 
 ## Official API research: Slack
 
@@ -838,7 +615,7 @@ Slack event
 
 ### Slack onboarding reality
 
-Slack onboarding is not personal-chat QR in the Telegram/LINE sense. It is
+Slack onboarding is not personal-chat QR in the Telegram sense. It is
 workspace app installation:
 
 ```text
@@ -984,37 +761,48 @@ pagination
 Socket Mode, if we ever support private/dev Slack installs
 ```
 
-## LINE vs Slack conclusion
+## Tier-A roadmap conclusion
+
+Under the channel scope rule (free forever, per-user ceiling, no relay), the
+post-Telegram targets are iMessage self-message, Slack Socket Mode, and Gmail
+— in that order.
 
 ```text
-LINE:
-  product fit: high
-  mobile-first fit: high
-  setup friction: medium
-  distribution model: HLVM-managed Official Account first
-  main blocker: public webhook bridge + Official Account/channel setup
+iMessage self-message:
+  product fit: high (Apple users, mobile-first, decentralized)
+  setup friction: low (Apple ID already configured)
+  distribution model: per-user local Mac, no HLVM infra
+  main blocker: macOS-only; trigger disambiguation; Mac must be awake
   implementation priority: 1
 
-Slack:
-  product fit: medium
-  mobile-first fit: medium
+Slack Socket Mode:
+  product fit: medium (work surface, not personal-mobile)
   developer API quality: high
-  setup friction: medium/high
-  distribution model: OAuth install into workspace
-  main blocker: workspace/admin consent + OAuth/token storage
+  setup friction: medium (per-workspace OAuth install + admin consent)
+  distribution model: HLVM Slack app, per-workspace tokens, Mac↔Slack direct
+  main blocker: workspace admin friction
   implementation priority: 2
+
+Gmail:
+  product fit: medium (email, not chat — different rhythm)
+  setup friction: low (per-user OAuth)
+  distribution model: HLVM OAuth client, per-user tokens, Mac↔Google direct
+  main blocker: Google app verification compliance work (time, not money)
+  implementation priority: 3
 ```
 
 The important architecture decision:
 
 ```text
-Do not try to force LINE or Slack into Telegram Option B.
-Telegram = user-owned bot can be created from QR.
-LINE    = HLVM-managed Official Account + webhook bridge first.
-Slack   = HLVM Slack app + OAuth install + Events API bridge first.
+Telegram = user-owned bot from QR; Mac long-polls Telegram directly.
+iMessage = user's own Apple ID; Mac watches local Messages store.
+Slack    = HLVM Slack app + per-workspace OAuth install; Mac connects via
+           Socket Mode WebSocket directly. No HLVM event relay.
+Gmail    = HLVM OAuth client + per-user OAuth; Mac uses IMAP IDLE + SMTP/
+           Gmail API directly. No HLVM mail relay.
 ```
 
-The user-facing shell can stay unified:
+The user-facing shell stays unified:
 
 ```text
 Connect <Platform>
@@ -1023,7 +811,8 @@ Connect <Platform>
 → connected
 ```
 
-But the platform provisioner decides what that QR actually means.
+The platform provisioner decides what the QR actually means. In all four
+cases, HLVM is never on the data path at runtime.
 
 ## Current architecture and communication
 

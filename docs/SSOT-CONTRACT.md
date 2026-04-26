@@ -48,7 +48,7 @@ but they must not bypass the core store/prompt boundary.
 ```
 skill roots
   ~/.hlvm/skills/*/SKILL.md
-  bundled skills, if packaged
+  ~/.hlvm/.runtime/bundled-skills/*/SKILL.md
       → loadSkillSnapshot()        ← scan capped, non-symlink frontmatter only
       → formatSkillsForPrompt()  ← compact <available_skills> XML
         → orchestrator context   ← one refreshed Pre-LLM injection hook
@@ -61,8 +61,10 @@ skill roots
 | File                                | Responsibility                                                                                                                                  |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/common/paths.ts`               | Canonical skills root paths: global user and bundled path helpers.                                                                              |
+| `src/hlvm/agent/skills/bundled.ts`  | Embedded foundational bundled skill content and materialization to the bundled runtime root.                                                     |
 | `src/hlvm/agent/skills/types.ts`    | Skill data contracts: source, index entry, snapshot, duplicate metadata.                                                                        |
 | `src/hlvm/agent/skills/store.ts`    | Root scanning, frontmatter parsing, validation, precedence, duplicate handling, short-lived snapshot cache, symlink/size hardening, body reads. |
+| `src/hlvm/agent/skills/activation.ts` | Shared explicit `/skill-name args` activation for REPL and `hlvm ask`; no special executor.                                                     |
 | `src/hlvm/agent/skills/prompt.ts`   | XML serialization and prompt-budget formatting.                                                                                                 |
 | `src/hlvm/agent/skills/reserved.ts` | Skill names reserved by built-in slash commands.                                                                                                |
 | `src/hlvm/cli/commands/skill.ts`    | CLI surface: `list`, `new`, `info`, optional `edit`.                                                                                            |
@@ -128,33 +130,55 @@ vendor transport.receive(ChannelMessage)
 ```
 
 External channel ownership is also centralized. The default shared runtime on
-`127.0.0.1:11435` is the only process that may start Telegram, LINE, or future
-external channel transports. Explicit `hlvm serve --port <non-default>` runtimes
-are isolated local HTTP/testing surfaces and must not poll Telegram, attach LINE
-event streams, or consume mobile updates.
+`127.0.0.1:11435` is the only process that may start Telegram or any future
+external channel transport. Explicit `hlvm serve --port <non-default>` runtimes
+are isolated local HTTP/testing surfaces and must not poll vendor APIs, attach
+vendor event streams, or consume mobile updates.
 
 Do not use runtime ports as chat, bot, endpoint, or agent identities. If HLVM
 needs multiple Telegram bots or multiple chat agents, add endpoint records under
 the shared channel runtime instead of spawning multiple runtime owners.
 
-### Adding a new vendor (e.g. Slack)
+### Channel scope rule
 
-Provide exactly two implementations and two wiring lines:
+A new vendor is only added when it meets all of:
 
-| File                                      | What to implement                                    |
-| ----------------------------------------- | ---------------------------------------------------- |
-| `src/hlvm/channels/slack/transport.ts`    | `ChannelTransport` — start/stop/send/receive         |
-| `src/hlvm/channels/slack/provisioning.ts` | `ChannelProvisioner` — createSession/completeSession |
-| `src/hlvm/channels/slack/protocol.ts`     | `SlackSetupSession extends ChannelSetupSession`      |
+1. **Free forever at any user count.** No per-message platform billing. No
+   monthly quota that grows with users.
+2. **Per-user ceiling, not aggregate.** Rate limits, tokens, or quotas live at
+   the per-user surface (bot token, OAuth token, workspace install, local
+   device). HLVM does not own a single shared ceiling that all users compete
+   for.
+3. **HLVM is never on the data path at runtime.** HLVM may host a one-time
+   provisioning callback (OAuth redirect, pair-code echo) but must not relay
+   user messages. After onboarding, the user's Mac talks to the vendor
+   directly.
+
+Vendors that meet all three (current shortlist): Telegram, iMessage
+self-message pattern, Slack Socket Mode, Gmail.
+
+Vendors that fail at least one and are explicitly out of scope: WhatsApp,
+Facebook Messenger, KakaoTalk, WeChat, LINE-with-push, iMessage cloud-Mac
+fleet. Do not add them without first amending this rule.
+
+### Adding a new vendor (next target: iMessage self-message)
+
+Provide exactly three vendor files and two wiring lines:
+
+| File                                            | What to implement                                       |
+| ----------------------------------------------- | ------------------------------------------------------- |
+| `src/hlvm/channels/<vendor>/transport.ts`       | `ChannelTransport` — start/stop/send/receive            |
+| `src/hlvm/channels/<vendor>/provisioning.ts`    | `ChannelProvisioner` — createSession/completeSession    |
+| `src/hlvm/channels/<vendor>/protocol.ts`        | `<Vendor>SetupSession extends ChannelSetupSession`      |
 
 Wire in:
 
-- `src/hlvm/channels/registry.ts` — add `slack: createSlackTransport`
-- `src/hlvm/cli/repl/handlers/channels/provisioning.ts` — add `"slack"` dispatch
-  entry
+- `src/hlvm/channels/registry.ts` — add `<vendor>: create<Vendor>Transport`
+- `src/hlvm/cli/repl/handlers/channels/provisioning.ts` — add `"<vendor>"`
+  dispatch entry
 
 Everything else (allowlist, queue, pairing, runQuery, config writeback, HTTP
-routes) is reused automatically. No other files need to change.
+routes, the QR window) is reused automatically. No other files need to change.
 
 ### Forbidden in vendor transport modules
 
@@ -162,6 +186,8 @@ routes) is reused automatically. No other files need to change.
 - Importing from `src/hlvm/runtime/host-client.ts`
 - Writing to config outside `context.updateConfig()`
 - Bypassing `context.receive()` to handle messages inline
+- Hosting a 24/7 message relay or paid-per-message bridge — see "Channel scope
+  rule" above
 
 ## Forbidden Patterns
 
@@ -390,3 +416,4 @@ When adding a new domain:
 | 2026-04-23 | Added channel runtime, vendor contracts, and multi-vendor extension rules |
 | 2026-04-24 | Added skills discovery, prompting, and execution-boundary rules           |
 | 2026-04-26 | Added external channel runtime ownership and endpoint identity rule       |
+| 2026-04-26 | Added channel scope rule (free forever, per-user ceiling, no relay); LINE removed; iMessage self-message named as next target |

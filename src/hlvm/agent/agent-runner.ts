@@ -138,6 +138,7 @@ import {
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
   "~/.hlvm/skills",
+  "~/.hlvm/.runtime/bundled-skills",
   "~/Downloads",
   "~/Desktop",
   "~/Documents",
@@ -1211,7 +1212,6 @@ export async function runAgentQuery(
     let text = "";
     let loopResult: AgentLoopResult | undefined;
     let structuredResult: unknown;
-    const compactionRevisionBefore = session.context.getCompactionRevision();
     try {
       const reactLoopConfig = {
         workspace,
@@ -1392,8 +1392,6 @@ export async function runAgentQuery(
     const stats = session.context.getStats();
     const completedLoopResult = loopResult!;
     const usageSnapshot = completedLoopResult.usage;
-    const compactedThisTurn = session.context.getCompactionRevision() >
-      compactionRevisionBefore;
 
     if (persistedTurn) {
       completePersistedAgentTurn(persistedTurn, model, text);

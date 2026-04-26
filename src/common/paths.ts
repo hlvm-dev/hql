@@ -559,6 +559,7 @@ export async function ensureModelsDir(): Promise<void> {
 }
 
 export const HLVM_AGENTS_SEGMENT = "agents";
+export const HLVM_BUNDLED_SKILLS_SEGMENT = "bundled-skills";
 export const HLVM_SKILLS_SEGMENT = "skills";
 export const HLVM_WORKTREES_SEGMENT = "worktrees";
 
@@ -572,6 +573,10 @@ export function getUserAgentsDir(): string {
 
 export function getUserSkillsDir(): string {
   return join(getHlvmDir(), HLVM_SKILLS_SEGMENT);
+}
+
+export function getBundledSkillsDir(): string {
+  return join(getRuntimeDir(), HLVM_BUNDLED_SKILLS_SEGMENT);
 }
 
 export function getWorktreesDir(gitRoot: string): string {
