@@ -8,18 +8,19 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { getBundledSkillNames, materializeBundledSkills } from "./bundled.ts";
 import { isReservedSkillName } from "./reserved.ts";
 import type {
+  ParsedSkillDefinition,
   SkillDuplicate,
   SkillEntry,
   SkillSnapshot,
   SkillSource,
 } from "./types.ts";
 
-const SKILL_FILE_NAME = "SKILL.md";
+export const SKILL_FILE_NAME = "SKILL.md";
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_SKILL_NAME_LENGTH = 64;
 const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
 const MAX_SKILL_COMPATIBILITY_LENGTH = 500;
-const MAX_SKILL_FILE_BYTES = 256 * 1024;
+export const MAX_SKILL_FILE_BYTES = 256 * 1024;
 const SKILL_SNAPSHOT_CACHE_TTL_MS = 5_000;
 
 interface SkillRoot {
@@ -100,6 +101,64 @@ async function readSkillFileIfSafe(path: string): Promise<string | null> {
   return await platform.fs.readTextFile(path);
 }
 
+export function parseSkillDefinition(
+  content: string,
+  options: { expectedName?: string } = {},
+): ParsedSkillDefinition {
+  const { meta } = parseFrontmatter<Record<string, unknown>>(content);
+  if (!meta) {
+    throw new ValidationError(
+      "Skill file must start with YAML frontmatter.",
+      "skill",
+    );
+  }
+
+  const name = readString(meta.name);
+  const description = readStringWithMax(
+    meta.description,
+    MAX_SKILL_DESCRIPTION_LENGTH,
+  );
+  if (!name) {
+    throw new ValidationError("Skill frontmatter is missing `name`.", "skill");
+  }
+  if (!isValidSkillName(name)) {
+    throw new ValidationError(
+      "Skill names must be kebab-case, 1-64 chars, using lowercase letters, numbers, and hyphens.",
+      "skill",
+    );
+  }
+  if (options.expectedName && name !== options.expectedName) {
+    throw new ValidationError(
+      `Skill frontmatter name '${name}' must match directory name '${options.expectedName}'.`,
+      "skill",
+    );
+  }
+  if (isReservedSkillName(name)) {
+    throw new ValidationError(
+      `Skill name '${name}' is reserved by a built-in slash command.`,
+      "skill",
+    );
+  }
+  if (!description) {
+    throw new ValidationError(
+      "Skill frontmatter is missing a non-empty `description` under 1024 characters.",
+      "skill",
+    );
+  }
+
+  return {
+    name,
+    description,
+    license: readString(meta.license),
+    compatibility: readOptionalStringWithMax(
+      meta.compatibility,
+      MAX_SKILL_COMPATIBILITY_LENGTH,
+    ),
+    metadata: readMetadata(meta.metadata),
+    allowedTools: readAllowedTools(meta["allowed-tools"]),
+  };
+}
+
 async function readCandidateSkill(
   root: SkillRoot,
   skillDirName: string,
@@ -117,33 +176,16 @@ async function readCandidateSkill(
     return null;
   }
 
-  const { meta } = parseFrontmatter<Record<string, unknown>>(content);
-  if (!meta) return null;
-
-  const name = readString(meta.name);
-  const description = readStringWithMax(
-    meta.description,
-    MAX_SKILL_DESCRIPTION_LENGTH,
-  );
-  if (
-    !name || name !== skillDirName || !description || !isValidSkillName(name) ||
-    isReservedSkillName(name)
-  ) {
+  let parsed: ParsedSkillDefinition;
+  try {
+    parsed = parseSkillDefinition(content, { expectedName: skillDirName });
+  } catch {
     return null;
   }
 
-  const compatibility = readOptionalStringWithMax(
-    meta.compatibility,
-    MAX_SKILL_COMPATIBILITY_LENGTH,
-  );
   return {
     entry: {
-      name,
-      description,
-      license: readString(meta.license),
-      compatibility,
-      metadata: readMetadata(meta.metadata),
-      allowedTools: readAllowedTools(meta["allowed-tools"]),
+      ...parsed,
       filePath: platform.path.resolve(skillFile),
       baseDir: platform.path.resolve(skillDir),
       source: root.source,

@@ -4,6 +4,11 @@ import { getUserSkillsDir } from "../../../common/paths.ts";
 import { truncate } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import {
+  importSkillPath,
+  installSkillFromGit,
+  type SkillInstallResult,
+} from "../../agent/skills/install.ts";
+import {
   clearSkillSnapshotCache,
   findSkillByName,
   isValidSkillName,
@@ -26,11 +31,15 @@ Commands:
   list                  List available skills
   new <name>            Create a global user skill
   info <name>           Show skill metadata and a body preview
+  import <path>         Import a local skill folder or skill pack
+  install <git-source>  Install a skill from Git/GitHub
 
 Examples:
   hlvm skill list
   hlvm skill new debug-workflow
   hlvm skill info debug-workflow
+  hlvm skill import ./debug-workflow
+  hlvm skill install github:owner/repo/path/to/skill
 `);
 }
 
@@ -87,6 +96,18 @@ export async function skillCommand(args: string[]): Promise<void> {
         return;
       }
       return await skillInfo(subArgs);
+    case "import":
+      if (hasHelpFlag(subArgs)) {
+        showSkillHelp();
+        return;
+      }
+      return await skillImport(subArgs);
+    case "install":
+      if (hasHelpFlag(subArgs)) {
+        showSkillHelp();
+        return;
+      }
+      return await skillInstall(subArgs);
     default:
       throw new ValidationError(
         `Unknown skill command: ${subcommand}. Run 'hlvm skill --help' for usage.`,
@@ -139,6 +160,11 @@ interface SkillNewOptions {
   name: string;
 }
 
+interface SkillTransferOptions {
+  source: string;
+  force: boolean;
+}
+
 function parseSkillNewArgs(args: string[]): SkillNewOptions {
   let name: string | undefined;
 
@@ -183,6 +209,79 @@ async function skillNew(args: string[]): Promise<void> {
   });
   clearSkillSnapshotCache();
   log.raw.log(`Created ${skillFile}`);
+}
+
+function parseSkillTransferArgs(
+  args: string[],
+  usage: string,
+): SkillTransferOptions {
+  let source: string | undefined;
+  let force = false;
+
+  for (const arg of args) {
+    if (arg === "--force") {
+      force = true;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      throw new ValidationError(
+        `Unknown option: ${arg}. Usage: ${usage}`,
+        usage,
+      );
+    }
+    if (source) {
+      throw new ValidationError(
+        `Too many arguments. Usage: ${usage}`,
+        usage,
+      );
+    }
+    source = arg;
+  }
+
+  if (!source) {
+    throw new ValidationError(`Missing source. Usage: ${usage}`, usage);
+  }
+  return { source, force };
+}
+
+function printSkillInstallResult(
+  verb: string,
+  result: SkillInstallResult,
+): void {
+  if (result.installed.length === 1) {
+    const skill = result.installed[0];
+    log.raw.log(`${verb} ${skill.name} -> ${skill.targetDir}`);
+  } else {
+    log.raw.log(`${verb} ${result.installed.length} skills:`);
+    for (const skill of result.installed) {
+      log.raw.log(`  ${skill.name} -> ${skill.targetDir}`);
+    }
+  }
+  for (const warning of result.warnings) {
+    log.raw.warn(`Warning: ${warning}`);
+  }
+}
+
+async function skillImport(args: string[]): Promise<void> {
+  const options = parseSkillTransferArgs(
+    args,
+    "hlvm skill import <path> [--force]",
+  );
+  const result = await importSkillPath(options.source, {
+    force: options.force,
+  });
+  printSkillInstallResult("Imported", result);
+}
+
+async function skillInstall(args: string[]): Promise<void> {
+  const options = parseSkillTransferArgs(
+    args,
+    "hlvm skill install <git-source> [--force]",
+  );
+  const result = await installSkillFromGit(options.source, {
+    force: options.force,
+  });
+  printSkillInstallResult("Installed", result);
 }
 
 function scaffoldSkill(name: string): string {

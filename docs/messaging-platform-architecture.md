@@ -25,9 +25,9 @@ The existing shared runtime is already the right foundation:
 
 The missing seam was provisioning/setup, not transport execution. That seam is
 now implemented in the codebase, with Telegram as the first vendor running
-through it. The next vendor is iMessage via the self-message pattern, then
-Slack via Socket Mode, then Gmail. All three meet the channel scope rule
-defined below.
+through it. The next vendor is iMessage via the self-message pattern, then Slack
+via Socket Mode, then Gmail. All three meet the channel scope rule defined
+below.
 
 ## Core rule
 
@@ -276,17 +276,18 @@ createUrl  = Telegram-specific create/open link
 ```
 
 A future vendor extends the base session with whatever pairing fields it needs.
-For example, the planned iMessage self-message session is expected to extend
-the base session with:
+For example, the planned iMessage self-message session is expected to extend the
+base session with:
 
 - `pairCode`
 - `qrKind = "self_message"`
+- `appleId` (the user's own Apple ID, supplied by the GUI from NSAccountStore)
 - `selfMessagePrompt` (the prefilled body the user sends to themselves)
 
 For iMessage self-message:
 
 ```text
-setupUrl = imessage:?body=<url-encoded-prefilled-pair-text>
+setupUrl = sms:<own-apple-id>&body=<url-encoded-prefilled-pair-text>
 ```
 
 Slack and Gmail use OAuth install URLs instead. Each vendor is free to define
@@ -416,8 +417,7 @@ A vendor is only added when it meets all three:
    device). HLVM does not own one shared ceiling that all users compete for.
 3. **HLVM is never on the data path at runtime.** HLVM may host a one-time
    provisioning callback (OAuth redirect, pair-code echo) but must not relay
-   user messages. After onboarding, the user's Mac talks to the vendor
-   directly.
+   user messages. After onboarding, the user's Mac talks to the vendor directly.
 
 Vendors that meet all three: Telegram, iMessage self-message pattern, Slack
 Socket Mode, Gmail.
@@ -435,12 +435,12 @@ iMessage cloud-Mac — Cloud Mac fleet + Apple ID sharding; central + ToS risk.
 Discord            — One HLVM-owned bot routes all DMs; aggregate ceiling.
 ```
 
-These may return as optional/enterprise channels later, but only after this
-rule is amended with explicit cost/ownership justification. Do not add them
-just because a gateway product can technically support them. OpenClaw proves
-broad multi-channel gateways can work, but that model accepts per-channel
-setup burden — plugins, QR logins, developer tokens, external daemons, webhook
-URLs, paid bridges. HLVM ships fewer channels with productized onboarding.
+These may return as optional/enterprise channels later, but only after this rule
+is amended with explicit cost/ownership justification. Do not add them just
+because a gateway product can technically support them. OpenClaw proves broad
+multi-channel gateways can work, but that model accepts per-channel setup burden
+— plugins, QR logins, developer tokens, external daemons, webhook URLs, paid
+bridges. HLVM ships fewer channels with productized onboarding.
 
 ## Roadmap
 
@@ -464,15 +464,16 @@ Current priority guidance:
 - **Telegram is shipping.** User-owned bot tokens, Mac long-polls directly. No
   HLVM relay. Free forever.
 - **iMessage self-message is the next target.** Apple ecosystem, decentralized,
-  free, no HLVM relay. The user sends a prefixed message to themselves; the
-  Mac watches the local Messages store and treats those messages as bot turns.
-  See "iMessage self-message contract" below.
+  free, no HLVM relay. After a one-time pair, the user's self-thread in Messages
+  becomes their HLVM conversation — every message in it is a bot turn (no
+  prefix, Telegram parity). The Mac watches the local Messages store via
+  FSEvents on `chat.db-wal`. See "iMessage self-message contract" below.
 - **Slack Socket Mode is planned next after iMessage.** Per-workspace OAuth
   install. Mac connects to Slack via WebSocket directly. HLVM hosts only the
   OAuth callback. Accept workspace admin consent friction; treat Slack as the
   work surface, not a personal-mobile clone.
-- **Gmail is planned after Slack.** Per-user OAuth. Mac uses IMAP IDLE + SMTP
-  or Gmail API directly. HLVM hosts only the OAuth callback. Email surface,
+- **Gmail is planned after Slack.** Per-user OAuth. Mac uses IMAP IDLE + SMTP or
+  Gmail API directly. HLVM hosts only the OAuth callback. Email surface,
   different rhythm than chat, complementary not duplicate.
 
 The product bar for any new messaging channel is mobile QR-first:
@@ -514,7 +515,7 @@ The QR payload is platform-specific and belongs behind `ChannelProvisioner`:
 
 ```text
 Telegram  → Telegram create/open bot URL (BotFather or pre-prepared bot)
-iMessage  → imessage:?body=<prefilled pair text> to the user's own Apple ID
+iMessage  → sms:<own-apple-id>&body=<prefilled pair text>
 Slack     → Slack OAuth install URL with state=<pair-code>
 Gmail     → Google OAuth URL with state=<pair-code>
 ```
@@ -539,50 +540,126 @@ Primary official references:
 - Gmail API overview: `https://developers.google.com/gmail/api`
 - Google OAuth 2.0: `https://developers.google.com/identity/protocols/oauth2`
 - Apple Messages on Mac (chat database, AppleScript) — no public bot API; see
-  Apple Developer documentation for Shortcuts and AppleScript scripting
-  bridges that are sanctioned for local automation of the user's own account.
+  Apple Developer documentation for Shortcuts and AppleScript scripting bridges
+  that are sanctioned for local automation of the user's own account.
 
 ## iMessage self-message contract
 
-iMessage does not offer a public bot platform. HLVM does not run a central
-Apple ID, does not operate a Mac fleet, and does not contract with iMessage
-aggregators. Instead, HLVM uses the user's *own* Mac and *own* Apple ID to
-treat self-addressed messages as bot turns.
+iMessage does not offer a public bot platform. HLVM does not run a central Apple
+ID, does not operate a Mac fleet, and does not contract with iMessage
+aggregators. Instead, HLVM uses the user's _own_ Mac and _own_ Apple ID. After
+pairing, the user's self-thread becomes their HLVM conversation — every message
+in that thread is a bot turn, the same way every message in a Telegram bot chat
+is a bot turn.
 
 Product shape:
 
 ```text
 macOS HLVM
 → POST /api/channels/imessage/provisioning/session
+  body: { appleId } (passed in by the GUI from NSAccountStore)
 → shared runtime arms a pair-code listener on the local Messages store
-→ QR opens Messages.app on the phone with prefilled "@hlvm HLVM-#### hello"
-  text addressed to the user's own Apple ID
+→ QR opens Messages.app on the phone with the prefilled pair text
+  addressed to the user's own Apple ID
 → user taps send on phone
 → message syncs through iCloud to the user's Mac
 → local iMessage transport observes chat.db, matches the pair code,
   binds the local device to that Apple ID
-→ subsequent self-addressed messages prefixed with @hlvm flow through the
-  shared channel runtime
-→ replies are sent from the same Mac via Shortcuts / AppleScript back to the
-  user's own Apple ID, appearing on their phone Messages app
+→ subsequent self-thread messages flow through the shared channel runtime
+  with no prefix required
+→ replies are sent from the same Mac via AppleScript / Apple Events
+  back to the user's own Apple ID, appearing on their phone Messages app
 ```
 
-Trigger disambiguation rule:
+Trigger model:
 
 ```text
-The transport must NOT treat every self-message as a bot turn. Users do use
-note-to-self for genuine notes. A configurable prefix (default "@hlvm")
-distinguishes bot turns from personal notes. Self-messages without the prefix
-are ignored.
+After pairing, every message in the bound self-thread is a bot turn. No
+prefix or mode toggle is required — Telegram parity. The self-thread "Note to
+Self" semantics are sacrificed: users who relied on it for genuine notes must
+move those to Notes.app or Reminders. This is disclosed during onboarding.
+
+A `triggerPrefix` field exists in `channels.imessage.transport` for advanced
+users who want to share the self-thread between bot turns and genuine notes,
+but it is empty by default.
 ```
 
 Loop prevention rule:
 
 ```text
-Mac-originated self-messages (is_from_me = 1, originating from this device)
-must be filtered out of the inbound stream. Only inbound self-messages
-originating from another of the user's devices (e.g. the iPhone) are eligible
-to become bot turns.
+The transport binds one self-thread and maintains a short LRU of the body
+hashes / visible markers of recent outbound replies. Rows matching those
+outbound sends are dropped so HLVM does not answer itself.
+
+Do not rely solely on `is_from_me`. In a self-message thread, iPhone-originated
+messages may still appear as "from me" on the Mac because they come from the
+same Apple ID. Do not rely solely on `message.text` either; the feasibility
+spike showed AppleScript outbound rows with empty `text` and message content
+stored outside that column. The first implementation must run a real-device
+chat.db spike and lock the final filter against observed rows before shipping.
+```
+
+Reply attribution:
+
+```text
+Replies sent via AppleScript / Apple Events appear in the self-thread under
+the user's own name (since they are sent from the user's Apple ID to
+themselves). Telegram shows replies as "HLVM Bot:"; iMessage cannot. The
+transport prepends a small visible marker (default "🤖 ") to outbound replies
+so the visual flow stays readable in the self-thread. The marker is
+configurable.
+```
+
+Inbound delivery model — event-driven, no recurring polling:
+
+```text
+The transport watches `~/Library/Messages/chat.db-wal` through a tiny
+macOS-native helper using `DispatchSource.makeFileSystemObjectSource` on the
+WAL file descriptor. On each WAL change, the runtime runs a cursor-based SQL
+query against chat.db (read-only) for new ROWIDs since the last seen position.
+
+Do not assume Deno's `Deno.watchFs` is sufficient. The 2026-04-26 feasibility
+spike on macOS 26.0.1 showed Deno 2.7.12 missing Messages WAL changes. Node's
+native `fs.watch` and a Swift `DispatchSource` helper both caught WAL writes;
+Swift `DispatchSource` is the preferred v1 primitive because it is Apple's
+official GCD file-system event API and does not require bundling Node.
+
+There is no periodic safety poll. If FSEvents drops or coalesces events, the
+next observed event still queries all ROWIDs since the stored cursor. The
+transport may also run one-shot catch-up scans on startup, wake/reconnect,
+watcher overflow/drop notifications, watcher restart, WAL rename/delete/reopen,
+and after bounded `SQLITE_BUSY` retry. That keeps the design reactive and
+compatible with the repo-wide "no recurring polling" rule.
+```
+
+chat.db row filters (in addition to bound self-thread + outbound LRU):
+
+```text
+- skip rows where `chat_handle_join` count > 1  (group chats, not self-thread)
+- skip rows where `associated_message_type != 0`  (tapbacks/reactions)
+- skip rows that the current schema marks retracted or edited
+  (macOS 26 has `date_retracted` / `date_edited`, not `is_unsent`)
+- skip rows where `message_summary_info` is non-NULL when that indicates
+  edit/history metadata rather than a normal text body
+- order by `ROWID`, never by `date` (clock skew between phone and Mac)
+- handle SQLITE_BUSY with bounded retry (Messages.app may be writing)
+```
+
+Notification noise mitigation:
+
+```text
+Every inbound prompt from the phone fires a macOS Notification Center banner
+on the Mac, which can cover the HLVM Siri bubble. Apple gives no API to
+suppress per-message or per-thread programmatically.
+
+Onboarding completion includes a one-tap step: "Mute the self-thread in
+Messages (Hide Alerts) so prompts don't cover the HLVM bubble." This is per-
+thread, not global — other Messages threads keep notifying. Trade-off:
+genuine note-to-self banner reminders are also suppressed for that thread,
+acceptable for ~99% of users.
+
+The HLVM bubble is also repositioned away from the top-right corner where
+banners live, as defense in depth.
 ```
 
 Local prerequisites the transport must verify at start:
@@ -591,18 +668,34 @@ Local prerequisites the transport must verify at start:
 - Messages.app signed in with the same Apple ID expected by the pair code
 - Full Disk Access granted to the HLVM process (required to read
   `~/Library/Messages/chat.db`)
-- A reasonable macOS version (transport must version-check chat.db schema and
-  Shortcuts/AppleScript send paths; failures should surface a clear error,
-  not a silent drop)
+- A proven send path. The 2026-04-26 feasibility spike proved AppleScript /
+  Apple Events sending through Messages on this machine and found
+  `shortcuts list` failing with "Couldn’t communicate with a helper
+  application"; do not make Shortcuts the only send path until that helper issue
+  is resolved.
+- A proven QR pair surface. The 2026-04-26 iPhone test proved
+  `sms:<url-encoded-apple-id>&body=<url-encoded-pair-text>` opens Messages to
+  the target Apple ID with `HLVM-PAIR-1234` prefilled in the input field.
+- macOS version is recognized (the transport pins to documented chat.db columns
+  and fails closed with a clear error if a column is missing)
 
 Privacy rule:
 
 ```text
 The iMessage transport has read access to the entire Messages store, but is
-only allowed to act on or surface self-addressed messages matching the
-configured prefix. It must not log, index, store, or forward any other
-conversation. The macOS onboarding flow must explicitly disclose this access
-to the user before requesting Full Disk Access.
+only allowed to act on or surface messages from the bound self-thread. It
+must not log, index, store, or forward any other conversation. The macOS
+onboarding flow must explicitly disclose this access to the user before
+requesting Full Disk Access, and the disclosure must precede the FDA prompt.
+```
+
+Multi-device note:
+
+```text
+Pair-code binds one Mac. If the user has HLVM installed on a second Mac
+signed into the same Apple ID, that second Mac sees the inbound messages but
+ignores them because its device id is not in the allowlist. Only the paired
+Mac replies. The user re-pairs (or pairs the second Mac) to switch.
 ```
 
 There is no HLVM-hosted bridge, no operator setup checklist, and no per-message
@@ -610,16 +703,16 @@ cost. The only deployment burden is shipping the vendor folder under
 `src/hlvm/channels/imessage/` and wiring the registry/dispatch entries.
 
 iMessage is shippable on macOS only; the transport is platform-gated and other
-HLVM processes (Linux, future Windows) must report it as unavailable rather
-than failing to start.
+HLVM processes (Linux, future Windows) must report it as unavailable rather than
+failing to start.
 
 ## Non-goals
 
 This architecture does not attempt to invent one fake universal vendor model.
 
 It does not force Telegram, iMessage, Slack, and Gmail into identical setup
-payloads. Each has a different transport, different pairing flow, and
-different consent surface; flattening that loses useful vendor detail.
+payloads. Each has a different transport, different pairing flow, and different
+consent surface; flattening that loses useful vendor detail.
 
 Instead:
 
@@ -691,20 +784,21 @@ shared runtime on 11435
 ```
 
 This is the correct way to support many Telegram bots / agents from one iOS
-Telegram account while keeping transcripts isolated. It is a future feature,
-not part of the iMessage prep.
+Telegram account while keeping transcripts isolated. It is a future feature, not
+part of the iMessage prep.
 
 ## Remaining cleanup only
 
 These are the meaningful architecture-adjacent leftovers now:
 
-1. keep future vendor-specific setup fields inside that vendor folder instead
-   of drifting back into shared runtime protocol files
+1. keep future vendor-specific setup fields inside that vendor folder instead of
+   drifting back into shared runtime protocol files
 
 These are cleanup items. They do not change the current Telegram behavior.
 
 ## Revision history
 
-| Date       | Change                                                                                                                                                          |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-04-26 | Rev 18 — LINE removed; channel scope rule (free forever / per-user ceiling / no relay) added; iMessage self-message named as next target; Slack/Gmail roadmap. |
+| Date       | Change                                                                                                                                                                                                                                                                                            |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04-26 | Rev 18 — LINE removed; channel scope rule (free forever / per-user ceiling / no relay) added; iMessage self-message named as next target; Slack/Gmail roadmap.                                                                                                                                    |
+| 2026-04-26 | Rev 19 — iMessage contract refined: every self-thread message is a bot turn (no prefix, Telegram parity); FSEvents on chat.db-wal replaces polling; Hide Alerts mitigation for notification noise; reply marker for visual attribution; chat.db row filters specified; multi-device pairing rule. |

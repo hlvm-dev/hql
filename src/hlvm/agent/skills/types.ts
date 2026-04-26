@@ -1,5 +1,14 @@
 export type SkillSource = "user" | "bundled";
 
+export interface ParsedSkillDefinition {
+  name: string;
+  description: string;
+  license?: string;
+  compatibility?: string;
+  metadata?: Record<string, string>;
+  allowedTools?: string[];
+}
+
 export interface SkillEntry {
   name: string;
   description: string;
