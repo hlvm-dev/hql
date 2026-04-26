@@ -1,17 +1,25 @@
 import { getUserSkillsDir } from "../../../common/paths.ts";
+import { atomicWriteTextFile } from "../../../common/atomic-file.ts";
 import { ValidationError } from "../../../common/error.ts";
+import { sha256Hex } from "../../../common/sha256.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import {
   clearSkillSnapshotCache,
+  isValidSkillName,
+  loadSkillSnapshot,
   MAX_SKILL_FILE_BYTES,
   parseSkillDefinition,
   SKILL_FILE_NAME,
 } from "./store.ts";
+import { isReservedSkillName } from "./reserved.ts";
 import type { ParsedSkillDefinition } from "./types.ts";
 
 const SKIPPED_COPY_NAMES = new Set([".git", ".clawhub", ".hlvm", ".DS_Store"]);
 const MAX_SKILL_TREE_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_SKILL_TREE_TOTAL_BYTES = 25 * 1024 * 1024;
+const ORIGIN_DIR_NAME = ".hlvm";
+const ORIGIN_FILE_NAME = "origin.json";
+const MAX_ORIGIN_FILE_BYTES = 32 * 1024;
 
 export interface SkillInstallOptions {
   force?: boolean;
@@ -27,6 +35,60 @@ export interface SkillInstallResult {
   warnings: string[];
 }
 
+export interface SkillCreateResult {
+  name: string;
+  skillDir: string;
+  skillFile: string;
+}
+
+export interface SkillOrigin {
+  version: 1;
+  source: "local" | "git";
+  installedAt: number;
+  contentHash: string;
+  local?: {
+    path: string;
+  };
+  git?: {
+    input: string;
+    cloneUrl: string;
+    ref?: string;
+    subpath?: string;
+    commit?: string;
+  };
+}
+
+export interface SkillRemoveResult {
+  name: string;
+  targetDir: string;
+}
+
+export interface SkillUpdateResult {
+  name: string;
+  targetDir: string;
+  changed: boolean;
+  previousHash?: string;
+  currentHash?: string;
+  error?: string;
+}
+
+export interface SkillCheckEntry {
+  name: string;
+  source: "user" | "bundled" | "unknown";
+  path: string;
+  status: "ready" | "warning" | "error";
+  warnings: string[];
+  errors: string[];
+}
+
+export interface SkillCheckResult {
+  total: number;
+  ready: number;
+  warnings: number;
+  errors: number;
+  entries: SkillCheckEntry[];
+}
+
 interface SkillImportCandidate {
   sourceDir: string;
   definition: ParsedSkillDefinition;
@@ -37,10 +99,29 @@ interface SkillTreeScan {
   hasScriptsDir: boolean;
 }
 
+interface SkillTreeWalkEntry {
+  sourcePath: string;
+  relativePath: string;
+  info: {
+    isFile: boolean;
+    isDirectory: boolean;
+    isSymlink: boolean;
+    size: number;
+  };
+}
+
 interface GitSkillSource {
   cloneUrl: string;
   ref?: string;
   subpath?: string;
+}
+
+interface SkillOriginInput {
+  kind: "local" | "git";
+  input?: string;
+  gitSource?: GitSkillSource;
+  commit?: string;
+  importRoot?: string;
 }
 
 function isPathInside(parent: string, child: string): boolean {
@@ -50,9 +131,41 @@ function isPathInside(parent: string, child: string): boolean {
     (!relative.startsWith("..") && !platform.path.isAbsolute(relative));
 }
 
+function requireUserSkillTarget(name: string): string {
+  const platform = getPlatform();
+  const userSkillsDir = getUserSkillsDir();
+  const targetDir = platform.path.resolve(userSkillsDir, name);
+  if (!isPathInside(platform.path.resolve(userSkillsDir), targetDir)) {
+    throw new ValidationError(
+      `Skill target escapes user skills root: ${name}`,
+      "hlvm skill",
+    );
+  }
+  return targetDir;
+}
+
+function validateUserSkillName(name: string, command: string): void {
+  if (!isValidSkillName(name)) {
+    throw new ValidationError(
+      "Skill names must be kebab-case, 1-64 chars, using lowercase letters, numbers, and hyphens.",
+      command,
+    );
+  }
+  if (isReservedSkillName(name)) {
+    throw new ValidationError(
+      `Skill name '${name}' is reserved by a built-in slash command.`,
+      command,
+    );
+  }
+}
+
+function hasParentPathSegment(path: string): boolean {
+  return path.split(/[\\/]+/).some((segment) => segment === "..");
+}
+
 function ensureSafeRelativePath(path: string): string {
   const platform = getPlatform();
-  if (path.split(/[\\/]+/).some((segment) => segment === "..")) {
+  if (hasParentPathSegment(path)) {
     throw new ValidationError(
       `Invalid skill install subpath: ${path}`,
       "hlvm skill install",
@@ -61,7 +174,7 @@ function ensureSafeRelativePath(path: string): string {
   const normalized = platform.path.normalize(path);
   if (
     normalized === "." || platform.path.isAbsolute(normalized) ||
-    normalized.split(/[\\/]+/).some((segment) => segment === "..")
+    hasParentPathSegment(normalized)
   ) {
     throw new ValidationError(
       `Invalid skill install subpath: ${path}`,
@@ -96,6 +209,58 @@ async function readSkillDefinitionFromDir(
     );
   }
   return parseSkillDefinition(await platform.fs.readTextFile(skillFile));
+}
+
+function getOriginPath(skillDir: string): string {
+  const platform = getPlatform();
+  return platform.path.join(skillDir, ORIGIN_DIR_NAME, ORIGIN_FILE_NAME);
+}
+
+function isSkillOrigin(value: unknown): value is SkillOrigin {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Partial<SkillOrigin>;
+  if (
+    candidate.version !== 1 ||
+    (candidate.source !== "local" && candidate.source !== "git") ||
+    typeof candidate.installedAt !== "number" ||
+    typeof candidate.contentHash !== "string"
+  ) {
+    return false;
+  }
+  if (candidate.source === "local") {
+    return typeof candidate.local?.path === "string";
+  }
+  return typeof candidate.git?.input === "string" &&
+    typeof candidate.git.cloneUrl === "string";
+}
+
+export async function readSkillOrigin(
+  skillDir: string,
+): Promise<SkillOrigin | null> {
+  const platform = getPlatform();
+  const originPath = getOriginPath(skillDir);
+  try {
+    const info = await platform.fs.lstat(originPath);
+    if (!info.isFile || info.isSymlink || info.size > MAX_ORIGIN_FILE_BYTES) {
+      return null;
+    }
+    const parsed = JSON.parse(await platform.fs.readTextFile(originPath));
+    return isSkillOrigin(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeSkillOrigin(
+  skillDir: string,
+  origin: SkillOrigin,
+): Promise<void> {
+  await atomicWriteTextFile(
+    getOriginPath(skillDir),
+    `${JSON.stringify(origin, null, 2)}\n`,
+  );
 }
 
 async function findSkillImportCandidates(
@@ -162,16 +327,34 @@ function ensureUniqueCandidates(candidates: SkillImportCandidate[]): void {
   }
 }
 
-async function scanSkillTree(
+async function walkSkillTree(
   sourceDir: string,
+  visit: (entry: SkillTreeWalkEntry) => void | Promise<void>,
   rootDir = sourceDir,
-  state: SkillTreeScan = { totalBytes: 0, hasScriptsDir: false },
-): Promise<SkillTreeScan> {
+): Promise<void> {
   const platform = getPlatform();
+  const entries: string[] = [];
   for await (const entry of platform.fs.readDir(sourceDir)) {
     if (SKIPPED_COPY_NAMES.has(entry.name)) continue;
-    const sourcePath = platform.path.join(sourceDir, entry.name);
+    entries.push(entry.name);
+  }
+  entries.sort((left, right) => left.localeCompare(right));
+
+  for (const name of entries) {
+    const sourcePath = platform.path.join(sourceDir, name);
     const info = await platform.fs.lstat(sourcePath);
+    const relativePath = platform.path.relative(rootDir, sourcePath);
+    await visit({ sourcePath, relativePath, info });
+    if (info.isDirectory && !info.isSymlink) {
+      await walkSkillTree(sourcePath, visit, rootDir);
+    }
+  }
+}
+
+async function scanSkillTree(sourceDir: string): Promise<SkillTreeScan> {
+  const platform = getPlatform();
+  const state: SkillTreeScan = { totalBytes: 0, hasScriptsDir: false };
+  await walkSkillTree(sourceDir, ({ sourcePath, relativePath, info }) => {
     if (info.isSymlink) {
       throw new ValidationError(
         `Refusing to import skill with symlink: ${sourcePath}`,
@@ -179,17 +362,15 @@ async function scanSkillTree(
       );
     }
     if (info.isDirectory) {
-      const relative = platform.path.relative(rootDir, sourcePath);
       if (
-        relative === "scripts" ||
-        relative.startsWith(`scripts${platform.path.sep}`)
+        relativePath === "scripts" ||
+        relativePath.startsWith(`scripts${platform.path.sep}`)
       ) {
         state.hasScriptsDir = true;
       }
-      await scanSkillTree(sourcePath, rootDir, state);
-      continue;
+      return;
     }
-    if (!info.isFile) continue;
+    if (!info.isFile) return;
     if (info.size > MAX_SKILL_TREE_FILE_BYTES) {
       throw new ValidationError(
         `Refusing to import oversized skill file: ${sourcePath}`,
@@ -199,12 +380,120 @@ async function scanSkillTree(
     state.totalBytes += info.size;
     if (state.totalBytes > MAX_SKILL_TREE_TOTAL_BYTES) {
       throw new ValidationError(
-        `Refusing to import skill larger than ${MAX_SKILL_TREE_TOTAL_BYTES} bytes: ${rootDir}`,
+        `Refusing to import skill larger than ${MAX_SKILL_TREE_TOTAL_BYTES} bytes: ${sourceDir}`,
         "hlvm skill import",
       );
     }
-  }
+  });
   return state;
+}
+
+async function collectSkillTreeIssues(
+  sourceDir: string,
+): Promise<{ totalBytes: number; warnings: string[]; errors: string[] }> {
+  const platform = getPlatform();
+  const state: { totalBytes: number; warnings: string[]; errors: string[] } = {
+    totalBytes: 0,
+    warnings: [],
+    errors: [],
+  };
+  await walkSkillTree(sourceDir, ({ sourcePath, relativePath, info }) => {
+    if (info.isSymlink) {
+      state.errors.push(`Symlink is not allowed: ${sourcePath}`);
+      return;
+    }
+    if (info.isDirectory) {
+      if (
+        relativePath === "scripts" ||
+        relativePath.startsWith(`scripts${platform.path.sep}`)
+      ) {
+        state.warnings.push(
+          "Contains scripts/. HLVM imports files only and does not run install hooks.",
+        );
+      }
+      return;
+    }
+    if (!info.isFile) return;
+    if (info.size > MAX_SKILL_TREE_FILE_BYTES) {
+      state.errors.push(`Oversized skill file: ${sourcePath}`);
+    }
+    state.totalBytes += info.size;
+    if (state.totalBytes > MAX_SKILL_TREE_TOTAL_BYTES) {
+      state.errors.push(
+        `Skill tree exceeds ${MAX_SKILL_TREE_TOTAL_BYTES} bytes: ${sourceDir}`,
+      );
+    }
+  });
+  state.warnings = [...new Set(state.warnings)];
+  state.errors = [...new Set(state.errors)];
+  return state;
+}
+
+async function computeSkillTreeHash(skillDir: string): Promise<string> {
+  const platform = getPlatform();
+  const entries: Array<{ path: string; hash: string }> = [];
+
+  await walkSkillTree(skillDir, async ({ sourcePath, relativePath, info }) => {
+    if (info.isSymlink || !info.isFile) return;
+    entries.push({
+      path: relativePath.split(platform.path.sep).join("/"),
+      hash: await sha256Hex(await platform.fs.readFile(sourcePath)),
+    });
+  });
+  return await sha256Hex(
+    entries.map((entry) => `${entry.path}\0${entry.hash}`).join("\n"),
+  );
+}
+
+function joinRelativePath(left?: string, right?: string): string | undefined {
+  const platform = getPlatform();
+  const parts = [left, right].filter((part): part is string =>
+    Boolean(part && part !== ".")
+  );
+  return parts.length > 0
+    ? ensureSafeRelativePath(parts.join(platform.path.sep))
+    : undefined;
+}
+
+async function buildSkillOrigin(
+  candidate: SkillImportCandidate,
+  targetDir: string,
+  originInput: SkillOriginInput,
+): Promise<SkillOrigin> {
+  const platform = getPlatform();
+  const installedAt = Date.now();
+  const contentHash = await computeSkillTreeHash(targetDir);
+  if (originInput.kind === "git" && originInput.gitSource) {
+    const relativeCandidatePath = originInput.importRoot
+      ? platform.path.relative(originInput.importRoot, candidate.sourceDir)
+      : undefined;
+    return {
+      version: 1,
+      source: "git",
+      installedAt,
+      contentHash,
+      git: {
+        input: originInput.input ?? originInput.gitSource.cloneUrl,
+        cloneUrl: originInput.gitSource.cloneUrl,
+        ref: originInput.gitSource.ref,
+        subpath: joinRelativePath(
+          originInput.gitSource.subpath,
+          relativeCandidatePath,
+        ),
+        commit: originInput.commit,
+      },
+    };
+  }
+
+  return {
+    version: 1,
+    source: "local",
+    installedAt,
+    contentHash,
+    local: {
+      path: platform.path.resolve(candidate.sourceDir),
+    },
+  };
 }
 
 async function copySkillTree(
@@ -213,11 +502,8 @@ async function copySkillTree(
 ): Promise<void> {
   const platform = getPlatform();
   await platform.fs.mkdir(targetDir, { recursive: true });
-  for await (const entry of platform.fs.readDir(sourceDir)) {
-    if (SKIPPED_COPY_NAMES.has(entry.name)) continue;
-    const sourcePath = platform.path.join(sourceDir, entry.name);
-    const targetPath = platform.path.join(targetDir, entry.name);
-    const info = await platform.fs.lstat(sourcePath);
+  await walkSkillTree(sourceDir, async ({ sourcePath, relativePath, info }) => {
+    const targetPath = platform.path.join(targetDir, relativePath);
     if (info.isSymlink) {
       throw new ValidationError(
         `Refusing to copy symlink from skill source: ${sourcePath}`,
@@ -225,13 +511,16 @@ async function copySkillTree(
       );
     }
     if (info.isDirectory) {
-      await copySkillTree(sourcePath, targetPath);
-      continue;
+      await platform.fs.mkdir(targetPath, { recursive: true });
+      return;
     }
     if (info.isFile) {
+      await platform.fs.mkdir(platform.path.dirname(targetPath), {
+        recursive: true,
+      });
       await platform.fs.copyFile(sourcePath, targetPath);
     }
-  }
+  });
 }
 
 function createStageDirName(skillName: string): string {
@@ -241,9 +530,48 @@ function createStageDirName(skillName: string): string {
   return `.install-${skillName}-${random}`;
 }
 
+function renderSkillScaffold(name: string): string {
+  const title = name.split("-").map((part) =>
+    part.charAt(0).toUpperCase() + part.slice(1)
+  ).join(" ");
+  return `---
+name: ${name}
+description: Use when working on ${name}.
+---
+
+# ${title}
+
+Describe when to use this skill and the steps the agent should follow.
+`;
+}
+
+export async function createUserSkill(
+  name: string,
+): Promise<SkillCreateResult> {
+  validateUserSkillName(name, "hlvm skill new");
+  const platform = getPlatform();
+  const skillDir = requireUserSkillTarget(name);
+  const skillFile = platform.path.join(skillDir, SKILL_FILE_NAME);
+
+  if (await platform.fs.exists(skillDir)) {
+    throw new ValidationError(
+      `Skill already exists at ${skillDir}`,
+      "hlvm skill new",
+    );
+  }
+
+  await platform.fs.mkdir(skillDir, { recursive: true });
+  await platform.fs.writeTextFile(skillFile, renderSkillScaffold(name), {
+    createNew: true,
+  });
+  clearSkillSnapshotCache();
+  return { name, skillDir, skillFile };
+}
+
 export async function importSkillPath(
   sourcePath: string,
   options: SkillInstallOptions = {},
+  originInput: SkillOriginInput = { kind: "local" },
 ): Promise<SkillInstallResult> {
   const platform = getPlatform();
   const candidates = await findSkillImportCandidates(sourcePath);
@@ -254,10 +582,7 @@ export async function importSkillPath(
 
   const targetByName = new Map<string, string>();
   for (const candidate of candidates) {
-    const targetDir = platform.path.join(
-      userSkillsDir,
-      candidate.definition.name,
-    );
+    const targetDir = requireUserSkillTarget(candidate.definition.name);
     targetByName.set(candidate.definition.name, targetDir);
     if (!options.force && await platform.fs.exists(targetDir)) {
       throw new ValidationError(
@@ -284,6 +609,10 @@ export async function importSkillPath(
         createStageDirName(candidate.definition.name),
       );
       await copySkillTree(candidate.sourceDir, stageDir);
+      await writeSkillOrigin(
+        stageDir,
+        await buildSkillOrigin(candidate, stageDir, originInput),
+      );
       staged.push({
         name: candidate.definition.name,
         stageDir,
@@ -412,12 +741,30 @@ export function parseGitSkillSource(input: string): GitSkillSource {
   };
 }
 
-export async function installSkillFromGit(
-  source: string,
+async function runGitOutput(cwd: string, args: string[]): Promise<string> {
+  const platform = getPlatform();
+  const result = await platform.command.output({
+    cmd: ["git", ...args],
+    cwd,
+    stdout: "piped",
+    stderr: "piped",
+  });
+  if (!result.success) {
+    const details = decodeText(result.stderr) || decodeText(result.stdout);
+    throw new ValidationError(
+      `git ${args.join(" ")} failed${details ? `: ${details}` : ""}`,
+      "hlvm skill install",
+    );
+  }
+  return decodeText(result.stdout);
+}
+
+async function installSkillFromGitSource(
+  gitSource: GitSkillSource,
+  input: string,
   options: SkillInstallOptions = {},
 ): Promise<SkillInstallResult> {
   const platform = getPlatform();
-  const gitSource = parseGitSkillSource(source);
   const cloneDir = await platform.fs.makeTempDir({ prefix: "hlvm-skill-git-" });
   try {
     const args = ["clone", "--depth", "1"];
@@ -448,6 +795,13 @@ export async function installSkillFromGit(
       );
     }
 
+    let commit: string | undefined;
+    try {
+      commit = await runGitOutput(cloneDir, ["rev-parse", "HEAD"]);
+    } catch {
+      commit = undefined;
+    }
+
     const importRoot = gitSource.subpath
       ? platform.path.resolve(cloneDir, gitSource.subpath)
       : cloneDir;
@@ -457,10 +811,265 @@ export async function installSkillFromGit(
         "hlvm skill install",
       );
     }
-    return await importSkillPath(importRoot, options);
+    return await importSkillPath(importRoot, options, {
+      kind: "git",
+      input,
+      gitSource,
+      commit,
+      importRoot,
+    });
   } finally {
     await platform.fs.remove(cloneDir, { recursive: true }).catch(() =>
       undefined
     );
   }
+}
+
+export async function installSkillFromGit(
+  source: string,
+  options: SkillInstallOptions = {},
+): Promise<SkillInstallResult> {
+  return await installSkillFromGitSource(
+    parseGitSkillSource(source),
+    source.trim(),
+    options,
+  );
+}
+
+export async function removeSkill(name: string): Promise<SkillRemoveResult> {
+  validateUserSkillName(name, "hlvm skill remove");
+  const platform = getPlatform();
+  const targetDir = requireUserSkillTarget(name);
+  if (!await platform.fs.exists(targetDir)) {
+    throw new ValidationError(`Skill not found: ${name}`, "hlvm skill remove");
+  }
+  await platform.fs.remove(targetDir, { recursive: true });
+  clearSkillSnapshotCache();
+  return { name, targetDir };
+}
+
+async function readOriginForUserSkill(
+  name: string,
+): Promise<{ targetDir: string; origin: SkillOrigin }> {
+  validateUserSkillName(name, "hlvm skill update");
+  const platform = getPlatform();
+  const targetDir = requireUserSkillTarget(name);
+  if (!await platform.fs.exists(targetDir)) {
+    throw new ValidationError(`Skill not found: ${name}`, "hlvm skill update");
+  }
+  const origin = await readSkillOrigin(targetDir);
+  if (!origin) {
+    throw new ValidationError(
+      `Skill "${name}" is not tracked. Reinstall or import it before updating.`,
+      "hlvm skill update",
+    );
+  }
+  return { targetDir, origin };
+}
+
+async function readTrackedUserSkillNames(): Promise<string[]> {
+  const platform = getPlatform();
+  const userSkillsDir = getUserSkillsDir();
+  const names: string[] = [];
+  try {
+    for await (const entry of platform.fs.readDir(userSkillsDir)) {
+      if (!entry.isDirectory || entry.name.startsWith(".")) continue;
+      if (!isValidSkillName(entry.name)) continue;
+      const targetDir = platform.path.join(userSkillsDir, entry.name);
+      if (await readSkillOrigin(targetDir)) {
+        names.push(entry.name);
+      }
+    }
+  } catch {
+    return [];
+  }
+  return names.sort((left, right) => left.localeCompare(right));
+}
+
+async function updateSingleSkill(name: string): Promise<SkillUpdateResult> {
+  try {
+    const { targetDir, origin } = await readOriginForUserSkill(name);
+    const previousHash = origin.contentHash;
+    const installedHash = await computeSkillTreeHash(targetDir);
+    let result: SkillInstallResult;
+    if (origin.source === "git" && origin.git) {
+      result = await installSkillFromGitSource(
+        {
+          cloneUrl: origin.git.cloneUrl,
+          ref: origin.git.ref,
+          subpath: origin.git.subpath,
+        },
+        origin.git.input,
+        { force: true },
+      );
+    } else if (origin.source === "local" && origin.local) {
+      result = await importSkillPath(origin.local.path, { force: true });
+    } else {
+      throw new ValidationError(
+        `Skill "${name}" has invalid origin metadata.`,
+        "hlvm skill update",
+      );
+    }
+    const installed = result.installed.find((skill) => skill.name === name);
+    if (!installed) {
+      throw new ValidationError(
+        `Update source did not produce skill "${name}".`,
+        "hlvm skill update",
+      );
+    }
+    const updatedOrigin = await readSkillOrigin(installed.targetDir);
+    const currentHash = updatedOrigin?.contentHash ??
+      await computeSkillTreeHash(installed.targetDir);
+    return {
+      name,
+      targetDir: installed.targetDir,
+      changed: previousHash !== currentHash || installedHash !== currentHash,
+      previousHash,
+      currentHash,
+    };
+  } catch (err) {
+    return {
+      name,
+      targetDir: requireUserSkillTarget(name),
+      changed: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export async function updateSkills(
+  target: { name: string } | { all: true },
+): Promise<SkillUpdateResult[]> {
+  if ("name" in target) {
+    const result = await updateSingleSkill(target.name);
+    if (result.error) {
+      throw new ValidationError(result.error, "hlvm skill update");
+    }
+    return [result];
+  }
+  const names = await readTrackedUserSkillNames();
+  const results: SkillUpdateResult[] = [];
+  for (const name of names) {
+    results.push(await updateSingleSkill(name));
+  }
+  return results;
+}
+
+async function checkUserSkillDir(
+  name: string,
+  targetDir: string,
+): Promise<SkillCheckEntry> {
+  const platform = getPlatform();
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  const skillFile = platform.path.join(targetDir, SKILL_FILE_NAME);
+
+  try {
+    const dirInfo = await platform.fs.lstat(targetDir);
+    if (!dirInfo.isDirectory || dirInfo.isSymlink) {
+      errors.push("Skill entry is not a real directory.");
+    }
+  } catch {
+    errors.push("Skill directory is not readable.");
+  }
+
+  let parsed: ParsedSkillDefinition | null = null;
+  try {
+    const info = await platform.fs.lstat(skillFile);
+    if (!info.isFile || info.isSymlink) {
+      errors.push(`${SKILL_FILE_NAME} is not a regular file.`);
+    } else if (info.size > MAX_SKILL_FILE_BYTES) {
+      errors.push(`${SKILL_FILE_NAME} exceeds ${MAX_SKILL_FILE_BYTES} bytes.`);
+    } else {
+      parsed = parseSkillDefinition(
+        await platform.fs.readTextFile(skillFile),
+        { expectedName: name },
+      );
+    }
+  } catch (err) {
+    errors.push(
+      err instanceof ValidationError
+        ? err.message
+        : `Missing or unreadable ${SKILL_FILE_NAME}.`,
+    );
+  }
+
+  try {
+    const tree = await collectSkillTreeIssues(targetDir);
+    warnings.push(...tree.warnings);
+    errors.push(...tree.errors);
+  } catch {
+    errors.push("Skill tree is not readable.");
+  }
+
+  const origin = await readSkillOrigin(targetDir);
+  if (!origin) {
+    warnings.push("No origin metadata; update cannot track this skill.");
+  } else {
+    const currentHash = await computeSkillTreeHash(targetDir);
+    if (currentHash !== origin.contentHash) {
+      warnings.push("Local files differ from recorded install hash.");
+    }
+  }
+  if (parsed && !parsed.license) {
+    warnings.push("Missing license metadata.");
+  }
+
+  const uniqueWarnings = [...new Set(warnings)];
+  const uniqueErrors = [...new Set(errors)];
+  return {
+    name,
+    source: "user",
+    path: skillFile,
+    status: uniqueErrors.length > 0
+      ? "error"
+      : uniqueWarnings.length > 0
+      ? "warning"
+      : "ready",
+    warnings: uniqueWarnings,
+    errors: uniqueErrors,
+  };
+}
+
+export async function checkSkills(): Promise<SkillCheckResult> {
+  const platform = getPlatform();
+  const entries: SkillCheckEntry[] = [];
+  const userSkillsDir = getUserSkillsDir();
+
+  try {
+    for await (const entry of platform.fs.readDir(userSkillsDir)) {
+      if (entry.name.startsWith(".")) continue;
+      if (!entry.isDirectory) continue;
+      const targetDir = platform.path.join(userSkillsDir, entry.name);
+      entries.push(await checkUserSkillDir(entry.name, targetDir));
+    }
+  } catch {
+    // No user skills directory yet.
+  }
+
+  const bundled = await loadSkillSnapshot();
+  const userNames = new Set(entries.map((entry) => entry.name));
+  for (const skill of bundled.skills) {
+    if (skill.source !== "bundled" || userNames.has(skill.name)) continue;
+    entries.push({
+      name: skill.name,
+      source: "bundled",
+      path: skill.filePath,
+      status: "ready",
+      warnings: [],
+      errors: [],
+    });
+  }
+
+  entries.sort((left, right) => left.name.localeCompare(right.name));
+  const ready = entries.filter((entry) => entry.status === "ready").length;
+  const warnings = entries.filter((entry) => entry.status === "warning").length;
+  const errors = entries.filter((entry) => entry.status === "error").length;
+  return {
+    total: entries.length,
+    ready,
+    warnings,
+    errors,
+    entries,
+  };
 }

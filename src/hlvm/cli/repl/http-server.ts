@@ -41,8 +41,8 @@ import {
   handleListBackgroundAgents,
 } from "./handlers/background-agents.ts";
 import {
-  getRuntimeHostUptimeMs,
   getRuntimeAiReadyReason,
+  getRuntimeHostUptimeMs,
   getRuntimeReady,
   isRuntimeAiReadyRetryable,
   isRuntimeReadinessManaged,
@@ -116,6 +116,11 @@ import {
   handleChannelProvisioningCreate,
   handleChannelProvisioningGet,
 } from "./handlers/channels/provisioning.ts";
+import {
+  handleChannelTurnComplete,
+  handleChannelTurnFail,
+  handleChannelTurnsStream,
+} from "./handlers/channels/gui-turns.ts";
 import {
   HLVM_RUNTIME_DEFAULT_PORT,
   resolveHlvmRuntimePort,
@@ -747,8 +752,10 @@ router.add("POST", "/api/chat", (req) => handleChat(req));
 router.add("POST", "/eval", (req) => handleEval(req));
 router.add("POST", "/api/chat/cancel", (req) => handleChatCancel(req));
 router.add("GET", "/api/background-agents", () => handleListBackgroundAgents());
-router.add("POST", "/api/background-agents/cancel", (req) =>
-  handleCancelBackgroundAgent(req)
+router.add(
+  "POST",
+  "/api/background-agents/cancel",
+  (req) => handleCancelBackgroundAgent(req),
 );
 router.add("POST", "/api/cu/escape", async () => {
   // Reverse callback from HLVM.app — user pressed Escape during CU.
@@ -852,8 +859,31 @@ router.add("POST", "/api/config/reload", () => handleReloadConfig());
 router.add("POST", "/api/config/reset", () => handleResetConfig());
 router.add("GET", "/api/config/stream", (req) => handleConfigStream(req));
 router.add("GET", "/api/reachability/status", () => handleReachabilityStatus());
-router.add("POST", "/api/reachability/rebind", () => handleReachabilityRebind());
-router.add("GET", "/api/reachability/events", (req) => handleReachabilityEvents(req));
+router.add(
+  "POST",
+  "/api/reachability/rebind",
+  () => handleReachabilityRebind(),
+);
+router.add(
+  "GET",
+  "/api/reachability/events",
+  (req) => handleReachabilityEvents(req),
+);
+router.add(
+  "GET",
+  "/api/channels/turns/stream",
+  (req) => handleChannelTurnsStream(req),
+);
+router.add(
+  "POST",
+  "/api/channels/turns/complete",
+  (req) => handleChannelTurnComplete(req),
+);
+router.add(
+  "POST",
+  "/api/channels/turns/fail",
+  (req) => handleChannelTurnFail(req),
+);
 router.add(
   "POST",
   "/api/channels/:channel/provisioning/session",

@@ -53,6 +53,10 @@ has the core seam in place:
 - Telegram transport stale-reset dependency injection through:
   - `src/hlvm/channels/telegram/provisioning-reset.ts`
   - `src/hlvm/channels/registry.ts`
+- GUI turn bridge for mobile-originated chat:
+  - `src/hlvm/channels/core/gui-turn-bridge.ts`
+  - `src/hlvm/cli/repl/handlers/channels/gui-turns.ts`
+  - `HLVM/REPL/Presentation/Chat/Controller/ReplChatController.swift`
 - ordered channel E2E trace helper in `src/hlvm/channels/core/trace.ts`
 
 So the status is:
@@ -63,7 +67,8 @@ shared transport contract: done
 shared provisioning contract: done
 Telegram as first vendor implementation: done
 external channel ownership: default shared runtime only
-iMessage self-message: next target, not started
+mobile turn execution: GUI-owned chat path, not backend direct chat
+iMessage self-message: backend + GUI picker integration landed; real-device E2E pending
 Slack Socket Mode: planned after iMessage
 Gmail: planned after Slack
 ```
@@ -120,30 +125,35 @@ This app-side rule now lives in:
 
 - `HLVM/Messages/Onboarding/OnboardingWindow.swift`
 
-## macOS realtime sync rule
+## macOS channel-turn execution rule
 
-The GUI is a thin client of the runtime transcript. A vendor turn (Telegram
-today, iMessage / Slack / Gmail later) can arrive when the user is not actively
-typing in the macOS chat surface, so remote SSE events must still update the
-visible message store.
+The GUI owns the visible chat execution path. A vendor turn (Telegram today,
+iMessage / Slack / Gmail later) must enter the same Swift flow as a Tab /
+Spotlight chat send. The backend channel runtime owns vendor transport,
+allowlist, queueing, and reply delivery, but it must not run a separate backend
+chat path for mobile messages.
 
 Current rule:
 
 ```text
-runtime receives vendor message
-→ runtime appends user + assistant messages to the active conversation
-→ runtime mirrors live user + assistant events to the GUI live transcript stream
-→ macOS hydrates only the current live presentation from that stream
+vendor transport receives mobile message
+→ channelRuntime.handleInboundMessage()
+→ queue.run(sessionId, ...)
+→ gui-turn-bridge publishes channel_turn_requested
+→ Swift observes /api/channels/turns/stream
+→ ReplChatController runs performStartChat(...)
+→ Swift posts /api/channels/turns/complete with the final GUI response
+→ channelRuntime sends ChannelReply through the originating transport
 ```
 
-Do not guard remote `snapshot`, `messageAdded`, or `messageUpdated` handling on
-a local "chat active" flag. That flag is only safe for local UI run-state, not
-for deciding whether runtime-owned messages exist.
+Do not add a vendor-specific `runChatViaHost`, direct agent invocation, or
+synthetic "remote message" bubble. The old symptom-level approach of rendering
+remote SSE messages into the Siri bubble is explicitly forbidden because it
+bypasses the normal `ReplChatController` lifecycle and can diverge from
+Tab/Spotlight behavior.
 
-The GUI live transcript is not durable chat history. A fresh GUI connection gets
-an empty `snapshot`; durable messages remain available through
-`/api/chat/messages` for memory/context/history features but must not be
-auto-rendered into the Siri-style bubble.
+`/api/chat/stream` remains a live transcript/message-store stream. It is not the
+execution trigger for mobile channel turns.
 
 ## Telegram completion behavior
 
@@ -190,18 +200,24 @@ reopens.
                        │ memory · tools · AI  │
                        └──────────▲───────────┘
                                   │
-                            runQuery(...)
-                                  │
+                      Swift ReplChatController
+                      startChat / performStartChat
+                                  ▲
+                                  │ /api/channels/turns/stream
+                                  │ /api/channels/turns/complete
                   ┌───────────────┴────────────────┐
-                  │ Channel Runtime (shared)       │
-                  │                                │
-                  │ - per-chat queue               │
-                  │ - allowlist                    │
-                  │ - pair-code handling           │
-                  │ - reachability status          │
-                  │ - config writeback + rebind    │
-                  └───────▲────────────────▲───────┘
-                          │                │
+                  │ GUI turn bridge                 │
+                  │ core/gui-turn-bridge.ts         │
+                  └───────────────▲────────────────┘
+                                  │ runQuery dependency
+                  ┌───────────────┴────────────────┐
+                  │ Channel Runtime (shared)        │
+                  │ - per-chat queue                │
+                  │ - allowlist                     │
+                  │ - pair-code handling            │
+                  │ - reachability status           │
+                  │ - config writeback + rebind     │
+                  └───────▲────────────────▲────────┘
                           │                │
                ChannelTransport     ChannelProvisioner
                   (shared)             (shared)
@@ -275,20 +291,22 @@ setupUrl   = generic URL field from the shared base type
 createUrl  = Telegram-specific create/open link
 ```
 
-A future vendor extends the base session with whatever pairing fields it needs.
-For example, the planned iMessage self-message session is expected to extend the
-base session with:
+Each vendor extends the base session with whatever fields it needs. The iMessage
+self-message session extends it with:
 
-- `pairCode`
-- `qrKind = "self_message"`
-- `appleId` (the user's own Apple ID, supplied by the GUI from NSAccountStore)
-- `selfMessagePrompt` (the prefilled body the user sends to themselves)
+- `qrKind = "open_bot"` in v1, reusing the existing GUI "open chat" copy path
+- `recipientId` (the user's own iMessage address / Apple ID)
 
 For iMessage self-message:
 
 ```text
-setupUrl = sms:<own-apple-id>&body=<url-encoded-prefilled-pair-text>
+setupUrl = sms:<url-encoded-recipient-id>
 ```
+
+Provisioning resolves `recipientId` from the request body, existing channel
+config, `HLVM_IMESSAGE_SELF_ID`, then the macOS
+`~/Library/Preferences/MobileMeAccounts.plist` Messages service. Normal GUI
+onboarding should not require an environment variable.
 
 Slack and Gmail use OAuth install URLs instead. Each vendor is free to define
 its own setup-session extension; the shared base contract stays small.
@@ -515,7 +533,7 @@ The QR payload is platform-specific and belongs behind `ChannelProvisioner`:
 
 ```text
 Telegram  → Telegram create/open bot URL (BotFather or pre-prepared bot)
-iMessage  → sms:<own-apple-id>&body=<prefilled pair text>
+iMessage  → sms:<own-apple-id>
 Slack     → Slack OAuth install URL with state=<pair-code>
 Gmail     → Google OAuth URL with state=<pair-code>
 ```
@@ -548,25 +566,23 @@ Primary official references:
 iMessage does not offer a public bot platform. HLVM does not run a central Apple
 ID, does not operate a Mac fleet, and does not contract with iMessage
 aggregators. Instead, HLVM uses the user's _own_ Mac and _own_ Apple ID. After
-pairing, the user's self-thread becomes their HLVM conversation — every message
-in that thread is a bot turn, the same way every message in a Telegram bot chat
-is a bot turn.
+provisioning, the user's self-thread becomes their HLVM conversation — every
+message in that thread is a bot turn, the same way every message in a Telegram
+bot chat is a bot turn.
 
 Product shape:
 
 ```text
 macOS HLVM
 → POST /api/channels/imessage/provisioning/session
-  body: { appleId } (passed in by the GUI from NSAccountStore)
-→ shared runtime arms a pair-code listener on the local Messages store
-→ QR opens Messages.app on the phone with the prefilled pair text
-  addressed to the user's own Apple ID
-→ user taps send on phone
+  body: { recipientId } or previously configured channels.imessage.transport.recipientId
+→ shared runtime enables channels.imessage locally and stores current chat.db ROWID cursor
+→ QR opens Messages.app on the phone addressed to the user's own Apple ID
+  with no setup body and no pair code
+→ user sends any normal message in that self-thread
 → message syncs through iCloud to the user's Mac
-→ local iMessage transport observes chat.db, matches the pair code,
-  binds the local device to that Apple ID
-→ subsequent self-thread messages flow through the shared channel runtime
-  with no prefix required
+→ local iMessage transport observes chat.db-wal, queries new ROWIDs,
+  filters to the bound self-thread, and emits ChannelMessage
 → replies are sent from the same Mac via AppleScript / Apple Events
   back to the user's own Apple ID, appearing on their phone Messages app
 ```
@@ -574,10 +590,11 @@ macOS HLVM
 Trigger model:
 
 ```text
-After pairing, every message in the bound self-thread is a bot turn. No
-prefix or mode toggle is required — Telegram parity. The self-thread "Note to
-Self" semantics are sacrificed: users who relied on it for genuine notes must
-move those to Notes.app or Reminders. This is disclosed during onboarding.
+After provisioning, every message in the bound self-thread is a bot turn. No
+prefix, setup message, pair code, or mode toggle is required — Telegram parity.
+The self-thread "Note to Self" semantics are sacrificed: users who relied on it
+for genuine notes must move those to Notes.app or Reminders. This is disclosed
+during onboarding.
 
 A `triggerPrefix` field exists in `channels.imessage.transport` for advanced
 users who want to share the self-thread between bot turns and genuine notes,
@@ -591,12 +608,22 @@ The transport binds one self-thread and maintains a short LRU of the body
 hashes / visible markers of recent outbound replies. Rows matching those
 outbound sends are dropped so HLVM does not answer itself.
 
+Apple IDs can expose multiple iMessage receive aliases (phone number plus
+email). Provisioning may use those aliases to discover or re-pair the correct
+thread and should prefer a phone-number alias over an email alias when both
+exist, because Mac-to-phone self-alias sends render with clearer user/HLVM
+separation on iOS; email-to-email self-sends commonly render both sides as blue
+"me" bubbles. Once a concrete Messages `chatId` is selected, that `chatId` is
+the exclusive inbound scope. Do not let every alias thread act as a live HLVM
+room.
+
 Do not rely solely on `is_from_me`. In a self-message thread, iPhone-originated
 messages may still appear as "from me" on the Mac because they come from the
-same Apple ID. Do not rely solely on `message.text` either; the feasibility
-spike showed AppleScript outbound rows with empty `text` and message content
-stored outside that column. The first implementation must run a real-device
-chat.db spike and lock the final filter against observed rows before shipping.
+same Apple ID. The v1 reader therefore accepts both `is_from_me` states and
+drops HLVM-originated replies by outbound LRU plus the visible reply marker.
+Do not rely solely on `message.text` for outbound loop detection either; the
+feasibility spike showed AppleScript outbound rows with empty `text` and message
+content stored outside that column.
 ```
 
 Reply attribution:
@@ -639,8 +666,8 @@ chat.db row filters (in addition to bound self-thread + outbound LRU):
 - skip rows where `associated_message_type != 0`  (tapbacks/reactions)
 - skip rows that the current schema marks retracted or edited
   (macOS 26 has `date_retracted` / `date_edited`, not `is_unsent`)
-- skip rows where `message_summary_info` is non-NULL when that indicates
-  edit/history metadata rather than a normal text body
+- do not skip rows solely because `message_summary_info` is non-NULL;
+  normal macOS 26 self-message text rows can set it
 - order by `ROWID`, never by `date` (clock skew between phone and Mac)
 - handle SQLITE_BUSY with bounded retry (Messages.app may be writing)
 ```
@@ -665,7 +692,7 @@ banners live, as defense in depth.
 Local prerequisites the transport must verify at start:
 
 - iCloud Messages enabled on the Mac
-- Messages.app signed in with the same Apple ID expected by the pair code
+- Messages.app signed in with the same Apple ID configured as `recipientId`
 - Full Disk Access granted to the HLVM process (required to read
   `~/Library/Messages/chat.db`)
 - A proven send path. The 2026-04-26 feasibility spike proved AppleScript /
@@ -673,9 +700,11 @@ Local prerequisites the transport must verify at start:
   `shortcuts list` failing with "Couldn’t communicate with a helper
   application"; do not make Shortcuts the only send path until that helper issue
   is resolved.
-- A proven QR pair surface. The 2026-04-26 iPhone test proved
-  `sms:<url-encoded-apple-id>&body=<url-encoded-pair-text>` opens Messages to
-  the target Apple ID with `HLVM-PAIR-1234` prefilled in the input field.
+- A proven QR open surface. The 2026-04-26 iPhone test proved
+  `sms:<url-encoded-apple-id>&body=<url-encoded-text>` opens Messages to the
+  target Apple ID with body prefill. V1 intentionally uses the simpler
+  recipient-only `sms:<url-encoded-apple-id>` URL because no pair-code body is
+  required.
 - macOS version is recognized (the transport pins to documented chat.db columns
   and fails closed with a clear error if a column is missing)
 
@@ -798,7 +827,10 @@ These are cleanup items. They do not change the current Telegram behavior.
 
 ## Revision history
 
-| Date       | Change                                                                                                                                                                                                                                                                                            |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-04-26 | Rev 18 — LINE removed; channel scope rule (free forever / per-user ceiling / no relay) added; iMessage self-message named as next target; Slack/Gmail roadmap.                                                                                                                                    |
-| 2026-04-26 | Rev 19 — iMessage contract refined: every self-thread message is a bot turn (no prefix, Telegram parity); FSEvents on chat.db-wal replaces polling; Hide Alerts mitigation for notification noise; reply marker for visual attribution; chat.db row filters specified; multi-device pairing rule. |
+| Date       | Change                                                                                                                                                                                                                                                                 |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04-26 | Rev 18 — LINE removed; channel scope rule (free forever / per-user ceiling / no relay) added; iMessage self-message named as next target; Slack/Gmail roadmap.                                                                                                         |
+| 2026-04-26 | Rev 19 — iMessage contract refined: every self-thread message is a bot turn (no prefix, Telegram parity); FSEvents on chat.db-wal replaces polling; Hide Alerts mitigation for notification noise; reply marker for visual attribution; chat.db row filters specified. |
+| 2026-04-26 | Rev 20 — iMessage backend v1 landed with recipient-only QR, no setup body/pair code, AppleScript send, Swift WAL watcher source, and local-only config wiring.                                                                                                         |
+| 2026-04-26 | Rev 21 — iMessage GUI picker enabled; backend auto-discovers the user's Messages account from macOS account data; compiled HLVM now includes and materializes the Swift WAL watcher helper for GUI builds.                                                             |
+| 2026-04-26 | Rev 22 — Mobile channel turns now execute through the GUI turn bridge and Swift `ReplChatController` chat path; direct backend channel chat and synthetic remote-bubble rendering are forbidden.                                                                       |

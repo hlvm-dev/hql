@@ -61,6 +61,10 @@ cmd+=(
   embedded-model-tiers.json
   --include
   src/hql/lib/stdlib/js/index.js
+  --include
+  src/hlvm/channels/imessage/wal-watcher.swift
+  --include
+  src/hlvm/channels/imessage/attributed-body-decoder.swift
   --output
   "$OUTPUT"
   src/hlvm/cli/cli.ts

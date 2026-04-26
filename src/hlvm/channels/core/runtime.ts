@@ -279,7 +279,11 @@ export function createChannelRuntime(
         });
         const result = await runQuery({
           query: message.text,
+          channel,
+          remoteId: message.remoteId,
           sessionId,
+          senderId,
+          senderDisplay: message.sender?.display,
           querySource: `channel:${channel}`,
           permissionMode: resolveRemotePermissionMode(config.permissionMode),
           noInput: true,

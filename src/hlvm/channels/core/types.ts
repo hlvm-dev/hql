@@ -54,7 +54,9 @@ export interface ChannelStatus {
 
 export interface ChannelTransportContext {
   receive(message: ChannelMessage): Promise<void>;
-  setStatus(status: Partial<ChannelStatus> & Pick<ChannelStatus, "state">): void;
+  setStatus(
+    status: Partial<ChannelStatus> & Pick<ChannelStatus, "state">,
+  ): void;
   updateConfig(patch: Partial<ChannelConfig>): Promise<void>;
 }
 
@@ -90,7 +92,11 @@ export interface ChannelRuntimeDependencies {
   loadConfig: () => Promise<HlvmConfig>;
   runQuery: (options: {
     query: string;
+    channel: string;
+    remoteId: string;
     sessionId: string;
+    senderId?: string;
+    senderDisplay?: string;
     querySource: string;
     permissionMode: AgentExecutionMode;
     noInput: boolean;

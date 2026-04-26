@@ -1,11 +1,12 @@
 # HLVM Skills System
 
-**Status**: Phase 1/2/3/4 complete as of 2026-04-26. **Owner**: skills
+**Status**: Phase 1/2/3/4/4.1/4.2 complete as of 2026-04-26. **Owner**: skills
 foundation. **Current shipped scope**: `agentskills.io` core, global user
 skills, bundled foundational skills, small CLI surface, REPL/ask activation,
 CC-style transcript row, local skill import, Git/GitHub skill install, no
-project scope, no registry, no auto-generation. **Next phase**: Phase 5
-distribution polish/security and user-reviewed workflow-to-skill.
+project scope, package-manager lifecycle, official static-index search/install
+by slug, public `hlvm-dev/skills` catalog, no auto-generation. **Next phase**:
+Phase 5 only when workflow-to-skill demand is real.
 
 This doc is a complete cold-start briefing. If you are a new AI or engineer with
 zero prior context, read top-to-bottom once and you will know exactly what to
@@ -24,9 +25,13 @@ skills from `~/.hlvm/skills` and bundled skills from
 `<available_skills>` block into the system prompt. When a task matches a skill,
 the model reads the body through normal read tools; when the user explicitly
 invokes `/<skill-name>`, HLVM injects the skill body into a normal agent turn.
-Users can now bring in ecosystem skills with `hlvm skill import <path>` or
-`hlvm skill install <git-source>`. There is no special executor, project-local
-scope, registry, dependency installer, install hook, or hidden backdoor path.
+Users can bring in ecosystem skills with `hlvm skill import <path>`,
+`hlvm skill install <git-source>`, or `hlvm skill install <slug>` after finding
+them with `hlvm skill search <query>`, then maintain them with
+`hlvm skill update`, `hlvm skill remove`, and `hlvm skill check`. There is no
+special executor, project-local scope, dependency installer, install hook, or
+hidden backdoor path. Repository discovery uses an HLVM-owned GitHub static
+index, not a custom server or broad GitHub-search scraping.
 
 ---
 
@@ -265,6 +270,7 @@ as the same thing.
 - Git/GitHub install into `~/.hlvm/skills`
 - Prompt-budget awareness
 - Basic path containment / traversal hardening
+- Later official GitHub-backed skill repository search/install-by-slug
 
 #### OpenClaw-specific product features HLVM should NOT treat as v1 requirements
 
@@ -292,7 +298,7 @@ read standard skills
 It should **not** mean:
 
 ```text
-build a registry
+build a custom registry server
 + build dependency installer orchestration
 + build a secrets/config management layer for skills
 + build a gateway-admin product surface
@@ -375,7 +381,7 @@ foundational pack can land immediately after.
 | Hot-reload watcher                                             | Restart is fine for v1.                                                                        |
 | `metadata.*.requires.{bins,env,config}` gating                 | OpenClaw-specific platform behavior. Useful later, but not required for common skills support. |
 | Per-agent skill allowlists                                     | HLVM's agent-team module already has scoping. Revisit when it conflicts.                       |
-| `hlvm skill install <slug>` / registry                         | No HLVM registry exists. Current Phase 4 supports only path/Git/GitHub sources.                |
+| External taps/user-added indexes                               | Official static index comes first. Add taps only if users need multiple catalogs.              |
 | Full dangerous-code scanner                                    | Phase 4 has symlink/size/staging hardening only. Add deeper script scanning next if needed.    |
 | Trajectory → SKILL auto-generation (Hermes)                    | Quality uncertain. Add only after observing how users actually author skills.                  |
 | macOS GUI skill manager                                        | OpenClaw-style polish. Defer until there's a clear user ask.                                   |
@@ -545,9 +551,14 @@ Required B1 commands:
 ```bash
 hlvm skill list
 hlvm skill new <name>
+hlvm skill search [query] [--limit <n>] [--json]
 hlvm skill info <name>
+hlvm skill info <name> --remote
 hlvm skill import <path> [--force]
-hlvm skill install <git-source> [--force]
+hlvm skill install <slug-or-git-source> [--version <version>] [--force]
+hlvm skill update <name|--all>
+hlvm skill remove <name>
+hlvm skill check [--json]
 ```
 
 Rules:
@@ -556,15 +567,24 @@ Rules:
 - `new` creates `<target>/<name>/SKILL.md` with valid frontmatter and a minimal
   body.
 - `info` shows frontmatter and a short body preview.
+- `info --remote` shows static-index metadata before install.
+- `search` reads the official static index and shows slug, version, trust, and
+  description.
 - `import` accepts either one skill folder with `SKILL.md` or a pack directory
   whose immediate children contain `SKILL.md`.
-- `install` accepts Git/GitHub sources and clones to a temp dir, then calls the
-  same import pipeline.
+- `install` accepts repository slugs or Git/GitHub sources. Slugs resolve
+  through `repository.ts`; all final writes still call the same import pipeline.
+- `update` reuses the original local/Git source provenance and then calls the
+  same validated import/install pipeline with `--force` semantics.
+- `remove` deletes only a named global user skill.
+- `check` validates installed user skills and bundled skills, reporting invalid
+  frontmatter, symlinks, oversize, missing license, missing/stale origin, and
+  script warnings.
 - Default `new` target is `~/.hlvm/skills`; no project/local target.
 - `--force` replaces an existing user skill only after the source validates and
   stages successfully.
-- No registry, update, dependency checks, env injection, install hooks, or
-  auto-generation.
+- No dependency checks, env injection, install hooks, external taps, broad
+  GitHub-search primary path, or auto-generation in the shipped Phase 4.2 path.
 
 ### B1 acceptance criteria
 
@@ -606,7 +626,15 @@ import/install (user-triggered)
     → validate SKILL.md with the same parser used by the store
     → reject symlinks and oversized files/trees
     → copy into ~/.hlvm/skills/<name>
+    → write .hlvm/origin.json with source/ref/hash provenance
     → clear snapshot cache
+
+update/remove/check (user-triggered)
+  ~/.hlvm/skills/<name>
+    → install.ts lifecycle functions only
+    → update re-enters import/install pipeline
+    → remove deletes only global user skill dir
+    → check validates user + bundled entries without mutating files
 
 each turn (Stage 3 Pre-LLM in orchestrator)
   maybeInjectSkills(state, userPrompt)
@@ -642,15 +670,15 @@ LLM executes
 5. **Precedence is simple.** User overrides bundled. There are no CWD-local,
    project-local, or walk-up skill roots in v1. Duplicate names resolve by
    precedence.
-6. **No platform expansion.** No registry, dependency installer orchestration,
-   secrets/config layer, GUI manager, watcher, plugin merge, or auto-generation
-   in v1. Phase 4's local/Git/GitHub install is a file-copy distribution layer,
-   not a dependency installer or registry platform.
+6. **No platform expansion.** No custom registry server, dependency installer
+   orchestration, secrets/config layer, GUI manager, watcher, plugin merge, or
+   auto-generation in v1. Phase 4's local/Git/GitHub install is a file-copy
+   distribution layer, not a dependency installer or registry platform.
 
 ### Still open while implementing
 
-1. **`hlvm skill edit`.** Optional. `list/new/info/import/install` are
-   implemented.
+1. **`hlvm skill edit`.** Optional.
+   `list/new/info/import/install/update/remove/check` are implemented.
 2. **TUI v2 parity.** Ink REPL and `hlvm ask --verbose` skill activity display
    are implemented. TUI v2/full GUI parity can follow if that surface exposes
    skills directly.
@@ -726,9 +754,9 @@ point.
 
 ### Phase 4 — ecosystem import/install
 
-Start with local/GitHub import before any registry. The goal is to let users
-bring existing agentskills.io folders into HLVM safely without turning the core
-store into an installer.
+Start with local/GitHub import before any repository-backed search. The goal is
+to let users bring existing agentskills.io folders into HLVM safely without
+turning the core store into an installer.
 
 - [x] Add `hlvm skill import <path>` for a local skill folder or skill pack.
 - [x] Add validation for imported `SKILL.md`: required fields, size cap,
@@ -747,13 +775,91 @@ store into an installer.
       install hooks.
 - [x] Add `hlvm skill install <git-url-or-github-spec>` and make it reuse the
       same validator/copy pipeline after `git clone`.
-- [x] Keep registry/search/update/remove out of the first Phase 4 cut.
+- [x] Keep repository search/install-by-slug out of the first Phase 4 cut.
 - [x] Run real user E2E: install/import skill, `hlvm skill list/info`, explicit
       `/skill`, and automatic model-chosen read.
 
+### Phase 4.1 — package-manager lifecycle
+
+Phase 4.1 makes installed skills maintainable without introducing a central
+catalog yet.
+
+- [x] Add source/origin metadata for installed skills: source type, source URL,
+      version/ref/hash, installed time, and whether local files were modified.
+- [x] Add `hlvm skill remove <name>` for clean global-root deletion.
+- [x] Add `hlvm skill update <name|--all>` for Git/GitHub-installed skills.
+- [x] Add `hlvm skill check` / `audit` for local validation and warnings:
+      missing `SKILL.md`, invalid frontmatter, symlinks, oversized trees,
+      scripts, missing license, and stale/unknown origin.
+- [x] Keep all lifecycle logic out of `store.ts` and `prompt.ts`.
+- [x] Keep CLI as argument parsing/output only; skill writes and lifecycle logic
+      are centralized in `src/hlvm/agent/skills/install.ts`.
+- [x] Run real user E2E: Git install, origin info, check, update from new
+      commit, dirty-file warning and restore, remove, compiled-binary smoke,
+      explicit `/skill`, and automatic model-chosen read.
+
+### Phase 4.2 — official GitHub skill repository/index
+
+Decision: HLVM will use an HLVM-owned GitHub repository as the first central
+skill catalog. This gives users simple search/install UX without custom server
+cost, accounts, database, or a paid hosted app store.
+
+Repository:
+
+```text
+github.com/hlvm-dev/skills
+  index.json
+  skills/
+    debug/SKILL.md
+    verify/SKILL.md
+    code-review/SKILL.md
+    refactor/SKILL.md
+    plan/SKILL.md
+    write-docs/SKILL.md
+    skill-author/SKILL.md
+```
+
+Rules:
+
+- [x] Use GitHub as static hosting and PR/CI review. No custom backend.
+- [x] First user path is the official HLVM index, not user-added taps.
+- [x] Do not use broad GitHub code search as the primary install path. It is
+      noisy, rate-limited, and lacks stable metadata.
+- [x] Preserve attribution/license and source provenance for every external
+      skill.
+- [x] Create/populate `github.com/hlvm-dev/skills`.
+- [x] Define `index.json` schema: slug, name, description, install source,
+      version map, license, tags, trust level, deprecation status.
+- [x] Add CI in the skills repo to validate every indexed `SKILL.md`.
+- [x] Add `hlvm skill search <query>` against the official static index.
+- [x] Add `hlvm skill install <slug>` that resolves through the index and then
+      reuses the existing validated `install.ts` pipeline.
+- [x] Add `hlvm skill info <slug> --remote` or equivalent remote inspection
+      before install.
+
+Implemented Phase 4.2 CLI surface:
+
+```text
+hlvm skill search [query] [--limit <n>] [--json]
+hlvm skill install <slug-or-git-source> [--version <version>] [--force]
+hlvm skill info <slug> --remote
+```
+
+Implementation boundary:
+
+- `src/hlvm/agent/skills/repository.ts` reads the static index, validates
+  entries, searches metadata, resolves slugs/version entries, and delegates the
+  final install to `install.ts`.
+- `src/hlvm/agent/skills/install.ts` remains the only installed-skill write,
+  staging, validation, update, remove, and check path.
+- The default index URL is
+  `https://raw.githubusercontent.com/hlvm-dev/skills/main/index.json`. Tests and
+  local smoke runs can still use the internal `HLVM_TEST_SKILL_INDEX_URL` hook
+  guarded by `HLVM_ALLOW_TEST_STATE_ROOT=1`.
+
 ### Phase 5 — later advanced features, demand-driven only
 
-- [?] Registry search/update/remove after import/install proves useful.
+- [?] External taps/user-added indexes after the official index proves useful.
 - [?] Dynamic nested discovery from touched file paths, CC-style.
 - [?] Conditional skills via `paths:` frontmatter, CC-style.
 - [?] Dependency gating via `requires.{bins,env,config}`, OpenClaw-style.
@@ -784,9 +890,14 @@ store into an installer.
 
 - agentskills.io SKILL.md format is non-negotiable. HLVM adopts the standard
   as-is. No HLVM-specific frontmatter extensions in v1.
-- No registry in the foundation cut. Phase 4 ships local/Git/GitHub
-  import/install only; registry search/update is later and requires a separate
-  SSOT update.
+- Repository-backed search/install-by-slug is implemented through the official
+  static index resolver. Installed-skill writes still go through `install.ts`.
+- The repository direction is now decided: the first central skill catalog is an
+  HLVM-owned GitHub static repository (`github.com/hlvm-dev/skills` planned),
+  with create/update/delete through GitHub PRs and CI. No custom server,
+  database, account system, or paid app-store backend for the first cut.
+- Broad GitHub code search is not the primary install/search path. It can be an
+  optional later discovery helper, but not the main package-manager source.
 - No auto-generation in v1. Add only if post-launch evidence justifies it.
 - Skills are not memory, not tools, not MCP. New subsystem, narrow scope.
 - `src/hlvm/agent/skills/` is the only new directory. Single hook point in the
@@ -862,8 +973,8 @@ next person can build from repo truth, not just product intent.
   path.
 - Precedence should stay simple: `user > bundled` if bundled skills exist.
   Duplicate names resolve by precedence, not by showing both.
-- No registry/search in the foundation. Phase 4 may add local/GitHub
-  import/install, but registry search/update remains later.
+- The public `github.com/hlvm-dev/skills` repository exists, is populated with
+  the first seven official skills, and CI validation is green.
 - No Hermes-style trajectory-to-skill auto-generation in v1.
 - Bundled skills are foundational and intentionally small: `verify`, `debug`,
   `code-review`, `refactor`, `plan`, `write-docs`, `skill-author`.
@@ -1027,10 +1138,10 @@ The foundation is intentionally small and SSOT-bound:
 
 - KISS: one loader/store; no special skill executor.
 - DRY: one shared activation helper for REPL and `hlvm ask`; one shared
-  import/install pipeline for local folders and Git/GitHub sources.
+  lifecycle pipeline for scaffold/import/install/update/remove/check.
 - SSOT: paths in `src/common/paths.ts`; loading in
   `src/hlvm/agent/skills/store.ts`; prompt formatting in
-  `src/hlvm/agent/skills/prompt.ts`; distribution copy/clone in
+  `src/hlvm/agent/skills/prompt.ts`; skill lifecycle copy/clone/update/check in
   `src/hlvm/agent/skills/install.ts`.
 - No backdoor: skills only become instructions for the normal agent loop.
 - No project scope: global user and bundled roots only.
@@ -1039,7 +1150,6 @@ The foundation is intentionally small and SSOT-bound:
 
 ### What is intentionally not done yet
 
-- No registry or ClawHub clone.
 - No full third-party dangerous-code scanner yet; Phase 4 only rejects symlinks,
   oversized files/trees, and metadata directories, and warns on `scripts/`.
 - No dependency installer or env/config injection.
@@ -1067,8 +1177,13 @@ User can inspect and author them:
   hlvm skill list
   hlvm skill info verify
   hlvm skill new incident-debug
+  hlvm skill search debug
+  hlvm skill install debug
   hlvm skill import ./skill-or-pack
   hlvm skill install github:owner/repo/path/to/skill
+  hlvm skill update --all
+  hlvm skill remove incident-debug
+  hlvm skill check
 
 User can rely on automatic activation:
 
@@ -1105,18 +1220,18 @@ User can force activation in the REPL:
   +--------------------------+--------------------+
                              |
                              v
-  Phase 3             Phase 4             Phase 5
-  Bundled Core        Distribution         Assisted Authoring
-  ------------        ------------         ------------------
-  [x] verify          [x] import path      [ ] suggest workflow
-  [x] debug           [x] install GitHub   [ ] draft SKILL.md
-  [x] code-review     [x] validate pack    [ ] user review
-  [x] refactor        [x] staging/force    [ ] save to ~/.hlvm
-  [x] plan            [x] symlink/size           |
-  [x] write-docs            |                    |
-  [x] skill-author          |                    |
-        |                   v                    v
-        +---------->  Complete HLVM Skills  <----+
+  Phase 3             Phase 4/4.1         Phase 4.2            Phase 5
+  Bundled Core        Distribution         GitHub Index         Assisted Authoring
+  ------------        ------------         ------------         ------------------
+  [x] verify          [x] import path      [x] index schema     [ ] suggest workflow
+  [x] debug           [x] install GitHub   [x] search slug      [ ] draft SKILL.md
+  [x] code-review     [x] validate pack    [x] install slug     [ ] user review
+  [x] refactor        [x] staging/force    [x] remote info      [ ] save to ~/.hlvm
+  [x] plan            [x] symlink/size           |                    |
+  [x] write-docs      [x] update/remove          |                    |
+  [x] skill-author    [x] check/audit            |                    |
+        |                   v                    v                    v
+        +---------->  Complete HLVM Skills  <-------------------------+
 
   Complete HLVM Skills =
     portable SKILL.md support
@@ -1127,26 +1242,30 @@ User can force activation in the REPL:
     + REPL slash activation
     + foundational bundled skills
     + safe ecosystem import/install
+    + package-manager lifecycle
+    + official GitHub-backed repository search/install
     + user-reviewed workflow capture
 ```
 
 ### What matches CC, what matches OpenClaw, what is HLVM-specific
 
-| Area              | HLVM final direction                                                                                      |
-| ----------------- | --------------------------------------------------------------------------------------------------------- |
-| Format            | Same common `agentskills.io` `SKILL.md` contract used by CC, OpenClaw, and Hermes.                        |
-| Runtime shape     | HLVM-native: lightweight prompt/runtime feature, compact index, normal read tools, normal agent loop.     |
-| CLI UX            | Current: `list`, `new`, `info`, `import`, `install`. Registry/search/update remain later.                 |
-| Slash activation  | Common behavior: `/skill-name args`; HLVM maps it to a normal user turn instead of special dispatch.      |
-| Safety            | Borrow OpenClaw ideas: path containment, size caps, staging, command-name sanitization, no install hooks. |
-| Bundled skills    | HLVM-specific foundational coding-agent skills, not CC's or OpenClaw's exact pack.                        |
-| Advanced features | Demand-driven. Do not build CC/OpenClaw/Hermes product-dialect features just because they exist.          |
+| Area              | HLVM final direction                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Format            | Same common `agentskills.io` `SKILL.md` contract used by CC, OpenClaw, and Hermes.                                |
+| Runtime shape     | HLVM-native: lightweight prompt/runtime feature, compact index, normal read tools, normal agent loop.             |
+| CLI UX            | Current: `list`, `new`, `search`, `info`, `import`, `install`, `update`, `remove`, `check`, plus install-by-slug. |
+| Slash activation  | Common behavior: `/skill-name args`; HLVM maps it to a normal user turn instead of special dispatch.              |
+| Safety            | Borrow OpenClaw ideas: path containment, size caps, staging, command-name sanitization, no install hooks.         |
+| Bundled skills    | HLVM-specific foundational coding-agent skills, not CC's or OpenClaw's exact pack.                                |
+| Advanced features | Demand-driven. Do not build CC/OpenClaw/Hermes product-dialect features just because they exist.                  |
 
 ### Explicit non-goals for "complete v1"
 
 - Not exact CC parity.
 - Not exact OpenClaw parity.
 - No OpenClaw registry or ClawHub clone.
+- No custom hosted registry server for the next cut; use the official HLVM
+  GitHub static repository first.
 - No dependency installer or secrets/config injection layer.
 - No hot-reload watcher.
 - No plugin skill merge.
