@@ -218,6 +218,21 @@ async function skillInfo(args: string[]): Promise<void> {
   log.raw.log(`Description: ${skill.description}`);
   log.raw.log(`Source:      ${skill.source}`);
   log.raw.log(`Path:        ${skill.filePath}`);
+  if (skill.license) {
+    log.raw.log(`License:     ${skill.license}`);
+  }
+  if (skill.compatibility) {
+    log.raw.log(`Compatibility: ${skill.compatibility}`);
+  }
+  if (skill.allowedTools?.length) {
+    log.raw.log(`Allowed tools: ${skill.allowedTools.join(" ")}`);
+  }
+  if (skill.metadata && Object.keys(skill.metadata).length > 0) {
+    log.raw.log("Metadata:");
+    for (const [key, value] of Object.entries(skill.metadata)) {
+      log.raw.log(`  ${key}: ${value}`);
+    }
+  }
 
   const body = await readSkillBody(skill);
   const preview = body.split(/\r?\n/).slice(0, BODY_PREVIEW_LINES).join("\n")

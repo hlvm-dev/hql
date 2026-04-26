@@ -17,6 +17,8 @@ import type {
 const SKILL_FILE_NAME = "SKILL.md";
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_SKILL_NAME_LENGTH = 64;
+const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
+const MAX_SKILL_COMPATIBILITY_LENGTH = 500;
 const MAX_SKILL_FILE_BYTES = 256 * 1024;
 const SKILL_SNAPSHOT_CACHE_TTL_MS = 5_000;
 
@@ -53,6 +55,42 @@ function readString(value: unknown): string | undefined {
     : undefined;
 }
 
+function readStringWithMax(
+  value: unknown,
+  maxLength: number,
+): string | undefined {
+  const text = readString(value);
+  return text && text.length <= maxLength ? text : undefined;
+}
+
+function readOptionalStringWithMax(
+  value: unknown,
+  maxLength: number,
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  return readStringWithMax(value, maxLength);
+}
+
+function readMetadata(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const metadata: Record<string, string> = {};
+  for (const [key, entryValue] of Object.entries(value)) {
+    if (typeof entryValue === "string") {
+      metadata[key] = entryValue;
+    }
+  }
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+function readAllowedTools(value: unknown): string[] | undefined {
+  const text = readString(value);
+  if (!text) return undefined;
+  const tools = text.split(/\s+/).filter(Boolean);
+  return tools.length > 0 ? tools : undefined;
+}
+
 async function readSkillFileIfSafe(path: string): Promise<string | null> {
   const platform = getPlatform();
   const info = await platform.fs.lstat(path);
@@ -83,18 +121,29 @@ async function readCandidateSkill(
   if (!meta) return null;
 
   const name = readString(meta.name);
-  const description = readString(meta.description);
+  const description = readStringWithMax(
+    meta.description,
+    MAX_SKILL_DESCRIPTION_LENGTH,
+  );
   if (
-    !name || !description || !isValidSkillName(name) ||
+    !name || name !== skillDirName || !description || !isValidSkillName(name) ||
     isReservedSkillName(name)
   ) {
     return null;
   }
 
+  const compatibility = readOptionalStringWithMax(
+    meta.compatibility,
+    MAX_SKILL_COMPATIBILITY_LENGTH,
+  );
   return {
     entry: {
       name,
       description,
+      license: readString(meta.license),
+      compatibility,
+      metadata: readMetadata(meta.metadata),
+      allowedTools: readAllowedTools(meta["allowed-tools"]),
       filePath: platform.path.resolve(skillFile),
       baseDir: platform.path.resolve(skillDir),
       source: root.source,

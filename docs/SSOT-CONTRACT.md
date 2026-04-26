@@ -63,7 +63,7 @@ skill roots
 | `src/common/paths.ts`               | Canonical skills root paths: global user and bundled path helpers.                                                                              |
 | `src/hlvm/agent/skills/bundled.ts`  | Embedded foundational bundled skill content and materialization to the bundled runtime root.                                                     |
 | `src/hlvm/agent/skills/types.ts`    | Skill data contracts: source, index entry, snapshot, duplicate metadata.                                                                        |
-| `src/hlvm/agent/skills/store.ts`    | Root scanning, frontmatter parsing, validation, precedence, duplicate handling, short-lived snapshot cache, symlink/size hardening, body reads. |
+| `src/hlvm/agent/skills/store.ts`    | Root scanning, official agentskills.io frontmatter parsing, validation, precedence, duplicate handling, short-lived snapshot cache, symlink/size hardening, body reads. |
 | `src/hlvm/agent/skills/activation.ts` | Shared explicit `/skill-name args` activation for REPL and `hlvm ask`; no special executor.                                                     |
 | `src/hlvm/agent/skills/prompt.ts`   | XML serialization and prompt-budget formatting.                                                                                                 |
 | `src/hlvm/agent/skills/reserved.ts` | Skill names reserved by built-in slash commands.                                                                                                |

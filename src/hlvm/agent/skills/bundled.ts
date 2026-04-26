@@ -228,14 +228,21 @@ A skill is a folder with:
 - optional references/
 - optional assets/
 
-SKILL.md must start with frontmatter:
+SKILL.md must start with agentskills.io frontmatter:
 
 \`\`\`markdown
 ---
 name: kebab-case-name
 description: Use when the agent should apply this workflow.
+license: MIT
+compatibility: Requires git and network access.
+metadata:
+  author: example-org
+allowed-tools: Bash(git:*) Read
 ---
 \`\`\`
+
+Only name and description are required. License, compatibility, metadata, and allowed-tools are optional official fields. Do not add product-specific fields unless the user explicitly asks for a product-specific dialect.
 
 ## Workflow
 

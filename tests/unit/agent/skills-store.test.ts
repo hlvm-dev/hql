@@ -112,6 +112,19 @@ Body
 `,
     );
 
+    const mismatchedDir = platform.path.join(root, "mismatched-name");
+    await platform.fs.mkdir(mismatchedDir, { recursive: true });
+    await platform.fs.writeTextFile(
+      platform.path.join(mismatchedDir, "SKILL.md"),
+      `---
+name: different-name
+description: Directory and name do not match
+---
+
+Body
+`,
+    );
+
     const missingDescriptionDir = platform.path.join(
       root,
       "missing-description",
@@ -121,6 +134,19 @@ Body
       platform.path.join(missingDescriptionDir, "SKILL.md"),
       `---
 name: missing-description
+---
+
+Body
+`,
+    );
+
+    const longDescriptionDir = platform.path.join(root, "long-description");
+    await platform.fs.mkdir(longDescriptionDir, { recursive: true });
+    await platform.fs.writeTextFile(
+      platform.path.join(longDescriptionDir, "SKILL.md"),
+      `---
+name: long-description
+description: ${"x".repeat(1025)}
 ---
 
 Body
@@ -141,9 +167,53 @@ Body
       snapshot.skills.some((skill) => skill.name === "missing-description"),
       false,
     );
+    assertEquals(
+      snapshot.skills.some((skill) => skill.name === "different-name"),
+      false,
+    );
+    assertEquals(
+      snapshot.skills.some((skill) => skill.name === "long-description"),
+      false,
+    );
     assertEquals(isValidSkillName("valid-skill"), true);
     assertEquals(isValidSkillName("Invalid"), false);
     assertEquals(isValidSkillName("bad_name"), false);
+  });
+});
+
+Deno.test("skills store: parses official agentskills optional frontmatter", async () => {
+  await withTempHlvmDir(async () => {
+    const platform = getPlatform();
+    const root = getUserSkillsDir();
+    const skillDir = platform.path.join(root, "pdf-flow");
+    await platform.fs.mkdir(skillDir, { recursive: true });
+    await platform.fs.writeTextFile(
+      platform.path.join(skillDir, "SKILL.md"),
+      `---
+name: pdf-flow
+description: Extract, inspect, and transform PDF files. Use when the user asks about PDF processing.
+license: Apache-2.0
+compatibility: Requires Python and local filesystem access.
+metadata:
+  author: hlvm
+  version: "1.0"
+allowed-tools: Bash(pdfinfo:*) Read
+---
+
+Process the PDF.
+`,
+    );
+
+    const snapshot = await loadSkillSnapshot();
+    const skill = snapshot.skills.find((entry) => entry.name === "pdf-flow");
+
+    assertEquals(skill?.license, "Apache-2.0");
+    assertEquals(
+      skill?.compatibility,
+      "Requires Python and local filesystem access.",
+    );
+    assertEquals(skill?.metadata, { author: "hlvm", version: "1.0" });
+    assertEquals(skill?.allowedTools, ["Bash(pdfinfo:*)", "Read"]);
   });
 });
 

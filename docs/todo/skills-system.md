@@ -71,8 +71,9 @@ description: Extract PDF text, fill forms, merge files. Use when handling PDFs.
 Required frontmatter keys: `name` (kebab-case, 1–64 chars), `description`
 (one-line, used for matching).
 
-Everything else in the spec (license, metadata, optional hooks) is optional and
-agent-specific.
+Official optional fields are `license`, `compatibility`, `metadata`, and
+experimental `allowed-tools`. Product dialect fields such as CC hooks, model
+routing, aliases, and command hints are intentionally out of core scope.
 
 ### Mental model
 
@@ -440,8 +441,9 @@ export type SkillSnapshot = {
 };
 ```
 
-Do not add OpenClaw metadata, dependency requirements, per-agent filters,
-command dispatch, registry IDs, or config/env fields in v1.
+Do not add OpenClaw dependency requirements, per-agent filters, command
+dispatch, registry IDs, or config/env fields in v1. Plain `metadata` is allowed
+only as the official agentskills.io key-value extension point.
 
 #### `src/hlvm/agent/skills/store.ts`
 
@@ -798,10 +800,9 @@ next person can build from repo truth, not just product intent.
 - Build **tier B** as the stable base: `B1 core`, `B2 ergonomics`, and the
   Phase 3 foundational bundled pack are implemented.
 - Keep the open `agentskills.io` `SKILL.md` contract unchanged in v1. No
-  HLVM-specific frontmatter keys.
-- Follow **CC as the primary runtime role model**. Use OpenClaw only as a
-  selective donor for a few practical pieces, not as the product template for
-  the whole subsystem.
+  HLVM-specific or CC-specific frontmatter keys.
+- Use CC/OpenClaw as implementation references only. The v1 compatibility
+  target is the agentskills.io spec, not either product dialect.
 - Slash commands should use the simple v1 behavior: `/skill-name <args>` becomes
   a normal user turn with the skill recipe injected, not a special tool-dispatch
   path.
