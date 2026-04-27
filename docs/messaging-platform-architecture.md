@@ -193,12 +193,14 @@ The macOS onboarding UI must show only production channels.
 Current UI:
 
 ```text
-Scan with Telegram
+[Telegram icon] Scan with Telegram
   [Telegram QR]
 ```
 
-Do not add placeholder tabs/icons for unimplemented platforms. Placeholders made
-failed experiments look product-ready and increased debugging noise.
+The Telegram icon is the live affordance for the only production channel. It is
+not a platform picker. Do not add placeholder tabs/icons for unimplemented
+platforms. Placeholders made failed experiments look product-ready and
+increased debugging noise.
 
 ## Future Vendor Procedure
 
@@ -223,3 +225,4 @@ bypass the GUI turn bridge.
 | 2026-04-24 | Telegram provisioning moved through generic channel route/contract                                 |
 | 2026-04-26 | iMessage/Gmail/Slack/LINE research and spikes explored                                             |
 | 2026-04-27 | Reset to Telegram-only production scope; retired failed non-Telegram implementations and UI        |
+| 2026-04-27 | Clarified current QR UI: Telegram icon remains in the Telegram-only title row; no placeholder icons |

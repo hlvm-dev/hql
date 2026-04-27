@@ -1113,49 +1113,94 @@ Activation:
 
 ```text
 Narrow tests:
-  75 skill/unit+narrow-integration tests passed
+  52 focused skill/unit+narrow-integration tests passed
+
+Broad deterministic user E2E:
+  28/28 checks passed
+  Covered:
+    hlvm skill --help
+    hlvm skill list
+    hlvm skill new
+    duplicate/invalid-name failures
+    hlvm skill draft
+    hlvm skill draft --print
+    hlvm skill draft --force
+    hlvm skill info
+    hlvm skill import <folder>
+    hlvm skill import <pack>
+    hlvm skill install <git-file-url>
+    hlvm skill update <name>
+    indexed hlvm skill search
+    indexed hlvm skill info --remote
+    indexed hlvm skill install <slug> --version
+    hlvm skill check --json
+    hlvm skill publish --print
+    hlvm skill publish --repo
+    duplicate publish failure
+    hlvm skill remove
+    hlvm skill update --all
+    final hlvm skill check
+
+Live AI E2E with claude-code/claude-haiku-4-5-20251001:
+  hlvm skill draft ai-diagnose ... --ai
+    -> created valid ~/.hlvm/skills/ai-diagnose/SKILL.md
+    -> origin: authored draft
+    -> skill check clean
+
+  hlvm skill improve ai-diagnose ... --save
+    -> updated existing SKILL.md
+    -> origin: authored improve
+    -> verification section included requested process-exit/prompt-return checks
+    -> skill check clean
+
+  hlvm ask --verbose "/ai-diagnose ..."
+    -> [Tool] Skill(ai-diagnose)
+    -> Successfully loaded skill
+    -> model followed skill and answered through normal agent loop
+
+  hlvm ask --verbose "I need help diagnosing a CLI command..."
+    -> model selected ai-diagnose from <available_skills>
+    -> read_file on installed SKILL.md
+    -> [Tool] Skill(ai-diagnose)
+    -> Successfully loaded skill
+
+Real remote GitHub E2E against github.com/hlvm-dev/skills:
+  hlvm skill search debug
+    -> debug returned from official static index
+
+  hlvm skill install debug
+    -> cloned https://github.com/hlvm-dev/skills.git
+    -> installed skills/debug into ~/.hlvm/skills/debug
+
+  hlvm skill info debug
+    -> source: user
+    -> origin: git https://github.com/hlvm-dev/skills.git (skills/debug)
+    -> commit and content hash shown
+
+  hlvm skill check
+    -> 7 ready, 0 warnings, 0 errors
+
+  hlvm skill update debug
+    -> debug already up to date
+
+Compiled binary smoke:
+  ./scripts/compile-hlvm.sh --output /tmp/hlvm-skill-comprehensive-bin
+    -> compiled and signed binary
+
+  /tmp/hlvm-skill-comprehensive-bin skill list
+    -> bundled skills visible from compiled binary
+
+  /tmp/hlvm-skill-comprehensive-bin skill draft bin-debug ...
+    -> authored user skill created
+
+  /tmp/hlvm-skill-comprehensive-bin skill check
+    -> 8 ready, 0 warnings, 0 errors
 
 Static checks:
   deno check passed for changed skill files/tests
   deno lint passed for changed skill files/tests
-  deno fmt --check passed for changed skill source/tests
   deno task ssot:check passed
   git diff --check passed
-
-User-facing E2E:
-  hlvm skill list
-    -> bundled skills visible
-
-  hlvm skill info debug-flow
-    -> user skill body readable from ~/.hlvm/skills/debug-flow/SKILL.md
-
-  hlvm skill import /tmp/.../phase-four-import
-    -> Imported phase-four-import -> ~/.hlvm/skills/phase-four-import
-
-  hlvm skill install file:///tmp/local-git-repo
-    -> Installed phase-four-git -> ~/.hlvm/skills/phase-four-git
-
-  hlvm ask --model claude-code/claude-haiku-4-5-20251001 "/debug ..."
-    -> [Tool] Skill(debug)
-    -> Successfully loaded skill
-
-  hlvm ask --model claude-code/claude-haiku-4-5-20251001 "failing test..."
-    -> model called read_file on ~/.hlvm/skills/debug-flow/SKILL.md
-    -> [Tool] Skill(debug-flow)
-    -> Successfully loaded skill
-
-  hlvm repl --debug
-    -> visually confirmed CC-style Skill(...) transcript row
-
-  hlvm ask --model claude-code/claude-haiku-4-5-20251001 "/phase-four-git ..."
-    -> [Tool] Skill(phase-four-git)
-    -> read_file on installed SKILL.md
-    -> Successfully loaded skill
-
-  hlvm ask --model claude-code/claude-haiku-4-5-20251001 "verify Phase 4 git install..."
-    -> model selected phase-four-git from <available_skills>
-    -> read_file on installed SKILL.md
-    -> Successfully loaded skill
 ```
 
 ### Code quality status
@@ -1168,7 +1213,9 @@ The foundation is intentionally small and SSOT-bound:
 - SSOT: paths in `src/common/paths.ts`; loading in
   `src/hlvm/agent/skills/store.ts`; prompt formatting in
   `src/hlvm/agent/skills/prompt.ts`; skill lifecycle copy/clone/update/check in
-  `src/hlvm/agent/skills/install.ts`.
+  `src/hlvm/agent/skills/install.ts`; AI draft/improve normalization in
+  `src/hlvm/agent/skills/authoring.ts`; repository search/install/publish in
+  `src/hlvm/agent/skills/repository.ts`.
 - No backdoor: skills only become instructions for the normal agent loop.
 - No project scope: global user and bundled roots only.
 - No CC dialect creep: CC-only fields such as hooks, model routing, aliases,
@@ -1179,7 +1226,8 @@ The foundation is intentionally small and SSOT-bound:
 - No full third-party dangerous-code scanner yet; Phase 4 only rejects symlinks,
   oversized files/trees, and metadata directories, and warns on `scripts/`.
 - No dependency installer or env/config injection.
-- No workflow-to-skill generation.
+- No passive Hermes-style workflow-to-skill suggestion/generation.
+- No silent background skill creation or mutation.
 - Experimental `allowed-tools` is parsed as official metadata but is not yet
   enforced as runtime policy.
 

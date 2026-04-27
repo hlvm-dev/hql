@@ -160,11 +160,13 @@ If any answer is "no", keep it in research docs only.
 ## Current UI
 
 ```text
-Scan with Telegram
+[Telegram icon] Scan with Telegram
   [Telegram QR]
 ```
 
-No placeholder tabs. No future-platform icons. No "coming soon" channel buttons.
+The icon is Telegram-specific because Telegram is the only production channel.
+It must not become a generic picker or imply future-platform availability. No
+placeholder tabs. No future-platform icons. No "coming soon" channel buttons.
 
 ## Architecture Rule
 
@@ -204,3 +206,4 @@ Improve Telegram quality instead of adding speculative platforms:
 | 2026-04-23 | Multi-platform messaging vision created                                                     |
 | 2026-04-26 | LINE/iMessage/Gmail/Slack explored as candidate channels                                    |
 | 2026-04-27 | Reset vision to Telegram-only production; recorded retired platform lessons and product gate |
+| 2026-04-27 | Current UI clarified: Telegram icon stays with Telegram-only QR; no placeholder platform UI  |

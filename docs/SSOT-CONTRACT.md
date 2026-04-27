@@ -67,7 +67,7 @@ user-triggered distribution
 official repository lifecycle
   github.com/hlvm-dev/skills       ← static GitHub repo, no custom server
       → index.json                 ← curated metadata, source, version, license
-      → repository.ts              ← search/install-by-slug resolver only
+      → repository.ts              ← search/install-by-slug + publish package boundary
       → install.ts                 ← final validated copy into user root
 
 explicit assisted authoring
@@ -84,21 +84,21 @@ PR-ready publishing
 
 ### Skills SSOT files
 
-| File                                  | Responsibility                                                                                                                                                                   |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/common/paths.ts`                 | Canonical skills root paths: global user and bundled path helpers.                                                                                                               |
-| `src/hlvm/agent/skills/bundled.ts`    | Embedded foundational bundled skill content and materialization to the bundled runtime root.                                                                                     |
-| `src/hlvm/agent/skills/types.ts`      | Skill data contracts: source, index entry, snapshot, duplicate metadata.                                                                                                         |
-| `src/hlvm/agent/skills/store.ts`      | Root scanning, official agentskills.io frontmatter parsing, validation, precedence, duplicate handling, short-lived snapshot cache, symlink/size hardening, body reads.          |
+| File                                  | Responsibility                                                                                                                                                                                              |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/common/paths.ts`                 | Canonical skills root paths: global user and bundled path helpers.                                                                                                                                          |
+| `src/hlvm/agent/skills/bundled.ts`    | Embedded foundational bundled skill content and materialization to the bundled runtime root.                                                                                                                |
+| `src/hlvm/agent/skills/types.ts`      | Skill data contracts: source, index entry, snapshot, duplicate metadata.                                                                                                                                    |
+| `src/hlvm/agent/skills/store.ts`      | Root scanning, official agentskills.io frontmatter parsing, validation, precedence, duplicate handling, short-lived snapshot cache, symlink/size hardening, body reads.                                     |
 | `src/hlvm/agent/skills/install.ts`    | User-triggered skill lifecycle: scaffold, deterministic draft write, local folder/pack import, Git/GitHub clone, staging, validation, origin metadata, update, remove, check, global user-root writes only. |
-| `src/hlvm/agent/skills/authoring.ts`  | Explicit AI-assisted authoring: build draft/improve prompts, normalize model output into valid `SKILL.md`, reject invalid/oversized/empty generated skills.                                  |
+| `src/hlvm/agent/skills/authoring.ts`  | Explicit AI-assisted authoring: build draft/improve prompts, normalize model output into valid `SKILL.md`, reject invalid/oversized/empty generated skills.                                                 |
 | `src/hlvm/agent/skills/repository.ts` | Official static index lifecycle: search metadata, inspect remote entries, resolve repository slugs to install sources, and package user skills into PR-ready `skills/<name>/SKILL.md` + `index.json`.       |
-| `src/hlvm/agent/skills/activation.ts` | Shared explicit `/skill-name args` activation for REPL and `hlvm ask`; no special executor.                                                                                      |
-| `src/hlvm/agent/skills/prompt.ts`     | XML serialization and prompt-budget formatting.                                                                                                                                  |
-| `src/hlvm/agent/skills/reserved.ts`   | Skill names reserved by built-in slash commands.                                                                                                                                 |
-| `src/hlvm/cli/commands/skill.ts`      | CLI surface: parse arguments and print results for `list`, `new`, `draft`, `improve`, `publish`, `search`, `info`, `import`, `install`, `update`, `remove`, and `check`; no skill storage logic. |
-| `src/hlvm/cli/repl/commands.ts`       | Dynamic `/skill-name` command resolution only; no skill storage logic.                                                                                                           |
-| `src/hlvm/agent/orchestrator.ts`      | Calls the skills prompt hook; does not scan roots directly.                                                                                                                      |
+| `src/hlvm/agent/skills/activation.ts` | Shared explicit `/skill-name args` activation for REPL and `hlvm ask`; no special executor.                                                                                                                 |
+| `src/hlvm/agent/skills/prompt.ts`     | XML serialization and prompt-budget formatting.                                                                                                                                                             |
+| `src/hlvm/agent/skills/reserved.ts`   | Skill names reserved by built-in slash commands.                                                                                                                                                            |
+| `src/hlvm/cli/commands/skill.ts`      | CLI surface: parse arguments and print results for `list`, `new`, `draft`, `improve`, `publish`, `search`, `info`, `import`, `install`, `update`, `remove`, and `check`; no skill storage logic.            |
+| `src/hlvm/cli/repl/commands.ts`       | Dynamic `/skill-name` command resolution only; no skill storage logic.                                                                                                                                      |
+| `src/hlvm/agent/orchestrator.ts`      | Calls the skills prompt hook; does not scan roots directly.                                                                                                                                                 |
 
 ### Forbidden in skills modules
 
@@ -253,9 +253,20 @@ A new vendor is not implemented or exposed in the GUI until it meets all of:
    `ChannelTransport → channel runtime → GUI turn bridge → Swift chat`, then
    replies return through the same transport.
 
-Telegram currently passes. LINE, iMessage, Gmail relay/OAuth, Slack,
-WhatsApp, Messenger, KakaoTalk, and WeChat do not pass the product gate for the
+Telegram currently passes. LINE, iMessage, Gmail relay/OAuth, Slack, WhatsApp,
+Messenger, KakaoTalk, and WeChat do not pass the product gate for the
 mobile-first, zero-server, scan-and-chat default path.
+
+Current GUI surface:
+
+```text
+[Telegram icon] Scan with Telegram
+  [Telegram QR]
+```
+
+The Telegram icon is part of the live Telegram affordance, not a platform
+picker. Do not add placeholder tabs, icons, coming-soon buttons, docs, tests, or
+config for vendors that have not passed the gate.
 
 ### Adding a new vendor after it passes the gate
 
@@ -537,7 +548,7 @@ When adding a new domain:
 | 2026-04-26 | Added external channel runtime ownership and endpoint identity rule                                                                                    |
 | 2026-04-26 | Updated skills contract for Phase 3: bundled skills root, official agentskills.io frontmatter parsing, shared ask/REPL activation, no special executor |
 | 2026-04-26 | Added skills Phase 4 distribution SSOT: local/Git/GitHub import/install through `src/hlvm/agent/skills/install.ts`, global user-root copy only         |
-| 2026-04-26 | Added channel scope rule (free forever, per-user ceiling, no relay); LINE removed; iMessage self-message explored as next target                      |
+| 2026-04-26 | Added channel scope rule (free forever, per-user ceiling, no relay); LINE removed; iMessage self-message explored as next target                       |
 | 2026-04-26 | Channel runtime production `runQuery` now delegates to GUI turn bridge; mobile turns must enter the same Swift chat path as Tab/Spotlight              |
 | 2026-04-26 | iMessage self-message spike documented: no-prefix model, FSEvents, Hide Alerts, chat.db row filters                                                    |
 | 2026-04-26 | iMessage v1 spike clarified: recipient-only QR, no pair-code body, first normal self-thread message as first bot turn                                  |
@@ -547,4 +558,6 @@ When adding a new domain:
 | 2026-04-26 | Skills Phase 4.2 repository resolver landed: static index search/install-by-slug centralized in `src/hlvm/agent/skills/repository.ts`                  |
 | 2026-04-27 | Skills Phase 5 explicit drafting foundation landed: user-invoked workflow drafts centralized in `src/hlvm/agent/skills/install.ts`                     |
 | 2026-04-27 | Skills A-to-Z authoring flow landed: AI draft/improve normalization in `authoring.ts`, PR-ready publish packaging in `repository.ts`                   |
+| 2026-04-27 | Skills verification updated: focused tests, deterministic user E2E, live Haiku AI E2E, real `hlvm-dev/skills` remote E2E, and compiled-binary smoke    |
 | 2026-04-27 | Messaging reset: removed iMessage/LINE/Gmail/Slack live scope; Telegram is the only production channel until another vendor passes the gate            |
+| 2026-04-27 | Telegram-only GUI rule clarified: title row keeps the Telegram icon; all non-production platform placeholders stay forbidden                           |
