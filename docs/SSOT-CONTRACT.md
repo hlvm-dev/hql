@@ -11,28 +11,29 @@ consistent behavior.
 
 ## Boundaries
 
-| Domain                            | SSOT Entry Point                                                                                                                                | Location                                                            | Allowed Bypasses                                        |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------- |
-| **Logging**                       | `globalThis.log`                                                                                                                                | `src/hlvm/api/log.ts`                                               | `log.raw.*` for CLI output                              |
-| **Runtime Init**                  | `initializeRuntime()`                                                                                                                           | `src/common/runtime-initializer.ts`                                 | None                                                    |
-| **HTTP Client**                   | `http.*`                                                                                                                                        | `src/common/http-client.ts`                                         | `providers/*` (provider-internal)                       |
-| **Errors**                        | Typed errors                                                                                                                                    | `src/common/error.ts`                                               | `TypeError`, `RangeError`, `SyntaxError` (JS semantics) |
-| **Platform I/O**                  | `getPlatform()`                                                                                                                                 | `src/platform/platform.ts`                                          | None                                                    |
-| **AI Operations**                 | `globalThis.ai`                                                                                                                                 | `src/hlvm/api/ai.ts`                                                | None                                                    |
-| **Configuration**                 | `globalThis.config`                                                                                                                             | `src/hlvm/api/config.ts`                                            | None                                                    |
-| **Sessions**                      | `globalThis.session`                                                                                                                            | `src/hlvm/api/session.ts`                                           | None                                                    |
-| **Bindings**                      | `globalThis.bindings`                                                                                                                           | `src/hlvm/api/bindings.ts`                                          | None                                                    |
-| **History**                       | `globalThis.history`                                                                                                                            | `src/hlvm/api/history.ts`                                           | None                                                    |
-| **Local Fallback Substrate**      | `materializeBootstrap()` + `verifyBootstrap()`                                                                                                  | `src/hlvm/runtime/bootstrap-*.ts`                                   | None                                                    |
-| **Runtime Host Lifecycle**        | `ensureRuntimeHost()` + `serveCommand()`                                                                                                        | `src/hlvm/runtime/host-client.ts`, `src/hlvm/cli/commands/serve.ts` | None                                                    |
-| **MCP Discovery + Registration**  | `loadMcpConfigMultiScope()` + session `ensureMcpLoaded()`                                                                                       | `src/hlvm/agent/mcp/config.ts`, `src/hlvm/agent/session.ts`         | None                                                    |
-| **Global Assistant Instructions** | `loadHlvmInstructionsSystemMessage()`                                                                                                           | `src/hlvm/agent/global-instructions.ts`                             | None                                                    |
-| **Skills Discovery + Prompting**  | `loadSkillSnapshot()` + `formatSkillsForPrompt()` + `readSkillBody()`                                                                           | `src/hlvm/agent/skills/store.ts`, `src/hlvm/agent/skills/prompt.ts` | None                                                    |
-| **Skills Distribution/Lifecycle** | `createUserSkill()` + `draftUserSkill()` + `importSkillPath()` + `installSkillFromGit()` + `removeSkill()` + `updateSkills()` + `checkSkills()` | `src/hlvm/agent/skills/install.ts`                                  | None                                                    |
-| **Skills Repository**             | `searchSkillRepository()` + `installSkillFromRepositorySlug()`                                                                                  | `src/hlvm/agent/skills/repository.ts`                               | None                                                    |
-| **Channel Runtime**               | `createChannelRuntime()`                                                                                                                        | `src/hlvm/channels/core/runtime.ts`                                 | None                                                    |
-| **Channel Vendor Contracts**      | `ChannelTransport`, `ChannelProvisioner`, `ChannelSetupSession`                                                                                 | `src/hlvm/channels/core/types.ts`                                   | None                                                    |
-| **Channel Wiring**                | `channelRuntime` (transport factory registry)                                                                                                   | `src/hlvm/channels/registry.ts`                                     | None                                                    |
+| Domain                            | SSOT Entry Point                                                                                                                                                                | Location                                                            | Allowed Bypasses                                        |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------- |
+| **Logging**                       | `globalThis.log`                                                                                                                                                                | `src/hlvm/api/log.ts`                                               | `log.raw.*` for CLI output                              |
+| **Runtime Init**                  | `initializeRuntime()`                                                                                                                                                           | `src/common/runtime-initializer.ts`                                 | None                                                    |
+| **HTTP Client**                   | `http.*`                                                                                                                                                                        | `src/common/http-client.ts`                                         | `providers/*` (provider-internal)                       |
+| **Errors**                        | Typed errors                                                                                                                                                                    | `src/common/error.ts`                                               | `TypeError`, `RangeError`, `SyntaxError` (JS semantics) |
+| **Platform I/O**                  | `getPlatform()`                                                                                                                                                                 | `src/platform/platform.ts`                                          | None                                                    |
+| **AI Operations**                 | `globalThis.ai`                                                                                                                                                                 | `src/hlvm/api/ai.ts`                                                | None                                                    |
+| **Configuration**                 | `globalThis.config`                                                                                                                                                             | `src/hlvm/api/config.ts`                                            | None                                                    |
+| **Sessions**                      | `globalThis.session`                                                                                                                                                            | `src/hlvm/api/session.ts`                                           | None                                                    |
+| **Bindings**                      | `globalThis.bindings`                                                                                                                                                           | `src/hlvm/api/bindings.ts`                                          | None                                                    |
+| **History**                       | `globalThis.history`                                                                                                                                                            | `src/hlvm/api/history.ts`                                           | None                                                    |
+| **Local Fallback Substrate**      | `materializeBootstrap()` + `verifyBootstrap()`                                                                                                                                  | `src/hlvm/runtime/bootstrap-*.ts`                                   | None                                                    |
+| **Runtime Host Lifecycle**        | `ensureRuntimeHost()` + `serveCommand()`                                                                                                                                        | `src/hlvm/runtime/host-client.ts`, `src/hlvm/cli/commands/serve.ts` | None                                                    |
+| **MCP Discovery + Registration**  | `loadMcpConfigMultiScope()` + session `ensureMcpLoaded()`                                                                                                                       | `src/hlvm/agent/mcp/config.ts`, `src/hlvm/agent/session.ts`         | None                                                    |
+| **Global Assistant Instructions** | `loadHlvmInstructionsSystemMessage()`                                                                                                                                           | `src/hlvm/agent/global-instructions.ts`                             | None                                                    |
+| **Skills Discovery + Prompting**  | `loadSkillSnapshot()` + `formatSkillsForPrompt()` + `readSkillBody()`                                                                                                           | `src/hlvm/agent/skills/store.ts`, `src/hlvm/agent/skills/prompt.ts` | None                                                    |
+| **Skills Distribution/Lifecycle** | `createUserSkill()` + `draftUserSkill()` + `writeAuthoredSkillContent()` + `importSkillPath()` + `installSkillFromGit()` + `removeSkill()` + `updateSkills()` + `checkSkills()` | `src/hlvm/agent/skills/install.ts`                                  | None                                                    |
+| **Skills Assisted Authoring**     | `buildAiSkillDraftPrompt()` + `buildAiSkillImprovePrompt()` + `normalizeAuthoredSkillContent()`                                                                                 | `src/hlvm/agent/skills/authoring.ts`                                | None                                                    |
+| **Skills Repository**             | `searchSkillRepository()` + `installSkillFromRepositorySlug()` + `publishSkillToRepository()`                                                                                   | `src/hlvm/agent/skills/repository.ts`                               | None                                                    |
+| **Channel Runtime**               | `createChannelRuntime()`                                                                                                                                                        | `src/hlvm/channels/core/runtime.ts`                                 | None                                                    |
+| **Channel Vendor Contracts**      | `ChannelTransport`, `ChannelProvisioner`, `ChannelSetupSession`                                                                                                                 | `src/hlvm/channels/core/types.ts`                                   | None                                                    |
+| **Channel Wiring**                | `channelRuntime` (transport factory registry)                                                                                                                                   | `src/hlvm/channels/registry.ts`                                     | None                                                    |
 
 ## Skills Architecture
 
@@ -68,6 +69,17 @@ official repository lifecycle
       → index.json                 ← curated metadata, source, version, license
       → repository.ts              ← search/install-by-slug resolver only
       → install.ts                 ← final validated copy into user root
+
+explicit assisted authoring
+  hlvm skill draft <name> <goal> [--ai]
+  hlvm skill improve <name> <instruction> [--save]
+      → authoring.ts               ← AI prompt construction + output normalization
+      → install.ts                 ← final authored write into user root
+
+PR-ready publishing
+  hlvm skill publish <name> --repo <path>
+      → repository.ts              ← copy skill tree + update static index
+      → github.com/hlvm-dev/skills ← normal PR/CI review path
 ```
 
 ### Skills SSOT files
@@ -78,12 +90,13 @@ official repository lifecycle
 | `src/hlvm/agent/skills/bundled.ts`    | Embedded foundational bundled skill content and materialization to the bundled runtime root.                                                                                     |
 | `src/hlvm/agent/skills/types.ts`      | Skill data contracts: source, index entry, snapshot, duplicate metadata.                                                                                                         |
 | `src/hlvm/agent/skills/store.ts`      | Root scanning, official agentskills.io frontmatter parsing, validation, precedence, duplicate handling, short-lived snapshot cache, symlink/size hardening, body reads.          |
-| `src/hlvm/agent/skills/install.ts`    | User-triggered skill lifecycle: scaffold, local folder/pack import, Git/GitHub clone, staging, validation, origin metadata, update, remove, check, global user-root writes only. |
-| `src/hlvm/agent/skills/repository.ts` | Official static index reader: search metadata, inspect remote entries, resolve repository slugs to install sources, then delegate to `install.ts`.                               |
+| `src/hlvm/agent/skills/install.ts`    | User-triggered skill lifecycle: scaffold, deterministic draft write, local folder/pack import, Git/GitHub clone, staging, validation, origin metadata, update, remove, check, global user-root writes only. |
+| `src/hlvm/agent/skills/authoring.ts`  | Explicit AI-assisted authoring: build draft/improve prompts, normalize model output into valid `SKILL.md`, reject invalid/oversized/empty generated skills.                                  |
+| `src/hlvm/agent/skills/repository.ts` | Official static index lifecycle: search metadata, inspect remote entries, resolve repository slugs to install sources, and package user skills into PR-ready `skills/<name>/SKILL.md` + `index.json`.       |
 | `src/hlvm/agent/skills/activation.ts` | Shared explicit `/skill-name args` activation for REPL and `hlvm ask`; no special executor.                                                                                      |
 | `src/hlvm/agent/skills/prompt.ts`     | XML serialization and prompt-budget formatting.                                                                                                                                  |
 | `src/hlvm/agent/skills/reserved.ts`   | Skill names reserved by built-in slash commands.                                                                                                                                 |
-| `src/hlvm/cli/commands/skill.ts`      | CLI surface: parse arguments and print results for `list`, `new`, `search`, `info`, `import`, `install`, `update`, `remove`, and `check`; no skill storage logic.                |
+| `src/hlvm/cli/commands/skill.ts`      | CLI surface: parse arguments and print results for `list`, `new`, `draft`, `improve`, `publish`, `search`, `info`, `import`, `install`, `update`, `remove`, and `check`; no skill storage logic. |
 | `src/hlvm/cli/repl/commands.ts`       | Dynamic `/skill-name` command resolution only; no skill storage logic.                                                                                                           |
 | `src/hlvm/agent/orchestrator.ts`      | Calls the skills prompt hook; does not scan roots directly.                                                                                                                      |
 
@@ -129,6 +142,11 @@ system, or background sync service.
 Current package-manager UX is:
 
 ```
+hlvm skill new <name>
+hlvm skill draft <name> <goal...> [--ai] [--print] [--force]
+hlvm skill improve <name> <instruction...> [--print] [--save]
+hlvm skill import <path> [--force]
+hlvm skill install <source-or-slug> [--version <version>] [--force]
 hlvm skill update <name|--all>
 hlvm skill remove <name>
 hlvm skill check
@@ -140,6 +158,7 @@ Current repository-backed UX:
 hlvm skill search <query>
 hlvm skill install <slug>
 hlvm skill info <slug> --remote
+hlvm skill publish <name> --repo <path>
 ```
 
 External taps and broad GitHub search can be considered later, but they are not
@@ -157,9 +176,9 @@ All future skills work should fit one of these layers:
 | Bundled skills       | Foundational built-in `SKILL.md` folders                                                   | Must be exposed as a source to the core substrate             |
 | Skill packs          | Optional domain packs such as browser, GitHub, release, or messaging workflows             | Must be plain skills or explicitly documented package sources |
 | Distribution         | Scaffold/import/install/update/remove/check from local paths and Git/GitHub sources        | Must live in `src/hlvm/agent/skills/install.ts`               |
-| Repository lifecycle | Search/install-by-slug from the official HLVM GitHub static index                          | Must live in `src/hlvm/agent/skills/repository.ts`            |
+| Repository lifecycle | Search/install-by-slug and PR-ready publish packaging through the official GitHub index    | Must live in `src/hlvm/agent/skills/repository.ts`            |
 | Policy and safety    | Dependency checks, dangerous-code scans, allowlists, per-agent scoping                     | Requires a new SSOT entry before implementation               |
-| Assisted authoring   | Explicit user-invoked workflow-to-skill drafts                                             | Must live in `src/hlvm/agent/skills/install.ts`               |
+| Assisted authoring   | Explicit user-invoked template/AI drafts and AI skill improvement                          | Must live in `src/hlvm/agent/skills/authoring.ts`             |
 
 ### Adding or expanding skill support
 
@@ -174,9 +193,11 @@ The first implementation should use only these integration points:
 Everything else must remain in its current SSOT: tools execute tools, MCP loads
 MCP servers, memory stores memories, and providers call models.
 
-If a later phase adds dependency installers, policy, generated skills, external
-taps, broad GitHub discovery, or another source of skills, update this contract
-first with the new SSOT entry and its allowed boundaries.
+If a later phase adds dependency installers, policy enforcement, passive
+workflow-to-skill suggestions, external taps, broad GitHub discovery, or another
+source of skills, update this contract first with the new SSOT entry and its
+allowed boundaries. Silent background skill generation remains forbidden unless
+this contract is amended first.
 
 ## Channel Architecture
 
@@ -195,47 +216,52 @@ vendor transport.receive(ChannelMessage)
 ```
 
 The production `channelRuntime` in `src/hlvm/channels/registry.ts` must use
-`src/hlvm/channels/core/gui-turn-bridge.ts` as its `runQuery` dependency. Mobile
-Telegram/iMessage/Slack/Gmail turns must execute through the same Swift GUI chat
-pipeline as Tab/Spotlight sends. Do not add a vendor-specific backend
-`runChatViaHost`, direct agent call, or synthetic "remote message" bubble path.
-The default `createChannelRuntime()` host-client fallback exists only for
-isolated construction/tests, not for the shared GUI-owned runtime.
+`src/hlvm/channels/core/gui-turn-bridge.ts` as its `runQuery` dependency.
+Telegram turns must execute through the same Swift GUI chat pipeline as
+Tab/Spotlight sends. Do not add a vendor-specific backend `runChatViaHost`,
+direct agent call, or synthetic "remote message" bubble path. The default
+`createChannelRuntime()` host-client fallback exists only for isolated
+construction/tests, not for the shared GUI-owned runtime.
 
 External channel ownership is also centralized. The default shared runtime on
-`127.0.0.1:11435` is the only process that may start Telegram or any future
-external channel transport. Explicit `hlvm serve --port <non-default>` runtimes
-are isolated local HTTP/testing surfaces and must not poll vendor APIs, attach
-vendor event streams, or consume mobile updates.
+`127.0.0.1:11435` is the only process that may start Telegram. Explicit
+`hlvm serve --port <non-default>` runtimes are isolated local HTTP/testing
+surfaces and must not poll vendor APIs, attach vendor event streams, or consume
+mobile updates.
 
 Do not use runtime ports as chat, bot, endpoint, or agent identities. If HLVM
 needs multiple Telegram bots or multiple chat agents, add endpoint records under
 the shared channel runtime instead of spawning multiple runtime owners.
 
-### Channel scope rule
+### Production channel scope rule
 
-A new vendor is only added when it meets all of:
+Telegram is the only production messaging channel.
 
-1. **Free forever at any user count.** No per-message platform billing. No
-   monthly quota that grows with users.
-2. **Per-user ceiling, not aggregate.** Rate limits, tokens, or quotas live at
-   the per-user surface (bot token, OAuth token, workspace install, local
-   device). HLVM does not own a single shared ceiling that all users compete
-   for.
-3. **HLVM is never on the data path at runtime.** HLVM may host a one-time
-   provisioning callback (OAuth redirect, pair-code echo) but must not relay
-   user messages. After onboarding, the user's Mac talks to the vendor directly.
+A new vendor is not implemented or exposed in the GUI until it meets all of:
 
-Vendors that meet all three (current shortlist): Telegram, iMessage self-message
-pattern, Slack Socket Mode, Gmail.
+1. **Official bot or app API.** No private local databases, no AppleScript-only
+   automation, no reverse-engineered web/mobile clients.
+2. **No HLVM-operated message relay.** HLVM may support provisioning, but user
+   messages must not require an HLVM-owned inbox, phone number, Apple ID, cloud
+   Mac, or long-running central bridge.
+3. **No shared aggregate cost ceiling.** The platform must not put all users
+   behind one HLVM-owned quota or per-message bill.
+4. **Scan/open mobile onboarding can complete to a dedicated chat surface.** The
+   user should land in a clear chat with HLVM, not a confusing self-thread,
+   shared inbox, workspace admin flow, or developer console setup.
+5. **Same local SSOT path.** Inbound turns must flow through
+   `ChannelTransport → channel runtime → GUI turn bridge → Swift chat`, then
+   replies return through the same transport.
 
-Vendors that fail at least one and are explicitly out of scope: WhatsApp,
-Facebook Messenger, KakaoTalk, WeChat, LINE-with-push, iMessage cloud-Mac fleet.
-Do not add them without first amending this rule.
+Telegram currently passes. LINE, iMessage, Gmail relay/OAuth, Slack,
+WhatsApp, Messenger, KakaoTalk, and WeChat do not pass the product gate for the
+mobile-first, zero-server, scan-and-chat default path.
 
-### Adding a new vendor (next target: iMessage self-message)
+### Adding a new vendor after it passes the gate
 
-Provide exactly three vendor files and two wiring lines:
+Provide exactly three vendor files and two wiring lines. Do not add placeholder
+GUI tabs, icons, docs, tests, or config for a vendor that has not passed the
+gate.
 
 | File                                         | What to implement                                    |
 | -------------------------------------------- | ---------------------------------------------------- |
@@ -252,73 +278,26 @@ Wire in:
 Everything else (allowlist, queue, pairing, runQuery, config writeback, HTTP
 routes, the QR window) is reused automatically. No other files need to change.
 
-### iMessage self-message rules (vendor-specific)
+### Retired platform lessons
 
-The iMessage vendor follows these rules in addition to the shared contracts
-above. Full detail lives in `docs/messaging-platform-architecture.md` under
-"iMessage self-message contract". Summary:
-
-- **No prefix and no setup message.** Provisioning locally enables the iMessage
-  channel and returns a recipient-only `sms:<url-encoded-apple-id>` QR. Scanning
-  only opens the user's self-thread; the user's first normal message in that
-  thread is the first bot turn. Telegram parity. The "Note to Self" semantics
-  are sacrificed for the user; this is disclosed during onboarding. A
-  `triggerPrefix` config field may exist for advanced users but is empty by
-  default.
-- **Recipient discovery is automatic in the GUI path.** The provisioner resolves
-  the recipient from the request body, existing channel config,
-  `HLVM_IMESSAGE_SELF_ID`, then the macOS
-  `~/Library/Preferences/com.apple.madrid.plist` selected iMessage aliases and
-  `~/Library/Preferences/MobileMeAccounts.plist` Messages service. Prefer a
-  phone-number alias over an email alias when both exist, because Mac-to-phone
-  self-alias sends render with clearer user/HLVM separation on iOS; email-to-
-  email self-sends commonly render both sides as blue "me" bubbles. Aliases are
-  discovery/re-pairing inputs only; after a concrete Messages `chatId` is bound,
-  the transport listens to that one thread so multiple Apple-ID aliases do not
-  become multiple active HLVM rooms. Normal users should not need terminal
-  setup.
-- **Inbound is event-driven from `~/Library/Messages/chat.db-wal`, not
-  polling.** The preferred v1 primitive is a tiny macOS-native watcher helper
-  using `DispatchSource.makeFileSystemObjectSource` on the WAL file. The
-  2026-04-26 spike proved Swift `DispatchSource` catches WAL writes immediately,
-  while Deno 2.7.12 `watchFs` missed the same class of changes. One-shot
-  catch-up scans are allowed on startup, wake/reconnect, watcher overflow/drop
-  notifications, watcher restart, WAL rename/delete/reopen, and bounded SQLite
-  retry. Do not add a recurring safety poll.
-- **Loop prevention** is endpoint-scoped outbound suppression: bind the
-  self-thread, record recent outbound sends/markers in an LRU, and drop rows
-  that match those sends. Do not rely solely on `is_from_me`; self-message rows
-  must be verified on real macOS/iOS data before final filtering. Do not rely
-  solely on `message.text` either; AppleScript outbound rows can have empty
-  `text` and store content in attributed payloads.
-- **Outbound replies** prepend a configurable visible marker (default `🤖`) for
-  visual attribution, since iMessage shows replies under the user's own name.
-- **Send path starts with the proven local path.** AppleScript / Apple Events
-  sending through Messages is the v1 path unless Shortcuts is re-proven on the
-  target machine. The spike found `shortcuts list` failing with "Couldn’t
-  communicate with a helper application", so Shortcuts must stay optional until
-  that is resolved.
-- **QR recipient syntax is proven.** On 2026-04-26,
-  `sms:<url-encoded-apple-id>&body=<url-encoded-text>` opened iPhone Messages
-  with both recipient and body filled. The product decision after that proof is
-  simpler: use recipient-only `sms:<url-encoded-apple-id>` so onboarding has no
-  pair-code or setup-message step.
-- **chat.db reads are read-only.** Order by `ROWID`, never `date`. Skip group
-  chats, tapbacks (`associated_message_type != 0`), retracted/edited rows using
-  schema-detected columns (`date_retracted` / `date_edited` on macOS 26), and
-  empty text rows. Do not drop rows solely because `message_summary_info` is
-  non-NULL; real self-message text rows on macOS 26 can set it. Handle
-  `SQLITE_BUSY` with bounded retry.
-- **Notification noise is mitigated by user action**, not API: onboarding
-  prompts the user to enable "Hide Alerts" on the self-thread (per-thread
-  silence, other Messages threads unaffected). The HLVM bubble is also
-  repositioned away from the top-right corner.
-- **Multi-device**: v1 assumes one active HLVM iMessage runtime per Apple ID. If
-  the same self-thread is configured on multiple Macs, each local runtime can
-  observe the same messages. Do not claim cross-device suppression until a real
-  per-device ownership record is implemented.
-- **macOS-only.** Linux and future Windows builds report iMessage as
-  unavailable; do not fail to start.
+- **iMessage** is not production-grade for HLVM. It has no public bot API. The
+  attempted self-message design depended on private `chat.db` reads, WAL file
+  watching, AppleScript/Apple Events sending, alias/thread heuristics, and OS
+  notification behavior HLVM cannot control. Real-device testing produced
+  blue/blue attribution, duplicate alias rooms, intermittent delivery, and
+  notification noise. Remove it rather than shipping a brittle local hack.
+- **Gmail** is viable only as email, not Telegram-equivalent chat. Per-user
+  Gmail requires OAuth consent and sensitive Gmail scopes; a central HLVM Gmail
+  relay requires HLVM to operate an inbox/relay and creates aggregate quota,
+  abuse, and cost ownership. IMAP/SMTP app-password prototypes are simpler but
+  still move the product away from zero-server scan-and-chat.
+- **Slack** is an official API target for teams, but onboarding is workspace
+  OAuth/app installation, not personal mobile scan-and-chat. It can be revisited
+  only as a team/workspace feature with explicit admin-consent UX.
+- **LINE/WhatsApp/Kakao/Messenger/WeChat** require official accounts,
+  business/provider setup, webhook infrastructure, paid or policy-constrained
+  messaging, or unsupported bridges. They do not match the default HLVM channel
+  requirement.
 
 ### Forbidden in vendor transport modules
 
@@ -558,12 +537,14 @@ When adding a new domain:
 | 2026-04-26 | Added external channel runtime ownership and endpoint identity rule                                                                                    |
 | 2026-04-26 | Updated skills contract for Phase 3: bundled skills root, official agentskills.io frontmatter parsing, shared ask/REPL activation, no special executor |
 | 2026-04-26 | Added skills Phase 4 distribution SSOT: local/Git/GitHub import/install through `src/hlvm/agent/skills/install.ts`, global user-root copy only         |
-| 2026-04-26 | Added channel scope rule (free forever, per-user ceiling, no relay); LINE removed; iMessage self-message named as next target                          |
+| 2026-04-26 | Added channel scope rule (free forever, per-user ceiling, no relay); LINE removed; iMessage self-message explored as next target                      |
 | 2026-04-26 | Channel runtime production `runQuery` now delegates to GUI turn bridge; mobile turns must enter the same Swift chat path as Tab/Spotlight              |
-| 2026-04-26 | iMessage self-message rules section: no-prefix Telegram-parity model, FSEvents-driven inbound, Hide Alerts mitigation, chat.db row filters             |
-| 2026-04-26 | iMessage v1 implementation direction clarified: recipient-only QR, no pair-code body, first normal self-thread message is first bot turn               |
-| 2026-04-26 | iMessage integration updated: GUI picker enabled, recipient auto-discovery added, compiled binary includes/materializes the Swift WAL watcher helper   |
+| 2026-04-26 | iMessage self-message spike documented: no-prefix model, FSEvents, Hide Alerts, chat.db row filters                                                    |
+| 2026-04-26 | iMessage v1 spike clarified: recipient-only QR, no pair-code body, first normal self-thread message as first bot turn                                  |
+| 2026-04-26 | iMessage integration spike reached GUI picker and compiled Swift helper, then failed production reliability on real-device E2E                         |
 | 2026-04-26 | Skills repository direction decided: official HLVM GitHub static index first, no custom registry server or broad GitHub-search primary path            |
 | 2026-04-26 | Skills Phase 4.1 lifecycle landed: scaffold/import/install/update/remove/check centralized in `src/hlvm/agent/skills/install.ts`                       |
 | 2026-04-26 | Skills Phase 4.2 repository resolver landed: static index search/install-by-slug centralized in `src/hlvm/agent/skills/repository.ts`                  |
 | 2026-04-27 | Skills Phase 5 explicit drafting foundation landed: user-invoked workflow drafts centralized in `src/hlvm/agent/skills/install.ts`                     |
+| 2026-04-27 | Skills A-to-Z authoring flow landed: AI draft/improve normalization in `authoring.ts`, PR-ready publish packaging in `repository.ts`                   |
+| 2026-04-27 | Messaging reset: removed iMessage/LINE/Gmail/Slack live scope; Telegram is the only production channel until another vendor passes the gate            |

@@ -39,36 +39,36 @@ Deno.test("channel provisioning handler dispatches generic create route by chann
 
 Deno.test("channel provisioning handler rejects unknown channel", async () => {
   const create = await handleChannelProvisioningCreate(
-    new Request("http://test.local/api/channels/slack/provisioning/session", {
+    new Request("http://test.local/api/channels/unknown/provisioning/session", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
     }),
-    { channel: "slack" },
+    { channel: "unknown" },
   );
   const get = await handleChannelProvisioningGet(
-    new Request("http://test.local/api/channels/slack/provisioning/session"),
-    { channel: "slack" },
+    new Request("http://test.local/api/channels/unknown/provisioning/session"),
+    { channel: "unknown" },
   );
   const complete = await handleChannelProvisioningComplete(
     new Request(
-      "http://test.local/api/channels/slack/provisioning/session/complete",
+      "http://test.local/api/channels/unknown/provisioning/session/complete",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({}),
       },
     ),
-    { channel: "slack" },
+    { channel: "unknown" },
   );
   const cancel = await handleChannelProvisioningCancel(
     new Request(
-      "http://test.local/api/channels/slack/provisioning/session/cancel",
+      "http://test.local/api/channels/unknown/provisioning/session/cancel",
       {
         method: "POST",
       },
     ),
-    { channel: "slack" },
+    { channel: "unknown" },
   );
 
   for (const response of [create, get, complete, cancel]) {
