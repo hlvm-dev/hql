@@ -2,6 +2,7 @@ import { getUserSkillsDir } from "../../../common/paths.ts";
 import { atomicWriteTextFile } from "../../../common/atomic-file.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { sha256Hex } from "../../../common/sha256.ts";
+import { truncate } from "../../../common/utils.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import {
   clearSkillSnapshotCache,
@@ -20,6 +21,7 @@ const MAX_SKILL_TREE_TOTAL_BYTES = 25 * 1024 * 1024;
 const ORIGIN_DIR_NAME = ".hlvm";
 const ORIGIN_FILE_NAME = "origin.json";
 const MAX_ORIGIN_FILE_BYTES = 32 * 1024;
+const MAX_SKILL_DRAFT_GOAL_LENGTH = 4000;
 
 export interface SkillInstallOptions {
   force?: boolean;
@@ -41,11 +43,19 @@ export interface SkillCreateResult {
   skillFile: string;
 }
 
+export interface SkillDraftOptions {
+  force?: boolean;
+}
+
 export interface SkillOrigin {
   version: 1;
-  source: "local" | "git";
+  source: "authored" | "local" | "git";
   installedAt: number;
   contentHash: string;
+  authored?: {
+    method: "new" | "draft";
+    goal?: string;
+  };
   local?: {
     path: string;
   };
@@ -223,11 +233,15 @@ function isSkillOrigin(value: unknown): value is SkillOrigin {
   const candidate = value as Partial<SkillOrigin>;
   if (
     candidate.version !== 1 ||
-    (candidate.source !== "local" && candidate.source !== "git") ||
+    !["authored", "local", "git"].includes(candidate.source ?? "") ||
     typeof candidate.installedAt !== "number" ||
     typeof candidate.contentHash !== "string"
   ) {
     return false;
+  }
+  if (candidate.source === "authored") {
+    return candidate.authored?.method === "new" ||
+      candidate.authored?.method === "draft";
   }
   if (candidate.source === "local") {
     return typeof candidate.local?.path === "string";
@@ -537,6 +551,7 @@ function renderSkillScaffold(name: string): string {
   return `---
 name: ${name}
 description: Use when working on ${name}.
+license: MIT
 ---
 
 # ${title}
@@ -545,27 +560,168 @@ Describe when to use this skill and the steps the agent should follow.
 `;
 }
 
-export async function createUserSkill(
+function quoteYamlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function normalizeSkillDraftGoal(goal: string): string {
+  return goal.trim().replace(/\s+/g, " ");
+}
+
+function formatDraftDescription(goal: string): string {
+  const normalized = normalizeSkillDraftGoal(goal).replace(/[.!?]+$/, "");
+  const first = normalized.charAt(0).toLowerCase() + normalized.slice(1);
+  return truncate(`Use when the agent needs to ${first}.`, 1024, "...");
+}
+
+function renderSkillDraft(name: string, goal: string): string {
+  const title = name.split("-").map((part) =>
+    part.charAt(0).toUpperCase() + part.slice(1)
+  ).join(" ");
+  const normalizedGoal = normalizeSkillDraftGoal(goal);
+
+  return `---
+name: ${name}
+description: ${quoteYamlString(formatDraftDescription(normalizedGoal))}
+license: MIT
+---
+
+# ${title}
+
+Use this skill when the user asks for this workflow:
+
+${normalizedGoal}
+
+## Workflow
+
+1. Restate the concrete request and success condition.
+2. Gather only the context needed for this workflow.
+3. Execute the smallest reliable sequence of steps.
+4. Verify the result through the user-visible path when possible.
+5. Report the outcome, verification, and any remaining risk.
+
+## Guardrails
+
+- Do not guess missing facts; ask or inspect when the answer depends on them.
+- Do not add background loops, hidden side effects, or product-specific behavior unless the user requested it.
+- Do not edit unrelated files or state while applying this skill.
+- Keep the final response concise and action-oriented.
+
+## Response Shape
+
+When useful, close with:
+
+- Outcome
+- Verified
+- Remaining risk
+`;
+}
+
+function requireSkillDraftGoal(goal: string): string {
+  const normalizedGoal = normalizeSkillDraftGoal(goal);
+  if (!normalizedGoal) {
+    throw new ValidationError(
+      "Missing draft goal. Usage: hlvm skill draft <name> <goal...>",
+      "hlvm skill draft",
+    );
+  }
+  if (normalizedGoal.length > MAX_SKILL_DRAFT_GOAL_LENGTH) {
+    throw new ValidationError(
+      `Draft goal must be ${MAX_SKILL_DRAFT_GOAL_LENGTH} characters or less.`,
+      "hlvm skill draft",
+    );
+  }
+  return normalizedGoal;
+}
+
+export function renderSkillDraftContent(name: string, goal: string): string {
+  validateUserSkillName(name, "hlvm skill draft");
+  const normalizedGoal = requireSkillDraftGoal(goal);
+  const content = renderSkillDraft(name, normalizedGoal);
+  parseSkillDefinition(content, { expectedName: name });
+  return content;
+}
+
+async function writeAuthoredUserSkill(
   name: string,
+  content: string,
+  authored: NonNullable<SkillOrigin["authored"]>,
+  options: SkillDraftOptions,
+  command: string,
 ): Promise<SkillCreateResult> {
-  validateUserSkillName(name, "hlvm skill new");
+  validateUserSkillName(name, command);
+  parseSkillDefinition(content, { expectedName: name });
+
   const platform = getPlatform();
+  const userSkillsDir = getUserSkillsDir();
   const skillDir = requireUserSkillTarget(name);
   const skillFile = platform.path.join(skillDir, SKILL_FILE_NAME);
 
-  if (await platform.fs.exists(skillDir)) {
+  if (!options.force && await platform.fs.exists(skillDir)) {
     throw new ValidationError(
       `Skill already exists at ${skillDir}`,
-      "hlvm skill new",
+      command,
     );
   }
 
-  await platform.fs.mkdir(skillDir, { recursive: true });
-  await platform.fs.writeTextFile(skillFile, renderSkillScaffold(name), {
-    createNew: true,
-  });
+  await platform.fs.mkdir(userSkillsDir, { recursive: true });
+  const stageDir = platform.path.join(userSkillsDir, createStageDirName(name));
+  const stageFile = platform.path.join(stageDir, SKILL_FILE_NAME);
+  try {
+    await platform.fs.mkdir(stageDir, { recursive: true });
+    await platform.fs.writeTextFile(stageFile, content, { createNew: true });
+    await writeSkillOrigin(stageDir, {
+      version: 1,
+      source: "authored",
+      installedAt: Date.now(),
+      contentHash: await computeSkillTreeHash(stageDir),
+      authored,
+    });
+
+    if (options.force && await platform.fs.exists(skillDir)) {
+      await platform.fs.remove(skillDir, { recursive: true });
+    }
+    await platform.fs.rename(stageDir, skillDir);
+  } catch (err) {
+    try {
+      if (await platform.fs.exists(stageDir)) {
+        await platform.fs.remove(stageDir, { recursive: true });
+      }
+    } catch {
+      // Best effort: leave any existing target untouched after a failed write.
+    }
+    throw err;
+  }
+
   clearSkillSnapshotCache();
   return { name, skillDir, skillFile };
+}
+
+export async function createUserSkill(
+  name: string,
+): Promise<SkillCreateResult> {
+  return await writeAuthoredUserSkill(
+    name,
+    renderSkillScaffold(name),
+    { method: "new" },
+    {},
+    "hlvm skill new",
+  );
+}
+
+export async function draftUserSkill(
+  name: string,
+  goal: string,
+  options: SkillDraftOptions = {},
+): Promise<SkillCreateResult> {
+  const normalizedGoal = requireSkillDraftGoal(goal);
+  return await writeAuthoredUserSkill(
+    name,
+    renderSkillDraftContent(name, normalizedGoal),
+    { method: "draft", goal: normalizedGoal },
+    options,
+    "hlvm skill draft",
+  );
 }
 
 export async function importSkillPath(
@@ -876,7 +1032,8 @@ async function readTrackedUserSkillNames(): Promise<string[]> {
       if (!entry.isDirectory || entry.name.startsWith(".")) continue;
       if (!isValidSkillName(entry.name)) continue;
       const targetDir = platform.path.join(userSkillsDir, entry.name);
-      if (await readSkillOrigin(targetDir)) {
+      const origin = await readSkillOrigin(targetDir);
+      if (origin?.source === "git" || origin?.source === "local") {
         names.push(entry.name);
       }
     }
@@ -904,6 +1061,11 @@ async function updateSingleSkill(name: string): Promise<SkillUpdateResult> {
       );
     } else if (origin.source === "local" && origin.local) {
       result = await importSkillPath(origin.local.path, { force: true });
+    } else if (origin.source === "authored") {
+      throw new ValidationError(
+        `Skill "${name}" is user-authored and has no update source.`,
+        "hlvm skill update",
+      );
     } else {
       throw new ValidationError(
         `Skill "${name}" has invalid origin metadata.`,
@@ -1005,7 +1167,7 @@ async function checkUserSkillDir(
   const origin = await readSkillOrigin(targetDir);
   if (!origin) {
     warnings.push("No origin metadata; update cannot track this skill.");
-  } else {
+  } else if (origin.source !== "authored") {
     const currentHash = await computeSkillTreeHash(targetDir);
     if (currentHash !== origin.contentHash) {
       warnings.push("Local files differ from recorded install hash.");

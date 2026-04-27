@@ -4,10 +4,12 @@ import { truncate } from "../../../common/utils.ts";
 import {
   checkSkills,
   createUserSkill,
+  draftUserSkill,
   importSkillPath,
   installSkillFromGit,
   readSkillOrigin,
   removeSkill,
+  renderSkillDraftContent,
   type SkillCheckResult,
   type SkillInstallResult,
   type SkillOrigin,
@@ -42,6 +44,7 @@ Usage: hlvm skill <command> [options]
 Commands:
   list                  List available skills
   new <name>            Create a global user skill
+  draft <name> <goal>   Draft a global user skill from a workflow goal
   search [query]        Search the official HLVM skill repository
   info <name>           Show local or remote skill metadata
   import <path>         Import a local skill folder or skill pack
@@ -53,6 +56,7 @@ Commands:
 Examples:
   hlvm skill list
   hlvm skill new debug-workflow
+  hlvm skill draft debug-hang "Diagnose hlvm ask hangs after tool output"
   hlvm skill search debug
   hlvm skill install debug-workflow
   hlvm skill info debug-workflow
@@ -113,6 +117,12 @@ export async function skillCommand(args: string[]): Promise<void | number> {
         return;
       }
       return await skillNew(subArgs);
+    case "draft":
+      if (hasHelpFlag(subArgs)) {
+        showSkillHelp();
+        return;
+      }
+      return await skillDraft(subArgs);
     case "search":
       if (hasHelpFlag(subArgs)) {
         showSkillHelp();
@@ -209,6 +219,13 @@ interface SkillNewOptions {
   name: string;
 }
 
+interface SkillDraftOptions {
+  name: string;
+  goal: string;
+  force: boolean;
+  print: boolean;
+}
+
 interface SkillTransferOptions {
   source: string;
   force: boolean;
@@ -268,6 +285,57 @@ async function skillNew(args: string[]): Promise<void> {
   const options = parseSkillNewArgs(args);
   const result = await createUserSkill(options.name);
   log.raw.log(`Created ${result.skillFile}`);
+}
+
+function parseSkillDraftArgs(args: string[]): SkillDraftOptions {
+  let name: string | undefined;
+  const goalParts: string[] = [];
+  let force = false;
+  let print = false;
+  const usage = "hlvm skill draft <name> <goal...> [--force] [--print]";
+
+  for (const arg of args) {
+    if (arg === "--force") {
+      force = true;
+      continue;
+    }
+    if (arg === "--print") {
+      print = true;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      throw new ValidationError(
+        `Unknown option: ${arg}. Usage: ${usage}`,
+        usage,
+      );
+    }
+    if (!name) {
+      name = arg;
+      continue;
+    }
+    goalParts.push(arg);
+  }
+
+  return {
+    name: parseSkillName(name, usage),
+    goal: goalParts.join(" "),
+    force,
+    print,
+  };
+}
+
+async function skillDraft(args: string[]): Promise<void> {
+  const options = parseSkillDraftArgs(args);
+  if (options.print) {
+    log.raw.log(renderSkillDraftContent(options.name, options.goal));
+    return;
+  }
+
+  const result = await draftUserSkill(options.name, options.goal, {
+    force: options.force,
+  });
+  log.raw.log(`Drafted ${result.skillFile}`);
+  log.raw.log(`Edit it, then run /${result.name} <request> to use it.`);
 }
 
 function parsePositiveInteger(value: string, usage: string): number {
@@ -627,6 +695,9 @@ async function skillCheck(args: string[]): Promise<number> {
 }
 
 function formatOriginSource(origin: SkillOrigin): string {
+  if (origin.source === "authored" && origin.authored) {
+    return `authored ${origin.authored.method}`;
+  }
   if (origin.source === "git" && origin.git) {
     const ref = origin.git.ref ? `#${origin.git.ref}` : "";
     const subpath = origin.git.subpath ? ` (${origin.git.subpath})` : "";

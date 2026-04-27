@@ -100,7 +100,119 @@ Deno.test("skill command: new creates a global user skill scaffold", async () =>
         content,
         "description: Use when working on example-skill.",
       );
+      assertStringIncludes(content, "license: MIT");
+      const origin = await readSkillOrigin(
+        platform.path.join(getUserSkillsDir(), "example-skill"),
+      );
+      assertEquals(origin?.source, "authored");
+      assertEquals(origin?.authored?.method, "new");
     });
+  });
+});
+
+Deno.test("skill command: draft creates an authored global user skill", async () => {
+  await withTempHlvmDir(async () => {
+    await withCapturedOutput(async (output) => {
+      await skillCommand([
+        "draft",
+        "debug-hang",
+        "Diagnose",
+        "hlvm",
+        "ask",
+        "hangs",
+        "after",
+        "tool",
+        "output",
+      ]);
+
+      const platform = getPlatform();
+      const skillDir = platform.path.join(getUserSkillsDir(), "debug-hang");
+      const skillFile = platform.path.join(skillDir, "SKILL.md");
+      const content = await platform.fs.readTextFile(skillFile);
+      const origin = await readSkillOrigin(skillDir);
+
+      assertStringIncludes(output(), `Drafted ${skillFile}`);
+      assertStringIncludes(output(), "run /debug-hang <request>");
+      assertStringIncludes(content, "name: debug-hang");
+      assertStringIncludes(
+        content,
+        "Use when the agent needs to diagnose hlvm ask hangs after tool output.",
+      );
+      assertStringIncludes(content, "## Workflow");
+      assertStringIncludes(content, "## Guardrails");
+      assertEquals(origin?.source, "authored");
+      assertEquals(origin?.authored?.method, "draft");
+      assertEquals(
+        origin?.authored?.goal,
+        "Diagnose hlvm ask hangs after tool output",
+      );
+    });
+
+    await withCapturedOutput(async (output) => {
+      await skillCommand(["info", "debug-hang"]);
+      assertStringIncludes(output(), "Origin:      authored draft");
+      assertStringIncludes(output(), "License:     MIT");
+    });
+
+    await withCapturedOutput(async (output) => {
+      await skillCommand(["check"]);
+      assertStringIncludes(output(), "ok    debug-hang (user)");
+    });
+  });
+});
+
+Deno.test("skill command: draft --print previews without writing", async () => {
+  await withTempHlvmDir(async () => {
+    await withCapturedOutput(async (output) => {
+      await skillCommand([
+        "draft",
+        "preview-flow",
+        "Summarize",
+        "release",
+        "risk",
+        "--print",
+      ]);
+      assertStringIncludes(output(), "name: preview-flow");
+      assertStringIncludes(output(), "Summarize release risk");
+    });
+
+    const platform = getPlatform();
+    assertEquals(
+      await platform.fs.exists(
+        platform.path.join(getUserSkillsDir(), "preview-flow"),
+      ),
+      false,
+    );
+  });
+});
+
+Deno.test("skill command: draft requires --force before replacing", async () => {
+  await withTempHlvmDir(async () => {
+    await withCapturedOutput(async () => {
+      await skillCommand(["draft", "replace-draft", "Original workflow"]);
+    });
+    await assertRejects(
+      () => skillCommand(["draft", "replace-draft", "Replacement workflow"]),
+      ValidationError,
+      "Skill already exists",
+    );
+
+    await withCapturedOutput(async (output) => {
+      await skillCommand([
+        "draft",
+        "replace-draft",
+        "Replacement workflow",
+        "--force",
+      ]);
+      assertStringIncludes(output(), "Drafted ");
+    });
+
+    const platform = getPlatform();
+    const content = await platform.fs.readTextFile(
+      platform.path.join(getUserSkillsDir(), "replace-draft", "SKILL.md"),
+    );
+    assertStringIncludes(content, "Replacement workflow");
+    assertEquals(content.includes("Original workflow"), false);
   });
 });
 
@@ -569,16 +681,23 @@ Deno.test("skill command: update --all reports no tracked skills when none exist
   });
 });
 
-Deno.test("skill command: check reports ready skills and local warnings", async () => {
+Deno.test("skill command: check reports ready authored skills and local warnings", async () => {
   await withTempHlvmDir(async () => {
     await withCapturedOutput(async () => {
       await skillCommand(["new", "check-flow"]);
     });
+    const platform = getPlatform();
+    await writeSkillFixture(
+      platform.path.join(getUserSkillsDir(), "untracked-flow"),
+      "untracked-flow",
+    );
 
     await withCapturedOutput(async (output) => {
       await skillCommand(["check"]);
       assertStringIncludes(output(), "Skills Status Check");
       assertStringIncludes(output(), "check-flow (user)");
+      assertStringIncludes(output(), "ok    check-flow (user)");
+      assertStringIncludes(output(), "untracked-flow (user)");
       assertStringIncludes(
         output(),
         "warning: No origin metadata; update cannot track this skill.",

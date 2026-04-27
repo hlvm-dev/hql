@@ -1,12 +1,14 @@
 # HLVM Skills System
 
-**Status**: Phase 1/2/3/4/4.1/4.2 complete as of 2026-04-26. **Owner**: skills
-foundation. **Current shipped scope**: `agentskills.io` core, global user
-skills, bundled foundational skills, small CLI surface, REPL/ask activation,
-CC-style transcript row, local skill import, Git/GitHub skill install, no
+**Status**: Phase 1/2/3/4/4.1/4.2 complete as of 2026-04-26; Phase 5 explicit
+drafting foundation complete as of 2026-04-27. **Owner**: skills foundation.
+**Current shipped scope**: `agentskills.io` core, global user skills, bundled
+foundational skills, small CLI surface, REPL/ask activation, CC-style transcript
+row, local skill import, Git/GitHub skill install, explicit skill drafting, no
 project scope, package-manager lifecycle, official static-index search/install
-by slug, public `hlvm-dev/skills` catalog, no auto-generation. **Next phase**:
-Phase 5 only when workflow-to-skill demand is real.
+by slug, public `hlvm-dev/skills` catalog, no silent auto-generation. **Next
+phase**: optional model-assisted draft refinement or workflow suggestion only if
+explicit drafting proves useful.
 
 This doc is a complete cold-start briefing. If you are a new AI or engineer with
 zero prior context, read top-to-bottom once and you will know exactly what to
@@ -340,7 +342,8 @@ build a custom registry server
 | `<available_skills>` XML injection | New hook in orchestrator Stage 3, alongside `maybeInjectMemoryRecall`.                  |
 | Scripts / references / assets      | No new code needed. Skill body references paths; existing shell/read tools handle them. |
 | CLI: `hlvm skill list`             | Table: name, description, source, status.                                               |
-| CLI: `hlvm skill new <name>`       | Scaffold `SKILL.md` + optional `scripts/`.                                              |
+| CLI: `hlvm skill new <name>`       | Scaffold an authored global `SKILL.md`.                                                 |
+| CLI: `hlvm skill draft <name>`     | Draft an authored global `SKILL.md` from an explicit workflow goal.                     |
 | CLI: `hlvm skill info <name>`      | Show frontmatter + first N lines of body.                                               |
 | CLI: `hlvm skill import <path>`    | Copy a local skill folder or pack into `~/.hlvm/skills`.                                |
 | CLI: `hlvm skill install <source>` | Clone a Git/GitHub source, then reuse the same import pipeline.                         |
@@ -396,7 +399,8 @@ src/hlvm/agent/skills/          NEW — only new subsystem in v1
   types.ts        SkillSource, SkillEntry, SkillSnapshot, SkillDuplicate
   store.ts        scan roots, parse frontmatter, build snapshot, read SKILL.md body
   prompt.ts       serialize snapshot into compact <available_skills> XML
-  install.ts      local/Git/GitHub import pipeline; validates then copies to user root
+  install.ts      authored drafts plus local/Git/GitHub import pipeline;
+                  validates then writes to user root
 
 src/hlvm/cli/commands/
   skill.ts        NEW — list / new / info / import / install subcommands
@@ -857,8 +861,16 @@ Implementation boundary:
   local smoke runs can still use the internal `HLVM_TEST_SKILL_INDEX_URL` hook
   guarded by `HLVM_ALLOW_TEST_STATE_ROOT=1`.
 
-### Phase 5 — later advanced features, demand-driven only
+### Phase 5 — assisted authoring
 
+- [x] Add explicit `hlvm skill draft <name> <goal...>` as the safe foundation:
+      no background detection, no silent writes, no model mutation loop.
+- [x] Drafted and newly scaffolded skills are first-class authored user skills
+      with `license: MIT` and `.hlvm/origin.json` metadata, so `skill check`
+      does not misreport them as untracked installs.
+- [x] Add preview support with `hlvm skill draft <name> <goal...> --print`.
+- [x] Add protected replacement with `--force`; default behavior refuses to
+      overwrite existing user skills.
 - [?] External taps/user-added indexes after the official index proves useful.
 - [?] Dynamic nested discovery from touched file paths, CC-style.
 - [?] Conditional skills via `paths:` frontmatter, CC-style.
@@ -866,6 +878,9 @@ Implementation boundary:
 - [?] Per-agent skill allowlists.
 - [?] Hermes-style "suggest saving this workflow as a skill" with explicit user
   review.
+- [ ] Optional later: model-generated draft refinement. Do not add this until
+      the explicit deterministic draft path proves useful and has real examples
+      to improve.
 
 ---
 
@@ -893,12 +908,13 @@ Implementation boundary:
 - Repository-backed search/install-by-slug is implemented through the official
   static index resolver. Installed-skill writes still go through `install.ts`.
 - The repository direction is now decided: the first central skill catalog is an
-  HLVM-owned GitHub static repository (`github.com/hlvm-dev/skills` planned),
-  with create/update/delete through GitHub PRs and CI. No custom server,
-  database, account system, or paid app-store backend for the first cut.
+  HLVM-owned GitHub static repository (`github.com/hlvm-dev/skills`), with
+  create/update/delete through GitHub PRs and CI. No custom server, database,
+  account system, or paid app-store backend for the first cut.
 - Broad GitHub code search is not the primary install/search path. It can be an
   optional later discovery helper, but not the main package-manager source.
-- No auto-generation in v1. Add only if post-launch evidence justifies it.
+- No silent auto-generation in v1. The shipped Phase 5 foundation is explicit
+  user-invoked drafting only: `hlvm skill draft <name> <goal...>`.
 - Skills are not memory, not tools, not MCP. New subsystem, narrow scope.
 - `src/hlvm/agent/skills/` is the only new directory. Single hook point in the
   orchestrator. Reuse existing Read + shell_exec for execution.
@@ -1224,9 +1240,9 @@ User can force activation in the REPL:
   Bundled Core        Distribution         GitHub Index         Assisted Authoring
   ------------        ------------         ------------         ------------------
   [x] verify          [x] import path      [x] index schema     [ ] suggest workflow
-  [x] debug           [x] install GitHub   [x] search slug      [ ] draft SKILL.md
-  [x] code-review     [x] validate pack    [x] install slug     [ ] user review
-  [x] refactor        [x] staging/force    [x] remote info      [ ] save to ~/.hlvm
+  [x] debug           [x] install GitHub   [x] search slug      [x] draft SKILL.md
+  [x] code-review     [x] validate pack    [x] install slug     [x] user-invoked
+  [x] refactor        [x] staging/force    [x] remote info      [x] save to ~/.hlvm
   [x] plan            [x] symlink/size           |                    |
   [x] write-docs      [x] update/remove          |                    |
   [x] skill-author    [x] check/audit            |                    |
@@ -1243,6 +1259,7 @@ User can force activation in the REPL:
     + foundational bundled skills
     + safe ecosystem import/install
     + package-manager lifecycle
+    + explicit authored skill drafting
     + official GitHub-backed repository search/install
     + user-reviewed workflow capture
 ```
