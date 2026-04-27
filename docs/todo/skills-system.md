@@ -4,11 +4,11 @@
 drafting foundation complete as of 2026-04-27. **Owner**: skills foundation.
 **Current shipped scope**: `agentskills.io` core, global user skills, bundled
 foundational skills, small CLI surface, REPL/ask activation, CC-style transcript
-row, local skill import, Git/GitHub skill install, explicit skill drafting, no
-project scope, package-manager lifecycle, official static-index search/install
-by slug, public `hlvm-dev/skills` catalog, no silent auto-generation. **Next
-phase**: optional model-assisted draft refinement or workflow suggestion only if
-explicit drafting proves useful.
+row, local skill import, Git/GitHub skill install, explicit template/AI skill
+drafting, AI skill improvement, PR-ready publish packaging, no project scope,
+package-manager lifecycle, official static-index search/install by slug, public
+`hlvm-dev/skills` catalog, no silent auto-generation. **Next phase**: optional
+passive workflow suggestion only after explicit authoring proves useful.
 
 This doc is a complete cold-start briefing. If you are a new AI or engineer with
 zero prior context, read top-to-bottom once and you will know exactly what to
@@ -401,9 +401,11 @@ src/hlvm/agent/skills/          NEW — only new subsystem in v1
   prompt.ts       serialize snapshot into compact <available_skills> XML
   install.ts      authored drafts plus local/Git/GitHub import pipeline;
                   validates then writes to user root
+  authoring.ts    AI authoring prompts and generated SKILL.md normalization
+  repository.ts   static index search/install and publish packaging
 
 src/hlvm/cli/commands/
-  skill.ts        NEW — list / new / info / import / install subcommands
+  skill.ts        NEW — list / new / draft / improve / publish / install UX
 
 src/hlvm/cli/repl/commands.ts
   (existing slash-command surface gains dynamic /skill-name routing)
@@ -871,6 +873,15 @@ Implementation boundary:
 - [x] Add preview support with `hlvm skill draft <name> <goal...> --print`.
 - [x] Add protected replacement with `--force`; default behavior refuses to
       overwrite existing user skills.
+- [x] Add `hlvm skill draft <name> <goal...> --ai` for model-generated
+      `SKILL.md` content. The model output is normalized and validated through
+      the same `SKILL.md` parser before saving.
+- [x] Add `hlvm skill improve <name> <instruction...>` for user-reviewed AI
+      replacement drafts. Default is preview-only; `--save` is required to
+      mutate the existing skill.
+- [x] Add `hlvm skill publish <name> --repo <path>` to package a user skill into
+      a PR-ready `hlvm-dev/skills`-style repository (`skills/<name>/SKILL.md` +
+      `index.json` entry).
 - [?] External taps/user-added indexes after the official index proves useful.
 - [?] Dynamic nested discovery from touched file paths, CC-style.
 - [?] Conditional skills via `paths:` frontmatter, CC-style.
@@ -878,9 +889,8 @@ Implementation boundary:
 - [?] Per-agent skill allowlists.
 - [?] Hermes-style "suggest saving this workflow as a skill" with explicit user
   review.
-- [ ] Optional later: model-generated draft refinement. Do not add this until
-      the explicit deterministic draft path proves useful and has real examples
-      to improve.
+- [ ] Optional later: passive workflow suggestion. Do not add this until
+      explicit authoring has enough real examples to avoid noisy suggestions.
 
 ---
 
@@ -913,8 +923,8 @@ Implementation boundary:
   account system, or paid app-store backend for the first cut.
 - Broad GitHub code search is not the primary install/search path. It can be an
   optional later discovery helper, but not the main package-manager source.
-- No silent auto-generation in v1. The shipped Phase 5 foundation is explicit
-  user-invoked drafting only: `hlvm skill draft <name> <goal...>`.
+- No silent auto-generation in v1. The shipped Phase 5/8 foundation is explicit
+  user-invoked authoring and publishing only: `draft`, `improve`, and `publish`.
 - Skills are not memory, not tools, not MCP. New subsystem, narrow scope.
 - `src/hlvm/agent/skills/` is the only new directory. Single hook point in the
   orchestrator. Reuse existing Read + shell_exec for execution.
@@ -1236,14 +1246,14 @@ User can force activation in the REPL:
   +--------------------------+--------------------+
                              |
                              v
-  Phase 3             Phase 4/4.1         Phase 4.2            Phase 5
-  Bundled Core        Distribution         GitHub Index         Assisted Authoring
-  ------------        ------------         ------------         ------------------
-  [x] verify          [x] import path      [x] index schema     [ ] suggest workflow
-  [x] debug           [x] install GitHub   [x] search slug      [x] draft SKILL.md
-  [x] code-review     [x] validate pack    [x] install slug     [x] user-invoked
-  [x] refactor        [x] staging/force    [x] remote info      [x] save to ~/.hlvm
-  [x] plan            [x] symlink/size           |                    |
+  Phase 3             Phase 4/4.1         Phase 4.2            Phase 5/8
+  Bundled Core        Distribution         GitHub Index         Author + Share
+  ------------        ------------         ------------         --------------
+  [x] verify          [x] import path      [x] index schema     [x] template draft
+  [x] debug           [x] install GitHub   [x] search slug      [x] AI draft
+  [x] code-review     [x] validate pack    [x] install slug     [x] AI improve
+  [x] refactor        [x] staging/force    [x] remote info      [x] publish package
+  [x] plan            [x] symlink/size           |              [ ] passive suggest
   [x] write-docs      [x] update/remove          |                    |
   [x] skill-author    [x] check/audit            |                    |
         |                   v                    v                    v
@@ -1260,7 +1270,9 @@ User can force activation in the REPL:
     + safe ecosystem import/install
     + package-manager lifecycle
     + explicit authored skill drafting
+    + AI-assisted skill draft/improve with validation
     + official GitHub-backed repository search/install
+    + PR-ready publish packaging
     + user-reviewed workflow capture
 ```
 

@@ -53,8 +53,9 @@ export interface SkillOrigin {
   installedAt: number;
   contentHash: string;
   authored?: {
-    method: "new" | "draft";
+    method: "new" | "draft" | "improve";
     goal?: string;
+    instruction?: string;
   };
   local?: {
     path: string;
@@ -241,7 +242,8 @@ function isSkillOrigin(value: unknown): value is SkillOrigin {
   }
   if (candidate.source === "authored") {
     return candidate.authored?.method === "new" ||
-      candidate.authored?.method === "draft";
+      candidate.authored?.method === "draft" ||
+      candidate.authored?.method === "improve";
   }
   if (candidate.source === "local") {
     return typeof candidate.local?.path === "string";
@@ -642,7 +644,7 @@ export function renderSkillDraftContent(name: string, goal: string): string {
   return content;
 }
 
-async function writeAuthoredUserSkill(
+export async function writeAuthoredSkillContent(
   name: string,
   content: string,
   authored: NonNullable<SkillOrigin["authored"]>,
@@ -700,7 +702,7 @@ async function writeAuthoredUserSkill(
 export async function createUserSkill(
   name: string,
 ): Promise<SkillCreateResult> {
-  return await writeAuthoredUserSkill(
+  return await writeAuthoredSkillContent(
     name,
     renderSkillScaffold(name),
     { method: "new" },
@@ -715,7 +717,7 @@ export async function draftUserSkill(
   options: SkillDraftOptions = {},
 ): Promise<SkillCreateResult> {
   const normalizedGoal = requireSkillDraftGoal(goal);
-  return await writeAuthoredUserSkill(
+  return await writeAuthoredSkillContent(
     name,
     renderSkillDraftContent(name, normalizedGoal),
     { method: "draft", goal: normalizedGoal },

@@ -216,6 +216,110 @@ Deno.test("skill command: draft requires --force before replacing", async () => 
   });
 });
 
+Deno.test("skill command: publish prepares a repository contribution", async () => {
+  await withTempHlvmDir(async () => {
+    await withTempDir(async (repoDir) => {
+      await withCapturedOutput(async () => {
+        await skillCommand([
+          "draft",
+          "publish-flow",
+          "Publish a local skill to the shared catalog",
+        ]);
+      });
+
+      await withCapturedOutput(async (output) => {
+        await skillCommand([
+          "publish",
+          "publish-flow",
+          "--repo",
+          repoDir,
+          "--owner-repo",
+          "example/skills",
+        ]);
+        assertStringIncludes(output(), "Published publish-flow -> ");
+        assertStringIncludes(
+          output(),
+          "Install: github:example/skills/skills/publish-flow",
+        );
+      });
+
+      const platform = getPlatform();
+      const publishedSkill = platform.path.join(
+        repoDir,
+        "skills",
+        "publish-flow",
+        "SKILL.md",
+      );
+      assertStringIncludes(
+        await platform.fs.readTextFile(publishedSkill),
+        "name: publish-flow",
+      );
+
+      const index = JSON.parse(
+        await platform.fs.readTextFile(
+          platform.path.join(repoDir, "index.json"),
+        ),
+      );
+      assertEquals(index.skills[0].slug, "publish-flow");
+      assertEquals(
+        index.skills[0].install,
+        "github:example/skills/skills/publish-flow",
+      );
+
+      await assertRejects(
+        () =>
+          skillCommand([
+            "publish",
+            "publish-flow",
+            "--repo",
+            repoDir,
+            "--owner-repo",
+            "example/skills",
+          ]),
+        ValidationError,
+        "already contains",
+      );
+    });
+  });
+});
+
+Deno.test("skill command: publish --print previews the index entry only", async () => {
+  await withTempHlvmDir(async () => {
+    await withTempDir(async (repoDir) => {
+      await withCapturedOutput(async () => {
+        await skillCommand([
+          "draft",
+          "preview-publish",
+          "Preview a catalog contribution",
+        ]);
+      });
+
+      await withCapturedOutput(async (output) => {
+        await skillCommand([
+          "publish",
+          "preview-publish",
+          "--repo",
+          repoDir,
+          "--print",
+        ]);
+        const parsed = JSON.parse(output());
+        assertEquals(parsed.slug, "preview-publish");
+        assertEquals(
+          parsed.install,
+          "github:hlvm-dev/skills/skills/preview-publish",
+        );
+      });
+
+      assertEquals(
+        await getPlatform().fs.exists(
+          getPlatform().path.join(repoDir, "skills", "preview-publish"),
+        ),
+        false,
+      );
+    });
+  });
+});
+
 Deno.test("skill command: new ignores cwd and always creates a global skill", async () => {
   await withTempHlvmDir(async () => {
     await withTempDir(async (cwd) => {

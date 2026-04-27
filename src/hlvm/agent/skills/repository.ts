@@ -1,4 +1,5 @@
 import { ValidationError } from "../../../common/error.ts";
+import { atomicWriteTextFile } from "../../../common/atomic-file.ts";
 import { http } from "../../../common/http-client.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import {
@@ -7,7 +8,12 @@ import {
   type SkillInstallResult,
 } from "./install.ts";
 import { isReservedSkillName } from "./reserved.ts";
-import { isValidSkillName } from "./store.ts";
+import {
+  findSkillByName,
+  isValidSkillName,
+  loadSkillSnapshot,
+} from "./store.ts";
+import type { SkillEntry } from "./types.ts";
 
 export const DEFAULT_SKILL_REPOSITORY_INDEX_URL =
   "https://raw.githubusercontent.com/hlvm-dev/skills/main/index.json";
@@ -51,6 +57,20 @@ export interface SkillRepositoryInstallOptions extends SkillInstallOptions {
 export interface SkillRepositoryInstallResult {
   entry: SkillRepositoryEntry;
   installed: SkillInstallResult;
+}
+
+export interface SkillRepositoryPublishOptions {
+  repoDir: string;
+  ownerRepo?: string;
+  force?: boolean;
+  dryRun?: boolean;
+}
+
+export interface SkillRepositoryPublishResult {
+  entry: SkillRepositoryEntry;
+  skillDir: string;
+  indexPath: string;
+  wrote: boolean;
 }
 
 export function isSkillRepositorySlug(value: string): boolean {
@@ -344,4 +364,166 @@ export async function installSkillFromRepositorySlug(
       },
     ),
   };
+}
+
+function requireSafeOwnerRepo(value: string): string {
+  const trimmed = value.trim();
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed)) {
+    throw new ValidationError(
+      `Invalid owner/repo: ${value}`,
+      "hlvm skill publish",
+    );
+  }
+  return trimmed;
+}
+
+async function requireRepositoryDir(repoDir: string): Promise<string> {
+  const platform = getPlatform();
+  const resolved = platform.path.resolve(repoDir);
+  const info = await platform.fs.lstat(resolved);
+  if (!info.isDirectory || info.isSymlink) {
+    throw new ValidationError(
+      `Skill repository path must be a real directory: ${repoDir}`,
+      "hlvm skill publish",
+    );
+  }
+  return resolved;
+}
+
+function buildPublishEntry(
+  skill: SkillEntry,
+  ownerRepo: string,
+): SkillRepositoryEntry {
+  if (!skill.license) {
+    throw new ValidationError(
+      `Skill "${skill.name}" must include license metadata before publishing.`,
+      "hlvm skill publish",
+    );
+  }
+  return {
+    slug: skill.name,
+    name: skill.name,
+    description: skill.description,
+    install: `github:${ownerRepo}/skills/${skill.name}`,
+    version: "1.0.0",
+    license: skill.license,
+    tags: [],
+    trust: ownerRepo === "hlvm-dev/skills" ? "official" : "community",
+  };
+}
+
+async function copyPublishedSkillTree(
+  sourceDir: string,
+  targetDir: string,
+): Promise<void> {
+  const platform = getPlatform();
+  await platform.fs.mkdir(targetDir, { recursive: true });
+  for await (const entry of platform.fs.readDir(sourceDir)) {
+    if (
+      entry.name === ".hlvm" || entry.name === ".git" ||
+      entry.name === ".DS_Store"
+    ) {
+      continue;
+    }
+    const sourcePath = platform.path.join(sourceDir, entry.name);
+    const targetPath = platform.path.join(targetDir, entry.name);
+    const info = await platform.fs.lstat(sourcePath);
+    if (info.isSymlink) {
+      throw new ValidationError(
+        `Refusing to publish skill with symlink: ${sourcePath}`,
+        "hlvm skill publish",
+      );
+    }
+    if (info.isDirectory) {
+      await copyPublishedSkillTree(sourcePath, targetPath);
+      continue;
+    }
+    if (info.isFile) {
+      await platform.fs.copyFile(sourcePath, targetPath);
+    }
+  }
+}
+
+async function readRepositoryIndexFile(
+  indexPath: string,
+): Promise<SkillRepositoryIndex> {
+  const platform = getPlatform();
+  if (!await platform.fs.exists(indexPath)) {
+    return { version: 1, skills: [] };
+  }
+  return normalizeRepositoryIndex(
+    JSON.parse(await platform.fs.readTextFile(indexPath)),
+  );
+}
+
+function upsertRepositoryEntry(
+  index: SkillRepositoryIndex,
+  entry: SkillRepositoryEntry,
+  force: boolean,
+): SkillRepositoryIndex {
+  const existing = index.skills.find((skill) => skill.slug === entry.slug);
+  if (existing && !force) {
+    throw new ValidationError(
+      `Skill repository already contains "${entry.slug}". Re-run with --force to replace it.`,
+      "hlvm skill publish",
+    );
+  }
+  const skills = index.skills
+    .filter((skill) => skill.slug !== entry.slug)
+    .concat(entry)
+    .sort((left, right) => left.slug.localeCompare(right.slug));
+  return { version: 1, skills };
+}
+
+export async function publishSkillToRepository(
+  name: string,
+  options: SkillRepositoryPublishOptions,
+): Promise<SkillRepositoryPublishResult> {
+  if (!isSkillRepositorySlug(name) || isReservedSkillName(name)) {
+    throw new ValidationError(
+      `Invalid skill name: ${name}`,
+      "hlvm skill publish",
+    );
+  }
+  const snapshot = await loadSkillSnapshot();
+  const skill = findSkillByName(snapshot, name);
+  if (!skill || skill.source !== "user") {
+    throw new ValidationError(
+      `Only global user skills can be published: ${name}`,
+      "hlvm skill publish",
+    );
+  }
+
+  const platform = getPlatform();
+  const repoDir = await requireRepositoryDir(options.repoDir);
+  const ownerRepo = requireSafeOwnerRepo(
+    options.ownerRepo ?? "hlvm-dev/skills",
+  );
+  const indexPath = platform.path.join(repoDir, "index.json");
+  const skillDir = platform.path.join(repoDir, "skills", skill.name);
+  const entry = buildPublishEntry(skill, ownerRepo);
+
+  const nextIndex = upsertRepositoryEntry(
+    await readRepositoryIndexFile(indexPath),
+    entry,
+    options.force === true,
+  );
+  if (options.dryRun) {
+    return { entry, skillDir, indexPath, wrote: false };
+  }
+
+  if (options.force && await platform.fs.exists(skillDir)) {
+    await platform.fs.remove(skillDir, { recursive: true });
+  } else if (await platform.fs.exists(skillDir)) {
+    throw new ValidationError(
+      `Skill repository already has files at ${skillDir}. Re-run with --force to replace them.`,
+      "hlvm skill publish",
+    );
+  }
+  await copyPublishedSkillTree(skill.baseDir, skillDir);
+  await atomicWriteTextFile(
+    indexPath,
+    `${JSON.stringify(nextIndex, null, 2)}\n`,
+  );
+  return { entry, skillDir, indexPath, wrote: true };
 }

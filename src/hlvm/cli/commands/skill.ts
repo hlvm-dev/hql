@@ -2,6 +2,11 @@ import { log } from "../../api/log.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { truncate } from "../../../common/utils.ts";
 import {
+  buildAiSkillDraftPrompt,
+  buildAiSkillImprovePrompt,
+  normalizeAuthoredSkillContent,
+} from "../../agent/skills/authoring.ts";
+import {
   checkSkills,
   createUserSkill,
   draftUserSkill,
@@ -15,13 +20,16 @@ import {
   type SkillOrigin,
   type SkillUpdateResult,
   updateSkills,
+  writeAuthoredSkillContent,
 } from "../../agent/skills/install.ts";
 import {
   findSkillRepositoryEntry,
   installSkillFromRepositorySlug,
   isSkillRepositorySlug,
+  publishSkillToRepository,
   searchSkillRepository,
   type SkillRepositoryEntry,
+  type SkillRepositoryPublishResult,
 } from "../../agent/skills/repository.ts";
 import {
   findSkillByName,
@@ -32,6 +40,9 @@ import {
 import { isReservedSkillName } from "../../agent/skills/reserved.ts";
 import type { SkillEntry } from "../../agent/skills/types.ts";
 import { hasHelpFlag } from "../utils/common-helpers.ts";
+import { getPlatform } from "../../../platform/platform.ts";
+import { runDirectChatViaHost } from "../../runtime/host-client.ts";
+import { createRuntimeConfigManager } from "../../runtime/model-config.ts";
 
 const BODY_PREVIEW_LINES = 40;
 
@@ -45,6 +56,8 @@ Commands:
   list                  List available skills
   new <name>            Create a global user skill
   draft <name> <goal>   Draft a global user skill from a workflow goal
+  improve <name> <ask>  Improve a user skill with AI and explicit save
+  publish <name>        Prepare a user skill for a repository PR
   search [query]        Search the official HLVM skill repository
   info <name>           Show local or remote skill metadata
   import <path>         Import a local skill folder or skill pack
@@ -57,6 +70,9 @@ Examples:
   hlvm skill list
   hlvm skill new debug-workflow
   hlvm skill draft debug-hang "Diagnose hlvm ask hangs after tool output"
+  hlvm skill draft debug-hang "Diagnose hangs" --ai --model claude-code/claude-haiku-4-5-20251001
+  hlvm skill improve debug-hang "make verification more concrete" --save
+  hlvm skill publish debug-hang --repo ../skills
   hlvm skill search debug
   hlvm skill install debug-workflow
   hlvm skill info debug-workflow
@@ -123,6 +139,18 @@ export async function skillCommand(args: string[]): Promise<void | number> {
         return;
       }
       return await skillDraft(subArgs);
+    case "improve":
+      if (hasHelpFlag(subArgs)) {
+        showSkillHelp();
+        return;
+      }
+      return await skillImprove(subArgs);
+    case "publish":
+      if (hasHelpFlag(subArgs)) {
+        showSkillHelp();
+        return;
+      }
+      return await skillPublish(subArgs);
     case "search":
       if (hasHelpFlag(subArgs)) {
         showSkillHelp();
@@ -224,6 +252,24 @@ interface SkillDraftOptions {
   goal: string;
   force: boolean;
   print: boolean;
+  ai: boolean;
+  model?: string;
+}
+
+interface SkillImproveOptions {
+  name: string;
+  instruction: string;
+  print: boolean;
+  save: boolean;
+  model?: string;
+}
+
+interface SkillPublishOptions {
+  name: string;
+  repoDir: string;
+  ownerRepo?: string;
+  force: boolean;
+  print: boolean;
 }
 
 interface SkillTransferOptions {
@@ -292,15 +338,34 @@ function parseSkillDraftArgs(args: string[]): SkillDraftOptions {
   const goalParts: string[] = [];
   let force = false;
   let print = false;
-  const usage = "hlvm skill draft <name> <goal...> [--force] [--print]";
+  let ai = false;
+  let model: string | undefined;
+  const usage =
+    "hlvm skill draft <name> <goal...> [--ai] [--model <model>] [--force] [--print]";
 
-  for (const arg of args) {
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
     if (arg === "--force") {
       force = true;
       continue;
     }
     if (arg === "--print") {
       print = true;
+      continue;
+    }
+    if (arg === "--ai") {
+      ai = true;
+      continue;
+    }
+    if (arg === "--model") {
+      const value = args[++index];
+      if (!value) {
+        throw new ValidationError(
+          `Missing --model value. Usage: ${usage}`,
+          usage,
+        );
+      }
+      model = value;
       continue;
     }
     if (arg.startsWith("-")) {
@@ -321,11 +386,56 @@ function parseSkillDraftArgs(args: string[]): SkillDraftOptions {
     goal: goalParts.join(" "),
     force,
     print,
+    ai,
+    model,
   };
+}
+
+async function runSkillAuthoringModel(
+  prompt: string,
+  modelOverride?: string,
+): Promise<string> {
+  const runtimeConfig = await createRuntimeConfigManager();
+  let model = modelOverride ?? runtimeConfig.getConfiguredModel();
+  model = await runtimeConfig.resolveCompatibleClaudeCodeModel(model);
+  const result = await runDirectChatViaHost({
+    query: prompt,
+    model,
+    callbacks: {
+      onToken: () => {},
+    },
+  });
+  return result.text;
 }
 
 async function skillDraft(args: string[]): Promise<void> {
   const options = parseSkillDraftArgs(args);
+  if (options.ai) {
+    const rawContent = await runSkillAuthoringModel(
+      buildAiSkillDraftPrompt(options.name, options.goal),
+      options.model,
+    );
+    const content = normalizeAuthoredSkillContent(
+      options.name,
+      rawContent,
+      "hlvm skill draft",
+    );
+    if (options.print) {
+      log.raw.log(content);
+      return;
+    }
+    const result = await writeAuthoredSkillContent(
+      options.name,
+      content,
+      { method: "draft", goal: options.goal.trim() },
+      { force: options.force },
+      "hlvm skill draft",
+    );
+    log.raw.log(`Drafted ${result.skillFile}`);
+    log.raw.log(`Edit it, then run /${result.name} <request> to use it.`);
+    return;
+  }
+
   if (options.print) {
     log.raw.log(renderSkillDraftContent(options.name, options.goal));
     return;
@@ -336,6 +446,201 @@ async function skillDraft(args: string[]): Promise<void> {
   });
   log.raw.log(`Drafted ${result.skillFile}`);
   log.raw.log(`Edit it, then run /${result.name} <request> to use it.`);
+}
+
+function parseSkillImproveArgs(args: string[]): SkillImproveOptions {
+  let name: string | undefined;
+  const instructionParts: string[] = [];
+  let print = false;
+  let save = false;
+  let model: string | undefined;
+  const usage =
+    "hlvm skill improve <name> <instruction...> [--model <model>] [--print] [--save]";
+
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "--print") {
+      print = true;
+      continue;
+    }
+    if (arg === "--save") {
+      save = true;
+      continue;
+    }
+    if (arg === "--model") {
+      const value = args[++index];
+      if (!value) {
+        throw new ValidationError(
+          `Missing --model value. Usage: ${usage}`,
+          usage,
+        );
+      }
+      model = value;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      throw new ValidationError(
+        `Unknown option: ${arg}. Usage: ${usage}`,
+        usage,
+      );
+    }
+    if (!name) {
+      name = arg;
+      continue;
+    }
+    instructionParts.push(arg);
+  }
+
+  return {
+    name: parseSkillName(name, usage),
+    instruction: instructionParts.join(" "),
+    print,
+    save,
+    model,
+  };
+}
+
+async function readUserSkillContent(
+  name: string,
+): Promise<{ skill: SkillEntry; content: string }> {
+  const snapshot = await loadSkillSnapshot();
+  const skill = findSkillByName(snapshot, name);
+  if (!skill || skill.source !== "user") {
+    throw new ValidationError(
+      `Only global user skills can be improved: ${name}`,
+      "hlvm skill improve",
+    );
+  }
+  return {
+    skill,
+    content: await getPlatform().fs.readTextFile(skill.filePath),
+  };
+}
+
+async function skillImprove(args: string[]): Promise<void> {
+  const options = parseSkillImproveArgs(args);
+  const { skill, content: existingContent } = await readUserSkillContent(
+    options.name,
+  );
+  const rawContent = await runSkillAuthoringModel(
+    buildAiSkillImprovePrompt(skill.name, existingContent, options.instruction),
+    options.model,
+  );
+  const content = normalizeAuthoredSkillContent(
+    skill.name,
+    rawContent,
+    "hlvm skill improve",
+  );
+
+  if (options.print || !options.save) {
+    log.raw.log(content);
+    if (!options.save) {
+      log.raw.log(
+        `Preview only. Re-run with --save to replace ${skill.name}.`,
+      );
+    }
+    return;
+  }
+
+  const result = await writeAuthoredSkillContent(
+    skill.name,
+    content,
+    { method: "improve", instruction: options.instruction.trim() },
+    { force: true },
+    "hlvm skill improve",
+  );
+  log.raw.log(`Improved ${result.skillFile}`);
+  log.raw.log(`Run /${result.name} <request> to use the updated skill.`);
+}
+
+function parseSkillPublishArgs(args: string[]): SkillPublishOptions {
+  let name: string | undefined;
+  let repoDir: string | undefined;
+  let ownerRepo: string | undefined;
+  let force = false;
+  let print = false;
+  const usage =
+    "hlvm skill publish <name> --repo <path> [--owner-repo <owner/repo>] [--force] [--print]";
+
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "--repo") {
+      const value = args[++index];
+      if (!value) {
+        throw new ValidationError(
+          `Missing --repo value. Usage: ${usage}`,
+          usage,
+        );
+      }
+      repoDir = value;
+      continue;
+    }
+    if (arg === "--owner-repo") {
+      const value = args[++index];
+      if (!value) {
+        throw new ValidationError(
+          `Missing --owner-repo value. Usage: ${usage}`,
+          usage,
+        );
+      }
+      ownerRepo = value;
+      continue;
+    }
+    if (arg === "--force") {
+      force = true;
+      continue;
+    }
+    if (arg === "--print") {
+      print = true;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      throw new ValidationError(
+        `Unknown option: ${arg}. Usage: ${usage}`,
+        usage,
+      );
+    }
+    if (name) {
+      throw new ValidationError(`Too many arguments. Usage: ${usage}`, usage);
+    }
+    name = arg;
+  }
+
+  if (!repoDir) {
+    throw new ValidationError(`Missing --repo value. Usage: ${usage}`, usage);
+  }
+  return {
+    name: parseSkillName(name, usage),
+    repoDir,
+    ownerRepo,
+    force,
+    print,
+  };
+}
+
+function printSkillPublishResult(result: SkillRepositoryPublishResult): void {
+  log.raw.log(
+    `${
+      result.wrote ? "Published" : "Prepared"
+    } ${result.entry.slug} -> ${result.skillDir}`,
+  );
+  log.raw.log(`Index: ${result.indexPath}`);
+  log.raw.log(`Install: ${result.entry.install}`);
+}
+
+async function skillPublish(args: string[]): Promise<void> {
+  const options = parseSkillPublishArgs(args);
+  const result = await publishSkillToRepository(options.name, {
+    repoDir: options.repoDir,
+    ownerRepo: options.ownerRepo,
+    force: options.force,
+    dryRun: options.print,
+  });
+  if (options.print) {
+    log.raw.log(JSON.stringify(result.entry, null, 2));
+    return;
+  }
+  printSkillPublishResult(result);
 }
 
 function parsePositiveInteger(value: string, usage: string): number {
