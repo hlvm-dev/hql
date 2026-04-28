@@ -35,11 +35,11 @@ import { setupStoreTestDb } from "../_shared/store-test-db.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { createTodoStateFromPlan } from "../../../src/hlvm/agent/todo-state.ts";
 import {
-  getMemoryMdPath,
+  // getMemoryMdPath removed in CC-port refactor — auto-memory now lives
+  // under ~/.hlvm/projects/<key>/memory/MEMORY.md, derived per-project.
   resetHlvmDirCacheForTests,
   setHlvmDirForTests,
 } from "../../../src/common/paths.ts";
-import { closeFactDb } from "../../../src/hlvm/memory/mod.ts";
 import { withGlobalTestLock } from "../_shared/global-test-lock.ts";
 
 class PersistenceTestEngine implements AgentEngine {
@@ -585,12 +585,18 @@ Deno.test({
       setHlvmDirForTests(hlvmDir);
 
       try {
-        await platform.fs.mkdir(platform.path.dirname(getMemoryMdPath()), {
+        // Write user HLVM.md instead of the old ~/.hlvm/memory/MEMORY.md
+        // location. The new memory loader reads HLVM.md unconditionally.
+        const { getUserMemoryPath } = await import(
+          "../../../src/hlvm/memory/paths.ts"
+        );
+        const userMemPath = getUserMemoryPath();
+        await platform.fs.mkdir(platform.path.dirname(userMemPath), {
           recursive: true,
         });
         await platform.fs.writeTextFile(
-          getMemoryMdPath(),
-          "Durable preference from MEMORY.md",
+          userMemPath,
+          "Durable preference from HLVM.md",
         );
 
         await withWorkspace(async (workspace) => {
@@ -613,7 +619,6 @@ Deno.test({
           assertEquals(result.text, "saw-memory");
         });
       } finally {
-        closeFactDb();
         resetHlvmDirCacheForTests();
         resetAgentEngine();
         await disposeAllSessions();

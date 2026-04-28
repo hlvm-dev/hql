@@ -236,27 +236,12 @@ function buildTranscriptItemLines(
         ),
       ];
     }
-    case "memory_activity": {
-      const summaryParts = [
-        item.recalled > 0 ? `${item.recalled} recalled` : "",
-        item.written > 0 ? `${item.written} written` : "",
-        item.searched ? `${item.searched.count} searched` : "",
-      ].filter(Boolean).join(" · ");
-      return [
-        {
-          text: `Memory · ${summaryParts || "updated"}`,
-          color: colors.accent,
-          bold: true,
-        },
-        ...(
-          expanded
-            ? item.details.slice(0, 4).map((detail) => ({
-              text: `  ${detail.action} · ${detail.text}`,
-              color: colors.meta,
-            }))
-            : []
-        ),
-      ];
+    case "memory_updated": {
+      return [{
+        text: `Memory updated · ${item.path}`,
+        color: colors.accent,
+        bold: false,
+      }];
     }
     case "error":
       return [{

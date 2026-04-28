@@ -1,6 +1,6 @@
 import { truncate } from "../../../../../common/utils.ts";
 import { formatDurationMs } from "../../utils/formatting.ts";
-import { stringWidth } from "../../../../tui-v2/ink/stringWidth.ts";
+import { stringWidth } from "../../../../vendor/ink/stringWidth.ts";
 
 export interface ToolCallTextLayout {
   labelText: string;

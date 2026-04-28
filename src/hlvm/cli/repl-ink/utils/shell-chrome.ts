@@ -1,6 +1,6 @@
 import { truncate } from "../../../../common/utils.ts";
 import { formatProgressBar } from "./formatting.ts";
-import { stringWidth } from "../../../tui-v2/ink/stringWidth.ts";
+import { stringWidth } from "../../../vendor/ink/stringWidth.ts";
 
 export const SHELL_SEGMENT_SEPARATOR = " · ";
 

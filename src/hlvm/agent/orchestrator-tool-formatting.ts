@@ -749,13 +749,10 @@ const SUMMARY_FIELD = new Map<string, string>([
   ["compute", "expression"],
   ["search_web", "query"],
   ["ask_user", "question"],
-  ["memory_search", "query"],
   ["web_fetch", "url"],
   ["fetch_url", "url"],
   ["pw_goto", "url"],
   ["pw_download", "url"],
-  ["memory_write", "content"],
-  ["memory_edit", "action"],
 ]);
 
 /** Summarize tool args into a short human-readable string for UI display */

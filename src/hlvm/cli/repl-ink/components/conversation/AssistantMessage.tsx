@@ -13,8 +13,8 @@ import { OPEN_LATEST_SOURCE_HINT } from "../../ui-constants.ts";
 import {
   Markdown as DonorMarkdown,
   StreamingMarkdown as DonorStreamingMarkdown,
-} from "../../../../tui-v2/markdown/Markdown.tsx";
-import { Ratchet } from "../../../../tui-v2/components/design-system/Ratchet.tsx";
+} from "../markdown/Markdown.tsx";
+import { Ratchet } from "../Ratchet.tsx";
 
 import { createIncrementalSanitizer } from "../../utils/sanitize-ansi.ts";
 import { getLiveConversationSpacing } from "./message-spacing.ts";

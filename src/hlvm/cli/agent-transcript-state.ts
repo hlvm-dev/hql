@@ -17,8 +17,7 @@ import {
   type ErrorItem,
   type HqlEvalItem,
   type InfoItem,
-  type MemoryActivityDetail,
-  type MemoryActivityItem,
+  type MemoryUpdatedItem,
   type SkillActivityInput,
   type StreamingState,
   StreamingState as ConversationStreamingState,
@@ -915,57 +914,13 @@ export function reduceTranscriptState(
             ...state,
             todoState: cloneTodoState(event.todoState),
           };
-        case "memory_activity": {
-          const details: MemoryActivityDetail[] = [];
-          for (const r of event.recalled) {
-            details.push({
-              action: "recalled",
-              text: r.text,
-              score: r.score,
-              factId: r.factId,
-            });
-          }
-          for (const w of event.written) {
-            details.push({ action: "wrote", text: w.text, factId: w.factId });
-          }
-          if (event.searched) {
-            details.push({
-              action: "searched",
-              text:
-                `"${event.searched.query}" → ${event.searched.count} results`,
-            });
-          }
-          const recalled = event.recalled.length;
-          const written = event.written.length;
-          const searched = event.searched;
-
-          // Merge into trailing MemoryActivityItem in current turn if present
-          const turnStart = findCurrentTurnStartIndex(state.items);
-          const trailingMemIdx = state.items.findLastIndex((item, idx) =>
-            idx > turnStart && item.type === "memory_activity"
-          );
-          if (trailingMemIdx >= 0) {
-            const existing = state.items[trailingMemIdx] as MemoryActivityItem;
-            const nextItems = [...state.items];
-            nextItems[trailingMemIdx] = {
-              ...existing,
-              recalled: existing.recalled + recalled,
-              written: existing.written + written,
-              searched: searched ?? existing.searched,
-              details: [...existing.details, ...details],
-            };
-            return { ...state, items: nextItems };
-          }
-
+        case "memory_updated": {
           const [nextState, id] = nextItemId(state);
-          const memItem: MemoryActivityItem = {
-            type: "memory_activity",
+          const memItem: MemoryUpdatedItem = {
+            type: "memory_updated",
             id,
-            recalled,
-            written,
-            searched,
-            details,
-            ts: Date.now(),
+            path: event.path,
+            ts: event.ts,
             turnId: state.currentTurnId,
           };
           return {

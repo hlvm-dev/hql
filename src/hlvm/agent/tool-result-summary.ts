@@ -109,11 +109,6 @@ function summarizeStructuredRecord(
 
   if (Array.isArray(record.results)) {
     const count = countFromRecord(record, "count") ?? record.results.length;
-    if (toolName === "memory_search") {
-      return count > 0
-        ? `Found ${count} memory ${pluralize("result", count)}`
-        : "No memory results found";
-    }
     return summarizeArrayCount(count, "result");
   }
 

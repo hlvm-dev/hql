@@ -22,12 +22,7 @@ import {
   resolveContextBudget,
   type ResolvedBudget,
 } from "../../../agent/context-resolver.ts";
-import {
-  buildRelevantMemoryRecall,
-  isPersistentMemoryEnabled,
-  loadMemorySystemMessage,
-} from "../../../memory/mod.ts";
-import { loadHlvmInstructionsSystemMessage } from "../../../agent/global-instructions.ts";
+import { loadMemorySystemMessage } from "../../../memory/memdir.ts";
 import type {
   Message as ProviderMessage,
   ModelInfo,
@@ -182,7 +177,7 @@ export async function buildChatProviderMessages(
     replayWithPrefix,
     resolvedContextBudget.budget,
     options.requestMessages[options.requestMessages.length - 1]?.content ?? "",
-    isPersistentMemoryEnabled(options.disablePersistentMemory),
+    !options.disablePersistentMemory,
   );
   const trimmed = trimReplayMessages(
     replayWithMemory,
@@ -652,27 +647,16 @@ async function injectGlobalReplayMessages(
 ): Promise<ReplayMessage[]> {
   const replayMessages = [...messages];
   const injected: ReplayMessage[] = [];
-  try {
-    const instructionsMessage = await loadHlvmInstructionsSystemMessage();
-    if (instructionsMessage) {
-      injected.push(instructionsMessage);
-    }
-  } catch {
-    log.debug("Failed to load global HLVM instructions for chat mode");
-  }
+  // Do NOT gate on isAutoMemoryEnabled() — user/project HLVM.md must inject
+  // even when auto-memory is off. loadMemoryPrompt handles the gating
+  // internally for the auto-memory section.
   if (!includePersistentMemory) {
-    return injected.length > 0
-      ? [...injected, ...replayMessages]
-      : replayMessages;
+    return replayMessages;
   }
   try {
-    const memoryMessage = await loadMemorySystemMessage(budget);
+    const memoryMessage = await loadMemorySystemMessage();
     if (memoryMessage) {
       injected.push(memoryMessage);
-    }
-    const recall = buildRelevantMemoryRecall(currentUserRequest);
-    if (recall) {
-      injected.push(recall.message);
     }
   } catch {
     log.debug("Failed to load memory context for chat mode");

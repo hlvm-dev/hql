@@ -13,7 +13,7 @@ import { DEFAULT_TERMINAL_WIDTH, STATUS_GLYPHS } from "../ui-constants.ts";
 import type { PlanningPhase } from "../../../agent/planning.ts";
 import { getPlanPhaseLabel } from "./conversation/plan-flow.ts";
 import { truncate } from "../../../../common/utils.ts";
-import { stringWidth } from "../../../tui-v2/ink/stringWidth.ts";
+import { stringWidth } from "../../../vendor/ink/stringWidth.ts";
 
 interface TuiStatusLineProps {
   modelName?: string;

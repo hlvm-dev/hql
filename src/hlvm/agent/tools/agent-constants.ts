@@ -55,9 +55,6 @@ export const ASYNC_AGENT_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
   "git_diff",
   "git_log",
   "git_commit",
-  "memory_write",
-  "memory_search",
-  "memory_edit",
   "tool_search",
 ]);
 

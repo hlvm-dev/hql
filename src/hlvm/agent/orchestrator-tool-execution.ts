@@ -34,7 +34,6 @@ import {
 } from "./playwright-support.ts";
 import type {
   AgentUIEvent,
-  MemoryActivityEntry,
   OrchestratorConfig,
 } from "./orchestrator.ts";
 import {
@@ -635,9 +634,11 @@ export async function executeToolCall(
       result,
     );
 
-    if (toolCall.toolName.startsWith("memory_")) {
-      const activity = buildMemoryActivityEvent(toolCall, result);
-      if (activity) config.onAgentEvent?.(activity);
+    if (
+      toolCall.toolName === "write_file" || toolCall.toolName === "edit_file"
+    ) {
+      const updated = buildMemoryUpdatedEvent(toolCall, result);
+      if (updated) config.onAgentEvent?.(updated);
     }
 
     if (toolCall.toolName === "todo_write" && config.todoState) {
@@ -897,44 +898,50 @@ export async function maybeVerifyWrite(
 }
 
 // ============================================================
-// Memory tool event builder
+// Memory write event builder — fires when write_file or edit_file
+// targets a memory path (~/.hlvm/HLVM.md, ./HLVM.md, or auto-memory dir).
+// Surfaces "Memory updated in <path> · /memory to edit" inline (CC parity).
 // ============================================================
 
-function buildMemoryActivityEvent(
+function isMemoryPath(absolutePath: string): boolean {
+  // User-level HLVM.md
+  if (absolutePath.endsWith("/.hlvm/HLVM.md")) return true;
+  // Project-level HLVM.md (any HLVM.md at workspace root level — exact filename match)
+  if (absolutePath.endsWith("/HLVM.md")) return true;
+  // Auto-memory dir markdown files
+  if (
+    absolutePath.includes("/.hlvm/projects/") &&
+    absolutePath.includes("/memory/") &&
+    absolutePath.endsWith(".md")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function buildMemoryUpdatedEvent(
   toolCall: ToolCall,
   result: unknown,
-): Extract<AgentUIEvent, { type: "memory_activity" }> | null {
-  if (
-    toolCall.toolName === "memory_write" && result && typeof result === "object"
-  ) {
-    const r = result as Record<string, unknown>;
-    const text = truncate(String(r.content ?? r.message ?? ""), 120);
-    const factId = typeof r.factId === "number" ? r.factId : undefined;
-    return {
-      type: "memory_activity",
-      recalled: [],
-      written: [{ text, factId }],
-    };
+): Extract<AgentUIEvent, { type: "memory_updated" }> | null {
+  if (toolCall.toolName !== "write_file" && toolCall.toolName !== "edit_file") {
+    return null;
   }
-  if (
-    toolCall.toolName === "memory_search" && result &&
-    typeof result === "object"
-  ) {
-    const r = result as Record<string, unknown>;
-    const query = String(r.query ?? toolCall.args?.query ?? "");
-    const count = typeof r.count === "number"
-      ? r.count
-      : Array.isArray(r.results)
-      ? r.results.length
-      : 0;
-    return {
-      type: "memory_activity",
-      recalled: [],
-      written: [],
-      searched: { query, count },
-    };
-  }
-  return null;
+  if (!result || typeof result !== "object") return null;
+  const r = result as Record<string, unknown>;
+  // Only emit on success
+  if (r.ok === false || r.error) return null;
+  const path = typeof r.path === "string"
+    ? r.path
+    : typeof toolCall.args?.path === "string"
+    ? toolCall.args.path as string
+    : null;
+  if (!path) return null;
+  if (!isMemoryPath(path)) return null;
+  return {
+    type: "memory_updated",
+    path,
+    ts: Date.now(),
+  };
 }
 
 /**

@@ -8,13 +8,13 @@ import { runCommand } from "./commands.ts";
 import type { ReplState } from "./state.ts";
 import { REGISTERED_API_GLOBAL_NAMES } from "../../api/index.ts";
 import { bindings } from "../../api/bindings.ts";
-import { memory } from "../../api/memory.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
 import { getErrorMessage } from "../../../common/utils.ts";
 import { TextAccumulator } from "../../../common/stream-utils.ts";
 import { getGlobalRecord } from "./string-utils.ts";
-import { appendExplicitMemoryNote, getExplicitMemoryPath } from "../../memory/mod.ts";
+import { getUserMemoryPath } from "../../memory/paths.ts";
+import { editFileInEditor } from "./edit-in-editor.ts";
 
 const { GREEN, YELLOW, CYAN, DIM_GRAY, RESET } = ANSI_COLORS;
 
@@ -25,14 +25,14 @@ export function registerReplHelpers(state: ReplState): void {
     globalAny.bindings = bindings;
   }
   if (!globalAny.memory) {
-    // (memory) opens MEMORY.md in native editor; memory.search/add/etc still work
-    const openMemory = async () => {
-      const mdPath = getExplicitMemoryPath();
+    // (memory) opens user-level HLVM.md in $VISUAL/$EDITOR (CC `/memory`
+    // parity at REPL level). The old SQLite-backed memory.search/add/etc
+    // surface is gone — memories are markdown files now, edited directly.
+    globalAny.memory = async () => {
+      const mdPath = getUserMemoryPath();
       log.raw.log(`${DIM_GRAY}Opening ${mdPath}${RESET}`);
-      await getPlatform().openUrl(mdPath);
+      await editFileInEditor(mdPath);
     };
-    Object.defineProperties(openMemory, Object.getOwnPropertyDescriptors(memory));
-    globalAny.memory = openMemory;
   }
 
   globalAny.unbind = async (name: string) => {
@@ -52,18 +52,10 @@ export function registerReplHelpers(state: ReplState): void {
     }
   };
 
-  globalAny.remember = async (text: string) => {
-    if (typeof text !== "string" || text.trim().length === 0) {
-      log.raw.log(`${YELLOW}Usage: (remember "some note to save")${RESET}`);
-      return;
-    }
-    try {
-      await appendExplicitMemoryNote(text.trim());
-      log.raw.log(`${GREEN}Saved to MEMORY.md.${RESET}`);
-    } catch (error) {
-      log.raw.log(`${YELLOW}Failed to save note: ${getErrorMessage(error)}${RESET}`);
-    }
-  };
+  // (remember "text") helper deleted — REPL helpers must not call agent
+  // tools, and adding a parallel direct-write path would duplicate the
+  // memory-write logic. Users get explicit memory writes via (memory) /
+  // /memory (manual edit) or by asking the model (which uses write_file).
 
   globalAny.inspect = async (value: unknown) => {
     const type = typeof value;
@@ -165,7 +157,6 @@ Keep the response concise. Use HQL syntax (parentheses, prefix notation) for exa
 
   const helperNames = [
     "unbind",
-    "remember",
     "inspect",
     "describe",
     "help",

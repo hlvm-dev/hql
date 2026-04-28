@@ -26,7 +26,8 @@ export type OverlayPanel =
   | "config-overlay"
   | "shortcuts-overlay"
   | "transcript-history"
-  | "background-tasks";
+  | "background-tasks"
+  | "memory-picker";
 
 export type ShellRoute =
   | { kind: "shell"; overlay: OverlayPanel }

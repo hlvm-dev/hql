@@ -25,7 +25,7 @@ import { initializeRuntimeHelpers } from "../../src/common/runtime-helpers.ts";
 import { RuntimeError } from "../../src/common/error.ts";
 import { _resetActiveConversationForTesting } from "../../src/hlvm/store/active-conversation.ts";
 import { _resetDbForTesting } from "../../src/hlvm/store/db.ts";
-import { closeFactDb } from "../../src/hlvm/memory/mod.ts";
+// closeFactDb removed in CC-port refactor — no SQLite memory DB to close.
 import { withGlobalTestLock } from "./_shared/global-test-lock.ts";
 import {
   isList,
@@ -234,7 +234,6 @@ export async function withTempHlvmDir(
     });
     const resetHlvmRuntimeState = () => {
       _resetDbForTesting();
-      closeFactDb();
       _resetActiveConversationForTesting();
     };
 

@@ -15,7 +15,7 @@ import {
   getRecoveryHint,
 } from "../../../src/hlvm/agent/error-taxonomy.ts";
 import { detectSearchQueryIntent } from "../../../src/hlvm/agent/tools/web/query-strategy.ts";
-import { sanitizeSensitiveContent } from "../../../src/hlvm/memory/mod.ts";
+import { sanitizeSensitiveContent } from "../../../src/common/sanitize.ts";
 
 // ═══════════════════════════════════════════════════════════════
 // 1. RESPONSE ANALYSIS — edge cases & adversarial inputs

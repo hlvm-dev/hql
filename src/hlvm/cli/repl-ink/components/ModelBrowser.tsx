@@ -76,7 +76,7 @@ import {
   buildModelBrowserViewLayout,
 } from "./model-browser-chrome.ts";
 import { OverlayModal } from "./OverlayModal.tsx";
-import { stringWidth } from "../../../tui-v2/ink/stringWidth.ts";
+import { stringWidth } from "../../../vendor/ink/stringWidth.ts";
 
 const platform = getPlatform();
 const openUrl = (url: string) => platform.openUrl(url);

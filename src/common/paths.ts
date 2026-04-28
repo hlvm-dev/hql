@@ -173,53 +173,13 @@ export function getMemoryPath(): string {
   return join(getHlvmDir(), "memory.hql");
 }
 
-/**
- * Get the memory directory (~/.hlvm/memory)
- */
-export function getMemoryDir(): string {
-  return join(getHlvmDir(), "memory");
-}
-
-/**
- * Get the canonical memory SQLite DB path (~/.hlvm/memory/memory.db)
- */
-export function getMemoryDbPath(): string {
-  return join(getMemoryDir(), "memory.db");
-}
-
-/**
- * Get the user-facing memory notes path (~/.hlvm/memory/MEMORY.md)
- */
-export function getMemoryMdPath(): string {
-  return join(getMemoryDir(), "MEMORY.md");
-}
-
-/**
- * Ensure memory directory exists (~/.hlvm/memory/)
- * Sets owner-only permissions (0o700) for privacy.
- */
-export async function ensureMemoryDirs(): Promise<void> {
-  const fs = getPlatform().fs;
-  const memDir = getMemoryDir();
-  await fs.mkdir(memDir, { recursive: true });
-  try {
-    await fs.chmod(memDir, 0o700);
-  } catch {
-    // chmod may not be supported on all platforms (e.g., Windows)
-  }
-}
-
-/** Synchronous version of ensureMemoryDirs — for use in sync-only contexts like SQLite init */
-export function ensureMemoryDirsSync(): void {
-  const fs = getPlatform().fs;
-  const memDir = getMemoryDir();
-  fs.mkdirSync(memDir, { recursive: true });
-  try {
-    fs.chmodSync(memDir, 0o700);
-  } catch {
-    // chmod may not be supported on all platforms (e.g., Windows)
-  }
-}
+// SQLite-era memory path helpers (getMemoryDir / getMemoryDbPath /
+// getMemoryMdPath / ensureMemoryDirs / ensureMemoryDirsSync) removed in the
+// CC-port refactor. The new memory system lives at:
+//   ~/.hlvm/HLVM.md                                  (user, via getHlvmInstructionsPath)
+//   ./HLVM.md                                        (project)
+//   ~/.hlvm/projects/<key>/memory/MEMORY.md          (auto-memory; see src/hlvm/memory/paths.ts)
+// HLVM is pre-release — no SQLite migration path needed.
 
 /**
  * Get the web cache file path (~/.hlvm/web-cache.json)

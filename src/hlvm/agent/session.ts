@@ -57,13 +57,8 @@ import {
 } from "./lsp-diagnostics.ts";
 import {
   isMemorySystemMessage,
-  isPersistentMemoryEnabled,
   loadMemorySystemMessage,
-} from "../memory/mod.ts";
-import {
-  isHlvmInstructionsSystemMessage,
-  loadHlvmInstructionsSystemMessage,
-} from "./global-instructions.ts";
+} from "../memory/memdir.ts";
 import { cloneToolList } from "./orchestrator-state.ts";
 import { releaseToolOwner } from "./registry.ts";
 import { COMPUTER_USE_TOOLS } from "./computer-use/mod.ts";
@@ -259,37 +254,22 @@ function buildCompiledPromptArtifacts(options: {
   };
 }
 
-async function injectPersistentMemoryContext(options: {
+async function injectMemoryPromptContext(options: {
   context: ContextManager;
-  maxContextTokens: number;
   disablePersistentMemory?: boolean;
 }): Promise<void> {
-  if (!isPersistentMemoryEnabled(options.disablePersistentMemory)) {
-    return;
-  }
+  // Do NOT gate on isAutoMemoryEnabled() here — user/project HLVM.md must
+  // load even when auto-memory is disabled. The auto-memory section is
+  // gated internally by loadMemoryPrompt; user/project HLVM.md are
+  // unconditional (matches the deleted loadHlvmInstructionsSystemMessage).
+  if (options.disablePersistentMemory) return;
   try {
-    const memoryMessage = await loadMemorySystemMessage(
-      options.maxContextTokens,
-    );
+    const memoryMessage = await loadMemorySystemMessage();
     if (memoryMessage) {
       options.context.addMessage(memoryMessage);
     }
   } catch {
     // Memory loading is best-effort — don't block session creation/reuse.
-  }
-}
-
-async function injectHlvmInstructionsContext(
-  context: ContextManager,
-): Promise<void> {
-  try {
-    const instructionsMessage = await loadHlvmInstructionsSystemMessage();
-    if (instructionsMessage) {
-      context.addMessage(instructionsMessage);
-    }
-  } catch {
-    // Global instructions are best-effort; invalid filesystem state should not
-    // prevent a session from starting.
   }
 }
 
@@ -323,14 +303,12 @@ export async function refreshReusableAgentSession(
     role: "system",
     content: promptArtifacts.systemPromptText,
   });
-  await injectHlvmInstructionsContext(context);
 
   const previousPromptText = session.llmConfig?.compiledPrompt?.text;
   for (const message of session.context.getMessages()) {
     if (
       message.role !== "system" ||
       message.content === previousPromptText ||
-      isHlvmInstructionsSystemMessage(message.content) ||
       isMemorySystemMessage(message.content) ||
       isTransientReusableSystemMessage(message.content)
     ) {
@@ -339,9 +317,8 @@ export async function refreshReusableAgentSession(
     context.addMessage({ role: "system", content: message.content });
   }
 
-  await injectPersistentMemoryContext({
+  await injectMemoryPromptContext({
     context,
-    maxContextTokens: session.resolvedContextBudget.budget,
     disablePersistentMemory: options.disablePersistentMemory,
   });
 
@@ -631,13 +608,10 @@ export async function createAgentSession(
     role: "system",
     content: promptArtifacts.systemPromptText,
   });
-  await injectHlvmInstructionsContext(context);
-
   // Inject memory as a SEPARATE system message (not embedded in main prompt).
   // This allows reusable-session refresh to replace it without duplicating stale memory.
-  await injectPersistentMemoryContext({
+  await injectMemoryPromptContext({
     context,
-    maxContextTokens: resolved.budget,
     disablePersistentMemory: options.disablePersistentMemory,
   });
 

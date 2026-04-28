@@ -66,13 +66,15 @@ function extractTranscriptSearchText(item: ShellHistoryEntry): string {
         item.summary,
         ...(item.activityTrail ?? []),
       ].filter(Boolean).join(" ");
-    case "memory_activity":
-      return item.details.map((detail) => detail.text).join(" ");
+    case "memory_updated":
+      return `Memory updated in ${item.path}`;
     case "error":
     case "info":
       return item.text;
     case "hql_eval":
       return `${item.input}\n${item.result.success ? String(item.result.value ?? "") : item.result.error?.message ?? ""}`;
+    default:
+      return "";
   }
 }
 

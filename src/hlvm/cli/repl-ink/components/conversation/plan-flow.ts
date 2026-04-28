@@ -6,7 +6,7 @@ import type {
   ConversationItem,
   ErrorItem,
   InfoItem,
-  MemoryActivityItem,
+  MemoryUpdatedItem,
   ThinkingItem,
   ToolCallDisplay,
 } from "../../types.ts";
@@ -217,12 +217,8 @@ function summarizeErrorActivity(item: ErrorItem): string | undefined {
   return text.length > 0 ? truncate(text, 84, "…") : undefined;
 }
 
-function summarizeMemoryActivity(item: MemoryActivityItem): string {
-  const parts: string[] = [];
-  if (item.recalled > 0) parts.push(`${item.recalled} recalled`);
-  if (item.written > 0) parts.push(`${item.written} written`);
-  if (item.searched) parts.push(`${item.searched.count} searched`);
-  return parts.length > 0 ? `Memory ${parts.join(" · ")}` : "Updating memory";
+function summarizeMemoryUpdated(item: MemoryUpdatedItem): string {
+  return `Memory updated in ${item.path}`;
 }
 
 function summarizeAssistantActivity(text: string): string | undefined {
@@ -245,9 +241,9 @@ function summarizeConversationItemActivity(
     case "info":
       if (options.includeInfo === false) return undefined;
       return summarizeInfoActivity(item);
-    case "memory_activity":
+    case "memory_updated":
       if (options.includeMemory === false) return undefined;
-      return summarizeMemoryActivity(item);
+      return summarizeMemoryUpdated(item);
     case "assistant":
       if (options.includeAssistant === false) return undefined;
       return summarizeAssistantActivity(item.text);

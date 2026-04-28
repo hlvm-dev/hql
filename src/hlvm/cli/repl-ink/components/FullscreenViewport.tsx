@@ -5,11 +5,11 @@
 
 import React, { type PropsWithChildren } from "react";
 import { Box } from "ink";
-import { AlternateScreen } from "../../../tui-v2/ink/components/AlternateScreen.tsx";
+import { AlternateScreen } from "../../../vendor/ink/components/AlternateScreen.tsx";
 import {
   isFullscreenEnvEnabled,
   isMouseTrackingEnabled,
-} from "../../../tui-v2/utils/fullscreen.ts";
+} from "../utils/fullscreen.ts";
 
 export function FullscreenViewport(
   { children }: PropsWithChildren,

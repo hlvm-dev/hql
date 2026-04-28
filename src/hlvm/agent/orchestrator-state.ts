@@ -102,8 +102,8 @@ export interface LoopState {
   iterationsSinceReminder: number;
   /** Whether memory flush was already injected this cycle (pre-compaction) */
   memoryFlushedThisCycle: boolean;
-  /** Whether automatic memory recall has already been injected for this user turn */
-  memoryRecallInjected: boolean;
+  /** Memory file paths already surfaced this loop, to avoid double-injection */
+  surfacedMemoryPaths: Set<string>;
   /** Whether available skills have already been injected for this user turn */
   skillsInjected: boolean;
   /** Indexed citation candidates extracted from recent web tool results. */
@@ -198,7 +198,7 @@ export function initializeLoopState(config: OrchestratorConfig): LoopState {
     lastToolsIncludedWeb: false,
     iterationsSinceReminder: 3, // Start at cooldown to avoid immediate reminder
     memoryFlushedThisCycle: false,
-    memoryRecallInjected: false,
+    surfacedMemoryPaths: new Set<string>(),
     skillsInjected: false,
     passageIndex: [],
     lastToolNames: [],

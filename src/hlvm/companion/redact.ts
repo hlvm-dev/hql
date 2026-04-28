@@ -1,11 +1,11 @@
 /**
  * Companion Agent — Observation Redaction
  *
- * Deterministic PII filter. Uses sanitizeSensitiveContent from memory barrel.
+ * Deterministic PII filter.
  */
 
 import type { Observation } from "./types.ts";
-import { sanitizeSensitiveContent } from "../memory/mod.ts";
+import { sanitizeSensitiveContent } from "../../common/sanitize.ts";
 import { fnv1aHex } from "../../common/hash.ts";
 
 const MAX_STRING_LENGTH = 500;

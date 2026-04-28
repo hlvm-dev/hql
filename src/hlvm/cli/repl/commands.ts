@@ -147,6 +147,14 @@ export const commands: Record<string, Command> = {
     },
   },
 
+  "/memory": {
+    description: "Edit your HLVM memory files in $EDITOR",
+    handler: async (_state, args, context) => {
+      const { handleMemoryCommand } = await import("./commands-memory.ts");
+      await handleMemoryCommand(args, context);
+    },
+  },
+
   "/flush": {
     description: "Clear visible screen output",
     handler: () => {

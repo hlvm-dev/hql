@@ -11,14 +11,10 @@
 import { initializeRuntime } from "../../common/runtime-initializer.ts";
 import { ValidationError } from "../../common/error.ts";
 import { generateUUID, getErrorMessage } from "../../common/utils.ts";
-import {
-  closeFactDb,
-  isPersistentMemoryEnabled,
-  MEMORY_TOOLS,
-  persistConversationFacts,
-  persistExplicitMemoryRequest,
-  setMemoryModelCapability,
-} from "../memory/mod.ts";
+// Memory module imports removed in CC-port refactor. The new memory system
+// loads HLVM.md + auto-memory MEMORY.md via session.ts injectMemoryPromptContext;
+// writes happen through the model calling write_file/edit_file directly.
+// closeFactDb is also gone — there's no SQLite to close.
 import { setAgentLogger } from "./logger.ts";
 import {
   ensureDefaultModelInstalled,
@@ -221,7 +217,6 @@ export async function disposeAllSessions(): Promise<void> {
   const sessions = [...reusableSessions.values()];
   reusableSessions.clear();
   await Promise.allSettled(sessions.map((s) => s.dispose()));
-  closeFactDb();
 }
 
 /**
@@ -740,12 +735,11 @@ export async function runAgentQuery(
     attachmentCount: options.attachments?.length ?? 0,
     queryPreview: buildTraceTextPreview(query),
   });
-  const persistentMemoryEnabled = isPersistentMemoryEnabled(
-    disablePersistentMemory,
-  );
-  const effectiveToolDenylist = !persistentMemoryEnabled
-    ? [...new Set([...toolDenylist, ...Object.keys(MEMORY_TOOLS)])]
-    : [...toolDenylist];
+  // Memory_* tools removed in CC-port refactor — model writes via
+  // read_file/write_file/edit_file against memory paths now. The
+  // disablePersistentMemory flag still influences memory injection (in
+  // session.ts), but no longer needs to mask out memory tools.
+  const effectiveToolDenylist = [...toolDenylist];
   const requestedToolAllowlist = resolveQueryToolAllowlist(
     options.toolAllowlist,
   );
@@ -960,14 +954,9 @@ export async function runAgentQuery(
     }
 
     const usageTracker = new UsageTracker();
-    setMemoryModelCapability(session.modelCapability);
-    if (persistentMemoryEnabled) {
-      try {
-        await persistExplicitMemoryRequest(query);
-      } catch {
-        // Best-effort only; memory capture must not block agent execution.
-      }
-    }
+    // Old SQLite-based persistence removed in CC-port refactor — model now
+    // captures memories by writing directly to ~/.hlvm/projects/<key>/memory/
+    // via write_file when it judges them worth keeping.
 
     let finalResponseMeta: FinalResponseMeta | undefined;
     let activePlan:
@@ -1244,7 +1233,7 @@ export async function runAgentQuery(
         discoveredDeferredToolCount: session.discoveredDeferredTools.size,
         currentUserRequest: query,
         signal: options.signal,
-        autoMemoryRecall: persistentMemoryEnabled,
+        autoMemoryRecall: !disablePersistentMemory,
         usage: usageTracker,
         l1Confirmations: session.l1Confirmations,
         todoState: session.todoState,
@@ -1397,16 +1386,9 @@ export async function runAgentQuery(
       completePersistedAgentTurn(persistedTurn, model, text);
     }
 
-    if (persistentMemoryEnabled) {
-      try {
-        await persistConversationFacts({
-          userMessage: query,
-          assistantMessage: text,
-        });
-      } catch {
-        // Best-effort only; memory capture must not block agent execution.
-      }
-    }
+    // Old auto-extraction of conversation facts removed in CC-port refactor —
+    // the model now writes memories explicitly via write_file when it judges
+    // them worth keeping (CC parity).
 
     const finalResponseState = await classifyAgentFinalResponse(text);
     keepSessionAlive = options.retainSessionForReuse === true ||

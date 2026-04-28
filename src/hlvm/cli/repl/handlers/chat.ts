@@ -59,10 +59,9 @@ import {
 import { config } from "../../../api/config.ts";
 import { ai } from "../../../api/ai.ts";
 import { log } from "../../../api/log.ts";
-import {
-  persistConversationFacts,
-  persistExplicitMemoryRequest,
-} from "../../../memory/mod.ts";
+// Memory persistence functions removed in CC-port refactor — model now
+// captures memories by writing directly to ~/.hlvm/HLVM.md or auto-memory
+// dir via write_file when it judges them worth keeping (CC parity).
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { recordPromptHistory } from "../prompt-history.ts";
 
@@ -935,17 +934,8 @@ export async function handleChat(req: Request): Promise<Response> {
           effectiveMode === "agent" &&
           canRunAgentMode;
 
-        if (
-          !isEvalMode &&
-          body.disable_persistent_memory !== true &&
-          !runnerHandlesMemoryCapture
-        ) {
-          try {
-            await persistExplicitMemoryRequest(currentUserMessage.content);
-          } catch (error) {
-            log.warn("Failed to persist explicit user memory request", error);
-          }
-        }
+        // Old explicit-memory extraction removed — model writes via
+        // write_file against memory paths now (CC parity).
 
         if (isEvalMode) {
           const replState = await ensureRuntimeHostReplState();
@@ -1109,20 +1099,8 @@ export async function handleChat(req: Request): Promise<Response> {
           if (tracksManagedLocalAi) {
             markRuntimeAiRequestSucceeded();
           }
-          if (
-            !isEvalMode &&
-            body.disable_persistent_memory !== true &&
-            !runnerHandlesMemoryCapture
-          ) {
-            try {
-              await persistConversationFacts({
-                userMessage: currentUserMessage.content,
-                assistantMessage: partialText.text,
-              });
-            } catch (error) {
-              log.warn("Failed to persist conversation memory", error);
-            }
-          }
+          // Old conversation-fact extraction removed — model writes
+          // memories via write_file against memory paths now (CC parity).
           const currentSession = getSession(sessionId);
           if (currentSession && !currentSession.title) {
             const recentMsgs = loadRecentMessages(

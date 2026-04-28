@@ -18,7 +18,8 @@ import { CODE_TOOLS } from "./tools/code-tools.ts";
 import { SHELL_TOOLS } from "./tools/shell-tools.ts";
 import { META_TOOLS } from "./tools/meta-tools.ts";
 import { WEB_TOOLS } from "./tools/web-tools.ts";
-import { MEMORY_TOOLS } from "../memory/mod.ts";
+// Memory tools (memory_write, memory_search, memory_edit) removed — model
+// uses read_file / write_file / edit_file against memory paths now.
 import { DATA_TOOLS } from "./tools/data-tools.ts";
 import { GIT_TOOLS } from "./tools/git-tools.ts";
 import { ACTIVITY_TOOLS } from "./tools/activity-tools.ts";
@@ -334,7 +335,6 @@ const CONCURRENCY_SAFE_BUILTIN_TOOLS = new Set<string>([
   "search_web",
   "fetch_url",
   "web_fetch",
-  "memory_search",
   "recent_activity",
   "git_status",
   "git_diff",
@@ -466,7 +466,6 @@ const BUILTIN_TOOL_REGISTRY: Record<string, ToolMetadata> = {
   ...SHELL_TOOLS,
   ...META_TOOLS,
   ...WEB_TOOLS,
-  ...MEMORY_TOOLS,
   ...DATA_TOOLS,
   ...GIT_TOOLS,
   ...ACTIVITY_TOOLS,
@@ -845,7 +844,7 @@ export function getToolsByCategory(): {
     shell: Object.keys(SHELL_TOOLS),
     meta: Object.keys(META_TOOLS),
     web: Object.keys(WEB_TOOLS),
-    memory: Object.keys(MEMORY_TOOLS),
+    memory: [],
     agent: [],
     data: Object.keys(DATA_TOOLS),
     git: Object.keys(GIT_TOOLS),

@@ -18,8 +18,8 @@ import { derivePlanSurfaceState } from "./conversation/plan-flow.ts";
 import { shouldRenderTranscriptDividerBeforeIndex } from "../utils/layout-tokens.ts";
 import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
 import { StreamingState as ConversationStreamingState } from "../types.ts";
-import type { ScrollBoxHandle } from "../../../tui-v2/ink/components/ScrollBox.tsx";
-import { useVirtualScroll } from "../../../tui-v2/hooks/useVirtualScroll.ts";
+import type { ScrollBoxHandle } from "../../../vendor/ink/components/ScrollBox.tsx";
+import { useVirtualScroll } from "../hooks/useVirtualScroll.ts";
 
 interface VirtualTranscriptProps {
   items?: AgentConversationItem[];
@@ -172,10 +172,8 @@ function getTranscriptItemKey(
       return `${item.id}:${width}:${showDividerBefore ? 1 : 0}:${
         options.isThinkingExpanded(item.id) ? "expanded" : "collapsed"
       }`;
-    case "memory_activity":
-      return `${item.id}:${width}:${showDividerBefore ? 1 : 0}:${
-        options.isMemoryExpanded(item.id) ? "expanded" : "collapsed"
-      }`;
+    case "memory_updated":
+      return `${item.id}:${width}:${showDividerBefore ? 1 : 0}`;
     case "tool_group": {
       const expandedSignature = item.tools.map((tool) =>
         options.isToolExpanded(tool.id) ? "1" : "0"

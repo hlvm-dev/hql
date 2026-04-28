@@ -151,6 +151,22 @@ export function getLocalModelDisplayName(): string {
   return baseName.charAt(0).toUpperCase() + baseName.slice(1);
 }
 
+/**
+ * Public wrapper for the private collectClassificationJson helper. Use this
+ * for new ad-hoc classifier-style local-LLM calls (e.g. memory selector)
+ * instead of duplicating the prompt/queue/parse plumbing.
+ *
+ * Returns null on local classifier failure (timeout, runtime error, parse
+ * error). Callers should provide a deterministic fallback.
+ */
+export function classifyJson(
+  context: string,
+  prompt: string,
+  opts: { temperature?: number; maxTokens?: number } = {},
+): Promise<Record<string, unknown> | null> {
+  return collectClassificationJson(context, prompt, opts);
+}
+
 /** Classify a user query into task categories using the local LLM. */
 export interface TaskClassification {
   isCodeTask: boolean;

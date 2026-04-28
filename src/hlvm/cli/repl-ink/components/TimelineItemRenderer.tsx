@@ -14,7 +14,7 @@ import {
   ErrorMessage,
   HqlEvalDisplay,
   InfoMessage,
-  MemoryActivityLine,
+  MemoryUpdateNotification,
   ThinkingIndicator,
   ToolGroup,
   TurnStats,
@@ -58,9 +58,7 @@ export function getToggleTargets(
       }
       continue;
     }
-    if (item.type === "memory_activity" && item.details.length > 0) {
-      targets.push({ kind: "memory", id: item.id });
-    }
+    // memory_updated is a non-expandable one-liner — no toggle target.
   }
   return targets;
 }
@@ -193,16 +191,8 @@ export function TimelineItemRenderer(
       />
     );
   }
-  if (item.type === "memory_activity") {
-    return (
-      <MemoryActivityLine
-        recalled={item.recalled}
-        written={item.written}
-        searched={item.searched}
-        details={item.details}
-        expanded={Boolean(isMemoryExpanded?.(item.id))}
-      />
-    );
+  if (item.type === "memory_updated") {
+    return <MemoryUpdateNotification path={item.path} />;
   }
   if (item.type === "error") {
     return <ErrorMessage text={item.text} />;

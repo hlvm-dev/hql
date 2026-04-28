@@ -18,8 +18,8 @@ export { ToolGroup } from "./ToolGroup.tsx";
 // HQL eval display
 export { HqlEvalDisplay } from "./HqlEvalDisplay.tsx";
 
-// Memory activity
-export { MemoryActivityLine } from "./MemoryActivityLine.tsx";
+// Memory update notification
+export { MemoryUpdateNotification } from "./MemoryUpdateNotification.tsx";
 
 // Dialog components
 export { ConfirmationDialog } from "./ConfirmationDialog.tsx";

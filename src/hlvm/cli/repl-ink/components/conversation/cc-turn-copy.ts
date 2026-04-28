@@ -1,4 +1,4 @@
-import { djb2Hash } from "../../../../tui-v2/utils/hash.ts";
+import { djb2Hash } from "../../utils/hash.ts";
 
 const CC_SPINNER_VERBS = [
   "Accomplishing",

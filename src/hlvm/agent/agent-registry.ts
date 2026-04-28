@@ -50,9 +50,6 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
       "web_fetch",
       "render_url",
       "mcp_playwright_render_url",
-      "memory_write",
-      "memory_search",
-      "memory_edit",
     ],
   },
   {
@@ -105,15 +102,9 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
     ],
     maxTokens: 32_000,
   },
-  {
-    name: "memory",
-    description: "Persistent memory and preference tracking specialist",
-    tools: [
-      "memory_write",
-      "memory_search",
-      "memory_edit",
-    ],
-  },
+  // Memory specialist agent removed — memory now lives as plain markdown
+  // files (HLVM.md + auto-memory dir) which any agent can read/write via
+  // read_file/write_file/edit_file. No specialist needed.
 ];
 
 const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown"]);

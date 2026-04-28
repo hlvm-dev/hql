@@ -46,7 +46,7 @@ import {
   ErrorMessage,
   HqlEvalDisplay,
   InfoMessage,
-  MemoryActivityLine,
+  MemoryUpdateNotification,
   QuestionDialog,
   ThinkingIndicator,
   ToolGroup,
@@ -115,9 +115,7 @@ function getToggleTargets(items: ConversationItem[]): ToggleTarget[] {
         }
       }
     }
-    if (item.type === "memory_activity" && item.details.length > 0) {
-      targets.push({ kind: "memory", id: item.id });
-    }
+    // memory_updated is a one-line non-expandable notification — no toggle target.
   }
   return targets;
 }
@@ -294,16 +292,8 @@ function renderItem(
           activityTrail={item.activityTrail}
         />
       );
-    case "memory_activity":
-      return (
-        <MemoryActivityLine
-          recalled={item.recalled}
-          written={item.written}
-          searched={item.searched}
-          details={item.details}
-          expanded={isMemoryExpanded(item.id)}
-        />
-      );
+    case "memory_updated":
+      return <MemoryUpdateNotification path={item.path} />;
     case "hql_eval":
       return <HqlEvalDisplay input={item.input} result={item.result} />;
     case "error":

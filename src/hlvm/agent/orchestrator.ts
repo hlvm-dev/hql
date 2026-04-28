@@ -72,7 +72,7 @@ import {
 import type { AgentExecutionMode } from "./execution-mode.ts";
 import { isPlanExecutionMode } from "./execution-mode.ts";
 import { getAgentLogger } from "./logger.ts";
-import { buildRelevantMemoryRecall } from "../memory/mod.ts";
+// buildRelevantMemoryRecall import removed — old SQLite recall path gone.
 import { loadSkillSnapshot } from "./skills/store.ts";
 import {
   AVAILABLE_SKILLS_PROMPT_SENTINEL,
@@ -413,11 +413,10 @@ export type RuntimeToolPhase =
 
 export type ToolProgressTone = "running" | "success" | "warning";
 
-export interface MemoryActivityEntry {
-  text: string;
-  score?: number;
-  factId?: number;
-}
+// MemoryActivityEntry removed — old SQLite-backed recall events are gone.
+// The new system emits a single `memory_updated` event when write_file or
+// edit_file targets a memory path; renderer shows
+// `Memory updated in <path> · /memory to edit`.
 
 export type AgentUIEvent =
   | { type: "plan_phase_changed"; phase: PlanningPhase }
@@ -490,10 +489,9 @@ export type AgentUIEvent =
     source: "tool" | "plan";
   }
   | {
-    type: "memory_activity";
-    recalled: MemoryActivityEntry[];
-    written: MemoryActivityEntry[];
-    searched?: { query: string; count: number };
+    type: "memory_updated";
+    path: string;
+    ts: number;
   }
   | {
     type: "agent_spawn";
@@ -697,11 +695,14 @@ export type OrchestratorConfig =
   & OrchestratorSessionConfig
   & OrchestratorDiagnosticsConfig;
 
-function memoryWriteAvailable(config: OrchestratorConfig): boolean {
+// memoryWriteAvailable removed — the memory_write tool no longer exists.
+// Pre-compaction nudge now points at write_file against memory paths instead
+// (see runtimeDirective wording below).
+function fileWriteAvailable(config: OrchestratorConfig): boolean {
   const allowlist = effectiveAllowlist(config);
-  if (allowlist && !allowlist.includes("memory_write")) return false;
-  if (effectiveDenylist(config)?.includes("memory_write")) return false;
-  return hasTool("memory_write", config.toolOwnerId);
+  if (allowlist && !allowlist.includes("write_file")) return false;
+  if (effectiveDenylist(config)?.includes("write_file")) return false;
+  return hasTool("write_file", config.toolOwnerId);
 }
 
 const ALWAYS_AVAILABLE_RUNTIME_TOOLS = [
@@ -929,32 +930,63 @@ export async function applyAdaptiveToolPhase(
 // Mid-Conversation Reminders
 // ============================================================
 
-function maybeInjectMemoryRecall(
+/**
+ * Per-turn relevant-memory recall. Calls `findRelevantMemories` against
+ * the project's auto-memory directory, reads each picked topic file (cap
+ * at ~4KB so a single file can't blow up context), prepends the freshness
+ * note, and injects each as a `<system-reminder>`-wrapped system message.
+ *
+ * Skips files already surfaced earlier in this loop (`state.surfacedMemoryPaths`)
+ * so the model isn't shown the same content twice.
+ *
+ * Best-effort: any failure is swallowed; memory recall must never block
+ * the turn.
+ */
+const PER_TURN_MEMORY_FILE_BYTE_CAP = 4096;
+
+export async function maybeInjectRelevantMemories(
   state: LoopState,
   userRequest: string,
   config: OrchestratorConfig,
-): void {
-  if (state.memoryRecallInjected) return;
-  state.memoryRecallInjected = true;
-
+): Promise<void> {
   const trimmed = userRequest.trim();
   if (!trimmed) return;
-
   try {
-    const recall = buildRelevantMemoryRecall(trimmed);
-    if (!recall) return;
-    addContextMessage(config, recall.message);
-    config.onAgentEvent?.({
-      type: "memory_activity",
-      recalled: recall.results.map((r) => ({
-        text: truncate(r.text.replace(/\s+/g, " ").trim(), 120),
-        score: Math.round(r.score * 100) / 100,
-        factId: r.factId,
-      })),
-      written: [],
-    });
+    const { findRelevantMemories } = await import(
+      "../memory/findRelevantMemories.ts"
+    );
+    const { getAutoMemPath } = await import("../memory/paths.ts");
+    const { memoryFreshnessNote } = await import("../memory/memoryAge.ts");
+    const platform = (await import("../../platform/platform.ts")).getPlatform();
+    const cwd = platform.process.cwd();
+    const autoDir = getAutoMemPath(cwd);
+
+    const picks = await findRelevantMemories(
+      trimmed,
+      autoDir,
+      new AbortController().signal, // best-effort; no per-turn cancellation today
+      [], // recentTools — empty for now (can be threaded later)
+      state.surfacedMemoryPaths,
+    );
+    for (const pick of picks) {
+      let content: string;
+      try {
+        content = await platform.fs.readTextFile(pick.path);
+      } catch {
+        continue;
+      }
+      if (content.length > PER_TURN_MEMORY_FILE_BYTE_CAP) {
+        content = content.slice(0, PER_TURN_MEMORY_FILE_BYTE_CAP) +
+          "\n…[truncated]";
+      }
+      const note = memoryFreshnessNote(pick.mtimeMs);
+      const wrapped =
+        `<system-reminder>\n<memory path="${pick.path}">\n${note}${content}\n</memory>\n</system-reminder>`;
+      addContextMessage(config, { role: "system", content: wrapped });
+      state.surfacedMemoryPaths.add(pick.path);
+    }
   } catch {
-    // Best-effort only; memory recall should never block the main loop.
+    // Swallow — memory recall is best-effort.
   }
 }
 
@@ -1448,6 +1480,21 @@ export async function runReActLoop(
     content: userRequest,
     attachments,
   });
+
+  // Per-turn relevant-memory recall (CC parity). Reads the auto-memory dir,
+  // asks the local LLM selector to pick the ~5 most relevant topic files,
+  // and injects each as a system message with a freshness note. Skipped if
+  // the session has disabled auto-memory recall.
+  //
+  // Currently awaited inline before the LLM call — adds local-classifier
+  // latency to the first turn (typically <500ms with the local model). Any
+  // failure is swallowed (fail-soft), but the wait still happens. A future
+  // optimization would prefetch this async at session-creation time so the
+  // selector overlaps with prompt assembly. See plan v3 continuation §C8.
+  if (autoMemoryRecall) {
+    await maybeInjectRelevantMemories(state, userRequest, config);
+  }
+
   if (isPlanExecutionMode(config.permissionMode)) {
     const reminder = config.planModeState?.planningAllowlist?.length
       ? buildPlanModeReminder(
@@ -1546,9 +1593,11 @@ export async function runReActLoop(
 
       maybeInjectReminder(state, lc, config);
       await maybeInjectSkills(state, userRequest, config);
-      if (autoMemoryRecall) {
-        maybeInjectMemoryRecall(state, userRequest, config);
-      }
+      // Per-turn memory recall removed — memory is injected once at session
+      // creation via loadMemorySystemMessage. The autoMemoryRecall flag is
+      // still threaded through for future use (e.g. wiring findRelevantMemories
+      // here for topic-file selection).
+      void autoMemoryRecall;
       const urgentThresholdPercent = Math.round(
         context.getConfig().compactionThreshold * 100,
       );
@@ -1575,20 +1624,20 @@ export async function runReActLoop(
 
       // Pre-compaction memory flush: give model a turn to save context before
       // compaction when pressure is already urgent. When flush is first injected,
-      // skip compaction this iteration so the model can call memory_write.
+      // skip compaction this iteration so the model can write a memory file.
       let skipCompaction = false;
       if (
         context.isPendingCompaction &&
         preCompactionPercent >= urgentThresholdPercent &&
         !state.memoryFlushedThisCycle &&
-        memoryWriteAvailable(config)
+        fileWriteAvailable(config)
       ) {
         state.memoryFlushedThisCycle = true;
         skipCompaction = true;
         context.addDirectiveUntrimmed({
           role: "user",
           content: runtimeDirective(
-            "Context nearing limit. If there are important facts, decisions, or outcomes not yet saved to memory, call memory_write now before context is compacted.",
+            "Context nearing limit. If there are important facts, decisions, or outcomes not yet saved to memory, save them now via write_file against ~/.hlvm/HLVM.md or your auto-memory directory before context is compacted.",
           ),
         });
       }

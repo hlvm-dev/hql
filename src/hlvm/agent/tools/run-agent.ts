@@ -27,7 +27,7 @@ import { resolveAgentTools } from "./agent-tool-utils.ts";
 import { UsageTracker } from "../usage.ts";
 import { getAgentLogger } from "../logger.ts";
 import { createAgent } from "../agent.ts";
-import { loadHlvmInstructionsSystemMessage } from "../global-instructions.ts";
+import { loadMemorySystemMessage } from "../../memory/memdir.ts";
 import { enhanceSystemPromptWithEnvDetails } from "./prompt-env.ts";
 import { truncate } from "../../../common/utils.ts";
 import {
@@ -379,13 +379,13 @@ export async function runAgent(
     context.addMessage({ role: "system", content: msg });
   }
   try {
-    const instructionsMessage = await loadHlvmInstructionsSystemMessage();
-    if (instructionsMessage) {
-      context.addMessage(instructionsMessage);
+    const memoryMessage = await loadMemorySystemMessage();
+    if (memoryMessage) {
+      context.addMessage(memoryMessage);
     }
   } catch {
     log.debug(
-      `[Agent:${agentDefinition.agentType}] Failed to load global HLVM instructions`,
+      `[Agent:${agentDefinition.agentType}] Failed to load memory prompt`,
     );
   }
 

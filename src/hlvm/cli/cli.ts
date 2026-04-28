@@ -25,8 +25,7 @@ import { chromeExtCommand, showChromeExtHelp } from "./commands/chrome-ext.ts";
 import { run as runCommand } from "./run.ts";
 import { VERSION } from "../../common/version.ts";
 import { HLVM_RUNTIME_DEFAULT_PORT } from "../runtime/host-config.ts";
-import { ensureDenoAvailable } from "./utils/toolchain.ts";
-import { RuntimeError, ValidationError } from "../../common/error.ts";
+import { ValidationError } from "../../common/error.ts";
 import { stripErrorCodeFromMessage } from "../../common/error-codes.ts";
 import {
   extractLeadingRuntimePortFlag,
@@ -37,7 +36,6 @@ import {
 interface ParsedReplArgs {
   debug: boolean;
   showBanner: boolean;
-  useNewTui: boolean;
 }
 
 const RUNTIME_PORT_COMMANDS = new Set([
@@ -50,7 +48,6 @@ function parseReplArgs(args: string[]): ParsedReplArgs {
   const parsed: ParsedReplArgs = {
     debug: false,
     showBanner: true,
-    useNewTui: false,
   };
 
   for (const arg of args) {
@@ -59,9 +56,6 @@ function parseReplArgs(args: string[]): ParsedReplArgs {
         parsed.debug = true;
         break;
       case "--ink":
-        break;
-      case "--new":
-        parsed.useNewTui = true;
         break;
       case "--no-banner":
         parsed.showBanner = false;
@@ -86,7 +80,6 @@ USAGE:
   hlvm repl [options]
 
 OPTIONS:
-  --new             Use TUI v2 (experimental)
   --ink             Force Ink REPL (interactive terminal only)
   --port <port>     Use a dedicated local runtime port
   --debug           Show internal agent trace rows in the REPL transcript
@@ -114,17 +107,6 @@ EXAMPLES:
 
   const parsedArgs = parseReplArgs(args);
 
-  if (parsedArgs.useNewTui && parsedArgs.debug) {
-    throw new ValidationError(
-      "--debug is currently supported in the default Ink REPL only; remove --new.",
-      "repl",
-    );
-  }
-
-  if (parsedArgs.useNewTui) {
-    return await launchTuiV2Baseline(args);
-  }
-
   const startInkRepl = await import("./repl-ink/index.tsx").then((m) =>
     m.startInkRepl
   );
@@ -133,59 +115,6 @@ EXAMPLES:
     showBanner: parsedArgs.showBanner,
     debug: parsedArgs.debug,
   });
-}
-
-async function launchTuiV2Baseline(args: string[]): Promise<number> {
-  const platform = getPlatform();
-  const denoBinary = await ensureDenoAvailable();
-  const { configPath, mainPath } = await resolveTuiV2LaunchPaths();
-  const proc = platform.command.run({
-    cmd: [
-      denoBinary,
-      "run",
-      "--allow-all",
-      "--unstable-sloppy-imports",
-      "--config",
-      configPath,
-      mainPath,
-      ...args.filter((arg) => arg !== "--new"),
-    ],
-    env: platform.env.toObject(),
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const status = await proc.status;
-  return status.code;
-}
-
-async function resolveTuiV2LaunchPaths(): Promise<{
-  configPath: string;
-  mainPath: string;
-}> {
-  const platform = getPlatform();
-  const candidates = [
-    platform.path.resolve(platform.process.cwd(), "src/hlvm/tui-v2"),
-    platform.path.resolve(
-      platform.path.dirname(platform.process.execPath()),
-      "src/hlvm/tui-v2",
-    ),
-    platform.path.fromFileUrl(new URL("../tui-v2", import.meta.url)),
-  ];
-
-  for (const baseDir of candidates) {
-    const configPath = platform.path.join(baseDir, "deno.json");
-    const mainPath = platform.path.join(baseDir, "main.tsx");
-    if (
-      await platform.fs.exists(configPath) && await platform.fs.exists(mainPath)
-    ) {
-      return { configPath, mainPath };
-    }
-  }
-
-  throw new RuntimeError(
-    "TUI v2 entry files not found. Expected src/hlvm/tui-v2/{main.tsx,deno.json}.",
-  );
 }
 
 function showHelp(): void {

@@ -4,9 +4,9 @@ import { Box, Text } from "ink";
 import stripAnsi from "strip-ansi";
 import { marked, type Token, type Tokens } from "marked";
 import { useSemanticColors } from "../../../theme/index.ts";
-import { Ansi } from "../../../../tui-v2/ink/Ansi.tsx";
-import { stringWidth } from "../../../../tui-v2/ink/stringWidth.ts";
-import { wrapAnsi } from "../../../../tui-v2/ink/wrapAnsi.ts";
+import { Ansi } from "../../../../vendor/ink/Ansi.tsx";
+import { stringWidth } from "../../../../vendor/ink/stringWidth.ts";
+import { wrapAnsi } from "../../../../vendor/ink/wrapAnsi.ts";
 import { CodeBlock } from "./CodeBlock.tsx";
 import { InlineMarkdown, InlineTokens } from "./InlineMarkdown.tsx";
 import {

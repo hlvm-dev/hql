@@ -159,20 +159,11 @@ export interface DebugTraceItem {
   turnId?: string;
 }
 
-export interface MemoryActivityDetail {
-  action: "recalled" | "wrote" | "searched";
-  text: string;
-  score?: number;
-  factId?: number;
-}
-
-export interface MemoryActivityItem {
-  type: "memory_activity";
+export interface MemoryUpdatedItem {
+  type: "memory_updated";
   id: string;
-  recalled: number;
-  written: number;
-  searched?: { query: string; count: number };
-  details: MemoryActivityDetail[];
+  /** Absolute path of the memory file that was just written/edited. */
+  path: string;
   ts: number;
   turnId?: string;
 }
@@ -197,7 +188,7 @@ export type ConversationItem =
   | ErrorItem
   | InfoItem
   | DebugTraceItem
-  | MemoryActivityItem
+  | MemoryUpdatedItem
   | HqlEvalItem;
 
 export type AgentConversationItem = Exclude<ConversationItem, HqlEvalItem>;

@@ -21,6 +21,7 @@ import {
   type KeyCombo,
 } from "./CommandPaletteOverlay.tsx";
 import { ShortcutsOverlay } from "./ShortcutsOverlay.tsx";
+import { MemoryPickerOverlay } from "./MemoryPickerOverlay.tsx";
 import { BackgroundTasksOverlay } from "./BackgroundTasksOverlay.tsx";
 import { ModelBrowser } from "./ModelBrowser.tsx";
 import { ModelSetupOverlay } from "./ModelSetupOverlay.tsx";
@@ -131,14 +132,14 @@ import { getShellContentWidth, SHELL_LAYOUT } from "../utils/layout-tokens.ts";
 import { type LocalAgentEntry } from "../utils/local-agents.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { TuiStatusLine } from "./TuiStatusLine.tsx";
-import { FullscreenLayout } from "../../../tui-v2/components/FullscreenLayout.tsx";
-import { ScrollKeybindingHandler } from "../../../tui-v2/components/ScrollKeybindingHandler.tsx";
-import type { ScrollBoxHandle } from "../../../tui-v2/ink/components/ScrollBox.tsx";
+import { FullscreenLayout } from "./FullscreenLayout.tsx";
+import { ScrollKeybindingHandler } from "./ScrollKeybindingHandler.tsx";
+import type { ScrollBoxHandle } from "../../../vendor/ink/components/ScrollBox.tsx";
 import {
   useCopyOnSelect,
   useSelectionBgColor,
-} from "../../../tui-v2/hooks/useCopyOnSelect.ts";
-import { getClipboardPath } from "../../../tui-v2/ink/termio/osc.ts";
+} from "../hooks/useCopyOnSelect.ts";
+import { getClipboardPath } from "../../../vendor/ink/termio/osc.ts";
 
 interface CurrentEval {
   code: string;
@@ -304,6 +305,9 @@ function AppContent(
   const committedHistoryCount = conversation.historyItems.length;
   const [transcriptOverlaySearchActive, setTranscriptOverlaySearchActive] =
     useState(false);
+  const [memoryPickerInitial, setMemoryPickerInitial] = useState<
+    "user" | "project" | "auto" | undefined
+  >(undefined);
   const [localAgentsFocused, setLocalAgentsFocused] = useState(false);
   const [backgroundTasksOverlayState, setBackgroundTasksOverlayState] =
     useState<BackgroundTasksOverlayState>(
@@ -1046,6 +1050,21 @@ function AppContent(
 
         if (commandName === "/tasks") {
           openBackgroundTasksOverlay();
+          return;
+        }
+
+        if (commandName === "/memory") {
+          // Optional argument selects a default row (`user|project|auto`).
+          const arg = commandArgs.trim().toLowerCase();
+          const initial = arg === "user" || arg === "u"
+            ? "user"
+            : arg === "project" || arg === "p"
+            ? "project"
+            : arg === "auto" || arg === "a" || arg === "m"
+            ? "auto"
+            : undefined;
+          setMemoryPickerInitial(initial);
+          setActiveOverlay("memory-picker");
           return;
         }
 
@@ -1805,6 +1824,17 @@ function AppContent(
     );
   } else if (activeOverlay === "shortcuts-overlay") {
     overlayNode = <ShortcutsOverlay onClose={() => setActiveOverlay("none")} />;
+  } else if (activeOverlay === "memory-picker") {
+    overlayNode = (
+      <MemoryPickerOverlay
+        width={Math.min(80, shellContentWidth)}
+        onClose={() => {
+          setActiveOverlay("none");
+          setMemoryPickerInitial(undefined);
+        }}
+        initialSelection={memoryPickerInitial}
+      />
+    );
   } else if (activeOverlay === "transcript-history") {
     overlayNode = (
       <TranscriptViewerOverlay
