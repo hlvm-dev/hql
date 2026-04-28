@@ -96,18 +96,6 @@ function normalizeAgentMcpServerSpec(
   return { [serverName.trim()]: normalizedConfig };
 }
 
-// ============================================================
-// Frontmatter Parsing (CC: parseAgentFromMarkdown)
-// ============================================================
-
-/**
- * Parse a .md file into a CustomAgentDefinition.
- * CC: parseAgentFromMarkdown() — simplified (no plugins, no memory, no hooks)
- *
- * Required frontmatter: name, description
- * Optional: tools, disallowedTools, model, maxTurns, background, isolation,
- * initialPrompt, permissionMode, mcpServers
- */
 type ParseAgentResult =
   | { ok: true; agent: CustomAgentDefinition }
   | { ok: false; reason: string };
