@@ -1,14 +1,4 @@
-/**
- * Shared Agent tool spec helpers.
- *
- * Kept separate from registry.ts and agent-tool.ts to avoid circular imports
- * while allowing both eager registration and test access to share one source
- * of truth for the Agent tool description/args.
- *
- * The fallback description is computed once at module load from the built-in
- * agent registry. resolveAgentToolDescription() recomputes from built-ins plus
- * global user agents in ~/.hlvm/agents.
- */
+// Lives outside agent-tool.ts so registry/test code can read the description without dragging in the dispatcher.
 
 import { getAgentToolPrompt } from "./agent-prompt.ts";
 import { getBuiltInAgents } from "./built-in-agents.ts";

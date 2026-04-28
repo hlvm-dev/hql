@@ -1,11 +1,4 @@
-/**
- * Agent Tool Metadata — separated from agent-tool.ts to break circular dependency.
- *
- * registry.ts imports this file; this file never imports registry.ts at runtime.
- * The ToolMetadata type is type-only (erased at compile time → no runtime cycle).
- *
- * The fn implementation delegates to agent-tool.ts via dynamic import at call time.
- */
+// Split from agent-tool.ts so registry → agent-tool-metadata stays cycle-free; the agent-tool import is dynamic at call time.
 
 import type { ToolFunction, ToolMetadata } from "../registry.ts";
 import { AGENT_TOOL_NAME, ONE_SHOT_AGENT_TYPES } from "./agent-constants.ts";

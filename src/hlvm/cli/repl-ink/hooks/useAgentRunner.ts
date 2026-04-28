@@ -411,11 +411,7 @@ function markLocalAgentCancelled(
   );
 }
 
-export function getConversationToolDenylist(
-  agentExecutionMode: AgentExecutionMode,
-): string[] {
-  return ["complete_task"];
-}
+const CONVERSATION_TOOL_DENYLIST: readonly string[] = ["complete_task"];
 
 interface UseAgentRunnerInput {
   conversation: UseConversationResult;
@@ -834,7 +830,7 @@ export function useAgentRunner(
             }],
             model,
             permissionMode: agentExecutionMode,
-            toolDenylist: getConversationToolDenylist(agentExecutionMode),
+            toolDenylist: [...CONVERSATION_TOOL_DENYLIST],
             signal: controller.signal,
             callbacks: {
               onToken: (text: string) => {

@@ -1,16 +1,5 @@
-/**
- * Agent System Types
- *
- * Follows CC's type hierarchy exactly:
- * BaseAgentDefinition → BuiltInAgentDefinition | CustomAgentDefinition
- */
-
 import type { AgentExecutionMode } from "../execution-mode.ts";
 import type { McpServerConfig } from "../mcp/types.ts";
-
-// ============================================================
-// Agent Definition Types (CC: loadAgentsDir.ts)
-// ============================================================
 
 export type AgentSource = "built-in" | "user";
 
@@ -23,31 +12,22 @@ export type AgentMcpServerSpec =
   | string
   | Record<string, Omit<McpServerConfig, "name">>;
 
-/** Common fields for all agent types. CC: BaseAgentDefinition */
 export interface BaseAgentDefinition {
-  /** Agent identifier (e.g., "Explore", "Plan", "security-auditor") */
   agentType: string;
   /** Description shown to the brain for tool selection */
   whenToUse: string;
   /** Allowed tools. undefined or ["*"] = all tools */
   tools?: string[];
-  /** Explicitly blocked tools */
   disallowedTools?: string[];
   /** Model override. "inherit" = use parent's model */
   model?: string;
-  /** Max ReAct loop iterations */
   maxTurns?: number;
-  /** Where this agent came from */
   source: AgentSource;
-  /** Base directory for the agent definition file */
   baseDir?: string;
-  /** Returns the system prompt for this agent */
   getSystemPrompt: () => string;
   /** Always run as background task when spawned */
   background?: boolean;
-  /** Run in isolated git worktree */
   isolation?: "worktree";
-  /** Permission mode override for child execution */
   permissionMode?: AgentExecutionMode;
   /** Sticky prompt prepended ahead of the invocation prompt */
   initialPrompt?: string;
@@ -55,26 +35,18 @@ export interface BaseAgentDefinition {
   mcpServers?: AgentMcpServerSpec[];
 }
 
-/** Built-in agent defined in code. CC: BuiltInAgentDefinition */
 export interface BuiltInAgentDefinition extends BaseAgentDefinition {
   source: "built-in";
 }
 
-/** Custom agent loaded from .md file. CC: CustomAgentDefinition */
 export interface CustomAgentDefinition extends BaseAgentDefinition {
   source: "user";
   /** Original filename without .md extension */
   filename?: string;
 }
 
-/** Union type for all agent definitions. CC: AgentDefinition */
 export type AgentDefinition = BuiltInAgentDefinition | CustomAgentDefinition;
 
-// ============================================================
-// Agent Tool I/O Types
-// ============================================================
-
-/** Input schema for the Agent tool. CC: AgentToolInput */
 export interface AgentToolInput {
   /** Short (3-5 word) task description */
   description: string;

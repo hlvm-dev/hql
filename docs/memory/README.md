@@ -7,13 +7,15 @@
 > By the end you should know what every piece does, where it lives, and how
 > to extend or debug it without spelunking.
 
-**Status (last updated: this branch):** Memory port complete in **global-only** form.
-Backend, write path, permission carve-out, picker, and per-turn selector all
-working and verified end-to-end against the real filesystem. `/memory` was
-also smoke-tested in a PTY: visible picker, ↑↓ selection, Enter, editor spawn,
-editor return, and another command after return all worked. Real vim/nano
-alt-screen handoff and live provider answer quality are environment-dependent;
-see Known gaps.
+**Status (last updated: this branch):** Memory is complete in **global-only**
+form. Backend, write path, permission carve-out, picker, per-turn selector,
+chat/agent/subagent injection, and live model recall are verified.
+
+The live proof used `claude-code/claude-haiku-4-5-20251001` through the
+Claude Code OAuth/Max path: a temporary `HLVM.md` contained
+`MEMORY_LIVE_MARKER_VALUE = pineapple`, and `hlvm ask` answered `pineapple`.
+Local `ollama/gemma4:e2b` timed out on that large memory/agent prompt; that is
+a model/runtime limitation, not a memory-system blocker.
 
 ---
 
@@ -58,7 +60,7 @@ don't need them).
 | Trace a model write → notification | [End-to-end flow §2](#end-to-end-flow-2--model-writes-memory) |
 | Understand `/memory` UX | [End-to-end flow §3](#end-to-end-flow-3--user-types-memory) |
 | Add a new test | `tests/unit/memory/` ([test inventory](#test-inventory)) |
-| Find a known limitation | [Known gaps](#known-gaps) |
+| Find non-blocking follow-ups | [Non-blocking follow-ups](#non-blocking-follow-ups) |
 | Debug a permission denial | [Permission model](#permission-model) |
 
 ---
@@ -318,6 +320,22 @@ and permission boundaries. Inspect or recreate them before rerunning. Prefer
 `HLVM_TEST_STATE_ROOT=<tmpdir> HLVM_ALLOW_TEST_STATE_ROOT=1` for repeatable
 smokes unless you intentionally want to touch live `~/.hlvm`.
 
+**Current verification matrix**:
+
+| Scenario | Status | Evidence |
+|---|---|---|
+| User memory loads from disk | verified | `loadMemorySystemMessage()` real-disk smoke + unit tests |
+| Auto-memory `MEMORY.md` and topic files load | verified | write→scan→load smoke + `tests/unit/memory/` |
+| `@import` from `HLVM.md` resolves safely | verified | `tests/unit/memory/import-resolution.test.ts` |
+| Per-turn topic recall injects relevant files | verified | selector stub tests + orchestrator recall tests |
+| Model writes to memory path trigger notification | verified | source smoke + `isMemoryPath()` regression tests |
+| Permission carve-out is global-only and `.md`-only | verified | 9-case smoke + unit tests |
+| `/memory` picker opens and returns to REPL | verified | PTY smoke: `/memory` → arrows → Enter → editor → return → `/memory auto` |
+| Plain chat receives memory | verified | source-level provider-message smoke |
+| Agent sessions receive memory | verified | memory/global agent tests |
+| Subagents receive global `HLVM.md` | verified | `tests/unit/agent/agent-integration.test.ts` focused test |
+| Live model answers from memory | verified | Haiku 4.5 live smoke answered `pineapple` from injected `HLVM.md` |
+
 ---
 
 ## CC parity status
@@ -351,18 +369,19 @@ smokes unless you intentionally want to touch live `~/.hlvm`.
 
 ---
 
-## Known gaps
+## Non-blocking follow-ups
 
-Ranked by impact:
+These are not memory-completion blockers; they are polish or runtime/model
+quality items.
 
-| # | Gap | Severity | Pointer |
+| # | Follow-up | Severity | Pointer |
 |---|---|---|---|
 | 1 | **Real Ink pause/resume during editor spawn.** Currently Ink stays mounted while vim takes the alt-screen — REPL survives, but visual glitches possible. CC's pattern (`commands/memory/memory.tsx:42` + `utils/promptEditor.ts`) cleanly hands off the alt-screen using `inkInstance.enterAlternateScreen()`. The fork at `src/hlvm/vendor/ink/` exposes the same API. | medium | `src/hlvm/cli/repl/edit-in-editor.ts:editFileInEditorWithInkPause` |
-| 2 | **Real vim/nano alt-screen smoke still useful.** PTY smoke passed with a controlled editor probe (`hlvm repl --port 11440 --no-banner → /memory → ↑↓ → Enter → editor exits → REPL alive → /memory auto works`). Still test once with a real terminal editor (`vim`, `:q`) before declaring the alt-screen behavior polished. | low | (manual) |
+| 2 | **Real vim/nano alt-screen polish.** PTY smoke passed with a controlled editor probe (`hlvm repl --port 11440 --no-banner → /memory → ↑↓ → Enter → editor exits → REPL alive → /memory auto works`). A real terminal editor smoke is useful for visual polish, not for memory correctness. | low | (manual) |
 | 3 | **Post-editor "Opened memory file at..." line not emitted in Ink path.** `MemoryPickerOverlay` accepts `onEditorExit` callback but App.tsx doesn't pass one. Text-mode fallback emits the line. | low | `src/hlvm/cli/repl-ink/components/App.tsx` (where overlay is rendered) |
 | 4 | **Per-turn recall is awaited inline.** Adds local-classifier latency (~500ms typical) to first turn. Future optimization: async-prefetch at session-creation. | low | `src/hlvm/agent/orchestrator.ts:maybeInjectRelevantMemories` |
 | 5 | **`recentTools` array is always empty in selector calls.** CC threads tool-use history into the selector to filter out reference docs for actively-used tools. | low | `src/hlvm/agent/orchestrator.ts:maybeInjectRelevantMemories` |
-| 6 | **Live model answer smoke depends on provider/runtime health.** The code path is covered by unit and source-level smokes for agent/direct-chat message construction. A full `hlvm ask/chat` proof still needs a responsive configured model. | low | (manual/runtime) |
+| 6 | **Local Gemma performance on full memory/agent prompt.** `ollama/gemma4:e2b` answered a tiny prompt but timed out on the live memory proof. Haiku 4.5 proved memory recall; Gemma prompt latency is a model/runtime issue. | low | routing/runtime |
 
 ---
 

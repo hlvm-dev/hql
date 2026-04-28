@@ -4,7 +4,7 @@ import type { AgentSession } from "./session.ts";
 
 const MAX_REPL_LIVE_SESSIONS = 8;
 
-export interface ReplLiveAgentSessionEntry {
+interface ReplLiveAgentSessionEntry {
   session: AgentSession;
   lastSessionVersion: number;
   model: string;
@@ -14,7 +14,7 @@ export interface ReplLiveAgentSessionEntry {
   toolDenylist?: string[];
 }
 
-export interface ResolveReplLiveAgentSessionOptions {
+interface ResolveReplLiveAgentSessionOptions {
   sessionId: string;
   expectedSessionVersion?: number;
   model: string;
@@ -24,7 +24,7 @@ export interface ResolveReplLiveAgentSessionOptions {
   toolDenylist?: string[];
 }
 
-export interface ResolveReplLiveAgentSessionResult {
+interface ResolveReplLiveAgentSessionResult {
   entry?: ReplLiveAgentSessionEntry;
   hotSessionReuse: boolean;
   invalidationReason?: string;

@@ -569,7 +569,6 @@ async function runAsyncAgent(opts: SpawnAgentOpts): Promise<AgentAsyncResult> {
     `[Agent:${selectedAgent.agentType}] Async spawn: "${description}"`,
   );
 
-  // CC: emit agent_spawn event for TUI rendering
   options?.onAgentEvent?.({
     type: "agent_spawn",
     agentId,
@@ -749,7 +748,6 @@ async function runAsyncAgent(opts: SpawnAgentOpts): Promise<AgentAsyncResult> {
     }
   };
 
-  // Register in background tracking (CC: registerAsyncAgent)
   getAgentToolRuntimeState().backgroundAgents.set(agentId, {
     agentId,
     agentType: selectedAgent.agentType,
@@ -763,11 +761,9 @@ async function runAsyncAgent(opts: SpawnAgentOpts): Promise<AgentAsyncResult> {
     cancelled: false,
     onAgentEvent: emitAgentEvent,
   });
-  // Mark the promise as observed so failures don't become unhandled rejections
-  // when the caller launches and moves on.
+  // Observe the promise so launch-and-walk-away callers don't trigger unhandled-rejection warnings.
   void promise.catch(() => {});
-  // Run on the next task tick so the background child is detached from the
-  // parent request's tool call and any provider/runtime teardown tied to it.
+  // Defer to the next task tick so this background child detaches from the parent tool call's lifecycle.
   setTimeout(() => {
     void executeBackgroundAgent();
   }, 0);
@@ -785,5 +781,3 @@ async function runAsyncAgent(opts: SpawnAgentOpts): Promise<AgentAsyncResult> {
   };
 }
 
-// Tool metadata for registry is exported from agent-tool-metadata.ts
-// (single source of truth to avoid a circular dep through registry.ts).

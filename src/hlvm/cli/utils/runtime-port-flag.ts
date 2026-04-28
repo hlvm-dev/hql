@@ -1,6 +1,6 @@
 import { ValidationError } from "../../../common/error.ts";
 
-export const RUNTIME_PORT_FLAG = "--port";
+const RUNTIME_PORT_FLAG = "--port";
 export const RUNTIME_PORT_ENV = "HLVM_REPL_PORT";
 
 export interface RuntimePortFlagResult {
