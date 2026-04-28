@@ -11,70 +11,47 @@ import {
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { withTempHlvmDir } from "../helpers.ts";
 
-Deno.test("memory prompt: missing or empty HLVM.md and no project file → null", async () => {
+Deno.test("memory prompt: missing or empty HLVM.md returns null when auto-memory is disabled", async () => {
   await withTempHlvmDir(async () => {
     const platform = getPlatform();
-    const projectRoot = await platform.fs.makeTempDir({
-      prefix: "hlvm-mem-empty-",
-    });
+    await platform.fs.writeTextFile(getHlvmInstructionsPath(), "   \n");
+    const prevDisable = platform.env.get("HLVM_DISABLE_AUTO_MEMORY");
+    platform.env.set("HLVM_DISABLE_AUTO_MEMORY", "1");
     try {
-      // Empty user HLVM.md
-      await platform.fs.writeTextFile(getHlvmInstructionsPath(), "   \n");
-      // Disable auto-memory so the result is purely the user/project sections.
-      const prevDisable = platform.env.get("HLVM_DISABLE_AUTO_MEMORY");
-      platform.env.set("HLVM_DISABLE_AUTO_MEMORY", "1");
-      try {
-        assertEquals(await loadMemorySystemMessage(projectRoot), null);
-      } finally {
-        if (prevDisable !== undefined) {
-          platform.env.set("HLVM_DISABLE_AUTO_MEMORY", prevDisable);
-        } else {
-          platform.env.delete("HLVM_DISABLE_AUTO_MEMORY");
-        }
-      }
+      assertEquals(await loadMemorySystemMessage(), null);
     } finally {
-      await platform.fs.remove(projectRoot, { recursive: true });
+      if (prevDisable !== undefined) {
+        platform.env.set("HLVM_DISABLE_AUTO_MEMORY", prevDisable);
+      } else {
+        platform.env.delete("HLVM_DISABLE_AUTO_MEMORY");
+      }
     }
   });
 });
 
-Deno.test("memory prompt: loads user HLVM.md and project HLVM.md (CC parity)", async () => {
+Deno.test("memory prompt: loads user HLVM.md (HLVM is global-only)", async () => {
   await withTempHlvmDir(async () => {
     const platform = getPlatform();
-    const projectRoot = await platform.fs.makeTempDir({
-      prefix: "hlvm-mem-both-",
-    });
-    try {
-      await platform.fs.writeTextFile(
-        getHlvmInstructionsPath(),
-        "Global user instructions.",
-      );
-      await platform.fs.writeTextFile(
-        platform.path.join(projectRoot, "HLVM.md"),
-        "Project instructions for this repo.",
-      );
+    await platform.fs.writeTextFile(
+      getHlvmInstructionsPath(),
+      "Global user instructions.",
+    );
 
-      const prevDisable = platform.env.get("HLVM_DISABLE_AUTO_MEMORY");
-      platform.env.set("HLVM_DISABLE_AUTO_MEMORY", "1");
-      try {
-        const message = await loadMemorySystemMessage(projectRoot);
-        assertExists(message);
-        assertEquals(message.role, "system");
-        assertEquals(isMemorySystemMessage(message.content), true);
-        // Both user and project sections should appear.
-        assertStringIncludes(message.content, "# Global HLVM Instructions");
-        assertStringIncludes(message.content, "Global user instructions.");
-        assertStringIncludes(message.content, "# Project HLVM Instructions");
-        assertStringIncludes(message.content, "Project instructions for this repo.");
-      } finally {
-        if (prevDisable !== undefined) {
-          platform.env.set("HLVM_DISABLE_AUTO_MEMORY", prevDisable);
-        } else {
-          platform.env.delete("HLVM_DISABLE_AUTO_MEMORY");
-        }
-      }
+    const prevDisable = platform.env.get("HLVM_DISABLE_AUTO_MEMORY");
+    platform.env.set("HLVM_DISABLE_AUTO_MEMORY", "1");
+    try {
+      const message = await loadMemorySystemMessage();
+      assertExists(message);
+      assertEquals(message.role, "system");
+      assertEquals(isMemorySystemMessage(message.content), true);
+      assertStringIncludes(message.content, "# Global HLVM Instructions");
+      assertStringIncludes(message.content, "Global user instructions.");
     } finally {
-      await platform.fs.remove(projectRoot, { recursive: true });
+      if (prevDisable !== undefined) {
+        platform.env.set("HLVM_DISABLE_AUTO_MEMORY", prevDisable);
+      } else {
+        platform.env.delete("HLVM_DISABLE_AUTO_MEMORY");
+      }
     }
   });
 });

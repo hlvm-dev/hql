@@ -84,7 +84,7 @@ Deno.test("[orch 1] picks from selector are injected as system messages with fre
   await withTempHlvmDir(async () => {
     const platform = getPlatform();
     const project = platform.process.cwd(); // doesn't matter — auto-memory keys off cwd anyway
-    const autoDir = getAutoMemPath(project);
+    const autoDir = getAutoMemPath();
     await platform.fs.mkdir(autoDir, { recursive: true });
     const target = "feedback_recall.md";
     const targetPath = platform.path.join(autoDir, target);
@@ -120,7 +120,7 @@ Deno.test("[orch 2] second call with same pick does NOT re-inject (de-dup via su
   await withTempHlvmDir(async () => {
     const platform = getPlatform();
     const project = platform.process.cwd();
-    const autoDir = getAutoMemPath(project);
+    const autoDir = getAutoMemPath();
     await platform.fs.mkdir(autoDir, { recursive: true });
     const target = "feedback_dedup.md";
     const targetPath = platform.path.join(autoDir, target);
@@ -153,7 +153,7 @@ Deno.test("[orch 3] empty picks → no message added, surfacedMemoryPaths unchan
   await withTempHlvmDir(async () => {
     const platform = getPlatform();
     const project = platform.process.cwd();
-    const autoDir = getAutoMemPath(project);
+    const autoDir = getAutoMemPath();
     await platform.fs.mkdir(autoDir, { recursive: true });
     await platform.fs.writeTextFile(
       platform.path.join(autoDir, "x.md"),

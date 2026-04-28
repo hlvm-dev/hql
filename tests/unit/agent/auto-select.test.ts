@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import {
+  __clearAutoModelFailureCooldownsForTesting,
   __setListAllProviderModelsForTesting,
   buildTaskProfile,
   callLLMWithModelFallback,
@@ -7,9 +8,10 @@ import {
   filterModels,
   invalidateAutoModelCache,
   isAutoModel,
-  resolveAutoModel,
   type ModelCaps,
   modelInfoToModelCaps,
+  recordAutoModelFailure,
+  resolveAutoModel,
   scoreModel,
   type TaskProfile,
 } from "../../../src/hlvm/agent/auto-select.ts";
@@ -616,6 +618,26 @@ Deno.test("callLLMWithModelFallback: permanent error skips lastResort even when 
   }
 });
 
+Deno.test("callLLMWithModelFallback: local-unavailable error names concrete primary model", async () => {
+  await assertRejects(
+    () =>
+      callLLMWithModelFallback(
+        () => Promise.reject(new Error("rate limit exceeded (429)")),
+        [],
+        () => () => Promise.resolve(mockResponse("should not reach")),
+        (fn) => fn([], undefined),
+        undefined,
+        {
+          model: LOCAL_FALLBACK_MODEL_ID,
+          isAvailable: () => Promise.resolve(false),
+        },
+        "anthropic/claude-sonnet-4",
+      ),
+    Error,
+    "Model anthropic/claude-sonnet-4 failed, and local",
+  );
+});
+
 // ============================================================
 // withFallbackChain (SSOT — local-fallback.ts)
 // ============================================================
@@ -907,6 +929,37 @@ Deno.test("resolveAutoModel: failed fetch clears pending state for retry", async
     assertEquals(result.model, "anthropic/claude-sonnet-4");
   } finally {
     __setListAllProviderModelsForTesting(null);
+  }
+});
+
+Deno.test("resolveAutoModel: skips recently rate-limited auto model", async () => {
+  invalidateAutoModelCache();
+  __clearAutoModelFailureCooldownsForTesting();
+  __setListAllProviderModelsForTesting(async () => [
+    makeProviderModelInfo("claude-sonnet-4", "anthropic"),
+    makeProviderModelInfo("gpt-4o", "openai"),
+  ]);
+  try {
+    const first = await resolveAutoModel("hello", undefined, undefined, {
+      isCodeTask: false,
+      isReasoningTask: false,
+      needsStructuredOutput: false,
+    });
+
+    await recordAutoModelFailure(
+      first.model,
+      new Error("rate limit exceeded (429)"),
+    );
+
+    const second = await resolveAutoModel("hello", undefined, undefined, {
+      isCodeTask: false,
+      isReasoningTask: false,
+      needsStructuredOutput: false,
+    });
+    assertEquals(second.model !== first.model, true);
+  } finally {
+    __setListAllProviderModelsForTesting(null);
+    __clearAutoModelFailureCooldownsForTesting();
   }
 });
 

@@ -60,7 +60,7 @@ Deno.test("[recall 1] stub picks 1 file → 1 result", async () => {
     const platform = getPlatform();
     const project = await platform.fs.makeTempDir({ prefix: "ptr1-" });
     try {
-      const autoDir = getAutoMemPath(project);
+      const autoDir = getAutoMemPath();
       await platform.fs.mkdir(autoDir, { recursive: true });
       await platform.fs.writeTextFile(
         platform.path.join(autoDir, "topic.md"),
@@ -88,7 +88,7 @@ Deno.test("[recall 2] empty stub → empty result, no crash", async () => {
     const platform = getPlatform();
     const project = await platform.fs.makeTempDir({ prefix: "ptr2-" });
     try {
-      const autoDir = getAutoMemPath(project);
+      const autoDir = getAutoMemPath();
       await platform.fs.mkdir(autoDir, { recursive: true });
       await platform.fs.writeTextFile(
         platform.path.join(autoDir, "x.md"),
@@ -110,7 +110,7 @@ Deno.test("[recall 3] invalid filenames in stub → filtered out", async () => {
     const platform = getPlatform();
     const project = await platform.fs.makeTempDir({ prefix: "ptr3-" });
     try {
-      const autoDir = getAutoMemPath(project);
+      const autoDir = getAutoMemPath();
       await platform.fs.mkdir(autoDir, { recursive: true });
       await platform.fs.writeTextFile(
         platform.path.join(autoDir, "real.md"),
@@ -136,7 +136,7 @@ Deno.test("[recall 4] stub returns > 5 → capped at 5", async () => {
     const platform = getPlatform();
     const project = await platform.fs.makeTempDir({ prefix: "ptr4-" });
     try {
-      const autoDir = getAutoMemPath(project);
+      const autoDir = getAutoMemPath();
       await platform.fs.mkdir(autoDir, { recursive: true });
       const filenames: string[] = [];
       for (let i = 0; i < 12; i++) {
@@ -163,7 +163,7 @@ Deno.test("[recall 5] alreadySurfaced filter excludes seeded paths before stub p
     const platform = getPlatform();
     const project = await platform.fs.makeTempDir({ prefix: "ptr5-" });
     try {
-      const autoDir = getAutoMemPath(project);
+      const autoDir = getAutoMemPath();
       await platform.fs.mkdir(autoDir, { recursive: true });
       const aPath = platform.path.join(autoDir, "a.md");
       const bPath = platform.path.join(autoDir, "b.md");
@@ -193,7 +193,7 @@ Deno.test("[recall 6] missing stub file path → empty, no throw", async () => {
     const platform = getPlatform();
     const project = await platform.fs.makeTempDir({ prefix: "ptr6-" });
     try {
-      const autoDir = getAutoMemPath(project);
+      const autoDir = getAutoMemPath();
       await platform.fs.mkdir(autoDir, { recursive: true });
       await platform.fs.writeTextFile(
         platform.path.join(autoDir, "z.md"),

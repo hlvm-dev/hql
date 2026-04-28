@@ -1,22 +1,16 @@
 /**
- * Memory prompt builder. Production-only port of CC's memdir/memdir.ts.
+ * Memory prompt builder. HLVM is global-only — no project-based memory.
  *
- * Skipped (per plan):
- *   - TEAMMEM (team memory directories)
- *   - KAIROS (assistant daily-log mode)
- *   - EXTRACT_MEMORIES (background extraction agent)
- *   - MEMORY_SHAPE_TELEMETRY
- *   - GrowthBook flags (`tengu_*`)
+ * Two sections:
+ *   1. User memory (`~/.hlvm/HLVM.md`)        — user-authored
+ *   2. Auto-memory (`~/.hlvm/memory/`)         — model-writable, indexed by MEMORY.md
  *
- * Renames:
- *   - CLAUDE.md → HLVM.md
- *   - getClaudeConfigHomeDir → getHlvmDir
+ * No `./HLVM.md` in repos. No per-project keying. See docs/ARCHITECTURE.md.
  */
 
 import { getPlatform } from "../../platform/platform.ts";
 import {
   getAutoMemPath,
-  getProjectMemoryPath,
   getUserMemoryPath,
   isAutoMemoryEnabled,
 } from "./paths.ts";
@@ -324,56 +318,26 @@ async function buildUserMemorySection(): Promise<string | null> {
   ].join("\n");
 }
 
-/**
- * Read project-level HLVM.md (`./HLVM.md`).
- */
-async function buildProjectMemorySection(cwd?: string): Promise<string | null> {
-  const platform = getPlatform();
-  const path = getProjectMemoryPath(cwd);
-  const raw = await readTextFileOrEmpty(path);
-  if (!raw.trim()) return null;
-  // Project-level imports may reach inside the project workspace AND
-  // ~/.hlvm (so a project file can pull in shared user memory if desired).
-  const projectRoot = cwd ?? platform.process.cwd();
-  const allowedRoots = [projectRoot, getHlvmDir()];
-  const expanded = await resolveAtImports(
-    raw,
-    path,
-    0,
-    new Set([path]),
-    allowedRoots,
-  );
-  const body = expanded.trim();
-  if (!body) return null;
-  return [
-    "# Project HLVM Instructions",
-    `Source: ${path}`,
-    "Scope: project. Applies to work in this repository.",
-    "",
-    body,
-  ].join("\n");
-}
+// `buildProjectMemorySection` removed — HLVM is global-only.
 
 /**
  * Single SSOT for memory injection. Combines:
- *   1. ~/.hlvm/HLVM.md (user-level)        — replaces deleted global-instructions
- *   2. ./HLVM.md (project-level)
- *   3. ~/.hlvm/projects/<key>/memory/MEMORY.md (auto-memory) + topic-file write rules
+ *   1. ~/.hlvm/HLVM.md          (user-authored)
+ *   2. ~/.hlvm/memory/MEMORY.md (auto-memory) + topic-file write rules
+ *
+ * HLVM is global-only — no project-based memory. See docs/ARCHITECTURE.md.
  *
  * Returns null when nothing is present and auto-memory is disabled — caller
  * should skip injecting any memory system message in that case.
  */
-export async function loadMemoryPrompt(cwd?: string): Promise<string | null> {
+export async function loadMemoryPrompt(): Promise<string | null> {
   const sections: string[] = [];
 
   const user = await buildUserMemorySection();
   if (user) sections.push(user);
 
-  const project = await buildProjectMemorySection(cwd);
-  if (project) sections.push(project);
-
   if (isAutoMemoryEnabled()) {
-    const autoDir = getAutoMemPath(cwd);
+    const autoDir = getAutoMemPath();
     await ensureDir(autoDir);
     const auto = await buildAutoMemorySection(autoDir);
     sections.push(auto);
@@ -385,15 +349,13 @@ export async function loadMemoryPrompt(cwd?: string): Promise<string | null> {
 
 const MEMORY_SYSTEM_HEADERS = [
   "# Global HLVM Instructions",
-  "# Project HLVM Instructions",
   "# auto memory",
 ] as const;
 
 /**
  * Detect whether a system-message body was produced by `loadMemoryPrompt`.
  * Used during session reuse to drop the stale memory block before injecting
- * a fresh one. Recognizes any of the three sub-section headers — they may
- * appear at start-of-string or after the `---` separator we use to join.
+ * a fresh one.
  */
 export function isMemorySystemMessage(content: string): boolean {
   return MEMORY_SYSTEM_HEADERS.some((h) => content.startsWith(h));
@@ -403,10 +365,10 @@ export function isMemorySystemMessage(content: string): boolean {
  * Convenience wrapper: return a `{ role: "system", content }` shape ready
  * to push into a context manager, or null if there is no memory to inject.
  */
-export async function loadMemorySystemMessage(
-  cwd?: string,
-): Promise<{ role: "system"; content: string } | null> {
-  const text = await loadMemoryPrompt(cwd);
+export async function loadMemorySystemMessage(): Promise<
+  { role: "system"; content: string } | null
+> {
+  const text = await loadMemoryPrompt();
   if (!text) return null;
   return { role: "system", content: text };
 }

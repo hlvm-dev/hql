@@ -41,7 +41,9 @@ export async function resolveLocalFallbackModelId(): Promise<string> {
  * permanent with 401/403 status (auth failure = cloud key bad,
  * but the local fallback can still answer).
  */
-export async function classifyForLocalFallback(error: unknown): Promise<string | null> {
+export async function classifyForLocalFallback(
+  error: unknown,
+): Promise<string | null> {
   const { class: errorClass } = await classifyError(error);
   switch (errorClass) {
     case "rate_limit":
@@ -92,6 +94,8 @@ export interface LastResortFallback {
 
 /** Configuration for the generic fallback chain. */
 export interface FallbackChainConfig<T> {
+  /** Concrete primary model ID, when known. Used only for tracing/reporting. */
+  primaryModel?: string;
   /** Execute the primary model call. */
   tryPrimary: () => Promise<T>;
   /** Scored fallback model IDs to try in order. */
@@ -104,6 +108,12 @@ export interface FallbackChainConfig<T> {
   tryLastResort?: (model: string) => Promise<T>;
   /** Trace callback for observability. */
   onTrace?: (from: string, to: string, reason: string) => void;
+  /** Called after a fallback-worthy model failure is classified. */
+  onModelFailure?: (
+    model: string,
+    error: unknown,
+    reason: string,
+  ) => void | Promise<void>;
   /** Called when all fallbacks exhausted AND last-resort unavailable. Must throw. */
   onLastResortUnavailable?: (originalError: unknown) => never;
 }
@@ -127,6 +137,8 @@ export async function withFallbackChain<T>(
   } catch (error) {
     const reason = await classifyForLocalFallback(error);
     if (!reason) throw error;
+    const primaryModel = config.primaryModel ?? "primary";
+    await config.onModelFailure?.(primaryModel, error, reason);
 
     const lastResortReady = config.lastResort != null &&
       await config.lastResort.isAvailable();
@@ -149,7 +161,9 @@ export async function withFallbackChain<T>(
       try {
         return await config.tryFallback(model);
       } catch (fbError) {
-        if (!(await classifyForLocalFallback(fbError))) throw fbError;
+        const fbReason = await classifyForLocalFallback(fbError);
+        if (!fbReason) throw fbError;
+        await config.onModelFailure?.(model, fbError, fbReason);
       }
     }
 

@@ -932,7 +932,7 @@ export async function applyAdaptiveToolPhase(
 
 /**
  * Per-turn relevant-memory recall. Calls `findRelevantMemories` against
- * the project's auto-memory directory, reads each picked topic file (cap
+ * the global auto-memory directory, reads each picked topic file (cap
  * at ~4KB so a single file can't blow up context), prepends the freshness
  * note, and injects each as a `<system-reminder>`-wrapped system message.
  *
@@ -958,8 +958,7 @@ export async function maybeInjectRelevantMemories(
     const { getAutoMemPath } = await import("../memory/paths.ts");
     const { memoryFreshnessNote } = await import("../memory/memoryAge.ts");
     const platform = (await import("../../platform/platform.ts")).getPlatform();
-    const cwd = platform.process.cwd();
-    const autoDir = getAutoMemPath(cwd);
+    const autoDir = getAutoMemPath();
 
     const picks = await findRelevantMemories(
       trimmed,
@@ -1350,6 +1349,7 @@ async function runLlmResponsePass(
           callLLM(fbLLM, messages, llmCallConfig, onTrace, config.context),
         onTrace,
         config.localLastResort,
+        config.modelId,
       );
     })()
     : await callLLM(

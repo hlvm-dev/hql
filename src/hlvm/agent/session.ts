@@ -258,10 +258,9 @@ async function injectMemoryPromptContext(options: {
   context: ContextManager;
   disablePersistentMemory?: boolean;
 }): Promise<void> {
-  // Do NOT gate on isAutoMemoryEnabled() here — user/project HLVM.md must
-  // load even when auto-memory is disabled. The auto-memory section is
-  // gated internally by loadMemoryPrompt; user/project HLVM.md are
-  // unconditional (matches the deleted loadHlvmInstructionsSystemMessage).
+  // Do NOT gate on isAutoMemoryEnabled() here — user HLVM.md must load even
+  // when auto-memory is disabled. The auto-memory section is gated internally
+  // by loadMemoryPrompt; user HLVM.md is unconditional.
   if (options.disablePersistentMemory) return;
   try {
     const memoryMessage = await loadMemorySystemMessage();

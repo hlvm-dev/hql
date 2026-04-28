@@ -15,31 +15,22 @@ import {
 
 /**
  * Memory carve-out: paths the model is allowed to read/write/edit even when
- * they fall outside the workspace boundary. Mirrors CC's `filesystem.ts`
- * carve-outs around the auto-memory directory + user-level memory file.
+ * they fall outside the workspace boundary.
  *
- * - User memory: `~/.hlvm/HLVM.md` (exact file)
- * - Auto-memory dir: `~/.hlvm/projects/<sanitized-canonical-git-root>/memory/`
- *   (recursive `**\/*.md` allowed inside; symlink validation enforced
- *   by validatePath itself)
+ *   - User memory: `~/.hlvm/HLVM.md` (exact file)
+ *   - Auto-memory dir: `~/.hlvm/memory/` (recursive `**\/*.md` only)
  *
- * Project-level `./HLVM.md` lives inside the workspace root, so no carve-out
- * needed for that — it's already allowed.
+ * HLVM is global-only — no per-project keying, no `./HLVM.md` reading.
  */
-function getMemoryAllowedRoots(workspace: string): string[] {
-  const platform = getPlatform();
+function getMemoryAllowedRoots(): string[] {
   const roots: string[] = [];
-  // User-level memory file. Adding its parent dir (~/.hlvm) would be too
-  // broad; pass the file path directly. validatePath's isPathWithinRoot
-  // accepts an exact-match root.
   try {
     roots.push(getUserMemoryPath());
   } catch {
     // ~/.hlvm may not be writable in some environments; carve-out skipped.
   }
-  // Auto-memory dir keyed off canonical git root for the workspace.
   try {
-    roots.push(getAutoMemPath(workspace));
+    roots.push(getAutoMemPath());
   } catch {
     // Same fallback: skip rather than block.
   }
@@ -50,9 +41,9 @@ function getMemoryAllowedRoots(workspace: string): string[] {
  * Resolve a user-provided path against workspace.
  *
  * Auto-memory carve-out tightening: the auto-memory dir is added as an
- * allowed root by getMemoryAllowedRoots, but only `.md` files inside it are
- * acceptable as memory writes. This catches a model trying to drop
- * arbitrary files (e.g. `evil.sh`) into `~/.hlvm/projects/<key>/memory/`.
+ * allowed root, but only `.md` files inside it are acceptable as memory
+ * writes. This blocks the model dropping arbitrary files (e.g. `evil.sh`)
+ * into `~/.hlvm/memory/`.
  */
 export async function resolveToolPath(
   inputPath: string,
@@ -63,26 +54,24 @@ export async function resolveToolPath(
     inputPath,
     platform.env.get("HOME") ?? "",
   );
-  const memoryRoots = getMemoryAllowedRoots(workspace);
+  const memoryRoots = getMemoryAllowedRoots();
   const resolved = await validatePath(expandedPath, workspace, [
     getUserSkillsDir(),
     getBundledSkillsDir(),
     ...memoryRoots,
   ]);
   // Post-validation: if the resolved path lives inside the auto-memory dir,
-  // require a `.md` extension. validatePath accepts any file inside its
-  // allowed roots; the memory carve-out additionally restricts extensions.
-  const autoDir = memoryRoots.find((r) => r.includes("/projects/"));
-  if (autoDir) {
-    const inside = resolved.startsWith(autoDir) ||
-      resolved === autoDir.replace(/\/$/, "");
-    if (inside && !resolved.endsWith(".md")) {
-      const { SecurityError } = await import("./security/path-sandbox.ts");
-      throw new SecurityError(
-        `Memory directory only accepts .md files: ${resolved}`,
-        resolved,
-      );
-    }
+  // require a `.md` extension. The user-level HLVM.md root is exact-path so
+  // can't trigger this branch; only the auto-memory-dir root can.
+  const autoMemDir = getAutoMemPath();
+  const insideAutoMem = resolved.startsWith(autoMemDir) ||
+    resolved === autoMemDir.replace(/\/$/, "");
+  if (insideAutoMem && !resolved.endsWith(".md")) {
+    const { SecurityError } = await import("./security/path-sandbox.ts");
+    throw new SecurityError(
+      `Memory directory only accepts .md files: ${resolved}`,
+      resolved,
+    );
   }
   return resolved;
 }

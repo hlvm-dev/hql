@@ -73,6 +73,7 @@ import {
   summarizeTraceEvent,
   traceReplMainThreadForSource,
 } from "../../../repl-main-thread-trace.ts";
+import type { AutoDecision } from "../../../agent/auto-select.ts";
 
 const LOCAL_AGENT_FIRST_PROGRESS_TIMEOUT_MS = 15_000;
 
@@ -109,6 +110,7 @@ export async function handleAgentMode(
   preTurnSessionVersion: number,
   modelInfo?: ModelInfo | null,
   mirrorToGuiLiveTranscript = false,
+  autoDecision?: AutoDecision | null,
 ): Promise<ChatResultStats> {
   const handlerStartedAt = Date.now();
   const effectiveToolDenylist = body.tool_denylist?.length
@@ -342,6 +344,7 @@ export async function handleAgentMode(
       responseSchema: body.response_schema,
       computerUse: body.computer_use === true,
       modelInfo,
+      autoDecision,
       reusableSession: liveSessionEntry?.session,
       retainSessionForReuse: hotSessionReusableTurn,
       callbacks: {

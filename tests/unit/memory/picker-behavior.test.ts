@@ -6,58 +6,41 @@
  *   - The 3 row labels are stable and match the spec
  *   - File-existence detection produces the `(new)` suffix correctly
  *   - resolveEditor delegates to $VISUAL → $EDITOR → vi
- *   - editFileInEditorWithInkPause calls app.exit() before spawning
+ *   - editFileInEditorWithInkPause does not exit Ink before spawning
  *   - The OverlayPanel union accepts "memory-picker"
  */
 
+import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
 import {
-  assert,
-  assertEquals,
-  assertStringIncludes,
-} from "jsr:@std/assert";
-import { resolveEditor, editFileInEditorWithInkPause } from "../../../src/hlvm/cli/repl/edit-in-editor.ts";
+  editFileInEditorWithInkPause,
+  resolveEditor,
+} from "../../../src/hlvm/cli/repl/edit-in-editor.ts";
 import {
   getAutoMemEntrypoint,
-  getProjectMemoryPath,
   getUserMemoryPath,
   isAutoMemoryEnabled,
 } from "../../../src/hlvm/memory/paths.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { withTempHlvmDir } from "../helpers.ts";
 
-Deno.test("[picker 1] row paths come from documented helpers", async () => {
+Deno.test("[picker 1] row paths come from documented helpers (global only)", async () => {
   await withTempHlvmDir(async () => {
-    const platform = getPlatform();
-    const project = await platform.fs.makeTempDir({ prefix: "pck1-" });
-    try {
-      const userPath = getUserMemoryPath();
-      const projectPath = getProjectMemoryPath(project);
-      const autoPath = getAutoMemEntrypoint(project);
+    const userPath = getUserMemoryPath();
+    const autoPath = getAutoMemEntrypoint();
 
-      // User-level lives under HLVM dir; project lives under cwd; auto under project key.
-      assert(userPath.endsWith("/HLVM.md"), `userPath: ${userPath}`);
-      assertEquals(projectPath, platform.path.join(project, "HLVM.md"));
-      assertStringIncludes(autoPath, "/projects/");
-      assert(autoPath.endsWith("/MEMORY.md"));
-    } finally {
-      await platform.fs.remove(project, { recursive: true });
-    }
+    assert(userPath.endsWith("/HLVM.md"), `userPath: ${userPath}`);
+    assert(autoPath.endsWith("/memory/MEMORY.md"), `autoPath: ${autoPath}`);
   });
 });
 
 Deno.test("[picker 2] missing files exist=false (basis for '(new)' label)", async () => {
   await withTempHlvmDir(async () => {
     const platform = getPlatform();
-    const project = await platform.fs.makeTempDir({ prefix: "pck2-" });
-    try {
-      const projectPath = getProjectMemoryPath(project);
-      const autoPath = getAutoMemEntrypoint(project);
-      // None of these were created
-      assertEquals(await platform.fs.exists(projectPath), false);
-      assertEquals(await platform.fs.exists(autoPath), false);
-    } finally {
-      await platform.fs.remove(project, { recursive: true });
-    }
+    const userPath = getUserMemoryPath();
+    const autoPath = getAutoMemEntrypoint();
+    // Neither created → both should be missing
+    assertEquals(await platform.fs.exists(userPath), false);
+    assertEquals(await platform.fs.exists(autoPath), false);
   });
 });
 
@@ -73,6 +56,37 @@ Deno.test("[picker 3] resolveEditor: VISUAL > EDITOR > vi precedence", () => {
     assertEquals(resolveEditor(), { editor: "nano", source: "EDITOR" });
     env.set("VISUAL", "code -w");
     assertEquals(resolveEditor(), { editor: "code -w", source: "VISUAL" });
+  } finally {
+    if (prevV !== undefined) env.set("VISUAL", prevV);
+    else env.delete("VISUAL");
+    if (prevE !== undefined) env.set("EDITOR", prevE);
+    else env.delete("EDITOR");
+  }
+});
+
+Deno.test("[picker 3b] resolveEditor: GUI editor overrides auto-add wait flags", () => {
+  const env = getPlatform().env;
+  const prevV = env.get("VISUAL");
+  const prevE = env.get("EDITOR");
+  try {
+    env.delete("VISUAL");
+    // Bare GUI editor names get the wait flag injected.
+    env.set("EDITOR", "code");
+    assertEquals(resolveEditor().editor, "code -w");
+    env.set("EDITOR", "subl");
+    assertEquals(resolveEditor().editor, "subl --wait");
+    env.set("EDITOR", "cursor");
+    assertEquals(resolveEditor().editor, "cursor -w");
+    // If the user already passed flags, we DON'T touch their command.
+    env.set("EDITOR", "code --new-window");
+    assertEquals(resolveEditor().editor, "code --new-window");
+    env.set("EDITOR", "code -w");
+    assertEquals(resolveEditor().editor, "code -w");
+    // Terminal editors are unchanged.
+    env.set("EDITOR", "vim");
+    assertEquals(resolveEditor().editor, "vim");
+    env.set("EDITOR", "nano");
+    assertEquals(resolveEditor().editor, "nano");
   } finally {
     if (prevV !== undefined) env.set("VISUAL", prevV);
     else env.delete("VISUAL");
@@ -100,7 +114,7 @@ Deno.test("[picker 4] editFileInEditorWithInkPause does NOT call app.exit() (wou
   try {
     const result = await editFileInEditorWithInkPause(fakeApp, "/dev/null");
     assertEquals(exited, 0, "app.exit() must NOT be called — would kill HLVM");
-    assert(typeof result.exitCode === "number");
+    assertEquals(result.exitCode, 0);
   } finally {
     if (prevEditor !== undefined) env.set("EDITOR", prevEditor);
     else env.delete("EDITOR");
@@ -116,9 +130,7 @@ Deno.test("[picker 5] editFileInEditorWithInkPause spawns the editor (inherit st
   env.set("EDITOR", "/usr/bin/true");
   try {
     const result = await editFileInEditorWithInkPause(fakeApp, "/dev/null");
-    // /usr/bin/true returns 0 on macOS/Linux — accept any numeric exit code
-    // as long as the helper completes without throwing.
-    assert(typeof result.exitCode === "number");
+    assertEquals(result.exitCode, 0);
     assertEquals(result.editor, "/usr/bin/true");
     assertEquals(result.source, "EDITOR");
   } finally {
@@ -150,6 +162,8 @@ Deno.test("[picker 7] OverlayPanel union accepts 'memory-picker'", async () => {
   // "memory-picker", the assignment in the picker overlay's render block
   // would fail to compile. This test is a runtime smoke that the module
   // type-checks; the actual structural check is in deno check.
-  const mod = await import("../../../src/hlvm/cli/repl-ink/hooks/useOverlayPanel.ts");
+  const mod = await import(
+    "../../../src/hlvm/cli/repl-ink/hooks/useOverlayPanel.ts"
+  );
   assert(typeof mod.useOverlayPanel === "function");
 });

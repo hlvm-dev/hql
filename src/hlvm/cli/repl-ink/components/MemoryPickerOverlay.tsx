@@ -2,9 +2,9 @@
  * MemoryPickerOverlay — interactive `/memory` picker.
  *
  * Mirrors CC's `commands/memory/memory.tsx` + `MemoryFileSelector.tsx`.
- * Shows four rows (User memory, Project memory, Auto-memory MEMORY.md,
+ * Shows three rows (User memory, Auto-memory MEMORY.md,
  * Open auto-memory folder), lets the user pick one with ↑↓/Enter or
- * number keys 1–4, and spawns $VISUAL/$EDITOR/vi against the chosen
+ * number keys 1–3, and spawns $VISUAL/$EDITOR/vi against the chosen
  * `.md` path (or asks the OS to reveal the folder). Esc cancels.
  *
  * Editor handoff: leaves Ink mounted and spawns the editor with `inherit`
@@ -31,7 +31,6 @@ import { getPickerColors } from "../utils/picker-theme.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import {
   getAutoMemEntrypoint,
-  getProjectMemoryPath,
   getUserMemoryPath,
   isAutoMemoryEnabled,
 } from "../../../memory/paths.ts";
@@ -43,10 +42,10 @@ interface MemoryPickerOverlayProps {
   onClose: () => void;
   /**
    * Optional initial selection from the slash-command argument
-   * (`/memory user|project|auto`). When provided, the picker opens with
-   * that row pre-selected; the user still confirms with Enter.
+   * (`/memory user|auto`). When provided, the picker opens with that row
+   * pre-selected; the user still confirms with Enter.
    */
-  initialSelection?: "user" | "project" | "auto";
+  initialSelection?: "user" | "auto";
   /**
    * Callback invoked after the editor exits (for transcript-line output).
    * The picker itself just closes; this hook lets the host emit a
@@ -59,7 +58,7 @@ interface MemoryPickerOverlayProps {
 }
 
 interface MemoryRow {
-  key: "user" | "project" | "auto" | "folder";
+  key: "user" | "auto" | "folder";
   /** "edit" → spawn $EDITOR; "open-folder" → platform.openUrl on the dir */
   action: "edit" | "open-folder";
   label: string;
@@ -75,10 +74,8 @@ function homeRelative(path: string): string {
 
 async function buildRows(): Promise<MemoryRow[]> {
   const platform = getPlatform();
-  const cwd = platform.process.cwd();
   const userPath = getUserMemoryPath();
-  const projectPath = getProjectMemoryPath(cwd);
-  const autoPath = getAutoMemEntrypoint(cwd);
+  const autoPath = getAutoMemEntrypoint();
 
   async function existsLabel(p: string): Promise<string> {
     try {
@@ -98,13 +95,6 @@ async function buildRows(): Promise<MemoryRow[]> {
       description: `${homeRelative(userPath)}${await existsLabel(userPath)}`,
     },
     {
-      key: "project",
-      action: "edit",
-      label: "Project memory",
-      path: projectPath,
-      description: `${homeRelative(projectPath)}${await existsLabel(projectPath)}`,
-    },
-    {
       key: "auto",
       action: "edit",
       label: "Auto-memory MEMORY.md",
@@ -121,7 +111,7 @@ async function buildRows(): Promise<MemoryRow[]> {
   ];
 }
 
-function initialIndex(rows: MemoryRow[], initial?: "user" | "project" | "auto"): number {
+function initialIndex(rows: MemoryRow[], initial?: "user" | "auto"): number {
   if (!initial) return 0;
   const idx = rows.findIndex((r) => r.key === initial);
   return idx >= 0 ? idx : 0;

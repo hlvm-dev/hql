@@ -116,11 +116,23 @@ import {
   buildTraceTextPreview,
   traceReplMainThreadForSource,
 } from "../../../repl-main-thread-trace.ts";
+import type { AutoDecision } from "../../../agent/auto-select.ts";
 
 function requestHasMediaAttachments(
   messages: ChatRequest["messages"],
 ): boolean {
   return messages.some((message) => (message.attachment_ids?.length ?? 0) > 0);
+}
+
+function toAutoDecision(
+  resolved: ResolvedChatModel | undefined,
+): AutoDecision | null {
+  if (!resolved?.autoSelectionReason || !resolved.effectiveModel) return null;
+  return {
+    model: resolved.effectiveModel,
+    fallbacks: resolved.scoredFallbacks,
+    reason: resolved.autoSelectionReason,
+  };
 }
 
 function getRequestAttachmentIds(
@@ -548,6 +560,11 @@ export async function handleChat(req: Request): Promise<Response> {
   let modelDiscoveryError: string | null = null;
   const requestHasExplicitModel = typeof body.model === "string" &&
     body.model.trim().length > 0;
+  const requestUsesAutoModel = body.model === AUTO_MODEL_ID ||
+    preResolvedChatModel?.autoSelectionReason !== undefined;
+  const requestedModelLabel = requestUsesAutoModel
+    ? (resolvedModel ?? AUTO_MODEL_ID)
+    : (body.model ?? resolvedModel);
   const hasMediaAttachments = requestHasMediaAttachments(body.messages);
   const isAutoSelect = resolvedModel === AUTO_MODEL_ID;
   if (resolvedModel && !fixturePath && !isAutoSelect) {
@@ -564,7 +581,7 @@ export async function handleChat(req: Request): Promise<Response> {
     if (resolvedModelInfo === null && !modelDiscoveryFailed) {
       if (requestHasExplicitModel) {
         return jsonError(
-          `Model not found: ${body.model ?? resolvedModel}.`,
+          `Model not found: ${requestedModelLabel}.`,
           400,
         );
       }
@@ -585,9 +602,7 @@ export async function handleChat(req: Request): Promise<Response> {
       // Only error if both the configured model AND the default are missing
       if (resolvedModelInfo === null) {
         return jsonError(
-          `Model not found: ${
-            body.model ?? resolvedModel
-          }. Default model (${defaultModelId}) also unavailable.`,
+          `Model not found: ${requestedModelLabel}. Default model (${defaultModelId}) also unavailable.`,
           400,
         );
       }
@@ -1020,6 +1035,9 @@ export async function handleChat(req: Request): Promise<Response> {
                 preTurnSessionVersion,
                 resolvedModelInfo,
                 mirrorToGuiLiveTranscript,
+                preResolvedChatModel?.effectiveModel === resolvedModel
+                  ? toAutoDecision(preResolvedChatModel)
+                  : null,
               );
             } catch (agentError) {
               // Auto-downgrade: if agent mode fails on first call (model

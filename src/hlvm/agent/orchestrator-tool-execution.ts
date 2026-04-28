@@ -32,10 +32,7 @@ import {
   ensurePlaywrightChromium,
   isPlaywrightMissingError,
 } from "./playwright-support.ts";
-import type {
-  AgentUIEvent,
-  OrchestratorConfig,
-} from "./orchestrator.ts";
+import type { AgentUIEvent, OrchestratorConfig } from "./orchestrator.ts";
 import {
   effectiveAllowlist,
   effectiveDenylist,
@@ -54,6 +51,7 @@ import {
 import { buildEditFileRecovery } from "./error-taxonomy.ts";
 import { resolveToolPath } from "./path-utils.ts";
 import { getPlatform } from "../../platform/platform.ts";
+import { isMemoryPath } from "../memory/paths.ts";
 import {
   createProcessAbortHandler,
   readProcessStream,
@@ -898,26 +896,10 @@ export async function maybeVerifyWrite(
 }
 
 // ============================================================
-// Memory write event builder — fires when write_file or edit_file
-// targets a memory path (~/.hlvm/HLVM.md, ./HLVM.md, or auto-memory dir).
+// Memory write event builder — fires when write_file or edit_file targets
+// global memory paths (~/.hlvm/HLVM.md or ~/.hlvm/memory/*.md).
 // Surfaces "Memory updated in <path> · /memory to edit" inline (CC parity).
 // ============================================================
-
-function isMemoryPath(absolutePath: string): boolean {
-  // User-level HLVM.md
-  if (absolutePath.endsWith("/.hlvm/HLVM.md")) return true;
-  // Project-level HLVM.md (any HLVM.md at workspace root level — exact filename match)
-  if (absolutePath.endsWith("/HLVM.md")) return true;
-  // Auto-memory dir markdown files
-  if (
-    absolutePath.includes("/.hlvm/projects/") &&
-    absolutePath.includes("/memory/") &&
-    absolutePath.endsWith(".md")
-  ) {
-    return true;
-  }
-  return false;
-}
 
 function buildMemoryUpdatedEvent(
   toolCall: ToolCall,

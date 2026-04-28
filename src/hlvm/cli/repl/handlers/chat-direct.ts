@@ -39,13 +39,17 @@ import {
   withFallbackChain,
 } from "../../../runtime/local-fallback.ts";
 import { getLocalModelDisplayName } from "../../../runtime/local-llm.ts";
+import { recordAutoModelFailure } from "../../../agent/auto-select.ts";
 
 const LOCAL_FALLBACK_READY_MESSAGE =
   `Local ${getLocalModelDisplayName()} is still preparing. Try again in a moment.`;
 const LOCAL_FALLBACK_RETRY_MESSAGE =
   `Selected model failed. Retrying once with local ${getLocalModelDisplayName()}.`;
-const LOCAL_FALLBACK_PREPARING_MESSAGE =
-  `Selected model failed, and local ${getLocalModelDisplayName()} is still preparing. Try again in a moment.`;
+function localFallbackPreparingMessage(model: string | undefined): string {
+  return `Model ${
+    model ?? "selected model"
+  } failed, and local ${getLocalModelDisplayName()} is still preparing. Try again in a moment.`;
+}
 
 export interface ResolvedChatModel {
   effectiveModel: string | undefined;
@@ -193,6 +197,7 @@ async function streamChatWithFallback(
     );
 
   return withFallbackChain<string>({
+    primaryModel: resolvedModel,
     tryPrimary: () => tryStream(resolvedModel),
     fallbacks: emittedAnyToken || resolvedModel?.startsWith("ollama/")
       ? []
@@ -208,8 +213,11 @@ async function streamChatWithFallback(
       emit({ event: "warning", message: LOCAL_FALLBACK_RETRY_MESSAGE });
       return tryStream(model);
     },
+    onModelFailure: async (model, err) => {
+      await recordAutoModelFailure(model, err);
+    },
     onLastResortUnavailable: (err) => {
-      throw new RuntimeError(LOCAL_FALLBACK_PREPARING_MESSAGE, {
+      throw new RuntimeError(localFallbackPreparingMessage(resolvedModel), {
         originalError: err instanceof Error ? err : undefined,
       });
     },

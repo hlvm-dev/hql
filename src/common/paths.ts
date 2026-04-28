@@ -177,8 +177,8 @@ export function getMemoryPath(): string {
 // getMemoryMdPath / ensureMemoryDirs / ensureMemoryDirsSync) removed in the
 // CC-port refactor. The new memory system lives at:
 //   ~/.hlvm/HLVM.md                                  (user, via getHlvmInstructionsPath)
-//   ./HLVM.md                                        (project)
-//   ~/.hlvm/projects/<key>/memory/MEMORY.md          (auto-memory; see src/hlvm/memory/paths.ts)
+//   ~/.hlvm/memory/MEMORY.md                         (auto-memory index)
+//   ~/.hlvm/memory/*.md                              (auto-memory topic files)
 // HLVM is pre-release — no SQLite migration path needed.
 
 /**

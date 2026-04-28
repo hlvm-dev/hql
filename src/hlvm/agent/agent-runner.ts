@@ -130,6 +130,7 @@ import {
   isLocalFallbackReady,
   resolveLocalFallbackModelId,
 } from "../runtime/local-fallback.ts";
+import type { AutoDecision } from "./auto-select.ts";
 
 const DEFAULT_AGENT_PATH_ROOTS = [
   "~",
@@ -477,6 +478,8 @@ interface AgentRunnerOptions {
   disablePersistentMemory?: boolean;
   /** Override max ReAct loop iterations (headless safety bound). */
   maxIterations?: number;
+  /** Auto-selection made by an upstream request-boundary resolver. */
+  autoDecision?: AutoDecision | null;
 }
 
 function updateSessionBaselineAllowlist(
@@ -665,7 +668,10 @@ export async function runAgentQuery(
   }
 
   // Auto model resolution — dynamic import to avoid loading provider listing when not needed
-  let autoDecision: import("./auto-select.ts").AutoDecision | null = null;
+  let autoDecision: AutoDecision | null = options.autoDecision ?? null;
+  if (!options.fixturePath && autoDecision && model === AUTO_MODEL_ID) {
+    model = autoDecision.model;
+  }
   if (!options.fixturePath && model === AUTO_MODEL_ID) {
     const { resolveAutoModel } = await import("./auto-select.ts");
     const { loadConfig } = await import("../../common/config/storage.ts");
@@ -955,8 +961,8 @@ export async function runAgentQuery(
 
     const usageTracker = new UsageTracker();
     // Old SQLite-based persistence removed in CC-port refactor — model now
-    // captures memories by writing directly to ~/.hlvm/projects/<key>/memory/
-    // via write_file when it judges them worth keeping.
+    // captures memories by writing to global markdown memory paths via
+    // write_file when it judges them worth keeping.
 
     let finalResponseMeta: FinalResponseMeta | undefined;
     let activePlan:

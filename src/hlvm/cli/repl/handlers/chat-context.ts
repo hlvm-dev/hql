@@ -647,9 +647,8 @@ async function injectGlobalReplayMessages(
 ): Promise<ReplayMessage[]> {
   const replayMessages = [...messages];
   const injected: ReplayMessage[] = [];
-  // Do NOT gate on isAutoMemoryEnabled() — user/project HLVM.md must inject
-  // even when auto-memory is off. loadMemoryPrompt handles the gating
-  // internally for the auto-memory section.
+  // Do NOT gate on isAutoMemoryEnabled() — user HLVM.md must inject even when
+  // auto-memory is off. loadMemoryPrompt handles auto-memory gating internally.
   if (!includePersistentMemory) {
     return replayMessages;
   }

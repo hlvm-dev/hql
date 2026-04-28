@@ -21,13 +21,40 @@ export interface EditFileInEditorResult {
 
 const DEFAULT_EDITOR = "vi";
 
+/**
+ * GUI editors that fork-and-return by default. Without these wait flags
+ * the picker thinks editing finished before the user has touched the file.
+ * Mirrors CC's `~/dev/ClaudeCode-main/utils/promptEditor.ts:16-19`.
+ *
+ * The override is keyed off the editor command name AS USER SET IT (i.e.
+ * the basename of `$VISUAL` / `$EDITOR`), and only fires if the user
+ * didn't already include a wait flag themselves.
+ */
+const EDITOR_OVERRIDES: Record<string, string> = {
+  code: "code -w", // VS Code
+  cursor: "cursor -w", // Cursor (VS Code fork)
+  subl: "subl --wait", // Sublime Text
+  mate: "mate -w", // TextMate
+};
+
+function applyGuiOverride(rawCommand: string): string {
+  // Only override if the user gave a bare command (no flags). If they
+  // already wrote "code --new-window" we trust them.
+  const trimmed = rawCommand.trim();
+  if (trimmed.includes(" ")) return trimmed;
+  return EDITOR_OVERRIDES[trimmed] ?? trimmed;
+}
+
 /** Resolve the editor command + source. Exported for the `/memory` notice. */
-export function resolveEditor(): { editor: string; source: "VISUAL" | "EDITOR" | "default" } {
+export function resolveEditor(): {
+  editor: string;
+  source: "VISUAL" | "EDITOR" | "default";
+} {
   const env = getPlatform().env;
   const visual = env.get("VISUAL")?.trim();
-  if (visual) return { editor: visual, source: "VISUAL" };
+  if (visual) return { editor: applyGuiOverride(visual), source: "VISUAL" };
   const editor = env.get("EDITOR")?.trim();
-  if (editor) return { editor, source: "EDITOR" };
+  if (editor) return { editor: applyGuiOverride(editor), source: "EDITOR" };
   return { editor: DEFAULT_EDITOR, source: "default" };
 }
 
@@ -52,13 +79,14 @@ export async function editFileInEditor(
 
   const platform = getPlatform();
   try {
-    const result = await platform.command.output({
+    const process = platform.command.run({
       cmd,
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",
     });
-    return { editor, source, exitCode: result.code };
+    const status = await process.status;
+    return { editor, source, exitCode: status.code };
   } catch {
     return { editor, source, exitCode: 1 };
   }

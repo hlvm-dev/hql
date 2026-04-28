@@ -306,7 +306,7 @@ function AppContent(
   const [transcriptOverlaySearchActive, setTranscriptOverlaySearchActive] =
     useState(false);
   const [memoryPickerInitial, setMemoryPickerInitial] = useState<
-    "user" | "project" | "auto" | undefined
+    "user" | "auto" | undefined
   >(undefined);
   const [localAgentsFocused, setLocalAgentsFocused] = useState(false);
   const [backgroundTasksOverlayState, setBackgroundTasksOverlayState] =
@@ -1054,12 +1054,10 @@ function AppContent(
         }
 
         if (commandName === "/memory") {
-          // Optional argument selects a default row (`user|project|auto`).
+          // Optional argument selects a default row (`user|auto`).
           const arg = commandArgs.trim().toLowerCase();
           const initial = arg === "user" || arg === "u"
             ? "user"
-            : arg === "project" || arg === "p"
-            ? "project"
             : arg === "auto" || arg === "a" || arg === "m"
             ? "auto"
             : undefined;

@@ -14,16 +14,20 @@ import {
   parseParamBillions,
 } from "./constants.ts";
 import {
+  classifyForLocalFallback,
   type LastResortFallback,
   withFallbackChain,
 } from "../runtime/local-fallback.ts";
-import { ValidationError } from "../../common/error.ts";
+import { RuntimeError, ValidationError } from "../../common/error.ts";
 import { AUTO_MODEL_ID } from "../../common/config/types.ts";
 import type { ModelInfo } from "../providers/types.ts";
 import type { LLMFunction } from "./orchestrator-llm.ts";
 import type { LLMResponse } from "./tool-call.ts";
 import type { TraceEvent } from "./orchestrator.ts";
-import type { TaskClassification } from "../runtime/local-llm.ts";
+import {
+  getLocalModelDisplayName,
+  type TaskClassification,
+} from "../runtime/local-llm.ts";
 
 // ============================================================
 // Types
@@ -177,7 +181,10 @@ const MODEL_OVERRIDES: readonly ModelOverride[] = [
   // Tiny effective-size local models (1-2B params) — too weak for reliable tool-calling.
   // Demoted to "weak" so the strong filter (auto-select.ts ~L332) excludes them
   // when any mid/strong model is eligible; they still serve as last-resort fallback.
-  { pattern: /gemma\d+:e[12]b\b/i, caps: { codingStrength: "weak", costTier: "free" } },
+  {
+    pattern: /gemma\d+:e[12]b\b/i,
+    caps: { codingStrength: "weak", costTier: "free" },
+  },
   { pattern: /gemma/i, caps: { codingStrength: "mid", costTier: "free" } },
   { pattern: /mistral/i, caps: { codingStrength: "mid", costTier: "free" } },
   { pattern: /phi-?[34]/i, caps: { codingStrength: "mid", costTier: "free" } },
@@ -278,6 +285,13 @@ const PROVIDER_PREFERENCE: Record<string, number> = {
 
 function providerPreference(provider: string): number {
   return PROVIDER_PREFERENCE[provider] ?? 5;
+}
+
+function autoModelIdForInfo(info: ModelInfo): string {
+  const provider = typeof info.metadata?.provider === "string"
+    ? info.metadata.provider
+    : "";
+  return provider ? `${provider}/${info.name}` : info.name;
 }
 
 /** Convert ModelInfo from provider into normalized ModelCaps */
@@ -422,11 +436,7 @@ export async function chooseAutoModel(
   const baseProfile = buildBaseProfile(query, attachments, policy);
 
   const allCaps = models.map((info) => {
-    const provider = typeof info.metadata?.provider === "string"
-      ? info.metadata.provider
-      : "";
-    const id = provider ? `${provider}/${info.name}` : info.name;
-    return modelInfoToModelCaps(id, info);
+    return modelInfoToModelCaps(autoModelIdForInfo(info), info);
   });
 
   const eligible = filterModels(allCaps, baseProfile);
@@ -496,7 +506,58 @@ let cachedAt = 0;
 let cachedModelsPromise: Promise<ModelInfo[]> | null = null;
 let modelCacheGeneration = 0;
 const MODEL_CACHE_TTL_MS = 60_000; // 1 minute
+const AUTO_MODEL_FAILURE_COOLDOWN_MS = 60_000;
 let listAllProviderModelsForTesting: (() => Promise<ModelInfo[]>) | null = null;
+
+type AutoModelFailureReason = "rate_limit" | "timeout" | "transient";
+
+const autoModelFailureCooldowns = new Map<
+  string,
+  { until: number; reason: AutoModelFailureReason }
+>();
+
+function pruneExpiredAutoModelFailures(now = Date.now()): void {
+  for (const [model, entry] of autoModelFailureCooldowns) {
+    if (entry.until <= now) autoModelFailureCooldowns.delete(model);
+  }
+}
+
+function isAutoFailureReason(
+  reason: string | null,
+): reason is AutoModelFailureReason {
+  return reason === "rate_limit" || reason === "timeout" ||
+    reason === "transient";
+}
+
+function filterRecentlyFailedAutoModels(
+  models: ModelInfo[],
+  now = Date.now(),
+): ModelInfo[] {
+  pruneExpiredAutoModelFailures(now);
+  if (autoModelFailureCooldowns.size === 0) return models;
+  return models.filter((model) =>
+    !autoModelFailureCooldowns.has(autoModelIdForInfo(model))
+  );
+}
+
+export async function recordAutoModelFailure(
+  model: string | undefined,
+  error: unknown,
+  now = Date.now(),
+): Promise<boolean> {
+  if (!model || model === AUTO_MODEL_ID || model === "primary") return false;
+  const reason = await classifyForLocalFallback(error);
+  if (!isAutoFailureReason(reason)) return false;
+  autoModelFailureCooldowns.set(model, {
+    until: now + AUTO_MODEL_FAILURE_COOLDOWN_MS,
+    reason,
+  });
+  return true;
+}
+
+export function __clearAutoModelFailureCooldownsForTesting(): void {
+  autoModelFailureCooldowns.clear();
+}
 
 async function listProviderModels(): Promise<ModelInfo[]> {
   if (listAllProviderModelsForTesting) {
@@ -522,11 +583,12 @@ export async function resolveAutoModel(
 ): Promise<AutoDecision> {
   const now = Date.now();
   if (cachedModels && now - cachedAt <= MODEL_CACHE_TTL_MS) {
+    const selectableModels = filterRecentlyFailedAutoModels(cachedModels, now);
     return await chooseAutoModel(
       query,
       attachments,
       policy,
-      cachedModels,
+      selectableModels,
       preComputedTaskClassification,
     );
   }
@@ -555,11 +617,12 @@ export async function resolveAutoModel(
     );
   }
   const models = await pendingModels;
+  const selectableModels = filterRecentlyFailedAutoModels(models, now);
   return await chooseAutoModel(
     query,
     attachments,
     policy,
-    models,
+    selectableModels,
     preComputedTaskClassification,
   );
 }
@@ -570,6 +633,7 @@ export function invalidateAutoModelCache(): void {
   cachedAt = 0;
   cachedModelsPromise = null;
   modelCacheGeneration++;
+  autoModelFailureCooldowns.clear();
 }
 
 // ============================================================
@@ -590,13 +654,26 @@ export async function callLLMWithModelFallback(
   callWithRetry: (llmFn: LLMFunction) => Promise<LLMResponse>,
   onTrace?: (event: TraceEvent) => void,
   lastResort?: LastResortFallback,
+  primaryModel?: string,
 ): Promise<LLMResponse> {
   return withFallbackChain({
+    primaryModel,
     tryPrimary: primaryCall,
     fallbacks,
     tryFallback: (model) => callWithRetry(createFallbackLLM(model)),
     lastResort,
     tryLastResort: (model) => callWithRetry(createFallbackLLM(model)),
+    onModelFailure: async (model, error) => {
+      await recordAutoModelFailure(model, error);
+    },
+    onLastResortUnavailable: primaryModel && lastResort
+      ? (error) => {
+        throw new RuntimeError(
+          `Model ${primaryModel} failed, and local ${getLocalModelDisplayName()} is still preparing. Try again in a moment.`,
+          { originalError: error instanceof Error ? error : undefined },
+        );
+      }
+      : undefined,
     onTrace: onTrace
       ? (from, to, reason) =>
         onTrace({

@@ -2,8 +2,8 @@
  * @import resolution tests for HLVM.md content.
  *
  * Verifies that `loadMemoryPrompt` inlines `@./relative.md` and
- * `@/abs/path.md` references found in user/project HLVM.md files,
- * with depth cap = 5, cycle detection, and graceful skip-with-marker
+ * `@/abs/path.md` references found in user HLVM.md content, with depth
+ * cap = 5, cycle detection, and graceful skip-with-marker
  * for missing/non-md/cyclic targets.
  */
 
@@ -47,7 +47,7 @@ Deno.test("[@import 1] single-level relative @import inlines content", async () 
         "Top.\n@./fragment.md\nAfter.",
       );
       await withDisabledAutoMemory(async () => {
-        const prompt = await loadMemoryPrompt(projectRoot);
+        const prompt = await loadMemoryPrompt();
         assertExists(prompt);
         assertStringIncludes(prompt, "Top.");
         assertStringIncludes(prompt, "FRAGMENT_BODY_X");
@@ -76,7 +76,7 @@ Deno.test("[@import 2] nested @import (a → b) resolves both", async () => {
       );
       await platform.fs.writeTextFile(userPath, "@./a.md");
       await withDisabledAutoMemory(async () => {
-        const prompt = await loadMemoryPrompt(projectRoot);
+        const prompt = await loadMemoryPrompt();
         assertExists(prompt);
         assertStringIncludes(prompt, "BODY_OF_A_BEFORE");
         assertStringIncludes(prompt, "BODY_OF_B");
@@ -106,7 +106,7 @@ Deno.test("[@import 3] cycle is detected and replaced with marker", async () => 
       );
       await platform.fs.writeTextFile(userPath, "@./a.md");
       await withDisabledAutoMemory(async () => {
-        const prompt = await loadMemoryPrompt(projectRoot);
+        const prompt = await loadMemoryPrompt();
         assertExists(prompt);
         // Both first-pass bodies should be visible
         assertStringIncludes(prompt, "A_BEGIN");
@@ -149,7 +149,7 @@ Deno.test("[@import 4] depth cap = 5 stops infinite chain", async () => {
       );
       await platform.fs.writeTextFile(userPath, "@./a.md");
       await withDisabledAutoMemory(async () => {
-        const prompt = await loadMemoryPrompt(projectRoot);
+        const prompt = await loadMemoryPrompt();
         assertExists(prompt);
         // Earlier levels should be inlined; deepest ones replaced by depth
         // marker (or skipped)
@@ -172,7 +172,7 @@ Deno.test("[@import 5] missing target → skipped with marker, no throw", async 
         "Header\n@./does-not-exist.md\nFooter",
       );
       await withDisabledAutoMemory(async () => {
-        const prompt = await loadMemoryPrompt(projectRoot);
+        const prompt = await loadMemoryPrompt();
         assertExists(prompt);
         assertStringIncludes(prompt, "Header");
         assertStringIncludes(prompt, "@import skipped: not found");
@@ -195,7 +195,7 @@ Deno.test("[@import 6] non-.md target rejected (security)", async () => {
         "Top\n@./script.sh\nBottom",
       );
       await withDisabledAutoMemory(async () => {
-        const prompt = await loadMemoryPrompt(projectRoot);
+        const prompt = await loadMemoryPrompt();
         assertExists(prompt);
         assertStringIncludes(prompt, "@import skipped: non-.md target");
         assertEquals(prompt.includes("script.sh content"), false);
@@ -226,7 +226,7 @@ Deno.test("[@import 7] absolute @ path inside ~/.hlvm resolves; outside is denie
           `@${insideFragment}\n@${outsideFragment}`,
         );
         await withDisabledAutoMemory(async () => {
-          const prompt = await loadMemoryPrompt(projectRoot);
+          const prompt = await loadMemoryPrompt();
           assertExists(prompt);
           assertStringIncludes(prompt, "ALLOWED_ABS");
           // The outside import is rejected with an explicit marker;
@@ -259,7 +259,7 @@ Deno.test("[@import 8] @ on a line with leading whitespace is still recognized",
         "Top\n   @./indent.md\nBottom",
       );
       await withDisabledAutoMemory(async () => {
-        const prompt = await loadMemoryPrompt(projectRoot);
+        const prompt = await loadMemoryPrompt();
         assertExists(prompt);
         assertStringIncludes(prompt, "INDENTED_BODY");
       });

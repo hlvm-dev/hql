@@ -1,3 +1,7 @@
+// @ts-nocheck — vendored Ink, React Compiler output. Matches the convention
+// used by sibling files (Box.tsx, ScrollBox.tsx, Text.tsx). The proper type
+// fix would require wiring global.d.ts into deno.json + typing every
+// vendored file; out of scope for memory work.
 import { c as _c } from '../../stubs/compiler-runtime.ts';
 import React, { type Ref, useCallback, useEffect, useRef, useState } from 'react';
 import type { Except } from 'type-fest';

@@ -35,8 +35,8 @@ import { setupStoreTestDb } from "../_shared/store-test-db.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { createTodoStateFromPlan } from "../../../src/hlvm/agent/todo-state.ts";
 import {
-  // getMemoryMdPath removed in CC-port refactor — auto-memory now lives
-  // under ~/.hlvm/projects/<key>/memory/MEMORY.md, derived per-project.
+  // getMemoryMdPath removed in CC-port refactor — memory now lives as global
+  // markdown under ~/.hlvm/HLVM.md and ~/.hlvm/memory/.
   resetHlvmDirCacheForTests,
   setHlvmDirForTests,
 } from "../../../src/common/paths.ts";
@@ -103,8 +103,8 @@ class MemoryVisibilityEngine implements AgentEngine {
     return async (messages: AgentMessage[]) => {
       const sawMemory = messages.some((message) =>
         message.role === "system" &&
-        message.content.includes("# Your Memory") &&
-        message.content.includes("Durable preference from MEMORY.md")
+        message.content.includes("# Global HLVM Instructions") &&
+        message.content.includes("Durable preference from HLVM.md")
       );
       const content = sawMemory ? "saw-memory" : "no-memory";
       config.onToken?.(content);
@@ -600,7 +600,7 @@ Deno.test({
         );
 
         await withWorkspace(async (workspace) => {
-          const model = "test-chat/plain";
+          const model = "openai/gpt-4o";
           const reusableSession = await createReusableSession(workspace, model, {
             modelInfo: null,
           });
