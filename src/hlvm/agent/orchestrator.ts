@@ -87,7 +87,7 @@ import type { LspDiagnosticsRuntime } from "./lsp-diagnostics.ts";
 import type { FileStateCache } from "./file-state-cache.ts";
 import type { LastResortFallback } from "./auto-select.ts";
 
-// Re-exports from extracted modules (preserve external API)
+// Re-exports preserving the public API.
 export {
   checkToolResultBytesLimit,
   effectiveAllowlist,

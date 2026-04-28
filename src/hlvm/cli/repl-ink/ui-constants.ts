@@ -51,7 +51,7 @@ export const DEFAULT_TERMINAL_WIDTH = 80;
 export const DEFAULT_TERMINAL_HEIGHT = 24;
 
 /** Minimum width for picker/browser panels. */
-export const MIN_PANEL_WIDTH = 48;
+const MIN_PANEL_WIDTH = 48;
 
 /** Standard padding subtracted from terminal width for panel sizing. */
 export const PANEL_PADDING = 4;

@@ -381,7 +381,6 @@ const agentToolFn: ToolFunction = async (
     worktreeInfo = await createAgentWorktree(slug, workspace);
   }
 
-  // Use worktree path as workspace override (CC: cwdOverridePath)
   const effectiveWorkspace = worktreeInfo?.worktreePath ?? trimmedCwd ??
     workspace;
 
@@ -411,7 +410,6 @@ const agentToolFn: ToolFunction = async (
     options?.toolDenylist,
   );
 
-  // Step 6: Route sync vs async (CC: shouldRunAsync logic)
   const shouldRunAsync = run_in_background === true ||
     selectedAgent.background === true;
 
@@ -448,11 +446,7 @@ const agentToolFn: ToolFunction = async (
   });
 };
 
-// ============================================================
-// Sync Execution (CC: sync path in call())
-// ============================================================
-
-async function runSyncAgent(opts: {
+interface SpawnAgentOpts {
   agentId: string;
   selectedAgent: AgentDefinition;
   prompt: string;
@@ -465,7 +459,9 @@ async function runSyncAgent(opts: {
   modelOverride?: string;
   inheritedConfig?: InheritedAgentConfig;
   agentMcpCleanup?: () => Promise<void>;
-}): Promise<AgentToolResult> {
+}
+
+async function runSyncAgent(opts: SpawnAgentOpts): Promise<AgentToolResult> {
   const {
     agentId,
     selectedAgent,
@@ -487,7 +483,6 @@ async function runSyncAgent(opts: {
     }`,
   );
 
-  // CC: emit agent_spawn event for TUI rendering
   options?.onAgentEvent?.({
     type: "agent_spawn",
     agentId,
@@ -511,7 +506,6 @@ async function runSyncAgent(opts: {
       inheritedConfig,
     });
 
-    // CC: emit agent_complete event for TUI rendering
     options?.onAgentEvent?.({
       type: "agent_complete",
       agentId,
@@ -524,7 +518,6 @@ async function runSyncAgent(opts: {
       transcript: result.transcript,
     });
 
-    // Cleanup worktree / agent-scoped MCP on completion
     const worktreeResult = await cleanupWorktree(worktreeInfo ?? null);
     await agentMcpCleanup?.();
 
@@ -550,31 +543,13 @@ async function runSyncAgent(opts: {
       toolUseCount: 0,
       resultPreview: err instanceof Error ? err.message : String(err),
     });
-    // Cleanup on error too
     await cleanupWorktree(worktreeInfo ?? null);
     await agentMcpCleanup?.();
     throw err;
   }
 }
 
-// ============================================================
-// Async Execution (CC: async path in call())
-// ============================================================
-
-async function runAsyncAgent(opts: {
-  agentId: string;
-  selectedAgent: AgentDefinition;
-  prompt: string;
-  description: string;
-  workspace: string;
-  allTools: Record<string, ToolMetadata>;
-  llmFunction: ToolExecutionOptions["llmFunction"];
-  options?: ToolExecutionOptions;
-  worktreeInfo?: WorktreeInfo | null;
-  modelOverride?: string;
-  inheritedConfig?: InheritedAgentConfig;
-  agentMcpCleanup?: () => Promise<void>;
-}): Promise<AgentAsyncResult> {
+async function runAsyncAgent(opts: SpawnAgentOpts): Promise<AgentAsyncResult> {
   const {
     agentId,
     selectedAgent,

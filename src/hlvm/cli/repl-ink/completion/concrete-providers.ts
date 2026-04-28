@@ -252,7 +252,7 @@ function createSymbolRenderSpec(
 /**
  * Provider for HQL symbol completions (keywords, functions, variables).
  */
-export const SymbolProvider: CompletionProvider = {
+const SymbolProvider: CompletionProvider = {
   id: "symbol",
   isAsync: false,
   helpText: PROVIDER_HELP_TEXT.SIMPLE,
@@ -521,7 +521,7 @@ function createFileRenderSpec(
 /**
  * Provider for @mention file completions.
  */
-export const FileProvider: CompletionProvider = {
+const FileProvider: CompletionProvider = {
   id: "file",
   isAsync: true,
   debounceMs: COMPLETION_DEBOUNCE_MS,

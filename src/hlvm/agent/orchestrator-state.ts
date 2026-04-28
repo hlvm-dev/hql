@@ -158,7 +158,7 @@ export interface LoopConfig {
   modelCapability: ModelCapabilityClass;
 }
 
-/** Control flow directive from extracted loop functions */
+/** Control flow directive returned by loop helpers. */
 export type LoopDirective =
   | { action: "continue" }
   | { action: "return"; value: string; stopReason?: AgentStopReason }
