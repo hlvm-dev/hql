@@ -123,7 +123,7 @@ export function shouldUseCompactBanner(
   return width < FULL_LOGO_WIDTH + 4 || height < 22;
 }
 
-export function Banner(
+function BannerImpl(
   { errors }: BannerProps,
 ): React.ReactElement {
   const { stdout } = useStdout();
@@ -172,3 +172,17 @@ export function Banner(
     </Box>
   );
 }
+
+// Custom equality: parent often passes a fresh `errors` array even when
+// contents are unchanged. Compare by length + element identity instead of
+// reference so transcript appends don't repaint the banner.
+function bannerPropsEqual(prev: BannerProps, next: BannerProps): boolean {
+  if (prev.errors === next.errors) return true;
+  if (prev.errors.length !== next.errors.length) return false;
+  for (let i = 0; i < prev.errors.length; i++) {
+    if (prev.errors[i] !== next.errors[i]) return false;
+  }
+  return true;
+}
+
+export const Banner = React.memo(BannerImpl, bannerPropsEqual);
