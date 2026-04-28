@@ -157,7 +157,7 @@ function stripStringsAndComments(code: string): string {
  *
  * Note: `var` automatically goes to globalThis in indirect eval.
  */
-export function transformJSForRepl(code: string): string {
+function transformJSForRepl(code: string): string {
   const stripped = stripStringsAndComments(code);
 
   // Transform let/const in-place with offset tracking

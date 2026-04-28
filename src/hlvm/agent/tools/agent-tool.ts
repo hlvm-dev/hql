@@ -1,18 +1,3 @@
-/**
- * Agent Tool — Main Dispatcher
- *
- * CC source: tools/AgentTool/AgentTool.tsx
- * The single entry point for spawning sub-agents.
- *
- * Flow (CC-faithful):
- * 1. Parse input (prompt, subagent_type, run_in_background, isolation)
- * 2. Resolve agent definition (built-in or custom .md)
- * 3. Build system prompt
- * 4. Assemble tool pool for child
- * 5. Route to sync or async execution
- * 6. Return result
- */
-
 import { getHlvmTasksDir } from "../../../common/paths.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { invalidateReplLiveAgentSession } from "../repl-live-session-cache.ts";
@@ -21,8 +6,7 @@ import type {
   ToolFunction,
   ToolMetadata,
 } from "../registry.ts";
-// NOTE: getAllTools is imported dynamically to break circular dep
-// (registry.ts → agent-tool.ts → registry.ts)
+// getAllTools is dynamic-imported below to break the registry → agent-tool → registry cycle.
 import type {
   AgentAsyncResult,
   AgentDefinition,
@@ -52,10 +36,6 @@ import {
 import { getAgentLogger } from "../logger.ts";
 
 const log = getAgentLogger();
-
-// ============================================================
-// Background Agent Registry (CC: LocalAgentTask)
-// ============================================================
 
 interface AgentToolRuntimeState {
   backgroundAgents: Map<string, BackgroundAgent>;
@@ -232,14 +212,6 @@ export function cancelBackgroundAgent(agentId: string): boolean {
   return true;
 }
 
-/**
- * Drain all pending completion notifications.
- * CC: query.ts drains commandQueue each turn, filters by 'task-notification' mode.
- * HLVM: orchestrator calls this before each LLM call.
- *
- * Returns notification messages to inject into parent context.
- * Each is a user-role message: "A background agent completed a task:\n<result>..."
- */
 export function drainCompletionNotifications(): string[] {
   const { completionQueue } = getAgentToolRuntimeState();
   if (completionQueue.length === 0) return [];
@@ -248,11 +220,6 @@ export function drainCompletionNotifications(): string[] {
   return drained;
 }
 
-/**
- * Build a completion notification message.
- * CC: enqueueAgentNotification wraps result in <task-notification> XML.
- * HLVM: simpler format, same content.
- */
 function buildCompletionNotification(
   agentId: string,
   agentType: string,
@@ -267,7 +234,6 @@ function buildCompletionNotification(
     ? `Agent "${description}" failed: ${error ?? "Unknown error"}`
     : `Agent "${description}" was stopped`;
 
-  // CC format: <task-notification> XML
   const resultSection = result ? `\n<result>${result}</result>` : "";
   return `A background agent completed a task:
 <task-notification>
@@ -306,21 +272,6 @@ async function enqueueCompletionNotification(
   }
 }
 
-// ============================================================
-// Agent Tool Function (CC: AgentTool.call())
-// ============================================================
-
-/**
- * The main Agent tool function.
- * CC: AgentTool.call() — stripped of React, fork, coordinator, remote.
- *
- * Sync path: blocks parent, returns result directly
- * Async path: fire-and-forget, returns agentId immediately
- */
-/**
- * Entry point called by agent-tool-metadata.ts via dynamic import.
- * This is the actual implementation; the metadata file holds the tool schema.
- */
 export async function executeAgentTool(
   args: unknown,
   workspace: string,
@@ -358,7 +309,6 @@ const agentToolFn: ToolFunction = async (
   // Step 1: Load agent definitions
   const { activeAgents } = await loadAgentDefinitions();
 
-  // Step 2: Resolve agent definition (CC: agent lookup logic)
   const effectiveType = subagent_type ?? "general-purpose";
   const selectedAgent = activeAgents.find(
     (a) => a.agentType === effectiveType,
@@ -406,7 +356,6 @@ const agentToolFn: ToolFunction = async (
     ? cwd.trim()
     : undefined;
 
-  // Step 4: Create worktree if isolation requested (CC: effectiveIsolation)
   const effectiveIsolation = isolation ?? selectedAgent.isolation;
   if (effectiveIsolation === "worktree" && trimmedCwd) {
     throw new ToolError(

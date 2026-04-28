@@ -285,45 +285,6 @@ export function buildLocalAgentsManagerModel(
   };
 }
 
-interface LocalAgentsStatusPanelProps {
-  model: LocalAgentsCompactFooterModel;
-  width: number;
-}
-
-export function LocalAgentsCompactFooter(
-  { model, width }: LocalAgentsStatusPanelProps,
-): React.ReactElement | null {
-  const sc = useSemanticColors();
-  const spinner = useConversationSpinnerFrame(model.hasActiveAgents);
-  const contentWidth = Math.max(18, width);
-
-  return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Text
-        backgroundColor={model.highlighted
-          ? sc.shell.chipActive.background
-          : undefined}
-        color={model.highlighted
-          ? sc.shell.chipActive.foreground
-          : sc.text.primary}
-        bold
-      >
-        <Text color={model.highlighted ? sc.shell.chipActive.foreground : sc.status.warning}>
-          {`${spinner ?? "●"} `}
-        </Text>
-        <Text color={model.highlighted ? sc.shell.chipActive.foreground : sc.status.warning}>
-          {truncate(model.text, contentWidth)}
-        </Text>
-        {model.hintText && (
-          <Text color={model.highlighted ? sc.shell.chipActive.foreground : sc.text.muted}>
-            {truncate(model.hintText, contentWidth)}
-          </Text>
-        )}
-      </Text>
-    </Box>
-  );
-}
-
 interface LocalAgentsManagerPanelProps {
   model: LocalAgentsManagerPanelModel;
   width: number;

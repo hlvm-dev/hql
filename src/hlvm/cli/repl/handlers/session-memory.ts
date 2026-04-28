@@ -17,22 +17,15 @@ interface ParsedSessionMemoryMetadata {
 }
 
 /**
- * Session memory is ON by default unless explicitly disabled.
- */
-export function isSessionMemoryEnabled(sessionMemory: boolean | undefined): boolean {
-  return sessionMemory !== false;
-}
-
-/**
- * Request-level disablePersistentMemory must win over Claude Code's
- * config-backed session-memory default so the same flag behaves consistently
- * across agent modes.
+ * Request-level disablePersistentMemory wins over the config-backed
+ * session-memory default so the same flag behaves consistently across
+ * agent modes. Session memory is ON by default unless explicitly disabled.
  */
 export function resolveSessionMemoryEnabled(
   sessionMemory: boolean | undefined,
   disablePersistentMemory?: boolean,
 ): boolean {
-  return disablePersistentMemory !== true && isSessionMemoryEnabled(sessionMemory);
+  return disablePersistentMemory !== true && sessionMemory !== false;
 }
 
 /**

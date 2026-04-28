@@ -1,7 +1,4 @@
-/**
- * Orchestrator state types and initialization.
- * Extracted from orchestrator.ts for modularity.
- */
+/** Orchestrator state types and initialization. */
 
 import {
   DEFAULT_TIMEOUTS,
@@ -77,7 +74,7 @@ export interface PlaywrightLoopState {
   temporaryToolDenylist: Map<string, number>;
 }
 
-/** Mutable state for the ReAct loop, consolidated from 16 local variables */
+/** Mutable state for the ReAct loop. */
 /** @internal Exported for unit testing of maybeInjectReminder */
 export interface LoopState {
   iterations: number;

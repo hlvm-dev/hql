@@ -4,8 +4,6 @@
  * Detection functions for handling model misbehavior:
  * - Text-based tool call detection
  * - Response suppression logic
- *
- * Extracted from orchestrator.ts to keep the ReAct loop focused.
  */
 
 import { PLAN_END, PLAN_START } from "./planning.ts";

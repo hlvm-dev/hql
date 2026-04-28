@@ -13,7 +13,7 @@ export type ToolProfileSlot =
   | "discovery"
   | "runtime";
 
-export interface DeclaredToolProfile {
+interface DeclaredToolProfile {
   id: ToolProfileId;
   allowlist?: string[];
   denylist?: string[];
@@ -21,7 +21,7 @@ export interface DeclaredToolProfile {
   reasonTemplate?: string;
 }
 
-export interface ToolProfileLayer {
+interface ToolProfileLayer {
   slot: ToolProfileSlot;
   profileId?: ToolProfileId;
   allowlist?: string[];
@@ -35,7 +35,7 @@ export interface ToolProfileState {
   _generation: number;
 }
 
-export interface ToolFilterSyncTarget {
+interface ToolFilterSyncTarget {
   toolAllowlist?: string[];
   toolDenylist?: string[];
 }
@@ -44,7 +44,7 @@ export interface ToolProfileCarrier {
   toolProfileState?: ToolProfileState;
 }
 
-export type DeclaredToolProfileRegistry = Record<
+type DeclaredToolProfileRegistry = Record<
   ToolProfileId,
   DeclaredToolProfile
 >;
@@ -72,7 +72,7 @@ const PERSISTENT_TOOL_PROFILE_SLOTS: readonly ToolProfileSlot[] = [
 
 export const BROWSER_SAFE_PROFILE_ID = "browser_safe" as const;
 export const BROWSER_HYBRID_PROFILE_ID = "browser_hybrid" as const;
-export const BROWSER_CHROME_PROFILE_ID = "browser_chrome" as const;
+const BROWSER_CHROME_PROFILE_ID = "browser_chrome" as const;
 
 const BROWSER_SAFE_PLAYWRIGHT_TOOLS = Object.keys(PLAYWRIGHT_TOOLS).filter(
   (name) => name !== "pw_promote",

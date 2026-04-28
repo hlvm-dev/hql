@@ -102,9 +102,6 @@ const AGENT_PROFILES: readonly AgentProfile[] = [
     ],
     maxTokens: 32_000,
   },
-  // Memory specialist agent removed — memory now lives as plain markdown
-  // files (HLVM.md + auto-memory dir) which any agent can read/write via
-  // read_file/write_file/edit_file. No specialist needed.
 ];
 
 const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown"]);

@@ -209,10 +209,6 @@ function resolveGroupedAgentActivityText(
   return buildGroupedAgentActivitySummary(searchCount, readCount, active);
 }
 
-// ============================================================
-// Types
-// ============================================================
-
 export interface InheritedAgentConfig {
   contextBudget?: number;
   modelCapability?: OrchestratorConfig["modelCapability"];
@@ -229,73 +225,35 @@ export interface InheritedAgentConfig {
   modelId?: OrchestratorConfig["modelId"];
 }
 
-export interface RunAgentOptions {
-  /** The agent definition to execute */
+interface RunAgentOptions {
   agentDefinition: AgentDefinition;
-  /** The task prompt for the agent */
   prompt: string;
-  /** Parent's workspace path */
   workspace: string;
-  /** LLM function for API calls */
   llmFunction: LLMFunction;
-  /** All available tools (pre-filtered for the agent) */
   allTools: Record<string, ToolMetadata>;
-  /** Whether this is an async (background) execution */
   isAsync?: boolean;
-  /** Max turns override (defaults to agentDef.maxTurns or AGENT_MAX_TURNS) */
   maxTurns?: number;
-  /** Abort signal from parent */
   signal?: AbortSignal;
-  /** Explicit tool/agent model override. */
   modelOverride?: string;
-  /** Parent orchestrator config for inheriting settings */
   inheritedConfig?: InheritedAgentConfig;
-  /** Unique agent ID for tracking */
   agentId: string;
-  /** Callback for agent events */
   onAgentEvent?: OrchestratorConfig["onAgentEvent"];
-  /** Optional live transcript line sink for async task output */
   onTranscriptLine?: (line: string) => void | Promise<void>;
 }
 
-export interface RunAgentResult {
-  /** Final response text from the agent */
+interface RunAgentResult {
   text: string;
-  /** Agent type that ran */
   agentType: string;
-  /** Duration in milliseconds */
   durationMs: number;
-  /** Number of tool uses */
   toolUseCount: number;
-  /** Total tokens used (input + output) */
   totalTokens: number;
   promptTokens: number;
   completionTokens: number;
-  /** Core loop stop reason */
   stopReason?: AgentLoopResult["stopReason"];
-  /** Core loop iteration count */
   iterations?: number;
-  /** Collected transcript of child tool calls for expand/collapse display */
   transcript: string;
 }
 
-// ============================================================
-// runAgent (CC: runAgent() async generator — adapted to HLVM)
-// ============================================================
-
-/**
- * Execute a sub-agent with isolated context and tools.
- *
- * CC pattern: runAgent() is an async generator that calls query() and yields messages.
- * HLVM adaptation: runReActLoop() returns a structured AgentLoopResult.
- *
- * Flow (same as CC):
- * 1. Build system prompt from agent definition
- * 2. Resolve tools for this agent
- * 3. Create isolated ContextManager
- * 4. Call runReActLoop with isolated config
- * 5. Return result
- */
 export async function runAgent(
   options: RunAgentOptions,
 ): Promise<RunAgentResult> {

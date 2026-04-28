@@ -1,7 +1,4 @@
-/**
- * Agent response processing: tool execution dispatch, final response handling.
- * Extracted from orchestrator.ts for modularity.
- */
+/** Agent response processing: tool execution dispatch, final response handling. */
 
 import { ContextOverflowError, type Message } from "./context.ts";
 import {

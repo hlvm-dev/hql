@@ -1,8 +1,8 @@
 import chalk from "chalk";
 import { supportsHyperlinks } from "../../../../vendor/ink/supports-hyperlinks.ts";
 
-export const OSC8_START = "\x1b]8;;";
-export const OSC8_END = "\x07";
+const OSC8_START = "\x1b]8;;";
+const OSC8_END = "\x07";
 
 type HyperlinkOptions = {
   supportsHyperlinks?: boolean;

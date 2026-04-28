@@ -1,7 +1,4 @@
-/**
- * Tool execution: single call, batch parallel/sequential, timeout handling.
- * Extracted from orchestrator.ts for modularity.
- */
+/** Tool execution: single call, batch parallel/sequential, timeout handling. */
 
 import {
   getTool,

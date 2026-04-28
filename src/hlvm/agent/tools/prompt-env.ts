@@ -1,11 +1,11 @@
 import { getPlatform } from "../../../platform/platform.ts";
 
-export interface EnvInfoOptions {
+interface EnvInfoOptions {
   cwd?: string;
   additionalWorkingDirectories?: string[];
 }
 
-export async function computeEnvInfo(
+async function computeEnvInfo(
   modelId: string,
   options: EnvInfoOptions = {},
 ): Promise<string> {

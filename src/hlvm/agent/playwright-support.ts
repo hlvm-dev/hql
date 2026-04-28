@@ -2,7 +2,6 @@
  * Playwright Browser Support
  *
  * Handles Playwright Chromium detection and one-time automatic setup.
- * Extracted from orchestrator.ts to keep the ReAct loop focused.
  */
 
 import { getAgentLogger } from "./logger.ts";
