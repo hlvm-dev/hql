@@ -2,16 +2,11 @@ import type {
   PlaywrightActionabilityCode,
   PlaywrightActionabilityResult,
 } from "./actionability.ts";
-import {
-  isPlaywrightVisualActionabilityCode,
-  PLAYWRIGHT_VISUAL_ACTIONABILITY_CODES,
-} from "./actionability.ts";
+import { isPlaywrightVisualActionabilityCode } from "./actionability.ts";
 import type {
   ToolFailureKind,
   ToolFailureMetadata,
 } from "../tool-results.ts";
-
-export const PLAYWRIGHT_VISUAL_FAILURE_CODES = PLAYWRIGHT_VISUAL_ACTIONABILITY_CODES;
 
 export function hasStructuredPlaywrightVisualFailure(
   failure?: ToolFailureMetadata,

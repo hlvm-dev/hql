@@ -145,5 +145,3 @@ export const errors: ErrorsApi = {
     return await formatHQLError(error, isDebug);
   },
 };
-
-// default export removed — use named `errors` export instead

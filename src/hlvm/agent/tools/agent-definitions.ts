@@ -1,14 +1,3 @@
-/**
- * Agent Definition Loading
- *
- * CC source: tools/AgentTool/loadAgentsDir.ts
- * Loads agent definitions from:
- * 1. Built-in agents (code-defined)
- * 2. User agents (~/.hlvm/agents/*.md)
- *
- * .md files use YAML frontmatter for configuration, body is the system prompt.
- */
-
 import { parseFrontmatter } from "../../../common/frontmatter.ts";
 import { PERMISSION_MODES_SET } from "../../../common/config/types.ts";
 import { getErrorMessage, isObjectValue } from "../../../common/utils.ts";
@@ -119,11 +108,11 @@ function normalizeAgentMcpServerSpec(
  * Optional: tools, disallowedTools, model, maxTurns, background, isolation,
  * initialPrompt, permissionMode, mcpServers
  */
-export type ParseAgentResult =
+type ParseAgentResult =
   | { ok: true; agent: CustomAgentDefinition }
   | { ok: false; reason: string };
 
-export function parseAgentFromMarkdownDetailed(
+function parseAgentFromMarkdownDetailed(
   filePath: string,
   content: string,
   source: "user",
@@ -254,26 +243,6 @@ export function parseAgentFromMarkdownDetailed(
   }
 }
 
-export function parseAgentFromMarkdown(
-  filePath: string,
-  content: string,
-  source: "user",
-): CustomAgentDefinition | null {
-  const result = parseAgentFromMarkdownDetailed(filePath, content, source);
-  return result.ok ? result.agent : null;
-}
-
-// ============================================================
-// Agent Discovery (CC: getAgentDefinitionsWithOverrides)
-// ============================================================
-
-/**
- * Load all agent definitions from built-in + filesystem.
- * CC: getAgentDefinitionsWithOverrides() — simplified (no plugins, no policy, no memoize)
- *
- * Searches:
- * - ~/.hlvm/agents/*.md (global user agents)
- */
 export async function loadAgentDefinitions(
   _runtimeTarget?: string,
 ): Promise<AgentDefinitionsResult> {
@@ -302,9 +271,6 @@ export async function loadAgentDefinitions(
   };
 }
 
-/**
- * Load .md agent files from a directory.
- */
 async function loadAgentsFromDir(
   dir: string,
   source: "user",
@@ -339,30 +305,15 @@ async function loadAgentsFromDir(
   }
 }
 
-// ============================================================
-// Priority Resolution (CC: getActiveAgentsFromList)
-// ============================================================
-
-/**
- * Deduplicate agents by agentType. Later sources override earlier.
- * CC: getActiveAgentsFromList() — same logic
- *
- * Priority order (last wins): built-in → user
- */
-export function getActiveAgentsFromList(
+function getActiveAgentsFromList(
   allAgents: AgentDefinition[],
 ): AgentDefinition[] {
-  const builtIn = allAgents.filter((a) => a.source === "built-in");
-  const user = allAgents.filter((a) => a.source === "user");
-
-  // CC pattern: iterate groups in order, Map.set overwrites → last wins
   const agentMap = new Map<string, AgentDefinition>();
-
-  for (const agents of [builtIn, user]) {
-    for (const agent of agents) {
-      agentMap.set(agent.agentType, agent);
-    }
+  for (const agent of allAgents) {
+    if (agent.source === "built-in") agentMap.set(agent.agentType, agent);
   }
-
+  for (const agent of allAgents) {
+    if (agent.source === "user") agentMap.set(agent.agentType, agent);
+  }
   return Array.from(agentMap.values());
 }

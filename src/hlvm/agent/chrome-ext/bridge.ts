@@ -9,13 +9,6 @@ import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
 import { TOOL_CATEGORY, ToolError } from "../error-taxonomy.ts";
 import { TOOL_NAMES } from "../tool-names.ts";
-
-function chError(
-  message: string,
-  category: "validation" | "internal" | "network" = TOOL_CATEGORY.INTERNAL,
-): ToolError {
-  return new ToolError(message, TOOL_NAMES.CHROME_EXT, category);
-}
 import type {
   ChromeExtBackendResolution,
   ChromeExtRequest,
@@ -23,16 +16,19 @@ import type {
 } from "./types.ts";
 import { getAllSocketPaths, MAX_MESSAGE_SIZE } from "./common.ts";
 
+function chError(
+  message: string,
+  category: "validation" | "internal" | "network" = TOOL_CATEGORY.INTERNAL,
+): ToolError {
+  return new ToolError(message, TOOL_NAMES.CHROME_EXT, category);
+}
+
 // ── Cached Resolution ───────────────────────────────────────────────
 
 let _backendResolution: ChromeExtBackendResolution | undefined;
 
 export function invalidateChromeExtResolution(): void {
   _backendResolution = undefined;
-}
-
-export function getResolvedChromeExtBackend(): ChromeExtBackendResolution | undefined {
-  return _backendResolution;
 }
 
 /**

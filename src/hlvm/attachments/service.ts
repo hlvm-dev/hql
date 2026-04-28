@@ -578,12 +578,18 @@ export async function getAttachmentRecord(
   return await readRecord(getRecordPath(attachmentId));
 }
 
+async function resolveAttachmentRecords(
+  attachmentIds: readonly string[],
+): Promise<(AttachmentRecord | null)[]> {
+  return await Promise.all(
+    attachmentIds.map((attachmentId) => getAttachmentRecord(attachmentId)),
+  );
+}
+
 export async function getAttachmentRecords(
   attachmentIds: readonly string[],
 ): Promise<AttachmentRecord[]> {
-  const resolved = await Promise.all(
-    attachmentIds.map((attachmentId) => getAttachmentRecord(attachmentId)),
-  );
+  const resolved = await resolveAttachmentRecords(attachmentIds);
   return resolved.filter((record): record is AttachmentRecord =>
     record !== null
   );
@@ -617,21 +623,15 @@ export async function readAttachmentContent(
 export async function getRequiredAttachmentRecords(
   attachmentIds: readonly string[],
 ): Promise<AttachmentRecord[]> {
-  const resolved = await Promise.all(
-    attachmentIds.map((attachmentId) => getAttachmentRecord(attachmentId)),
-  );
-  const missingAttachmentId = attachmentIds.find((_attachmentId, index) =>
-    resolved[index] === null
-  );
-  if (missingAttachmentId) {
+  const resolved = await resolveAttachmentRecords(attachmentIds);
+  const missingIndex = resolved.findIndex((record) => record === null);
+  if (missingIndex >= 0) {
     throw new AttachmentServiceError(
       "not_found",
-      `Attachment not found: ${missingAttachmentId}`,
+      `Attachment not found: ${attachmentIds[missingIndex]}`,
     );
   }
-  return resolved.filter((record): record is AttachmentRecord =>
-    record !== null
-  );
+  return resolved as AttachmentRecord[];
 }
 
 async function prepareAttachmentForProfile(

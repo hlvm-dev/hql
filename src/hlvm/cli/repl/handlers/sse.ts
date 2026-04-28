@@ -1,21 +1,17 @@
 /**
  * SSE Handler
  *
- * Server-Sent Events streams for durable sessions and the live GUI transcript.
+ * Server-Sent Events stream for the macOS GUI live transcript.
  * Supports Last-Event-ID for reconnect replay.
  */
 
-import { getSession } from "../../../store/conversation-store.ts";
 import {
   nextSSEEventId,
   replayAfter,
   subscribe,
 } from "../../../store/sse-store.ts";
 import { GUI_LIVE_TRANSCRIPT_SESSION_ID } from "../../../store/gui-live-transcript.ts";
-import { loadAllMessages } from "../../../store/message-utils.ts";
-import { toRuntimeSessionMessage } from "../../../runtime/session-protocol.ts";
-import type { RouteParams } from "../http-router.ts";
-import { createSSEResponse, formatSSE, jsonError } from "../http-utils.ts";
+import { createSSEResponse, formatSSE } from "../http-utils.ts";
 
 /**
  * @openapi
@@ -45,73 +41,6 @@ import { createSSEResponse, formatSSE, jsonError } from "../http-utils.ts";
  *               type: string
  *         x-response-type: stream
  */
-export function handleSSEStream(
-  req: Request,
-  params: RouteParams,
-): Response {
-  const sessionId = params.id;
-  const session = getSession(sessionId);
-  if (!session) return jsonError("Session not found", 404);
-
-  const lastEventId = req.headers.get("Last-Event-ID");
-
-  return createSSEResponse(req, (emit) => {
-    let isReady = false;
-    let closed = false;
-    let pendingEvents: string[] = [];
-    const unsubscribe = subscribe(sessionId, (event) => {
-      const formatted = formatSSE(event);
-      if (closed) {
-        return;
-      }
-      if (isReady) {
-        emit(formatted);
-      } else {
-        pendingEvents.push(formatted);
-      }
-    });
-
-    void (async () => {
-      const replay = replayAfter(sessionId, lastEventId);
-
-      if (!lastEventId || replay.gapDetected) {
-        const messages = await Promise.all(
-          loadAllMessages(sessionId).map((message) =>
-            toRuntimeSessionMessage(message)
-          ),
-        );
-        const freshSession = getSession(sessionId);
-        const snapshotVersion = freshSession?.session_version ??
-          session.session_version;
-        emit(formatSSE({
-          id: nextSSEEventId(sessionId),
-          event_type: "snapshot",
-          data: {
-            messages,
-            session_version: snapshotVersion,
-          },
-        }));
-      } else {
-        for (const event of replay.events) {
-          emit(formatSSE(event));
-        }
-      }
-
-      isReady = true;
-      for (const event of pendingEvents) {
-        emit(event);
-      }
-      pendingEvents = [];
-    })();
-
-    return () => {
-      closed = true;
-      pendingEvents = [];
-      unsubscribe();
-    };
-  });
-}
-
 export function handleActiveConversationStream(req: Request): Response {
   return createSSEResponse(req, (emit) => {
     let isReady = false;
@@ -120,8 +49,8 @@ export function handleActiveConversationStream(req: Request): Response {
     const lastEventId = req.headers.get("Last-Event-ID");
     const sessionId = GUI_LIVE_TRANSCRIPT_SESSION_ID;
     const unsubscribe = subscribe(sessionId, (event) => {
-      const formatted = formatSSE(event);
       if (closed) return;
+      const formatted = formatSSE(event);
       if (isReady) {
         emit(formatted);
       } else {
@@ -136,21 +65,14 @@ export function handleActiveConversationStream(req: Request): Response {
         emit(formatSSE({
           id: nextSSEEventId(sessionId),
           event_type: "snapshot",
-          data: {
-            messages: [],
-            session_version: 0,
-          },
+          data: { messages: [], session_version: 0 },
         }));
       } else {
-        for (const event of replay.events) {
-          emit(formatSSE(event));
-        }
+        for (const event of replay.events) emit(formatSSE(event));
       }
 
       isReady = true;
-      for (const event of pendingEvents) {
-        emit(event);
-      }
+      for (const event of pendingEvents) emit(event);
       pendingEvents = [];
     })();
 

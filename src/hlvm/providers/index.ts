@@ -39,7 +39,6 @@ export {
 
 // Shared metadata
 export {
-  findProviderMetaKey,
   getProviderMeta,
   getProviderSearchTerms,
 } from "./provider-meta.ts";
@@ -122,28 +121,17 @@ export function initializeProviders(config?: {
       isDefault: true,
     });
   }
-  if (config?.openai) {
-    registerProvider("openai", createOpenAIProvider, {
-      ...config.openai,
-      capabilities: createOpenAIProvider.specCapabilities,
-    });
-  }
-  if (config?.anthropic) {
-    registerProvider("anthropic", createAnthropicProvider, {
-      ...config.anthropic,
-      capabilities: createAnthropicProvider.specCapabilities,
-    });
-  }
-  if (config?.google) {
-    registerProvider("google", createGoogleProvider, {
-      ...config.google,
-      capabilities: createGoogleProvider.specCapabilities,
-    });
-  }
-  if (config?.claudeCode) {
-    registerProvider("claude-code", createClaudeCodeProvider, {
-      ...config.claudeCode,
-      capabilities: createClaudeCodeProvider.specCapabilities,
+  const cloudProviders = [
+    ["openai", createOpenAIProvider, config?.openai],
+    ["anthropic", createAnthropicProvider, config?.anthropic],
+    ["google", createGoogleProvider, config?.google],
+    ["claude-code", createClaudeCodeProvider, config?.claudeCode],
+  ] as const;
+  for (const [name, factory, providerConfig] of cloudProviders) {
+    if (!providerConfig) continue;
+    registerProvider(name, factory, {
+      ...providerConfig,
+      capabilities: factory.specCapabilities,
     });
   }
 }

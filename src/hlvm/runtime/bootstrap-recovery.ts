@@ -4,10 +4,7 @@
  */
 
 import { log } from "../api/log.ts";
-import {
-  type BootstrapManifest,
-  writeBootstrapManifest,
-} from "./bootstrap-manifest.ts";
+import { type BootstrapManifest } from "./bootstrap-manifest.ts";
 import {
   type BootstrapVerificationResult,
   verifyBootstrap,

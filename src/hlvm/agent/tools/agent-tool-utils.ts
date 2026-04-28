@@ -1,14 +1,3 @@
-/**
- * Agent Tool Utilities
- *
- * CC-faithful implementation of tool resolution and filtering.
- * CC source: tools/AgentTool/agentToolUtils.ts
- *
- * Key algorithms:
- * - filterToolsForAgent(): baseline filtering via disallow lists
- * - resolveAgentTools(): resolve agent's tool spec against available tools
- */
-
 import type { ToolMetadata } from "../registry.ts";
 import type { AgentDefinition } from "./agent-types.ts";
 import { isMcpToolName } from "../mcp/tool-names.ts";
@@ -17,12 +6,7 @@ import {
   ASYNC_AGENT_ALLOWED_TOOLS,
   CUSTOM_AGENT_DISALLOWED_TOOLS,
 } from "./agent-constants.ts";
-import { isBuiltInAgent } from "./agent-types.ts";
 import { permissionRuleValueFromString } from "./permission-rule.ts";
-
-// ============================================================
-// Types
-// ============================================================
 
 export interface ResolvedAgentTools {
   hasWildcard: boolean;
@@ -31,20 +15,6 @@ export interface ResolvedAgentTools {
   resolvedTools: Map<string, ToolMetadata>;
 }
 
-// ============================================================
-// filterToolsForAgent (CC: agentToolUtils.ts lines 70-116)
-// ============================================================
-
-/**
- * Baseline tool filtering for sub-agents.
- * Applies universal and source-specific disallow lists.
- *
- * Baseline logic:
- * 1. Allow all MCP tools
- * 2. Block ALL_AGENT_DISALLOWED_TOOLS (universal)
- * 3. Block CUSTOM_AGENT_DISALLOWED_TOOLS for non-built-in agents
- * 4. For async agents, only allow ASYNC_AGENT_ALLOWED_TOOLS
- */
 export function filterToolsForAgent(opts: {
   tools: Record<string, ToolMetadata>;
   isBuiltIn: boolean;
@@ -54,27 +24,13 @@ export function filterToolsForAgent(opts: {
   const filtered: Record<string, ToolMetadata> = {};
 
   for (const [name, meta] of Object.entries(tools)) {
-    // Rule 1: Allow MCP tools
     if (isMcpToolName(name)) {
       filtered[name] = meta;
       continue;
     }
-
-    // Rule 2: Block universal disallow list
-    if (ALL_AGENT_DISALLOWED_TOOLS.has(name)) {
-      continue;
-    }
-
-    // Rule 3: Block custom agent disallow list for non-built-in
-    if (!isBuiltIn && CUSTOM_AGENT_DISALLOWED_TOOLS.has(name)) {
-      continue;
-    }
-
-    // Rule 4: Async agents restricted to allowlist
-    if (isAsync && !ASYNC_AGENT_ALLOWED_TOOLS.has(name)) {
-      continue;
-    }
-
+    if (ALL_AGENT_DISALLOWED_TOOLS.has(name)) continue;
+    if (!isBuiltIn && CUSTOM_AGENT_DISALLOWED_TOOLS.has(name)) continue;
+    if (isAsync && !ASYNC_AGENT_ALLOWED_TOOLS.has(name)) continue;
     filtered[name] = meta;
   }
 
@@ -110,19 +66,6 @@ export function applyParentPermissions(
   return filtered;
 }
 
-// ============================================================
-// resolveAgentTools (CC: agentToolUtils.ts lines 122-225)
-// ============================================================
-
-/**
- * Resolve an agent's tool specification against available tools.
- *
- * CC logic exactly:
- * 1. Apply baseline filtering via filterToolsForAgent
- * 2. Remove explicitly disallowed tools from agent definition
- * 3. Handle wildcard (undefined or ["*"]) → return all filtered tools
- * 4. Otherwise resolve explicit tool list against available map
- */
 export function resolveAgentTools(
   agentDef: Pick<
     AgentDefinition,
@@ -133,7 +76,6 @@ export function resolveAgentTools(
 ): ResolvedAgentTools {
   const { tools: agentTools, disallowedTools, source } = agentDef;
 
-  // Step 1: Baseline filter
   const filteredTools = filterToolsForAgent({
     tools: allTools,
     isBuiltIn: source === "built-in",

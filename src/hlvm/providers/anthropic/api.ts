@@ -5,9 +5,13 @@
  * This module keeps only provider-specific model discovery and status checks.
  */
 
-import { ANTHROPIC_VERSION, API_TIMEOUT_MS, JSON_HEADERS } from "../common.ts";
+import {
+  ANTHROPIC_VERSION,
+  API_TIMEOUT_MS,
+  checkApiStatus,
+  JSON_HEADERS,
+} from "../common.ts";
 import { http } from "../../../common/http-client.ts";
-import { getErrorMessage } from "../../../common/utils.ts";
 import type { ModelInfo, ProviderStatus } from "../types.ts";
 
 function authHeaders(apiKey: string): Record<string, string> {
@@ -52,25 +56,14 @@ export async function listModels(
     }));
 }
 
-export async function checkStatus(
+export function checkStatus(
   endpoint: string,
   apiKey: string,
 ): Promise<ProviderStatus> {
-  try {
-    // Use model-agnostic endpoint — no hardcoded model IDs
-    const url = `${endpoint}/v1/models?limit=1`;
-    const response = await http.fetchRaw(url, {
-      headers: authHeaders(apiKey),
-      timeout: API_TIMEOUT_MS,
-    });
-    return {
-      available: response.status !== 401,
-      error: response.status === 401 ? "Invalid API key" : undefined,
-    };
-  } catch (error) {
-    return {
-      available: false,
-      error: getErrorMessage(error),
-    };
-  }
+  return checkApiStatus(
+    `${endpoint}/v1/models?limit=1`,
+    { headers: authHeaders(apiKey), timeout: API_TIMEOUT_MS },
+    (r) => r.status !== 401,
+    (r) => r.status === 401 ? "Invalid API key" : undefined,
+  );
 }

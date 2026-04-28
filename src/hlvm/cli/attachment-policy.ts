@@ -186,7 +186,7 @@ export function getSupportedAttachmentKindsForModel(
     : DEFAULT_MODEL_ATTACHMENT_KINDS;
 }
 
-export function describeSupportedAttachmentInputs(
+function describeSupportedAttachmentInputs(
   kinds: readonly ConversationAttachmentKind[] = DEFAULT_MODEL_ATTACHMENT_KINDS,
 ): string {
   return formatList(kinds.map((k) => describeAttachmentKind(k, true)));

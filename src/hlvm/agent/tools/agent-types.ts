@@ -196,18 +196,3 @@ export interface BackgroundAgentSnapshot {
   error?: string;
 }
 
-// ============================================================
-// Type Guards
-// ============================================================
-
-export function isBuiltInAgent(
-  agent: AgentDefinition,
-): agent is BuiltInAgentDefinition {
-  return agent.source === "built-in";
-}
-
-export function isCustomAgent(
-  agent: AgentDefinition,
-): agent is CustomAgentDefinition {
-  return agent.source !== "built-in";
-}

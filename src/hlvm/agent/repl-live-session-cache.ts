@@ -62,7 +62,7 @@ const replLiveSessions = new LRUCache<string, ReplLiveAgentSessionEntry>(
   },
 );
 
-export function getReplLiveAgentSession(
+function getReplLiveAgentSession(
   sessionId: string,
 ): ReplLiveAgentSessionEntry | undefined {
   return replLiveSessions.get(sessionId);

@@ -5,11 +5,6 @@
  * POST /api/chat/cancel — Cancel an in-flight request.
  *
  * Returns NDJSON stream with events: start, token, tool, complete, error, cancelled.
- *
- * Split into modular files:
- * - chat-session.ts: request tracking, interaction handling, cancellation
- * - chat-agent-mode.ts: HLVM agent and Claude Code subprocess mode
- * - chat-direct.ts: direct chat mode streaming, model validation
  */
 
 import {
@@ -59,9 +54,6 @@ import {
 import { config } from "../../../api/config.ts";
 import { ai } from "../../../api/ai.ts";
 import { log } from "../../../api/log.ts";
-// Memory persistence functions removed in CC-port refactor — model now
-// captures memories by writing directly to ~/.hlvm/HLVM.md or auto-memory
-// dir via write_file when it judges them worth keeping (CC parity).
 import { getErrorMessage } from "../../../../common/utils.ts";
 import { recordPromptHistory } from "../prompt-history.ts";
 
@@ -949,9 +941,6 @@ export async function handleChat(req: Request): Promise<Response> {
           effectiveMode === "agent" &&
           canRunAgentMode;
 
-        // Old explicit-memory extraction removed — model writes via
-        // write_file against memory paths now (CC parity).
-
         if (isEvalMode) {
           const replState = await ensureRuntimeHostReplState();
           const evalAttachments = await buildEvalAttachments(
@@ -1117,8 +1106,6 @@ export async function handleChat(req: Request): Promise<Response> {
           if (tracksManagedLocalAi) {
             markRuntimeAiRequestSucceeded();
           }
-          // Old conversation-fact extraction removed — model writes
-          // memories via write_file against memory paths now (CC parity).
           const currentSession = getSession(sessionId);
           if (currentSession && !currentSession.title) {
             const recentMsgs = loadRecentMessages(

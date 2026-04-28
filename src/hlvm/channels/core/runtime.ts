@@ -2,6 +2,7 @@ import { type ChannelConfig } from "../../../common/config/types.ts";
 import { loadConfig } from "../../../common/config/storage.ts";
 import { config } from "../../api/config.ts";
 import { log } from "../../api/log.ts";
+import { getErrorMessage } from "../../../common/utils.ts";
 import type { AgentExecutionMode } from "../../agent/execution-mode.ts";
 import { runChatViaHost } from "../../runtime/host-client.ts";
 import { createSessionQueue } from "./queue.ts";
@@ -101,7 +102,7 @@ export function createChannelRuntime(
       try {
         listener(snapshot);
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = getErrorMessage(error);
         log.warn?.(`reachability listener threw: ${detail}`);
       }
     }
@@ -170,7 +171,7 @@ export function createChannelRuntime(
         replyTo: message.raw,
       });
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
+      const detail = getErrorMessage(error);
       setStatus(channel, { state: "error", lastError: detail });
       log.warn?.(`Channel ${channel} pair-code handling failed: ${detail}`);
     }
@@ -214,7 +215,7 @@ export function createChannelRuntime(
             senderId,
           });
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
+          const detail = getErrorMessage(error);
           setStatus(channel, { state: "error", lastError: detail });
           log.warn?.(`Channel ${channel} pair-code match failed: ${detail}`);
           return;
@@ -312,7 +313,7 @@ export function createChannelRuntime(
         setStatus(channel, { state: "connected", lastError: null });
       });
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
+      const detail = getErrorMessage(error);
       setStatus(channel, { state: "error", lastError: detail });
       log.warn?.(
         `Channel ${channel} failed to handle inbound message: ${detail}`,
@@ -331,7 +332,7 @@ export function createChannelRuntime(
           setStatus(channel, { state: "disconnected" });
         }
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = getErrorMessage(error);
         setStatus(channel, { state: "error", lastError: detail });
       }
     }));
@@ -377,7 +378,7 @@ export function createChannelRuntime(
           setStatus(channel, { state: "connected" });
         }
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = getErrorMessage(error);
         setStatus(channel, { state: "error", lastError: detail });
         log.warn?.(`Channel ${channel} failed to start: ${detail}`);
       }

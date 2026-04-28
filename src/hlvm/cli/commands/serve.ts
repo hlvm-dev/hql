@@ -155,46 +155,6 @@ export async function maybeRecoverRuntimeAiIfNeeded(): Promise<boolean> {
   return await runtimeAiRecovery;
 }
 
-export function __resetRuntimeAiStateForTesting(): void {
-  runtimeReady = null;
-  runtimeReadinessManaged = false;
-  runtimeReadyState = "pending";
-  bootstrapVerified = false;
-  localFallbackReady = false;
-  runtimeAiReadyReason = "AI runtime is still initializing.";
-  runtimeAiReadyRetryable = true;
-  runtimeServeStartedAt = 0;
-  runtimeAiRecovery = null;
-}
-
-export function __setRuntimeAiStateForTesting(state: {
-  readinessManaged?: boolean;
-  readyState?: "pending" | "ready" | "failed";
-  bootstrapReady?: boolean;
-  localFallbackReady?: boolean;
-  aiReadyReason?: string | null;
-  aiReadyRetryable?: boolean;
-}): void {
-  if (state.readinessManaged !== undefined) {
-    runtimeReadinessManaged = state.readinessManaged;
-  }
-  if (state.readyState !== undefined) {
-    runtimeReadyState = state.readyState;
-  }
-  if (state.bootstrapReady !== undefined) {
-    bootstrapVerified = state.bootstrapReady;
-  }
-  if (state.localFallbackReady !== undefined) {
-    localFallbackReady = state.localFallbackReady;
-  }
-  if (state.aiReadyReason !== undefined) {
-    runtimeAiReadyReason = state.aiReadyReason;
-  }
-  if (state.aiReadyRetryable !== undefined) {
-    runtimeAiReadyRetryable = state.aiReadyRetryable;
-  }
-}
-
 async function ensureLocalFallbackReady(): Promise<boolean> {
   const fallbackModelId = await resolveLocalFallbackModelId();
   const bareName = fallbackModelId.replace(/^ollama\//, "");

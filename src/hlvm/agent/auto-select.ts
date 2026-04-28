@@ -219,9 +219,8 @@ export function isAutoModel(model: string): boolean {
   return model === AUTO_MODEL_ID;
 }
 
-/** Extract task signals from prompt and attachments using LLM classification. */
 /** Instant profile — non-LLM fields only (for pre-filtering before classification). */
-export function buildBaseProfile(
+function buildBaseProfile(
   query: string,
   attachments?: Array<{ kind?: string; mimeType?: string }>,
   policy?: AutoSelectPolicy,

@@ -104,7 +104,7 @@ async function waitForProcessExit(pid: string): Promise<boolean> {
   return !await isProcessAlive(pid);
 }
 
-export async function isProcessAlive(pid: string): Promise<boolean> {
+async function isProcessAlive(pid: string): Promise<boolean> {
   const platform = getPlatform();
 
   try {

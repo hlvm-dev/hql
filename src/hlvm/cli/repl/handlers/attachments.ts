@@ -1,4 +1,3 @@
-import { getErrorMessage } from "../../../../common/utils.ts";
 import {
   getAttachmentRecord,
   readAttachmentContent,
@@ -80,6 +79,13 @@ function toAttachmentErrorResponse(error: AttachmentServiceError): Response {
   }
 }
 
+async function attachmentErrorResponse(error: unknown): Promise<Response> {
+  if (error instanceof AttachmentServiceError) {
+    return toAttachmentErrorResponse(error);
+  }
+  return await jsonErrorFromUnknown(error, 500);
+}
+
 /**
  * @openapi
  * /api/attachments/register:
@@ -149,10 +155,7 @@ export async function handleRegisterAttachment(
     );
     return Response.json(record, { status: 201 });
   } catch (error) {
-    if (error instanceof AttachmentServiceError) {
-      return toAttachmentErrorResponse(error);
-    }
-    return await jsonErrorFromUnknown(error, 500);
+    return await attachmentErrorResponse(error);
   }
 }
 
@@ -223,10 +226,7 @@ export async function handleUploadAttachment(
     });
     return Response.json(record, { status: 201 });
   } catch (error) {
-    if (error instanceof AttachmentServiceError) {
-      return toAttachmentErrorResponse(error);
-    }
-    return await jsonErrorFromUnknown(error, 500);
+    return await attachmentErrorResponse(error);
   }
 }
 
@@ -315,9 +315,6 @@ export async function handleGetAttachmentContent(
       },
     });
   } catch (error) {
-    if (error instanceof AttachmentServiceError) {
-      return toAttachmentErrorResponse(error);
-    }
-    return await jsonErrorFromUnknown(error, 500);
+    return await attachmentErrorResponse(error);
   }
 }

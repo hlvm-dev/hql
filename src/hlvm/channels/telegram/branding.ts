@@ -1,5 +1,6 @@
 import { decodeBase64 } from "@std/encoding/base64";
 import { http } from "../../../common/http-client.ts";
+import { getErrorMessage } from "../../../common/utils.ts";
 import { TELEGRAM_PROFILE_PHOTO_JPEG_BASE64 } from "./branding-asset.ts";
 
 const TELEGRAM_API_BASE_URL = "https://api.telegram.org";
@@ -141,13 +142,7 @@ export async function applyTelegramBotBranding(
   ]);
 
   const failures = results.flatMap((result) =>
-    result.status === "rejected"
-      ? [
-        result.reason instanceof Error
-          ? result.reason.message
-          : String(result.reason),
-      ]
-      : []
+    result.status === "rejected" ? [getErrorMessage(result.reason)] : []
   );
   if (failures.length === 0) return;
 

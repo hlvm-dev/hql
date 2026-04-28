@@ -1,11 +1,7 @@
 /**
  * Spawn the user's terminal editor against a file path.
- *
- * Resolution order matches CC's `editFileInEditor` (utils/promptEditor.ts):
- *   $VISUAL → $EDITOR → vi
- *
- * Used by the `/memory` slash command. Must use HLVM platform shim — no
- * direct subprocess via `Deno.Command`.
+ * Resolution order: $VISUAL → $EDITOR → vi.
+ * Used by the `/memory` slash command.
  */
 
 import { getPlatform } from "../../../platform/platform.ts";
@@ -23,12 +19,9 @@ const DEFAULT_EDITOR = "vi";
 
 /**
  * GUI editors that fork-and-return by default. Without these wait flags
- * the picker thinks editing finished before the user has touched the file.
- * Mirrors CC's `~/dev/ClaudeCode-main/utils/promptEditor.ts:16-19`.
- *
- * The override is keyed off the editor command name AS USER SET IT (i.e.
- * the basename of `$VISUAL` / `$EDITOR`), and only fires if the user
- * didn't already include a wait flag themselves.
+ * the picker thinks editing finished before the user has touched the
+ * file. The override only fires if the user didn't already include their
+ * own flags (so "code --new-window" is left alone).
  */
 const EDITOR_OVERRIDES: Record<string, string> = {
   code: "code -w", // VS Code

@@ -4,7 +4,6 @@ import { getRuntimeProviderStatus, listRuntimeInstalledModels } from "./host-cli
 import {
   getRuntimeModelAvailability,
   resolveEffectiveModelAvailabilityTarget,
-  resolveModelAvailabilityTarget,
 } from "./model-availability.ts";
 
 export type ConfiguredModelReadinessState =

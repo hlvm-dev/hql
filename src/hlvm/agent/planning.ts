@@ -30,7 +30,7 @@ export interface PlanningConfig {
   requireStepMarkers?: boolean;
 }
 
-export interface PlanStep {
+interface PlanStep {
   id: string;
   title: string;
   goal?: string;
@@ -68,7 +68,7 @@ const EXPLICIT_PLAN_CUE_PATTERNS = [
   /\bphase\s*1\b[\s\S]{0,120}\bphase\s*2\b/i,
 ] as const;
 
-export function hasDeterministicPlanningCue(request: string): boolean {
+function hasDeterministicPlanningCue(request: string): boolean {
   return EXPLICIT_PLAN_CUE_PATTERNS.some((pattern) => pattern.test(request));
 }
 

@@ -176,8 +176,6 @@ export const HINTS = Object.freeze({
     "Check the tool result for a tool-specific hint before retrying.",
 } as const);
 
-export type HintKey = keyof typeof HINTS;
-
 // Compiled regex patterns for error classification (module-level, created once).
 // Each entry maps a regex to {class, retryable} — used both in classifyError()
 // for SDK-level checks (e.g. context_overflow inside APICallError) and for the

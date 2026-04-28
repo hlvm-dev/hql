@@ -2160,11 +2160,6 @@ async function initRunningAppsCache(): Promise<void> {
   }
 }
 
-/** Refresh display cache. Called before screenshot to ensure accurate dims. */
-export async function refreshDisplayCache(): Promise<void> {
-  await initDisplayCache();
-}
-
 /**
  * Invalidate all cached state (display, running apps).
  * Called when a fresh CU lock is acquired to ensure the new session

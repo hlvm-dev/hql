@@ -100,7 +100,7 @@ export function shouldSuppressFinalResponse(response: string): boolean {
   return false;
 }
 
-export interface StreamingResponseSanitizer {
+interface StreamingResponseSanitizer {
   push(chunk: string): string;
   flush(): string;
 }

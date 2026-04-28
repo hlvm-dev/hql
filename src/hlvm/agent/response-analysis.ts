@@ -1,4 +1,4 @@
-export interface AssistantResponseAnalysis {
+interface AssistantResponseAnalysis {
   asksQuestion: boolean;
   question: string | null;
   isBinaryQuestion: boolean;

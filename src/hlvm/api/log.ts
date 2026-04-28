@@ -60,44 +60,28 @@ interface LogApi {
   };
 }
 
-/**
- * Format message with optional arguments
- */
+/** Format with %s/%d/%j placeholders; remaining args are appended as suffix. */
 function formatMessage(message: string, args: unknown[]): string {
   if (args.length === 0) return message;
 
-  // Simple interpolation: replace %s, %d, %j with args
-  let result = message;
   let argIndex = 0;
-
-  result = result.replace(/%[sdj]/g, (match) => {
+  const result = message.replace(/%[sdj]/g, (match) => {
     if (argIndex >= args.length) return match;
     const arg = args[argIndex++];
-
-    switch (match) {
-      case "%s":
-        return String(arg);
-      case "%d":
-        return Number(arg).toString();
-      // "%j" — the only remaining case from /%[sdj]/g
-      default:
-        try {
-          return JSON.stringify(arg);
-        } catch {
-          return "[Circular]";
-        }
+    if (match === "%s") return String(arg);
+    if (match === "%d") return Number(arg).toString();
+    try {
+      return JSON.stringify(arg);
+    } catch {
+      return "[Circular]";
     }
   });
 
-  // Append any remaining args
-  if (argIndex < args.length) {
-    const remaining = args.slice(argIndex).map((a) =>
-      typeof a === "object" ? JSON.stringify(a) : String(a)
-    ).join(" ");
-    result += " " + remaining;
-  }
-
-  return result;
+  if (argIndex >= args.length) return result;
+  const tail = args.slice(argIndex)
+    .map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a)))
+    .join(" ");
+  return `${result} ${tail}`;
 }
 
 /**
@@ -173,5 +157,3 @@ export const log: LogApi = {
     },
   },
 };
-
-// default export removed — use named `log` export instead

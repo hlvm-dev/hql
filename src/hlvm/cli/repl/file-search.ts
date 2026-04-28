@@ -199,11 +199,10 @@ const COMMON_HOME_FOLDER_SCORE_BONUS = 180;
 const CWD_TOP_LEVEL_SCORE_BASE = 300;
 
 /**
- * List the current working directory's top-level entries for the empty-query
- * `@` picker. Includes hidden dot-entries (matching Claude Code's @ picker
- * which surfaces `.git/`, `.claude/`, `.DS_Store`, …), alpha-sorted,
- * directories first, with dot-entries de-prioritised within each group so
- * plain files/dirs render above them.
+ * List the cwd's top-level entries for the empty-query `@` picker.
+ * Includes hidden dot-entries (`.git/`, `.claude/`, `.DS_Store`, …),
+ * alpha-sorted, directories first, with dot-entries de-prioritised
+ * within each group so plain files/dirs render above them.
  */
 async function listCwdTopLevelEntries(maxResults: number): Promise<FileMatch[]> {
   const platform = getPlatform();
@@ -490,11 +489,8 @@ export async function searchFiles(
   const results: FileMatch[] = [];
   const commonHomeMatches = await searchCommonHomeFolders(query, maxResults);
 
-  // If empty query, show CWD top-level entries first (including hidden
-  // dot-entries), matching Claude Code's @ picker which opens onto the
-  // current working directory rather than onto home-folder shortcuts.
-  // See ~/dev/ClaudeCode-main/ @ picker behavior (lists `.DS_Store`,
-  // `.claude/`, `.git/`, `.firebaserc`, etc. at the top level on empty query).
+  // Empty query: show cwd top-level entries (including hidden
+  // dot-entries) before home-folder shortcuts.
   if (!query.trim()) {
     const cwdTopLevel = await listCwdTopLevelEntries(maxResults);
     for (const entry of cwdTopLevel) {

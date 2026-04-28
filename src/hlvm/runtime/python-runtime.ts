@@ -447,18 +447,13 @@ export async function readPinnedPythonSidecarRequirements(): Promise<string> {
   return await readEmbeddedTextFile("embedded-python-sidecar-requirements.txt");
 }
 
-export async function getPinnedPythonSidecarPackages(): Promise<
+async function getPinnedPythonSidecarPackages(): Promise<
   PythonSidecarPackage[]
 > {
   return parsePinnedPackages(await readPinnedPythonSidecarRequirements());
 }
 
-export async function resolveManagedUvPath(): Promise<string | null> {
-  const uvPath = getManagedUvBinaryPath();
-  return await fileExists(uvPath) ? uvPath : null;
-}
-
-export async function resolveManagedPythonPath(): Promise<string | null> {
+async function resolveManagedPythonPath(): Promise<string | null> {
   const pythonPath = getManagedPythonExecutablePath();
   return await fileExists(pythonPath) ? pythonPath : null;
 }

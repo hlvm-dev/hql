@@ -1,6 +1,7 @@
 import { appendJsonLine } from "../../../common/jsonl.ts";
 import { getPlatform } from "../../../platform/platform.ts";
 import { log } from "../../api/log.ts";
+import { getErrorMessage } from "../../../common/utils.ts";
 
 let sequence = 0;
 let writeQueue: Promise<void> = Promise.resolve();
@@ -48,9 +49,10 @@ export function traceChannelDiagnostic(
   writeQueue = writeQueue
     .then(() => appendJsonLine(getChannelTracePath(channel), record))
     .catch((error) => {
-      const detail = error instanceof Error ? error.message : String(error);
       log.ns(channel).debug(
-        `[${scope}] trace-write-failed ${JSON.stringify({ detail })}`,
+        `[${scope}] trace-write-failed ${
+          JSON.stringify({ detail: getErrorMessage(error) })
+        }`,
       );
     });
   void writeQueue;

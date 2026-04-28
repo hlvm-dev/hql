@@ -119,41 +119,35 @@ function createConfigApi() {
     return next;
   }
 
+  function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function mergeChannelPatch(
+    current: unknown,
+    patch: unknown,
+  ): unknown {
+    if (!isPlainRecord(patch)) return patch;
+    const base = isPlainRecord(current) ? current : {};
+    const merged: Record<string, unknown> = { ...base, ...patch };
+    if (isPlainRecord(base.transport) && isPlainRecord(patch.transport)) {
+      merged.transport = { ...base.transport, ...patch.transport };
+    }
+    return merged;
+  }
+
   function mergeConfigUpdates(
     config: HlvmConfig,
     updates: Partial<Record<ConfigKey, unknown>>,
   ): HlvmConfig {
     const next = { ...config, ...updates } as HlvmConfig;
-    if (updates.channels && typeof updates.channels === "object" && !Array.isArray(updates.channels)) {
+    if (isPlainRecord(updates.channels)) {
       const mergedChannels = { ...(config.channels ?? {}) };
-      for (const [channel, patch] of Object.entries(updates.channels as Record<string, unknown>)) {
-        if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
-          mergedChannels[channel] = patch as never;
-          continue;
-        }
-        const currentChannel = mergedChannels[channel];
-        const patchChannel = patch as Record<string, unknown>;
-        const nextChannel = {
-          ...(currentChannel && typeof currentChannel === "object" && !Array.isArray(currentChannel)
-            ? currentChannel
-            : {}),
-          ...patchChannel,
-        } as Record<string, unknown>;
-        const currentTransport = currentChannel && typeof currentChannel === "object" &&
-            !Array.isArray(currentChannel) && "transport" in currentChannel
-          ? (currentChannel as Record<string, unknown>).transport
-          : undefined;
-        const patchTransport = patchChannel.transport;
-        if (
-          patchTransport && typeof patchTransport === "object" && !Array.isArray(patchTransport) &&
-          currentTransport && typeof currentTransport === "object" && !Array.isArray(currentTransport)
-        ) {
-          nextChannel.transport = {
-            ...currentTransport as Record<string, unknown>,
-            ...patchTransport as Record<string, unknown>,
-          };
-        }
-        mergedChannels[channel] = nextChannel as never;
+      for (const [channel, patch] of Object.entries(updates.channels)) {
+        mergedChannels[channel] = mergeChannelPatch(
+          mergedChannels[channel],
+          patch,
+        ) as never;
       }
       next.channels = mergedChannels;
     }

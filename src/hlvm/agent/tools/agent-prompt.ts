@@ -1,30 +1,10 @@
-/**
- * Agent Prompt Generation
- *
- * CC source: tools/AgentTool/prompt.ts
- * Generates the tool description that the brain sees when deciding
- * whether and how to use the Agent tool.
- */
-
 import type { AgentDefinition } from "./agent-types.ts";
 
-// ============================================================
-// formatAgentLine (CC: prompt.ts lines 43-46)
-// ============================================================
-
-/**
- * Format a single agent line for the brain.
- * CC: `- agentType: whenToUse (Tools: toolsDescription)`
- */
-export function formatAgentLine(agent: AgentDefinition): string {
+function formatAgentLine(agent: AgentDefinition): string {
   const toolsDescription = getToolsDescription(agent);
   return `- ${agent.agentType}: ${agent.whenToUse} (Tools: ${toolsDescription})`;
 }
 
-/**
- * Generate tool availability text for an agent.
- * CC: getToolsDescription() — exact same logic
- */
 function getToolsDescription(agent: AgentDefinition): string {
   const { tools, disallowedTools } = agent;
   const hasAllowlist = tools !== undefined && tools.length > 0;
@@ -34,24 +14,12 @@ function getToolsDescription(agent: AgentDefinition): string {
     const denySet = new Set(disallowedTools);
     const effectiveTools = tools!.filter((t) => !denySet.has(t));
     return effectiveTools.length === 0 ? "None" : effectiveTools.join(", ");
-  } else if (hasAllowlist) {
-    return tools!.join(", ");
-  } else if (hasDenylist) {
-    return `All tools except ${disallowedTools!.join(", ")}`;
   }
+  if (hasAllowlist) return tools!.join(", ");
+  if (hasDenylist) return `All tools except ${disallowedTools!.join(", ")}`;
   return "All tools";
 }
 
-// ============================================================
-// getAgentToolPrompt (CC: getPrompt — simplified, no fork/coordinator)
-// ============================================================
-
-/**
- * Generate the full prompt for the Agent tool.
- * This is what the brain reads to understand how to use the Agent tool.
- *
- * CC: getPrompt() — stripped of fork semantics, coordinator mode, remote options.
- */
 export function getAgentToolPrompt(agents: AgentDefinition[]): string {
   const agentLines = agents.map(formatAgentLine).join("\n");
 

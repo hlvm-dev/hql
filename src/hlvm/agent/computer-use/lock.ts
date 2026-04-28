@@ -173,10 +173,6 @@ function registerLockCleanup(): void {
 
 let _currentSessionId: string | undefined;
 
-export function setCurrentSessionId(sessionId: string): void {
-  _currentSessionId = sessionId;
-}
-
 function getCurrentSessionId(): string {
   return _currentSessionId ?? "unknown";
 }

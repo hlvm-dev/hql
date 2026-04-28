@@ -1,6 +1,5 @@
 /**
  * Direct chat mode: streaming LLM responses, model validation.
- * Extracted from chat.ts for modularity.
  */
 
 import { ai } from "../../../api/ai.ts";

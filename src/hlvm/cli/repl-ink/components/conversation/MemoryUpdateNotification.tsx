@@ -1,10 +1,8 @@
 /**
- * MemoryUpdateNotification — inline transcript line shown after the model
- * writes or edits a memory file. Mirrors CC's behavior:
+ * Inline transcript line shown after the model writes or edits a memory
+ * file. One dim line, never expandable. Format:
  *
  *   Memory updated in ~/.hlvm/HLVM.md · /memory to edit
- *
- * One line, dim text, never expandable.
  */
 
 import React from "react";

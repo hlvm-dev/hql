@@ -1,6 +1,5 @@
 /**
  * Chat session management: request tracking, interaction handling, cancellation.
- * Extracted from chat.ts for modularity.
  */
 
 import { LRUCache } from "../../../../common/lru-cache.ts";

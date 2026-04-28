@@ -776,15 +776,5 @@ export const _testOnly = {
   },
   getSnapshotRefsForTests: (sessionId?: string): PlaywrightSnapshotRef[] =>
     [...(getBrowserSessionState(sessionId)?.snapshotRefs.values() ?? [])],
-  setSnapshotRefsForTests: (
-    sessionId: string,
-    refs: readonly PlaywrightSnapshotRef[],
-  ): void => {
-    const { state } = ensureBrowserSessionState(sessionId);
-    state.snapshotRefs = new Map(refs.map((item) => [item.ref, item]));
-  },
-  getActiveTraceForTests: (
-    sessionId?: string,
-  ): BrowserTraceState | undefined => getBrowserSessionState(sessionId)?.activeTrace,
   resolveSessionKey,
 };

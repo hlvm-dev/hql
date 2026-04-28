@@ -9,7 +9,7 @@ const DEFAULT_RESTORATION_LIMIT = 5;
 const MAX_RESTORATION_TOKENS_PER_FILE = 5_000;
 const MAX_RESTORATION_TOKENS_TOTAL = 50_000;
 
-export interface FileStateEntry {
+interface FileStateEntry {
   path: string;
   contentHash: string;
   mtimeMs?: number;
@@ -19,7 +19,7 @@ export interface FileStateEntry {
   content?: string;
 }
 
-export interface FileStateConflictResult {
+interface FileStateConflictResult {
   ok: boolean;
   entry?: FileStateEntry;
   reason?: string;

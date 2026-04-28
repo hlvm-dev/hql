@@ -340,22 +340,27 @@ async function extractDocumentText(
   return null;
 }
 
+const ALWAYS_TEXT_KINDS: ReadonlySet<AttachmentRecord["kind"]> = new Set([
+  "text",
+  "document",
+  "file",
+]);
+const OPT_IN_TEXT_KINDS: ReadonlySet<AttachmentRecord["kind"]> = new Set([
+  "pdf",
+  "image",
+  "audio",
+  "video",
+]);
+
 function shouldExtractTextForConversation(
   record: AttachmentRecord,
   preferTextKinds: readonly Exclude<ConversationAttachmentKind, "text">[],
 ): boolean {
-  if (
-    record.kind === "text" || record.kind === "document" ||
-    record.kind === "file"
-  ) {
-    return true;
-  }
-  // Remaining kinds (pdf, image, audio, video) are eligible when listed in preferTextKinds.
-  const kind = record.kind;
-  return kind === "pdf" || kind === "image" || kind === "audio" ||
-    kind === "video"
-    ? preferTextKinds.includes(kind)
-    : false;
+  if (ALWAYS_TEXT_KINDS.has(record.kind)) return true;
+  if (!OPT_IN_TEXT_KINDS.has(record.kind)) return false;
+  return preferTextKinds.includes(
+    record.kind as Exclude<ConversationAttachmentKind, "text">,
+  );
 }
 
 export async function extractAttachmentText(

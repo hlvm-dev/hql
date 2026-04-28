@@ -17,8 +17,10 @@ import {
 import { Ratchet } from "../Ratchet.tsx";
 
 import { createIncrementalSanitizer } from "../../utils/sanitize-ansi.ts";
-import { getLiveConversationSpacing } from "./message-spacing.ts";
-import { TRANSCRIPT_LAYOUT } from "../../utils/layout-tokens.ts";
+import {
+  getLiveConversationSpacing,
+  TRANSCRIPT_LAYOUT,
+} from "../../utils/layout-tokens.ts";
 import { truncateTranscriptBlock } from "../../utils/transcript-truncation.ts";
 import { useConversationSpinnerFrame } from "../../hooks/useConversationMotion.ts";
 import { getCcSpinnerVerb } from "./cc-turn-copy.ts";

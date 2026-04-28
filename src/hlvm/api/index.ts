@@ -19,9 +19,6 @@
 
 import { config } from "./config.ts";
 import { bindings } from "./bindings.ts";
-// `memory` removed — old SQLite-backed API is gone. The `(memory)` REPL
-// helper is now a function bound in cli/repl/helpers.ts that opens
-// ~/.hlvm/HLVM.md in $EDITOR (CC parity).
 import { history, setReplState } from "./history.ts";
 import { ai, type AiApi } from "./ai.ts";
 import {
@@ -92,12 +89,11 @@ export function registerApis(options?: RegisterApisOptions): void {
     setRuntimeState(options.runtime);
   }
 
-  // Register on globalThis
+  // Register on globalThis. `memory` is bound separately in cli/repl/helpers.ts
+  // — it opens ~/.hlvm/HLVM.md in $EDITOR.
   const global = globalThis as Record<string, unknown>;
   global.config = config;
   global.bindings = bindings;
-  // `memory` global is bound by cli/repl/helpers.ts to a function that
-  // opens ~/.hlvm/HLVM.md in $EDITOR (CC `/memory` parity at REPL level).
   global.history = history;
   global.ai = ai;
   global.agent = agent;

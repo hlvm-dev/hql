@@ -1,13 +1,7 @@
 /**
  * Memory recall selector. Per-turn LLM call that picks ~5 relevant memory
- * files for a user query.
- *
- * Mirrors CC's memdir/findRelevantMemories.ts behavior. Adaptation:
- * - CC uses sideQuery → Sonnet 3.5
- * - HLVM uses classifyJson → managed local model (resolved via SSOT)
- *
- * Returns up to 5 memory file paths + their mtime so callers can prepend
- * freshness notes without a second stat.
+ * files for a user query. Returns up to 5 memory file paths + mtime so
+ * callers can prepend freshness notes without a second stat.
  */
 
 import { classifyJson } from "../runtime/local-llm.ts";
@@ -81,12 +75,8 @@ async function selectRelevantMemories(
 ): Promise<string[]> {
   if (signal.aborted) return [];
 
-  // Test stub hook: HLVM_MEMORY_SELECTOR_STUB=<json-file-path>
-  // (Phase 6 E2E sets this for determinism; production never sets it.)
   const stubPath = getStubPath();
-  if (stubPath) {
-    return await readStubSelection(stubPath);
-  }
+  if (stubPath) return await readStubSelection(stubPath);
 
   const validFilenames = new Set(memories.map((m) => m.filename));
   const manifest = formatMemoryManifest(memories);
@@ -102,10 +92,9 @@ async function selectRelevantMemories(
     SELECT_MEMORIES_PROMPT_HEADER + "\n" + userBlock,
     { temperature: 0, maxTokens: 256 },
   );
-  if (!parsed) return [];
-
-  const raw = parsed.selected;
+  const raw = parsed?.selected;
   if (!Array.isArray(raw)) return [];
+
   const picked: string[] = [];
   for (const v of raw) {
     if (typeof v === "string" && validFilenames.has(v)) {
@@ -116,10 +105,11 @@ async function selectRelevantMemories(
   return picked;
 }
 
+// HLVM_MEMORY_SELECTOR_STUB=<json-file-path> — E2E determinism only.
 function getStubPath(): string | null {
   try {
     const env = getPlatform().env.get("HLVM_MEMORY_SELECTOR_STUB");
-    return typeof env === "string" && env.length > 0 ? env : null;
+    return env && env.length > 0 ? env : null;
   } catch {
     return null;
   }
@@ -127,17 +117,13 @@ function getStubPath(): string | null {
 
 async function readStubSelection(path: string): Promise<string[]> {
   try {
-    const text = await getPlatform().fs.readTextFile(path);
-    const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) {
-      return parsed.filter((v): v is string => typeof v === "string");
-    }
-    if (parsed && typeof parsed === "object" && Array.isArray(parsed.selected)) {
-      return parsed.selected.filter((v: unknown): v is string =>
-        typeof v === "string"
-      );
-    }
-    return [];
+    const parsed = JSON.parse(await getPlatform().fs.readTextFile(path));
+    const raw = Array.isArray(parsed)
+      ? parsed
+      : (parsed && typeof parsed === "object" && Array.isArray(parsed.selected)
+        ? parsed.selected
+        : []);
+    return raw.filter((v: unknown): v is string => typeof v === "string");
   } catch {
     return [];
   }

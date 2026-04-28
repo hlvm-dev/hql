@@ -8,8 +8,6 @@
 import { getPlatform } from "../../../platform/platform.ts";
 import { ToolError } from "../error-taxonomy.ts";
 
-export const COMPUTER_USE_MCP_SERVER_NAME = "computer-use";
-
 /**
  * Sentinel bundle ID for the frontmost gate. Claude Code is a terminal — it has
  * no window. This never matches a real `NSWorkspace.frontmostApplication`, so

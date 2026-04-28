@@ -383,30 +383,6 @@ function normalizeConfigInput(
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
-function isDefaultLikeConfig(config: Partial<HlvmConfig> | null): boolean {
-  if (!config) return true;
-  for (const key of CONFIG_KEYS) {
-    const value = config[key];
-    if (value === undefined) continue;
-    if (key === "tools" || key === "channels") {
-      const defaults = DEFAULT_CONFIG[key];
-      if (!defaults || typeof value !== "object") {
-        return false;
-      }
-      const same = JSON.stringify(value) === JSON.stringify(defaults);
-      if (!same) return false;
-      continue;
-    }
-    if (value !== DEFAULT_CONFIG[key]) {
-      return false;
-    }
-  }
-  if (config.keybindings && Object.keys(config.keybindings).length > 0) {
-    return false;
-  }
-  return true;
-}
-
 function mergeConfigs(
   current: Partial<HlvmConfig> | null,
   legacy: Partial<HlvmConfig> | null,

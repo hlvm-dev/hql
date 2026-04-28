@@ -224,8 +224,7 @@ export async function disposeAllSessions(): Promise<void> {
  * Refresh the prompt/context/LLM for a reusable session while preserving
  * session-scoped state such as todoState, fileStateCache, and tool ownership.
  */
-/** @internal Exported for testing. Refreshes memory in a reusable session. */
-export async function reuseSession(
+async function reuseSession(
   session: AgentSession,
   onToken?: (text: string) => void,
   options?: {
@@ -387,16 +386,15 @@ function resolveSessionEffectiveToolFilter(
  *      primary-model-tier assumptions and cross-tier fallbacks should not
  *      inherit them.
  *
- * @internal Exported for unit tests. Used by `createFallbackLLM`.
  */
-export interface FallbackToolFilterOptions {
+interface FallbackToolFilterOptions {
   fallbackModel: string;
   requestedToolAllowlist?: readonly string[];
   effectiveToolDenylist?: readonly string[];
   discoveredDeferredTools?: Iterable<string>;
 }
 
-export interface FallbackToolFilter {
+interface FallbackToolFilter {
   capability: ModelCapabilityClass;
   allowlist?: string[];
   denylist?: string[];

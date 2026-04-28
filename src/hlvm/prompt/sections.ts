@@ -63,6 +63,16 @@ function annotateSection(section: RawPromptSection): PromptSection {
   };
 }
 
+function hasToolPrefix(
+  tools: Record<string, ToolMetadata>,
+  prefix: string,
+): boolean {
+  for (const name in tools) {
+    if (name.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
 // ============================================================
 // Section Renderers
 // ============================================================
@@ -405,8 +415,7 @@ function renderComputerUseGuidance(
   tools: Record<string, ToolMetadata>,
   visionCapable?: boolean,
 ): RawPromptSection {
-  const hasCuTools = Object.keys(tools).some((n) => n.startsWith("cu_"));
-  if (!hasCuTools || visionCapable === false) {
+  if (!hasToolPrefix(tools, "cu_") || visionCapable === false) {
     return { id: "computer_use", content: "", minCapability: "tool" };
   }
 
@@ -470,12 +479,11 @@ You have computer control tools (cu_* prefix) for GUI automation on macOS.
 function renderBrowserAutomationGuidance(
   tools: Record<string, ToolMetadata>,
 ): RawPromptSection {
-  const hasPwTools = Object.keys(tools).some((n) => n.startsWith("pw_"));
-  if (!hasPwTools) {
+  if (!hasToolPrefix(tools, "pw_")) {
     return { id: "browser_automation", content: "", minCapability: "tool" };
   }
 
-  const hasCuTools = Object.keys(tools).some((n) => n.startsWith("cu_"));
+  const hasCuTools = hasToolPrefix(tools, "cu_");
   const hybridSection = hasCuTools
     ? `
 
@@ -528,8 +536,7 @@ ALWAYS prefer pw_* over web_fetch for visiting web pages, reading content, filli
 function renderChromeExtGuidance(
   tools: Record<string, ToolMetadata>,
 ): RawPromptSection {
-  const hasChTools = Object.keys(tools).some((n) => n.startsWith("ch_"));
-  if (!hasChTools) {
+  if (!hasToolPrefix(tools, "ch_")) {
     return { id: "chrome_ext", content: "", minCapability: "tool" };
   }
   return {

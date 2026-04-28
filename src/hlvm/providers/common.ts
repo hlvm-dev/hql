@@ -56,6 +56,16 @@ export function bearerAuthHeaders(token: string): Record<string, string> {
  *   Anthropic: { type: "error", error: { type, message } }
  *   Google:    { error: { code, message, status, details? } }
  */
+const PROVIDER_ERROR_TEXT_KEYS = [
+  "error",
+  "message",
+  "detail",
+  "description",
+  "error_description",
+  "details",
+  "errors",
+] as const;
+
 function pickProviderErrorText(value: unknown): string | null {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -73,17 +83,7 @@ function pickProviderErrorText(value: unknown): string | null {
   }
 
   const record = value as Record<string, unknown>;
-  for (
-    const key of [
-      "error",
-      "message",
-      "detail",
-      "description",
-      "error_description",
-      "details",
-      "errors",
-    ]
-  ) {
+  for (const key of PROVIDER_ERROR_TEXT_KEYS) {
     const text = pickProviderErrorText(record[key]);
     if (text) return text;
   }
@@ -112,21 +112,16 @@ export function extractProviderErrorMessage(text: string): string | null {
   return null;
 }
 
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  "claude-code": "Claude Code",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  google: "Google",
+  ollama: "Ollama",
+};
+
 export function providerDisplayName(providerName: string): string {
-  switch (providerName) {
-    case "claude-code":
-      return "Claude Code";
-    case "openai":
-      return "OpenAI";
-    case "anthropic":
-      return "Anthropic";
-    case "google":
-      return "Google";
-    case "ollama":
-      return "Ollama";
-    default:
-      return providerName;
-  }
+  return PROVIDER_DISPLAY_NAMES[providerName] ?? providerName;
 }
 
 function normalizeFailureDetail(

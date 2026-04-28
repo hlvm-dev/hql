@@ -9,7 +9,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import type { ConversationAttachmentRef } from "../../types.ts";
-import { getLiveConversationSpacing } from "./message-spacing.ts";
+import { getLiveConversationSpacing } from "../../utils/layout-tokens.ts";
 import { TranscriptDivider } from "./TranscriptDivider.tsx";
 import { truncateTranscriptInline } from "../../utils/transcript-truncation.ts";
 

@@ -1,8 +1,5 @@
 /**
  * Memory-directory scanning. Recursive walk + frontmatter extraction.
- *
- * Mirrors CC's memdir/memoryScan.ts behavior but uses HLVM platform fs
- * (no direct fs/promises) and HLVM's existing frontmatter parser.
  */
 
 import { getPlatform } from "../../platform/platform.ts";

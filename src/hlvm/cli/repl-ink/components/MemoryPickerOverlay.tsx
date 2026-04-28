@@ -1,25 +1,12 @@
 /**
- * MemoryPickerOverlay — interactive `/memory` picker.
+ * Interactive `/memory` picker. Three rows (User memory, Auto-memory
+ * MEMORY.md, Open auto-memory folder) selected with arrow keys / Enter
+ * or number keys 1–3. Spawns $VISUAL/$EDITOR/vi against the chosen `.md`,
+ * or asks the OS to reveal the folder. Esc cancels.
  *
- * Mirrors CC's `commands/memory/memory.tsx` + `MemoryFileSelector.tsx`.
- * Shows three rows (User memory, Auto-memory MEMORY.md,
- * Open auto-memory folder), lets the user pick one with ↑↓/Enter or
- * number keys 1–3, and spawns $VISUAL/$EDITOR/vi against the chosen
- * `.md` path (or asks the OS to reveal the folder). Esc cancels.
- *
- * Editor handoff: leaves Ink mounted and spawns the editor with `inherit`
- * stdio — vim/nano take the alternate screen via their own terminal codes,
- * and on quit the terminal restores Ink's prior state. We deliberately do
- * NOT call `useApp().exit()` here: that resolves `waitUntilExit()` in
- * `startInkRepl` and would terminate the entire HLVM process. Real
- * pause/resume of Ink (alternate-screen handoff a la CC's promptEditor)
- * is a known TODO — current behavior is "REPL survives editor exit," not
- * "no rendering glitches while editor is up."
- *
- * Out of scope (intentional, per plan v3 continuation):
- *   - Auto-memory toggle row (read-only status row instead)
- *   - Auto-dream status row (AUTODREAM out of scope)
- *   - Team / agent / @-imported nested rows
+ * The editor is spawned with `inherit` stdio while Ink stays mounted; we
+ * never call `useApp().exit()` because that would resolve
+ * `waitUntilExit()` in `startInkRepl` and terminate the HLVM process.
  */
 
 import React, { useEffect, useMemo, useState } from "react";

@@ -76,46 +76,28 @@ function modelBaseName(modelName: string): string {
   return colonIdx >= 0 ? modelName.slice(0, colonIdx) : modelName;
 }
 
+const OLLAMA_CAPABILITY_MAP: Record<string, ProviderCapability[]> = {
+  completion: ["generate", "chat"],
+  chat: ["chat"],
+  tools: ["tools"],
+  vision: ["vision"],
+  thinking: ["thinking"],
+  audio: ["media.audioInput"],
+};
+
 function extractCapabilities(
   rawCapabilities: string[] | undefined,
   hasVision: boolean,
 ): ProviderCapability[] {
   const capabilities = new Set<ProviderCapability>();
-  const raw = rawCapabilities ?? [];
-
-  for (const capability of raw) {
-    switch (capability) {
-      case "completion":
-        capabilities.add("generate");
-        capabilities.add("chat");
-        break;
-      case "chat":
-        capabilities.add("chat");
-        break;
-      case "tools":
-        capabilities.add("tools");
-        break;
-      case "vision":
-        capabilities.add("vision");
-        break;
-      case "thinking":
-        capabilities.add("thinking");
-        break;
-      case "audio":
-        capabilities.add("media.audioInput");
-        break;
-      default:
-        break;
+  for (const capability of rawCapabilities ?? []) {
+    const mapped = OLLAMA_CAPABILITY_MAP[capability];
+    if (mapped) {
+      for (const cap of mapped) capabilities.add(cap);
     }
   }
-
-  if (!capabilities.has("chat")) {
-    capabilities.add("chat");
-  }
-  if (hasVision) {
-    capabilities.add("vision");
-  }
-
+  capabilities.add("chat");
+  if (hasVision) capabilities.add("vision");
   return [...capabilities];
 }
 
@@ -386,7 +368,7 @@ export async function getModel(
       { name },
     );
 
-    const families = (result.details as { families?: string[] })?.families ?? [];
+    const families = result.details?.families ?? [];
     const hasVision = families.some((f) => f === "clip" || f === "mllama");
 
     // Extract context_length from model_info (key varies by architecture, e.g. "llama.context_length")
@@ -401,14 +383,13 @@ export async function getModel(
     }
     contextWindow = loadedContext ?? contextWindow;
 
+    const resolvedName = result.name || name;
     return {
-      name: result.name || name,
-      displayName: (result.name || name).split(":")[0],
-      family: (result.details as { family?: string })?.family,
-      parameterSize: (result.details as { parameter_size?: string })
-        ?.parameter_size,
-      quantization: (result.details as { quantization_level?: string })
-        ?.quantization_level,
+      name: resolvedName,
+      displayName: resolvedName.split(":")[0],
+      family: result.details?.family,
+      parameterSize: result.details?.parameter_size,
+      quantization: result.details?.quantization_level,
       capabilities: extractCapabilities(result.capabilities, hasVision),
       metadata: {
         details: result.details,

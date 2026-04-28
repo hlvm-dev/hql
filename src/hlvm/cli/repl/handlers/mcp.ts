@@ -38,6 +38,13 @@ function getErrorStatus(error: unknown): number {
   return error instanceof ValidationError ? 400 : 500;
 }
 
+function requireServerName(value: unknown): string | Response {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return jsonError("name is required", 400);
+  }
+  return value;
+}
+
 function isAuthStatus(message: string): boolean {
   return /401|403|unauthor|forbidden|oauth|needs auth|authentication|bearer|access token/i
     .test(message);
@@ -175,10 +182,9 @@ export async function handleRemoveMcpServer(req: Request): Promise<Response> {
   const parsed = await parseJsonBody<RuntimeMcpRemoveRequest>(req);
   if (!parsed.ok) return parsed.response;
 
-  const { name } = parsed.value;
-  if (typeof name !== "string" || name.trim().length === 0) {
-    return jsonError("name is required", 400);
-  }
+  const nameOrErr = requireServerName(parsed.value.name);
+  if (nameOrErr instanceof Response) return nameOrErr;
+  const name = nameOrErr;
 
   try {
     const serverBeforeRemoval = await resolveUserServerByName(name);
@@ -200,10 +206,9 @@ export async function handleLoginMcpServer(req: Request): Promise<Response> {
   const parsed = await parseJsonBody<RuntimeMcpOauthRequest>(req);
   if (!parsed.ok) return parsed.response;
 
-  const { name } = parsed.value;
-  if (typeof name !== "string" || name.trim().length === 0) {
-    return jsonError("name is required", 400);
-  }
+  const nameOrErr = requireServerName(parsed.value.name);
+  if (nameOrErr instanceof Response) return nameOrErr;
+  const name = nameOrErr;
 
   try {
     const server = await resolveServerByName(name);
@@ -239,10 +244,9 @@ export async function handleLogoutMcpServer(req: Request): Promise<Response> {
   const parsed = await parseJsonBody<RuntimeMcpOauthRequest>(req);
   if (!parsed.ok) return parsed.response;
 
-  const { name } = parsed.value;
-  if (typeof name !== "string" || name.trim().length === 0) {
-    return jsonError("name is required", 400);
-  }
+  const nameOrErr = requireServerName(parsed.value.name);
+  if (nameOrErr instanceof Response) return nameOrErr;
+  const name = nameOrErr;
 
   try {
     const server = await resolveServerByName(name);

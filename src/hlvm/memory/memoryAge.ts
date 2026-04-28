@@ -1,15 +1,9 @@
-/**
- * Days elapsed since mtime. Floor-rounded — 0 for today, 1 for yesterday,
- * 2+ for older. Negative inputs (future mtime, clock skew) clamp to 0.
- */
+/** Days since mtime, floored. Negative deltas (clock skew) clamp to 0. */
 export function memoryAgeDays(mtimeMs: number): number {
   return Math.max(0, Math.floor((Date.now() - mtimeMs) / 86_400_000));
 }
 
-/**
- * Human-readable age string. Models are poor at date arithmetic — a raw
- * ISO timestamp doesn't trigger staleness reasoning the way "47 days ago" does.
- */
+/** Human-readable age — models reason about "47 days ago" better than ISO. */
 export function memoryAge(mtimeMs: number): string {
   const d = memoryAgeDays(mtimeMs);
   if (d === 0) return "today";
@@ -17,12 +11,7 @@ export function memoryAge(mtimeMs: number): string {
   return `${d} days ago`;
 }
 
-/**
- * Plain-text staleness caveat for memories >1 day old. Returns '' for fresh
- * (today/yesterday) memories — warning there is noise.
- *
- * Use this when the consumer already provides its own wrapping.
- */
+/** Staleness caveat for memories >1 day old. Returns '' for fresh memories. */
 export function memoryFreshnessText(mtimeMs: number): string {
   const d = memoryAgeDays(mtimeMs);
   if (d <= 1) return "";
@@ -34,11 +23,7 @@ export function memoryFreshnessText(mtimeMs: number): string {
   );
 }
 
-/**
- * Per-memory staleness note wrapped in <system-reminder> tags. Returns ''
- * for memories ≤ 1 day old. Use this for callers that don't add their own
- * system-reminder wrapper.
- */
+/** Wraps memoryFreshnessText in <system-reminder> tags, '' when fresh. */
 export function memoryFreshnessNote(mtimeMs: number): string {
   const text = memoryFreshnessText(mtimeMs);
   if (!text) return "";

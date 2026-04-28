@@ -7,7 +7,6 @@
 
 import { getPlatform } from "../platform/platform.ts";
 import { isFileNotFoundError, LINE_SPLIT_REGEX } from "./utils.ts";
-export { atomicWriteTextFile } from "./atomic-file.ts";
 
 export type JsonlMapper<T> = (value: unknown) => T | undefined;
 

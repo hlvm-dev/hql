@@ -210,17 +210,6 @@ export function getBackgroundAgentSnapshots(): BackgroundAgentSnapshot[] {
   );
 }
 
-export function getAllBackgroundAgents(): BackgroundAgent[] {
-  return Array.from(getAgentToolRuntimeState().backgroundAgents.values());
-}
-
-export function getBackgroundAgent(
-  agentId: string,
-): BackgroundAgent | undefined {
-  return getAgentToolRuntimeState().backgroundAgents.get(agentId);
-}
-
-/** Cancel a background agent */
 export function cancelBackgroundAgent(agentId: string): boolean {
   const agent = getAgentToolRuntimeState().backgroundAgents.get(agentId);
   if (!agent || agent.status !== "running") return false;

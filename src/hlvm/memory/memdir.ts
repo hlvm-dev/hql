@@ -167,20 +167,8 @@ const AT_IMPORT_DEPTH_CAP = 5;
 
 /**
  * Resolve `@./path.md` and `@/abs/path.md` import lines in HLVM.md content.
- *
- * Each `@<target>` line on its own (after stripping leading whitespace) is
- * replaced inline with the imported file's content. Imports may nest up to
- * `AT_IMPORT_DEPTH_CAP` deep; cycles are detected via the `seen` set.
- *
- * Security:
- *   - Only `.md` files are imported (rejects `.sh`, `.js`, etc.)
- *   - The resolved absolute path must live inside one of `allowedRoots`
- *     (typically the importing file's directory tree, plus `~/.hlvm` for
- *     user-level memory). This prevents `@/etc/passwd` or `@../../escape.md`
- *     from reading arbitrary files.
- *
- * Skipped imports are replaced with `<!-- @import skipped: <reason> -->`
- * so the user can debug what didn't load.
+ * Only `.md` files are imported, only paths inside `allowedRoots`. Cycles
+ * and depth-cap violations become `<!-- @import skipped: ... -->` markers.
  */
 function isInsideAllowedRoot(
   absPath: string,
@@ -269,9 +257,6 @@ async function resolveAtImports(
  */
 async function buildAutoMemorySection(memoryDir: string): Promise<string> {
   const lines = buildMemoryLines(AUTO_MEM_DISPLAY_NAME, memoryDir);
-  // Compute the entrypoint from the supplied memoryDir directly. Calling
-  // getAutoMemEntrypoint() with no arg would re-derive it from process.cwd(),
-  // ignoring the cwd we already resolved upstream.
   const entrypoint = getPlatform().path.join(memoryDir, ENTRYPOINT_NAME);
   const raw = await readTextFileOrEmpty(entrypoint);
 
@@ -290,9 +275,7 @@ async function buildAutoMemorySection(memoryDir: string): Promise<string> {
 
 /**
  * Read user-level HLVM.md (`~/.hlvm/HLVM.md`) and emit it as a system block
- * with explicit `Source:` / `Scope: global` framing — matches the shape the
- * deleted `loadHlvmInstructionsSystemMessage` used so existing models behave
- * the same.
+ * with `Source:` / `Scope: global` framing.
  */
 async function buildUserMemorySection(): Promise<string | null> {
   const path = getUserMemoryPath();
@@ -317,8 +300,6 @@ async function buildUserMemorySection(): Promise<string | null> {
     body,
   ].join("\n");
 }
-
-// `buildProjectMemorySection` removed — HLVM is global-only.
 
 /**
  * Single SSOT for memory injection. Combines:

@@ -288,41 +288,6 @@ export async function classifyRequestPhase(
   };
 }
 
-// ---- Step 2: Delegation Detection ----
-
-export interface DelegationClassification {
-  shouldDelegate: boolean;
-  pattern: "fan-out" | "batch" | "sequential" | "none";
-}
-
-const CLASSIFY_DELEGATION_PROMPT =
-  `Should this task be split into subtasks for parallel agents? Reply ONLY with JSON.
-{"delegate":true/false,"pattern":"fan-out"|"batch"|"sequential"|"none"}
-- "delegate": true if task involves parallel work, batch operations, or multiple independent subtasks
-- "pattern": "fan-out" parallel independent, "batch" same op across many targets, "sequential" ordered, "none" no delegation
-Request: `;
-
-export async function classifyDelegation(
-  query: string,
-): Promise<DelegationClassification> {
-  const defaults: DelegationClassification = {
-    shouldDelegate: false,
-    pattern: "none",
-  };
-  if (!query.trim()) return defaults;
-  const parsed = await collectClassificationJson(
-    "classifyDelegation",
-    CLASSIFY_DELEGATION_PROMPT + query.slice(0, 500),
-    { temperature: 0, maxTokens: 64 },
-  );
-  if (!parsed) return defaults;
-  const pattern =
-    ["fan-out", "batch", "sequential", "none"].includes(String(parsed.pattern))
-      ? parsed.pattern as DelegationClassification["pattern"]
-      : "none";
-  return { shouldDelegate: parsed.delegate === true, pattern };
-}
-
 // ---- Step 4: Memory Fact Conflict Scoring (Batch) ----
 
 export interface FactConflictClassification {

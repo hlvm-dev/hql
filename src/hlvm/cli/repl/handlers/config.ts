@@ -26,16 +26,23 @@ function computeSupportsAgent(model?: string): boolean {
   return supportsAgentExecution(model, null);
 }
 
-function buildClientConfigPayload(
-  cfg: Awaited<typeof config.all>,
-  supportsAgent: boolean,
-) {
+function buildClientConfigPayload(cfg: Awaited<typeof config.all>) {
   return {
     ...cfg,
     selectedModelIdentifier:
       normalizeSelectedModelId(cfg.model, cfg.agentMode) ?? cfg.model,
-    supportsAgent,
+    supportsAgent: computeSupportsAgent(cfg.model),
   };
+}
+
+async function respondWithConfig(
+  produce: () => Promise<Awaited<typeof config.all>>,
+): Promise<Response> {
+  try {
+    return Response.json(buildClientConfigPayload(await produce()));
+  } catch (error) {
+    return await jsonErrorFromUnknown(error, 500);
+  }
 }
 
 /**
@@ -53,10 +60,8 @@ function buildClientConfigPayload(
  *             schema:
  *               $ref: '#/components/schemas/HlvmConfig'
  */
-export async function handleGetConfig(): Promise<Response> {
-  const cfg = await config.all;
-  const supportsAgent = computeSupportsAgent(cfg.model);
-  return Response.json(buildClientConfigPayload(cfg, supportsAgent));
+export function handleGetConfig(): Promise<Response> {
+  return respondWithConfig(() => config.all);
 }
 
 /**
@@ -107,13 +112,7 @@ export async function handlePatchConfig(req: Request): Promise<Response> {
     if (!v.valid) return jsonError(v.error ?? `Invalid value for ${key}`, 400);
   }
 
-  try {
-    const updated = await config.patch(updates);
-    const supportsAgent = computeSupportsAgent(updated.model);
-    return Response.json(buildClientConfigPayload(updated, supportsAgent));
-  } catch (error) {
-    return await jsonErrorFromUnknown(error, 500);
-  }
+  return respondWithConfig(() => config.patch(updates));
 }
 
 /**
@@ -124,14 +123,8 @@ export async function handlePatchConfig(req: Request): Promise<Response> {
  *     summary: Reset configuration to defaults
  *     operationId: resetConfig
  */
-export async function handleResetConfig(): Promise<Response> {
-  try {
-    const updated = await config.reset();
-    const supportsAgent = computeSupportsAgent(updated.model);
-    return Response.json(buildClientConfigPayload(updated, supportsAgent));
-  } catch (error) {
-    return await jsonErrorFromUnknown(error, 500);
-  }
+export function handleResetConfig(): Promise<Response> {
+  return respondWithConfig(() => config.reset());
 }
 
 /**
@@ -142,14 +135,8 @@ export async function handleResetConfig(): Promise<Response> {
  *     summary: Reload configuration from disk
  *     operationId: reloadConfig
  */
-export async function handleReloadConfig(): Promise<Response> {
-  try {
-    const updated = await config.reload();
-    const supportsAgent = computeSupportsAgent(updated.model);
-    return Response.json(buildClientConfigPayload(updated, supportsAgent));
-  } catch (error) {
-    return await jsonErrorFromUnknown(error, 500);
-  }
+export function handleReloadConfig(): Promise<Response> {
+  return respondWithConfig(() => config.reload());
 }
 
 /**
@@ -185,10 +172,7 @@ export function handleConfigStream(req: Request): Response {
     };
 
     const unsubConfig = config.subscribe((nextConfig) => {
-      emitConfig(buildClientConfigPayload(
-        nextConfig,
-        computeSupportsAgent(nextConfig.model),
-      ));
+      emitConfig(buildClientConfigPayload(nextConfig));
     });
 
     void config.reload();

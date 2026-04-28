@@ -155,10 +155,6 @@ export function markComputerUseExplicitContextRequired(
   markComputerUsePromotionPending(at);
 }
 
-export function clearPendingComputerUsePromotion(): void {
-  delete state.pendingPromotionObservationAt;
-}
-
 export function requiresFreshComputerUseObservation(): boolean {
   const pendingAt = state.pendingPromotionObservationAt;
   if (pendingAt == null) return false;
@@ -285,15 +281,12 @@ export function getRecentComputerUseObservation(
   );
 }
 
-export function resolveObservationTarget(
+function validateObservationTarget(
+  observation: DesktopObservation | undefined,
   observationId: string,
   targetId: string,
-): {
-  observation: DesktopObservation;
-  target: ObservationTarget;
-} {
-  const observation = state.lastObservation;
-  if (!observation || observation.observationId !== observationId) {
+): { observation: DesktopObservation; target: ObservationTarget } {
+  if (!observation) {
     throw new ToolError(
       "Observation is stale. Call cu_observe again before using target-based actions.",
       "computer_use",
@@ -320,39 +313,25 @@ export function resolveObservationTarget(
   return { observation, target };
 }
 
+export function resolveObservationTarget(
+  observationId: string,
+  targetId: string,
+): { observation: DesktopObservation; target: ObservationTarget } {
+  const observation = state.lastObservation?.observationId === observationId
+    ? state.lastObservation
+    : undefined;
+  return validateObservationTarget(observation, observationId, targetId);
+}
+
 export function resolveRecentObservationTarget(
   observationId: string,
   targetId: string,
-): {
-  observation: DesktopObservation;
-  target: ObservationTarget;
-} {
-  const observation = getRecentComputerUseObservation(observationId);
-  if (!observation) {
-    throw new ToolError(
-      "Observation is stale. Call cu_observe again before using target-based actions.",
-      "computer_use",
-      "validation",
-    );
-  }
-  if (Date.now() - observation.createdAt > COMPUTER_USE_OBSERVATION_MAX_AGE_MS) {
-    throw new ToolError(
-      "Observation is too old. Call cu_observe again before using target-based actions.",
-      "computer_use",
-      "validation",
-    );
-  }
-  const target = observation.targets.find((candidate) =>
-    candidate.targetId === targetId
+): { observation: DesktopObservation; target: ObservationTarget } {
+  return validateObservationTarget(
+    getRecentComputerUseObservation(observationId),
+    observationId,
+    targetId,
   );
-  if (!target) {
-    throw new ToolError(
-      `Unknown target_id '${targetId}' for observation '${observationId}'.`,
-      "computer_use",
-      "validation",
-    );
-  }
-  return { observation, target };
 }
 
 export function setComputerUsePermissionState(

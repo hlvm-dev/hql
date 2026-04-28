@@ -22,10 +22,6 @@ function getLegacyHqlDir(): string {
   return join(home, ".hql");
 }
 
-export function getLegacyConfigPath(): string {
-  return join(getLegacyHqlDir(), "config.json");
-}
-
 export function getLegacyMemoryPath(): string {
   return join(getLegacyHqlDir(), "memory.hql");
 }

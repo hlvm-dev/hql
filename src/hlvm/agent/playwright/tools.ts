@@ -204,20 +204,18 @@ function imageResult(
   };
 }
 
-function resolveDownloadDirectory(saveTo?: string): string {
-  const platform = getPlatform();
-  const homeDir = platform.env.get("HOME") ?? platform.env.get("USERPROFILE") ??
-    "/tmp";
-  return saveTo
-    ? (saveTo.startsWith("~") ? saveTo.replace("~", homeDir) : saveTo)
-    : platform.path.join(homeDir, "Downloads");
+function getHomeDir(): string {
+  const env = getPlatform().env;
+  return env.get("HOME") ?? env.get("USERPROFILE") ?? "/tmp";
 }
 
 function resolveHomePath(path: string): string {
-  const platform = getPlatform();
-  const homeDir = platform.env.get("HOME") ?? platform.env.get("USERPROFILE") ??
-    "/tmp";
-  return path.startsWith("~") ? path.replace("~", homeDir) : path;
+  return path.startsWith("~") ? path.replace("~", getHomeDir()) : path;
+}
+
+function resolveDownloadDirectory(saveTo?: string): string {
+  if (saveTo) return resolveHomePath(saveTo);
+  return getPlatform().path.join(getHomeDir(), "Downloads");
 }
 
 function resolveUploadPaths(paths: unknown): string[] {
@@ -291,6 +289,14 @@ async function resolvePlaywrightTarget(
     locator: page.locator(selector),
     selector,
   };
+}
+
+function targetIdentity(
+  target: { ref?: string; selector: string },
+): { selector?: string; ref?: string } {
+  return target.ref
+    ? { ref: target.ref }
+    : { selector: target.selector };
 }
 
 async function resolveOptionalPlaywrightTarget(
@@ -409,11 +415,7 @@ const pwGotoFn = pwTool("Navigation failed", async (args, toolOptions) => {
 const pwClickFn = pwTool("Click failed", async (args, toolOptions) => {
   const target = await resolvePlaywrightTarget(args, toolOptions);
   await target.locator.click({ timeout: 10_000 });
-  return okTool({
-    clicked: true,
-    selector: target.ref ? undefined : target.selector,
-    ref: target.ref,
-  });
+  return okTool({ clicked: true, ...targetIdentity(target) });
 }, { interaction: "click" });
 
 const pwFillFn = pwTool("Fill failed", async (args, toolOptions) => {
@@ -421,11 +423,7 @@ const pwFillFn = pwTool("Fill failed", async (args, toolOptions) => {
   if (value == null) throw pwError("value is required");
   const target = await resolvePlaywrightTarget(args, toolOptions);
   await target.locator.fill(String(value), { timeout: 10_000 });
-  return okTool({
-    filled: true,
-    selector: target.ref ? undefined : target.selector,
-    ref: target.ref,
-  });
+  return okTool({ filled: true, ...targetIdentity(target) });
 }, { interaction: "fill" });
 
 const pwTypeFn = pwTool("Type failed", async (args, toolOptions) => {
@@ -441,8 +439,7 @@ const pwTypeFn = pwTool("Type failed", async (args, toolOptions) => {
   }
   return okTool({
     typed: true,
-    selector: target.ref ? undefined : target.selector,
-    ref: target.ref,
+    ...targetIdentity(target),
     submitted: submit === true,
   });
 }, { interaction: "type" });
@@ -466,8 +463,7 @@ const pwContentFn = pwTool(
     return okTool({
       text: truncated,
       length: text.length,
-      selector: target?.ref ? undefined : target?.selector,
-      ref: target?.ref,
+      ...(target ? targetIdentity(target) : {}),
     });
   },
 );
@@ -490,11 +486,7 @@ const pwBackFn = pwTool("Back navigation failed", async (_args, toolOptions) => 
 const pwHoverFn = pwTool("Hover failed", async (args, toolOptions) => {
   const target = await resolvePlaywrightTarget(args, toolOptions);
   await target.locator.hover({ timeout: 10_000 });
-  return okTool({
-    hovered: true,
-    selector: target.ref ? undefined : target.selector,
-    ref: target.ref,
-  });
+  return okTool({ hovered: true, ...targetIdentity(target) });
 }, { interaction: "hover" });
 
 const pwSelectOptionFn = pwTool(
@@ -506,11 +498,7 @@ const pwSelectOptionFn = pwTool(
       values,
       { timeout: 10_000 },
     );
-    return okTool({
-      selected,
-      selector: target.ref ? undefined : target.selector,
-      ref: target.ref,
-    });
+    return okTool({ selected, ...targetIdentity(target) });
   },
   { interaction: "select_option" },
 );
@@ -525,8 +513,7 @@ const pwUploadFileFn = pwTool(
     return okTool({
       uploaded: uploadPaths,
       count: uploadPaths.length,
-      selector: target.ref ? undefined : target.selector,
-      ref: target.ref,
+      ...targetIdentity(target),
     });
   },
   { interaction: "upload_file" },
@@ -723,8 +710,7 @@ const pwScreenshotFn = pwTool(
       {
         width,
         height,
-        selector: target?.ref ? undefined : target?.selector,
-        ref: target?.ref,
+        ...(target ? targetIdentity(target) : {}),
       },
       { base64, width, height },
     );
@@ -753,6 +739,13 @@ const pwEvaluateFn = pwTool("Evaluate failed", async (args, toolOptions) => {
 
 const SCROLL_UNIT_PX = 300; // one "scroll" = 300px (roughly one viewport third)
 
+const SCROLL_DIRECTION_VECTORS: Record<string, [number, number]> = {
+  down: [0, 1],
+  up: [0, -1],
+  right: [1, 0],
+  left: [-1, 0],
+};
+
 const pwScrollFn = pwTool("Scroll failed", async (args, toolOptions) => {
   const { direction, amount } = args as { direction?: string; amount?: number };
   const dir = typeof direction === "string"
@@ -761,13 +754,9 @@ const pwScrollFn = pwTool("Scroll failed", async (args, toolOptions) => {
   const units = Math.max(1, Math.min(Number(amount) || 1, 10));
   const px = units * SCROLL_UNIT_PX;
   const page = await getOrCreatePage(toolOptions?.sessionId);
-  const deltaMap: Record<string, [number, number]> = {
-    down: [0, px],
-    up: [0, -px],
-    right: [px, 0],
-    left: [-px, 0],
-  };
-  const [dx, dy] = deltaMap[dir] ?? deltaMap.down;
+  const [vx, vy] = SCROLL_DIRECTION_VECTORS[dir] ?? SCROLL_DIRECTION_VECTORS.down;
+  const dx = vx * px;
+  const dy = vy * px;
   // deno-lint-ignore no-explicit-any
   await page.evaluate(([x, y]: any) => (globalThis as any).scrollBy(x, y), [
     dx,
@@ -805,8 +794,7 @@ const pwSnapshotFn = pwTool("Snapshot failed", async (args, toolOptions) => {
     length: yaml.length,
     refs,
     refCount: refs.length,
-    selector: target?.ref ? undefined : target?.selector,
-    ref: target?.ref,
+    ...(target ? targetIdentity(target) : {}),
     hint: buildPlaywrightSnapshotHint(yaml),
   });
 });
@@ -922,8 +910,7 @@ const pwDownloadFn = pwTool("Download failed", async (args, toolOptions) => {
     fileName,
     savedTo: destPath,
     size: (await platform.fs.stat(destPath)).size,
-    selector: target?.ref ? undefined : target?.selector,
-    ref: target?.ref,
+    ...(target ? targetIdentity(target) : {}),
   });
 });
 

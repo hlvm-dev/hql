@@ -80,7 +80,6 @@ import {
   markComputerUseFailure,
   markComputerUseExplicitContextRequired,
   markComputerUseSuccess,
-  COMPUTER_USE_OBSERVATION_MAX_AGE_MS,
   rememberComputerUseObservation,
   rememberHiddenComputerUseApps,
   requiresFreshComputerUseObservation,
@@ -239,7 +238,12 @@ function requiresExplicitContextAfterShortcut(text?: string): boolean {
   return parts.some((part) => CONTEXT_SHIFTING_SHORTCUT_MODIFIERS.has(part));
 }
 
-const VALID_SCROLL_DIRECTIONS = new Set(["up", "down", "left", "right"]);
+const SCROLL_DIRECTION_VECTORS: Record<string, [number, number]> = {
+  up: [0, -1],
+  down: [0, 1],
+  left: [-1, 0],
+  right: [1, 0],
+};
 
 function scrollDirectionToDeltas(
   direction: string,
@@ -248,23 +252,13 @@ function scrollDirectionToDeltas(
   const dir = typeof direction === "string"
     ? direction.toLowerCase().trim()
     : "";
-  if (!VALID_SCROLL_DIRECTIONS.has(dir)) {
+  const vec = SCROLL_DIRECTION_VECTORS[dir];
+  if (!vec) {
     throw cuError(
       `Invalid scroll direction: "${direction}". Must be "up", "down", "left", or "right".`,
     );
   }
-  switch (dir) {
-    case "up":
-      return { dx: 0, dy: -amount };
-    case "down":
-      return { dx: 0, dy: amount };
-    case "left":
-      return { dx: -amount, dy: 0 };
-    case "right":
-      return { dx: amount, dy: 0 };
-    default:
-      throw cuError(`Invalid scroll direction: ${dir}`);
-  }
+  return { dx: vec[0] * amount, dy: vec[1] * amount };
 }
 
 /** Build result with image attachment (used by screenshot, zoom, wait). */

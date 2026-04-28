@@ -1,6 +1,5 @@
 /**
  * Agent mode handlers: HLVM agent and Claude Code subprocess mode.
- * Extracted from chat.ts for modularity.
  */
 
 import {

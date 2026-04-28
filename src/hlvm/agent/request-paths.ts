@@ -7,7 +7,7 @@ function normalizeMatchedPath(match: string): string {
   return match.replace(/^[`"'(\[]+|[`"',.;:)\]]+$/g, "");
 }
 
-export function extractMentionedFilePaths(text: string): string[] {
+function extractMentionedFilePaths(text: string): string[] {
   const matches = text.match(FILE_PATH_PATTERN) ?? [];
   const paths = matches
     .map(normalizeMatchedPath)

@@ -173,14 +173,6 @@ export function getMemoryPath(): string {
   return join(getHlvmDir(), "memory.hql");
 }
 
-// SQLite-era memory path helpers (getMemoryDir / getMemoryDbPath /
-// getMemoryMdPath / ensureMemoryDirs / ensureMemoryDirsSync) removed in the
-// CC-port refactor. The new memory system lives at:
-//   ~/.hlvm/HLVM.md                                  (user, via getHlvmInstructionsPath)
-//   ~/.hlvm/memory/MEMORY.md                         (auto-memory index)
-//   ~/.hlvm/memory/*.md                              (auto-memory topic files)
-// HLVM is pre-release — no SQLite migration path needed.
-
 /**
  * Get the web cache file path (~/.hlvm/web-cache.json)
  */
@@ -548,12 +540,6 @@ export function getWorktreesDir(gitRoot: string): string {
 export function getWorktreePath(gitRoot: string, flatSlug: string): string {
   return join(getWorktreesDir(gitRoot), flatSlug);
 }
-
-// ── Agent Team Paths ──────────────────────────────────────────────────
-
-// ============================================================
-// Settings Path
-// ============================================================
 
 /** Unified settings file: ~/.hlvm/settings.json */
 export function getSettingsPath(): string {

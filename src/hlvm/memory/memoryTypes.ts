@@ -5,9 +5,6 @@
  * from the current project state. Code patterns, architecture, git history,
  * and file structure are derivable (via grep/git/HLVM.md) and should NOT
  * be saved as memories.
- *
- * HLVM ports CC's individual-only taxonomy. Team-mode (combined private +
- * team) is intentionally out of scope — see plan decisions.
  */
 
 export const MEMORY_TYPES = [

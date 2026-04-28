@@ -2,30 +2,18 @@ import { useEffect, useRef } from "react";
 import { useSelection } from "../../../vendor/ink/hooks/use-selection.ts";
 import { useTheme } from "../../theme/index.ts";
 
-// Auto-copy-on-select for v2 — direct port of CC's `useCopyOnSelect`
-// (`~/dev/ClaudeCode-main/hooks/useCopyOnSelect.ts`). When the user
-// finishes a drag (mouse-up with a non-empty range) OR completes a
-// multi-click (double-click word, triple-click line), write the
-// selection to the system clipboard. The visible highlight is left
-// intact so the user can see what was copied.
+// Auto-copy-on-select. The vendored ink engine enables mouse tracking,
+// which prevents Terminal.app / iTerm2 from doing native text selection.
+// To keep Cmd+C feeling natural we write the selection to the system
+// clipboard at mouse-up, so the clipboard already holds the right text
+// when the terminal intercepts the copy keystroke.
 //
-// Why this is needed: v2 hard-copies the CC donor ink engine, which
-// enables mouse tracking. That tracking prevents Terminal.app / iTerm2
-// from performing native text selection, so a plain drag + Cmd+C ends
-// with nothing selected in the host terminal — macOS Terminal beeps
-// because the Edit > Copy menu item is disabled. CC's fix is to write
-// the clipboard at mouse-up so that when Cmd+C is intercepted by the
-// terminal (and the beep fires), the clipboard already contains the
-// right text and Cmd+V pastes the expected content.
+// Selection contract:
+//   - isDragging=true            → reset copiedRef (new drag).
+//   - !hasSelection              → reset copiedRef (cleared).
+//   - settled selection, first   → copy once, invoke `onCopied`.
 //
-// Contract (matches CC exactly):
-//   - On every selection notification, read isDragging + hasSelection.
-//   - isDragging=true   → reset copiedRef (a new drag is in progress).
-//   - !hasSelection     → reset copiedRef (cleared / click-without-drag).
-//   - Otherwise (settled with selection, first time) → copy once and
-//     invoke `onCopied`.
-//
-// The `copiedRef` guard prevents duplicate toasts on spurious notifies.
+// `copiedRef` guards against duplicate toasts on spurious notifies.
 
 export interface UseCopyOnSelectOptions {
   /** Invoked with the copied text when a fresh copy happens. */

@@ -1,7 +1,7 @@
 import { extractModelSuffix, extractProviderName } from "./constants.ts";
 import type { ThinkingState } from "./engine.ts";
 
-export interface ThinkingProfileInput {
+interface ThinkingProfileInput {
   contextBudget?: number;
   thinkingCapable?: boolean;
   thinkingState?: ThinkingState;
@@ -10,7 +10,7 @@ export interface ThinkingProfileInput {
   providerName?: string;
 }
 
-export interface ThinkingProfile {
+interface ThinkingProfile {
   anthropicBudgetTokens: number;
   openaiReasoningEffort: "low" | "medium" | "high";
   googleThinkingLevel: "low" | "medium" | "high";

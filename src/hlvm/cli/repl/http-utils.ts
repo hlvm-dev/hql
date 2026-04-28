@@ -1,8 +1,5 @@
 /**
- * HTTP Utilities
- *
- * Shared request/response helpers used by both http-server.ts and route handlers.
- * Extracted from http-server.ts to enable reuse across handler modules.
+ * Shared request/response helpers for the local HTTP API.
  */
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -21,7 +18,7 @@ export function jsonError(
   return Response.json({ ...details, error: message }, { status });
 }
 
-export function jsonErrorFromDescribed(
+function jsonErrorFromDescribed(
   described: {
     message: string;
     class: string;

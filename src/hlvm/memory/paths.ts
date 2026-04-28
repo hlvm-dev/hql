@@ -28,19 +28,12 @@ export function getUserMemoryPath(): string {
 }
 
 /**
- * Memory base dir: `~/.hlvm/`.
- */
-export function getMemoryBaseDir(): string {
-  return getHlvmDir();
-}
-
-/**
  * Auto-memory directory: `~/.hlvm/memory/`. Trailing separator included so
  * `isAutoMemPath()` can do `startsWith` without surprises.
  */
 export function getAutoMemPath(): string {
   const platform = getPlatform();
-  return platform.path.join(getMemoryBaseDir(), AUTO_MEM_DIRNAME) +
+  return platform.path.join(getHlvmDir(), AUTO_MEM_DIRNAME) +
     platform.path.sep;
 }
 

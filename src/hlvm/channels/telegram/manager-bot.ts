@@ -1,6 +1,7 @@
 import { http } from "../../../common/http-client.ts";
 import { ValidationError } from "../../../common/error.ts";
 import { log } from "../../api/log.ts";
+import { getErrorMessage } from "../../../common/utils.ts";
 import type { TelegramProvisioningBridgeService } from "./provisioning-bridge-service.ts";
 
 const TELEGRAM_API_BASE_URL = "https://api.telegram.org";
@@ -198,15 +199,13 @@ export async function handleTelegramManagerBotWebhook(
     });
     return Response.json({ ok: true, session }, { status: 200 });
   } catch (error) {
+    const detail = getErrorMessage(error);
     logTelegramManagerWebhook("error", {
       botUsername: botUsername ?? null,
       ownerUserId: Number.isInteger(ownerUserId) ? ownerUserId : null,
       botId,
-      error: error instanceof Error ? error.message : String(error),
+      error: detail,
     });
-    return Response.json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
-    );
+    return Response.json({ error: detail }, { status: 500 });
   }
 }

@@ -19,7 +19,7 @@ export function isMainThreadQuerySource(querySource?: string): boolean {
  * so REPL users can call tools like `pw_goto(...)` by name directly.
  * Agent mode (`hlvm ask`) uses the narrower AGENT_CLASS_STARTER_TOOLS.
  */
-export function getMainThreadEagerCoreAllowlist(
+function getMainThreadEagerCoreAllowlist(
   ownerId?: string,
 ): string[] {
   const tools = getAllTools(ownerId);

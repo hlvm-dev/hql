@@ -16,7 +16,7 @@ import {
 const MAX_NORMALIZED_FAILURE_CHARS = 10_000;
 const MAX_FAILURE_SUMMARY_CHARS = 96;
 
-export type ToolFailureSource =
+type ToolFailureSource =
   | "validation"
   | "tool"
   | "runtime"
@@ -46,7 +46,7 @@ export interface ToolFailureMetadata {
   facts?: Record<string, unknown>;
 }
 
-export interface NormalizedToolError {
+interface NormalizedToolError {
   message: string;
   error: string;
   failure: ToolFailureMetadata;

@@ -21,7 +21,17 @@ import {
   getBindingStats,
   loadBindings,
 } from "../cli/repl/bindings.ts";
-import { assertString } from "./validation.ts";
+import { ValidationError } from "../../common/error.ts";
+
+function assertString(
+  value: unknown,
+  context: string,
+  message: string,
+): asserts value is string {
+  if (!value || typeof value !== "string") {
+    throw new ValidationError(message, context);
+  }
+}
 
 interface BindingsSummary {
   count: number;

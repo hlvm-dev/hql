@@ -19,7 +19,7 @@ import { BootstrapError } from "../agent/error-taxonomy.ts";
 const CHROMIUM_DIR_NAME = "chromium";
 
 /** Root directory for HLVM-managed Chromium: ~/.hlvm/.runtime/chromium/ */
-export function getChromiumDir(): string {
+function getChromiumDir(): string {
   return getPlatform().path.join(getRuntimeDir(), CHROMIUM_DIR_NAME);
 }
 
