@@ -396,12 +396,15 @@ Deno.test("isLocalFallbackWorthy: transient network error is fallback-worthy", a
 });
 
 Deno.test("isLocalFallbackWorthy: timeout error is fallback-worthy", async () => {
-  assertEquals(await isLocalFallbackWorthy(new Error("request timeout")), true);
+  assertEquals(
+    await isLocalFallbackWorthy(new Error("request timed out after 30s")),
+    true,
+  );
 });
 
-Deno.test("isLocalFallbackWorthy: permanent error is not fallback-worthy", async () => {
+Deno.test("isLocalFallbackWorthy: invalid request permanent error is not fallback-worthy", async () => {
   assertEquals(
-    await isLocalFallbackWorthy(new Error("HTTP 401 Unauthorized")),
+    await isLocalFallbackWorthy(new Error("HTTP 400 Bad Request")),
     false,
   );
 });
@@ -417,6 +420,19 @@ Deno.test("isLocalFallbackWorthy: auth error WITH statusCode is fallback-worthy"
     statusCode: 401,
   });
   assertEquals(await isLocalFallbackWorthy(authErr), true);
+});
+
+Deno.test("isLocalFallbackWorthy: auth/quota permanent messages are fallback-worthy", async () => {
+  assertEquals(
+    await isLocalFallbackWorthy(new Error("HTTP 401 Unauthorized")),
+    true,
+  );
+  assertEquals(
+    await isLocalFallbackWorthy(
+      new Error("exceeded your current quota; insufficient_quota"),
+    ),
+    true,
+  );
 });
 
 Deno.test("isLocalFallbackWorthy: 403 error WITH statusCode is fallback-worthy", async () => {
@@ -443,7 +459,7 @@ Deno.test("classifyForLocalFallback: returns error class string when worthy", as
     "transient",
   );
   assertEquals(
-    await classifyForLocalFallback(new Error("request timeout")),
+    await classifyForLocalFallback(new Error("request timed out after 30s")),
     "timeout",
   );
 });
@@ -495,8 +511,8 @@ Deno.test("callLLMWithModelFallback: degraded path tries fallbacks when no last-
   assertEquals(result.content, "from-fallback");
 });
 
-Deno.test("callLLMWithModelFallback: no fallback on permanent error", async () => {
-  const permError = new Error("HTTP 401 Unauthorized");
+Deno.test("callLLMWithModelFallback: no fallback on invalid-request permanent error", async () => {
+  const permError = new Error("HTTP 400 Bad Request: invalid request");
 
   try {
     await callLLMWithModelFallback(
@@ -507,7 +523,7 @@ Deno.test("callLLMWithModelFallback: no fallback on permanent error", async () =
     );
     assertEquals(true, false); // should not reach
   } catch (err) {
-    assertEquals((err as Error).message, "HTTP 401 Unauthorized");
+    assertEquals((err as Error).message, permError.message);
   }
 });
 
@@ -598,8 +614,8 @@ Deno.test("callLLMWithModelFallback: manual mode (empty fallbacks) goes to last-
   assertEquals(result.content, "from-gemma-manual");
 });
 
-Deno.test("callLLMWithModelFallback: permanent error skips lastResort even when present", async () => {
-  const permError = new Error("HTTP 401 Unauthorized");
+Deno.test("callLLMWithModelFallback: invalid-request permanent error skips lastResort even when present", async () => {
+  const permError = new Error("HTTP 400 Bad Request: invalid request");
   try {
     await callLLMWithModelFallback(
       () => Promise.reject(permError),
@@ -614,7 +630,7 @@ Deno.test("callLLMWithModelFallback: permanent error skips lastResort even when 
     );
     assertEquals(true, false); // should not reach
   } catch (err) {
-    assertEquals((err as Error).message, "HTTP 401 Unauthorized");
+    assertEquals((err as Error).message, permError.message);
   }
 });
 
@@ -703,6 +719,30 @@ Deno.test("withFallbackChain: tries cloud fallbacks when last-resort unavailable
     "cloud fallback tried when last-resort unavailable",
   );
   assertEquals(result, "fallback-ok");
+});
+
+Deno.test("withFallbackChain: canFallback=false blocks fallback after worthy failure", async () => {
+  let fallbackCalled = false;
+  try {
+    await withFallbackChain<string>({
+      tryPrimary: () =>
+        Promise.reject(new Error("Connection reset (ECONNRESET)")),
+      fallbacks: ["cloud-fb-1"],
+      canFallback: () => false,
+      tryFallback: () => {
+        fallbackCalled = true;
+        return Promise.resolve("should not reach");
+      },
+      lastResort: {
+        model: LOCAL_FALLBACK_MODEL_ID,
+        isAvailable: () => Promise.resolve(true),
+      },
+    });
+    assertEquals(true, false);
+  } catch (err) {
+    assertEquals((err as Error).message, "Connection reset (ECONNRESET)");
+    assertEquals(fallbackCalled, false);
+  }
 });
 
 Deno.test("withFallbackChain: onLastResortUnavailable called when chain exhausted", async () => {
@@ -932,7 +972,47 @@ Deno.test("resolveAutoModel: failed fetch clears pending state for retry", async
   }
 });
 
-Deno.test("resolveAutoModel: skips recently rate-limited auto model", async () => {
+Deno.test("resolveAutoModel: skips recently fallback-worthy failed model", async () => {
+  const failures = [
+    Object.assign(new Error("rate limit exceeded (429)"), { statusCode: 429 }),
+    new Error("request timed out after 30s"),
+    Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+    Object.assign(new Error("HTTP 401 Unauthorized"), { statusCode: 401 }),
+    new Error("exceeded your current quota; insufficient_quota"),
+    new Error("provider failed in an unknown new shape"),
+  ];
+
+  try {
+    for (const failure of failures) {
+      invalidateAutoModelCache();
+      __clearAutoModelFailureCooldownsForTesting();
+      __setListAllProviderModelsForTesting(async () => [
+        makeProviderModelInfo("claude-sonnet-4", "anthropic"),
+        makeProviderModelInfo("gpt-4o", "openai"),
+      ]);
+
+      const first = await resolveAutoModel("hello", undefined, undefined, {
+        isCodeTask: false,
+        isReasoningTask: false,
+        needsStructuredOutput: false,
+      });
+
+      assertEquals(await recordAutoModelFailure(first.model, failure), true);
+
+      const second = await resolveAutoModel("hello", undefined, undefined, {
+        isCodeTask: false,
+        isReasoningTask: false,
+        needsStructuredOutput: false,
+      });
+      assertEquals(second.model !== first.model, true);
+    }
+  } finally {
+    __setListAllProviderModelsForTesting(null);
+    __clearAutoModelFailureCooldownsForTesting();
+  }
+});
+
+Deno.test("resolveAutoModel: invalid request failure does not cool down model", async () => {
   invalidateAutoModelCache();
   __clearAutoModelFailureCooldownsForTesting();
   __setListAllProviderModelsForTesting(async () => [
@@ -946,9 +1026,9 @@ Deno.test("resolveAutoModel: skips recently rate-limited auto model", async () =
       needsStructuredOutput: false,
     });
 
-    await recordAutoModelFailure(
-      first.model,
-      new Error("rate limit exceeded (429)"),
+    assertEquals(
+      await recordAutoModelFailure(first.model, new Error("invalid request")),
+      false,
     );
 
     const second = await resolveAutoModel("hello", undefined, undefined, {
@@ -956,7 +1036,7 @@ Deno.test("resolveAutoModel: skips recently rate-limited auto model", async () =
       isReasoningTask: false,
       needsStructuredOutput: false,
     });
-    assertEquals(second.model !== first.model, true);
+    assertEquals(second.model, first.model);
   } finally {
     __setListAllProviderModelsForTesting(null);
     __clearAutoModelFailureCooldownsForTesting();

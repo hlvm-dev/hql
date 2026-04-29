@@ -72,7 +72,9 @@ export interface EditFileRecovery {
 }
 
 function isTimeoutError(err: unknown, message: string): boolean {
-  return err instanceof TimeoutError || message.includes("timeout");
+  return err instanceof TimeoutError ||
+    message.includes("timeout") ||
+    message.includes("timed out");
 }
 
 export const HINTS = Object.freeze({
@@ -184,7 +186,7 @@ const ERROR_PATTERNS: ReadonlyArray<
   { re: RegExp; class: ErrorClass; retryable: boolean }
 > = [
   {
-    re: /api key not configured|api key not valid|api key is missing|incorrect api key|invalid api key|invalid x-api-key|authentication_error|invalid_grant|oauth token|refresh token|claude login|re-authenticate|exceeded your current quota|insufficient_quota|http 40[13]/,
+    re: /api[ _-]?key(?: is)? (?:not set|not configured|not valid|missing)|incorrect api[ _-]?key|invalid api[ _-]?key|invalid x-api-key|authentication_error|invalid_grant|oauth token|refresh token|claude login|re-authenticate|exceeded your current quota|insufficient_quota|http 40[13]/,
     class: ERROR_CLASS.PERMANENT,
     retryable: false,
   },

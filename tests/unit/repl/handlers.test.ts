@@ -2,6 +2,8 @@ import { assertEquals, assertExists } from "jsr:@std/assert";
 import { RuntimeError } from "../../../src/common/error.ts";
 import { ProviderErrorCode } from "../../../src/common/error-codes.ts";
 import { AUTO_MODEL_ID } from "../../../src/common/config/types.ts";
+import { getModelsDir } from "../../../src/common/paths.ts";
+import { LOCAL_FALLBACK_IDENTITY } from "../../../src/hlvm/runtime/bootstrap-manifest.ts";
 import { LOCAL_FALLBACK_MODEL_ID } from "../../../src/hlvm/runtime/local-fallback.ts";
 import {
   createSession,
@@ -40,6 +42,7 @@ import {
   markAgentReady,
 } from "../../../src/hlvm/cli/repl/handlers/chat-session.ts";
 import { registerProvider } from "../../../src/hlvm/providers/registry.ts";
+import { getPlatform } from "../../../src/platform/platform.ts";
 import { setupStoreTestDb } from "../_shared/store-test-db.ts";
 import { withTempHlvmDir } from "../helpers.ts";
 
@@ -72,6 +75,538 @@ async function readNdjsonEvents(
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
+
+async function seedDefaultLocalFallbackModel(): Promise<void> {
+  const platform = getPlatform();
+  const [name, tag = "latest"] = LOCAL_FALLBACK_IDENTITY.modelId.split(":");
+  const manifestPath = platform.path.join(
+    getModelsDir(),
+    "manifests",
+    "registry.ollama.ai",
+    "library",
+    name,
+    tag,
+  );
+  await platform.fs.mkdir(platform.path.dirname(manifestPath), {
+    recursive: true,
+  });
+  await platform.fs.writeTextFile(
+    manifestPath,
+    JSON.stringify({
+      layers: [
+        {
+          mediaType: "application/vnd.ollama.image.model",
+          digest: `${LOCAL_FALLBACK_IDENTITY.modelDigestPrefix}deadbeef`,
+          size: LOCAL_FALLBACK_IDENTITY.publishedTotalSizeBytes,
+        },
+      ],
+    }),
+  );
+}
+
+function modelPerformance(modelId: string) {
+  const [providerName, bareModelId] = modelId.split("/") as [string, string];
+  return {
+    providerName,
+    modelId: bareModelId,
+    latencyMs: 1,
+  };
+}
+
+function statusError(message: string, statusCode: number): Error {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+async function runAgentAutoDefaultFallbackScenario(
+  errorFactory: () => unknown,
+  expectedReason: string,
+  primaryModel = "anthropic/claude-sonnet-4",
+): Promise<void> {
+  await withTempHlvmDir(async () => {
+    await withDb(async () => {
+      const [primaryProvider, primaryName] = primaryModel.split("/") as [
+        string,
+        string,
+      ];
+      __testOnlyResetAgentReadyState();
+      await seedDefaultLocalFallbackModel();
+      await config.reload();
+      await config.patch({ approvedProviders: [primaryProvider] });
+      const originalGet = ai.models.get;
+      const llmCalls: string[] = [];
+      const engine: AgentEngine = {
+        createLLM: (config) => {
+          const model = config.model ?? "";
+          return async () => {
+            llmCalls.push(model);
+            if (model === primaryModel) {
+              throw errorFactory();
+            }
+            if (model === LOCAL_FALLBACK_MODEL_ID) {
+              return {
+                content: "default local model answered through auto",
+                toolCalls: [],
+                performance: modelPerformance(LOCAL_FALLBACK_MODEL_ID),
+              };
+            }
+            throw new Error(`unexpected model: ${model}`);
+          };
+        },
+        createSummarizer: () => () => Promise.resolve(""),
+      };
+
+      __setListAllProviderModelsForTesting(async () => [{
+        name: primaryName,
+        displayName: primaryName,
+        capabilities: ["chat", "tools"],
+        contextWindow: 200_000,
+        metadata: {
+          provider: primaryProvider,
+          cloud: true,
+          apiKeyConfigured: true,
+        },
+      }]);
+      (ai.models as { get: typeof ai.models.get }).get = (
+        name: string,
+        provider?: string,
+      ) => {
+        if (name === primaryName && provider === primaryProvider) {
+          return Promise.resolve({
+            name,
+            displayName: primaryName,
+            capabilities: ["chat", "tools"],
+            contextWindow: 200_000,
+            metadata: {
+              provider,
+              cloud: true,
+              apiKeyConfigured: true,
+            },
+          });
+        }
+        if (LOCAL_FALLBACK_MODEL_ID === `${provider}/${name}`) {
+          return Promise.resolve({
+            name,
+            displayName: "Default local model",
+            capabilities: ["chat", "tools"],
+            metadata: { provider },
+          });
+        }
+        return Promise.resolve(null);
+      };
+      setAgentEngine(engine);
+
+      try {
+        const response = await handleChat(jsonRequest({
+          mode: "agent",
+          model: AUTO_MODEL_ID,
+          stateless: true,
+          trace: true,
+          messages: [{
+            role: "user",
+            content: "answer from the default local fallback",
+          }],
+        }));
+
+        assertEquals(response.status, 200);
+        const events = await readNdjsonEvents(response);
+        assertEquals(
+          events.some((event) =>
+            event.event === "token" &&
+            event.text === "default local model answered through auto"
+          ),
+          true,
+        );
+        assertEquals(llmCalls, [
+          primaryModel,
+          LOCAL_FALLBACK_MODEL_ID,
+        ]);
+
+        const autoFallbackTrace = events.find((event) => {
+          if (event.event !== "trace") return false;
+          const trace = event.trace as { type?: string } | undefined;
+          return trace?.type === "auto_fallback";
+        })?.trace as
+          | { fromModel?: string; toModel?: string; reason?: string }
+          | undefined;
+        assertExists(autoFallbackTrace);
+        assertEquals(autoFallbackTrace.fromModel, primaryModel);
+        assertEquals(autoFallbackTrace.toModel, LOCAL_FALLBACK_MODEL_ID);
+        assertEquals(autoFallbackTrace.reason, expectedReason);
+
+        const turnStats = events.find((event) =>
+          event.event === "turn_stats"
+        ) as { model_id?: string } | undefined;
+        assertEquals(turnStats?.model_id, LOCAL_FALLBACK_MODEL_ID);
+      } finally {
+        resetAgentEngine();
+        await disposeAllSessions();
+        __setListAllProviderModelsForTesting(null);
+        (ai.models as { get: typeof ai.models.get }).get = originalGet;
+        __testOnlyResetAgentReadyState();
+      }
+    });
+  });
+}
+
+async function runDirectChatAutoDefaultFallbackScenario(
+  errorFactory: () => unknown,
+  expectedReason: string,
+  primaryModel = "anthropic/claude-sonnet-4",
+): Promise<void> {
+  await withTempHlvmDir(async () => {
+    await withDb(async () => {
+      const [primaryProvider, primaryName] = primaryModel.split("/") as [
+        string,
+        string,
+      ];
+      await seedDefaultLocalFallbackModel();
+      await config.reload();
+      await config.patch({ approvedProviders: [primaryProvider] });
+      const originalGet = ai.models.get;
+      const originalChat = ai.chat;
+      const chatCalls: string[] = [];
+
+      __setListAllProviderModelsForTesting(async () => [{
+        name: primaryName,
+        displayName: primaryName,
+        capabilities: ["chat", "tools"],
+        contextWindow: 200_000,
+        metadata: {
+          provider: primaryProvider,
+          cloud: true,
+          apiKeyConfigured: true,
+        },
+      }]);
+      (ai.models as { get: typeof ai.models.get }).get = (
+        name: string,
+        provider?: string,
+      ) => {
+        if (name === primaryName && provider === primaryProvider) {
+          return Promise.resolve({
+            name,
+            displayName: primaryName,
+            capabilities: ["chat", "tools"],
+            contextWindow: 200_000,
+            metadata: {
+              provider,
+              cloud: true,
+              apiKeyConfigured: true,
+            },
+          });
+        }
+        return Promise.resolve(null);
+      };
+      (ai as { chat: typeof ai.chat }).chat = async function* (
+        _messages,
+        options,
+      ) {
+        const model = options?.model ?? "";
+        chatCalls.push(model);
+        if (model === primaryModel) {
+          throw errorFactory();
+        }
+        if (model === LOCAL_FALLBACK_MODEL_ID) {
+          yield "default local chat fallback";
+          return;
+        }
+        throw new Error(`unexpected model: ${model}`);
+      };
+
+      try {
+        const response = await handleChat(jsonRequest({
+          mode: "chat",
+          model: AUTO_MODEL_ID,
+          stateless: true,
+          trace: true,
+          messages: [{
+            role: "user",
+            content: "answer from direct chat fallback",
+          }],
+        }));
+
+        assertEquals(response.status, 200);
+        const events = await readNdjsonEvents(response);
+        assertEquals(
+          events.some((event) =>
+            event.event === "token" &&
+            event.text === "default local chat fallback"
+          ),
+          true,
+        );
+        assertEquals(chatCalls, [
+          primaryModel,
+          LOCAL_FALLBACK_MODEL_ID,
+        ]);
+
+        const autoFallbackTrace = events.find((event) => {
+          if (event.event !== "trace") return false;
+          const trace = event.trace as { type?: string } | undefined;
+          return trace?.type === "auto_fallback";
+        })?.trace as
+          | { fromModel?: string; toModel?: string; reason?: string }
+          | undefined;
+        assertExists(autoFallbackTrace);
+        assertEquals(autoFallbackTrace.fromModel, primaryModel);
+        assertEquals(autoFallbackTrace.toModel, LOCAL_FALLBACK_MODEL_ID);
+        assertEquals(autoFallbackTrace.reason, expectedReason);
+      } finally {
+        __setListAllProviderModelsForTesting(null);
+        (ai.models as { get: typeof ai.models.get }).get = originalGet;
+        (ai as { chat: typeof ai.chat }).chat = originalChat;
+      }
+    });
+  });
+}
+
+const FALLBACK_WORTHY_PROVIDER_ERRORS: Array<{
+  name: string;
+  expectedReason: string;
+  errorFactory: () => unknown;
+  primaryModel?: string;
+}> = [
+  {
+    name: "rate limit",
+    expectedReason: "rate_limit",
+    errorFactory: () => new Error("rate limit exceeded (429)"),
+  },
+  {
+    name: "timeout",
+    expectedReason: "timeout",
+    errorFactory: () => new Error("request timed out after 30s"),
+  },
+  {
+    name: "transient network failure",
+    expectedReason: "transient",
+    errorFactory: () => new Error("Connection reset (ECONNRESET)"),
+  },
+  {
+    name: "cloud auth failure",
+    expectedReason: "permanent",
+    errorFactory: () =>
+      statusError("HTTP 401 Unauthorized: invalid API key", 401),
+  },
+  {
+    name: "OpenAI missing API key",
+    expectedReason: "permanent",
+    primaryModel: "openai/gpt-4o-mini",
+    errorFactory: () =>
+      new Error(
+        "[hql3008] openai_api_key is not set. export it to use openai/ models.",
+      ),
+  },
+  {
+    name: "provider quota failure",
+    expectedReason: "permanent",
+    errorFactory: () =>
+      new Error("exceeded your current quota; insufficient_quota"),
+  },
+  {
+    name: "unknown provider failure",
+    expectedReason: "unknown",
+    errorFactory: () => new Error("provider returned an unclassified failure"),
+  },
+];
+
+for (const scenario of FALLBACK_WORTHY_PROVIDER_ERRORS) {
+  Deno.test(
+    `handlers: agent auto ${scenario.name} falls through to default local model`,
+    async () => {
+      await runAgentAutoDefaultFallbackScenario(
+        scenario.errorFactory,
+        scenario.expectedReason,
+        scenario.primaryModel,
+      );
+    },
+  );
+
+  Deno.test(
+    `handlers: direct chat auto ${scenario.name} falls through to default local model`,
+    async () => {
+      await runDirectChatAutoDefaultFallbackScenario(
+        scenario.errorFactory,
+        scenario.expectedReason,
+        scenario.primaryModel,
+      );
+    },
+  );
+}
+
+Deno.test("handlers: direct chat auto invalid request does not fall back", async () => {
+  await withTempHlvmDir(async () => {
+    await withDb(async () => {
+      await seedDefaultLocalFallbackModel();
+      await config.reload();
+      await config.patch({ approvedProviders: ["anthropic"] });
+      const originalGet = ai.models.get;
+      const originalChat = ai.chat;
+      const chatCalls: string[] = [];
+
+      __setListAllProviderModelsForTesting(async () => [{
+        name: "claude-sonnet-4",
+        displayName: "Claude Sonnet 4",
+        capabilities: ["chat", "tools"],
+        contextWindow: 200_000,
+        metadata: {
+          provider: "anthropic",
+          cloud: true,
+          apiKeyConfigured: true,
+        },
+      }]);
+      (ai.models as { get: typeof ai.models.get }).get = (
+        name: string,
+        provider?: string,
+      ) => {
+        if (name === "claude-sonnet-4" && provider === "anthropic") {
+          return Promise.resolve({
+            name,
+            displayName: "Claude Sonnet 4",
+            capabilities: ["chat", "tools"],
+            contextWindow: 200_000,
+            metadata: { provider, cloud: true, apiKeyConfigured: true },
+          });
+        }
+        return Promise.resolve(null);
+      };
+      (ai as { chat: typeof ai.chat }).chat = async function* (
+        _messages,
+        options,
+      ) {
+        const model = options?.model ?? "";
+        chatCalls.push(model);
+        if (model === "anthropic/claude-sonnet-4") {
+          throw new Error("HTTP 400 Bad Request: invalid request");
+        }
+        if (model === LOCAL_FALLBACK_MODEL_ID) {
+          yield "should not fallback";
+          return;
+        }
+        throw new Error(`unexpected model: ${model}`);
+      };
+
+      try {
+        const response = await handleChat(jsonRequest({
+          mode: "chat",
+          model: AUTO_MODEL_ID,
+          stateless: true,
+          trace: true,
+          messages: [{ role: "user", content: "invalid request path" }],
+        }));
+
+        assertEquals(response.status, 200);
+        const events = await readNdjsonEvents(response);
+        assertEquals(chatCalls, ["anthropic/claude-sonnet-4"]);
+        assertEquals(
+          events.some((event) => event.event === "error"),
+          true,
+        );
+        assertEquals(
+          events.some((event) =>
+            event.event === "trace" &&
+            (event.trace as { type?: string } | undefined)?.type ===
+              "auto_fallback"
+          ),
+          false,
+        );
+      } finally {
+        __setListAllProviderModelsForTesting(null);
+        (ai.models as { get: typeof ai.models.get }).get = originalGet;
+        (ai as { chat: typeof ai.chat }).chat = originalChat;
+      }
+    });
+  });
+});
+
+Deno.test("handlers: direct chat auto does not fall back after partial output", async () => {
+  await withTempHlvmDir(async () => {
+    await withDb(async () => {
+      await seedDefaultLocalFallbackModel();
+      await config.reload();
+      await config.patch({ approvedProviders: ["anthropic"] });
+      const originalGet = ai.models.get;
+      const originalChat = ai.chat;
+      const chatCalls: string[] = [];
+
+      __setListAllProviderModelsForTesting(async () => [{
+        name: "claude-sonnet-4",
+        displayName: "Claude Sonnet 4",
+        capabilities: ["chat", "tools"],
+        contextWindow: 200_000,
+        metadata: {
+          provider: "anthropic",
+          cloud: true,
+          apiKeyConfigured: true,
+        },
+      }]);
+      (ai.models as { get: typeof ai.models.get }).get = (
+        name: string,
+        provider?: string,
+      ) => {
+        if (name === "claude-sonnet-4" && provider === "anthropic") {
+          return Promise.resolve({
+            name,
+            displayName: "Claude Sonnet 4",
+            capabilities: ["chat", "tools"],
+            contextWindow: 200_000,
+            metadata: { provider, cloud: true, apiKeyConfigured: true },
+          });
+        }
+        return Promise.resolve(null);
+      };
+      (ai as { chat: typeof ai.chat }).chat = async function* (
+        _messages,
+        options,
+      ) {
+        const model = options?.model ?? "";
+        chatCalls.push(model);
+        if (model === "anthropic/claude-sonnet-4") {
+          yield "partial";
+          throw new Error("Connection reset (ECONNRESET)");
+        }
+        if (model === LOCAL_FALLBACK_MODEL_ID) {
+          yield "should not fallback";
+          return;
+        }
+        throw new Error(`unexpected model: ${model}`);
+      };
+
+      try {
+        const response = await handleChat(jsonRequest({
+          mode: "chat",
+          model: AUTO_MODEL_ID,
+          stateless: true,
+          trace: true,
+          messages: [{ role: "user", content: "partial output path" }],
+        }));
+
+        assertEquals(response.status, 200);
+        const events = await readNdjsonEvents(response);
+        assertEquals(chatCalls, ["anthropic/claude-sonnet-4"]);
+        assertEquals(
+          events.some((event) =>
+            event.event === "token" && event.text === "partial"
+          ),
+          true,
+        );
+        assertEquals(
+          events.some((event) => event.event === "error"),
+          true,
+        );
+        assertEquals(
+          events.some((event) =>
+            event.event === "trace" &&
+            (event.trace as { type?: string } | undefined)?.type ===
+              "auto_fallback"
+          ),
+          false,
+        );
+      } finally {
+        __setListAllProviderModelsForTesting(null);
+        (ai.models as { get: typeof ai.models.get }).get = originalGet;
+        (ai as { chat: typeof ai.chat }).chat = originalChat;
+      }
+    });
+  });
+});
 
 Deno.test("handlers: message listing supports pagination and cursor order in both directions", async () => {
   await withDb(async () => {
@@ -628,6 +1163,11 @@ Deno.test("handlers: agent auto rate-limit falls through to scored fallback", as
               return {
                 content: "fallback answered through auto",
                 toolCalls: [],
+                performance: {
+                  providerName: "openai",
+                  modelId: "gpt-4o-mini",
+                  latencyMs: 1,
+                },
               };
             }
             throw new Error(`unexpected model: ${model}`);
@@ -721,6 +1261,11 @@ Deno.test("handlers: agent auto rate-limit falls through to scored fallback", as
         );
         assertEquals(autoFallbackTrace.toModel, "openai/gpt-4o-mini");
         assertEquals(autoFallbackTrace.reason, "rate_limit");
+
+        const turnStats = events.find((event) =>
+          event.event === "turn_stats"
+        ) as { model_id?: string } | undefined;
+        assertEquals(turnStats?.model_id, "openai/gpt-4o-mini");
       } finally {
         resetAgentEngine();
         await disposeAllSessions();

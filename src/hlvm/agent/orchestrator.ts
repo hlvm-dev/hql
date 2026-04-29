@@ -405,6 +405,13 @@ export interface AgentLoopResult {
   synthesizedFinal?: boolean;
 }
 
+function formatProviderModelId(
+  providerName: string,
+  modelId: string,
+): string {
+  return modelId.includes("/") ? modelId : `${providerName}/${modelId}`;
+}
+
 export type RuntimeToolPhase =
   | "researching"
   | "editing"
@@ -1829,6 +1836,12 @@ export async function runReActLoop(
       maybeActivateBrowserIterationBudget(result, lc, config);
       toolUseCount += result.toolCallsMade;
       const usageSnapshot = state.usageTracker.snapshot();
+      const responseModelId = agentResponse.performance
+        ? formatProviderModelId(
+          agentResponse.performance.providerName,
+          agentResponse.performance.modelId,
+        )
+        : config.modelId;
 
       config.onAgentEvent?.({
         type: "turn_stats",
@@ -1837,7 +1850,7 @@ export async function runReActLoop(
         durationMs: Date.now() - iterationStart,
         inputTokens: aggregatedPromptTokens || undefined,
         outputTokens: aggregatedCompletionTokens || undefined,
-        modelId: config.modelId,
+        modelId: responseModelId,
         continuedThisTurn: state.continuedThisTurn || undefined,
         continuationCount: state.continuationCount || undefined,
         compactionReason: state.compactionReason,

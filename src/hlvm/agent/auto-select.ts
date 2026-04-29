@@ -508,7 +508,12 @@ const MODEL_CACHE_TTL_MS = 60_000; // 1 minute
 const AUTO_MODEL_FAILURE_COOLDOWN_MS = 60_000;
 let listAllProviderModelsForTesting: (() => Promise<ModelInfo[]>) | null = null;
 
-type AutoModelFailureReason = "rate_limit" | "timeout" | "transient";
+type AutoModelFailureReason =
+  | "rate_limit"
+  | "timeout"
+  | "transient"
+  | "permanent"
+  | "unknown";
 
 const autoModelFailureCooldowns = new Map<
   string,
@@ -525,7 +530,8 @@ function isAutoFailureReason(
   reason: string | null,
 ): reason is AutoModelFailureReason {
   return reason === "rate_limit" || reason === "timeout" ||
-    reason === "transient";
+    reason === "transient" || reason === "permanent" ||
+    reason === "unknown";
 }
 
 function filterRecentlyFailedAutoModels(

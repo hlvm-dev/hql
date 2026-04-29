@@ -194,26 +194,39 @@ async function streamChatWithFallback(
       signal,
       forwardChunk,
     );
+  const canFallback = () =>
+    !emittedAnyToken && !resolvedModel?.startsWith("ollama/");
 
   return withFallbackChain<string>({
     primaryModel: resolvedModel,
     tryPrimary: () => tryStream(resolvedModel),
-    fallbacks: emittedAnyToken || resolvedModel?.startsWith("ollama/")
-      ? []
-      : scoredFallbacks,
+    fallbacks: scoredFallbacks,
+    canFallback,
     tryFallback: (model) => {
       emit({ event: "warning", message: `Switching to ${model}...` });
       return tryStream(model);
     },
-    lastResort: emittedAnyToken || resolvedModel?.startsWith("ollama/")
-      ? undefined
-      : { model: localFallbackModelId, isAvailable: isLocalFallbackReady },
+    lastResort: {
+      model: localFallbackModelId,
+      isAvailable: async () => canFallback() && await isLocalFallbackReady(),
+    },
     tryLastResort: (model) => {
       emit({ event: "warning", message: LOCAL_FALLBACK_RETRY_MESSAGE });
       return tryStream(model);
     },
     onModelFailure: async (model, err) => {
       await recordAutoModelFailure(model, err);
+    },
+    onTrace: (from, to, reason) => {
+      emit({
+        event: "trace",
+        trace: {
+          type: "auto_fallback",
+          fromModel: from,
+          toModel: to,
+          reason,
+        },
+      });
     },
     onLastResortUnavailable: (err) => {
       throw new RuntimeError(localFallbackPreparingMessage(resolvedModel), {

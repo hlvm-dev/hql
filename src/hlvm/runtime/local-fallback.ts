@@ -44,7 +44,7 @@ export async function resolveLocalFallbackModelId(): Promise<string> {
 export async function classifyForLocalFallback(
   error: unknown,
 ): Promise<string | null> {
-  const { class: errorClass } = await classifyError(error);
+  const { class: errorClass, message } = await classifyError(error);
   switch (errorClass) {
     case "rate_limit":
     case "transient":
@@ -52,9 +52,19 @@ export async function classifyForLocalFallback(
     case "unknown":
       return errorClass;
     case "permanent": {
-      // Auth failures (bad cloud key) should still try local fallback
-      const status = (error as { statusCode?: number })?.statusCode;
-      return (status === 401 || status === 403) ? errorClass : null;
+      // Cloud credential/quota failures should still try local fallback.
+      // Invalid prompts, tool schemas, model IDs, and user-denied actions should not.
+      const status = (error as { status?: number; statusCode?: number })
+        ?.statusCode ??
+        (error as { status?: number; statusCode?: number })?.status;
+      if (status === 401 || status === 403) return errorClass;
+      if (
+        /api[ _-]?key|authentication_error|invalid_grant|oauth token|claude login|re-authenticate|http 40[13]|unauthorized|quota|insufficient_quota|billing/i
+          .test(message)
+      ) {
+        return errorClass;
+      }
+      return null;
     }
     case "abort":
     case "context_overflow":
@@ -100,9 +110,11 @@ export interface FallbackChainConfig<T> {
   tryPrimary: () => Promise<T>;
   /** Scored fallback model IDs to try in order. */
   fallbacks: string[];
+  /** Optional dynamic guard for cases where fallback becomes unsafe after partial output. */
+  canFallback?: () => boolean;
   /** Execute a scored fallback model call. */
   tryFallback: (model: string) => Promise<T>;
-  /** Local last-resort model (e.g. qwen3). */
+  /** Local last-resort model. */
   lastResort?: LastResortFallback;
   /** Execute the last-resort model call. Falls back to tryFallback if omitted. */
   tryLastResort?: (model: string) => Promise<T>;
@@ -119,7 +131,7 @@ export interface FallbackChainConfig<T> {
 }
 
 /**
- * Generic fallback chain — immediate last-resort on any failure.
+ * Generic fallback chain — immediate last-resort on fallback-worthy failures.
  *
  * Flow:
  * 1. Try primary
@@ -127,7 +139,7 @@ export interface FallbackChainConfig<T> {
  * 3. Last-resort NOT ready → try scored fallbacks as degraded path
  * 4. All exhausted → onLastResortUnavailable or throw original
  *
- * Non-fallback-worthy errors (permanent, abort, context_overflow) propagate immediately.
+ * Non-fallback-worthy errors (invalid request, abort, context_overflow) propagate immediately.
  */
 export async function withFallbackChain<T>(
   config: FallbackChainConfig<T>,
@@ -139,6 +151,7 @@ export async function withFallbackChain<T>(
     if (!reason) throw error;
     const primaryModel = config.primaryModel ?? "primary";
     await config.onModelFailure?.(primaryModel, error, reason);
+    if (config.canFallback && !config.canFallback()) throw error;
 
     const lastResortReady = config.lastResort != null &&
       await config.lastResort.isAvailable();
@@ -149,7 +162,7 @@ export async function withFallbackChain<T>(
       config.onTrace?.(
         primaryModel,
         config.lastResort!.model,
-        "local_fallback",
+        reason,
       );
       const tryLr = config.tryLastResort ?? config.tryFallback;
       return await tryLr(config.lastResort!.model);
