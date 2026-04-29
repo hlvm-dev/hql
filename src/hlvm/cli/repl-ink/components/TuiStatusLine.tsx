@@ -13,7 +13,7 @@ import { DEFAULT_TERMINAL_WIDTH, STATUS_GLYPHS } from "../ui-constants.ts";
 import type { PlanningPhase } from "../../../agent/planning.ts";
 import { getPlanPhaseLabel } from "./conversation/plan-flow.ts";
 import { truncate } from "../../../../common/utils.ts";
-import { stringWidth } from "../../../vendor/ink/stringWidth.ts";
+import { stringWidth } from "../utils/ansi/string-width.ts";
 
 interface TuiStatusLineProps {
   modelName?: string;
@@ -23,6 +23,7 @@ interface TuiStatusLineProps {
   interactionLabel?: string;
   turnLabel?: string;
   turnTone?: "active" | "warning";
+  scrollLabel?: string;
   aiAvailable?: boolean;
   idleLabel?: string;
 }
@@ -54,6 +55,7 @@ export function TuiStatusLine(
     interactionLabel,
     turnLabel,
     turnTone = "active",
+    scrollLabel,
     aiAvailable = false,
     idleLabel,
   }: TuiStatusLineProps,
@@ -72,6 +74,7 @@ export function TuiStatusLine(
     const segments: ShellFooterSegment[] = [];
     const summarizedMode = summarizeModeLabel(modeLabel);
     if (!hasPrimaryActivity) {
+      pushStatusSegment(segments, scrollLabel, "active");
       pushStatusSegment(
         segments,
         summarizedMode && summarizedMode !== "Default mode"
@@ -94,6 +97,7 @@ export function TuiStatusLine(
     interactionLabel,
     modeLabel,
     planningPhase,
+    scrollLabel,
     turnLabel,
     turnTone,
   ]);

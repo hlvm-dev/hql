@@ -1,5 +1,5 @@
 /**
- * HLVM Update Banner — bordered notification when a newer version is available.
+ * HLVM Update Banner — compact notification when a newer version is available.
  */
 
 import React from "react";
@@ -16,37 +16,17 @@ export function UpdateBanner(
   const { stdout } = useStdout();
   const sc = useSemanticColors();
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
-  const innerWidth = Math.max(20, getShellContentWidth(terminalWidth) - 6);
+  const innerWidth = Math.max(20, getShellContentWidth(terminalWidth));
+  const line = `Update ${update.current} → ${update.latest} · ${update.updateCommand} · ${update.releaseUrl}`;
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={sc.banner.status.attention}
-      paddingX={1}
-      marginBottom={1}
-    >
+    <Box>
       <Text>
-        <Text color={sc.banner.logoStart}>{"✨ "}</Text>
-        <Text color={sc.banner.status.attention} bold>
-          {truncate(
-            `Update available! ${update.current} → ${update.latest}`,
-            innerWidth - 3,
-            "…",
-          )}
+        <Text color={sc.banner.status.attention} bold>Update</Text>
+        <Text color={sc.text.muted}>
+          {" "}
+          {truncate(line.replace(/^Update\s+/, ""), innerWidth - 7, "…")}
         </Text>
-      </Text>
-      <Text color={sc.text.primary}>
-        {truncate(
-          `Run \`${update.updateCommand}\` to update.`,
-          innerWidth,
-          "…",
-        )}
-      </Text>
-      <Text />
-      <Text color={sc.text.muted}>See full release notes:</Text>
-      <Text color={sc.banner.logoEnd}>
-        {truncate(update.releaseUrl, innerWidth, "…")}
       </Text>
     </Box>
   );

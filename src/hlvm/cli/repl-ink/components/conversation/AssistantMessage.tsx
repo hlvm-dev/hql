@@ -43,9 +43,9 @@ function WorkingIndicator(
       marginBottom={spacing.waitingIndicatorMarginBottom}
     >
       <Box width={TRANSCRIPT_LAYOUT.assistantBulletWidth} flexShrink={0}>
-        <Text color={sc.text.primary}>{spinner ?? "·"}</Text>
+        <Text color={sc.status.warning}>{spinner ?? "·"}</Text>
       </Box>
-      <Text color={sc.text.primary}>{`${verb}…`}</Text>
+      <Text color={sc.text.primary} bold>{`${verb}…`}</Text>
     </Box>
   );
 }
@@ -256,7 +256,7 @@ export const AssistantMessage = React.memo(function AssistantMessage(
       marginTop={0}
     >
       <Box width={TRANSCRIPT_LAYOUT.assistantBulletWidth} flexShrink={0}>
-        <Text color={sc.banner.bullet}>●</Text>
+        <Text color={sc.text.primary}>●</Text>
       </Box>
       <Box flexGrow={1} flexShrink={1}>
         <Ratchet lock="offscreen">

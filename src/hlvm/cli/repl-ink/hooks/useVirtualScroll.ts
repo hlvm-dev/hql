@@ -7,8 +7,8 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
-import type { ScrollBoxHandle } from "../../../vendor/ink/components/ScrollBox.tsx";
-import type { DOMElement } from "../../../vendor/ink/dom.ts";
+import type { ScrollBoxHandle } from "../components/ScrollBox.tsx";
+import { type DOMElement, measureElement } from "ink";
 
 const DEFAULT_ESTIMATE = 3;
 const OVERSCAN_ROWS = 80;
@@ -260,9 +260,11 @@ export function useVirtualScroll(
   });
 
   useLayoutEffect(() => {
-    const spacerYoga = spacerRef.current?.yogaNode;
-    if (spacerYoga && spacerYoga.getComputedWidth() > 0) {
-      listOriginRef.current = spacerYoga.getComputedTop();
+    if (spacerRef.current) {
+      const spacer = measureElement(spacerRef.current);
+      if (spacer.width > 0 || spacer.height > 0) {
+        listOriginRef.current = 0;
+      }
     }
     if (skipMeasurementRef.current) {
       skipMeasurementRef.current = false;
@@ -270,16 +272,15 @@ export function useVirtualScroll(
     }
     let anyChanged = false;
     for (const [key, el] of itemRefs.current) {
-      const yoga = el.yogaNode;
-      if (!yoga) continue;
-      const height = yoga.getComputedHeight();
+      const measured = measureElement(el);
+      const height = measured.height;
       const prev = heightCache.current.get(key);
       if (height > 0) {
         if (prev !== height) {
           heightCache.current.set(key, height);
           anyChanged = true;
         }
-      } else if (yoga.getComputedWidth() > 0 && prev !== 0) {
+      } else if (measured.width > 0 && prev !== 0) {
         heightCache.current.set(key, 0);
         anyChanged = true;
       }
@@ -294,11 +295,12 @@ export function useVirtualScroll(
         if (el) {
           itemRefs.current.set(key, el);
         } else {
-          const yoga = itemRefs.current.get(key)?.yogaNode;
-          if (yoga && !skipMeasurementRef.current) {
-            const height = yoga.getComputedHeight();
+          const existing = itemRefs.current.get(key);
+          if (existing && !skipMeasurementRef.current) {
+            const measured = measureElement(existing);
+            const height = measured.height;
             if (
-              (height > 0 || yoga.getComputedWidth() > 0) &&
+              (height > 0 || measured.width > 0) &&
               heightCache.current.get(key) !== height
             ) {
               heightCache.current.set(key, height);
@@ -314,12 +316,8 @@ export function useVirtualScroll(
   }, []);
 
   const getItemTop = useCallback(
-    (index: number) => {
-      const yoga = itemRefs.current.get(itemKeys[index]!)?.yogaNode;
-      if (!yoga || yoga.getComputedWidth() === 0) return -1;
-      return yoga.getComputedTop();
-    },
-    [itemKeys],
+    (index: number) => offsetsRef.current.arr[index]! + listOriginRef.current,
+    [],
   );
 
   const getItemElement = useCallback(

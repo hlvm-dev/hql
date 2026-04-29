@@ -1,9 +1,9 @@
 export const SHELL_LAYOUT = Object.freeze({
   contentMinWidth: 20,
-  gutterX: 1,
+  gutterX: 2,
   bannerTopGap: 1,
   bannerBottomGap: 1,
-  transcriptToComposerGap: 1,
+  transcriptToComposerGap: 2,
   composerToFooterGap: 0,
 });
 
@@ -27,9 +27,9 @@ export interface LiveConversationSpacing {
 const LIVE_TRANSCRIPT_SPACING: LiveConversationSpacing = Object.freeze({
   pendingTurnMarginTop: 0,
   userMessageMarginTop: 0,
-  userMessageMarginBottom: 0,
+  userMessageMarginBottom: 1,
   assistantMessageMarginBottom: 1,
-  waitingIndicatorMarginBottom: 0,
+  waitingIndicatorMarginBottom: 1,
 });
 
 export function getShellContentWidth(terminalWidth: number): number {

@@ -1,10 +1,10 @@
 import type { Token, Tokens } from "marked";
 import React from "react";
 import stripAnsi from "strip-ansi";
-import { useTerminalSize } from "../../../../vendor/hooks/useTerminalSize.ts";
-import { Ansi } from "../../../../vendor/ink/Ansi.tsx";
-import { stringWidth } from "../../../../vendor/ink/stringWidth.ts";
-import { wrapAnsi } from "../../../../vendor/ink/wrapAnsi.ts";
+import { useWindowSize as useTerminalSize } from "ink";
+import { Ansi } from "../Ansi.tsx";
+import { stringWidth } from "../../utils/ansi/string-width.ts";
+import { wrapAnsi } from "../../utils/ansi/wrap-ansi.ts";
 import type { CliHighlight } from "./cliHighlight.ts";
 import { formatToken, padAligned } from "./markdown.ts";
 

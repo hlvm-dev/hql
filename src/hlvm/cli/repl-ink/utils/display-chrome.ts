@@ -1,5 +1,5 @@
 import { truncate } from "../../../../common/utils.ts";
-import { stringWidth } from "../../../vendor/ink/stringWidth.ts";
+import { stringWidth } from "../utils/ansi/string-width.ts";
 
 export interface TwoColumnTextLayout {
   leftText: string;

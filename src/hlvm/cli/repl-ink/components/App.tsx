@@ -134,12 +134,7 @@ import { getPlatform } from "../../../../platform/platform.ts";
 import { TuiStatusLine } from "./TuiStatusLine.tsx";
 import { FullscreenLayout } from "./FullscreenLayout.tsx";
 import { ScrollKeybindingHandler } from "./ScrollKeybindingHandler.tsx";
-import type { ScrollBoxHandle } from "../../../vendor/ink/components/ScrollBox.tsx";
-import {
-  useCopyOnSelect,
-  useSelectionBgColor,
-} from "../hooks/useCopyOnSelect.ts";
-import { getClipboardPath } from "../../../vendor/ink/termio/osc.ts";
+import type { ScrollBoxHandle, ScrollBoxSnapshot } from "./ScrollBox.tsx";
 
 interface CurrentEval {
   code: string;
@@ -294,7 +289,13 @@ function AppContent(
   const { stdout } = useStdout();
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const shellContentWidth = getShellContentWidth(terminalWidth);
+  const transcriptViewportWidth = Math.max(
+    SHELL_LAYOUT.contentMinWidth,
+    shellContentWidth,
+  );
   const transcriptScrollRef = useRef<ScrollBoxHandle | null>(null);
+  const [transcriptScrollSnapshot, setTranscriptScrollSnapshot] =
+    useState<ScrollBoxSnapshot | null>(null);
 
   // Conversation state for agent mode
   const conversation = useConversation();
@@ -342,28 +343,18 @@ function AppContent(
     cycleAgentMode,
     flashFooterStatus,
   } = modelConfig;
-  const handleSelectionCopied = useCallback((text: string) => {
-    const path = getClipboardPath();
-    if (path === "native") {
-      return;
-    }
-    const count = text.length.toLocaleString("en-US");
-    if (path === "tmux-buffer") {
-      flashFooterStatus(
-        `copied ${count} chars to tmux buffer · paste with prefix + ]`,
-      );
-      return;
-    }
-    flashFooterStatus(
-      `sent ${count} chars via OSC 52 · check terminal clipboard settings if paste fails`,
-    );
-  }, [flashFooterStatus]);
-  useCopyOnSelect({ onCopied: handleSelectionCopied });
-  useSelectionBgColor();
-
   const repinTranscriptScroll = useCallback(() => {
     transcriptScrollRef.current?.scrollToBottom();
   }, []);
+  const handleTranscriptScrollStateChange = useCallback(
+    (snapshot: ScrollBoxSnapshot) => {
+      setTranscriptScrollSnapshot(snapshot);
+      if (!snapshot.isSticky) {
+        lastUserScrollTsRef.current = Date.now();
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!init.ready) return;
@@ -1742,6 +1733,18 @@ function AppContent(
     hasPendingInteraction: Boolean(pendingInteraction),
     hasLocalAgents: localAgentEntries.length > 0,
   });
+  const suppressRoutineTurnHint = hasConversationContext &&
+    isConversationTaskRunning &&
+    !pendingInteraction &&
+    !composerShellState.hasDraftInput;
+  const statusLineTurnLabel = suppressRoutineTurnHint && currentTurnSummary
+    ? `${currentTurnSummary} · Esc cancel`
+    : currentTurnSummary;
+  const transcriptLinesBelow =
+    Math.ceil(transcriptScrollSnapshot?.linesBelow ?? 0);
+  const transcriptScrollLabel = transcriptLinesBelow > 0
+    ? `${transcriptLinesBelow} line${transcriptLinesBelow === 1 ? "" : "s"} below · End to bottom`
+    : undefined;
   const suppressEmbeddedStartupChrome = bannerVisible && !init.ready;
   let overlayNode: React.ReactNode = null;
 
@@ -1866,37 +1869,41 @@ function AppContent(
       <Box
         flexDirection="column"
         flexGrow={1}
-        height="100%"
         paddingX={SHELL_LAYOUT.gutterX}
       >
-        {bannerVisible && (
-          <>
-            <Banner errors={init.errors} />
-            {init.updateInfo && <UpdateBanner update={init.updateInfo} />}
-            {!init.ready && <LoadingScreen progress={init.progress} />}
-          </>
-        )}
-
         <ScrollKeybindingHandler
           scrollRef={transcriptScrollRef}
-          isActive={!pendingInteraction && activeOverlay === "none"}
+          isActive={false}
           onScroll={() => {
             lastUserScrollTsRef.current = Date.now();
           }}
-          onSelectionCopied={handleSelectionCopied}
         />
 
         <FullscreenLayout
           scrollRef={transcriptScrollRef}
+          onScrollStateChange={handleTranscriptScrollStateChange}
+          nativeScroll
           scrollable={
-            <Box flexDirection="column">
+            <Box flexDirection="column" width={transcriptViewportWidth}>
+              {bannerVisible && (
+                <Box
+                  flexDirection="column"
+                  marginBottom={init.ready ? SHELL_LAYOUT.bannerBottomGap : 0}
+                >
+                  <Banner errors={init.errors} />
+                  {init.updateInfo && <UpdateBanner update={init.updateInfo} />}
+                  {!init.ready && <LoadingScreen progress={init.progress} />}
+                </Box>
+              )}
+
               {!hasStandaloneSurface && renderShellLanes && (
                 <RenderErrorBoundary>
                   <VirtualTranscript
                     items={hasConversationContext ? allDisplayItems : []}
                     scrollRef={transcriptScrollRef}
-                    width={shellContentWidth}
+                    width={transcriptViewportWidth}
                     compactSpacing
+                    virtualize={false}
                     streamingState={hasConversationContext
                       ? conversation.streamingState
                       : undefined}
@@ -1911,12 +1918,17 @@ function AppContent(
                   />
                 </RenderErrorBoundary>
               )}
-
+            </Box>
+          }
+          bottom={
+            <Box flexDirection="column">
               {(!blockingInteractionActive && !isOverlayOpen &&
                 isInputVisible) && (
                 <Box
                   flexDirection="column"
-                  marginTop={SHELL_LAYOUT.transcriptToComposerGap}
+                  marginTop={renderShellLanes
+                    ? SHELL_LAYOUT.transcriptToComposerGap
+                    : 1}
                 >
                   {queuedConversationDrafts.length > 0 && (
                     <QueuePreview
@@ -1985,8 +1997,9 @@ function AppContent(
                     ? conversation.planningPhase
                     : undefined}
                   interactionLabel={interactionStatusLabel}
-                  turnLabel={currentTurnSummary}
+                  turnLabel={statusLineTurnLabel}
                   turnTone={currentTurnTone}
+                  scrollLabel={transcriptScrollLabel}
                   aiAvailable={init.aiAvailable}
                   idleLabel={startupStatusLabel}
                 />
@@ -1994,6 +2007,7 @@ function AppContent(
 
               {(isInputVisible || hasConversationContext) &&
                 !suppressEmbeddedStartupChrome &&
+                !suppressRoutineTurnHint &&
                 (
                   <FooterHint
                     statusMessage={footerStatusMessage ||
@@ -2036,10 +2050,7 @@ function AppContent(
                       ?.replace(/^ · /, "")}
                   />
                 )}
-            </Box>
-          }
-          bottom={
-            <Box flexDirection="column">
+
               {showBottomDialog && (
                 <RenderErrorBoundary>
                   <DialogStack

@@ -13,22 +13,17 @@ interface LoadingScreenProps {
 
 export function LoadingScreen({ progress }: LoadingScreenProps): React.ReactElement {
   const spinner = useConversationSpinnerFrame(true);
+  const status = progress
+    ? `[${progress.step}/${progress.total}] ${progress.label}`
+    : "Initializing runtime components";
 
   return (
-    <Box flexDirection="column" paddingY={1}>
+    <Box paddingY={1}>
       <Text dimColor>
-        {spinner} Loading HLVM...
+        {spinner} Loading HLVM
+        {" · "}
+        {status}
       </Text>
-      {progress && (
-        <Box flexDirection="column" marginTop={1}>
-          <Text dimColor>
-            {`  [${progress.step}/${progress.total}] ${progress.label}`}
-          </Text>
-        </Box>
-      )}
-      {!progress && (
-        <Text dimColor>  Initializing runtime components</Text>
-      )}
     </Box>
   );
 }

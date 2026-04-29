@@ -491,10 +491,8 @@ export async function searchFiles(
   const commonHomeMatches = await searchCommonHomeFolders(query, maxResults);
 
   // If empty query, show CWD top-level entries first (including hidden
-  // dot-entries), matching Claude Code's @ picker which opens onto the
-  // current working directory rather than onto home-folder shortcuts.
-  // See ~/dev/ClaudeCode-main/ @ picker behavior (lists `.DS_Store`,
-  // `.claude/`, `.git/`, `.firebaserc`, etc. at the top level on empty query).
+  // dot-entries) — opens onto the current working directory rather than
+  // onto home-folder shortcuts.
   if (!query.trim()) {
     const cwdTopLevel = await listCwdTopLevelEntries(maxResults);
     for (const entry of cwdTopLevel) {

@@ -1,14 +1,17 @@
 import React from "react";
-import Box from "../../../vendor/ink/components/Box.tsx";
+import { Box } from "ink";
 import ScrollBox, {
   type ScrollBoxHandle,
-} from "../../../vendor/ink/components/ScrollBox.tsx";
+  type ScrollBoxSnapshot,
+} from "./ScrollBox.tsx";
 
 type Props = {
   scrollRef: React.RefObject<ScrollBoxHandle | null>;
   scrollable: React.ReactNode;
   bottom: React.ReactNode;
   overlay?: React.ReactNode;
+  onScrollStateChange?: (snapshot: ScrollBoxSnapshot) => void;
+  nativeScroll?: boolean;
 };
 
 /**
@@ -22,7 +25,25 @@ export function FullscreenLayout({
   scrollable,
   bottom,
   overlay,
+  onScrollStateChange,
+  nativeScroll = false,
 }: Props): React.ReactNode {
+  if (nativeScroll) {
+    return (
+      <Box flexDirection="column" flexGrow={1}>
+        {scrollable}
+        {overlay}
+        <Box
+          flexDirection="column"
+          flexShrink={0}
+          width="100%"
+        >
+          {bottom}
+        </Box>
+      </Box>
+    );
+  }
+
   return (
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <ScrollBox
@@ -30,6 +51,7 @@ export function FullscreenLayout({
         flexGrow={1}
         flexDirection="column"
         stickyScroll
+        onScrollStateChange={onScrollStateChange}
       >
         {scrollable}
         {overlay}

@@ -58,31 +58,13 @@ export function isTmuxControlMode(): boolean {
 }
 
 export function isFullscreenEnvEnabled(): boolean {
-  const fullscreenEnv = env("CLAUDE_CODE_NO_FLICKER");
+  const fullscreenEnv = env("HLVM_NO_FLICKER");
   if (isEnvDefinedFalsy(fullscreenEnv)) return false;
   if (isEnvTruthy(fullscreenEnv)) return true;
 
-  if (isTmuxControlMode()) {
-    return false;
-  }
+  if (isTmuxControlMode()) return false;
 
-  // HLVM v2 runs in fullscreen by default; the donor env var only exists as
-  // an override/escape hatch, not as the default enable switch.
   return true;
-}
-
-export function isMouseTrackingEnabled(): boolean {
-  // Match CC exactly: mouse tracking is ON by default so in-app wheel
-  // scroll works. Users who want native terminal text selection + Cmd+C
-  // can either (a) hold Opt while dragging (macOS Terminal standard for
-  // bypassing app-level mouse capture), or (b) set
-  // `CLAUDE_CODE_DISABLE_MOUSE=1` to turn tracking off.
-  // Reference: ~/dev/ClaudeCode-main/utils/fullscreen.ts:140.
-  return !isEnvTruthy(env("CLAUDE_CODE_DISABLE_MOUSE"));
-}
-
-export function isMouseClicksDisabled(): boolean {
-  return isEnvTruthy(env("CLAUDE_CODE_DISABLE_MOUSE_CLICKS"));
 }
 
 export function isFullscreenActive(): boolean {
@@ -108,7 +90,7 @@ export async function maybeGetTmuxMouseHint(): Promise<string | null> {
   const stdout = new TextDecoder().decode(result.stdout).trim();
   if (stdout === "on") return null;
 
-  return "tmux detected · PgUp/PgDn work here · set 'mouse on' in tmux for wheel scroll";
+  return "tmux detected · PgUp/PgDn scroll here · set 'mouse on' in tmux for terminal scrollback";
 }
 
 export function _resetFullscreenProbeForTesting(): void {

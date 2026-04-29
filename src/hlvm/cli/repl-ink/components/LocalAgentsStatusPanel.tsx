@@ -375,9 +375,11 @@ export function LocalAgentsManagerPanel(
               </Text>
             )}
             {row.previewLines.map((line) => (
-              <Text key={`${row.id}:${line}`} color={sc.text.muted}>
-                {`${row.previewPrefix}${truncate(line, previewWidth)}`}
-              </Text>
+              <Box key={`${row.id}:${line}`}>
+                <Text color={sc.text.muted}>
+                  {`${row.previewPrefix}${truncate(line, previewWidth)}`}
+                </Text>
+              </Box>
             ))}
           </Box>
         );

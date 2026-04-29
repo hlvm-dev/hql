@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { supportsHyperlinks } from "../../../../vendor/ink/supports-hyperlinks.ts";
+import { supportsHyperlinks } from "../../utils/ansi/supports-hyperlinks.ts";
 
 export const OSC8_START = "\x1b]8;;";
 export const OSC8_END = "\x07";

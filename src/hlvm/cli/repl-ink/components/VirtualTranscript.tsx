@@ -18,7 +18,7 @@ import { derivePlanSurfaceState } from "./conversation/plan-flow.ts";
 import { shouldRenderTranscriptDividerBeforeIndex } from "../utils/layout-tokens.ts";
 import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
 import { StreamingState as ConversationStreamingState } from "../types.ts";
-import type { ScrollBoxHandle } from "../../../vendor/ink/components/ScrollBox.tsx";
+import type { ScrollBoxHandle } from "./ScrollBox.tsx";
 import { useVirtualScroll } from "../hooks/useVirtualScroll.ts";
 
 interface VirtualTranscriptProps {
@@ -31,6 +31,7 @@ interface VirtualTranscriptProps {
   todoState?: TodoState;
   showPlanChecklist?: boolean;
   showLeadingDivider?: boolean;
+  virtualize?: boolean;
 }
 
 export function VirtualTranscript(
@@ -44,6 +45,7 @@ export function VirtualTranscript(
     todoState,
     showPlanChecklist = false,
     showLeadingDivider = false,
+    virtualize = true,
   }: VirtualTranscriptProps,
 ): React.ReactElement | null {
   const planSurface = useMemo(
@@ -104,7 +106,11 @@ export function VirtualTranscript(
     measureRef,
     spacerRef,
   } = useVirtualScroll(scrollRef, itemKeys, width);
-  const [start, end] = range;
+  const [virtualStart, virtualEnd] = range;
+  const start = virtualize ? virtualStart : 0;
+  const end = virtualize ? virtualEnd : displayItems.length;
+  const renderedTopSpacer = virtualize ? topSpacer : 0;
+  const renderedBottomSpacer = virtualize ? bottomSpacer : 0;
 
   if (displayItems.length === 0 && !planSurface.active) {
     return null;
@@ -120,7 +126,11 @@ export function VirtualTranscript(
         />
       )}
 
-      <Box ref={spacerRef} height={topSpacer} flexShrink={0} />
+      <Box
+        ref={virtualize ? spacerRef : undefined}
+        height={renderedTopSpacer}
+        flexShrink={0}
+      />
 
       {displayItems.slice(start, end).map((
         item: ShellHistoryEntry,
@@ -135,7 +145,11 @@ export function VirtualTranscript(
         const itemKey = itemKeys[globalIndex]!;
 
         return (
-          <Box key={itemKey} ref={measureRef(itemKey)} flexDirection="column">
+          <Box
+            key={itemKey}
+            ref={virtualize ? measureRef(itemKey) : undefined}
+            flexDirection="column"
+          >
             <TimelineItemRenderer
               item={item}
               width={width}
@@ -150,7 +164,9 @@ export function VirtualTranscript(
         );
       })}
 
-      {bottomSpacer > 0 && <Box height={bottomSpacer} flexShrink={0} />}
+      {renderedBottomSpacer > 0 && (
+        <Box height={renderedBottomSpacer} flexShrink={0} />
+      )}
     </Box>
   );
 }

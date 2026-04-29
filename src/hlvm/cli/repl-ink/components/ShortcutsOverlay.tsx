@@ -136,9 +136,11 @@ export function ShortcutsOverlay({
         {columns.map((column, index) => (
           <Box key={`help-column-${index}`} flexDirection="column" width={columnWidth}>
             {column.map((row: HelpRow) => (
-              <Text key={row.text} color={sc.text.muted} wrap="truncate-end">
-                {row.text}
-              </Text>
+              <Box key={row.text}>
+                <Text color={sc.text.muted} wrap="truncate-end">
+                  {row.text}
+                </Text>
+              </Box>
             ))}
           </Box>
         ))}

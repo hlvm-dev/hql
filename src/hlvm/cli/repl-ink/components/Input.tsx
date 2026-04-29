@@ -10,7 +10,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, type Key, Text, useInput, useStdout } from "ink";
+import { Box, type Key, Text, useInput, usePaste, useWindowSize } from "ink";
 import {
   AUTO_PAIR_CHARS,
   backwardSexp,
@@ -103,6 +103,8 @@ import {
   getShellPromptSlotWidth,
   padShellPromptLabel,
 } from "../utils/shell-chrome.ts";
+import { getShellContentWidth } from "../utils/layout-tokens.ts";
+import { isTerminalScrollInput } from "../utils/terminal-mouse.ts";
 import {
   canOpenComposerSurface,
   resolveActiveComposerSurface,
@@ -150,6 +152,17 @@ const PASTE_PROCESS_DELAY_MS = 300; // Wait 300ms for more chunks before process
 const CTRL_ENTER_CSI_U_REGEX = new RegExp("^\u001b\\[13;(\\d+)u$");
 const CTRL_ENTER_LEGACY_REGEX = new RegExp("^\u001b\\[27;(\\d+);13~$");
 const COMPOSER_INDENT = "  ";
+
+function getComposerContentWidth(
+  terminalWidth: number,
+  promptLabel: string,
+): number {
+  return Math.max(
+    1,
+    getShellContentWidth(terminalWidth) -
+      getShellPromptPrefixWidth(promptLabel),
+  );
+}
 
 /** Fast newline check without regex overhead. */
 function hasNewlineChars(str: string): boolean {
@@ -421,7 +434,7 @@ export function Input({
   // Theme from context
   const { color } = useTheme();
   const sc = useSemanticColors();
-  const { stdout } = useStdout();
+  const stdout = useWindowSize();
 
   // Autosuggestion (ghost text - separate from completion)
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
@@ -2017,6 +2030,10 @@ export function Input({
 
   // Main input handler
   inputEventHandlerRef.current = (input: string, key: Key, isPasted: boolean) => {
+    if (!isPasted && isTerminalScrollInput(input)) {
+      return;
+    }
+
     const isPureEscPrefixEvent = isPureEscKeyEvent(input, key);
     const hasActiveEscapeSurface = resolveActiveComposerSurface({
       isHistorySearching: historySearch.state.isSearching,
@@ -2843,8 +2860,7 @@ export function Input({
     // uniform prefix), so up/down is simply ±contentWidth within the
     // current logical line, with cross-line handling at boundaries.
     if (key.upArrow) {
-      const pw = getShellPromptPrefixWidth(promptLabel);
-      const cw = Math.max(1, (stdout?.columns ?? 80) - pw - 4);
+      const cw = getComposerContentWidth(stdout?.columns ?? 80, promptLabel);
       const lines = value.split("\n");
       let acc = 0;
       let logIdx = 0;
@@ -2883,8 +2899,7 @@ export function Input({
       return;
     }
     if (key.downArrow) {
-      const pw = getShellPromptPrefixWidth(promptLabel);
-      const cw = Math.max(1, (stdout?.columns ?? 80) - pw - 4);
+      const cw = getComposerContentWidth(stdout?.columns ?? 80, promptLabel);
       const lines = value.split("\n");
       let acc = 0;
       let logIdx = 0;
@@ -3214,11 +3229,15 @@ export function Input({
   const handleInkInput = useCallback((
     input: string,
     key: Key,
-    event: { keypress: { isPasted?: boolean } },
   ) => {
-    inputEventHandlerRef.current(input, key, event.keypress.isPasted === true);
+    inputEventHandlerRef.current(input, key, false);
   }, []);
   useInput(handleInkInput); // Note: disabled check is via disabledRef.current at top of callback (avoids stale closure)
+
+  const handleInkPaste = useCallback((text: string) => {
+    inputEventHandlerRef.current(text, {} as Key, true);
+  }, []);
+  usePaste(handleInkPaste);
 
   // Render with syntax highlighting
   // Paren matching: highlight BOTH brackets of a pair when cursor is ON/NEAR any delimiter
@@ -3459,11 +3478,8 @@ export function Input({
   const visualLayout = useMemo(() => {
     const logicalLines = displayValue.split("\n");
     const promptSlotWidth = getShellPromptSlotWidth(promptLabel);
-    const prefixWidth = promptSlotWidth + 1;
     const termWidth = stdout?.columns ?? 80;
-    // 4 = 2 (left+right border chars) + 2 (left+right padding inside border)
-    const borderOverhead = 4;
-    const contentWidth = Math.max(1, termWidth - prefixWidth - borderOverhead);
+    const contentWidth = getComposerContentWidth(termWidth, promptLabel);
     const wrappedLines = logicalLines.map((line: string) => ({
       line,
       wrap: wrapLine(line, contentWidth),
@@ -3652,8 +3668,6 @@ export function Input({
       isInPlaceholderMode,
     ],
   );
-  const isCommandCompletionActive = activeOverlay === "completion" &&
-    completion.renderProps?.providerId === "command";
   useEffect(() => {
     onEscapeSurfaceChange?.(activeOverlay !== "none");
   }, [activeOverlay, onEscapeSurfaceChange]);
@@ -3671,7 +3685,7 @@ export function Input({
     : composerHasActivity
     ? sc.chrome.sectionLabel
     : sc.shell.prompt;
-  const composerBorderColor = interactionMode
+  const composerFrameColor = interactionMode
     ? sc.border.dim
     : activeOverlay !== "none"
     ? sc.border.active
@@ -3759,31 +3773,16 @@ export function Input({
       )}
 
       {/* Input lines — shared shell composer surface */}
-      {isCommandCompletionActive
-        ? (
-          <Box
-            key={`composer:${historyIndex}:${displayValue}`}
-            flexDirection="column"
-          >
-            <Text color={sc.chrome.separator}>{commandCompletionDivider}</Text>
-            <Box flexDirection="column">
-              {lineElements}
-            </Box>
-            <Text color={sc.chrome.separator}>{commandCompletionDivider}</Text>
-          </Box>
-        )
-        : (
-          <Box
-            key={`composer:${historyIndex}:${displayValue}`}
-            borderStyle="single"
-            borderColor={composerBorderColor}
-            paddingLeft={1}
-            paddingRight={1}
-            flexDirection="column"
-          >
-            {lineElements}
-          </Box>
-        )}
+      <Box
+        key={`composer:${historyIndex}:${displayValue}`}
+        flexDirection="column"
+      >
+        <Text color={composerFrameColor}>{commandCompletionDivider}</Text>
+        <Box flexDirection="column">
+          {lineElements}
+        </Box>
+        <Text color={composerFrameColor}>{commandCompletionDivider}</Text>
+      </Box>
 
       {/* Placeholder mode hint - shows current parameter context */}
       {/* FIX M4: Use getCurrentPlaceholder for safe bounds-checked access */}
