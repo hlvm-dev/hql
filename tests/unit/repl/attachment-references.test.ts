@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
+  createTextAttachment as createReplTextAttachment,
   expandTextAttachmentReferences,
   filterReferencedAttachments,
   findAttachmentReferenceAfterCursor,
@@ -12,7 +13,7 @@ import {
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { withTempDir } from "../helpers.ts";
 
-function createTextAttachment(
+function createFixtureTextAttachment(
   id: number,
   displayName: string,
   content: string,
@@ -53,12 +54,12 @@ Deno.test("attachment refs: pasted text label matches Claude Code line counting"
 
 Deno.test("attachment refs: pasted text expansion is top-level only and leaves image refs intact", () => {
   const attachments = [
-    createTextAttachment(
+    createFixtureTextAttachment(
       1,
       "[Pasted text #1]",
       "[Pasted text #2] should stay literal",
     ),
-    createTextAttachment(2, "[Pasted text #2]", "expanded second block"),
+    createFixtureTextAttachment(2, "[Pasted text #2]", "expanded second block"),
     createImageAttachment(3),
   ];
 
@@ -75,7 +76,11 @@ Deno.test("attachment refs: pasted text expansion is top-level only and leaves i
 
 Deno.test("attachment refs: filtering drops orphaned attachments after inline refs are removed", () => {
   const attachments = [
-    createTextAttachment(1, "[Pasted text #1 +2 lines]", "alpha\nbeta\ngamma"),
+    createFixtureTextAttachment(
+      1,
+      "[Pasted text #1 +2 lines]",
+      "alpha\nbeta\ngamma",
+    ),
     createImageAttachment(2),
     createImageAttachment(3),
   ];
@@ -132,7 +137,7 @@ Deno.test("attachment refs: remove selected chip and adjacent spacing", () => {
 
 Deno.test("attachment refs: legacy [Text #N] labels still resolve during restore and pruning", () => {
   const attachments = [
-    createTextAttachment(1, "[Text #1]", "legacy text body"),
+    createFixtureTextAttachment(1, "[Text #1]", "legacy text body"),
     createImageAttachment(2),
   ];
 
@@ -148,6 +153,16 @@ Deno.test("attachment refs: legacy [Text #N] labels still resolve during restore
   assertEquals(filtered.map((attachment) => attachment.id), [1]);
   assertEquals(expanded, "before legacy text body after");
   assertEquals(filtered[0]?.displayName, "[Text #1]");
+});
+
+Deno.test("attachment refs: oversized pasted text returns a clear size error", async () => {
+  const oversized = "x".repeat(5 * 1024 * 1024 + 1);
+  const result = await createReplTextAttachment(oversized, 1);
+
+  if ("attachmentId" in result) {
+    throw new Error("expected oversized pasted text to be rejected");
+  }
+  assertEquals(result.message, "File too large: 5.0 MB exceeds 5.0 MB limit");
 });
 
 Deno.test("attachment refs: auto-attachable path requires an existing media file", async () => {

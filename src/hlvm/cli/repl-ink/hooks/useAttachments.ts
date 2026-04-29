@@ -101,7 +101,8 @@ export function useAttachments(): UseAttachmentsReturn {
   );
 
   /**
-   * Add a text attachment for large pasted text (synchronous for instant UI)
+   * Add a text attachment for large pasted text after the collapsed token
+   * has had a chance to render.
    */
   const addTextAttachmentWithId = useCallback(
     async (
