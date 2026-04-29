@@ -18,12 +18,9 @@ import { derivePlanSurfaceState } from "./conversation/plan-flow.ts";
 import { shouldRenderTranscriptDividerBeforeIndex } from "../utils/layout-tokens.ts";
 import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
 import { StreamingState as ConversationStreamingState } from "../types.ts";
-import type { ScrollBoxHandle } from "./ScrollBox.tsx";
-import { useVirtualScroll } from "../hooks/useVirtualScroll.ts";
 
 interface VirtualTranscriptProps {
   items?: AgentConversationItem[];
-  scrollRef: React.RefObject<ScrollBoxHandle | null>;
   width: number;
   compactSpacing?: boolean;
   streamingState?: StreamingState;
@@ -31,13 +28,11 @@ interface VirtualTranscriptProps {
   todoState?: TodoState;
   showPlanChecklist?: boolean;
   showLeadingDivider?: boolean;
-  virtualize?: boolean;
 }
 
 export function VirtualTranscript(
   {
     items: rawItems = [],
-    scrollRef,
     width,
     compactSpacing = true,
     streamingState,
@@ -45,7 +40,6 @@ export function VirtualTranscript(
     todoState,
     showPlanChecklist = false,
     showLeadingDivider = false,
-    virtualize = true,
   }: VirtualTranscriptProps,
 ): React.ReactElement | null {
   const planSurface = useMemo(
@@ -61,7 +55,8 @@ export function VirtualTranscript(
     return filterDuplicateWaitingIndicators(baseItems).filter((item) => {
       if (!hidePassiveWaitingSignals) return true;
       if (item.type === "thinking") return false;
-      return !(item.type === "assistant" && item.isPending && item.text.trim().length === 0);
+      return !(item.type === "assistant" && item.isPending &&
+        item.text.trim().length === 0);
     });
   }, [planSurface.visibleItems, streamingState]);
 
@@ -99,19 +94,6 @@ export function VirtualTranscript(
     ],
   );
 
-  const {
-    range,
-    topSpacer,
-    bottomSpacer,
-    measureRef,
-    spacerRef,
-  } = useVirtualScroll(scrollRef, itemKeys, width);
-  const [virtualStart, virtualEnd] = range;
-  const start = virtualize ? virtualStart : 0;
-  const end = virtualize ? virtualEnd : displayItems.length;
-  const renderedTopSpacer = virtualize ? topSpacer : 0;
-  const renderedBottomSpacer = virtualize ? bottomSpacer : 0;
-
   if (displayItems.length === 0 && !planSurface.active) {
     return null;
   }
@@ -126,17 +108,10 @@ export function VirtualTranscript(
         />
       )}
 
-      <Box
-        ref={virtualize ? spacerRef : undefined}
-        height={renderedTopSpacer}
-        flexShrink={0}
-      />
-
-      {displayItems.slice(start, end).map((
+      {displayItems.map((
         item: ShellHistoryEntry,
-        localIndex: number,
+        globalIndex: number,
       ) => {
-        const globalIndex = start + localIndex;
         const showDividerBefore = shouldRenderTranscriptDividerBeforeIndex(
           displayItems,
           globalIndex,
@@ -147,7 +122,6 @@ export function VirtualTranscript(
         return (
           <Box
             key={itemKey}
-            ref={virtualize ? measureRef(itemKey) : undefined}
             flexDirection="column"
           >
             <TimelineItemRenderer
@@ -163,10 +137,6 @@ export function VirtualTranscript(
           </Box>
         );
       })}
-
-      {renderedBottomSpacer > 0 && (
-        <Box height={renderedBottomSpacer} flexShrink={0} />
-      )}
     </Box>
   );
 }
@@ -194,7 +164,9 @@ function getTranscriptItemKey(
       const expandedSignature = item.tools.map((tool) =>
         options.isToolExpanded(tool.id) ? "1" : "0"
       ).join("");
-      return `${item.id}:${width}:${showDividerBefore ? 1 : 0}:${expandedSignature}`;
+      return `${item.id}:${width}:${
+        showDividerBefore ? 1 : 0
+      }:${expandedSignature}`;
     }
     default:
       return `${item.id}:${width}:${showDividerBefore ? 1 : 0}`;

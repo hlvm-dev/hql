@@ -104,7 +104,7 @@ import {
   padShellPromptLabel,
 } from "../utils/shell-chrome.ts";
 import { getShellContentWidth } from "../utils/layout-tokens.ts";
-import { isTerminalScrollInput } from "../utils/terminal-mouse.ts";
+import { isTerminalScrollInput } from "../utils/terminal-scroll.ts";
 import {
   canOpenComposerSurface,
   resolveActiveComposerSurface,
@@ -228,7 +228,7 @@ function logicalLineBounds(
 function buildComposerNewlineInsert(text: string, pos: number): string {
   const { lineStart } = logicalLineBounds(text, pos);
   const linePrefix = text.slice(lineStart, pos);
-  const baseIndent = (/^[\t ]*/.exec(linePrefix)?.[0] ?? "");
+  const baseIndent = /^[\t ]*/.exec(linePrefix)?.[0] ?? "";
   const trimmedPrefix = linePrefix.trimEnd();
   const shouldIncreaseIndent = /[\[{(]$/.test(trimmedPrefix) ||
     /:\s*$/.test(trimmedPrefix);
@@ -1341,7 +1341,10 @@ export function Input({
     if (!onForceSubmit) return;
     const trimmed = value.trim();
     if (!trimmed) return;
-    const referencedAttachments = filterReferencedAttachments(trimmed, attachments);
+    const referencedAttachments = filterReferencedAttachments(
+      trimmed,
+      attachments,
+    );
     onForceSubmit(
       trimmed,
       referencedAttachments.length > 0 ? referencedAttachments : undefined,
@@ -2020,16 +2023,22 @@ export function Input({
     };
   }, []);
 
-  const inputEventHandlerRef = useRef<(
-    input: string,
-    key: Key,
-    isPasted: boolean,
-  ) => void>(
+  const inputEventHandlerRef = useRef<
+    (
+      input: string,
+      key: Key,
+      isPasted: boolean,
+    ) => void
+  >(
     () => {},
   );
 
   // Main input handler
-  inputEventHandlerRef.current = (input: string, key: Key, isPasted: boolean) => {
+  inputEventHandlerRef.current = (
+    input: string,
+    key: Key,
+    isPasted: boolean,
+  ) => {
     if (!isPasted && isTerminalScrollInput(input)) {
       return;
     }
@@ -3132,8 +3141,10 @@ export function Input({
         const isAbsolutePath = cleanText.startsWith("/") ||
           cleanText.startsWith("~");
 
-        if (isAbsolutePath &&
-          isAutoAttachableConversationAttachmentPath(cleanText)) {
+        if (
+          isAbsolutePath &&
+          isAutoAttachableConversationAttachmentPath(cleanText)
+        ) {
           const id = reserveNextId();
           const mimeType = detectMimeType(cleanText);
           const type = getAttachmentType(mimeType);

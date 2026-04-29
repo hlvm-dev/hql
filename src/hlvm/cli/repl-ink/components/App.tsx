@@ -6,7 +6,6 @@
 import React, {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -66,10 +65,7 @@ import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
-import {
-  type OverlayPanel,
-  useOverlayPanel,
-} from "../hooks/useOverlayPanel.ts";
+import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
 import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
@@ -133,8 +129,6 @@ import { type LocalAgentEntry } from "../utils/local-agents.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { TuiStatusLine } from "./TuiStatusLine.tsx";
 import { FullscreenLayout } from "./FullscreenLayout.tsx";
-import { ScrollKeybindingHandler } from "./ScrollKeybindingHandler.tsx";
-import type { ScrollBoxHandle, ScrollBoxSnapshot } from "./ScrollBox.tsx";
 
 interface CurrentEval {
   code: string;
@@ -159,11 +153,6 @@ const GLOBAL_KEYBINDING_CATEGORIES = ["Global"] as const;
 const DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE: BackgroundTasksOverlayState = {
   initialViewMode: "list",
 };
-const RECENT_SCROLL_REPIN_WINDOW_MS = 3000;
-
-function shouldRepinForOverlay(overlay: OverlayPanel): boolean {
-  return overlay !== "none" && overlay !== "transcript-history";
-}
 
 function usesConversationContext(surfacePanel: string): boolean {
   return surfacePanel === "conversation";
@@ -234,9 +223,6 @@ function AppContent(
     submitAction: "send-agent",
     version: 0,
   });
-  const lastUserScrollTsRef = useRef(0);
-  const lastComposerUiStateRef = useRef<ComposerSurfaceUiState | null>(null);
-
   // Task manager for background evaluation
   const {
     tasks,
@@ -293,10 +279,6 @@ function AppContent(
     SHELL_LAYOUT.contentMinWidth,
     shellContentWidth,
   );
-  const transcriptScrollRef = useRef<ScrollBoxHandle | null>(null);
-  const [transcriptScrollSnapshot, setTranscriptScrollSnapshot] =
-    useState<ScrollBoxSnapshot | null>(null);
-
   // Conversation state for agent mode
   const conversation = useConversation();
   const conversationRef = useRef(conversation);
@@ -343,19 +325,6 @@ function AppContent(
     cycleAgentMode,
     flashFooterStatus,
   } = modelConfig;
-  const repinTranscriptScroll = useCallback(() => {
-    transcriptScrollRef.current?.scrollToBottom();
-  }, []);
-  const handleTranscriptScrollStateChange = useCallback(
-    (snapshot: ScrollBoxSnapshot) => {
-      setTranscriptScrollSnapshot(snapshot);
-      if (!snapshot.isSticky) {
-        lastUserScrollTsRef.current = Date.now();
-      }
-    },
-    [],
-  );
-
   useEffect(() => {
     if (!init.ready) return;
     if (!modelSelection.activeModelId) return;
@@ -393,25 +362,11 @@ function AppContent(
 
   const handleComposerUiStateChange = useCallback(
     (nextState: ComposerSurfaceUiState) => {
-      const previousState = lastComposerUiStateRef.current;
-      lastComposerUiStateRef.current = nextState;
-      if (
-        previousState &&
-        previousState.draftTextLength === 0 &&
-        nextState.draftTextLength > 0 &&
-        Date.now() - lastUserScrollTsRef.current >=
-          RECENT_SCROLL_REPIN_WINDOW_MS
-      ) {
-        const handle = transcriptScrollRef.current;
-        if (handle && !handle.isSticky()) {
-          repinTranscriptScroll();
-        }
-      }
       setComposerShellState((prev: ComposerShellState) =>
         advanceComposerShellState(prev, nextState)
       );
     },
-    [repinTranscriptScroll],
+    [],
   );
 
   const getCurrentComposerDraft = useCallback((): ConversationComposerDraft => {
@@ -490,27 +445,6 @@ function AppContent(
     interruptConversationRun,
     handleForceInterrupt,
   } = agentRunner;
-  const previousBlockingInteractionRef = useRef<
-    "none" | "permission" | "question"
-  >("none");
-  useLayoutEffect(() => {
-    const currentInteraction = pendingInteraction?.mode ?? "none";
-    if (previousBlockingInteractionRef.current !== currentInteraction) {
-      repinTranscriptScroll();
-      previousBlockingInteractionRef.current = currentInteraction;
-    }
-  }, [pendingInteraction?.mode, repinTranscriptScroll]);
-  const previousRepinnedOverlayRef = useRef<OverlayPanel>(activeOverlay);
-  useLayoutEffect(() => {
-    const wasRepinned = shouldRepinForOverlay(
-      previousRepinnedOverlayRef.current,
-    );
-    const isRepinned = shouldRepinForOverlay(activeOverlay);
-    if (wasRepinned !== isRepinned) {
-      repinTranscriptScroll();
-    }
-    previousRepinnedOverlayRef.current = activeOverlay;
-  }, [activeOverlay, repinTranscriptScroll]);
   useEffect(() => {
     if (localAgentEntries.length === 0) {
       setLocalAgentsFocused(false);
@@ -1740,11 +1674,6 @@ function AppContent(
   const statusLineTurnLabel = suppressRoutineTurnHint && currentTurnSummary
     ? `${currentTurnSummary} · Esc cancel`
     : currentTurnSummary;
-  const transcriptLinesBelow =
-    Math.ceil(transcriptScrollSnapshot?.linesBelow ?? 0);
-  const transcriptScrollLabel = transcriptLinesBelow > 0
-    ? `${transcriptLinesBelow} line${transcriptLinesBelow === 1 ? "" : "s"} below · End to bottom`
-    : undefined;
   const suppressEmbeddedStartupChrome = bannerVisible && !init.ready;
   let overlayNode: React.ReactNode = null;
 
@@ -1871,18 +1800,7 @@ function AppContent(
         flexGrow={1}
         paddingX={SHELL_LAYOUT.gutterX}
       >
-        <ScrollKeybindingHandler
-          scrollRef={transcriptScrollRef}
-          isActive={false}
-          onScroll={() => {
-            lastUserScrollTsRef.current = Date.now();
-          }}
-        />
-
         <FullscreenLayout
-          scrollRef={transcriptScrollRef}
-          onScrollStateChange={handleTranscriptScrollStateChange}
-          nativeScroll
           scrollable={
             <Box flexDirection="column" width={transcriptViewportWidth}>
               {bannerVisible && (
@@ -1900,10 +1818,8 @@ function AppContent(
                 <RenderErrorBoundary>
                   <VirtualTranscript
                     items={hasConversationContext ? allDisplayItems : []}
-                    scrollRef={transcriptScrollRef}
                     width={transcriptViewportWidth}
                     compactSpacing
-                    virtualize={false}
                     streamingState={hasConversationContext
                       ? conversation.streamingState
                       : undefined}
@@ -1999,7 +1915,6 @@ function AppContent(
                   interactionLabel={interactionStatusLabel}
                   turnLabel={statusLineTurnLabel}
                   turnTone={currentTurnTone}
-                  scrollLabel={transcriptScrollLabel}
                   aiAvailable={init.aiAvailable}
                   idleLabel={startupStatusLabel}
                 />
