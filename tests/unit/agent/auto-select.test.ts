@@ -11,6 +11,7 @@ import {
   type ModelCaps,
   modelInfoToModelCaps,
   recordAutoModelFailure,
+  recordAutoModelSuccess,
   resolveAutoModel,
   scoreModel,
   type TaskProfile,
@@ -1037,6 +1038,108 @@ Deno.test("resolveAutoModel: invalid request failure does not cool down model", 
       needsStructuredOutput: false,
     });
     assertEquals(second.model, first.model);
+  } finally {
+    __setListAllProviderModelsForTesting(null);
+    __clearAutoModelFailureCooldownsForTesting();
+  }
+});
+
+Deno.test("resolveAutoModel: live health favors fast successful close candidate", async () => {
+  invalidateAutoModelCache();
+  __clearAutoModelFailureCooldownsForTesting();
+  __setListAllProviderModelsForTesting(async () => [
+    makeProviderModelInfo("claude-sonnet-4", "anthropic"),
+    makeProviderModelInfo("gpt-4-turbo", "openai"),
+  ]);
+  try {
+    const before = await resolveAutoModel("hello", undefined, undefined, {
+      isCodeTask: false,
+      isReasoningTask: false,
+      needsStructuredOutput: false,
+    });
+    assertEquals(before.model, "anthropic/claude-sonnet-4");
+
+    assertEquals(recordAutoModelSuccess("openai/gpt-4-turbo", 120), true);
+
+    const after = await resolveAutoModel("hello", undefined, undefined, {
+      isCodeTask: false,
+      isReasoningTask: false,
+      needsStructuredOutput: false,
+    });
+    assertEquals(after.model, "openai/gpt-4-turbo");
+    assertEquals(after.reason.includes("health=+"), true);
+  } finally {
+    __setListAllProviderModelsForTesting(null);
+    __clearAutoModelFailureCooldownsForTesting();
+  }
+});
+
+Deno.test("resolveAutoModel: successful model clears prior cooldown", async () => {
+  invalidateAutoModelCache();
+  __clearAutoModelFailureCooldownsForTesting();
+  __setListAllProviderModelsForTesting(async () => [
+    makeProviderModelInfo("claude-sonnet-4", "anthropic"),
+    makeProviderModelInfo("gpt-4-turbo", "openai"),
+  ]);
+  try {
+    assertEquals(
+      await recordAutoModelFailure(
+        "anthropic/claude-sonnet-4",
+        new Error("rate limit exceeded (429)"),
+      ),
+      true,
+    );
+
+    const whileCoolingDown = await resolveAutoModel(
+      "hello",
+      undefined,
+      undefined,
+      {
+        isCodeTask: false,
+        isReasoningTask: false,
+        needsStructuredOutput: false,
+      },
+    );
+    assertEquals(whileCoolingDown.model, "openai/gpt-4-turbo");
+
+    assertEquals(recordAutoModelSuccess("anthropic/claude-sonnet-4", 100), true);
+
+    const afterSuccess = await resolveAutoModel("hello", undefined, undefined, {
+      isCodeTask: false,
+      isReasoningTask: false,
+      needsStructuredOutput: false,
+    });
+    assertEquals(afterSuccess.model, "anthropic/claude-sonnet-4");
+  } finally {
+    __setListAllProviderModelsForTesting(null);
+    __clearAutoModelFailureCooldownsForTesting();
+  }
+});
+
+Deno.test("callLLMWithModelFallback: records successful model health", async () => {
+  invalidateAutoModelCache();
+  __clearAutoModelFailureCooldownsForTesting();
+  __setListAllProviderModelsForTesting(async () => [
+    makeProviderModelInfo("claude-sonnet-4", "anthropic"),
+    makeProviderModelInfo("gpt-4-turbo", "openai"),
+  ]);
+  try {
+    await callLLMWithModelFallback(
+      () => Promise.resolve(mockResponse("ok")),
+      [],
+      () => () => Promise.resolve(mockResponse("unused")),
+      (fn) => fn([], undefined),
+      undefined,
+      undefined,
+      "openai/gpt-4-turbo",
+    );
+
+    const result = await resolveAutoModel("hello", undefined, undefined, {
+      isCodeTask: false,
+      isReasoningTask: false,
+      needsStructuredOutput: false,
+    });
+    assertEquals(result.model, "openai/gpt-4-turbo");
   } finally {
     __setListAllProviderModelsForTesting(null);
     __clearAutoModelFailureCooldownsForTesting();

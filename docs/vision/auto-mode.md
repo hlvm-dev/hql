@@ -7,9 +7,11 @@ When the user sets `--model auto`, HLVM automatically picks the best available m
 ## What It Is
 
 - Per-turn model selection (one model per turn, no mid-turn switching)
-- Rule-based scoring with simple additive heuristics
+- Rule-based scoring with simple additive heuristics plus live request health
 - Transparent: reason is visible, not black-box
 - Fallback on hard failure only
+- Health-aware: fallback-worthy failures cool down a model; successful
+  low-latency calls add a small ranking bonus
 - Open model catalog with policy controls
 
 ## What It Is NOT
@@ -26,7 +28,7 @@ When the user sets `--model auto`, HLVM automatically picks the best available m
 User prompt + attachments + policy
   -> 1. Build TaskProfile (LLM-classified via local gemma4, ~50-200ms)
   -> 2. Filter impossible models (hard constraints)
-  -> 3. Score remaining models (simple additive)
+  -> 3. Score remaining models (simple additive + live health/latency)
   -> 4. Pick top scorer
   -> 5. Keep 1-2 fallbacks for hard failure only
 ```
@@ -124,14 +126,19 @@ Contains:
 - `filterModels()` — remove impossible candidates
 - `scoreModel()` — simple additive scoring (pure, sync)
 - `chooseAutoModel()` — **async**, top-level entry point, returns AutoDecision
+- `recordAutoModelSuccess()` / `recordAutoModelFailure()` — live
+  in-process health telemetry from actual model calls
 - `classifyTask()` — LLM classification: code/reasoning/structured (local-llm.ts)
 - `classifyFollowUp()` — LLM classification: asks/binary/generic (local-llm.ts)
 - `classifyResponseIntent()` — LLM classification: asksQuestion/needsConcreteTask (local-llm.ts)
 
 ## Model Catalog: Hybrid Approach
 
-- **Availability (v1)** = existing catalog snapshot (configured providers + locally installed models). No active probing or health checks.
-- **Availability (v2, future)** = active probing (provider reachable? auth valid? degraded? latency?)
+- **Availability (v1)** = existing catalog snapshot (configured providers + locally installed models).
+- **Health (v1)** = actual request outcomes only: success latency,
+  fallback-worthy failures, and short cooldowns. No background probes or polling.
+- **Availability (v2, future)** = optional learned ranking from evals and
+  persisted fleet-level telemetry.
 - **Selection heuristics** = small static table (hardcoded quality/reliability/traits)
 
 Why static heuristics: Provider APIs tell you what exists, but they do NOT reliably tell you:
@@ -165,6 +172,18 @@ if preferCheap && model.costTier === "high": -20
 ```
 
 Tie-break: reliability > lower cost > preferred provider order.
+
+## Live Health Policy
+
+Auto uses observed request outcomes, not hidden probes:
+
+- successful model calls record latency with an in-process EWMA
+- fallback-worthy failures record a failure and cool down the failed model
+- invalid requests, context overflow, and user aborts do not poison model health
+- health/latency is a secondary score; capability and task fit remain primary
+
+This mirrors hosted routers' health-aware behavior while preserving HLVM's
+reactive-only runtime rule: no polling, no liveness loop, no hidden probes.
 
 ## Fallback Policy (v1)
 

@@ -100,11 +100,17 @@ Current contract:
 - only then may the server ask whether the resolved model is agent-capable
 - explicit model selection and `auto` share the same downstream gate once a
   concrete model exists
+- `auto` ranks close candidates with live in-process health telemetry from real
+  model calls: successful low-latency calls get a small bonus, and
+  fallback-worthy failures cool down the failed model
+- invalid requests, context overflow, and user cancellations do not cool down or
+  penalize the selected model
 
 Relevant files:
 
 - `src/hlvm/cli/repl/handlers/chat.ts`
 - `src/hlvm/cli/repl/handlers/chat-direct.ts`
+- `src/hlvm/agent/auto-select.ts`
 
 ### 4.2 Explicit model requests fail honestly
 

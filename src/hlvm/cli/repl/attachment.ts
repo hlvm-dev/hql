@@ -71,6 +71,12 @@ export interface AttachmentReferenceMatch {
   index: number;
 }
 
+export interface AttachmentReferenceRemoval {
+  id: number;
+  nextCursor: number;
+  nextText: string;
+}
+
 const TEXT_COLLAPSE_MIN_LINES = 5;
 const TEXT_COLLAPSE_MIN_CHARS = 300;
 const TEXT_ATTACHMENT_REFERENCE_PATTERN =
@@ -85,9 +91,7 @@ function resolveAttachmentPath(path: string): string {
     const home = platform.env.get("HOME");
     if (!home) return platform.path.normalize(trimmed);
     const suffix = trimmed.slice(1).replace(/^[/\\]+/, "");
-    return suffix.length > 0
-      ? platform.path.join(home, suffix)
-      : home;
+    return suffix.length > 0 ? platform.path.join(home, suffix) : home;
   }
   return platform.path.normalize(trimmed);
 }
@@ -95,16 +99,21 @@ function resolveAttachmentPath(path: string): string {
 export function isSupportedConversationMedia(path: string): boolean {
   return isSupportedConversationAttachmentMimeType(
     getConversationAttachmentMimeType(path),
-  ) && getConversationAttachmentKind(getConversationAttachmentMimeType(path)) !==
-    "text";
+  ) &&
+    getConversationAttachmentKind(getConversationAttachmentMimeType(path)) !==
+      "text";
 }
 
 export function isSupportedConversationAttachmentPath(path: string): boolean {
-  return getConversationAttachmentKind(getConversationAttachmentMimeType(path)) !==
+  return getConversationAttachmentKind(
+    getConversationAttachmentMimeType(path),
+  ) !==
     null;
 }
 
-export function isAutoAttachableConversationAttachmentPath(path: string): boolean {
+export function isAutoAttachableConversationAttachmentPath(
+  path: string,
+): boolean {
   const resolvedPath = resolveAttachmentPath(path);
   if (!isSupportedConversationMedia(resolvedPath)) {
     return false;
@@ -140,8 +149,9 @@ export function getDisplayName(type: AttachmentType, id: number): string {
 }
 
 function normalizeTextAttachmentDisplayName(
-  attachment: Pick<AnyAttachment, "id" | "displayName"> &
-    Partial<Pick<TextAttachment, "lineCount">>,
+  attachment:
+    & Pick<AnyAttachment, "id" | "displayName">
+    & Partial<Pick<TextAttachment, "lineCount">>,
 ): string {
   return attachment.displayName.startsWith("[Pasted text #")
     ? attachment.displayName
@@ -295,9 +305,84 @@ export function filterReferencedAttachments(
   attachments: readonly AnyAttachment[],
 ): AnyAttachment[] {
   if (attachments.length === 0) return [];
-  const referencedIds = new Set(parseAttachmentReferences(text).map((ref) => ref.id));
+  const referencedIds = new Set(
+    parseAttachmentReferences(text).map((ref) => ref.id),
+  );
   if (referencedIds.size === 0) return [];
   return attachments.filter((attachment) => referencedIds.has(attachment.id));
+}
+
+export function findAttachmentReferenceAtCursor(
+  text: string,
+  cursor: number,
+): AttachmentReferenceMatch | null {
+  const clampedCursor = Math.max(0, Math.min(cursor, text.length));
+  for (const ref of parseAttachmentReferences(text)) {
+    const start = ref.index;
+    const end = start + ref.match.length;
+    if (clampedCursor >= start && clampedCursor <= end) {
+      return ref;
+    }
+    if (clampedCursor === end + 1 && text[end] === " ") {
+      return ref;
+    }
+  }
+  return null;
+}
+
+export function findAttachmentReferenceBeforeCursor(
+  text: string,
+  cursor: number,
+): AttachmentReferenceMatch | null {
+  const clampedCursor = Math.max(0, Math.min(cursor, text.length));
+  for (const ref of parseAttachmentReferences(text)) {
+    const start = ref.index;
+    const end = start + ref.match.length;
+    const selectableEnd = end < text.length && text[end] === " "
+      ? end + 1
+      : end;
+    if (clampedCursor > start && clampedCursor <= selectableEnd) {
+      return ref;
+    }
+  }
+  return null;
+}
+
+export function findAttachmentReferenceAfterCursor(
+  text: string,
+  cursor: number,
+): AttachmentReferenceMatch | null {
+  const clampedCursor = Math.max(0, Math.min(cursor, text.length));
+  for (const ref of parseAttachmentReferences(text)) {
+    const start = ref.index;
+    const end = start + ref.match.length;
+    if (clampedCursor >= start && clampedCursor < end) {
+      return ref;
+    }
+  }
+  return null;
+}
+
+export function removeAttachmentReferenceAtCursor(
+  text: string,
+  cursor: number,
+): AttachmentReferenceRemoval | null {
+  const ref = findAttachmentReferenceAtCursor(text, cursor);
+  if (!ref) return null;
+
+  let start = ref.index;
+  let end = ref.index + ref.match.length;
+  if (end < text.length && text[end] === " ") {
+    end += 1;
+  } else if (start > 0 && text[start - 1] === " ") {
+    start -= 1;
+  }
+
+  return {
+    id: ref.id,
+    nextCursor: start,
+    nextText: text.slice(0, start) + text.slice(end),
+  };
 }
 
 export function expandTextAttachmentReferences(
@@ -325,8 +410,7 @@ export function expandTextAttachmentReferences(
     if (ref.kind !== "text") continue;
     const content = textById.get(ref.id);
     if (content === undefined) continue;
-    expanded =
-      expanded.slice(0, ref.index) +
+    expanded = expanded.slice(0, ref.index) +
       content +
       expanded.slice(ref.index + ref.match.length);
   }
@@ -344,10 +428,13 @@ export function getPastedTextPreviewLabel(
 export async function createTextAttachment(
   content: string,
   id: number,
+  lineCount = getPastedTextReferenceLineCount(content),
 ): Promise<TextAttachment | AttachmentError> {
-  const lineCount = getPastedTextReferenceLineCount(content);
   try {
-    const record = await registerTextAttachment(content, `pasted-text-${id}.txt`);
+    const record = await registerTextAttachment(
+      content,
+      `pasted-text-${id}.txt`,
+    );
     return {
       id,
       attachmentId: record.id,
@@ -365,7 +452,9 @@ export async function createTextAttachment(
     }
     return {
       type: "read_error",
-      message: error instanceof Error ? error.message : "Failed to register pasted text",
+      message: error instanceof Error
+        ? error.message
+        : "Failed to register pasted text",
       path: "[pasted text]",
     };
   }

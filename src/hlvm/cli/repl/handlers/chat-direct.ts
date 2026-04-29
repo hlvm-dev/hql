@@ -38,7 +38,10 @@ import {
   withFallbackChain,
 } from "../../../runtime/local-fallback.ts";
 import { getLocalModelDisplayName } from "../../../runtime/local-llm.ts";
-import { recordAutoModelFailure } from "../../../agent/auto-select.ts";
+import {
+  recordAutoModelFailure,
+  recordAutoModelSuccess,
+} from "../../../agent/auto-select.ts";
 
 const LOCAL_FALLBACK_READY_MESSAGE =
   `Local ${getLocalModelDisplayName()} is still preparing. Try again in a moment.`;
@@ -182,8 +185,9 @@ async function streamChatWithFallback(
     emit({ event: "token", text: token });
   };
 
-  const tryStream = (model: string | undefined) =>
-    drainTokenStream(
+  const tryStream = async (model: string | undefined) => {
+    const startedAt = performance.now();
+    const text = await drainTokenStream(
       createChatTokenIterator(
         providerMessages,
         model,
@@ -194,6 +198,9 @@ async function streamChatWithFallback(
       signal,
       forwardChunk,
     );
+    recordAutoModelSuccess(model, performance.now() - startedAt);
+    return text;
+  };
   const canFallback = () =>
     !emittedAnyToken && !resolvedModel?.startsWith("ollama/");
 

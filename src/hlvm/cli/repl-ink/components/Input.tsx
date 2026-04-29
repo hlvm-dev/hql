@@ -52,13 +52,19 @@ import {
   calculateWordForwardPosition,
 } from "../../repl/keyboard.ts";
 import {
+  type AttachmentReferenceMatch,
   detectMimeType,
   filterReferencedAttachments,
+  findAttachmentReferenceAfterCursor,
+  findAttachmentReferenceAtCursor,
+  findAttachmentReferenceBeforeCursor,
   getAttachmentType,
   getDisplayName,
   getPastedTextPreviewLabel,
+  getPastedTextReferenceLineCount,
   isAttachment,
   isAutoAttachableConversationAttachmentPath,
+  removeAttachmentReferenceAtCursor,
   shouldCollapseText,
 } from "../../repl/attachment.ts";
 import {
@@ -148,7 +154,7 @@ const COMPOSER_KEYBINDING_CATEGORIES = ["Composer"] as const;
 // - CONTINUE: Detect if input is part of ongoing paste (char-by-char paste detection)
 // - PROCESS_DELAY: Wait for more chunks before processing (terminal paste timing varies)
 const PASTE_CONTINUE_THRESHOLD_MS = 100; // Char-by-char paste arrives < 100ms apart (increased for slow terminals)
-const PASTE_PROCESS_DELAY_MS = 300; // Wait 300ms for more chunks before processing (increased for slow terminals)
+const PASTE_PROCESS_DELAY_MS = 100;
 const CTRL_ENTER_CSI_U_REGEX = new RegExp("^\u001b\\[13;(\\d+)u$");
 const CTRL_ENTER_LEGACY_REGEX = new RegExp("^\u001b\\[27;(\\d+);13~$");
 const COMPOSER_INDENT = "  ";
@@ -438,6 +444,8 @@ export function Input({
 
   // Autosuggestion (ghost text - separate from completion)
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
+  const [selectedAttachmentReference, setSelectedAttachmentReference] =
+    useState<AttachmentReferenceMatch | null>(null);
 
   // Memoize bindingNames Set to avoid recreation on every render
   const bindingNamesSet = useMemo(() => new Set(bindingNames), [bindingNames]);
@@ -575,6 +583,7 @@ export function Input({
     setPlaceholders([]);
     setPlaceholderIndex(-1);
     setSuggestion(null);
+    setSelectedAttachmentReference(null);
     updateHistoryIndex(-1);
     tempHistoryDraftRef.current = null;
     setCursorPos(
@@ -1319,6 +1328,7 @@ export function Input({
     historySearch.actions.cancelSearch();
     exitPlaceholderMode();
     setSuggestion(null);
+    setSelectedAttachmentReference(null);
     onChange("");
     setCursorPos(0);
     clearAttachments();
@@ -2953,6 +2963,19 @@ export function Input({
     }
     // Left/Right arrows — grapheme-aware movement
     if (key.leftArrow) {
+      if (selectedAttachmentReference) {
+        setCursorPos(selectedAttachmentReference.index);
+        setSelectedAttachmentReference(null);
+        return;
+      }
+      const attachmentRef = findAttachmentReferenceBeforeCursor(
+        value,
+        cursorPos,
+      );
+      if (attachmentRef) {
+        setSelectedAttachmentReference(attachmentRef);
+        return;
+      }
       if (cursorPos > 0) {
         const seg = getGraphemeSegmenter().segment(value).containing(
           cursorPos - 1,
@@ -2962,6 +2985,21 @@ export function Input({
       return;
     }
     if (key.rightArrow) {
+      if (selectedAttachmentReference) {
+        const end = selectedAttachmentReference.index +
+          selectedAttachmentReference.match.length;
+        setCursorPos(end < value.length && value[end] === " " ? end + 1 : end);
+        setSelectedAttachmentReference(null);
+        return;
+      }
+      const attachmentRef = findAttachmentReferenceAfterCursor(
+        value,
+        cursorPos,
+      );
+      if (attachmentRef) {
+        setSelectedAttachmentReference(attachmentRef);
+        return;
+      }
       if (cursorPos < value.length) {
         const seg = getGraphemeSegmenter().segment(value).containing(
           cursorPos,
@@ -3097,6 +3135,24 @@ export function Input({
     // Quote pair deletion is handled by isInsideEmptyQuotePair() for ""''
     // Dropdown close is handled by the auto-trigger useEffect (single responsibility)
     if (key.backspace || key.delete) {
+      const attachmentRemoval = selectedAttachmentReference
+        ? removeAttachmentReferenceAtCursor(
+          value,
+          selectedAttachmentReference.index,
+        )
+        : removeAttachmentReferenceAtCursor(value, cursorPos);
+      if (attachmentRemoval) {
+        pushUndo();
+        pendingValueRef.current = attachmentRemoval.nextText;
+        onChange(attachmentRemoval.nextText);
+        setCursorPos(attachmentRemoval.nextCursor);
+        setSelectedAttachmentReference(null);
+        syncAttachments(
+          filterReferencedAttachments(attachmentRemoval.nextText, attachments),
+        );
+        return;
+      }
+
       if (cursorPos > 0) {
         pushUndo();
         // Check for empty quote pair first: "|" or '|'
@@ -3120,6 +3176,9 @@ export function Input({
 
     // Regular character input with paste detection
     if (input && !key.ctrl && !key.meta) {
+      if (selectedAttachmentReference) {
+        setSelectedAttachmentReference(null);
+      }
       // For symbol provider: keep dropdown open, it will re-filter via useEffect
       // For @mention and /command: also handled by auto-trigger useEffect
 
@@ -3157,10 +3216,15 @@ export function Input({
         // Check for large text paste that should collapse
         if (shouldCollapseText(normalizedText)) {
           const id = reserveNextId();
-          const displayName = getPastedTextPreviewLabel(id, normalizedText);
+          const lineCount = getPastedTextReferenceLineCount(normalizedText);
+          const displayName = getPastedTextPreviewLabel(
+            id,
+            normalizedText,
+            lineCount,
+          );
           insertAt(displayName + " ");
           pendingAttachmentOpsRef.current += 1;
-          void addTextAttachmentWithId(normalizedText, id).then((
+          void addTextAttachmentWithId(normalizedText, id, lineCount).then((
             attachment,
           ) => {
             if (attachment === null) return;
@@ -3191,7 +3255,7 @@ export function Input({
       // Paste detection - ONLY buffer on definite paste indicators:
       // - Multi-char input (terminal sent batch) → START buffer
       // - Has newlines (definitely paste) → START buffer
-      // - Already buffering + rapid input (< 30ms) → CONTINUE buffer
+      // - Already buffering + rapid input (< 100ms) → CONTINUE buffer
       // Single char typing is ALWAYS immediate (never triggers buffering)
       const hasNewlines = hasNewlineChars(input);
       const isMultiChar = input.length > 1;
@@ -3199,7 +3263,13 @@ export function Input({
       const isRapidInput = timeSinceLastInput < PASTE_CONTINUE_THRESHOLD_MS;
 
       // START buffer only on definite paste, CONTINUE only if rapid
-      const shouldStartBuffer = isPasted || hasNewlines || isMultiChar;
+      if (isPasted) {
+        clearPasteBuffer();
+        processTextInput(input);
+        return;
+      }
+
+      const shouldStartBuffer = hasNewlines || isMultiChar;
       const shouldContinueBuffer = isBuffering && isRapidInput;
       const shouldBuffer = shouldStartBuffer || shouldContinueBuffer;
 
@@ -3258,6 +3328,26 @@ export function Input({
   // Input re-renders with the new cursorPos but stale value prop. Reading from
   // pendingValueRef ensures the display shows the recalled entry immediately.
   const displayValue = pendingValueRef.current ?? value;
+  useEffect(() => {
+    if (!selectedAttachmentReference) return;
+    const current = findAttachmentReferenceAtCursor(
+      displayValue,
+      selectedAttachmentReference.index,
+    );
+    if (
+      !current ||
+      current.id !== selectedAttachmentReference.id ||
+      current.index !== selectedAttachmentReference.index ||
+      current.match !== selectedAttachmentReference.match
+    ) {
+      setSelectedAttachmentReference(null);
+    }
+  }, [
+    displayValue,
+    selectedAttachmentReference?.id,
+    selectedAttachmentReference?.index,
+    selectedAttachmentReference?.match,
+  ]);
 
   const bracketPair = useMemo(() => {
     // Check if cursor is ON a bracket (opening or closing)
@@ -3352,6 +3442,64 @@ export function Input({
     ));
   }, [effectiveComposerLanguage, getSegmentColor]);
 
+  const renderComposerTextSegments = useCallback((
+    text: string,
+    bracketPositions: readonly number[] | null,
+    keyPrefix: string,
+    startOffset: number,
+  ): React.ReactNode[] => {
+    if (!selectedAttachmentReference || text.length === 0) {
+      return renderPlainTextSegments(text, bracketPositions, keyPrefix);
+    }
+
+    const highlightStart = selectedAttachmentReference.index;
+    const highlightEnd = highlightStart +
+      selectedAttachmentReference.match.length;
+    const sliceEnd = startOffset + text.length;
+    if (highlightEnd <= startOffset || highlightStart >= sliceEnd) {
+      return renderPlainTextSegments(text, bracketPositions, keyPrefix);
+    }
+
+    const nodes: React.ReactNode[] = [];
+    const localStart = Math.max(0, highlightStart - startOffset);
+    const localEnd = Math.min(text.length, highlightEnd - startOffset);
+
+    if (localStart > 0) {
+      nodes.push(...renderPlainTextSegments(
+        text.slice(0, localStart),
+        sliceRelativeBracketPositions(bracketPositions, 0, localStart),
+        `${keyPrefix}-before`,
+      ));
+    }
+
+    nodes.push(
+      <React.Fragment key={`${keyPrefix}-attachment`}>
+        <Text
+          bold
+          inverse
+        >
+          {text.slice(localStart, localEnd)}
+        </Text>
+      </React.Fragment>,
+    );
+
+    if (localEnd < text.length) {
+      nodes.push(...renderPlainTextSegments(
+        text.slice(localEnd),
+        sliceRelativeBracketPositions(bracketPositions, localEnd, text.length),
+        `${keyPrefix}-after`,
+      ));
+    }
+
+    return nodes;
+  }, [
+    renderPlainTextSegments,
+    sc.surface.userMessage,
+    sc.text.primary,
+    selectedAttachmentReference,
+    sliceRelativeBracketPositions,
+  ]);
+
   // Render text with placeholder highlighting. Bracket positions are
   // relative to the provided text slice so cursor-only changes can decorate
   // a small subset of already-cached chunks.
@@ -3361,10 +3509,11 @@ export function Input({
     bracketPositions: readonly number[] | null = null,
   ): React.ReactNode => {
     if (!hasPlaceholderMode || placeholders.length === 0) {
-      return renderPlainTextSegments(
+      return renderComposerTextSegments(
         text,
         bracketPositions,
         `plain-${startOffset}`,
+        startOffset,
       );
     }
 
@@ -3376,10 +3525,11 @@ export function Input({
       );
 
     if (relevantPhs.length === 0) {
-      return renderPlainTextSegments(
+      return renderComposerTextSegments(
         text,
         bracketPositions,
         `plain-${startOffset}`,
+        startOffset,
       );
     }
 
@@ -3403,7 +3553,7 @@ export function Input({
         if (pos >= ph.start && pos < ph.start + ph.length) {
           const phStartInText = Math.max(0, ph.start - startOffset);
           if (phStartInText > textPos) {
-            nodes.push(...renderPlainTextSegments(
+            nodes.push(...renderComposerTextSegments(
               text.slice(textPos, phStartInText),
               sliceRelativeBracketPositions(
                 bracketPositions,
@@ -3411,6 +3561,7 @@ export function Input({
                 phStartInText,
               ),
               `plain-${startOffset + textPos}`,
+              startOffset + textPos,
             ));
           }
 
@@ -3424,10 +3575,11 @@ export function Input({
           );
 
           if (ph.touched) {
-            nodes.push(...renderPlainTextSegments(
+            nodes.push(...renderComposerTextSegments(
               phText,
               null,
               `touched-${ph.start}`,
+              Math.max(textPos, phStartInText) + startOffset,
             ));
           } else if (originalIdx === placeholderIndex) {
             nodes.push(
@@ -3452,7 +3604,7 @@ export function Input({
         }
 
         const nextPhStart = Math.min(text.length, ph.start - startOffset);
-        nodes.push(...renderPlainTextSegments(
+        nodes.push(...renderComposerTextSegments(
           text.slice(textPos, nextPhStart),
           sliceRelativeBracketPositions(
             bracketPositions,
@@ -3460,10 +3612,11 @@ export function Input({
             nextPhStart,
           ),
           `plain-${startOffset + textPos}`,
+          startOffset + textPos,
         ));
         textPos = nextPhStart;
       } else {
-        nodes.push(...renderPlainTextSegments(
+        nodes.push(...renderComposerTextSegments(
           text.slice(textPos),
           sliceRelativeBracketPositions(
             bracketPositions,
@@ -3471,6 +3624,7 @@ export function Input({
             text.length,
           ),
           `plain-${startOffset + textPos}`,
+          startOffset + textPos,
         ));
         break;
       }
@@ -3482,6 +3636,7 @@ export function Input({
     hasPlaceholderMode,
     placeholderIndex,
     placeholders,
+    renderComposerTextSegments,
     renderPlainTextSegments,
     sliceRelativeBracketPositions,
   ]);
@@ -3711,7 +3866,7 @@ export function Input({
       const isCursorChunk = chunk.logIdx === cursorLayout.cursorLogLine &&
         chunk.chunkIdx === cursorLayout.cursorChunkIdx;
 
-      if (!isCursorChunk) {
+      if (!isCursorChunk || selectedAttachmentReference) {
         return (
           <Box key={chunk.key}>
             <Text>

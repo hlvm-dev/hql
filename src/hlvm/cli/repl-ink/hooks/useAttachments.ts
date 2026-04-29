@@ -36,6 +36,7 @@ export interface UseAttachmentsReturn {
   addTextAttachmentWithId: (
     content: string,
     id: number,
+    lineCount?: number,
   ) => Promise<TextAttachmentAddResult>;
   /** Reserve the next ID synchronously (for instant placeholder insertion) */
   reserveNextId: () => number;
@@ -103,11 +104,17 @@ export function useAttachments(): UseAttachmentsReturn {
    * Add a text attachment for large pasted text (synchronous for instant UI)
    */
   const addTextAttachmentWithId = useCallback(
-    async (content: string, id: number): Promise<TextAttachmentAddResult> => {
+    async (
+      content: string,
+      id: number,
+      lineCount?: number,
+    ): Promise<TextAttachmentAddResult> => {
       setLastError(null);
       const generation = generationRef.current;
 
-      const result = await createTextAttachment(content, id);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const result = await createTextAttachment(content, id, lineCount);
 
       if (generation !== generationRef.current) {
         return null;

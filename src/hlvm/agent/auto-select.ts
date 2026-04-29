@@ -5,7 +5,8 @@
  * scores available models against task signals, picks the best one, and keeps
  * 1-2 fallbacks for hard failures.
  *
- * All scoring is pure (no side effects). Only `resolveAutoModel()` performs I/O.
+ * Scoring is deterministic over task signals plus in-process health telemetry.
+ * Only `resolveAutoModel()` performs provider discovery I/O.
  */
 
 import {
@@ -72,6 +73,14 @@ export interface AutoDecision {
   model: string;
   fallbacks: string[];
   reason: string;
+}
+
+interface AutoModelHealth {
+  successes: number;
+  failures: number;
+  ewmaLatencyMs?: number;
+  lastSuccessAt?: number;
+  lastFailureAt?: number;
 }
 
 /** Config-driven preferences for auto selection */
@@ -388,6 +397,88 @@ const CODING_SCORES: Record<CodingStrength, number> = {
   strong: 5,
 };
 
+const AUTO_MODEL_HEALTH_TTL_MS = 5 * 60_000;
+const AUTO_MODEL_LATENCY_TARGET_MS = 4_000;
+const AUTO_MODEL_LATENCY_PENALTY_MS = 20_000;
+const autoModelHealth = new Map<string, AutoModelHealth>();
+
+function normalizeObservedLatencyMs(
+  latencyMs: number | undefined,
+): number | undefined {
+  if (typeof latencyMs !== "number" || !Number.isFinite(latencyMs)) {
+    return undefined;
+  }
+  return Math.max(0, latencyMs);
+}
+
+function pruneAutoModelHealth(now = Date.now()): void {
+  for (const [model, entry] of autoModelHealth) {
+    const lastSeen = Math.max(entry.lastSuccessAt ?? 0, entry.lastFailureAt ?? 0);
+    if (lastSeen > 0 && now - lastSeen > AUTO_MODEL_HEALTH_TTL_MS) {
+      autoModelHealth.delete(model);
+    }
+  }
+}
+
+function updateModelLatency(
+  entry: AutoModelHealth,
+  latencyMs: number | undefined,
+): AutoModelHealth {
+  const observed = normalizeObservedLatencyMs(latencyMs);
+  if (observed === undefined) return entry;
+  return {
+    ...entry,
+    ewmaLatencyMs: entry.ewmaLatencyMs === undefined
+      ? observed
+      : (entry.ewmaLatencyMs * 0.7) + (observed * 0.3),
+  };
+}
+
+function autoModelHealthScore(modelId: string, now = Date.now()): number {
+  pruneAutoModelHealth(now);
+  const entry = autoModelHealth.get(modelId);
+  if (!entry) return 0;
+
+  const total = entry.successes + entry.failures;
+  const successRate = total > 0 ? entry.successes / total : 0.5;
+  const reliabilityScore = (successRate - 0.5) * 2;
+  const recencyScore = entry.lastSuccessAt
+    ? Math.max(0, 1 - ((now - entry.lastSuccessAt) / AUTO_MODEL_HEALTH_TTL_MS))
+    : 0;
+  let latencyScore = 0;
+  if (entry.ewmaLatencyMs !== undefined) {
+    if (entry.ewmaLatencyMs <= AUTO_MODEL_LATENCY_TARGET_MS) {
+      latencyScore = 1 - (entry.ewmaLatencyMs / AUTO_MODEL_LATENCY_TARGET_MS);
+    } else {
+      latencyScore = -Math.min(
+        1.5,
+        (entry.ewmaLatencyMs - AUTO_MODEL_LATENCY_TARGET_MS) /
+          AUTO_MODEL_LATENCY_PENALTY_MS,
+      );
+    }
+  }
+
+  return reliabilityScore + latencyScore + (recencyScore * 0.5);
+}
+
+function formatSignedScore(score: number): string {
+  return `${score >= 0 ? "+" : ""}${score.toFixed(2)}`;
+}
+
+function scoreAutoCandidate(
+  model: ModelCaps,
+  profile: TaskProfile,
+  now = Date.now(),
+): { score: number; baseScore: number; healthScore: number } {
+  const baseScore = scoreModel(model, profile);
+  const healthScore = autoModelHealthScore(model.id, now);
+  return {
+    score: baseScore + healthScore,
+    baseScore,
+    healthScore,
+  };
+}
+
 /** Additive scoring: higher is better */
 export function scoreModel(model: ModelCaps, profile: TaskProfile): number {
   let score = 0;
@@ -465,8 +556,9 @@ export async function chooseAutoModel(
   );
 
   // Score and sort (descending score, then tie-break by cost/provider)
+  const now = Date.now();
   const scored = eligible
-    .map((m) => ({ caps: m, score: scoreModel(m, profile) }))
+    .map((m) => ({ caps: m, ...scoreAutoCandidate(m, profile, now) }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       // Tie-break: lower cost first
@@ -490,7 +582,10 @@ export async function chooseAutoModel(
   if (profile.isReasoningTask) reasons.push("reasoning-task");
   if (profile.preferCheap) reasons.push("prefer-cheap");
   if (profile.preferQuality) reasons.push("prefer-quality");
-  reasons.push(`score=${best.score}`);
+  reasons.push(`score=${best.score.toFixed(2)}`);
+  if (best.healthScore !== 0) {
+    reasons.push(`health=${formatSignedScore(best.healthScore)}`);
+  }
 
   return {
     model: best.caps.id,
@@ -553,6 +648,12 @@ export async function recordAutoModelFailure(
   if (!model || model === AUTO_MODEL_ID || model === "primary") return false;
   const reason = await classifyForLocalFallback(error);
   if (!isAutoFailureReason(reason)) return false;
+  const current = autoModelHealth.get(model) ?? { successes: 0, failures: 0 };
+  autoModelHealth.set(model, {
+    ...current,
+    failures: current.failures + 1,
+    lastFailureAt: now,
+  });
   autoModelFailureCooldowns.set(model, {
     until: now + AUTO_MODEL_FAILURE_COOLDOWN_MS,
     reason,
@@ -560,8 +661,28 @@ export async function recordAutoModelFailure(
   return true;
 }
 
+export function recordAutoModelSuccess(
+  model: string | undefined,
+  latencyMs?: number,
+  now = Date.now(),
+): boolean {
+  if (!model || model === AUTO_MODEL_ID || model === "primary") return false;
+  const current = autoModelHealth.get(model) ?? { successes: 0, failures: 0 };
+  autoModelHealth.set(
+    model,
+    updateModelLatency({
+      ...current,
+      successes: current.successes + 1,
+      lastSuccessAt: now,
+    }, latencyMs),
+  );
+  autoModelFailureCooldowns.delete(model);
+  return true;
+}
+
 export function __clearAutoModelFailureCooldownsForTesting(): void {
   autoModelFailureCooldowns.clear();
+  autoModelHealth.clear();
 }
 
 async function listProviderModels(): Promise<ModelInfo[]> {
@@ -661,13 +782,34 @@ export async function callLLMWithModelFallback(
   lastResort?: LastResortFallback,
   primaryModel?: string,
 ): Promise<LLMResponse> {
+  const callAndRecordSuccess = async (
+    model: string | undefined,
+    call: () => Promise<LLMResponse>,
+  ): Promise<LLMResponse> => {
+    const startedAt = performance.now();
+    const response = await call();
+    recordAutoModelSuccess(
+      model,
+      response.performance?.latencyMs ?? (performance.now() - startedAt),
+    );
+    return response;
+  };
+
   return withFallbackChain({
     primaryModel,
-    tryPrimary: primaryCall,
+    tryPrimary: () => callAndRecordSuccess(primaryModel, primaryCall),
     fallbacks,
-    tryFallback: (model) => callWithRetry(createFallbackLLM(model)),
+    tryFallback: (model) =>
+      callAndRecordSuccess(
+        model,
+        () => callWithRetry(createFallbackLLM(model)),
+      ),
     lastResort,
-    tryLastResort: (model) => callWithRetry(createFallbackLLM(model)),
+    tryLastResort: (model) =>
+      callAndRecordSuccess(
+        model,
+        () => callWithRetry(createFallbackLLM(model)),
+      ),
     onModelFailure: async (model, error) => {
       await recordAutoModelFailure(model, error);
     },

@@ -2,8 +2,12 @@ import { assertEquals } from "jsr:@std/assert@1";
 import {
   expandTextAttachmentReferences,
   filterReferencedAttachments,
+  findAttachmentReferenceAfterCursor,
+  findAttachmentReferenceAtCursor,
+  findAttachmentReferenceBeforeCursor,
   getPastedTextPreviewLabel,
   isAutoAttachableConversationAttachmentPath,
+  removeAttachmentReferenceAtCursor,
 } from "../../../src/hlvm/cli/repl/attachment.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { withTempDir } from "../helpers.ts";
@@ -84,6 +88,48 @@ Deno.test("attachment refs: filtering drops orphaned attachments after inline re
   assertEquals(filtered.map((attachment) => attachment.id), [1, 3]);
 });
 
+Deno.test("attachment refs: cursor selects an inline attachment chip", () => {
+  const text = "before [Image #2] after";
+
+  assertEquals(findAttachmentReferenceAtCursor(text, 7)?.id, 2);
+  assertEquals(findAttachmentReferenceAtCursor(text, 16)?.id, 2);
+  assertEquals(findAttachmentReferenceAtCursor(text, 17)?.id, 2);
+  assertEquals(findAttachmentReferenceAtCursor(text, 18)?.id, 2);
+  assertEquals(findAttachmentReferenceAtCursor(text, 0), null);
+});
+
+Deno.test("attachment refs: arrow navigation selects only when crossing a chip", () => {
+  const text = "before [Image #2] after";
+
+  assertEquals(findAttachmentReferenceBeforeCursor(text, 18)?.id, 2);
+  assertEquals(findAttachmentReferenceBeforeCursor(text, text.length), null);
+  assertEquals(findAttachmentReferenceBeforeCursor(text, 7), null);
+
+  assertEquals(findAttachmentReferenceAfterCursor(text, 7)?.id, 2);
+  assertEquals(findAttachmentReferenceAfterCursor(text, 8)?.id, 2);
+  assertEquals(findAttachmentReferenceAfterCursor(text, 17), null);
+  assertEquals(findAttachmentReferenceAfterCursor(text, 6), null);
+});
+
+Deno.test("attachment refs: remove selected chip and adjacent spacing", () => {
+  assertEquals(
+    removeAttachmentReferenceAtCursor("before [Image #2] after", 16),
+    {
+      id: 2,
+      nextCursor: 7,
+      nextText: "before after",
+    },
+  );
+  assertEquals(
+    removeAttachmentReferenceAtCursor("[Pasted text #1 +2 lines] after", 0),
+    {
+      id: 1,
+      nextCursor: 0,
+      nextText: "after",
+    },
+  );
+});
+
 Deno.test("attachment refs: legacy [Text #N] labels still resolve during restore and pruning", () => {
   const attachments = [
     createTextAttachment(1, "[Text #1]", "legacy text body"),
@@ -94,7 +140,10 @@ Deno.test("attachment refs: legacy [Text #N] labels still resolve during restore
     "keep [Text #1] only",
     attachments,
   );
-  const expanded = expandTextAttachmentReferences("before [Text #1] after", attachments);
+  const expanded = expandTextAttachmentReferences(
+    "before [Text #1] after",
+    attachments,
+  );
 
   assertEquals(filtered.map((attachment) => attachment.id), [1]);
   assertEquals(expanded, "before legacy text body after");

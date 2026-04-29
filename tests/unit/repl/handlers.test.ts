@@ -10,7 +10,11 @@ import {
   getSession,
   insertMessage,
 } from "../../../src/hlvm/store/conversation-store.ts";
-import { __setListAllProviderModelsForTesting } from "../../../src/hlvm/agent/auto-select.ts";
+import {
+  __clearAutoModelFailureCooldownsForTesting,
+  __setListAllProviderModelsForTesting,
+  resolveAutoModel,
+} from "../../../src/hlvm/agent/auto-select.ts";
 import { disposeAllSessions } from "../../../src/hlvm/agent/agent-runner.ts";
 import {
   type AgentEngine,
@@ -430,6 +434,94 @@ for (const scenario of FALLBACK_WORTHY_PROVIDER_ERRORS) {
     },
   );
 }
+
+Deno.test("handlers: direct chat success feeds auto health ranking", async () => {
+  await withTempHlvmDir(async () => {
+    await withDb(async () => {
+      __clearAutoModelFailureCooldownsForTesting();
+      await config.reload();
+      await config.patch({ approvedProviders: ["anthropic", "openai"] });
+      const originalGet = ai.models.get;
+      const originalChat = ai.chat;
+
+      __setListAllProviderModelsForTesting(async () => [
+        {
+          name: "claude-sonnet-4",
+          displayName: "Claude Sonnet 4",
+          capabilities: ["chat", "tools"],
+          contextWindow: 200_000,
+          metadata: {
+            provider: "anthropic",
+            cloud: true,
+            apiKeyConfigured: true,
+          },
+        },
+        {
+          name: "gpt-4-turbo",
+          displayName: "GPT-4 Turbo",
+          capabilities: ["chat", "tools"],
+          contextWindow: 128_000,
+          metadata: {
+            provider: "openai",
+            cloud: true,
+            apiKeyConfigured: true,
+          },
+        },
+      ]);
+      (ai.models as { get: typeof ai.models.get }).get = (
+        name: string,
+        provider?: string,
+      ) => {
+        if (
+          (name === "claude-sonnet-4" && provider === "anthropic") ||
+          (name === "gpt-4-turbo" && provider === "openai")
+        ) {
+          return Promise.resolve({
+            name,
+            displayName: name,
+            capabilities: ["chat", "tools"],
+            contextWindow: 128_000,
+            metadata: { provider, cloud: true, apiKeyConfigured: true },
+          });
+        }
+        return Promise.resolve(null);
+      };
+      (ai as { chat: typeof ai.chat }).chat = async function* () {
+        yield "direct chat ok";
+      };
+
+      try {
+        const before = await resolveAutoModel("hello", undefined, undefined, {
+          isCodeTask: false,
+          isReasoningTask: false,
+          needsStructuredOutput: false,
+        });
+        assertEquals(before.model, "anthropic/claude-sonnet-4");
+
+        const response = await handleChat(jsonRequest({
+          mode: "chat",
+          model: "openai/gpt-4-turbo",
+          stateless: true,
+          messages: [{ role: "user", content: "record direct chat health" }],
+        }));
+        assertEquals(response.status, 200);
+        await readNdjsonEvents(response);
+
+        const after = await resolveAutoModel("hello", undefined, undefined, {
+          isCodeTask: false,
+          isReasoningTask: false,
+          needsStructuredOutput: false,
+        });
+        assertEquals(after.model, "openai/gpt-4-turbo");
+      } finally {
+        __setListAllProviderModelsForTesting(null);
+        __clearAutoModelFailureCooldownsForTesting();
+        (ai.models as { get: typeof ai.models.get }).get = originalGet;
+        (ai as { chat: typeof ai.chat }).chat = originalChat;
+      }
+    });
+  });
+});
 
 Deno.test("handlers: direct chat auto invalid request does not fall back", async () => {
   await withTempHlvmDir(async () => {
