@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "jsr:@std/assert";
-import { atomicWriteTextFile } from "../../../src/common/jsonl.ts";
+import { atomicWriteTextFile } from "../../../src/common/atomic-file.ts";
 import { getPlatform } from "../../../src/platform/platform.ts";
 import { withTempDir } from "../helpers.ts";
 

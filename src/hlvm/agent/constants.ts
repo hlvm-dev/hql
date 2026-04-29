@@ -570,7 +570,7 @@ export function isFrontierProvider(model?: string): boolean {
 }
 
 // ============================================================
-// Grounding modes (orthogonal to capability class — retained as-is)
+// Grounding modes
 // ============================================================
 
 const GROUNDING_MODES = ["off", "warn", "strict"] as const;

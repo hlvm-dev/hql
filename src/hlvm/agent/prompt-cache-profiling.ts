@@ -1,12 +1,12 @@
 import type { TraceEvent } from "./orchestrator.ts";
 
-export type PromptCacheProfilingScenarioName =
+type PromptCacheProfilingScenarioName =
   | "cold_baseline"
   | "warm_stable_repeat"
   | "turn_only_change"
   | "session_stable_change";
 
-export interface PromptCacheProfilingScenarioRun {
+interface PromptCacheProfilingScenarioRun {
   scenario: PromptCacheProfilingScenarioName;
   title: string;
   responsePreview: string;
@@ -27,13 +27,13 @@ export interface PromptCacheProfilingScenarioRun {
   cacheCreationInputTokens: number | null;
 }
 
-export interface PromptCacheProfilingComparisons {
+interface PromptCacheProfilingComparisons {
   warmStableMatchesCold: boolean | null;
   turnOnlyMatchesWarmStable: boolean | null;
   sessionChangeDiffersFromWarmStable: boolean | null;
 }
 
-export interface PromptCacheProfilingReport {
+interface PromptCacheProfilingReport {
   generatedAt: string;
   providerName: string | null;
   modelId: string | null;

@@ -8,8 +8,8 @@ all runtime heavy lifting during `hlvm bootstrap`. Install completes only after
 HLVM has:
 
 - downloaded the pinned Ollama engine
-- selected the pinned local fallback model tier for the host
-- pulled that local fallback model
+- selected the default local model
+- pulled the default local model
 - downloaded managed Chromium for browser automation
 - installed a HLVM-owned `uv` binary
 - installed a HLVM-owned CPython runtime and isolated Python sidecar pack
@@ -33,8 +33,8 @@ THE USER EXPERIENCE
       Installing Python 3.13.13...                ✓
       Installing default Python sidecar pack...   ✓
       Starting AI engine...                        ✓
-      Selecting local model tier...                qwen3:8b
-      Pulling qwen3:8b... ████████████████ 100%
+      Selecting default local model...             ✓
+      Pulling default local model... ████████████ 100%
       Verifying readiness...                       ✓
     ✓ HLVM vX.Y.Z is ready!
 
@@ -162,7 +162,7 @@ Bootstrap is driven by the following pinned defaults in the repo:
 | Component              | Pin / Default |
 | ---------------------- | ------------- |
 | Ollama engine          | `v0.21.0`     |
-| Local fallback tiers   | `>=64 GiB -> qwen3:30b`, otherwise `qwen3:8b` |
+| Default local model    | Pinned default |
 | Managed `uv`           | `0.11.7`      |
 | Managed CPython        | `3.13.13`     |
 
@@ -188,16 +188,9 @@ The default Python sidecar pack is pinned in
 This pack is installed into an isolated HLVM-owned virtual environment. System
 Python is never required.
 
-The local-model tier map is pinned in `embedded-model-tiers.json`. Current
-policy is intentionally conservative:
-
-- `qwen3:8b` is the baseline default, including 32 GiB M1 Max machines
-- `qwen3:30b` is reserved for 64 GiB and larger hosts
-- `qwen3:14b` remains a supported manual upgrade path, not the auto-installed default
-
-Model identity pins must match the live Ollama registry manifests, not the
-human-facing library detail pages, because those detail pages can lag behind the
-actual pull artifacts.
+The default local model is pinned in the repo and may change without rewriting
+this release overview. Release docs should refer to it generically as the
+default local model.
 
 Bootstrap and first-use runtime attachment operate on the single user-level
 daemon at `~/.hlvm/`:
@@ -278,13 +271,13 @@ $ curl -fsSL https://hlvm.dev/install.sh | sh
   Step 8: Script runs hlvm bootstrap
           ├─ download Ollama from official releases
           ├─ extract to ~/.hlvm/.runtime/engine/
-          ├─ detect host memory and choose the pinned model tier
+          ├─ select the default local model
           ├─ install uv to ~/.hlvm/.runtime/python/uv/
           ├─ install CPython to ~/.hlvm/.runtime/python/cpython/
           ├─ create ~/.hlvm/.runtime/python/venv/
           ├─ install the default Python sidecar pack
           ├─ start Ollama on 127.0.0.1:11439
-          ├─ pull the selected qwen3 fallback into ~/.hlvm/.runtime/models/
+          ├─ pull the default local model into ~/.hlvm/.runtime/models/
           ├─ download Chromium into ~/.hlvm/.runtime/chromium/
           ├─ verify engine + model + Python sidecar
           ├─ write ~/.hlvm/.runtime/manifest.json

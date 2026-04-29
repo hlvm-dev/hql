@@ -1,6 +1,7 @@
 import { ValidationError } from "../../../common/error.ts";
 
 const RUNTIME_PORT_FLAG = "--port";
+const RUNTIME_PORT_FLAG_EQ = `${RUNTIME_PORT_FLAG}=`;
 export const RUNTIME_PORT_ENV = "HLVM_REPL_PORT";
 
 export interface RuntimePortFlagResult {
@@ -27,34 +28,42 @@ function validateRuntimePort(raw: string | undefined): string {
   return String(port);
 }
 
+/** Pull the port value from `arg` (and possibly its successor). */
+function consumePortAt(
+  args: string[],
+  index: number,
+): { port: string; consumed: number } | null {
+  const arg = args[index];
+  if (arg === RUNTIME_PORT_FLAG) {
+    return { port: validateRuntimePort(args[index + 1]), consumed: 2 };
+  }
+  if (arg?.startsWith(RUNTIME_PORT_FLAG_EQ)) {
+    return {
+      port: validateRuntimePort(arg.slice(RUNTIME_PORT_FLAG_EQ.length)),
+      consumed: 1,
+    };
+  }
+  return null;
+}
+
 export function extractRuntimePortFlag(args: string[]): RuntimePortFlagResult {
   const nextArgs: string[] = [];
   let port: string | undefined;
 
   for (let index = 0; index < args.length; index++) {
-    const arg = args[index];
-    if (arg === RUNTIME_PORT_FLAG) {
+    const hit = consumePortAt(args, index);
+    if (hit) {
       if (port !== undefined) {
         throw new ValidationError(
           `${RUNTIME_PORT_FLAG} specified more than once`,
           "port",
         );
       }
-      port = validateRuntimePort(args[index + 1]);
-      index++;
+      port = hit.port;
+      index += hit.consumed - 1;
       continue;
     }
-    if (arg.startsWith(`${RUNTIME_PORT_FLAG}=`)) {
-      if (port !== undefined) {
-        throw new ValidationError(
-          `${RUNTIME_PORT_FLAG} specified more than once`,
-          "port",
-        );
-      }
-      port = validateRuntimePort(arg.slice(RUNTIME_PORT_FLAG.length + 1));
-      continue;
-    }
-    nextArgs.push(arg);
+    nextArgs.push(args[index]);
   }
 
   return { args: nextArgs, port };
@@ -63,18 +72,7 @@ export function extractRuntimePortFlag(args: string[]): RuntimePortFlagResult {
 export function extractLeadingRuntimePortFlag(
   args: string[],
 ): RuntimePortFlagResult {
-  const first = args[0];
-  if (first === RUNTIME_PORT_FLAG) {
-    return {
-      args: args.slice(2),
-      port: validateRuntimePort(args[1]),
-    };
-  }
-  if (first?.startsWith(`${RUNTIME_PORT_FLAG}=`)) {
-    return {
-      args: args.slice(1),
-      port: validateRuntimePort(first.slice(RUNTIME_PORT_FLAG.length + 1)),
-    };
-  }
-  return { args };
+  const hit = consumePortAt(args, 0);
+  if (!hit) return { args };
+  return { args: args.slice(hit.consumed), port: hit.port };
 }

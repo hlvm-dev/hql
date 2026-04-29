@@ -1,13 +1,3 @@
-/**
- * General-Purpose Built-in Agent
- *
- * CC source: tools/AgentTool/built-in/generalPurposeAgent.ts
- * Copied 99.9% — same system prompt, same tool spec, same description.
- *
- * Full tool access (tools=['*']), research-oriented system prompt.
- * This is the DEFAULT agent when subagent_type is omitted.
- */
-
 import type { BuiltInAgentDefinition } from "../agent-types.ts";
 
 const SHARED_PREFIX =

@@ -1,20 +1,8 @@
-/**
- * Generic Session Lock — Shared by CU and Chrome Extension
- *
- * Extracted from computer-use/lock.ts to eliminate DRY violation.
- * Both CU and Chrome-ext locks use identical logic with different:
- *   - Lock filename
- *   - onAcquiredFresh callback
- *   - onReleased callback
- *
- * All TS logic (O_EXCL check-and-write, reentrance, stale recovery,
- * AcquireResult/CheckResult unions) is parameterized, not duplicated.
- */
+// File-locking primitive shared between Computer Use and the Chrome extension.
+// Uses an O_EXCL JSON lockfile, recovers stale locks left by dead PIDs, and reentrant within the same sessionId.
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
-
-// ── Types ───────────────────────────────────────────────────────────
 
 interface LockData {
   readonly sessionId: string;
@@ -32,15 +20,11 @@ export type CheckResult =
   | { readonly kind: "blocked"; readonly by: string };
 
 export interface SessionLockConfig {
-  /** Lock filename (e.g. "computer-use.lock", "chrome-ext.lock") */
   lockFilename: string;
-  /** Called on fresh acquisition (invalidate caches, resolve backend, etc.) */
+  /** Fired once when this process actually wins the lock (not on reentrant re-acquire). */
   onAcquiredFresh: () => Promise<void> | void;
-  /** Called on release (reset session state, etc.) */
   onReleased: () => void;
 }
-
-// ── SessionLock class ───────────────────────────────────────────────
 
 export class SessionLock {
   private config: SessionLockConfig;
@@ -51,8 +35,6 @@ export class SessionLock {
   constructor(config: SessionLockConfig) {
     this.config = config;
   }
-
-  // ── Test isolation ──────────────────────────────────────────────
 
   /** @internal Override lock file path for test isolation. */
   _setLockPathForTests(path: string | undefined): void {
@@ -65,8 +47,6 @@ export class SessionLock {
     this.unregisterCleanup = undefined;
     this.currentSessionId = undefined;
   }
-
-  // ── Internals ─────────────────────────────────────────────────
 
   private getLockPath(): string {
     if (this.lockPathOverride) return this.lockPathOverride;
@@ -98,6 +78,19 @@ export class SessionLock {
     }
   }
 
+  private async removeLockFile(): Promise<void> {
+    try {
+      await getPlatform().fs.remove(this.getLockPath());
+    } catch { /* ignore */ }
+  }
+
+  private async recoverStaleLock(existing: LockData): Promise<void> {
+    getAgentLogger().info(
+      `Recovering stale ${this.config.lockFilename} from session ${existing.sessionId} (PID ${existing.pid})`,
+    );
+    await this.removeLockFile();
+  }
+
   private registerCleanup(): void {
     this.unregisterCleanup?.();
     const handler = () => {
@@ -122,8 +115,6 @@ export class SessionLock {
     return this.currentSessionId ?? "unknown";
   }
 
-  // ── Public API ────────────────────────────────────────────────
-
   setCurrentSessionId(sessionId: string): void {
     this.currentSessionId = sessionId;
   }
@@ -141,12 +132,7 @@ export class SessionLock {
     if (await isProcessRunning(existing.pid)) {
       return { kind: "blocked", by: existing.sessionId };
     }
-    getAgentLogger().info(
-      `Recovering stale ${this.config.lockFilename} from session ${existing.sessionId} (PID ${existing.pid})`,
-    );
-    try {
-      await getPlatform().fs.remove(this.getLockPath());
-    } catch { /* ignore */ }
+    await this.recoverStaleLock(existing);
     return { kind: "free" };
   }
 
@@ -159,9 +145,10 @@ export class SessionLock {
       acquiredAt: Date.now(),
     };
 
-    const dir = platform.path.dirname(this.getLockPath());
     try {
-      await platform.fs.mkdir(dir, { recursive: true });
+      await platform.fs.mkdir(platform.path.dirname(this.getLockPath()), {
+        recursive: true,
+      });
     } catch { /* may already exist */ }
 
     if (await this.tryCreateExclusive(lock)) {
@@ -171,10 +158,9 @@ export class SessionLock {
 
     const existing = await this.readLock();
 
+    // Lock file exists but contents are unreadable — drop it and retry.
     if (!existing) {
-      try {
-        await platform.fs.remove(this.getLockPath());
-      } catch { /* ignore */ }
+      await this.removeLockFile();
       if (await this.tryCreateExclusive(lock)) {
         this.registerCleanup();
         return await this.acquiredFresh();
@@ -193,12 +179,7 @@ export class SessionLock {
       return { kind: "blocked", by: existing.sessionId };
     }
 
-    getAgentLogger().info(
-      `Recovering stale ${this.config.lockFilename} from session ${existing.sessionId} (PID ${existing.pid})`,
-    );
-    try {
-      await platform.fs.remove(this.getLockPath());
-    } catch { /* ignore */ }
+    await this.recoverStaleLock(existing);
     if (await this.tryCreateExclusive(lock)) {
       this.registerCleanup();
       return await this.acquiredFresh();
@@ -225,8 +206,6 @@ export class SessionLock {
     }
   }
 }
-
-// ── Shared Helpers ──────────────────────────────────────────────────
 
 function isLockData(value: unknown): value is LockData {
   if (typeof value !== "object" || value === null) return false;

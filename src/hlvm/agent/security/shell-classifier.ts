@@ -1,14 +1,4 @@
-/**
- * Shell Command Classifier
- *
- * SSOT for determining shell_exec safety level based on allow-lists.
- * Shared by safety classifier and shell tools.
- *
- * Three levels:
- * - L0: Read-only commands, auto-approved (same trust as read_file/list_files)
- * - L1: Low-risk commands, prompt once per session
- * - L2: Everything else, always prompt
- */
+// L0 auto-approved (read-only), L1 confirm-once, L2 always confirm.
 
 import { SHELL_ALLOWLIST_L0, SHELL_ALLOWLIST_L1, SHELL_DENYLIST_L0 } from "../constants.ts";
 
@@ -64,61 +54,54 @@ function detectEscalatingShellConstruct(normalized: string): string | null {
   return null;
 }
 
+interface AllowlistMatchReasons {
+  l0: string;
+  l1: string;
+  destructive: string;
+  unrecognized: string;
+}
+
+function classifyAgainstAllowlists(
+  matchTarget: string,
+  display: string,
+  reasons: AllowlistMatchReasons,
+): ShellCommandClassification {
+  for (const pattern of SHELL_ALLOWLIST_L0) {
+    if (!pattern.test(matchTarget)) continue;
+    for (const deny of SHELL_DENYLIST_L0) {
+      if (deny.test(matchTarget)) {
+        return { level: "L2", reason: `${reasons.destructive}: ${display}` };
+      }
+    }
+    return { level: "L0", reason: `${reasons.l0}: ${display}` };
+  }
+  for (const pattern of SHELL_ALLOWLIST_L1) {
+    if (pattern.test(matchTarget)) {
+      return { level: "L1", reason: `${reasons.l1}: ${display}` };
+    }
+  }
+  return { level: "L2", reason: `${reasons.unrecognized}: ${display}` };
+}
+
 export function classifyShellCommand(command: string): ShellCommandClassification {
   const trimmed = normalizeCommandForClassification(command);
 
   const escalatingReason = detectEscalatingShellConstruct(trimmed);
   if (escalatingReason) {
-    return {
-      level: "L2",
-      reason: `${escalatingReason}: ${trimmed}`,
-    };
+    return { level: "L2", reason: `${escalatingReason}: ${trimmed}` };
   }
 
-  // Shell metacharacters bypass allowlist — always require confirmation
   if (SHELL_METACHAR.test(trimmed)) {
-    return {
-      level: "L2",
-      reason: `Shell metacharacters detected: ${trimmed}`,
-    };
+    return { level: "L2", reason: `Shell metacharacters detected: ${trimmed}` };
   }
 
-  for (const pattern of SHELL_ALLOWLIST_L0) {
-    if (pattern.test(trimmed)) {
-      // Deny-list check: destructive flags on otherwise-safe commands
-      for (const deny of SHELL_DENYLIST_L0) {
-        if (deny.test(trimmed)) {
-          return {
-            level: "L2",
-            reason: `Destructive flag on read-only command: ${trimmed}`,
-          };
-        }
-      }
-      return {
-        level: "L0",
-        reason: `Read-only command (auto-approved): ${trimmed}`,
-      };
-    }
-  }
-
-  for (const pattern of SHELL_ALLOWLIST_L1) {
-    if (pattern.test(trimmed)) {
-      return {
-        level: "L1",
-        reason: `Allow-listed command: ${trimmed}`,
-      };
-    }
-  }
-
-  return {
-    level: "L2",
-    reason: `Shell command requires confirmation: ${trimmed}`,
-  };
+  return classifyAgainstAllowlists(trimmed, trimmed, {
+    l0: "Read-only command (auto-approved)",
+    l1: "Allow-listed command",
+    destructive: "Destructive flag on read-only command",
+    unrecognized: "Shell command requires confirmation",
+  });
 }
-
-// ============================================================
-// Pipeline-Aware Classifier
-// ============================================================
 
 /** Split command by pipe operator outside quotes */
 function splitByPipe(command: string): string[] {
@@ -141,73 +124,48 @@ function splitByPipe(command: string): string[] {
   return segments;
 }
 
-/** Strip redirect operators, flag unsafe file redirects */
+/** Strip redirect operators, flag unsafe file redirects.
+ * Safe: `N>/dev/null`, `N>&N`, `</dev/null`. Unsafe: `> file`, `>> file`, `N> file` to anything else. */
 function analyzeRedirects(segment: string): { baseCommand: string; hasUnsafeRedirect: boolean } {
-  // Safe: N>/dev/null, N>&N, </dev/null
-  // Unsafe: > file, >> file, N> file (where file != /dev/null)
   const anyRedirect = /(\d*>>?\s*)([^\s|&]+)/g;
   let hasUnsafe = false;
-  // Check each redirect
   for (const match of segment.matchAll(anyRedirect)) {
     const target = match[2];
-    if (target !== "/dev/null" && !target.startsWith("&")) {
-      hasUnsafe = true;
-    }
+    if (target !== "/dev/null" && !target.startsWith("&")) hasUnsafe = true;
   }
-  // Strip all redirects for base command classification
   const cleaned = segment.replace(/\d*>>?\s*\S+/g, "").replace(/<\s*\S+/g, "").trim();
   return { baseCommand: cleaned, hasUnsafeRedirect: hasUnsafe };
 }
 
-/** Classify a single command against allowlists (WITHOUT metachar pre-filter) */
+/** Classify a pipeline segment without re-running the metachar pre-filter. */
 function classifyBaseCommand(command: string): ShellCommandClassification {
   const trimmed = command.trim();
   if (!trimmed) return { level: "L0", reason: "Empty segment" };
-
-  // Many allowlist patterns expect `\s` after the command name (e.g. /^sort\s/).
-  // For bare commands like "sort" in a pipeline, append a space so they match.
+  // Allowlist patterns are anchored like /^sort\s/, so a bare command like "sort"
+  // needs a trailing space to match.
   const matchTarget = /\s/.test(trimmed) ? trimmed : trimmed + " ";
-
-  for (const pattern of SHELL_ALLOWLIST_L0) {
-    if (pattern.test(matchTarget)) {
-      for (const deny of SHELL_DENYLIST_L0) {
-        if (deny.test(matchTarget)) {
-          return { level: "L2", reason: `Destructive flag: ${trimmed}` };
-        }
-      }
-      return { level: "L0", reason: `Read-only command: ${trimmed}` };
-    }
-  }
-  for (const pattern of SHELL_ALLOWLIST_L1) {
-    if (pattern.test(matchTarget)) {
-      return { level: "L1", reason: `Allow-listed command: ${trimmed}` };
-    }
-  }
-  return { level: "L2", reason: `Unrecognized command: ${trimmed}` };
+  return classifyAgainstAllowlists(matchTarget, trimmed, {
+    l0: "Read-only command",
+    l1: "Allow-listed command",
+    destructive: "Destructive flag",
+    unrecognized: "Unrecognized command",
+  });
 }
 
-/** Classify a command that may contain pipes, analyzing each segment */
+/** Classify a command that may contain pipes, analyzing each segment. */
 export function classifyShellPipeline(command: string): ShellCommandClassification {
   const trimmed = normalizeCommandForClassification(command);
   const escalatingReason = detectEscalatingShellConstruct(trimmed);
   if (escalatingReason) {
-    return {
-      level: "L2",
-      reason: `${escalatingReason}: ${trimmed}`,
-    };
+    return { level: "L2", reason: `${escalatingReason}: ${trimmed}` };
   }
-  // No metacharacters → fast path via existing classifier
-  if (!SHELL_METACHAR.test(trimmed)) {
-    return classifyShellCommand(trimmed);
-  }
-  // Chaining (;, &&, ||) remains too complex to analyze safely.
+  if (!SHELL_METACHAR.test(trimmed)) return classifyShellCommand(trimmed);
+  // Chaining (;, &&, ||) is too complex to analyze safely; refuse.
   if (/[;&]/.test(trimmed)) {
     return { level: "L2", reason: "Shell chaining/subshells detected" };
   }
-  // Pipeline: split by pipe, classify each segment
-  const segments = splitByPipe(trimmed);
   let highestLevel: "L0" | "L1" | "L2" = "L0";
-  for (const segment of segments) {
+  for (const segment of splitByPipe(trimmed)) {
     const { baseCommand, hasUnsafeRedirect } = analyzeRedirects(segment.trim());
     if (hasUnsafeRedirect) return { level: "L2", reason: "File redirect detected" };
     const classification = classifyBaseCommand(baseCommand);

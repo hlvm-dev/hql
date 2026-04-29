@@ -47,6 +47,18 @@ export interface CustomAgentDefinition extends BaseAgentDefinition {
 
 export type AgentDefinition = BuiltInAgentDefinition | CustomAgentDefinition;
 
+export function isBuiltInAgent(
+  agent: AgentDefinition,
+): agent is BuiltInAgentDefinition {
+  return agent.source === "built-in";
+}
+
+export function isCustomAgent(
+  agent: AgentDefinition,
+): agent is CustomAgentDefinition {
+  return agent.source !== "built-in";
+}
+
 export interface AgentToolInput {
   /** Short (3-5 word) task description */
   description: string;
@@ -117,22 +129,13 @@ export interface AgentAsyncResult {
   canReadOutputFile?: boolean;
 }
 
-/** Union of all agent tool outputs */
 export type AgentToolOutput = AgentToolResult | AgentAsyncResult;
-
-// ============================================================
-// Agent Definitions Result (CC: AgentDefinitionsResult)
-// ============================================================
 
 export interface AgentDefinitionsResult {
   activeAgents: AgentDefinition[];
   allAgents: AgentDefinition[];
   failedFiles?: Array<{ path: string; error: string }>;
 }
-
-// ============================================================
-// Background Agent Tracking
-// ============================================================
 
 export interface BackgroundAgent {
   agentId: string;
@@ -167,4 +170,3 @@ export interface BackgroundAgentSnapshot {
   resultPreview?: string;
   error?: string;
 }
-

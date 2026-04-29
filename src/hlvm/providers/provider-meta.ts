@@ -77,7 +77,7 @@ const PROVIDER_LOOKUP: Map<string, string> = (() => {
   return map;
 })();
 
-function findProviderMetaKey(name?: string | null): string | null {
+export function findProviderMetaKey(name?: string | null): string | null {
   const normalized = name ? normalizeProviderLookup(name) : "";
   if (!normalized) return null;
   return PROVIDER_LOOKUP.get(normalized) ?? null;

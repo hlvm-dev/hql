@@ -19,5 +19,3 @@ export const TOOL_NAMES = Object.freeze({
   ARCHIVE_FILES: "archive_files",
   CU_REQUEST_ACCESS: "cu_request_access",
 } as const);
-
-export type ToolName = typeof TOOL_NAMES[keyof typeof TOOL_NAMES];

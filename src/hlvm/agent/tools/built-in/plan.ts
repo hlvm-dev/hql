@@ -1,13 +1,3 @@
-/**
- * Plan Built-in Agent
- *
- * CC source: tools/AgentTool/built-in/planAgent.ts
- * Copied 99.9% — same system prompt, same disallowed tools, same description.
- *
- * Read-only planning specialist. Explores codebase and designs implementation plans.
- * Cannot modify files.
- */
-
 import type { BuiltInAgentDefinition } from "../agent-types.ts";
 import { AGENT_TOOL_NAME } from "../agent-constants.ts";
 

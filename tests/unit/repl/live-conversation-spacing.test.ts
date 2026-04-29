@@ -1,7 +1,7 @@
 import { assertEquals, assertStrictEquals } from "jsr:@std/assert@1";
 import {
   getLiveConversationSpacing,
-} from "../../../src/hlvm/cli/repl-ink/components/conversation/message-spacing.ts";
+} from "../../../src/hlvm/cli/repl-ink/utils/layout-tokens.ts";
 
 Deno.test("getLiveConversationSpacing keeps the transcript compact by default", () => {
   const spacing = getLiveConversationSpacing(false);

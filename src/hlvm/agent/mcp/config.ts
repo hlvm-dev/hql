@@ -24,10 +24,6 @@ import { sanitizeToolName } from "../tool-schema.ts";
 const DOT_MCP_FILE = ".mcp.json";
 const CLAUDE_PLUGIN_COLLECTION_DIRS = new Set(["external_plugins", "plugins"]);
 
-// ============================================================
-// Loading
-// ============================================================
-
 export async function loadMcpConfig(): Promise<McpConfig | null> {
   return await loadMcpConfigFromPath(getMcpConfigPath());
 }
@@ -121,10 +117,6 @@ export async function loadMcpConfigMultiScope(): Promise<McpServerWithScope[]> {
     ...claudeServers.map((s) => ({ ...s, scope: "claude-code" as const })),
   ]);
 }
-
-// ============================================================
-// Claude Code Plugin Import
-// ============================================================
 
 /**
  * Parse a single Claude Code .mcp.json server entry into McpServerConfig.
@@ -332,10 +324,6 @@ async function loadClaudeCodeMcpServers(): Promise<McpServerConfig[]> {
   }
   return servers;
 }
-
-// ============================================================
-// Cross-Tool MCP Imports (Cursor, Windsurf, Zed, Codex, Gemini)
-// ============================================================
 
 function parseMcpServersMap(
   map: Record<string, unknown>,
@@ -672,10 +660,6 @@ function sanitizeClaudePluginId(value: string): string {
   return value.replace(/[^a-zA-Z0-9\-_]/g, "-");
 }
 
-// ============================================================
-// Saving
-// ============================================================
-
 async function saveMcpConfig(path: string, config: McpConfig): Promise<void> {
   const platform = getPlatform();
   const dir = platform.path.dirname(path);
@@ -718,10 +702,6 @@ export async function removeServerFromConfig(
   await saveMcpConfig(path, { version: 1, servers: filtered });
   return true;
 }
-
-// ============================================================
-// Shared Utilities
-// ============================================================
 
 export function normalizeServerName(name: string): string {
   return name.trim();

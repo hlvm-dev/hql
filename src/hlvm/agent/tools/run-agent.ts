@@ -1,18 +1,3 @@
-/**
- * Agent Execution Loop
- *
- * CC source: tools/AgentTool/runAgent.ts
- * Wraps HLVM's runReActLoop() to execute a sub-agent in isolation.
- *
- * Each sub-agent gets:
- * - Its own ContextManager (message history)
- * - Its own tool set (filtered by agent definition)
- * - Its own turn counter (maxTurns, default 200)
- * - Its own system prompt (from agent definition)
- *
- * The parent's loop blocks while the child runs (sync mode).
- */
-
 import { ContextManager } from "../context.ts";
 import {
   type AgentLoopResult,
@@ -275,7 +260,6 @@ export async function runAgent(
 
   const startTime = Date.now();
 
-  // Step 1: Build system prompt (CC: getAgentSystemPrompt)
   let systemPrompt: string;
   try {
     systemPrompt = agentDefinition.getSystemPrompt();
@@ -287,7 +271,6 @@ export async function runAgent(
       "You are an agent. Complete the task fully and report your findings.";
   }
 
-  // Step 2: Resolve tools (CC: resolveAgentTools)
   const { resolvedTools } = resolveAgentTools(
     agentDefinition,
     allTools,
@@ -320,7 +303,6 @@ export async function runAgent(
     }
   }
 
-  // Step 3: Create isolated context (CC: createSubagentContext)
   const context = new ContextManager({
     maxTokens: inheritedConfig?.contextBudget ?? 128_000,
   });
@@ -347,19 +329,11 @@ export async function runAgent(
     );
   }
 
-  // Step 4: Build isolated OrchestratorConfig (CC: agentOptions + query params)
   const effectiveMaxTurns = maxTurns ?? agentDefinition.maxTurns ??
     AGENT_MAX_TURNS;
 
-  // CC: Track tool uses via onAgentEvent interception.
-  // The child orchestrator emits tool_start/tool_end events — we count them
-  // and emit agent_progress to the PARENT for TUI rendering.
-  //
-  // IMPORTANT: We do NOT forward child tool events to parent.
-  // CC: child events stay inside the child. Parent only sees agent_spawn/progress/complete.
-  // Forwarding would pollute the parent's TUI with child tool calls.
-  // CC: Track tool uses and build transcript for expand/collapse.
-  // Child events are NOT forwarded to parent TUI — only counted and recorded.
+  // Child tool events are counted and recorded here; we deliberately do NOT forward them to the parent's
+  // onAgentEvent so the parent TUI only sees agent_spawn/progress/complete.
   let toolUseCount = 0;
   let lastToolInfo: string | undefined;
   const transcriptLines: string[] = [];
@@ -467,10 +441,8 @@ export async function runAgent(
         lastToolInfo,
       });
     }
-    // Do NOT forward child tool events to parent — they would pollute the TUI.
   };
 
-  // CC: track token usage via UsageTracker (for "N tokens" in TUI display)
   const usageTracker = new UsageTracker();
 
   const childConfig: OrchestratorConfig = {
@@ -501,7 +473,6 @@ export async function runAgent(
     totalTimeout: inheritedConfig?.totalTimeout,
   };
 
-  // Step 5: Execute (CC: for await (const message of query(...)))
   log.debug(
     `[Agent:${agentDefinition.agentType}] Starting with ${resolvedTools.size} tools, max ${effectiveMaxTurns} turns`,
   );
@@ -533,7 +504,6 @@ export async function runAgent(
     `[Agent:${agentDefinition.agentType}] Completed in ${durationMs}ms`,
   );
 
-  // Step 6: Return result (CC: finalizeAgentTool)
   const completedLoopResult = loopResult!;
   const usageSnapshot = completedLoopResult.usage;
   return {

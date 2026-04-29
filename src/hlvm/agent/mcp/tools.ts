@@ -44,10 +44,6 @@ import type {
   McpToolInfo,
 } from "./types.ts";
 
-// ============================================================
-// Safety Heuristics
-// ============================================================
-
 const MCP_READ_ONLY_RE =
   /\b(read|list|get|fetch|search|find|query|inspect|describe|status|render|screenshot|echo)\b/;
 const MCP_MUTATING_RE =
@@ -85,10 +81,6 @@ const MCP_SIMPLE_SCHEMA_TYPES = new Set([
 
 // Process-lifetime de-duplication for noisy startup/connect warnings.
 const seenMcpConnectWarnings = new Set<string>();
-
-// ============================================================
-// Schema Helpers
-// ============================================================
 
 function buildArgsSchema(
   schema?: Record<string, unknown>,
@@ -231,9 +223,6 @@ function warnMcpConnectSkip(serverName: string, error: unknown): void {
   }
 }
 
-// ============================================================
-// MCP Tool Call Wrappers
-// ============================================================
 
 const MCP_TOOL_TIMEOUT_MS = 60_000;
 const MCP_TOOL_PROGRESS_INTERVAL_MS = 30_000;
@@ -701,10 +690,6 @@ function formatMcpPromptResult(
   };
 }
 
-// ============================================================
-// Tool Entry Builder
-// ============================================================
-
 function buildToolEntry(
   client: SdkMcpClient,
   tool: McpToolInfo,
@@ -752,10 +737,6 @@ function buildToolEntry(
     formatResult: formatMcpToolExecutionResult,
   };
 }
-
-// ============================================================
-// Notification Handlers Registration
-// ============================================================
 
 function registerNotificationHandlers(
   client: SdkMcpClient,
@@ -940,10 +921,6 @@ async function refreshServerToolRegistration(
   );
   registerTools(entries, registrationOwnerId);
 }
-
-// ============================================================
-// Connection Timeout + Concurrency
-// ============================================================
 
 const MCP_CONNECT_TIMEOUT_MS = 5_000;
 const MCP_CONNECT_CONCURRENCY = 3;
@@ -1166,10 +1143,6 @@ async function connectAndRegisterServer(
     return null;
   }
 }
-
-// ============================================================
-// Main Load Function
-// ============================================================
 
 export async function loadMcpTools(
   _workspace: string,

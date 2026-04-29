@@ -67,10 +67,6 @@ const NOTIFICATION_SCHEMAS: Record<string, any> = {
   "notifications/resources/updated": ResourceUpdatedNotificationSchema,
 };
 
-// ============================================================
-// Fetch Helpers
-// ============================================================
-
 /**
  * Wraps the SSOT http client with a per-request timeout. Each call creates a
  * fresh AbortController that fires after `timeoutMs`. If the caller already
@@ -110,10 +106,6 @@ function hasExplicitAuthorizationHeader(
 ): boolean {
   return Object.keys(headers).some((key) => key.toLowerCase() === "authorization");
 }
-
-// ============================================================
-// SdkMcpClient — Adapter wrapping SDK Client
-// ============================================================
 
 export class SdkMcpClient {
   private static readonly MAX_PENDING_PER_METHOD = 100;
@@ -444,10 +436,6 @@ export class SdkMcpClient {
     return "other";
   }
 
-  private async delayReconnect(ms: number): Promise<void> {
-    await sleep(ms);
-  }
-
   private async reconnectWithBackoff(): Promise<void> {
     // Stdio transports have limited reconnect capability — log a warning.
     // The SDK's StdioClientTransport may restart the child process, so we
@@ -480,7 +468,7 @@ export class SdkMcpClient {
         this.connectionState.connected = false;
         const delayMs = Math.min(30_000, 1000 * (2 ** (attempt - 1)));
         if (attempt < maxAttempts) {
-          await this.delayReconnect(delayMs);
+          await sleep(delayMs);
         }
       }
     }
@@ -529,10 +517,6 @@ export class SdkMcpClient {
       return await run(signal);
     }
   }
-
-  // ============================================================
-  // Tool Operations
-  // ============================================================
 
   private buildRequestOptions(
     signal?: AbortSignal,
@@ -664,10 +648,6 @@ export class SdkMcpClient {
     );
   }
 
-  // ============================================================
-  // Resource Operations
-  // ============================================================
-
   async listResources(signal?: AbortSignal): Promise<McpResourceInfo[]> {
     const result = await this.withReconnect(
       (requestSignal) =>
@@ -769,10 +749,6 @@ export class SdkMcpClient {
     );
   }
 
-  // ============================================================
-  // Prompt Operations
-  // ============================================================
-
   async listPrompts(signal?: AbortSignal): Promise<McpPromptInfo[]> {
     const result = await this.withReconnect(
       (requestSignal) =>
@@ -845,10 +821,6 @@ export class SdkMcpClient {
     });
   }
 
-  // ============================================================
-  // Completion
-  // ============================================================
-
   async complete(
     ref:
       | { type: "ref/resource"; uri: string }
@@ -868,10 +840,6 @@ export class SdkMcpClient {
     };
     return result.completion.values;
   }
-
-  // ============================================================
-  // Logging
-  // ============================================================
 
   async setLogLevel(level: string, signal?: AbortSignal): Promise<void> {
     await this.withReconnect(
@@ -893,10 +861,6 @@ export class SdkMcpClient {
     );
   }
 
-  // ============================================================
-  // Ping
-  // ============================================================
-
   async ping(signal?: AbortSignal): Promise<void> {
     await this.withReconnect(
       (requestSignal) =>
@@ -908,10 +872,6 @@ export class SdkMcpClient {
     );
   }
 
-  // ============================================================
-  // Capabilities
-  // ============================================================
-
   hasCapability(name: string): boolean {
     const caps = this.client.getServerCapabilities();
     if (!caps) return false;
@@ -921,10 +881,6 @@ export class SdkMcpClient {
   onReconnect(listener: () => void): void {
     this.reconnectListeners.add(listener);
   }
-
-  // ============================================================
-  // Request / Notification handlers (bidirectional protocol)
-  // ============================================================
 
   /**
    * Install a queuing stub handler for a deferrable server request method.

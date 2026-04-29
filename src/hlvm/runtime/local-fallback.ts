@@ -147,7 +147,7 @@ export async function withFallbackChain<T>(
     // Cloud fallbacks waste time (retries, backoff) for the same outcome.
     if (lastResortReady) {
       config.onTrace?.(
-        "primary",
+        primaryModel,
         config.lastResort!.model,
         "local_fallback",
       );
@@ -157,7 +157,7 @@ export async function withFallbackChain<T>(
 
     // Degraded path: last-resort NOT ready — try scored fallbacks.
     for (const model of config.fallbacks) {
-      config.onTrace?.("primary", model, reason);
+      config.onTrace?.(primaryModel, model, reason);
       try {
         return await config.tryFallback(model);
       } catch (fbError) {

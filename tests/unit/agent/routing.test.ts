@@ -31,7 +31,8 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     lastToolsIncludedWeb: false,
     iterationsSinceReminder: 3,
     memoryFlushedThisCycle: false,
-    memoryRecallInjected: false,
+    surfacedMemoryPaths: new Set(),
+    skillsInjected: false,
     lastToolNames: [],
     loopRecoveryStep: 0,
     playwright: {

@@ -9,6 +9,12 @@ import {
   insertMessage,
 } from "../../../src/hlvm/store/conversation-store.ts";
 import { __setListAllProviderModelsForTesting } from "../../../src/hlvm/agent/auto-select.ts";
+import { disposeAllSessions } from "../../../src/hlvm/agent/agent-runner.ts";
+import {
+  type AgentEngine,
+  resetAgentEngine,
+  setAgentEngine,
+} from "../../../src/hlvm/agent/engine.ts";
 import {
   _resetActiveConversationForTesting,
   getActiveConversationSessionId,
@@ -26,6 +32,7 @@ import {
   handleChat,
 } from "../../../src/hlvm/cli/repl/handlers/chat.ts";
 import { ai } from "../../../src/hlvm/api/ai.ts";
+import { config } from "../../../src/hlvm/api/config.ts";
 import { log } from "../../../src/hlvm/api/log.ts";
 import {
   __testOnlyResetAgentReadyState,
@@ -55,6 +62,15 @@ async function withDb(fn: () => Promise<void> | void): Promise<void> {
   } finally {
     db.close();
   }
+}
+
+async function readNdjsonEvents(
+  response: Response,
+): Promise<Array<Record<string, unknown>>> {
+  const text = await response.text();
+  return text.trim().split("\n")
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 Deno.test("handlers: message listing supports pagination and cursor order in both directions", async () => {
@@ -472,10 +488,11 @@ Deno.test("handlers: chat surfaces provider auth failures during agent model ver
     await withDb(async () => {
       const originalGet = ai.models.get;
       const getCalls: Array<[string, string | undefined]> = [];
-      const [fallbackProvider, fallbackModelName] = LOCAL_FALLBACK_MODEL_ID.split("/") as [
-        string,
-        string,
-      ];
+      const [fallbackProvider, fallbackModelName] = LOCAL_FALLBACK_MODEL_ID
+        .split("/") as [
+          string,
+          string,
+        ];
       (ai.models as { get: typeof ai.models.get }).get = (
         name: string,
         provider?: string,
@@ -541,10 +558,11 @@ Deno.test("handlers: chat resolves auto before agent capability verification", a
           apiKeyConfigured: true,
         },
       }]);
-      const [fallbackProvider, fallbackModelName] = LOCAL_FALLBACK_MODEL_ID.split("/") as [
-        string,
-        string,
-      ];
+      const [fallbackProvider, fallbackModelName] = LOCAL_FALLBACK_MODEL_ID
+        .split("/") as [
+          string,
+          string,
+        ];
       (ai.models as { get: typeof ai.models.get }).get = (
         name: string,
         provider?: string,
@@ -590,15 +608,140 @@ Deno.test("handlers: chat resolves auto before agent capability verification", a
   });
 });
 
+Deno.test("handlers: agent auto rate-limit falls through to scored fallback", async () => {
+  await withTempHlvmDir(async () => {
+    await withDb(async () => {
+      __testOnlyResetAgentReadyState();
+      await config.reload();
+      await config.patch({ approvedProviders: ["anthropic", "openai"] });
+      const originalGet = ai.models.get;
+      const llmCalls: string[] = [];
+      const engine: AgentEngine = {
+        createLLM: (config) => {
+          const model = config.model ?? "";
+          return async () => {
+            llmCalls.push(model);
+            if (model === "anthropic/claude-sonnet-4") {
+              throw new Error("rate limit exceeded (429)");
+            }
+            if (model === "openai/gpt-4o-mini") {
+              return {
+                content: "fallback answered through auto",
+                toolCalls: [],
+              };
+            }
+            throw new Error(`unexpected model: ${model}`);
+          };
+        },
+        createSummarizer: () => () => Promise.resolve(""),
+      };
+
+      __setListAllProviderModelsForTesting(async () => [
+        {
+          name: "claude-sonnet-4",
+          displayName: "Claude Sonnet 4",
+          capabilities: ["chat", "tools"],
+          contextWindow: 200_000,
+          metadata: {
+            provider: "anthropic",
+            cloud: true,
+            apiKeyConfigured: true,
+          },
+        },
+        {
+          name: "gpt-4o-mini",
+          displayName: "GPT-4o Mini",
+          capabilities: ["chat", "tools"],
+          contextWindow: 128_000,
+          metadata: {
+            provider: "openai",
+            cloud: true,
+            apiKeyConfigured: true,
+          },
+        },
+      ]);
+      (ai.models as { get: typeof ai.models.get }).get = (
+        name: string,
+        provider?: string,
+      ) => {
+        if (name === "claude-sonnet-4" && provider === "anthropic") {
+          return Promise.resolve({
+            name,
+            displayName: "Claude Sonnet 4",
+            capabilities: ["chat", "tools"],
+            contextWindow: 200_000,
+            metadata: {
+              provider,
+              cloud: true,
+              apiKeyConfigured: true,
+            },
+          });
+        }
+        return Promise.resolve(null);
+      };
+      setAgentEngine(engine);
+
+      try {
+        const response = await handleChat(jsonRequest({
+          mode: "agent",
+          model: AUTO_MODEL_ID,
+          stateless: true,
+          trace: true,
+          messages: [{
+            role: "user",
+            content: "answer from the auto fallback",
+          }],
+        }));
+
+        assertEquals(response.status, 200);
+        const events = await readNdjsonEvents(response);
+        assertEquals(
+          events.some((event) =>
+            event.event === "token" &&
+            event.text === "fallback answered through auto"
+          ),
+          true,
+        );
+        assertEquals(llmCalls, [
+          "anthropic/claude-sonnet-4",
+          "openai/gpt-4o-mini",
+        ]);
+
+        const autoFallbackTrace = events.find((event) => {
+          if (event.event !== "trace") return false;
+          const trace = event.trace as { type?: string } | undefined;
+          return trace?.type === "auto_fallback";
+        })?.trace as
+          | { fromModel?: string; toModel?: string; reason?: string }
+          | undefined;
+        assertExists(autoFallbackTrace);
+        assertEquals(
+          autoFallbackTrace.fromModel,
+          "anthropic/claude-sonnet-4",
+        );
+        assertEquals(autoFallbackTrace.toModel, "openai/gpt-4o-mini");
+        assertEquals(autoFallbackTrace.reason, "rate_limit");
+      } finally {
+        resetAgentEngine();
+        await disposeAllSessions();
+        __setListAllProviderModelsForTesting(null);
+        (ai.models as { get: typeof ai.models.get }).get = originalGet;
+        __testOnlyResetAgentReadyState();
+      }
+    });
+  });
+});
+
 Deno.test("handlers: chat does not silently replace an explicit missing agent model", async () => {
   await withTempHlvmDir(async () => {
     await withDb(async () => {
       const originalGet = ai.models.get;
       const getCalls: Array<[string, string | undefined]> = [];
-      const [fallbackProvider, fallbackModelName] = LOCAL_FALLBACK_MODEL_ID.split("/") as [
-        string,
-        string,
-      ];
+      const [fallbackProvider, fallbackModelName] = LOCAL_FALLBACK_MODEL_ID
+        .split("/") as [
+          string,
+          string,
+        ];
       (ai.models as { get: typeof ai.models.get }).get = (
         name: string,
         provider?: string,

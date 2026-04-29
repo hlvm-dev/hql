@@ -1,17 +1,6 @@
-/**
- * Agent Worktree Isolation
- *
- * CC source: utils/worktree.ts
- * Creates isolated git worktrees for agent execution.
- *
- * Flow (CC-faithful):
- * 1. Find git root
- * 2. Create worktree under ~/.hlvm/worktrees/{repo-id}/{slug}
- * 3. Agent works in isolated copy
- * 4. On completion: check for changes
- *    - No changes → remove worktree
- *    - Has changes → keep worktree, return path+branch
- */
+// Spawns a `git worktree` so an agent can run in an isolated copy of the repo
+// under ~/.hlvm/worktrees/{repo-id}/{slug}. Worktrees with no changes are
+// removed on completion; dirty worktrees are kept so the user can inspect them.
 
 import { getPlatform } from "../../../platform/platform.ts";
 import { getAgentLogger } from "../logger.ts";
@@ -20,10 +9,6 @@ import { TOOL_NAMES } from "../tool-names.ts";
 import { getWorktreePath, getWorktreesDir } from "../../../common/paths.ts";
 
 const log = getAgentLogger();
-
-// ============================================================
-// Types
-// ============================================================
 
 export interface WorktreeInfo {
   worktreePath: string;
@@ -37,37 +22,18 @@ export interface WorktreeResult {
   worktreeBranch?: string;
 }
 
-// ============================================================
-// Path Helpers (CC: flattenSlug, worktreePathFor, worktreeBranchName)
-// ============================================================
-
-/**
- * Flatten slug to prevent nested directory issues.
- * CC: "user/feature" → "user+feature"
- */
+// "user/feature" → "user+feature" so the slug never introduces a nested directory.
 function flattenSlug(slug: string): string {
   return slug.replaceAll("/", "+");
 }
 
-/**
- * Worktree path for a given slug.
- * HLVM: ~/.hlvm/worktrees/{repo-id}/{flatSlug}
- */
 function worktreePathFor(gitRoot: string, slug: string): string {
   return getWorktreePath(gitRoot, flattenSlug(slug));
 }
 
-/**
- * Branch name for a worktree.
- * CC: worktree-{flatSlug}
- */
 function worktreeBranchName(slug: string): string {
   return `worktree-${flattenSlug(slug)}`;
 }
-
-// ============================================================
-// Git Helpers
-// ============================================================
 
 const textDecoder = new TextDecoder();
 
@@ -107,21 +73,6 @@ async function getHeadSha(cwd: string): Promise<string | null> {
   return result.success ? result.stdout : null;
 }
 
-// ============================================================
-// createAgentWorktree (CC: createAgentWorktree + getOrCreateWorktree)
-// ============================================================
-
-/**
- * Create an isolated git worktree for an agent.
- * CC-faithful implementation — simplified (no hooks, no sparse-checkout).
- *
- * Algorithm:
- * 1. Find git root
- * 2. Create ~/.hlvm/worktrees/{repo-id}/ dir
- * 3. Get HEAD commit for later change detection
- * 4. Create worktree with `git worktree add`
- * 5. Return worktree info
- */
 export async function createAgentWorktree(
   slug: string,
   cwd: string,
@@ -146,7 +97,6 @@ export async function createAgentWorktree(
     }
   }
 
-  // Find git root (CC: findCanonicalGitRoot)
   const gitRoot = await findGitRoot(cwd);
   if (!gitRoot) {
     throw new ToolError(
@@ -159,7 +109,7 @@ export async function createAgentWorktree(
   const worktreePath = worktreePathFor(gitRoot, slug);
   const branchName = worktreeBranchName(slug);
 
-  // Fast-resume: check if worktree already exists (CC: readWorktreeHeadSha)
+  // Fast-resume an existing worktree (e.g. crash recovery) by checking for HEAD before creating.
   const existingHead = await getHeadSha(worktreePath);
   if (existingHead) {
     log.debug(`Resuming existing worktree: ${worktreePath}`);
@@ -185,7 +135,6 @@ export async function createAgentWorktree(
     );
   }
 
-  // Create worktree (CC: git worktree add -B branchName worktreePath HEAD)
   const result = await runGit(
     ["worktree", "add", "-B", branchName, worktreePath, "HEAD"],
     gitRoot,
@@ -209,46 +158,23 @@ export async function createAgentWorktree(
   };
 }
 
-// ============================================================
-// hasWorktreeChanges (CC: hasWorktreeChanges)
-// ============================================================
-
-/**
- * Check if a worktree has any changes (uncommitted or new commits).
- * CC-faithful: both `git status` AND `git rev-list` must be clean.
- *
- * Returns true if there are ANY changes. False only if completely clean.
- */
+/** Returns true when the worktree has any uncommitted changes or new commits beyond `headCommit`. */
 export async function hasWorktreeChanges(
   worktreePath: string,
   headCommit: string,
 ): Promise<boolean> {
-  // Check 1: uncommitted changes
   const status = await runGit(["status", "--porcelain"], worktreePath);
-  if (!status.success || status.stdout.length > 0) {
-    return true; // Has uncommitted changes (or error → assume changed)
-  }
+  // On error, assume changed so we never delete user work by accident.
+  if (!status.success || status.stdout.length > 0) return true;
 
-  // Check 2: new commits since creation
   const revList = await runGit(
     ["rev-list", "--count", `${headCommit}..HEAD`],
     worktreePath,
   );
-  if (!revList.success) {
-    return true; // Error → assume changed
-  }
-  const count = parseInt(revList.stdout, 10);
-  return count > 0;
+  if (!revList.success) return true;
+  return parseInt(revList.stdout, 10) > 0;
 }
 
-// ============================================================
-// removeAgentWorktree (CC: removeAgentWorktree)
-// ============================================================
-
-/**
- * Remove an agent worktree and its branch.
- * CC-faithful: `git worktree remove --force` then `git branch -D`.
- */
 export async function removeAgentWorktree(
   worktreePath: string,
   worktreeBranch?: string,
@@ -259,7 +185,6 @@ export async function removeAgentWorktree(
     return false;
   }
 
-  // Remove worktree (from main repo, not the worktree itself)
   const removeResult = await runGit(
     ["worktree", "remove", "--force", worktreePath],
     gitRoot,
@@ -269,7 +194,6 @@ export async function removeAgentWorktree(
     return false;
   }
 
-  // Delete temporary branch (non-fatal)
   if (worktreeBranch) {
     await runGit(["branch", "-D", worktreeBranch], gitRoot);
   }
@@ -278,34 +202,20 @@ export async function removeAgentWorktree(
   return true;
 }
 
-// ============================================================
-// cleanupWorktreeIfNeeded (CC: cleanupWorktreeIfNeeded)
-// ============================================================
-
-/**
- * Cleanup helper — idempotent.
- * CC-faithful: check for changes → remove if clean, keep if dirty.
- */
+/** Idempotent cleanup: removes the worktree if it's clean, keeps it if it has any changes. */
 export async function cleanupWorktree(
   info: WorktreeInfo | null,
 ): Promise<WorktreeResult> {
   if (!info) return {};
-
   const { worktreePath, worktreeBranch, headCommit, gitRoot } = info;
+  // Without a baseline HEAD we can't detect changes, so keep the worktree.
+  if (!headCommit) return { worktreePath, worktreeBranch };
 
-  if (!headCommit) {
-    // Can't detect changes without headCommit — keep it
-    return { worktreePath, worktreeBranch };
-  }
-
-  const changed = await hasWorktreeChanges(worktreePath, headCommit);
-  if (!changed) {
-    // Clean — remove worktree
+  if (!await hasWorktreeChanges(worktreePath, headCommit)) {
     await removeAgentWorktree(worktreePath, worktreeBranch, gitRoot);
     return {};
   }
 
-  // Has changes — keep
   log.debug(`Agent worktree has changes, keeping: ${worktreePath}`);
   return { worktreePath, worktreeBranch };
 }

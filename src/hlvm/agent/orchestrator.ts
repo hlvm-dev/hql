@@ -695,9 +695,6 @@ export type OrchestratorConfig =
   & OrchestratorSessionConfig
   & OrchestratorDiagnosticsConfig;
 
-// memoryWriteAvailable removed — the memory_write tool no longer exists.
-// Pre-compaction nudge now points at write_file against memory paths instead
-// (see runtimeDirective wording below).
 function fileWriteAvailable(config: OrchestratorConfig): boolean {
   const allowlist = effectiveAllowlist(config);
   if (allowlist && !allowlist.includes("write_file")) return false;

@@ -96,11 +96,11 @@ function normalizeAgentMcpServerSpec(
   return { [serverName.trim()]: normalizedConfig };
 }
 
-type ParseAgentResult =
+export type ParseAgentResult =
   | { ok: true; agent: CustomAgentDefinition }
   | { ok: false; reason: string };
 
-function parseAgentFromMarkdownDetailed(
+export function parseAgentFromMarkdownDetailed(
   filePath: string,
   content: string,
   source: "user",
@@ -231,6 +231,15 @@ function parseAgentFromMarkdownDetailed(
   }
 }
 
+export function parseAgentFromMarkdown(
+  filePath: string,
+  content: string,
+  source: "user",
+): CustomAgentDefinition | null {
+  const result = parseAgentFromMarkdownDetailed(filePath, content, source);
+  return result.ok ? result.agent : null;
+}
+
 export async function loadAgentDefinitions(
   _runtimeTarget?: string,
 ): Promise<AgentDefinitionsResult> {
@@ -293,7 +302,7 @@ async function loadAgentsFromDir(
   }
 }
 
-function getActiveAgentsFromList(
+export function getActiveAgentsFromList(
   allAgents: AgentDefinition[],
 ): AgentDefinition[] {
   const agentMap = new Map<string, AgentDefinition>();

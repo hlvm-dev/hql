@@ -1,6 +1,6 @@
 import type { AgentDefinition } from "./agent-types.ts";
 
-function formatAgentLine(agent: AgentDefinition): string {
+export function formatAgentLine(agent: AgentDefinition): string {
   const toolsDescription = getToolsDescription(agent);
   return `- ${agent.agentType}: ${agent.whenToUse} (Tools: ${toolsDescription})`;
 }

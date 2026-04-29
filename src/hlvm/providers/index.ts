@@ -39,6 +39,7 @@ export {
 
 // Shared metadata
 export {
+  findProviderMetaKey,
   getProviderMeta,
   getProviderSearchTerms,
 } from "./provider-meta.ts";

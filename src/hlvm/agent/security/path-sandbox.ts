@@ -1,24 +1,5 @@
-/**
- * Path Sandboxing - Security boundary enforcement for file operations
- *
- * Prevents path traversal attacks and ensures all file operations
- * stay within the designated workspace boundary.
- *
- * Security checks:
- * 1. Path resolution - normalize to absolute path
- * 2. Symlink rejection - prevent symlink escape attacks
- * 3. Boundary validation - ensure path stays within workspace
- */
-
 import { getPlatform } from "../../../platform/platform.ts";
 
-// ============================================================
-// Error Types
-// ============================================================
-
-/**
- * Security violation error for path sandboxing
- */
 export class SecurityError extends Error {
   constructor(message: string, public readonly path?: string) {
     super(message);
@@ -26,13 +7,6 @@ export class SecurityError extends Error {
   }
 }
 
-// ============================================================
-// Path Validation
-// ============================================================
-
-/**
- * Check if an absolute path is within a root directory.
- */
 export function isPathWithinRoot(
   absolutePath: string,
   root: string,
@@ -42,61 +16,26 @@ export function isPathWithinRoot(
   const normalizedPath = platform.path.resolve(absolutePath);
   const normalizedRoot = platform.path.resolve(root);
 
-  const pathForCompare = isWindows ? normalizedPath.toLowerCase() : normalizedPath;
-  const rootForCompare = isWindows ? normalizedRoot.toLowerCase() : normalizedRoot;
+  const pathForCompare = isWindows
+    ? normalizedPath.toLowerCase()
+    : normalizedPath;
+  const rootForCompare = isWindows
+    ? normalizedRoot.toLowerCase()
+    : normalizedRoot;
 
   const rootWithSep = rootForCompare.endsWith(platform.path.sep)
     ? rootForCompare
     : rootForCompare + platform.path.sep;
 
-  return pathForCompare === rootForCompare || pathForCompare.startsWith(rootWithSep);
+  return pathForCompare === rootForCompare ||
+    pathForCompare.startsWith(rootWithSep);
 }
 
 /**
- * Validate and normalize a path, ensuring it stays within workspace boundaries
- *
- * Security guarantees:
- * - Resolves relative paths to absolute paths
- * - Rejects symlinks (prevents symlink escape attacks)
- * - Verifies path is within workspace (prevents path traversal)
- *
- * @param path - Path to validate (relative or absolute)
- * @param workspaceRoot - Workspace root directory (must be absolute)
- * @returns Normalized absolute path within workspace
- * @throws SecurityError if path violates security constraints
- *
- * @example
- * ```ts
- * // Valid paths
- * await validatePath("./src/file.ts", "/project");  // -> "/project/src/file.ts"
- * await validatePath("src/file.ts", "/project");    // -> "/project/src/file.ts"
- * await validatePath("/project/file.ts", "/project"); // -> "/project/file.ts"
- *
- * // Invalid paths (throw SecurityError)
- * await validatePath("../../../etc/passwd", "/project");  // Path traversal
- * await validatePath("/etc/passwd", "/project");          // Outside workspace
- * await validatePath("./symlink", "/project");            // Symlink
- * ```
- */
-/**
- * Validates that a path is within workspace and doesn't escape via symlinks.
- *
- * EDGE CASE: Parent-chain validation for non-existent paths
- * - When validating /workspace/new/file.ts where 'new/' doesn't exist yet:
- *   1. Split path into components: ['new', 'file.ts']
- *   2. For each component, check if it exists
- *   3. If component doesn't exist (like 'new/' or 'file.ts'):
- *      - SKIP lstat check (file doesn't exist, can't be a symlink)
- *      - Continue to parent validation
- *   4. If component DOES exist:
- *      - Use lstat() to check if it's a symlink
- *      - If symlink: throw SecurityError (potential escape)
- *   5. Validate all existing parents in the chain
- *
- * This allows write_file to create NEW files/dirs while still preventing
- * symlink escapes through existing parent directories.
- *
- * @throws SecurityError if path escapes workspace or contains symlinks
+ * Resolves `path` against `workspaceRoot`, requires it to live under the workspace
+ * (or any provided extra `allowedRoots`), and rejects existing path components
+ * that are symlinks. Components that do not yet exist are allowed so callers can
+ * create new files inside the sandbox.
  */
 export async function validatePath(
   path: string,
@@ -121,39 +60,26 @@ export async function validatePath(
     );
   }
 
-  // 3. Validate each component in the path for symlinks
-  // Get relative path from workspace and split into components
   const relativePath = platform.path.relative(matchedRoot, normalizedPath);
+  if (relativePath === "" || relativePath === ".") return normalizedPath;
 
-  // If path is exactly the workspace root, no components to check
-  if (relativePath === "" || relativePath === ".") {
-    return normalizedPath;
-  }
-
-  const components = relativePath.split(platform.path.sep);
-
-  // Validate each component in the path chain
   let currentPath = matchedRoot;
-  for (const component of components) {
+  for (const component of relativePath.split(platform.path.sep)) {
     currentPath = platform.path.join(currentPath, component);
-
-    // CRITICAL: Check if this component exists and is not a symlink
     try {
-      const info = await platform.fs.lstat(currentPath); // Use lstat (doesn't follow symlinks)
+      // lstat (not stat) so symlinks are reported instead of followed.
+      const info = await platform.fs.lstat(currentPath);
       if (info.isSymlink) {
         throw new SecurityError(
           `Path contains symlink component: ${component}`,
-          currentPath
+          currentPath,
         );
       }
     } catch (error) {
       if (error instanceof SecurityError) throw error;
-      // Component doesn't exist - this is OK (user might be creating new file/dir)
-      // Skip symlink check for non-existent components
+      // Component does not exist yet; skip symlink check and continue.
     }
-    // If component doesn't exist, continue to check remaining parents
   }
 
   return normalizedPath;
 }
-

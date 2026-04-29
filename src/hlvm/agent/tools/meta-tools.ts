@@ -1,16 +1,3 @@
-/**
- * Meta Tools - Tools for agent interaction and clarification
- *
- * Provides tools that enable the agent to:
- * - Ask user for clarification or input
- * - Request additional information during task execution
- *
- * All operations:
- * - Use platform abstraction (getPlatform)
- * - Handle errors gracefully
- * - Return structured results
- */
-
 import { getPlatform } from "../../../platform/platform.ts";
 import { ValidationError } from "../../../common/error.ts";
 import {
@@ -35,32 +22,10 @@ import {
   type TodoStatus,
 } from "../todo-state.ts";
 
-// ============================================================
-// Tool 1: ask_user
-// ============================================================
-
 const ASK_USER_TRANSCRIPT_ADAPTER: ToolTranscriptAdapter = {
   displayName: "Ask",
 };
 
-/**
- * Ask user for clarification or input during task execution
- *
- * Security: L0 (auto-approve) - user interaction is safe
- * Use cases:
- * - Clarify ambiguous requirements
- * - Get user preferences for implementation choices
- * - Request additional information
- *
- * @example
- * ```ts
- * const answer = await askUser({
- *   question: "Which approach should I use?",
- *   options: ["Approach A: Fast but risky", "Approach B: Slow but safe"]
- * }, "/workspace");
- * // Returns: "Approach B: Slow but safe" (user's choice)
- * ```
- */
 async function askUser(
   args: unknown,
   _workspace: string,
@@ -78,7 +43,6 @@ async function askUser(
     options?: unknown;
   };
 
-  // Validate question
   if (typeof question !== "string" || question.trim() === "") {
     throw new ValidationError(
       "question must be a non-empty string",
@@ -86,10 +50,8 @@ async function askUser(
     );
   }
 
-  // Validate options if provided
   const normalizedChoices = normalizeAskUserChoices(choices);
 
-  // GUI mode: emit interaction request and await response
   if (options?.onInteraction) {
     const requestId = crypto.randomUUID();
     const response = await options.onInteraction({
@@ -103,13 +65,9 @@ async function askUser(
     return response.userInput ?? "";
   }
 
-  // CLI mode: stdin-based question
   const platform = getPlatform();
-
-  // Display question (async write, NOT writeSync)
   await platform.terminal.stdout.write(TEXT_ENCODER.encode(`\n${question}\n`));
 
-  // Display options if provided
   if (normalizedChoices.length > 0) {
     for (let i = 0; i < normalizedChoices.length; i++) {
       const choice = normalizedChoices[i];
@@ -124,7 +82,6 @@ async function askUser(
     }
   }
 
-  // Read user input
   await platform.terminal.stdout.write(TEXT_ENCODER.encode("> "));
   const buffer = new Uint8Array(1024);
   const n = await readStdinWithAbort(
@@ -224,10 +181,6 @@ async function readStdinWithAbort(
   });
 }
 
-// ============================================================
-// Tool 2: tool_search
-// ============================================================
-
 async function toolSearch(
   args: unknown,
   _workspace: string,
@@ -259,8 +212,7 @@ async function toolSearch(
     throw new ValidationError("tool search is not configured", "tool_search");
   }
 
-  // CC-style "select:" prefix for exact tool selection by name.
-  // Supports comma-separated multi-select: "select:search_web,web_fetch"
+  // "select:foo,bar" forces exact, comma-separated multi-select instead of ranked search.
   const selectMatch = query.match(/^select:(.+)$/i);
   if (selectMatch) {
     const requested = selectMatch[1]
@@ -445,10 +397,6 @@ async function todoWrite(
   options.todoState.items = cloneTodoItems(items);
   return { items: cloneTodoItems(options.todoState.items) };
 }
-
-// ============================================================
-// Tool Registry Export
-// ============================================================
 
 export const META_TOOLS: Record<string, ToolMetadata> = {
   ask_user: {

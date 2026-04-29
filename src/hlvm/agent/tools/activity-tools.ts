@@ -222,24 +222,36 @@ async function recentActivity(
 
   // 3. Load history.jsonl as fallback
   const historyRaw = await readJsonLines(getHistoryPath(), toHistoryEntry);
-  const sessionTimestamps = new Set(
-    [...currentSessionEntries, ...otherSessionEntries].map((e) => e.ts),
-  );
+  // Sort session timestamps once so each history entry needs O(log n) instead of O(n) to dedup.
+  const sortedSessionTs = [
+    ...currentSessionEntries,
+    ...otherSessionEntries,
+  ]
+    .map((e) => e.ts)
+    .sort((a, b) => a - b);
+  const hasNearbySessionTs = (ts: number): boolean => {
+    if (sortedSessionTs.length === 0) return false;
+    let lo = 0;
+    let hi = sortedSessionTs.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (sortedSessionTs[mid]! < ts) lo = mid + 1;
+      else hi = mid;
+    }
+    const candidate = sortedSessionTs[lo]!;
+    if (Math.abs(candidate - ts) < DEDUP_WINDOW_MS) return true;
+    if (lo > 0) {
+      const prev = sortedSessionTs[lo - 1]!;
+      if (Math.abs(prev - ts) < DEDUP_WINDOW_MS) return true;
+    }
+    return false;
+  };
   const historyEntries: ChronologyEntry[] = [];
   for (const entry of historyRaw) {
     const cmd = normalizePrompt(entry.cmd);
     if (!cmd) continue;
-    // Dedup: skip history entries that overlap with session entries by timestamp proximity
-    let isDuplicate = false;
-    for (const sessionTs of sessionTimestamps) {
-      if (Math.abs(entry.ts - sessionTs) < DEDUP_WINDOW_MS) {
-        isDuplicate = true;
-        break;
-      }
-    }
-    if (!isDuplicate) {
-      historyEntries.push({ ts: entry.ts, cmd, source: "history" });
-    }
+    if (hasNearbySessionTs(entry.ts)) continue;
+    historyEntries.push({ ts: entry.ts, cmd, source: "history" });
   }
 
   // 4. Merge + sort ascending

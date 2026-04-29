@@ -2,6 +2,10 @@
 dist/
 /npm/
 
+# Python bytecode caches
+__pycache__/
+*.pyc
+
 # JavaScript dependencies / caches (npm + Bun)
 node_modules/
 .npm/
@@ -73,6 +77,13 @@ tmp/
 temp/
 *.tmp
 hlvm.tmp-*
+
+# Local hook / dev-only state
+.local/
+.mutation_state
+
+# Firebase build cache (keep firebase.json + .firebaserc tracked)
+.firebase/
 
 # Playwright / MCP local artifacts
 .playwright-mcp/

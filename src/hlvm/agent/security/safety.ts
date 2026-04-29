@@ -1,17 +1,4 @@
-/**
- * Safety Classifier - Tool execution safety levels and user confirmation
- *
- * Implements 3-tier safety model:
- * - L0 (auto-approve): Read-only operations with no side effects
- * - L1 (confirm once): Operations confirmed once, then remembered
- * - L2 (always confirm): Destructive/mutating operations always require confirmation
- *
- * Features:
- * - Tool classification based on operation type
- * - L1 confirmation tracking (in-memory)
- * - User confirmation prompts via terminal
- * - SSOT-compliant (uses getPlatform)
- */
+// 3-tier safety model: L0 auto-approve (read-only), L1 confirm-once-then-remember, L2 always-confirm.
 
 import { getPlatform } from "../../../platform/platform.ts";
 import {
@@ -30,45 +17,21 @@ import { classifyShellCommand, classifyShellPipeline } from "./shell-classifier.
 import { canonicalizeForSignature } from "../orchestrator-tool-formatting.ts";
 import type { PermissionMode, ToolPermissions } from "../../../common/config/types.ts";
 
-// ============================================================
-// Types
-// ============================================================
-
-/** Safety levels for tool execution */
 export type SafetyLevel = "L0" | "L1" | "L2";
 
-/** Classification result with reasoning */
 interface SafetyClassification {
   level: SafetyLevel;
   reason: string;
 }
 
-/** Confirmation result from user */
 interface ConfirmationResult {
   confirmed: boolean;
   rememberChoice?: boolean;
 }
 
-// ============================================================
-// L1 Confirmation Tracking
-// ============================================================
-
-/**
- * Track which tools have been confirmed at L1.
- *
- * Key strategy:
- * - shell_exec: tool + canonical args (stricter, command-specific)
- * - all other L1 tools: tool name only (session-level, reduces prompt churn)
- *
- * Examples:
- * - shell_exec + {"command":"git status"} -> "shell_exec:{...}"
- * - web_fetch + {url:"..."} -> "web_fetch"
- * - mcp_playwright_render_url + {...} -> "mcp_playwright_render_url"
- *
- * Value: true if confirmed
- */
+// shell_exec keys include canonical args (per-command); other L1 tools key by name (per-session) to avoid
+// asking again for every argument variation.
 const l1Confirmations = new Map<string, boolean>();
-/** Prevent unbounded growth — evict oldest entries when cap is reached */
 const MAX_L1_CONFIRMATIONS = 1000;
 
 function getConfirmationStore(
@@ -77,48 +40,19 @@ function getConfirmationStore(
   return store ?? l1Confirmations;
 }
 
-/**
- * Generate confirmation key for a tool invocation.
- *
- * shell_exec remains strict (per-args). Other read-mostly L1 tools are
- * per-tool to avoid repeatedly asking for every argument variation.
- *
- * @param toolName Tool name
- * @param args Tool arguments
- * @returns Confirmation key for cache lookup
- */
 function makeL1Key(toolName: string, args: unknown): string {
-  if (toolName !== "shell_exec") {
-    return toolName;
-  }
-
-  const canonical = canonicalizeForSignature(args);
-  const argsJson = JSON.stringify(canonical);
-  return `${toolName}:${argsJson}`;
+  if (toolName !== "shell_exec") return toolName;
+  return `${toolName}:${JSON.stringify(canonicalizeForSignature(args))}`;
 }
 
-/**
- * Check if tool+args combination has L1 confirmation
- *
- * @param toolName Tool name to check
- * @param args Tool arguments
- * @returns True if this specific tool+args has been confirmed
- */
 export function hasL1Confirmation(
   toolName: string,
   args: unknown,
   store?: Map<string, boolean>,
 ): boolean {
-  const key = makeL1Key(toolName, args);
-  return getConfirmationStore(store).get(key) === true;
+  return getConfirmationStore(store).get(makeL1Key(toolName, args)) === true;
 }
 
-/**
- * Mark tool+args combination as L1 confirmed
- *
- * @param toolName Tool name to confirm
- * @param args Tool arguments
- */
 export function setL1Confirmation(
   toolName: string,
   args: unknown,
@@ -126,7 +60,7 @@ export function setL1Confirmation(
 ): void {
   const confirmations = getConfirmationStore(store);
   const key = makeL1Key(toolName, args);
-  // Evict oldest entry if at capacity (Map preserves insertion order)
+  // Map preserves insertion order — drop the oldest key when we hit the cap.
   if (confirmations.size >= MAX_L1_CONFIRMATIONS && !confirmations.has(key)) {
     const oldest = confirmations.keys().next().value;
     if (oldest !== undefined) confirmations.delete(oldest);
@@ -134,33 +68,18 @@ export function setL1Confirmation(
   confirmations.set(key, true);
 }
 
-/**
- * Clear L1 confirmation for tool+args combination
- *
- * @param toolName Tool name to clear
- * @param args Tool arguments
- */
 export function clearL1Confirmation(
   toolName: string,
   args: unknown,
   store?: Map<string, boolean>,
 ): void {
-  const key = makeL1Key(toolName, args);
-  getConfirmationStore(store).delete(key);
+  getConfirmationStore(store).delete(makeL1Key(toolName, args));
 }
 
-/**
- * Clear all L1 confirmations
- */
 export function clearAllL1Confirmations(store?: Map<string, boolean>): void {
   getConfirmationStore(store).clear();
 }
 
-/**
- * Get all L1 confirmations
- *
- * @returns Map of confirmed tools
- */
 export function getAllL1Confirmations(
   store?: Map<string, boolean>,
 ): Map<string, boolean> {
@@ -221,44 +140,14 @@ function isDeclaredMutatingTool(
   }
 }
 
-/**
- * Classify tool execution safety level
- *
- * Rules:
- * 1. Read-only tools → L0 (auto-approve)
- * 2. shell_exec with allow-list command → L1 (confirm once)
- * 3. Destructive/mutating tools → L2 (always confirm)
- *
- * @param toolName Tool name to classify
- * @param args Tool arguments (used for shell_exec classification)
- * @returns Safety classification with level and reason
- *
- * @example
- * ```ts
- * const classification = classifyTool("read_file", { path: "src/main.ts" });
- * // Returns: { level: "L0", reason: "Read-only operation with no side effects" }
- *
- * const shellClassification = classifyTool("shell_exec", { command: "git status" });
- * // Returns: { level: "L1", reason: "Allow-listed read-only command: git status" }
- * ```
- */
 export function classifyTool(
   toolName: string,
   args?: unknown,
   ownerId?: string,
 ): SafetyClassification {
-  // L1/L2: shell_exec requires argument inspection
-  if (toolName === "shell_exec") {
-    return classifyShellExec(args);
-  }
-
-  // Use declared safety level from tool metadata (SSOT)
+  if (toolName === "shell_exec") return classifyShellExec(args);
   const declared = getDeclaredSafetyClassification(toolName, ownerId);
-  if (declared) {
-    return declared;
-  }
-
-  // Default to L2 for unknown tools (safe default)
+  if (declared) return declared;
   return {
     level: "L2",
     reason: "Unknown tool, defaulting to highest safety level",
@@ -284,70 +173,19 @@ export function effectiveToolSurfaceIncludesMutation(options?: {
   );
 }
 
-/**
- * Classify shell_exec command
- *
- * Checks if command is in allow-lists:
- * - Read-only commands (ls, cat, git status, etc.) → L0 (auto-approved)
- * - Low-risk commands (deno test --dry-run) → L1 (prompt once)
- * - Everything else → L2 (always prompt)
- *
- * @param args shell_exec arguments
- * @returns Safety classification
- */
 function classifyShellExec(args: unknown): SafetyClassification {
-  // Extract command from args
-  if (!isToolArgsObject(args)) {
+  if (!isToolArgsObject(args) || typeof (args as { command?: unknown }).command !== "string") {
     return {
       level: "L2",
       reason: "Shell command requires confirmation (invalid args)",
     };
   }
-
-  if (
-    !("command" in args) ||
-    typeof (args as { command: unknown }).command !== "string"
-  ) {
-    return {
-      level: "L2",
-      reason: "Shell command requires confirmation (invalid args)",
-    };
-  }
-
-  const command = (args as { command: string }).command;
-  const classification = classifyShellPipeline(command);
-  return { level: classification.level, reason: classification.reason };
+  const { level, reason } = classifyShellPipeline(
+    (args as { command: string }).command,
+  );
+  return { level, reason };
 }
 
-// ============================================================
-// User Confirmation
-// ============================================================
-
-/**
- * Prompt user for confirmation with timeout
- *
- * Displays tool information and asks user to confirm execution.
- * L1 confirmations are auto-remembered by checkToolSafety.
- * Times out after 60 seconds if no response.
- *
- * @param toolName Tool name
- * @param args Tool arguments
- * @param classification Safety classification
- * @param timeoutMs Timeout in milliseconds (default: 60000 = 60s)
- * @returns Confirmation result (timeout treated as denial)
- *
- * @example
- * ```ts
- * const result = await promptUserConfirmation(
- *   "write_file",
- *   { path: "src/main.ts", content: "..." },
- *   { level: "L2", reason: "Destructive operation" }
- * );
- * if (result.confirmed) {
- *   // Execute tool
- * }
- * ```
- */
 /**
  * Format tool-specific preview for richer confirmation display.
  */
@@ -479,16 +317,7 @@ async function promptUserConfirmation(
   };
 }
 
-/**
- * Read a line of input from terminal with timeout (Issue #12)
- *
- * Helper function to read user input until newline.
- * Uses platform terminal abstraction with timeout support.
- *
- * @param platform Platform instance
- * @param timeoutMs Timeout in milliseconds (default: 60000 = 60s)
- * @returns User input as string, or null if timeout
- */
+/** Reads a line from stdin, returning null on timeout. */
 async function readLine(
   platform: ReturnType<typeof getPlatform>,
   timeoutMs: number = 60000,
@@ -524,112 +353,30 @@ async function readLine(
     return buffer.join("");
   })();
 
-  // Race between reading and timeout
   try {
-    const result = await Promise.race([readPromise, timeoutPromise]);
-
-    // Clean up timeout
-    if (timeoutId !== undefined) {
-      clearTimeout(timeoutId);
-    }
-
-    return result;
-  } catch (error) {
-    // Clean up timeout on error
-    if (timeoutId !== undefined) {
-      clearTimeout(timeoutId);
-    }
-    throw error;
+    return await Promise.race([readPromise, timeoutPromise]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
 }
 
-// ============================================================
-// Permission Resolution
-// ============================================================
-
-/**
- * Resolve tool permission based on explicit allow/deny lists and mode.
- *
- * Priority:
- * 1. Explicit deny (highest priority)
- * 2. Explicit allow
- * 3. L0 auto-approve (read-only, all modes)
- * 4. dontAsk mode rules (L1/L2 deny)
- * 5. bypassPermissions mode (allow all)
- * 6. acceptEdits mode (allow L1, prompt L2)
- * 7. Default/plan mode (prompt for L1/L2)
- *
- * @param toolName Tool name to check
- * @param safetyLevel Tool safety level (L0/L1/L2)
- * @param permissions Tool permissions (allow/deny lists + mode)
- * @returns "allow" | "deny" | "prompt" | "auto-classify"
- */
+/** Resolves whether to allow, deny, prompt, or auto-classify a tool call.
+ *  Priority: explicit deny > explicit allow > L0 auto-approve > permission-mode policy. */
 export function resolveToolPermission(
   toolName: string,
   safetyLevel: SafetyLevel,
   permissions: ToolPermissions,
 ): "allow" | "deny" | "prompt" | "auto-classify" {
-  // Priority 1: Explicit deny
   if (permissions.deniedTools.has(toolName)) return "deny";
-
-  // Priority 2: Explicit allow
   if (permissions.allowedTools.has(toolName)) return "allow";
-
-  // Priority 3: L0 always auto-approved (read-only, all modes)
   if (safetyLevel === "L0") return "allow";
-
-  // Priority 4: Non-interactive mode (dontAsk) rules
-  if (permissions.mode === "dontAsk") {
-    return "deny"; // Block all write operations (L1/L2)
-  }
-
-  // Priority 5: Bypass permissions mode
+  if (permissions.mode === "dontAsk") return "deny";
   if (permissions.mode === "bypassPermissions") return "allow";
-
-  // Priority 6: Accept edits mode
-  if (permissions.mode === "acceptEdits" && safetyLevel === "L1") {
-    return "allow";
-  }
-
-  // Priority 7: Auto mode — classify via local LLM before prompting
-  if (permissions.mode === "auto") {
-    return "auto-classify";
-  }
-
-  // Default: prompt for confirmation
+  if (permissions.mode === "acceptEdits" && safetyLevel === "L1") return "allow";
+  if (permissions.mode === "auto") return "auto-classify";
   return "prompt";
 }
 
-// ============================================================
-// Safety Check (Combined)
-// ============================================================
-
-/**
- * Check if tool execution should proceed
- *
- * Combines classification and confirmation logic:
- * 1. Classify tool → L0/L1/L2
- * 2. L0: Auto-approve
- * 3. L1: Check confirmation cache, prompt once, auto-remember
- * 4. L2: Always prompt
- *
- * @param toolName Tool name
- * @param args Tool arguments
- * @param permissionMode Permission mode (see PermissionMode type)
- * @returns True if execution should proceed
- *
- * @example
- * ```ts
- * const shouldExecute = await checkToolSafety(
- *   "write_file",
- *   { path: "src/main.ts", content: "..." },
- *   "default"
- * );
- * if (shouldExecute) {
- *   // Execute tool
- * }
- * ```
- */
 export async function checkToolSafety(
   toolName: string,
   args: unknown,
@@ -647,30 +394,21 @@ export async function checkToolSafety(
     ) => Promise<{ safe: boolean; reason: string }>;
   },
 ): Promise<boolean> {
-  // Classify tool
   const classification = classifyTool(toolName, args, ownerId);
-
-  // Apply explicit allow/deny lists and permission mode via resolveToolPermission
-  const permissions: ToolPermissions = {
+  const decision = resolveToolPermission(toolName, classification.level, {
     allowedTools: toolPermissions?.allowedTools ?? new Set(),
     deniedTools: toolPermissions?.deniedTools ?? new Set(),
     mode: permissionMode,
-  };
-  const decision = resolveToolPermission(
-    toolName,
-    classification.level,
-    permissions,
-  );
-  if (decision === "deny") {
-    return false;
-  }
-  if (decision === "allow") {
-    return true;
-  }
+  });
+  if (decision === "deny") return false;
+  if (decision === "allow") return true;
 
-  // decision === "auto-classify": run local LLM classifier, fall through to prompt on failure
+  // Auto mode: ask the local LLM classifier; fall through to prompt if unsafe or it errors.
   if (decision === "auto-classify") {
-    if (classification.level === "L1" && hasL1Confirmation(toolName, args, l1Store)) {
+    if (
+      classification.level === "L1" &&
+      hasL1Confirmation(toolName, args, l1Store)
+    ) {
       return true;
     }
     try {
@@ -687,31 +425,15 @@ export async function checkToolSafety(
         return true;
       }
     } catch { /* classifier failed — fall through to prompt */ }
-    // Unsafe or failed → fall through to existing prompt logic
   }
 
-  // decision === "prompt" or "auto-classify" that was not safe: Check L1 cache, then prompt user
-  if (classification.level === "L1") {
-    if (hasL1Confirmation(toolName, args, l1Store)) {
-      return true;
-    }
-
-    const result = await promptUserConfirmation(
-      toolName,
-      args,
-      classification,
-      onInteraction,
-      warning,
-    );
-
-    if (result.confirmed && result.rememberChoice) {
-      setL1Confirmation(toolName, args, l1Store);
-    }
-
-    return result.confirmed;
+  if (
+    classification.level === "L1" &&
+    hasL1Confirmation(toolName, args, l1Store)
+  ) {
+    return true;
   }
 
-  // L2: Always prompt
   const result = await promptUserConfirmation(
     toolName,
     args,
@@ -719,5 +441,12 @@ export async function checkToolSafety(
     onInteraction,
     warning,
   );
+
+  if (
+    classification.level === "L1" && result.confirmed && result.rememberChoice
+  ) {
+    setL1Confirmation(toolName, args, l1Store);
+  }
+
   return result.confirmed;
 }

@@ -115,10 +115,3 @@ export function useTheme(): ThemeContextValue {
   }
   return context;
 }
-
-// ============================================================
-// Exports
-// ============================================================
-
-export { ThemeContext };
-export type { ThemeContextValue, ThemeProviderProps };

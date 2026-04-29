@@ -76,12 +76,11 @@ function readMetadata(value: unknown): Record<string, string> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
   }
-  const metadata: Record<string, string> = {};
-  for (const [key, entryValue] of Object.entries(value)) {
-    if (typeof entryValue === "string") {
-      metadata[key] = entryValue;
-    }
-  }
+  const metadata: Record<string, string> = Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] =>
+      typeof entry[1] === "string"
+    ),
+  );
   return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 

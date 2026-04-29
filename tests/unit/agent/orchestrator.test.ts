@@ -126,7 +126,8 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     lastToolsIncludedWeb: false,
     iterationsSinceReminder: 3,
     memoryFlushedThisCycle: false,
-    memoryRecallInjected: false,
+    surfacedMemoryPaths: new Set(),
+    skillsInjected: false,
     lastToolNames: [],
     loopRecoveryStep: 0,
     playwright: {
@@ -1730,7 +1731,7 @@ Deno.test({
         workspace: TEST_WORKSPACE,
         context,
         permissionMode: "bypassPermissions",
-        toolDenylist: ["memory_write"],
+        toolDenylist: ["write_file"],
         onTrace: (event) => traces.push(event.type),
         onAgentEvent: (event) => {
           if (event.type === "turn_stats") {

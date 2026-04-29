@@ -23,11 +23,9 @@ function getChromiumDir(): string {
   return getPlatform().path.join(getRuntimeDir(), CHROMIUM_DIR_NAME);
 }
 
-// playwright-core reads PLAYWRIGHT_BROWSERS_PATH once on module load, so it
-// must be set before any `import "playwright-core"` runs. Every code path that
-// touches Playwright (browser-manager, playwright-support, bootstrap) imports
-// this module first, so keying it here keeps the managed directory authoritative.
-getPlatform().env.set("PLAYWRIGHT_BROWSERS_PATH", getChromiumDir());
+function configurePlaywrightBrowsersPath(chromiumDir = getChromiumDir()): void {
+  getPlatform().env.set("PLAYWRIGHT_BROWSERS_PATH", chromiumDir);
+}
 
 /**
  * Resolve the Chromium executable for the revision expected by the installed
@@ -39,6 +37,7 @@ export async function resolveChromiumExecutablePath(
   platform = getPlatform(),
 ): Promise<string | null> {
   const chromiumDir = getChromiumDir();
+  configurePlaywrightBrowsersPath(chromiumDir);
   if (!await platform.fs.exists(chromiumDir)) return null;
 
   try {
@@ -85,7 +84,7 @@ export async function downloadChromium(
   log.info?.(`Downloading Chromium to ${chromiumDir}`);
 
   // Set PLAYWRIGHT_BROWSERS_PATH so playwright-core installs into our dir
-  platform.env.set("PLAYWRIGHT_BROWSERS_PATH", chromiumDir);
+  configurePlaywrightBrowsersPath(chromiumDir);
 
   // Use npx playwright-core install chromium (most reliable cross-runtime).
   // NOTE: Do NOT pass an explicit `env` — Deno.Command replaces the entire

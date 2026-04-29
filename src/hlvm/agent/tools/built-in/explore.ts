@@ -1,13 +1,3 @@
-/**
- * Explore Built-in Agent
- *
- * CC source: tools/AgentTool/built-in/exploreAgent.ts
- * Copied 99.9% — same system prompt, same disallowed tools, same description.
- *
- * Read-only specialist. Cannot create/edit/delete files.
- * Optimized for fast codebase exploration.
- */
-
 import type { BuiltInAgentDefinition } from "../agent-types.ts";
 import { AGENT_TOOL_NAME } from "../agent-constants.ts";
 

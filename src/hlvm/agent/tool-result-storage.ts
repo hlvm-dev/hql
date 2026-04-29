@@ -12,9 +12,9 @@ const STALE_TOOL_RESULT_SESSION_MS = 24 * 60 * 60 * 1000;
 let staleSidecarPruneDone = false;
 let staleSidecarPrunePromise: Promise<void> | undefined;
 
-export type ToolResultSidecarFormat = "txt" | "json";
+type ToolResultSidecarFormat = "txt" | "json";
 
-export interface PersistedToolResultSidecar {
+interface PersistedToolResultSidecar {
   sessionId: string;
   toolCallId: string;
   path: string;
