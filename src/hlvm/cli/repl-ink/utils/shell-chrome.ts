@@ -1,6 +1,6 @@
 import { truncate } from "../../../../common/utils.ts";
 import { formatProgressBar } from "./formatting.ts";
-import { stringWidth } from "../../../vendor/ink/stringWidth.ts";
+import { stringWidth } from "../utils/ansi/string-width.ts";
 
 export const SHELL_SEGMENT_SEPARATOR = " · ";
 

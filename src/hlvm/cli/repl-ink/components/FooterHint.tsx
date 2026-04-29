@@ -10,7 +10,7 @@ import React from "react";
 import { Box, Text, useStdout } from "ink";
 import { useSemanticColors } from "../../theme/index.ts";
 import type { PlanningPhase } from "../../../agent/planning.ts";
-import { useHasSelection } from "../../../vendor/ink/hooks/use-selection.ts";
+import { useHasSelection } from "../hooks/useSelection.ts";
 import {
   type StreamingState,
   StreamingState as ConversationStreamingState,

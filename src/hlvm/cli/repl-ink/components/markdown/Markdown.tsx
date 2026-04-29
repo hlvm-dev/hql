@@ -1,8 +1,8 @@
 // @ts-nocheck
 import { marked, type Token, type Tokens } from "marked";
 import React, { Suspense, use, useMemo, useRef } from "react";
-import { Ansi } from "../../../../vendor/ink/Ansi.tsx";
-import Box from "../../../../vendor/ink/components/Box.tsx";
+import { Ansi } from "../Ansi.tsx";
+import { Box } from "ink";
 import { getCliHighlightPromise } from "./cliHighlight.ts";
 import type { CliHighlight } from "./cliHighlight.ts";
 import { hashContent } from "../../utils/hash.ts";

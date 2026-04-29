@@ -49,16 +49,22 @@ export const UserMessage = React.memo(function UserMessage(
         width={width}
         marginTop={spacing.userMessageMarginTop}
         marginBottom={spacing.userMessageMarginBottom}
-        flexDirection="column"
+        flexDirection="row"
         backgroundColor={sc.surface.userMessage}
+        paddingLeft={1}
         paddingRight={1}
       >
-        <Text color={sc.text.primary} wrap="wrap">{displayText}</Text>
-        {attachmentText && (
-          <Text color={sc.text.secondary} wrap="wrap">
-            {attachmentText}
-          </Text>
-        )}
+        <Box width={2} flexShrink={0}>
+          <Text color={sc.text.muted}>›</Text>
+        </Box>
+        <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+          <Text color={sc.text.primary} bold wrap="wrap">{displayText}</Text>
+          {attachmentText && (
+            <Text color={sc.text.secondary} wrap="wrap">
+              {attachmentText}
+            </Text>
+          )}
+        </Box>
       </Box>
     </Box>
   );

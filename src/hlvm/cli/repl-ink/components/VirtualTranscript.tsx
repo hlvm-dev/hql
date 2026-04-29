@@ -18,12 +18,9 @@ import { derivePlanSurfaceState } from "./conversation/plan-flow.ts";
 import { shouldRenderTranscriptDividerBeforeIndex } from "../utils/layout-tokens.ts";
 import { filterRenderableTimelineItems } from "../utils/timeline-visibility.ts";
 import { StreamingState as ConversationStreamingState } from "../types.ts";
-import type { ScrollBoxHandle } from "../../../vendor/ink/components/ScrollBox.tsx";
-import { useVirtualScroll } from "../hooks/useVirtualScroll.ts";
 
 interface VirtualTranscriptProps {
   items?: AgentConversationItem[];
-  scrollRef: React.RefObject<ScrollBoxHandle | null>;
   width: number;
   compactSpacing?: boolean;
   streamingState?: StreamingState;
@@ -36,7 +33,6 @@ interface VirtualTranscriptProps {
 export function VirtualTranscript(
   {
     items: rawItems = [],
-    scrollRef,
     width,
     compactSpacing = true,
     streamingState,
@@ -59,7 +55,8 @@ export function VirtualTranscript(
     return filterDuplicateWaitingIndicators(baseItems).filter((item) => {
       if (!hidePassiveWaitingSignals) return true;
       if (item.type === "thinking") return false;
-      return !(item.type === "assistant" && item.isPending && item.text.trim().length === 0);
+      return !(item.type === "assistant" && item.isPending &&
+        item.text.trim().length === 0);
     });
   }, [planSurface.visibleItems, streamingState]);
 
@@ -97,15 +94,6 @@ export function VirtualTranscript(
     ],
   );
 
-  const {
-    range,
-    topSpacer,
-    bottomSpacer,
-    measureRef,
-    spacerRef,
-  } = useVirtualScroll(scrollRef, itemKeys, width);
-  const [start, end] = range;
-
   if (displayItems.length === 0 && !planSurface.active) {
     return null;
   }
@@ -120,13 +108,10 @@ export function VirtualTranscript(
         />
       )}
 
-      <Box ref={spacerRef} height={topSpacer} flexShrink={0} />
-
-      {displayItems.slice(start, end).map((
+      {displayItems.map((
         item: ShellHistoryEntry,
-        localIndex: number,
+        globalIndex: number,
       ) => {
-        const globalIndex = start + localIndex;
         const showDividerBefore = shouldRenderTranscriptDividerBeforeIndex(
           displayItems,
           globalIndex,
@@ -135,7 +120,10 @@ export function VirtualTranscript(
         const itemKey = itemKeys[globalIndex]!;
 
         return (
-          <Box key={itemKey} ref={measureRef(itemKey)} flexDirection="column">
+          <Box
+            key={itemKey}
+            flexDirection="column"
+          >
             <TimelineItemRenderer
               item={item}
               width={width}
@@ -149,8 +137,6 @@ export function VirtualTranscript(
           </Box>
         );
       })}
-
-      {bottomSpacer > 0 && <Box height={bottomSpacer} flexShrink={0} />}
     </Box>
   );
 }
@@ -178,7 +164,9 @@ function getTranscriptItemKey(
       const expandedSignature = item.tools.map((tool) =>
         options.isToolExpanded(tool.id) ? "1" : "0"
       ).join("");
-      return `${item.id}:${width}:${showDividerBefore ? 1 : 0}:${expandedSignature}`;
+      return `${item.id}:${width}:${
+        showDividerBefore ? 1 : 0
+      }:${expandedSignature}`;
     }
     default:
       return `${item.id}:${width}:${showDividerBefore ? 1 : 0}`;

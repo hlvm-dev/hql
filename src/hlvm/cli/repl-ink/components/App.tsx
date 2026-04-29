@@ -6,7 +6,6 @@
 import React, {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -66,10 +65,7 @@ import { useRepl } from "../hooks/useRepl.ts";
 import { useInitialization } from "../hooks/useInitialization.ts";
 import { useConversation } from "../hooks/useConversation.ts";
 import { useModelConfig } from "../hooks/useModelConfig.ts";
-import {
-  type OverlayPanel,
-  useOverlayPanel,
-} from "../hooks/useOverlayPanel.ts";
+import { useOverlayPanel } from "../hooks/useOverlayPanel.ts";
 import { useAgentRunner } from "../hooks/useAgentRunner.ts";
 import type { EvalResult } from "../types.ts";
 import { ReplState } from "../../repl/state.ts";
@@ -133,13 +129,6 @@ import { type LocalAgentEntry } from "../utils/local-agents.ts";
 import { getPlatform } from "../../../../platform/platform.ts";
 import { TuiStatusLine } from "./TuiStatusLine.tsx";
 import { FullscreenLayout } from "./FullscreenLayout.tsx";
-import { ScrollKeybindingHandler } from "./ScrollKeybindingHandler.tsx";
-import type { ScrollBoxHandle } from "../../../vendor/ink/components/ScrollBox.tsx";
-import {
-  useCopyOnSelect,
-  useSelectionBgColor,
-} from "../hooks/useCopyOnSelect.ts";
-import { getClipboardPath } from "../../../vendor/ink/termio/osc.ts";
 
 interface CurrentEval {
   code: string;
@@ -164,11 +153,6 @@ const GLOBAL_KEYBINDING_CATEGORIES = ["Global"] as const;
 const DEFAULT_BACKGROUND_TASKS_OVERLAY_STATE: BackgroundTasksOverlayState = {
   initialViewMode: "list",
 };
-const RECENT_SCROLL_REPIN_WINDOW_MS = 3000;
-
-function shouldRepinForOverlay(overlay: OverlayPanel): boolean {
-  return overlay !== "none" && overlay !== "transcript-history";
-}
 
 function usesConversationContext(surfacePanel: string): boolean {
   return surfacePanel === "conversation";
@@ -239,9 +223,6 @@ function AppContent(
     submitAction: "send-agent",
     version: 0,
   });
-  const lastUserScrollTsRef = useRef(0);
-  const lastComposerUiStateRef = useRef<ComposerSurfaceUiState | null>(null);
-
   // Task manager for background evaluation
   const {
     tasks,
@@ -294,8 +275,10 @@ function AppContent(
   const { stdout } = useStdout();
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const shellContentWidth = getShellContentWidth(terminalWidth);
-  const transcriptScrollRef = useRef<ScrollBoxHandle | null>(null);
-
+  const transcriptViewportWidth = Math.max(
+    SHELL_LAYOUT.contentMinWidth,
+    shellContentWidth,
+  );
   // Conversation state for agent mode
   const conversation = useConversation();
   const conversationRef = useRef(conversation);
@@ -342,29 +325,6 @@ function AppContent(
     cycleAgentMode,
     flashFooterStatus,
   } = modelConfig;
-  const handleSelectionCopied = useCallback((text: string) => {
-    const path = getClipboardPath();
-    if (path === "native") {
-      return;
-    }
-    const count = text.length.toLocaleString("en-US");
-    if (path === "tmux-buffer") {
-      flashFooterStatus(
-        `copied ${count} chars to tmux buffer · paste with prefix + ]`,
-      );
-      return;
-    }
-    flashFooterStatus(
-      `sent ${count} chars via OSC 52 · check terminal clipboard settings if paste fails`,
-    );
-  }, [flashFooterStatus]);
-  useCopyOnSelect({ onCopied: handleSelectionCopied });
-  useSelectionBgColor();
-
-  const repinTranscriptScroll = useCallback(() => {
-    transcriptScrollRef.current?.scrollToBottom();
-  }, []);
-
   useEffect(() => {
     if (!init.ready) return;
     if (!modelSelection.activeModelId) return;
@@ -402,25 +362,11 @@ function AppContent(
 
   const handleComposerUiStateChange = useCallback(
     (nextState: ComposerSurfaceUiState) => {
-      const previousState = lastComposerUiStateRef.current;
-      lastComposerUiStateRef.current = nextState;
-      if (
-        previousState &&
-        previousState.draftTextLength === 0 &&
-        nextState.draftTextLength > 0 &&
-        Date.now() - lastUserScrollTsRef.current >=
-          RECENT_SCROLL_REPIN_WINDOW_MS
-      ) {
-        const handle = transcriptScrollRef.current;
-        if (handle && !handle.isSticky()) {
-          repinTranscriptScroll();
-        }
-      }
       setComposerShellState((prev: ComposerShellState) =>
         advanceComposerShellState(prev, nextState)
       );
     },
-    [repinTranscriptScroll],
+    [],
   );
 
   const getCurrentComposerDraft = useCallback((): ConversationComposerDraft => {
@@ -499,27 +445,6 @@ function AppContent(
     interruptConversationRun,
     handleForceInterrupt,
   } = agentRunner;
-  const previousBlockingInteractionRef = useRef<
-    "none" | "permission" | "question"
-  >("none");
-  useLayoutEffect(() => {
-    const currentInteraction = pendingInteraction?.mode ?? "none";
-    if (previousBlockingInteractionRef.current !== currentInteraction) {
-      repinTranscriptScroll();
-      previousBlockingInteractionRef.current = currentInteraction;
-    }
-  }, [pendingInteraction?.mode, repinTranscriptScroll]);
-  const previousRepinnedOverlayRef = useRef<OverlayPanel>(activeOverlay);
-  useLayoutEffect(() => {
-    const wasRepinned = shouldRepinForOverlay(
-      previousRepinnedOverlayRef.current,
-    );
-    const isRepinned = shouldRepinForOverlay(activeOverlay);
-    if (wasRepinned !== isRepinned) {
-      repinTranscriptScroll();
-    }
-    previousRepinnedOverlayRef.current = activeOverlay;
-  }, [activeOverlay, repinTranscriptScroll]);
   useEffect(() => {
     if (localAgentEntries.length === 0) {
       setLocalAgentsFocused(false);
@@ -1740,6 +1665,13 @@ function AppContent(
     hasPendingInteraction: Boolean(pendingInteraction),
     hasLocalAgents: localAgentEntries.length > 0,
   });
+  const suppressRoutineTurnHint = hasConversationContext &&
+    isConversationTaskRunning &&
+    !pendingInteraction &&
+    !composerShellState.hasDraftInput;
+  const statusLineTurnLabel = suppressRoutineTurnHint && currentTurnSummary
+    ? `${currentTurnSummary} · Esc cancel`
+    : currentTurnSummary;
   const suppressEmbeddedStartupChrome = bannerVisible && !init.ready;
   let overlayNode: React.ReactNode = null;
 
@@ -1864,36 +1796,27 @@ function AppContent(
       <Box
         flexDirection="column"
         flexGrow={1}
-        height="100%"
         paddingX={SHELL_LAYOUT.gutterX}
       >
-        {bannerVisible && (
-          <>
-            <Banner errors={init.errors} />
-            {init.updateInfo && <UpdateBanner update={init.updateInfo} />}
-            {!init.ready && <LoadingScreen progress={init.progress} />}
-          </>
-        )}
-
-        <ScrollKeybindingHandler
-          scrollRef={transcriptScrollRef}
-          isActive={!pendingInteraction && activeOverlay === "none"}
-          onScroll={() => {
-            lastUserScrollTsRef.current = Date.now();
-          }}
-          onSelectionCopied={handleSelectionCopied}
-        />
-
         <FullscreenLayout
-          scrollRef={transcriptScrollRef}
           scrollable={
-            <Box flexDirection="column">
+            <Box flexDirection="column" width={transcriptViewportWidth}>
+              {bannerVisible && (
+                <Box
+                  flexDirection="column"
+                  marginBottom={init.ready ? SHELL_LAYOUT.bannerBottomGap : 0}
+                >
+                  <Banner errors={init.errors} />
+                  {init.updateInfo && <UpdateBanner update={init.updateInfo} />}
+                  {!init.ready && <LoadingScreen progress={init.progress} />}
+                </Box>
+              )}
+
               {!hasStandaloneSurface && renderShellLanes && (
                 <RenderErrorBoundary>
                   <VirtualTranscript
                     items={hasConversationContext ? allDisplayItems : []}
-                    scrollRef={transcriptScrollRef}
-                    width={shellContentWidth}
+                    width={transcriptViewportWidth}
                     compactSpacing
                     streamingState={hasConversationContext
                       ? conversation.streamingState
@@ -1909,12 +1832,17 @@ function AppContent(
                   />
                 </RenderErrorBoundary>
               )}
-
+            </Box>
+          }
+          bottom={
+            <Box flexDirection="column">
               {(!blockingInteractionActive && !isOverlayOpen &&
                 isInputVisible) && (
                 <Box
                   flexDirection="column"
-                  marginTop={SHELL_LAYOUT.transcriptToComposerGap}
+                  marginTop={renderShellLanes
+                    ? SHELL_LAYOUT.transcriptToComposerGap
+                    : 1}
                 >
                   {queuedConversationDrafts.length > 0 && (
                     <QueuePreview
@@ -1983,7 +1911,7 @@ function AppContent(
                     ? conversation.planningPhase
                     : undefined}
                   interactionLabel={interactionStatusLabel}
-                  turnLabel={currentTurnSummary}
+                  turnLabel={statusLineTurnLabel}
                   turnTone={currentTurnTone}
                   aiAvailable={init.aiAvailable}
                   idleLabel={startupStatusLabel}
@@ -1992,6 +1920,7 @@ function AppContent(
 
               {(isInputVisible || hasConversationContext) &&
                 !suppressEmbeddedStartupChrome &&
+                !suppressRoutineTurnHint &&
                 (
                   <FooterHint
                     statusMessage={footerStatusMessage ||
@@ -2034,10 +1963,7 @@ function AppContent(
                       ?.replace(/^ · /, "")}
                   />
                 )}
-            </Box>
-          }
-          bottom={
-            <Box flexDirection="column">
+
               {showBottomDialog && (
                 <RenderErrorBoundary>
                   <DialogStack

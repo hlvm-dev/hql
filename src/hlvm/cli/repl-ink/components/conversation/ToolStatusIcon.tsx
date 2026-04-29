@@ -10,7 +10,6 @@ import React from "react";
 import { Text } from "ink";
 import { useSemanticColors } from "../../../theme/index.ts";
 import { useConversationSpinnerFrame } from "../../hooks/useConversationMotion.ts";
-import { SPINNER_FRAMES } from "../../ui-constants.ts";
 
 interface ToolStatusIconProps {
   status: "pending" | "running" | "success" | "error";
@@ -26,15 +25,11 @@ export const ToolStatusIcon = React.memo(function ToolStatusIcon({
   const sc = useSemanticColors();
   const normalColor = activityColor ?? sc.tool.success;
   const spinner = useConversationSpinnerFrame(status === "running" && animate);
-  const spinnerIndex = spinner
-    ? SPINNER_FRAMES.indexOf(spinner as (typeof SPINNER_FRAMES)[number])
-    : 0;
-  const blinkOn = spinnerIndex < 0 || spinnerIndex % 2 === 0;
   switch (status) {
     case "pending":
-      return <Text color={normalColor}>●</Text>;
+      return <Text color={sc.text.muted}>·</Text>;
     case "running":
-      return <Text color={normalColor}>{blinkOn ? "●" : " "}</Text>;
+      return <Text color={normalColor}>{spinner ?? "●"}</Text>;
     case "success":
       return <Text color={normalColor}>●</Text>;
     case "error":

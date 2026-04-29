@@ -489,8 +489,9 @@ export async function searchFiles(
   const results: FileMatch[] = [];
   const commonHomeMatches = await searchCommonHomeFolders(query, maxResults);
 
-  // Empty query: show cwd top-level entries (including hidden
-  // dot-entries) before home-folder shortcuts.
+  // If empty query, show CWD top-level entries first (including hidden
+  // dot-entries) — opens onto the current working directory rather than
+  // onto home-folder shortcuts.
   if (!query.trim()) {
     const cwdTopLevel = await listCwdTopLevelEntries(maxResults);
     for (const entry of cwdTopLevel) {

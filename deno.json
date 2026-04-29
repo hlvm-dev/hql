@@ -28,7 +28,7 @@
     "@std/encoding": "jsr:@std/encoding@1",
     "tldts": "npm:tldts@7",
     "react": "npm:react@19",
-    "ink": "./src/hlvm/vendor/ink/index.ts",
+    "ink": "npm:ink@7.0.1",
     "esbuild": "npm:esbuild@^0.28.0",
     "esbuild-wasm": "npm:esbuild-wasm@^0.28.0",
     "jsdom": "npm:jsdom@29",
@@ -64,8 +64,8 @@
     "lodash-es/noop.js": "npm:lodash-es@4/noop.js",
     "lodash-es/throttle.js": "npm:lodash-es@4/throttle.js",
     "usehooks-ts": "npm:usehooks-ts@3",
-    "react-reconciler": "npm:react-reconciler@0.31",
-    "react-reconciler/constants.js": "npm:react-reconciler@0.31/constants.js",
+    "react-reconciler": "npm:react-reconciler@0.33",
+    "react-reconciler/constants.js": "npm:react-reconciler@0.33/constants.js",
     "type-fest": "npm:type-fest@4"
   },
   "lint": {

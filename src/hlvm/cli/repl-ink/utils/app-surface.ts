@@ -33,13 +33,7 @@ export function shouldRenderMainBanner(options: {
   return options.showBanner &&
     !options.hasBeenCleared &&
     !options.isOverlayOpen &&
-    !options.hasStandaloneSurface &&
-    !options.hasShellHistory &&
-    !options.hasLiveConversation &&
-    !options.hasQueuedInput &&
-    !options.hasPendingInteraction &&
-    !options.hasLocalAgents &&
-    !options.hasActivePlanningState;
+    !options.hasStandaloneSurface;
 }
 
 export function shouldRenderShellLanes(options: {

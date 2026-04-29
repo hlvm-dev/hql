@@ -28,6 +28,7 @@ const bannerRampCache = new Map<string, readonly string[]>();
 
 interface BannerProps {
   errors: string[];
+  compact?: boolean;
 }
 
 function clampChannel(value: number): number {
@@ -107,6 +108,9 @@ export function getBannerRowCount(
   height = DEFAULT_TERMINAL_HEIGHT,
 ): number {
   const compact = shouldUseCompactBanner(width, height);
+  if (compact) {
+    return 1 + (errorCount > 0 ? 1 : 0);
+  }
   const topPaddingRows = compact ? 0 : SHELL_LAYOUT.bannerTopGap;
   const logoRows = compact ? 1 : LOGO_LINES.length;
   const spacerRows = compact ? 0 : 1; // blank line between logo and tagline
@@ -124,14 +128,15 @@ export function shouldUseCompactBanner(
 }
 
 function BannerImpl(
-  { errors }: BannerProps,
+  { errors, compact: forceCompact = false }: BannerProps,
 ): React.ReactElement {
   const { stdout } = useStdout();
   const { color, themeName } = useTheme();
   const sc = useSemanticColors();
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const terminalHeight = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
-  const compact = shouldUseCompactBanner(terminalWidth, terminalHeight);
+  const compact = forceCompact ||
+    shouldUseCompactBanner(terminalWidth, terminalHeight);
   const contentWidth = getShellContentWidth(terminalWidth);
   const logoColors = getBannerLogoColors(themeName, sc.banner, compact);
   const titleLine = truncate(
@@ -140,14 +145,33 @@ function BannerImpl(
     "…",
   );
 
+  if (compact) {
+    return (
+      <Box flexDirection="column">
+        <Text color={sc.banner.meta} bold>
+          {titleLine}
+        </Text>
+        {errors.length > 0 && (
+          <Text color={sc.banner.status.attention}>
+            {truncate(
+              `⚠ ${errors.length} warning${errors.length > 1 ? "s" : ""}`,
+              contentWidth,
+              "…",
+            )}
+          </Text>
+        )}
+      </Box>
+    );
+  }
+
   return (
     <Box
       flexDirection="column"
-      marginTop={compact ? 0 : SHELL_LAYOUT.bannerTopGap}
+      marginTop={SHELL_LAYOUT.bannerTopGap}
       marginBottom={SHELL_LAYOUT.bannerBottomGap}
     >
       <Box flexDirection="column">
-        {(compact ? ["HLVM"] : LOGO_LINES).map((line, index) => (
+        {LOGO_LINES.map((line, index) => (
           <React.Fragment key={index}>
             <Text color={logoColors[index] ?? color("primary")} bold>
               {line}
@@ -155,7 +179,7 @@ function BannerImpl(
           </React.Fragment>
         ))}
       </Box>
-      {!compact && <Text />}
+      <Text />
       <Text color={sc.banner.meta} bold={!compact}>
         {titleLine}
       </Text>
@@ -177,6 +201,7 @@ function BannerImpl(
 // contents are unchanged. Compare by length + element identity instead of
 // reference so transcript appends don't repaint the banner.
 function bannerPropsEqual(prev: BannerProps, next: BannerProps): boolean {
+  if (prev.compact !== next.compact) return false;
   if (prev.errors === next.errors) return true;
   if (prev.errors.length !== next.errors.length) return false;
   for (let i = 0; i < prev.errors.length; i++) {

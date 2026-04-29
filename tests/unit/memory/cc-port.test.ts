@@ -193,29 +193,32 @@ Deno.test("[6] resolveEditor falls back through VISUAL → EDITOR → vi", async
   }
 });
 
-Deno.test("[7] memory_updated trigger detects memory paths correctly", () => {
-  const home = getPlatform().env.get("HOME") ?? "";
-  const memoryPaths = [
-    `${home}/.hlvm/HLVM.md`,
-    "~/.hlvm/HLVM.md",
-    `${home}/.hlvm/memory/feedback_tabs.md`,
-    `${home}/.hlvm/memory/MEMORY.md`,
-  ];
-  for (const p of memoryPaths) {
-    assertEquals(isMemoryPath(p), true, `expected memory path: ${p}`);
-  }
-  for (
-    const p of [
-      `${home}/.hlvm/secret.txt`,
-      `${home}/.hlvm/memory/evil.sh`,
-      `${home}/.hlvm/projects/old/memory/MEMORY.md`,
-      "/etc/passwd",
-      "/tmp/foo.md",
-      "HLVM.md",
-    ]
-  ) {
-    assertEquals(isMemoryPath(p), false, `expected NOT memory path: ${p}`);
-  }
+Deno.test("[7] memory_updated trigger detects memory paths correctly", async () => {
+  await withTempHlvmDir(async () => {
+    const platform = getPlatform();
+    const hlvmDir = platform.path.dirname(getUserMemoryPath());
+    const autoDir = getAutoMemPath();
+    const memoryPaths = [
+      getUserMemoryPath(),
+      platform.path.join(autoDir, "feedback_tabs.md"),
+      getAutoMemEntrypoint(),
+    ];
+    for (const p of memoryPaths) {
+      assertEquals(isMemoryPath(p), true, `expected memory path: ${p}`);
+    }
+    for (
+      const p of [
+        platform.path.join(hlvmDir, "secret.txt"),
+        platform.path.join(autoDir, "evil.sh"),
+        platform.path.join(hlvmDir, "projects/old/memory/MEMORY.md"),
+        "/etc/passwd",
+        "/tmp/foo.md",
+        "HLVM.md",
+      ]
+    ) {
+      assertEquals(isMemoryPath(p), false, `expected NOT memory path: ${p}`);
+    }
+  });
 });
 
 Deno.test("[8] truncateEntrypointContent caps at MAX_ENTRYPOINT_LINES with warning", () => {
@@ -325,12 +328,14 @@ Deno.test("[bonus] formatMemoryManifest produces parseable lines", async () => {
   });
 });
 
-Deno.test("[bonus] isAutoMemPath rejects path traversal", () => {
-  const auto = getAutoMemPath();
-  const safe = auto + "feedback.md";
-  assertEquals(isAutoMemPath(safe), true);
-  const escaping = auto + "../../etc/passwd";
-  assertEquals(isAutoMemPath(escaping), false);
+Deno.test("[bonus] isAutoMemPath rejects path traversal", async () => {
+  await withTempHlvmDir(async () => {
+    const auto = getAutoMemPath();
+    const safe = auto + "feedback.md";
+    assertEquals(isAutoMemPath(safe), true);
+    const escaping = auto + "../../etc/passwd";
+    assertEquals(isAutoMemPath(escaping), false);
+  });
 });
 
 Deno.test("[bonus] isMemorySystemMessage recognizes section headers", () => {
